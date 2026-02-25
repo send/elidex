@@ -1,0 +1,43 @@
+[tasks.check]
+description = "Run cargo check"
+run = "cargo check --workspace --all-targets"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --workspace"
+
+[tasks.lint-clippy]
+description = "Run clippy"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.lint-fmt]
+description = "Check formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.lint]
+description = "Run clippy + fmt check"
+depends = ["lint-clippy", "lint-fmt"]
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt --all"
+
+[tasks.doc]
+description = "Build documentation"
+run = "cargo doc --workspace --no-deps"
+
+[tasks.deny]
+description = "Check licenses and vulnerabilities"
+run = "cargo deny check"
+
+[tasks.ci]
+description = "Run all CI checks locally"
+depends = ["check", "lint", "test", "deny"]
+
+[tasks.crawl]
+description = "Run the web compatibility survey"
+run = "cargo run -p elidex-crawler -- crawl --sites crates/elidex-crawler/data/sites-en.csv --sites crates/elidex-crawler/data/sites-ja.csv --output output/"
+
+[tasks.crawl-analyze]
+description = "Analyze crawl results"
+run = "cargo run -p elidex-crawler -- analyze --input output/results.json"

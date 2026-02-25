@@ -1,0 +1,16 @@
+[package]
+name = "elidex-plugin"
+description = "Plugin system traits and registry for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "plugin", "ecs"]
+categories = ["web-programming"]
+
+[lints]
+workspace = true
