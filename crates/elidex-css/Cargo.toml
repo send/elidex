@@ -14,6 +14,8 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-plugin.workspace = true
+elidex-ecs.workspace = true
+cssparser.workspace = true
 
 [lints]
 workspace = true

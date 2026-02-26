@@ -29,6 +29,8 @@ pub enum CssValue {
     Inherit,
     /// The `unset` keyword.
     Unset,
+    /// A list of CSS values (e.g. `font-family: Arial, sans-serif`).
+    List(Vec<CssValue>),
 }
 
 /// CSS length units.
@@ -221,6 +223,18 @@ mod tests {
         let u2 = u;
         assert_eq!(u, u2);
         assert_eq!(format!("{u:?}"), "Em");
+    }
+
+    #[test]
+    fn css_value_list() {
+        let v = CssValue::List(vec![
+            CssValue::String("Arial".into()),
+            CssValue::Keyword("sans-serif".into()),
+        ]);
+        match &v {
+            CssValue::List(items) => assert_eq!(items.len(), 2),
+            _ => panic!("expected List"),
+        }
     }
 
     #[test]
