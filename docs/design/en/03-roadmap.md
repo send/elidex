@@ -7,27 +7,31 @@ Establish project infrastructure and run the compatibility survey.
 
 | Deliverable | Status | Depends On |
 | --- | --- | --- |
-| Cargo workspace with crate structure | Not started | — |
-| CI pipeline (GitHub Actions) | Not started | — |
-| Run elidex-crawler survey (875 sites) | Crawler ready | — |
-| Analyze survey results; prioritize compat rules | Not started | Crawler results |
-| Plugin trait definitions (CssPropertyHandler, HtmlElementHandler, LayoutModel) | Not started | — |
-| ECS DOM storage prototype | Not started | — |
-| Architecture decision records (ADRs) for security model, text pipeline, writing-mode coordinate system | Not started | — |
+| Cargo workspace with crate structure | Done | — |
+| CI pipeline (GitHub Actions) | Done | — |
+| Run elidex-crawler survey (900 sites) | Done | — |
+| Analyze survey results; prioritize compat rules | Done ([Ch. 29](29-survey-analysis.md)) | Crawler results |
+| Plugin trait definitions (CssPropertyHandler, HtmlElementHandler, LayoutModel) | Done | — |
+| ECS DOM storage prototype | Done | — |
+| Architecture decision records (ADRs) for security model, text pipeline, writing-mode coordinate system | Done (35 ADRs) | — |
 
 ## Phase 0.5: Extended Survey (Months 3-4, conditional)
 
 Conditional phase triggered if Phase 0 results indicate significant HTML error prevalence. Expands the crawl to determine whether LLM-assisted error recovery is worth the investment.
 
+> **Phase 0 Survey Result (Ch. 29):** The Phase 0 survey (900 sites) confirmed an unrecoverable parser error rate of 0%, and the trigger condition (significant HTML error prevalence) was not met. This phase is **skipped**.
+
 | Deliverable | Status | Depends On |
 | --- | --- | --- |
-| Expand site list to 3,000–5,000 sites | Not started | Phase 0 analysis |
-| Crawl top page + 5–10 subpages per site | Not started | Expanded site list |
-| Parse all pages with html5ever; record error events and classify recoverability | Not started | Crawl data |
-| Build broken-HTML corpus for LLM training/evaluation | Not started | Error classification |
-| Decision gate: LLM fallback go/no-go based on unrecoverable error rate | Not started | Analysis complete |
+| Expand site list to 3,000–5,000 sites | Skipped (trigger condition not met) | Phase 0 analysis |
+| Crawl top page + 5–10 subpages per site | Skipped (trigger condition not met) | Expanded site list |
+| Parse all pages with html5ever; record error events and classify recoverability | Skipped (trigger condition not met) | Crawl data |
+| Build broken-HTML corpus for LLM training/evaluation | Skipped (trigger condition not met) | Error classification |
+| Decision gate: LLM fallback go/no-go based on unrecoverable error rate | **No-Go confirmed** — unrecoverable error rate 0% ([Ch. 29](29-survey-analysis.md)) | Analysis complete |
 
 **Decision gate: ** If the unrecoverable error rate is below approximately 2%, the LLM runtime fallback is deferred and rule-based recovery alone is implemented. LLM developer diagnostics for elidex-app proceed regardless.
+
+> **Phase 0 Survey Result (Ch. 29):** The 900-site survey found an unrecoverable error rate of 0% (< 2% threshold). **No-Go confirmed** — LLM runtime fallback is deferred; rule-based recovery only. LLM developer diagnostics for elidex-app (elidex-llm-diag) proceed as planned in Phase 3.
 
 ## Phase 1: Minimal Rendering (Months 4-8)
 
@@ -110,6 +114,8 @@ Harden for daily use. Security audit, cross-platform support, WebWorkers, Servic
 | ES legacy compat layer (elidex-js-compat: Annex B, var quirks) | 4 weeks | elidex-js core |
 | LLM runtime fallback (elidex-llm-runtime) integration | 4 weeks | Fine-tuned model, tolerant parser |
 | Offline rule generation pipeline (LLM → rule-based parser) | 3 weeks | LLM runtime, crawler corpus |
+
+> **Phase 0 Survey Result (Ch. 29 §29.6):** The two items above (LLM runtime fallback, offline rule generation pipeline) are **provisionally deferred** due to the Phase 0 No-Go decision. Can be revisited if future crawl data reveals significant unrecoverable errors.
 
 **Milestone: ** Elidex as a daily-driver browser for modern sites. elidex-app 1.0 release.
 

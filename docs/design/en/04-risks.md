@@ -6,8 +6,12 @@
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
 | Web compatibility too low for practical browser use | High | Compat layer (Ch. 7) is the escape hatch. Crawler data drives prioritization. Bar is "works well enough for modern sites," not "passes all WPT." |
+
+> **Phase 0 Survey Result (Ch. 29 §29.5):** Concrete compat priorities established — P0: width/height 60%+, -webkit- ~40% EN; P1: appearance, font-smoothing; P2: deprecated tags < 5%.
 | Self-built JS engine maturity | High | Staged approach (parser → interpreter → IC → JIT). SpiderMonkey remains as fallback throughout Phase 1–3. elidex-app can adopt elidex-js earlier (lighter workloads). ES2020+-only core omits Annex B, simplifying substantially. |
 | DOM API completeness for real-world sites | Medium | Modern frameworks (React, Vue, Svelte) use a smaller DOM API surface than raw JS. Legacy APIs implemented on-demand based on breakage data from crawler. |
+
+> **Phase 0 Survey Result (Ch. 29 §29.4):** document.all 0% (validates deprioritization), document.write JA 12.4% / EN 5.3% (primarily ads/analytics — supports strict-only approach).
 | Vello immaturity for production browser use | Medium | Vello is under active development by the Linebender project. Contact surface is isolated (Ch. 15 §15.6, ADR #26) — all upstream code has zero Vello dependency. Software fallback (Vello CPU backend) ensures rendering always works. |
 | Plugin system performance overhead | Medium | Static dispatch (generics/enums) at compile time, not dynamic dispatch (trait objects) in hot paths. Plugins resolved at build time. |
 | ECS memory model mismatch with DOM semantics | Medium | Not all relationships are 1:1 entity-component (e.g., LayerTree is independent, ADR #27). Hybrid approach: ECS for DOM + independent structures where N:M relationships exist. |

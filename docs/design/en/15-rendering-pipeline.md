@@ -63,6 +63,11 @@ In browser mode, the compatibility layer sits before the core as a normalization
 
 The compat layer acts as a transpiler: it converts deprecated tags to their HTML5 equivalents, resolves vendor prefixes, and transcodes legacy character encodings to UTF-8. If the input is already clean HTML5, the compat layer is a fast pass-through.
 
+> **Phase 0 Survey Result (Ch. 29 §29.5):** Survey-based compat layer implementation priority:
+> - P0: width/height presentational hints (60%+), `-webkit-` aliases (EN ~40%)
+> - P1: `appearance`, `font-smoothing`, `-webkit-text-size-adjust`
+> - P2: deprecated tags (< 5%), `-ms-`/`-o-` prefixes
+
 ## 15.4 Layer Tree
 
 ### 15.4.1 Layer Tree as Independent Structure

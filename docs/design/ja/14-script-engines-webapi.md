@@ -168,3 +168,5 @@ pub trait AsyncStorage: Send + Sync {
 | WebSQL | 未実装 | すでにブラウザから削除済み。IndexedDBを使用。 |
 | Application Cache (AppCache) | 未実装 | Service Workersに置換。 |
 | document.domain setter | 未実装 | セキュリティリスク。モダンブラウザで削除済み。 |
+
+> **Phase 0 サーベイ結果（第29章 §29.4）:** document.all 0%（除外が検証済み）、document.write JA 12.4% / EN 5.3%（compat-only 分類が確認済み — 使用は主に広告/アナリティクススクリプト）。

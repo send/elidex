@@ -168,3 +168,5 @@ This follows the same principle as document.write → innerHTML and getElementsB
 | WebSQL | Not implemented | Already removed from browsers. Use IndexedDB. |
 | Application Cache (AppCache) | Not implemented | Replaced by Service Workers. |
 | document.domain setter | Not implemented | Security risk. Removed in modern browsers. |
+
+> **Phase 0 Survey Result (Ch. 29 §29.4):** document.all 0% (exclusion validated), document.write JA 12.4% / EN 5.3% (compat-only classification confirmed — usage primarily from ad/analytics scripts).

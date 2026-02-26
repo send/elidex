@@ -52,6 +52,8 @@ This means every DOM method is individually toggleable. elidex-app can exclude l
 | document.all | ✗ | ✓ | Famous quirk: typeof document.all === "undefined" yet it exists. Compat only. |
 | element.attachEvent / detachEvent | ✗ | ✓ | IE legacy. Shimmed to addEventListener. |
 
+> **Phase 0 Survey Result (Ch. 29 §29.4):** document.all 0% (Deprecated classification validated; candidate for first removal cycle), document.write JA 12.4% / EN 5.3% (confirms compat-only classification is appropriate).
+
 ### 12.1.3 ECS Integration Patterns
 
 With the ScriptSession, DOM API handlers read ECS state directly but write through the session's mutation buffer:
@@ -138,6 +140,8 @@ pub enum CssomSpecLevel {
 | getComputedStyle().getPropertyValue() | ✓ | Per-property read. Dispatches to CssPropertyHandler plugin via PluginRegistry. |
 
 CSSOM is currently all core with no compat APIs. Unlike DOM, which accumulated decades of legacy APIs (document.all, attachEvent, live collections), CSSOM is relatively young and clean. However, the CssomSpecLevel enum includes the architectural provision for Legacy/Deprecated tiers when they become necessary—for example, if IE-era APIs like `element.currentStyle` or `element.runtimeStyle` are needed for compat.
+
+> **Phase 0 Survey Result (Ch. 29 §29.2, §29.5):** width/height attributes are used on 60%+ of sites; presentational hints support is a P0 requirement. StyleSystem must treat these as CSS initial values during style resolution.
 
 ### 12.2.3 ECS Model for Stylesheets
 

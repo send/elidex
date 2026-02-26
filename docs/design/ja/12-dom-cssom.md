@@ -52,6 +52,8 @@ pub enum DomSpecLevel {
 | document.all | ✗ | ✓ | 有名なquirk：typeof document.all === "undefined"なのに存在する。互換のみ。 |
 | element.attachEvent / detachEvent | ✗ | ✓ | IEレガシー。addEventListenerにシム。 |
 
+> **Phase 0 サーベイ結果（第29章 §29.4）:** document.all 0%（Deprecated分類検証済み、初回削除サイクル候補）、document.write JA 12.4% / EN 5.3%（compat-only 分類が適切であることを確認）。
+
 ### 12.1.3 ECS統合パターン
 
 ScriptSessionにより、DOM APIハンドラはECS状態を直接読み取るが、書き込みはセッションのMutation Buffer経由で行う：
@@ -138,6 +140,8 @@ pub enum CssomSpecLevel {
 | getComputedStyle().getPropertyValue() | ✓ | 個別プロパティ読み取り。PluginRegistry経由でCssPropertyHandlerプラグインにディスパッチ。 |
 
 CSSOMは現在すべてcoreでcompat APIがない。数十年にわたるレガシーAPI（document.all、attachEvent、ライブコレクション）を蓄積したDOMと異なり、CSSOMは比較的若くクリーンである。ただし、CssomSpecLevel enumはLegacy/Deprecated階層のアーキテクチャ的準備を含む——例えばIE時代の`element.currentStyle`や`element.runtimeStyle`がcompatに必要になった場合に対応可能。
+
+> **Phase 0 サーベイ結果（第29章 §29.2, §29.5）:** width/height属性が60%以上のサイトで使用されており、presentational hints対応はP0要件。StyleSystemはスタイル解決時にこれらをCSS初期値として扱う必要がある。
 
 ### 12.2.3 スタイルシートのECSモデル
 

@@ -12,6 +12,8 @@ Two parsers serve different use cases:
 
 The tolerant parser implements only the error recovery patterns that are actually needed on the modern web, as determined by crawler survey data. This is a deliberate departure from the HTML5 spec, which requires full error recovery for all historical patterns.
 
+> **Phase 0 Survey Result (Ch. 29 §29.2):** All error categories found in the survey (structural errors ~48%, duplicate attributes, unexpected tokens, etc.) are automatically recoverable by html5ever's spec-compliant error recovery. No unrecoverable errors were observed.
+
 ## 11.2 CSS Parser
 
 CSS parsing uses the cssparser crate as a foundation, with property parsing delegated to registered CssPropertyHandler plugins. Unknown properties are silently dropped (standard CSS behavior). Legacy properties handled by elidex-compat-css are transformed into standard equivalents before reaching the plugin registry.
@@ -26,6 +28,8 @@ A fundamental design philosophy of elidex is that broken HTML should have a cost
 | Minor errors | < 1ms | Rule-based recovery | Common patterns (unclosed tags, simple nesting mistakes) handled by deterministic rules. Nearly imperceptible overhead. |
 | Severely broken | 100ms–500ms+ | LLM fallback | Rule-based parser cannot recover. A small local LLM attempts intelligent repair. Page loads noticeably slower. User sees a performance warning. |
 | Unrecoverable | — | Error display | Even LLM repair failed. Show an honest error page with diagnostics rather than a garbled layout. |
+
+> **Phase 0 Survey Result (Ch. 29 §29.6):** The 900-site survey found zero cases requiring Tier 3 (LLM fallback) or Tier 4 (unrecoverable). All parser errors were handled at Tier 2 (rule-based recovery) or below.
 
 This gradient creates a positive feedback loop for the web ecosystem. Site authors who test in elidex will naturally write cleaner HTML to get faster load times, similar to how TypeScript’s type system nudges developers toward correctness without forbidding JavaScript’s flexibility.
 
@@ -128,7 +132,7 @@ This provides an Elm/Rust-compiler-like developer experience that no other web a
 The LLM fallback layer represents a significant engineering investment (model fine-tuning, inference runtime integration, memory overhead). Its adoption is therefore conditional on survey data. The decision process is:
 
 ```
-Phase 0:   875 sites × top page
+Phase 0:   900 sites (JA 451 + EN 449) × top page
            → Measure legacy feature prevalence
            → Determine what elidex-core can omit
 
@@ -142,7 +146,16 @@ Decision gate:
   Unrecoverable error rate ≥ ~2%  → Invest in LLM fallback
 ```
 
+> **Phase 0 Survey Result (Ch. 29):**
+> - Parser error detection rate: JA ~48% / EN ~44% (per site)
+> - Unrecoverable error rate: **0%** (all errors auto-recovered by html5ever)
+> - Deprecated tag usage: JA 4.4% / EN 2.4% (< 5%)
+> - Presentational hints (width/height): used on 60%+ of sites
+> - Decision gate result: 0% < 2% → **No-Go confirmed** (Phase 0.5 skipped)
+
 Phase 0.5 is triggered only after Phase 0 results are analyzed. If the initial survey shows that the modern web is overwhelmingly well-formed HTML5, the LLM layer may be unnecessary—and avoiding unnecessary complexity is itself aligned with the elidex philosophy.
+
+> **Phase 0 Survey Result (Ch. 29 §29.6):** The survey confirmed that "the modern web is overwhelmingly well-formed HTML5." The LLM runtime fallback layer is deemed unnecessary.
 
 Regardless of the runtime decision, the LLM-powered developer diagnostics for elidex-app mode (Section 11.4.4) are valuable independently and should proceed without waiting for survey data.
 

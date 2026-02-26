@@ -223,6 +223,11 @@ The CssSpecLevel deserves special attention. Unlike HTML tags where each tag is 
 | NonStandard | `zoom: 1.5`, `-webkit-appearance: none` | Compat. elidex-compat-css transforms to standard equivalents (`transform: scale(1.5)`, `appearance: none`). |
 | Deprecated | Usage-driven (< 1% in crawler data) | Same deprecation lifecycle as all other layers. |
 
+> **Phase 0 Survey Result (Ch. 29 §29.3):** CssSpecLevel classification validated by survey data:
+> - `-webkit-appearance`: EN 17.6% (NonStandard — confirms high-priority compat requirement)
+> - `word-wrap`: EN 13.8% (Aliased — confirms need for `overflow-wrap` normalization)
+> - `-webkit-box-*`: EN 12–14% (Aliased — confirms legacy flexbox syntax compat requirement)
+
 Note that usage-level legacy detection (e.g., `float` used for page layout vs. text wrapping) is deliberately not attempted. Distinguishing semantic intent from syntax alone is impractical. Instead, property-level deprecation is driven by crawler usage data through the standard deprecation policy (Section 7.7).
 
 Cargo feature flags control which plugins are compiled into the static dispatch enum:
@@ -249,6 +254,12 @@ The ability to remove features is fundamental to elidex’s long-term health. Th
 | Removed | 2 major versions after deprecation | Plugin crate deleted from repository; Cargo feature flag removed. If users still need it, they can maintain it as a dynamic extension. |
 
 The elidex-crawler tool is run periodically against the survey site list to produce quantitative usage data that drives deprecation decisions, eliminating subjective debate.
+
+> **Phase 0 Survey Result (Ch. 29 §29.2):** Survey data validation of the 1% threshold:
+> - `<font>`: JA 2.0% (Legacy — remains above threshold)
+> - `<center>`: JA 1.6% (Legacy — remains above threshold)
+> - `document.all`: 0% (Deprecated — candidate for first removal cycle)
+> - `<blink>`: EN 0.2% (Deprecated — below threshold)
 
 Note that removed static plugins can survive as community-maintained dynamic extensions. The dual dispatch model means deprecation from the core does not mean the feature becomes impossible to use—it just moves from the zero-cost static path to the dynamic extension path, which is an appropriate trade-off for rarely-used features.
 
