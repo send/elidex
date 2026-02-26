@@ -353,7 +353,9 @@ dependencies = [
 name = "elidex-parser"
 version = "0.1.0"
 dependencies = [
- "elidex-plugin",
+ "elidex-ecs",
+ "html5ever",
+ "markup5ever_rcdom",
 ]
 
 [[package]]

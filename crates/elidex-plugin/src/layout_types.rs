@@ -226,8 +226,8 @@ mod tests {
             },
         };
         let mb = b.margin_box();
-        assert_eq!(mb.x, 10.0);  // 30 - 10(pad) - 5(border) - 5(margin)
-        assert_eq!(mb.y, 10.0);  // 30 - 10(pad) - 5(border) - 5(margin)
+        assert_eq!(mb.x, 10.0); // 30 - 10(pad) - 5(border) - 5(margin)
+        assert_eq!(mb.y, 10.0); // 30 - 10(pad) - 5(border) - 5(margin)
         assert_eq!(mb.width, 140.0);
         assert_eq!(mb.height, 90.0);
     }

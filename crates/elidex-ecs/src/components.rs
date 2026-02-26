@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 /// The HTML tag name of an element (e.g., "div", "span", "a").
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TagType(pub &'static str);
+pub struct TagType(pub String);
 
 /// Key-value attribute map for an element.
 #[derive(Debug, Clone, Default)]

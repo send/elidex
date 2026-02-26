@@ -53,12 +53,26 @@ impl EcsDom {
         self.world.contains(entity)
     }
 
-    /// Create an element node with the given tag and attributes.
+    /// Provides mutable access to the underlying `hecs::World`.
     ///
-    /// `tag` must be a string literal or static constant (e.g., `"div"`)
-    /// so the reference remains valid for the lifetime of the DOM.
-    pub fn create_element(&mut self, tag: &'static str, attrs: Attributes) -> Entity {
-        self.world.spawn((TagType(tag), attrs, TreeRelation::new()))
+    /// **Warning:** Tree mutations (parent/child/sibling links) **must** go
+    /// through [`EcsDom`] methods to preserve invariants. Use this only for
+    /// adding or modifying non-tree components (e.g., [`crate::InlineStyle`]).
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
+    }
+
+    /// Create an element node with the given tag and attributes.
+    pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
+        self.world
+            .spawn((TagType(tag.into()), attrs, TreeRelation::new()))
+    }
+
+    /// Create a document root entity (no tag, only tree relations).
+    ///
+    /// The document root serves as the parent of the `<html>` element.
+    pub fn create_document_root(&mut self) -> Entity {
+        self.world.spawn((TreeRelation::new(),))
     }
 
     /// Create a text node.
