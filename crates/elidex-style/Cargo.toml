@@ -1,0 +1,20 @@
+[package]
+name = "elidex-style"
+description = "Style resolution engine (cascade, inheritance, computed values) for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "css", "cascade"]
+categories = ["web-programming"]
+
+[dependencies]
+elidex-ecs.workspace = true
+elidex-css.workspace = true
+
+[lints]
+workspace = true

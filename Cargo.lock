@@ -329,6 +329,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-css"
+version = "0.1.0"
+dependencies = [
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-ecs"
 version = "0.1.0"
 dependencies = [
@@ -336,7 +343,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-layout"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+]
+
+[[package]]
+name = "elidex-parser"
+version = "0.1.0"
+dependencies = [
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-plugin"
+version = "0.1.0"
+
+[[package]]
+name = "elidex-plugin-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "elidex-render"
+version = "0.1.0"
+
+[[package]]
+name = "elidex-shell"
+version = "0.1.0"
+
+[[package]]
+name = "elidex-style"
+version = "0.1.0"
+dependencies = [
+ "elidex-css",
+ "elidex-ecs",
+]
+
+[[package]]
+name = "elidex-text"
 version = "0.1.0"
 
 [[package]]

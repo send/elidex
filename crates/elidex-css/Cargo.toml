@@ -1,0 +1,19 @@
+[package]
+name = "elidex-css"
+description = "CSS parser, value types, and selector engine for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "css", "selector"]
+categories = ["web-programming"]
+
+[dependencies]
+elidex-plugin.workspace = true
+
+[lints]
+workspace = true

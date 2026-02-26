@@ -8,9 +8,17 @@ elidex is an experimental browser engine written in Rust. Phase 0 (foundation) i
 
 ```
 crates/
-  elidex-plugin/   — Plugin traits, SpecLevel enums, PluginRegistry
-  elidex-ecs/      — ECS (hecs) based DOM prototype
-  elidex-crawler/  — Web compatibility survey tool (binary crate)
+  elidex-plugin/        — Plugin traits, SpecLevel enums, PluginRegistry
+  elidex-plugin-macros/ — Procedural macros (#[derive(SpecLevel)] etc.)
+  elidex-ecs/           — ECS (hecs) based DOM prototype
+  elidex-crawler/       — Web compatibility survey tool (binary crate)
+  elidex-parser/        — HTML/XML parser (html5ever wrapper)
+  elidex-css/           — CSS parser, value types, selector engine
+  elidex-style/         — Cascade, inheritance, style resolution
+  elidex-layout/        — Block, inline, flexbox layout
+  elidex-text/          — Text shaping, measurement, line breaking
+  elidex-render/        — Rendering backend abstraction
+  elidex-shell/         — Window management, event loop shell
 ```
 
 ### Common Commands

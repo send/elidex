@@ -2,20 +2,28 @@
 
 An experimental browser engine written in Rust.
 
-> **Status: Phase 0 (Foundation)**
-> This project is in its earliest phase. The crate APIs are unstable and subject to
-> breaking changes. Phase 0 focuses on project scaffolding, the plugin framework,
-> an ECS-based DOM prototype, and a web compatibility survey.
+> **Status: Phase 1 (HTML/CSS parsing & style resolution)**
+> Phase 0 (foundation) is complete. Phase 1 focuses on building the HTML parser,
+> CSS engine, and style resolution pipeline. Crate APIs are unstable and subject
+> to breaking changes.
 
 ## Project Structure
 
 ```
 crates/
-  elidex-plugin/    Plugin system traits and registry
-  elidex-ecs/       ECS-based DOM storage
-  elidex-crawler/   Web compatibility survey tool
+  elidex-plugin/         Plugin system traits and registry
+  elidex-plugin-macros/  Procedural macros for plugin system
+  elidex-ecs/            ECS-based DOM storage
+  elidex-crawler/        Web compatibility survey tool
+  elidex-parser/         HTML/XML parser
+  elidex-css/            CSS parser, value types, selector engine
+  elidex-style/          Style resolution (cascade, inheritance)
+  elidex-layout/         Layout algorithms (block, inline, flexbox)
+  elidex-text/           Text shaping, measurement, line breaking
+  elidex-render/         Rendering backend abstraction
+  elidex-shell/          Window management and event loop
 docs/
-  design/           Design documents (en/ja)
+  design/                Design documents (en/ja)
 ```
 
 ## Development
@@ -52,8 +60,8 @@ cargo run -p elidex-crawler -- analyze --input output/results.json
 
 ## Roadmap
 
-- **Phase 0** (current): Project scaffolding, plugin traits, ECS DOM prototype, web compatibility survey
-- **Phase 1**: HTML parser, CSS engine, concrete plugin implementations
+- **Phase 0** (complete): Project scaffolding, plugin traits, ECS DOM prototype, web compatibility survey
+- **Phase 1** (current): HTML parser, CSS engine, style resolution
 - **Phase 2**: Layout engine, rendering pipeline
 - **Phase 3**: JavaScript integration, Web API bindings
 

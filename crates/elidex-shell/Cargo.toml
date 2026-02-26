@@ -1,0 +1,16 @@
+[package]
+name = "elidex-shell"
+description = "Window management and event loop shell for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "window", "event-loop"]
+categories = ["web-programming"]
+
+[lints]
+workspace = true

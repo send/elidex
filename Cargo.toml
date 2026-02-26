@@ -2,8 +2,16 @@
 resolver = "2"
 members = [
     "crates/elidex-plugin",
+    "crates/elidex-plugin-macros",
     "crates/elidex-ecs",
     "crates/elidex-crawler",
+    "crates/elidex-parser",
+    "crates/elidex-css",
+    "crates/elidex-style",
+    "crates/elidex-layout",
+    "crates/elidex-text",
+    "crates/elidex-render",
+    "crates/elidex-shell",
 ]
 
 [workspace.package]
@@ -28,6 +36,12 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+elidex-plugin = { path = "crates/elidex-plugin" }
+elidex-ecs = { path = "crates/elidex-ecs" }
+elidex-css = { path = "crates/elidex-css" }
 
 [profile.release]
 lto = true

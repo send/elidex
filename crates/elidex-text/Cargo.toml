@@ -1,0 +1,16 @@
+[package]
+name = "elidex-text"
+description = "Text shaping, measurement, and line breaking for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "text", "shaping"]
+categories = ["web-programming"]
+
+[lints]
+workspace = true
