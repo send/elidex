@@ -2,8 +2,7 @@
 //!
 //! These traits define the extension points for the elidex browser engine.
 //! All traits require `Send + Sync` for safe use in async and multi-threaded
-//! contexts. Phase 0 defines the signatures with placeholder types; Phase 1
-//! will provide concrete types and implementations.
+//! contexts.
 //!
 //! **Note:** [`EsSpecLevel`](crate::EsSpecLevel) is defined in `spec_level`
 //! but has no corresponding trait yet. An `EsBindingHandler` trait for

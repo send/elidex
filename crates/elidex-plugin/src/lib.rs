@@ -3,92 +3,47 @@
 //! This crate defines the core plugin traits, spec-level enums, and the
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
-use std::fmt;
-
+mod context;
+mod error;
+mod layout_types;
 mod registry;
 mod spec_level;
 mod traits;
+mod values;
 
+pub use context::StyleContext;
+pub use error::{HtmlErrorKind, HtmlParseError, ParseError};
+pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{CssPropertyHandler, HtmlElementHandler, LayoutModel, NetworkMiddleware};
+pub use values::{ComputedValue, CssColor, CssValue, LengthUnit};
 
 // ---------------------------------------------------------------------------
-// Placeholder types used by plugin traits.
-// These will be replaced with concrete types in Phase 1.
+// Opaque DOM node handle
 // ---------------------------------------------------------------------------
 
-/// Define a unit error type with `Display` and `Error` impls.
-macro_rules! define_error_type {
-    ($(#[$meta:meta])* $name:ident, $msg:expr) => {
-        $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-        pub struct $name;
+/// Opaque DOM node handle. Wraps a `u64` entity ID.
+///
+/// `elidex-parser` converts `hecs::Entity` to `NodeHandle` via [`from_bits`](NodeHandle::from_bits).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NodeHandle(u64);
 
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str($msg)
-            }
-        }
+impl NodeHandle {
+    /// Create a `NodeHandle` from a raw `u64` entity ID.
+    pub fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
 
-        impl std::error::Error for $name {}
-    };
+    /// Extract the raw `u64` entity ID.
+    pub fn to_bits(self) -> u64 {
+        self.0
+    }
 }
 
-define_error_type!(
-    /// Error returned when CSS value parsing fails.
-    ///
-    /// Phase 1 will include source span, property name, and the invalid input.
-    ParseError,
-    "CSS parse error"
-);
-
-define_error_type!(
-    /// Error returned during HTML element creation or insertion.
-    ///
-    /// Phase 1 will include the tag name, error kind, and source location.
-    HtmlParseError,
-    "HTML parse error"
-);
-
-define_error_type!(
-    /// Error returned by network middleware when a request or response is rejected.
-    NetworkError,
-    "Network error"
-);
-
-/// A parsed CSS value (e.g. `Length(10, Px)`, `Color(#fff)`).
-///
-/// Phase 1 will expand this into a rich enum covering all CSS value types.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct CssValue;
-
-/// Context available during CSS value resolution (inherited values,
-/// viewport size, font metrics, etc.).
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct StyleContext;
-
-/// The fully-resolved value of a CSS property after cascade and inheritance.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct ComputedValue;
-
-/// An opaque handle to a DOM node used by element handlers.
-///
-/// Phase 1 will replace this with a reference into the ECS world.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NodeHandle;
-
-/// Context available to a layout algorithm (containing block, viewport, etc.).
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct LayoutContext;
-
-/// A box in the layout tree that a [`LayoutModel`] operates on.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct LayoutBox;
-
-/// The output of a layout pass (position, dimensions, overflow, etc.).
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct LayoutResult;
+// ---------------------------------------------------------------------------
+// Placeholder types — will be replaced in Phase 2
+// ---------------------------------------------------------------------------
 
 /// An outgoing HTTP request that [`NetworkMiddleware`] may inspect or modify.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -97,3 +52,17 @@ pub struct HttpRequest;
 /// An incoming HTTP response that [`NetworkMiddleware`] may inspect or modify.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct HttpResponse;
+
+/// Error returned by network middleware when a request or response is rejected.
+///
+/// Phase 2 will expand this with status codes, URL, and error details.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NetworkError;
+
+impl std::fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Network error")
+    }
+}
+
+impl std::error::Error for NetworkError {}

@@ -112,11 +112,11 @@ mod tests {
         }
 
         fn parse(&self, _value: &str) -> Result<CssValue, ParseError> {
-            Ok(CssValue)
+            Ok(CssValue::Keyword("test".into()))
         }
 
         fn resolve(&self, _value: &CssValue, _context: &StyleContext) -> ComputedValue {
-            ComputedValue
+            ComputedValue::Keyword("test".into())
         }
     }
 
