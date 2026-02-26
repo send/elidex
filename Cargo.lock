@@ -425,6 +425,7 @@ version = "0.1.0"
 dependencies = [
  "elidex-css",
  "elidex-ecs",
+ "elidex-plugin",
 ]
 
 [[package]]

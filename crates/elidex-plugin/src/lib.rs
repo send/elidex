@@ -3,6 +3,7 @@
 //! This crate defines the core plugin traits, spec-level enums, and the
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
+mod computed_style;
 mod context;
 mod error;
 mod layout_types;
@@ -11,6 +12,7 @@ mod spec_level;
 mod traits;
 mod values;
 
+pub use computed_style::{BorderStyle, ComputedStyle, Dimension, Display, Position};
 pub use context::StyleContext;
 pub use error::{HtmlErrorKind, HtmlParseError, ParseError};
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
