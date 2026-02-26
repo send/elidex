@@ -192,11 +192,29 @@ pub(crate) fn build_computed_style(
     resolve_dimension_prop(&mut style, "height", winners, parent_style, &elem_ctx);
     resolve_dimension_prop(&mut style, "margin-top", winners, parent_style, &elem_ctx);
     resolve_dimension_prop(&mut style, "margin-right", winners, parent_style, &elem_ctx);
-    resolve_dimension_prop(&mut style, "margin-bottom", winners, parent_style, &elem_ctx);
+    resolve_dimension_prop(
+        &mut style,
+        "margin-bottom",
+        winners,
+        parent_style,
+        &elem_ctx,
+    );
     resolve_dimension_prop(&mut style, "margin-left", winners, parent_style, &elem_ctx);
     resolve_padding_prop(&mut style, "padding-top", winners, parent_style, &elem_ctx);
-    resolve_padding_prop(&mut style, "padding-right", winners, parent_style, &elem_ctx);
-    resolve_padding_prop(&mut style, "padding-bottom", winners, parent_style, &elem_ctx);
+    resolve_padding_prop(
+        &mut style,
+        "padding-right",
+        winners,
+        parent_style,
+        &elem_ctx,
+    );
+    resolve_padding_prop(
+        &mut style,
+        "padding-bottom",
+        winners,
+        parent_style,
+        &elem_ctx,
+    );
     resolve_padding_prop(&mut style, "padding-left", winners, parent_style, &elem_ctx);
 
     // Border styles must be resolved before border widths (width = 0 when style = none).
@@ -205,7 +223,13 @@ pub(crate) fn build_computed_style(
     resolve_border_style_prop(&mut style, "border-bottom-style", winners, parent_style);
     resolve_border_style_prop(&mut style, "border-left-style", winners, parent_style);
 
-    resolve_border_width_prop(&mut style, "border-top-width", winners, parent_style, &elem_ctx);
+    resolve_border_width_prop(
+        &mut style,
+        "border-top-width",
+        winners,
+        parent_style,
+        &elem_ctx,
+    );
     resolve_border_width_prop(
         &mut style,
         "border-right-width",

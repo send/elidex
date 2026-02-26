@@ -12,5 +12,9 @@ readme = "README.md"
 keywords = ["browser-engine", "text", "shaping"]
 categories = ["web-programming"]
 
+[dependencies]
+fontdb.workspace = true
+rustybuzz.workspace = true
+
 [lints]
 workspace = true

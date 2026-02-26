@@ -162,10 +162,7 @@ mod tests {
         let ss = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);
-        assert_eq!(
-            winners.get("color"),
-            Some(&&CssValue::Color(CssColor::RED))
-        );
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 
     #[test]
@@ -215,10 +212,7 @@ mod tests {
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);
-        assert_eq!(
-            winners.get("color"),
-            Some(&&CssValue::Color(CssColor::RED))
-        );
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 
     #[test]
@@ -296,10 +290,7 @@ mod tests {
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);
         // color: .highlight (class specificity) beats div (tag specificity)
-        assert_eq!(
-            winners.get("color"),
-            Some(&&CssValue::Color(CssColor::RED))
-        );
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
         // display: only .highlight declares it
         assert_eq!(
             winners.get("display"),
@@ -331,9 +322,6 @@ mod tests {
         let author = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ua, &author];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);
-        assert_eq!(
-            winners.get("color"),
-            Some(&&CssValue::Color(CssColor::RED))
-        );
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 }

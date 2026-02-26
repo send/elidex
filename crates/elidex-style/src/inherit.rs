@@ -42,16 +42,19 @@ pub fn get_initial_value(property: &str) -> CssValue {
         }
 
         // Border width (CSS initial = medium = 3px)
-        "border-top-width" | "border-right-width" | "border-bottom-width"
-        | "border-left-width" => CssValue::Length(3.0, LengthUnit::Px),
+        "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
+            CssValue::Length(3.0, LengthUnit::Px)
+        }
 
         // Border style
-        "border-top-style" | "border-right-style" | "border-bottom-style"
-        | "border-left-style" => CssValue::Keyword("none".to_string()),
+        "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
+            CssValue::Keyword("none".to_string())
+        }
 
         // Border color (currentcolor)
-        "border-top-color" | "border-right-color" | "border-bottom-color"
-        | "border-left-color" => CssValue::Keyword("currentcolor".to_string()),
+        "border-top-color" | "border-right-color" | "border-bottom-color" | "border-left-color" => {
+            CssValue::Keyword("currentcolor".to_string())
+        }
 
         _ => CssValue::Initial,
     }
@@ -87,10 +90,7 @@ mod tests {
             get_initial_value("display"),
             CssValue::Keyword("inline".to_string())
         );
-        assert_eq!(
-            get_initial_value("color"),
-            CssValue::Color(CssColor::BLACK)
-        );
+        assert_eq!(get_initial_value("color"), CssValue::Color(CssColor::BLACK));
         assert_eq!(get_initial_value("width"), CssValue::Auto);
         assert_eq!(
             get_initial_value("margin-top"),
