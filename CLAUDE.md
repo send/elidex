@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-elidex is an experimental browser engine written in Rust. Currently in Phase 0 (foundation).
+elidex is an experimental browser engine written in Rust. Phase 0 (foundation) is complete.
 
 ### Workspace Structure
 
@@ -23,16 +23,13 @@ mise run fmt         # cargo fmt --all
 cargo doc --workspace --no-deps  # Build docs
 ```
 
-### Test Count
-
-101 tests total: 52 crawler + 40 ECS + 9 plugin
-
 ### Key Files
 
 - `SECURITY.md` — Vulnerability disclosure policy
 - `CONTRIBUTING.md` — Contribution guidelines
 - `.github/dependabot.yml` — Automated dependency updates (Cargo + Actions)
 - `deny.toml` — License allow-list + supply chain (`unknown-registry`/`unknown-git` = deny)
+- `docs/design/ja/29-survey-analysis.md` — JA/EN 900-site compatibility survey analysis (Ch. 29)
 
 ---
 
@@ -72,16 +69,3 @@ cargo doc --workspace --no-deps  # Build docs
 - Actions pinned: `actions/checkout@v4`, `Swatinem/rust-cache@v2`, `dorny/paths-filter@v3`, `taiki-e/install-action@v2`.
 - `rust-toolchain.toml`: `channel = "stable"`. MSRV `1.75` in `Cargo.toml`.
 
----
-
-## Code Review History
-
-- **Review #2** (2026-02-25): 37 findings — ALL FIXED
-- **Review #3** (2026-02-25): 27 findings (C3/H6/M10/L8) — ALL FIXED
-- **Review #4** (2026-02-25): 59 findings (C3/H7/M23/L26) — ALL FIXED
-- **Review #5** (2026-02-26): 19 findings (M7/L12) — ALL FIXED
-- **Review #6** (2026-02-26): 6 findings (M2/L4) — ALL FIXED
-- **Review #7** (2026-02-26): 0 findings — CLEAN (final review)
-- **Refactoring R1** (2026-02-26): 17 items (H5/M8/L4) — ALL COMPLETE
-- **Refactoring R2** (2026-02-26): 13 items (H2/M7/L4) — ALL COMPLETE
-- **Refactoring R3** (2026-02-26): 6 items (M2/L4) — ALL COMPLETE (final)

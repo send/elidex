@@ -45,6 +45,10 @@ enum Command {
         /// Per-site timeout in seconds (1-300)
         #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=300))]
         timeout: u64,
+
+        /// Number of retry attempts (0-5)
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(0..=5))]
+        retries: u8,
     },
     /// Analyze crawl results and generate summary reports
     ///
@@ -75,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
             output,
             concurrency,
             timeout,
+            retries,
         } => {
             let sites = sites::load_sites(&site_files)?;
             tracing::info!("Loaded {} sites", sites.len());
@@ -82,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
             let config = crawler::CrawlConfig {
                 concurrency: usize::from(concurrency),
                 timeout_secs: timeout,
-                retries: 1,
+                retries: usize::from(retries),
                 user_agent: "elidex-crawler/0.1".to_string(),
             };
 

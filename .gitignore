@@ -16,6 +16,7 @@ Thumbs.db
 
 # Crawler output
 output/
+output-*/
 
 # Environment
 .env

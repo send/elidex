@@ -182,6 +182,26 @@ async fn crawl_one(
         }
     }
 
+    // WWW fallback: if all retries failed with a DNS or TLS error on a bare domain,
+    // try the www-prefixed URL once.
+    if let Some(ref err_msg) = last_error {
+        if is_bare_domain_error(err_msg) {
+            if let Some(www_url) = add_www_prefix(&site.url) {
+                tracing::info!(
+                    "Bare domain error for {}; trying www fallback: {www_url}",
+                    site.url
+                );
+                let mut www_site = site.clone();
+                www_site.url = www_url;
+                if let Ok(mut result) = fetch_and_analyze(client, &www_site, user_agent).await {
+                    // Keep the original URL in the result for consistency.
+                    result.url.clone_from(&site.url);
+                    return result;
+                }
+            }
+        }
+    }
+
     let mut result = error_result(site, last_error.as_deref().unwrap_or("unknown error"));
     result.error = last_error;
     result
@@ -349,6 +369,30 @@ fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// Check if an error indicates that a bare domain cannot connect but `www.` might work.
+///
+/// Matches DNS resolution failures and TLS hostname mismatches, both of which
+/// commonly occur when a bare domain lacks proper DNS/certificate configuration
+/// but the `www.` subdomain works.
+fn is_bare_domain_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("dns error") || lower.contains("host name mismatch")
+}
+
+/// Add a `www.` prefix to a URL's host if it doesn't already have one.
+///
+/// Returns `None` if the host already starts with `www.` or if parsing fails.
+fn add_www_prefix(url: &str) -> Option<String> {
+    let mut parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    if host.to_ascii_lowercase().starts_with("www.") {
+        return None;
+    }
+    let new_host = format!("www.{host}");
+    parsed.set_host(Some(&new_host)).ok()?;
+    Some(parsed.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +445,53 @@ mod tests {
 
         let url = reqwest::Url::parse("http://93.184.216.34/").unwrap();
         assert!(validate_url(&url).is_ok());
+    }
+
+    #[test]
+    fn is_bare_domain_error_detects_dns_failures() {
+        assert!(is_bare_domain_error(
+            "error sending request for url: dns error: failed to lookup address information"
+        ));
+        assert!(is_bare_domain_error("DNS error: no such host"));
+        assert!(is_bare_domain_error("Dns Error in chain"));
+    }
+
+    #[test]
+    fn is_bare_domain_error_detects_tls_mismatch() {
+        assert!(is_bare_domain_error(
+            "error sending request: Host name mismatch: CertNotValidForName"
+        ));
+        assert!(is_bare_domain_error("host name mismatch"));
+        assert!(is_bare_domain_error("HOST NAME MISMATCH in TLS handshake"));
+    }
+
+    #[test]
+    fn is_bare_domain_error_rejects_unrelated() {
+        assert!(!is_bare_domain_error("connection refused"));
+        assert!(!is_bare_domain_error("timeout waiting for response"));
+        assert!(!is_bare_domain_error("blocked by robots.txt"));
+        assert!(!is_bare_domain_error(""));
+    }
+
+    #[test]
+    fn add_www_prefix_bare_domain() {
+        let result = add_www_prefix("https://nhk.or.jp/news").unwrap();
+        assert_eq!(result, "https://www.nhk.or.jp/news");
+    }
+
+    #[test]
+    fn add_www_prefix_already_www() {
+        assert!(add_www_prefix("https://www.example.com/page").is_none());
+    }
+
+    #[test]
+    fn add_www_prefix_preserves_scheme_and_port() {
+        let result = add_www_prefix("http://example.com:8080/path?q=1").unwrap();
+        assert_eq!(result, "http://www.example.com:8080/path?q=1");
+    }
+
+    #[test]
+    fn add_www_prefix_invalid_url() {
+        assert!(add_www_prefix("not a url").is_none());
     }
 }

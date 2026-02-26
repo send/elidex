@@ -63,6 +63,7 @@ Elidex is an experimental browser engine written in Rust that eliminates legacy 
 | --- | --- | --- |
 | 27 | [Testing Strategy](27-testing-strategy.md) | WPT, benchmarks, fuzz testing, visual regression |
 | 28 | [Architecture Decision Records](28-adr.md) | 35 ADRs documenting key design choices and rationale |
+| 29 | [Survey Analysis](29-survey-analysis.md) | JA/EN 900-site compatibility survey results and compat rule priorities |
 
 ## Key Design Decisions
 
