@@ -45,6 +45,8 @@ rustybuzz = "0.20"
 elidex-plugin = { path = "crates/elidex-plugin" }
 elidex-ecs = { path = "crates/elidex-ecs" }
 elidex-css = { path = "crates/elidex-css" }
+elidex-text = { path = "crates/elidex-text" }
+elidex-style = { path = "crates/elidex-style" }
 
 [profile.release]
 lto = true
