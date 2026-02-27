@@ -60,16 +60,15 @@ pub fn create_gpu_context(
         pollster::block_on(adapter.request_device(&DeviceDescriptor::default())).ok()?;
 
     let capabilities = surface.get_capabilities(&adapter);
+    // Prefer non-sRGB surface formats to match Vello's Rgba8Unorm render
+    // target. Vello's compute pipeline writes sRGB-encoded values to a
+    // storage texture (which cannot use sRGB formats). Using a non-sRGB
+    // surface avoids double gamma encoding during the blit.
     let surface_format = capabilities
         .formats
         .iter()
         .copied()
-        .find(|f| {
-            matches!(
-                f,
-                TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb
-            )
-        })
+        .find(|f| matches!(f, TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm))
         .or_else(|| capabilities.formats.first().copied())?;
 
     let surface_config = SurfaceConfiguration {

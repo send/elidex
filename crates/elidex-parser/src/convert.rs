@@ -93,7 +93,7 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
         }
         NodeData::Text { contents } => {
             let text = contents.borrow().to_string();
-            if text.is_empty() {
+            if text.is_empty() || text.trim().is_empty() {
                 return None;
             }
             Some(dom.create_text(text))

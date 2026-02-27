@@ -41,12 +41,24 @@ impl FontDatabase {
 
     /// Queries for a font matching any of the given family names.
     ///
+    /// CSS generic family names (`serif`, `sans-serif`, `monospace`,
+    /// `cursive`, `fantasy`) are mapped to the corresponding `fontdb`
+    /// generic variants. All other names are treated as specific font
+    /// family names.
+    ///
     /// Returns the first match found, or `None` if no font matches.
     #[must_use]
     pub fn query(&self, families: &[&str]) -> Option<fontdb::ID> {
         let family_list: Vec<fontdb::Family<'_>> = families
             .iter()
-            .map(|name| fontdb::Family::Name(name))
+            .map(|name| match *name {
+                "serif" => fontdb::Family::Serif,
+                "sans-serif" => fontdb::Family::SansSerif,
+                "monospace" => fontdb::Family::Monospace,
+                "cursive" => fontdb::Family::Cursive,
+                "fantasy" => fontdb::Family::Fantasy,
+                _ => fontdb::Family::Name(name),
+            })
             .collect();
         let query = fontdb::Query {
             families: &family_list,
