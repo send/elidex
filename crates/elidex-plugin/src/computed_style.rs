@@ -31,12 +31,6 @@ impl AsRef<str> for Display {
     }
 }
 
-impl fmt::Display for Display {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_ref())
-    }
-}
-
 /// The CSS `position` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Position {
@@ -55,12 +49,6 @@ impl AsRef<str> for Position {
             Self::Absolute => "absolute",
             Self::Fixed => "fixed",
         }
-    }
-}
-
-impl fmt::Display for Position {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_ref())
     }
 }
 
@@ -85,11 +73,18 @@ impl AsRef<str> for BorderStyle {
     }
 }
 
-impl fmt::Display for BorderStyle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_ref())
-    }
+/// Implement `fmt::Display` by delegating to `AsRef<str>`.
+macro_rules! display_via_as_ref {
+    ($($ty:ty),+ $(,)?) => {
+        $(impl fmt::Display for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.as_ref())
+            }
+        })+
+    };
 }
+
+display_via_as_ref!(Display, Position, BorderStyle);
 
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

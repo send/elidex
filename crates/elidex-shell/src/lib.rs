@@ -48,6 +48,7 @@ pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
 /// Execute the rendering pipeline without opening a window.
 ///
 /// Useful for testing the parse → style → layout → display list chain.
+#[must_use]
 pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
     let parse_result = parse_html(html);
     for err in &parse_result.errors {

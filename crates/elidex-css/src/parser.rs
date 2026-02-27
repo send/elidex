@@ -112,7 +112,7 @@ impl<'i> DeclarationParser<'i> for DeclarationListParser {
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::Declaration, ParseError<'i, ()>> {
         let lower_name = name.to_ascii_lowercase();
-        let decls = parse_property_value(&lower_name, input, false);
+        let decls = parse_property_value(&lower_name, input);
         if decls.is_empty() {
             Err(input.new_custom_error(()))
         } else {

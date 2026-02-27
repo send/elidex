@@ -3,18 +3,17 @@
 //! Provides CSS tokenization, property parsing, selector matching,
 //! and typed CSS value representations.
 
-pub mod color;
-pub mod declaration;
-pub mod parser;
-pub mod selector;
-pub mod values;
+mod color;
+mod declaration;
+mod parser;
+mod selector;
+mod values;
 
 pub use declaration::{parse_declaration_block, Declaration, Origin};
 pub use parser::{parse_stylesheet, CssRule, Stylesheet};
 pub use selector::{Selector, SelectorComponent, Specificity};
 
 #[cfg(test)]
-#[allow(unused_must_use)]
 mod integration_tests {
     use super::*;
     use elidex_ecs::{Attributes, EcsDom};
@@ -37,6 +36,7 @@ mod integration_tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn parse_and_match() {
         // Parse a stylesheet.
         let ss = parse_stylesheet("div.highlight { color: red; }", Origin::Author);

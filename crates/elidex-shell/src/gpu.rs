@@ -16,6 +16,26 @@ pub struct GpuContext {
     pub surface_format: TextureFormat,
 }
 
+impl GpuContext {
+    /// Reconfigure the surface after a resize.
+    ///
+    /// No-op when `width` or `height` is zero (minimized window).
+    pub fn resize(&mut self, surface: &Surface<'_>, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.surface_config.width = width;
+            self.surface_config.height = height;
+            surface.configure(&self.device, &self.surface_config);
+        }
+    }
+
+    /// Reconfigure the surface with the current configuration.
+    ///
+    /// Used to recover from `SurfaceError::Outdated` / `Lost`.
+    pub fn reconfigure(&self, surface: &Surface<'_>) {
+        surface.configure(&self.device, &self.surface_config);
+    }
+}
+
 /// Create a wgpu device and queue compatible with the given surface.
 ///
 /// The `instance` must be the same one used to create `surface`.

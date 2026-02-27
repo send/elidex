@@ -9,12 +9,15 @@ use std::sync::Arc;
 
 use elidex_text::{FontDatabase, FontId};
 
+/// Raw font file data with face index within the font collection.
+pub(crate) type FontBlob = (Arc<Vec<u8>>, u32);
+
 /// Cache of raw font data indexed by font ID.
 ///
 /// Each entry contains an `Arc<Vec<u8>>` of the font binary and the
 /// face index within the font collection.
 pub struct FontCache {
-    cache: HashMap<FontId, (Arc<Vec<u8>>, u32)>,
+    cache: HashMap<FontId, FontBlob>,
 }
 
 impl FontCache {
@@ -28,7 +31,7 @@ impl FontCache {
     /// Get the font data for `id`, loading and caching it if necessary.
     ///
     /// Returns `None` if the font ID is invalid.
-    pub fn get(&mut self, db: &FontDatabase, id: FontId) -> Option<(Arc<Vec<u8>>, u32)> {
+    pub fn get(&mut self, db: &FontDatabase, id: FontId) -> Option<FontBlob> {
         if let Some(entry) = self.cache.get(&id) {
             return Some(entry.clone());
         }

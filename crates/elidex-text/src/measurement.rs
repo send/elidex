@@ -26,6 +26,7 @@ pub struct TextMetrics {
 /// a complete measurement.
 ///
 /// Returns `None` if no matching font is found.
+#[must_use]
 pub fn measure_text(
     db: &FontDatabase,
     families: &[&str],

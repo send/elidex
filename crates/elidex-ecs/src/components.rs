@@ -70,12 +70,6 @@ pub struct TreeRelation {
     pub(crate) prev_sibling: Option<Entity>,
 }
 
-impl TreeRelation {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// Text content for text nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextContent(pub String);

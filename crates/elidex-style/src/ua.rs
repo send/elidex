@@ -101,6 +101,7 @@ hr {
 ";
 
 /// Returns the parsed UA stylesheet (lazily initialized, cached).
+#[must_use]
 pub fn ua_stylesheet() -> &'static Stylesheet {
     static UA: OnceLock<Stylesheet> = OnceLock::new();
     UA.get_or_init(|| parse_stylesheet(UA_CSS, Origin::UserAgent))

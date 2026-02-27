@@ -16,6 +16,7 @@ use markup5ever_rcdom::RcDom;
 ///
 /// Uses html5ever for spec-compliant parsing with full error recovery.
 /// Parse warnings are collected in [`ParseResult::errors`].
+#[must_use]
 pub fn parse_html(html: &str) -> ParseResult {
     let rc_dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
     convert_document(rc_dom)

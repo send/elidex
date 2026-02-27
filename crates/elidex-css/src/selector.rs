@@ -245,8 +245,8 @@ fn match_components(
                 && match_components(components, idx + 1, entity, dom)
         }
         SelectorComponent::Descendant => {
-            // Walk up ancestors looking for a match (depth-limited to match EcsDom's MAX_ANCESTOR_DEPTH).
-            const MAX_ANCESTOR_DEPTH: usize = 10_000;
+            // Walk up ancestors looking for a match.
+            use elidex_ecs::MAX_ANCESTOR_DEPTH;
             let mut current = dom.get_parent(entity);
             let mut depth = 0;
             while let Some(ancestor) = current {

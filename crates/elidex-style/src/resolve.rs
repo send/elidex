@@ -92,7 +92,7 @@ fn resolve_keyword(
 }
 
 /// Extract a property's computed value back into a [`CssValue`] for inheritance.
-// Sync: build_computed_style, get_initial_value
+// Sync: When adding a property, also update build_computed_style and get_initial_value.
 fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     match property {
         "color" => CssValue::Color(style.color),
@@ -148,6 +148,7 @@ fn dimension_to_css_value(d: Dimension) -> CssValue {
 ///
 /// Resolution order: font-size first (dependencies), then color,
 /// then all remaining properties.
+// Sync: When adding a property, also update get_computed_as_css_value and get_initial_value.
 pub(crate) fn build_computed_style(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
@@ -403,6 +404,10 @@ fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
     }
 }
 
+/// Resolve a border-style keyword to a [`BorderStyle`] enum value.
+///
+/// Phase 1 supports: `none`, `solid`, `dashed`, `dotted`.
+// TODO(Phase 2): support double, groove, ridge, inset, outset
 fn resolve_border_style_value(value: &CssValue) -> BorderStyle {
     match value {
         CssValue::Keyword(ref k) => match k.as_str() {
@@ -416,6 +421,39 @@ fn resolve_border_style_value(value: &CssValue) -> BorderStyle {
     }
 }
 
+/// Get the border-style for the side corresponding to a border-width property.
+fn border_style_for_width(style: &ComputedStyle, width_prop: &str) -> BorderStyle {
+    match width_prop {
+        "border-top-width" => style.border_top_style,
+        "border-right-width" => style.border_right_style,
+        "border-bottom-width" => style.border_bottom_style,
+        "border-left-width" => style.border_left_style,
+        _ => BorderStyle::None,
+    }
+}
+
+/// Set a border-width field by property name.
+fn set_border_width(style: &mut ComputedStyle, prop: &str, value: f32) {
+    match prop {
+        "border-top-width" => style.border_top_width = value,
+        "border-right-width" => style.border_right_width = value,
+        "border-bottom-width" => style.border_bottom_width = value,
+        "border-left-width" => style.border_left_width = value,
+        _ => {}
+    }
+}
+
+/// Set a border-color field by property name.
+fn set_border_color(style: &mut ComputedStyle, prop: &str, color: CssColor) {
+    match prop {
+        "border-top-color" => style.border_top_color = color,
+        "border-right-color" => style.border_right_color = color,
+        "border-bottom-color" => style.border_bottom_color = color,
+        "border-left-color" => style.border_left_color = color,
+        _ => {}
+    }
+}
+
 fn resolve_border_width_prop(
     style: &mut ComputedStyle,
     property: &str,
@@ -424,15 +462,7 @@ fn resolve_border_width_prop(
     ctx: &ResolveContext,
 ) {
     // CSS spec: computed border-width is 0 when border-style is none.
-    let border_style = match property {
-        "border-top-width" => style.border_top_style,
-        "border-right-width" => style.border_right_style,
-        "border-bottom-width" => style.border_bottom_style,
-        "border-left-width" => style.border_left_style,
-        _ => BorderStyle::None,
-    };
-
-    let px = if border_style == BorderStyle::None {
+    let px = if border_style_for_width(style, property) == BorderStyle::None {
         0.0
     } else {
         match winners.get(property) {
@@ -443,14 +473,7 @@ fn resolve_border_width_prop(
             None => 3.0, // medium
         }
     };
-
-    match property {
-        "border-top-width" => style.border_top_width = px,
-        "border-right-width" => style.border_right_width = px,
-        "border-bottom-width" => style.border_bottom_width = px,
-        "border-left-width" => style.border_left_width = px,
-        _ => {}
-    }
+    set_border_width(style, property, px);
 }
 
 fn resolve_border_color_prop(
@@ -466,26 +489,21 @@ fn resolve_border_color_prop(
             match value {
                 CssValue::Color(c) => c,
                 CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => current_color,
-                _ => current_color, // fallback to currentcolor behavior
+                _ => current_color,
             }
         }
-        None => current_color, // initial = currentcolor
+        None => current_color,
     };
-
-    match property {
-        "border-top-color" => style.border_top_color = color,
-        "border-right-color" => style.border_right_color = color,
-        "border-bottom-color" => style.border_bottom_color = color,
-        "border-left-color" => style.border_left_color = color,
-        _ => {}
-    }
+    set_border_color(style, property, color);
 }
 
 /// Resolve a [`CssValue`] to a pixel value (for padding/border-width).
+///
+/// Percentage values are not yet supported (Phase 2) and resolve to `0.0`.
 fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
-        CssValue::Percentage(p) => *p, // percentages kept as-is for now (resolved in layout)
+        // TODO(Phase 2): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,
         _ => 0.0,
     }

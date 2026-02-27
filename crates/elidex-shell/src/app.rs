@@ -45,67 +45,64 @@ impl App {
     }
 }
 
+/// Create the window, GPU context, and Vello renderer.
+///
+/// Returns `None` (with a message printed to stderr) if any step fails.
+fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<RenderState> {
+    let window = event_loop
+        .create_window(
+            WindowAttributes::default()
+                .with_title("elidex")
+                .with_inner_size(winit::dpi::LogicalSize::new(
+                    crate::DEFAULT_VIEWPORT_WIDTH,
+                    crate::DEFAULT_VIEWPORT_HEIGHT,
+                )),
+        )
+        .inspect_err(|e| eprintln!("Failed to create window: {e}"))
+        .ok()
+        .map(Arc::new)?;
+
+    let instance = Instance::new(&InstanceDescriptor::default());
+    let surface = instance
+        .create_surface(Arc::clone(&window))
+        .inspect_err(|e| eprintln!("Failed to create wgpu surface: {e}"))
+        .ok()?;
+
+    let size = window.inner_size();
+    let gpu = crate::gpu::create_gpu_context(&instance, &surface, size.width, size.height)
+        .or_else(|| {
+            eprintln!("Failed to initialize GPU context (no compatible adapter or device)");
+            None
+        })?;
+
+    let renderer = VelloRenderer::new(&gpu.device)
+        .inspect_err(|e| eprintln!("Failed to create Vello renderer: {e}"))
+        .ok()?;
+    let blitter = TextureBlitter::new(&gpu.device, gpu.surface_format);
+
+    Some(RenderState {
+        window,
+        _instance: instance,
+        surface,
+        gpu,
+        renderer,
+        blitter,
+    })
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.render_state.is_some() {
             return; // Already initialized.
         }
 
-        let window = match event_loop.create_window(
-            WindowAttributes::default()
-                .with_title("elidex")
-                .with_inner_size(winit::dpi::LogicalSize::new(1024.0, 768.0)),
-        ) {
-            Ok(w) => Arc::new(w),
-            Err(e) => {
-                eprintln!("Failed to create window: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
-
-        let instance = Instance::new(&InstanceDescriptor::default());
-        let surface = match instance.create_surface(Arc::clone(&window)) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Failed to create wgpu surface: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
-
-        let size = window.inner_size();
-        let Some(gpu) =
-            crate::gpu::create_gpu_context(&instance, &surface, size.width, size.height)
-        else {
-            eprintln!("Failed to initialize GPU context (no compatible adapter or device)");
+        let Some(state) = try_init_render_state(event_loop) else {
             event_loop.exit();
             return;
         };
 
-        let renderer = match VelloRenderer::new(&gpu.device) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("Failed to create Vello renderer: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
-        let blitter = TextureBlitter::new(&gpu.device, gpu.surface_format);
-
-        self.render_state = Some(RenderState {
-            window,
-            _instance: instance,
-            surface,
-            gpu,
-            renderer,
-            blitter,
-        });
-
-        // Request initial redraw via the render state.
-        if let Some(state) = &self.render_state {
-            state.window.request_redraw();
-        }
+        state.window.request_redraw();
+        self.render_state = Some(state);
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -128,12 +125,10 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
+                state
+                    .gpu
+                    .resize(&state.surface, new_size.width, new_size.height);
                 if new_size.width > 0 && new_size.height > 0 {
-                    state.gpu.surface_config.width = new_size.width;
-                    state.gpu.surface_config.height = new_size.height;
-                    state
-                        .surface
-                        .configure(&state.gpu.device, &state.gpu.surface_config);
                     state.window.request_redraw();
                 }
             }
@@ -164,9 +159,7 @@ impl ApplicationHandler for App {
                 let frame = match state.surface.get_current_texture() {
                     Ok(f) => f,
                     Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-                        state
-                            .surface
-                            .configure(&state.gpu.device, &state.gpu.surface_config);
+                        state.gpu.reconfigure(&state.surface);
                         state.window.request_redraw();
                         return;
                     }

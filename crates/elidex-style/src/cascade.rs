@@ -130,7 +130,6 @@ pub(crate) fn get_inline_declarations(entity: Entity, dom: &EcsDom) -> Vec<Decla
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
 mod tests {
     use super::*;
     use elidex_css::parse_stylesheet;
@@ -146,6 +145,7 @@ mod tests {
     }
 
     /// Setup a DOM with a document root and a single element child.
+    #[allow(unused_must_use)]
     fn setup_with_element(tag: &str) -> (EcsDom, Entity, Entity) {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -164,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn specificity_wins() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -183,6 +184,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn source_order_tiebreak() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -200,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn important_beats_normal() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -214,6 +217,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn ua_important_beats_author_important() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -231,6 +235,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn inline_beats_selector() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -250,6 +255,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn important_inline_is_strongest_author() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -272,6 +278,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn independent_property_resolution() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -297,6 +304,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn no_matching_rules_empty_winners() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -310,6 +318,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn author_normal_beats_ua_normal() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();

@@ -21,6 +21,7 @@ pub enum BreakOpportunity {
 ///
 /// Each entry is `(byte_offset, opportunity)` where `byte_offset` is the
 /// position *between* characters at which a line break may occur.
+#[must_use]
 pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
     let mut result = Vec::new();
     let mut iter = text.char_indices().peekable();
@@ -38,6 +39,8 @@ pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
         }
 
         // Allowed break after ASCII space or hyphen.
+        // Uses `<` (not `<=`): a trailing space/hyphen at end-of-string is not
+        // a useful break point since there is no following content to wrap.
         if ch == ' ' || ch == '-' {
             let break_pos = byte_offset + 1;
             if break_pos < text.len() {

@@ -57,7 +57,7 @@ impl VelloRenderer {
     /// The returned texture has `STORAGE_BINDING | TEXTURE_BINDING` usage
     /// flags, suitable for blitting to a surface via [`wgpu::util::TextureBlitter`].
     ///
-    /// `width` and `height` must both be greater than zero.
+    /// Zero-size dimensions are clamped to 1 pixel.
     pub fn render(
         &mut self,
         device: &Device,

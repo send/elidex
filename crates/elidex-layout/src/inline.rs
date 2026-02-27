@@ -41,6 +41,29 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
     text
 }
 
+/// Measure a segment's full and trimmed widths.
+///
+/// Returns `(full_width, trimmed_width)` where `trimmed_width` excludes trailing
+/// whitespace per CSS Text Level 3 §4.1.2 (trailing spaces "hang" and don't
+/// trigger line overflow).
+fn measure_segment_widths(
+    font_db: &FontDatabase,
+    families: &[&str],
+    font_size: f32,
+    segment: &str,
+) -> (f32, f32) {
+    let seg_width = measure_text(font_db, families, font_size, segment).map_or(0.0, |m| m.width);
+    let trimmed = segment.trim_end();
+    let trimmed_width = if trimmed.len() == segment.len() {
+        seg_width
+    } else if trimmed.is_empty() {
+        0.0
+    } else {
+        measure_text(font_db, families, font_size, trimmed).map_or(0.0, |m| m.width)
+    };
+    (seg_width, trimmed_width)
+}
+
 /// Layout inline content (text nodes and inline elements) within a line box.
 ///
 /// Returns the total height consumed by all line boxes.
@@ -102,20 +125,8 @@ pub(crate) fn layout_inline_context(
             continue;
         }
 
-        let seg_width =
-            measure_text(font_db, &families, font_size, segment).map_or(0.0, |m| m.width);
-
-        // CSS Text Level 3 §4.1.2: trailing spaces "hang" — measure without
-        // trailing whitespace for the overflow check, but add the full width
-        // to the line so subsequent segments start at the correct offset.
-        let trimmed = segment.trim_end();
-        let trimmed_width = if trimmed.len() == segment.len() {
-            seg_width
-        } else if trimmed.is_empty() {
-            0.0
-        } else {
-            measure_text(font_db, &families, font_size, trimmed).map_or(0.0, |m| m.width)
-        };
+        let (seg_width, trimmed_width) =
+            measure_segment_widths(font_db, &families, font_size, segment);
 
         if current_line_width + trimmed_width > containing_width && on_line {
             // Current line overflows — wrap to next line.

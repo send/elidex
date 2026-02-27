@@ -18,6 +18,7 @@ pub(crate) fn is_inherited(property: &str) -> bool {
 /// Returns the CSS initial value for a known property.
 ///
 /// Unknown properties return `CssValue::Initial` as a fallback.
+// Sync: When adding a property, also update build_computed_style and get_computed_as_css_value.
 pub(crate) fn get_initial_value(property: &str) -> CssValue {
     match property {
         // Inherited

@@ -19,7 +19,9 @@ use crate::components::{Attributes, TagType, TextContent, TreeRelation};
 use hecs::{Entity, World};
 
 /// Maximum ancestor walk depth before assuming tree corruption.
-const MAX_ANCESTOR_DEPTH: usize = 10_000;
+///
+/// Also used by `elidex-css` selector matching to cap descendant walks.
+pub const MAX_ANCESTOR_DEPTH: usize = 10_000;
 
 /// ECS-backed DOM storage.
 ///
@@ -48,6 +50,7 @@ impl EcsDom {
     }
 
     /// Returns `true` if the entity exists in this DOM world.
+    #[must_use]
     pub fn contains(&self, entity: Entity) -> bool {
         self.world.contains(entity)
     }
@@ -64,20 +67,20 @@ impl EcsDom {
     /// Create an element node with the given tag and attributes.
     pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
         self.world
-            .spawn((TagType(tag.into()), attrs, TreeRelation::new()))
+            .spawn((TagType(tag.into()), attrs, TreeRelation::default()))
     }
 
     /// Create a document root entity (no tag, only tree relations).
     ///
     /// The document root serves as the parent of the `<html>` element.
     pub fn create_document_root(&mut self) -> Entity {
-        self.world.spawn((TreeRelation::new(),))
+        self.world.spawn((TreeRelation::default(),))
     }
 
     /// Create a text node.
     pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
         self.world
-            .spawn((TextContent(text.into()), TreeRelation::new()))
+            .spawn((TextContent(text.into()), TreeRelation::default()))
     }
 
     /// Append `child` as the last child of `parent`.
@@ -316,34 +319,40 @@ impl EcsDom {
     }
 
     /// Returns the parent of `entity`, or `None` if it has no parent or does not exist.
+    #[must_use]
     pub fn get_parent(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.parent)
     }
 
     /// Returns the first child of `entity`, or `None` if it has no children or does not exist.
+    #[must_use]
     pub fn get_first_child(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.first_child)
     }
 
     /// Returns the last child of `entity`, or `None` if it has no children or does not exist.
+    #[must_use]
     pub fn get_last_child(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.last_child)
     }
 
     /// Returns the next sibling of `entity`, or `None` if it is the last sibling or does not exist.
+    #[must_use]
     pub fn get_next_sibling(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.next_sibling)
     }
 
     /// Returns the previous sibling of `entity`, or `None` if it is the first sibling or does not exist.
+    #[must_use]
     pub fn get_prev_sibling(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.prev_sibling)
     }
 
     /// Collect all direct children of `parent` in order.
     ///
-    /// Uses a depth counter (capped at [`MAX_ANCESTOR_DEPTH`]) to prevent
+    /// Uses a depth counter (capped at `MAX_ANCESTOR_DEPTH`) to prevent
     /// infinite loops on corrupted sibling chains.
+    #[must_use]
     pub fn children(&self, parent: Entity) -> Vec<Entity> {
         let mut result = Vec::new();
         let mut current = self.read_rel(parent, |rel| rel.first_child);
@@ -361,8 +370,9 @@ impl EcsDom {
 
     /// Returns a zero-allocation iterator over direct children of `parent`.
     ///
-    /// Yields entities in sibling order. Stops after [`MAX_ANCESTOR_DEPTH`]
+    /// Yields entities in sibling order. Stops after `MAX_ANCESTOR_DEPTH`
     /// iterations to guard against corrupted sibling chains.
+    #[must_use]
     pub fn children_iter(&self, parent: Entity) -> ChildrenIter<'_> {
         let next = self.read_rel(parent, |rel| rel.first_child);
         ChildrenIter {
@@ -380,6 +390,7 @@ impl EcsDom {
     /// **Complexity:** O(n) full scan over all entities with a `TagType`
     /// component. Consider caching results or adding a tag→entity index if
     /// this becomes a hot path (e.g., CSS selector matching).
+    #[must_use]
     pub fn query_by_tag(&self, tag: &str) -> Vec<Entity> {
         self.world
             .query::<&TagType>()
@@ -392,6 +403,7 @@ impl EcsDom {
     /// Returns all entities that have no parent, sorted by entity ID.
     ///
     /// Useful for finding layout roots or document roots for tree walks.
+    #[must_use]
     pub fn root_entities(&self) -> Vec<Entity> {
         let mut roots: Vec<Entity> = self
             .world

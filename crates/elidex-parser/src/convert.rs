@@ -105,7 +105,8 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
 
 /// Parse a `style` attribute value into an [`InlineStyle`].
 ///
-/// Uses simple `;` and `:` splitting. Full CSS value parsing deferred to M1-2.
+/// Uses simple `;` and `:` splitting. Full CSS value parsing is handled by
+/// elidex-css and elidex-style.
 fn parse_inline_style(style: &str) -> InlineStyle {
     let mut inline = InlineStyle::default();
     for decl in style.split(';') {
@@ -141,7 +142,11 @@ fn apply_presentational_hints(
     style.or(existing)
 }
 
-/// Append "px" if the value is a bare number.
+/// Append "px" if the value is a bare non-negative integer (ASCII digits only).
+///
+/// Per HTML spec, presentational attributes like `width` and `height` use
+/// non-negative integers. Values with signs, decimals, or units are returned
+/// unchanged.
 fn format_dimension(value: &str) -> String {
     if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
         format!("{value}px")

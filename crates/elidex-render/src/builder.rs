@@ -20,6 +20,7 @@ use crate::font_cache::FontCache;
 ///
 /// `elidex_layout::layout_tree()` must have been called first so that
 /// every visible element has a [`LayoutBox`] component.
+#[must_use]
 pub fn build_display_list(dom: &EcsDom, font_db: &FontDatabase) -> DisplayList {
     let mut dl = DisplayList::default();
     let mut font_cache = FontCache::new();
@@ -182,7 +183,6 @@ fn emit_text(
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
@@ -197,6 +197,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn background_color_emits_solid_rect() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -235,6 +236,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn transparent_background_no_item() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -268,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn text_node_emits_text_item() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -338,6 +341,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn nested_elements_painter_order() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -414,6 +418,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn display_none_skipped() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
@@ -474,6 +479,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_must_use)]
     fn background_uses_border_box() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();

@@ -50,7 +50,7 @@ pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
                 .as_ref()
                 .to_ascii_lowercase();
             i.expect_colon().map_err(|_| ())?;
-            let mut decls = parse_property_value(&name, i, false);
+            let mut decls = parse_property_value(&name, i);
             // Check for !important (browsers support this in inline styles).
             if i.try_parse(cssparser::parse_important).is_ok() {
                 for d in &mut decls {
@@ -88,52 +88,40 @@ fn skip_to_semicolon(input: &mut Parser) {
 /// Parse a property value and return longhand declarations.
 ///
 /// Shorthand properties are expanded into their longhand equivalents.
-/// The `important` flag is applied to all generated declarations.
+/// All returned declarations have `important: false`; callers must set
+/// `important` after checking for `!important`.
 ///
 /// **Contract:** Returns an empty `Vec` for both unknown properties and
 /// known properties with unparseable values. The caller (e.g.
 /// `DeclarationListParser`) treats an empty result as an error, which
 /// triggers cssparser's standard error recovery (skip the declaration).
-pub(crate) fn parse_property_value(
-    name: &str,
-    input: &mut Parser,
-    important: bool,
-) -> Vec<Declaration> {
+pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declaration> {
     // Check for global keywords first.
     if let Ok(val) = input.try_parse(|i| {
         let ident = i.expect_ident().map_err(|_| ())?;
         parse_global_keyword(ident.as_ref()).ok_or(())
     }) {
         // Shorthand properties must expand global keywords into longhand declarations.
-        return expand_global_keyword(name, val, important);
+        return expand_global_keyword(name, val);
     }
 
     match name {
         // --- Shorthand properties ---
-        "margin" => expand_four_sides(input, "margin", important, parse_length_percentage_or_auto),
-        "padding" => expand_four_sides(input, "padding", important, parse_length_or_percentage),
-        "border" => parse_border_shorthand(input, important),
+        "margin" => expand_four_sides(input, "margin", parse_length_percentage_or_auto),
+        "padding" => expand_four_sides(input, "padding", parse_length_or_percentage),
+        "border" => parse_border_shorthand(input),
 
         // --- Keyword properties ---
         "display" => parse_keyword_property(
             input,
             name,
-            important,
             &["block", "inline", "inline-block", "none", "flex"],
         ),
-        "position" => parse_keyword_property(
-            input,
-            name,
-            important,
-            &["static", "relative", "absolute", "fixed"],
-        ),
+        "position" => {
+            parse_keyword_property(input, name, &["static", "relative", "absolute", "fixed"])
+        }
         "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
-            parse_keyword_property(
-                input,
-                name,
-                important,
-                &["none", "solid", "dashed", "dotted"],
-            )
+            parse_keyword_property(input, name, &["none", "solid", "dashed", "dotted"])
         }
 
         // --- Color properties ---
@@ -142,26 +130,26 @@ pub(crate) fn parse_property_value(
         | "border-top-color"
         | "border-right-color"
         | "border-bottom-color"
-        | "border-left-color" => parse_color_property(input, name, important),
+        | "border-left-color" => parse_color_property(input, name),
 
         // --- Length/percentage/auto properties ---
         "width" | "height" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
-            parse_value_property(input, name, important, parse_length_percentage_or_auto)
+            parse_value_property(input, name, parse_length_percentage_or_auto)
         }
 
         // --- Length/percentage properties (no auto) ---
         "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
-            parse_value_property(input, name, important, parse_length_or_percentage)
+            parse_value_property(input, name, parse_length_or_percentage)
         }
 
         // --- Border width ---
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
-            parse_border_width_property(input, name, important)
+            parse_border_width_property(input, name)
         }
 
         // --- Font properties ---
-        "font-size" => parse_font_size(input, important),
-        "font-family" => parse_font_family(input, important),
+        "font-size" => parse_font_size(input),
+        "font-family" => parse_font_family(input),
 
         // --- Unknown property: silently drop ---
         _ => Vec::new(),
@@ -169,28 +157,23 @@ pub(crate) fn parse_property_value(
 }
 
 /// Create a single-declaration `Vec`.
-fn single_decl(name: &str, value: CssValue, important: bool) -> Vec<Declaration> {
+fn single_decl(name: &str, value: CssValue) -> Vec<Declaration> {
     vec![Declaration {
         property: name.to_string(),
         value,
-        important,
+        important: false,
     }]
 }
 
 // --- Property-specific parsers ---
 
-fn parse_keyword_property(
-    input: &mut Parser,
-    name: &str,
-    important: bool,
-    allowed: &[&str],
-) -> Vec<Declaration> {
+fn parse_keyword_property(input: &mut Parser, name: &str, allowed: &[&str]) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let ident = i.expect_ident().map_err(|_| ())?;
             let lower = ident.to_ascii_lowercase();
             if allowed.iter().any(|a| *a == lower) {
-                Ok(single_decl(name, CssValue::Keyword(lower), important))
+                Ok(single_decl(name, CssValue::Keyword(lower)))
             } else {
                 Err(())
             }
@@ -198,16 +181,12 @@ fn parse_keyword_property(
         .unwrap_or_default()
 }
 
-fn parse_color_property(input: &mut Parser, name: &str, important: bool) -> Vec<Declaration> {
+fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `currentcolor` keyword first (case-insensitive).
     if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
         let ident = i.expect_ident().map_err(|_| ())?;
         if ident.eq_ignore_ascii_case("currentcolor") {
-            Ok(single_decl(
-                name,
-                CssValue::Keyword("currentcolor".into()),
-                important,
-            ))
+            Ok(single_decl(name, CssValue::Keyword("currentcolor".into())))
         } else {
             Err(())
         }
@@ -218,7 +197,7 @@ fn parse_color_property(input: &mut Parser, name: &str, important: bool) -> Vec<
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let color = parse_color(i)?;
-            Ok(single_decl(name, CssValue::Color(color), important))
+            Ok(single_decl(name, CssValue::Color(color)))
         })
         .unwrap_or_default()
 }
@@ -227,13 +206,12 @@ fn parse_color_property(input: &mut Parser, name: &str, important: bool) -> Vec<
 fn parse_value_property(
     input: &mut Parser,
     name: &str,
-    important: bool,
     value_parser: fn(&mut Parser) -> Result<CssValue, ()>,
 ) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let val = value_parser(i)?;
-            Ok(single_decl(name, val, important))
+            Ok(single_decl(name, val))
         })
         .unwrap_or_default()
 }
@@ -249,23 +227,19 @@ fn parse_border_width_keyword(input: &mut Parser) -> Result<CssValue, ()> {
     }
 }
 
-fn parse_border_width_property(
-    input: &mut Parser,
-    name: &str,
-    important: bool,
-) -> Vec<Declaration> {
+fn parse_border_width_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             // Try keyword first (thin/medium/thick), then fall back to length.
             let val = i
                 .try_parse(parse_border_width_keyword)
                 .or_else(|()| parse_length_or_percentage(i))?;
-            Ok(single_decl(name, val, important))
+            Ok(single_decl(name, val))
         })
         .unwrap_or_default()
 }
 
-fn parse_font_size(input: &mut Parser, important: bool) -> Vec<Declaration> {
+fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
     // Try keyword sizes first.
     if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
         let ident = i.expect_ident().map_err(|_| ())?;
@@ -276,13 +250,13 @@ fn parse_font_size(input: &mut Parser, important: bool) -> Vec<Declaration> {
             _ => Err(()),
         }
     }) {
-        return single_decl("font-size", val, important);
+        return single_decl("font-size", val);
     }
     // Fall back to length/percentage.
-    parse_value_property(input, "font-size", important, parse_length_or_percentage)
+    parse_value_property(input, "font-size", parse_length_or_percentage)
 }
 
-fn parse_font_family(input: &mut Parser, important: bool) -> Vec<Declaration> {
+fn parse_font_family(input: &mut Parser) -> Vec<Declaration> {
     let mut families = Vec::new();
 
     loop {
@@ -332,7 +306,7 @@ fn parse_font_family(input: &mut Parser, important: bool) -> Vec<Declaration> {
     vec![Declaration {
         property: "font-family".to_string(),
         value: CssValue::List(families),
-        important,
+        important: false,
     }]
 }
 
@@ -342,7 +316,7 @@ const SIDES: &[&str] = &["top", "right", "bottom", "left"];
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
 /// their longhand equivalents. Longhand properties produce a single declaration.
-fn expand_global_keyword(name: &str, val: CssValue, important: bool) -> Vec<Declaration> {
+fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
     let longhands: Vec<String> = match name {
         "margin" => SIDES.iter().map(|s| format!("margin-{s}")).collect(),
         "padding" => SIDES.iter().map(|s| format!("padding-{s}")).collect(),
@@ -355,14 +329,14 @@ fn expand_global_keyword(name: &str, val: CssValue, important: bool) -> Vec<Decl
             })
             .collect(),
         // Longhand properties: single declaration.
-        _ => return single_decl(name, val, important),
+        _ => return single_decl(name, val),
     };
     longhands
         .iter()
         .map(|p| Declaration {
             property: p.clone(),
             value: val.clone(),
-            important,
+            important: false,
         })
         .collect()
 }
@@ -371,7 +345,6 @@ fn expand_global_keyword(name: &str, val: CssValue, important: bool) -> Vec<Decl
 fn expand_four_sides(
     input: &mut Parser,
     prefix: &str,
-    important: bool,
     parse_fn: fn(&mut Parser) -> Result<CssValue, ()>,
 ) -> Vec<Declaration> {
     let mut values = Vec::new();
@@ -418,22 +391,22 @@ fn expand_four_sides(
         Declaration {
             property: format!("{prefix}-top"),
             value: top,
-            important,
+            important: false,
         },
         Declaration {
             property: format!("{prefix}-right"),
             value: right,
-            important,
+            important: false,
         },
         Declaration {
             property: format!("{prefix}-bottom"),
             value: bottom,
-            important,
+            important: false,
         },
         Declaration {
             property: format!("{prefix}-left"),
             value: left,
-            important,
+            important: false,
         },
     ]
 }
@@ -441,7 +414,7 @@ fn expand_four_sides(
 /// Parse the `border` shorthand: `[width] [style] [color]` in any order.
 ///
 /// Produces 12 longhand declarations (4 sides x 3 properties).
-fn parse_border_shorthand(input: &mut Parser, important: bool) -> Vec<Declaration> {
+fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
     let mut width: Option<CssValue> = None;
     let mut style: Option<CssValue> = None;
     let mut color: Option<CssValue> = None;
@@ -504,17 +477,17 @@ fn parse_border_shorthand(input: &mut Parser, important: bool) -> Vec<Declaratio
         decls.push(Declaration {
             property: format!("border-{side}-width"),
             value: w.clone(),
-            important,
+            important: false,
         });
         decls.push(Declaration {
             property: format!("border-{side}-style"),
             value: s.clone(),
-            important,
+            important: false,
         });
         decls.push(Declaration {
             property: format!("border-{side}-color"),
             value: c.clone(),
-            important,
+            important: false,
         });
     }
     decls

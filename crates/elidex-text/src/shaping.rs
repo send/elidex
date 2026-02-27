@@ -33,6 +33,7 @@ pub struct ShapedText {
 ///
 /// Returns `None` if the font data cannot be accessed or the face cannot be
 /// parsed.
+#[must_use]
 pub fn shape_text(
     db: &FontDatabase,
     font_id: fontdb::ID,

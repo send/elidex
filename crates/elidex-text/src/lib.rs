@@ -3,10 +3,10 @@
 //! Provides text layout primitives including Unicode line breaking,
 //! font metric queries, and glyph shaping integration.
 
-pub mod database;
-pub mod linebreak;
-pub mod measurement;
-pub mod shaping;
+mod database;
+mod linebreak;
+mod measurement;
+mod shaping;
 
 pub use database::{FontDatabase, FontMetrics};
 pub use fontdb::ID as FontId;

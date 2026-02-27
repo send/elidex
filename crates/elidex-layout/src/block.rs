@@ -49,18 +49,6 @@ pub(crate) fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
     resolve_dimension(dim, containing_width, 0.0)
 }
 
-/// Resolve content width from the `width` property.
-///
-/// `horizontal_extra` is the sum of resolved margins, padding, and border widths.
-/// Non-finite results are replaced with 0.0.
-fn resolve_width(style: &ComputedStyle, containing_width: f32, horizontal_extra: f32) -> f32 {
-    resolve_dimension(
-        style.width,
-        containing_width,
-        (containing_width - horizontal_extra).max(0.0),
-    )
-}
-
 /// Resolve content height. Returns `None` for auto/percentage (shrink-to-content).
 ///
 /// Non-finite lengths are treated as auto.
@@ -183,11 +171,7 @@ fn layout_block_inner(
     font_db: &FontDatabase,
     depth: u32,
 ) -> LayoutBox {
-    let style = dom
-        .world()
-        .get::<&ComputedStyle>(entity)
-        .map(|s| (*s).clone())
-        .unwrap_or_default();
+    let style = crate::get_style(dom, entity);
 
     // --- Sanitize padding and border (protect against NaN/infinity) ---
     let padding = sanitize_edges(
@@ -216,7 +200,11 @@ fn layout_block_inner(
         + padding.right
         + border.left
         + border.right;
-    let content_width = resolve_width(&style, containing_width, horizontal_extra);
+    let content_width = resolve_dimension(
+        style.width,
+        containing_width,
+        (containing_width - horizontal_extra).max(0.0),
+    );
 
     // --- Horizontal margin auto centering ---
     let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
