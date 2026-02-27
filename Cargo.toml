@@ -20,7 +20,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/send-sh/elidex"
 authors = ["send.sh"]
-rust-version = "1.75"
+rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
@@ -47,6 +47,14 @@ elidex-ecs = { path = "crates/elidex-ecs" }
 elidex-css = { path = "crates/elidex-css" }
 elidex-text = { path = "crates/elidex-text" }
 elidex-style = { path = "crates/elidex-style" }
+elidex-parser = { path = "crates/elidex-parser" }
+elidex-layout = { path = "crates/elidex-layout" }
+elidex-render = { path = "crates/elidex-render" }
+elidex-shell = { path = "crates/elidex-shell" }
+vello = "0.7"
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
 
 [profile.release]
 lto = true
@@ -58,6 +66,8 @@ unsafe_code = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# Allow assert_eq! on f32 in tests (exact values from deterministic computations)
+float_cmp = "allow"
 # Allow common patterns
 module_name_repetitions = "allow"
 must_use_candidate = "allow"

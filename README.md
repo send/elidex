@@ -30,7 +30,7 @@ docs/
 
 ### Prerequisites
 
-- Rust stable toolchain (MSRV: 1.75)
+- Rust stable toolchain (MSRV: 1.88)
 - [mise](https://mise.jdx.dev/) (task runner)
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
 

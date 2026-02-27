@@ -1,7 +1,7 @@
 //! Layout types used by [`LayoutModel`](crate::LayoutModel).
 
 /// An axis-aligned rectangle.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
     /// X coordinate of the top-left corner.
     pub x: f32,
@@ -14,7 +14,7 @@ pub struct Rect {
 }
 
 /// A 2D size (width and height).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Size {
     /// Width in pixels.
     pub width: f32,
@@ -23,7 +23,7 @@ pub struct Size {
 }
 
 /// Edge sizes for padding, border, and margin.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EdgeSizes {
     /// Top edge size in pixels.
     pub top: f32,
@@ -33,6 +33,43 @@ pub struct EdgeSizes {
     pub bottom: f32,
     /// Left edge size in pixels.
     pub left: f32,
+}
+
+impl EdgeSizes {
+    /// Create edge sizes with individual values for each side.
+    #[must_use]
+    pub fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
+    /// Create edge sizes with the same value on all sides.
+    #[must_use]
+    pub fn uniform(value: f32) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
+}
+
+impl Rect {
+    /// Returns a new rectangle expanded outward by the given edge sizes.
+    #[must_use]
+    pub fn expand(self, edges: EdgeSizes) -> Self {
+        Self {
+            x: self.x - edges.left,
+            y: self.y - edges.top,
+            width: self.width + edges.left + edges.right,
+            height: self.height + edges.top + edges.bottom,
+        }
+    }
 }
 
 /// A box in the layout tree.
@@ -55,36 +92,21 @@ impl LayoutBox {
     /// Returns the padding box (content + padding).
     #[must_use]
     pub fn padding_box(&self) -> Rect {
-        Rect {
-            x: self.content.x - self.padding.left,
-            y: self.content.y - self.padding.top,
-            width: self.content.width + self.padding.left + self.padding.right,
-            height: self.content.height + self.padding.top + self.padding.bottom,
-        }
+        self.content.expand(self.padding)
     }
 
     /// Returns the border box (content + padding + border).
     #[must_use]
     pub fn border_box(&self) -> Rect {
-        let pb = self.padding_box();
-        Rect {
-            x: pb.x - self.border.left,
-            y: pb.y - self.border.top,
-            width: pb.width + self.border.left + self.border.right,
-            height: pb.height + self.border.top + self.border.bottom,
-        }
+        self.padding_box().expand(self.border)
     }
 
     /// Returns the margin box (content + padding + border + margin).
+    ///
+    /// Note: negative margins can produce a `Rect` with negative width or height.
     #[must_use]
     pub fn margin_box(&self) -> Rect {
-        let bb = self.border_box();
-        Rect {
-            x: bb.x - self.margin.left,
-            y: bb.y - self.margin.top,
-            width: bb.width + self.margin.left + self.margin.right,
-            height: bb.height + self.margin.top + self.margin.bottom,
-        }
+        self.border_box().expand(self.margin)
     }
 }
 

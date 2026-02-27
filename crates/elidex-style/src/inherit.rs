@@ -11,14 +11,14 @@ const INHERITED_PROPERTIES: &[&str] = &["color", "font-size", "font-family"];
 /// Returns `true` if the named CSS property is inherited.
 ///
 /// Unknown properties are treated as non-inherited.
-pub fn is_inherited(property: &str) -> bool {
+pub(crate) fn is_inherited(property: &str) -> bool {
     INHERITED_PROPERTIES.contains(&property)
 }
 
 /// Returns the CSS initial value for a known property.
 ///
 /// Unknown properties return `CssValue::Initial` as a fallback.
-pub fn get_initial_value(property: &str) -> CssValue {
+pub(crate) fn get_initial_value(property: &str) -> CssValue {
     match property {
         // Inherited
         "color" => CssValue::Color(CssColor::BLACK),

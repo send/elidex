@@ -18,6 +18,8 @@ pub enum HtmlSpecLevel {
 }
 
 /// DOM API specification levels.
+///
+/// Phase 2+ will add DOM4/Mutation Observer and Shadow DOM variants.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum DomSpecLevel {
@@ -31,6 +33,8 @@ pub enum DomSpecLevel {
 }
 
 /// ECMAScript specification levels.
+///
+/// Phase 2+ will add TC39 stage-based variants for proposal features.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum EsSpecLevel {

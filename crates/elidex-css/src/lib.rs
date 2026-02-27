@@ -65,11 +65,11 @@ mod integration_tests {
 
     #[test]
     fn specificity_cascade_order() {
-        let css = r#"
+        let css = r"
             div { color: red; }
             .highlight { color: blue; }
             #main { color: green; }
-        "#;
+        ";
         let ss = parse_stylesheet(css, Origin::Author);
         assert_eq!(ss.rules.len(), 3);
 
@@ -83,10 +83,10 @@ mod integration_tests {
 
     #[test]
     fn important_vs_normal() {
-        let css = r#"
+        let css = r"
             div { color: red !important; }
             div { color: blue; }
-        "#;
+        ";
         let ss = parse_stylesheet(css, Origin::Author);
         assert_eq!(ss.rules.len(), 2);
 

@@ -70,11 +70,13 @@ pub struct CssColor {
 
 impl CssColor {
     /// Create a new color with the given RGBA components.
+    #[must_use]
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 
     /// Create a fully opaque color.
+    #[must_use]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }

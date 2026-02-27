@@ -3,13 +3,13 @@
 //! Supports break opportunities at:
 //! - ASCII space (0x20) — break after
 //! - Hyphen (`-`) — break after
-//! - CJK character boundaries — break between CJK characters
+//! - CJK/Hangul boundaries — break before and after CJK/Hangul characters
 //! - Newline (`\n`) — mandatory break
 //!
 //! Full ICU4X / unicode-linebreak support is deferred to Phase 2.
 
 /// The kind of break opportunity at a given position.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BreakOpportunity {
     /// A soft break opportunity (space, hyphen, CJK boundary).
     Allowed,
@@ -27,6 +27,8 @@ pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
 
     while let Some((byte_offset, ch)) = iter.next() {
         // Mandatory break at newline — the break is *after* the newline character.
+        // Uses `<=` (not `<`) so a trailing newline forces an empty last line,
+        // matching CSS white-space handling where `\n` always terminates a line.
         if ch == '\n' {
             let break_pos = byte_offset + ch.len_utf8();
             if break_pos <= text.len() {
@@ -35,8 +37,8 @@ pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
             continue;
         }
 
-        // Allowed break after ASCII space.
-        if ch == ' ' {
+        // Allowed break after ASCII space or hyphen.
+        if ch == ' ' || ch == '-' {
             let break_pos = byte_offset + 1;
             if break_pos < text.len() {
                 result.push((break_pos, BreakOpportunity::Allowed));
@@ -44,21 +46,15 @@ pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
             continue;
         }
 
-        // Allowed break after hyphen.
-        if ch == '-' {
-            let break_pos = byte_offset + 1;
-            if break_pos < text.len() {
-                result.push((break_pos, BreakOpportunity::Allowed));
-            }
-            continue;
-        }
-
-        // CJK boundary: break between two adjacent CJK characters.
+        // CJK boundaries: break before and after CJK characters.
+        // This covers CJK–CJK, CJK–non-CJK, and non-CJK–CJK boundaries.
         if is_cjk_codepoint(ch) {
-            if let Some(&(next_offset, next_ch)) = iter.peek() {
-                if is_cjk_codepoint(next_ch) {
-                    result.push((next_offset, BreakOpportunity::Allowed));
-                }
+            if let Some(&(next_offset, _)) = iter.peek() {
+                result.push((next_offset, BreakOpportunity::Allowed));
+            }
+        } else if let Some(&(next_offset, next_ch)) = iter.peek() {
+            if is_cjk_codepoint(next_ch) {
+                result.push((next_offset, BreakOpportunity::Allowed));
             }
         }
     }
@@ -66,7 +62,7 @@ pub fn find_break_opportunities(text: &str) -> Vec<(usize, BreakOpportunity)> {
     result
 }
 
-/// Returns `true` if `c` is in a CJK Unified Ideographs block.
+/// Returns `true` if `c` is in a CJK or Hangul block.
 ///
 /// Covers the main CJK blocks used in Chinese, Japanese, and Korean text.
 fn is_cjk_codepoint(c: char) -> bool {
@@ -87,6 +83,8 @@ fn is_cjk_codepoint(c: char) -> bool {
         || (0x3000..=0x303F).contains(&cp)
         // Fullwidth Forms
         || (0xFF00..=0xFFEF).contains(&cp)
+        // Hangul Syllables
+        || (0xAC00..=0xD7AF).contains(&cp)
 }
 
 #[cfg(test)]
@@ -161,6 +159,52 @@ mod tests {
             vec![
                 (2, BreakOpportunity::Allowed),
                 (3, BreakOpportunity::Allowed),
+            ]
+        );
+    }
+
+    #[test]
+    fn cjk_non_cjk_boundary() {
+        // "hello漢字" — break between 'o' and '漢', and between '漢' and '字'
+        let result = find_break_opportunities("hello漢字");
+        assert_eq!(
+            result,
+            vec![
+                (5, BreakOpportunity::Allowed), // before 漢 (non-CJK → CJK)
+                (8, BreakOpportunity::Allowed), // between 漢 and 字 (CJK → CJK)
+            ]
+        );
+    }
+
+    #[test]
+    fn cjk_to_ascii_boundary() {
+        // "漢字hello" — break between 漢 and 字, then between 字 and 'h'
+        let result = find_break_opportunities("漢字hello");
+        assert_eq!(
+            result,
+            vec![
+                (3, BreakOpportunity::Allowed), // between 漢 and 字
+                (6, BreakOpportunity::Allowed), // after 字 (CJK → non-CJK)
+            ]
+        );
+    }
+
+    #[test]
+    fn hangul_syllables() {
+        // "한글" — two Hangul syllables, break between them
+        let result = find_break_opportunities("한글");
+        assert_eq!(result, vec![(3, BreakOpportunity::Allowed)]);
+    }
+
+    #[test]
+    fn hangul_ascii_boundary() {
+        // "hello한글" — break between 'o' and '한', and between '한' and '글'
+        let result = find_break_opportunities("hello한글");
+        assert_eq!(
+            result,
+            vec![
+                (5, BreakOpportunity::Allowed), // before 한 (non-CJK → Hangul)
+                (8, BreakOpportunity::Allowed), // between 한 and 글
             ]
         );
     }

@@ -1,10 +1,16 @@
 //! Font database wrapping [`fontdb`] for font discovery and metric queries.
 
-use fontdb::Database;
+use fontdb;
 
 /// Wraps [`fontdb::Database`] for font lookup and metric extraction.
 pub struct FontDatabase {
-    db: Database,
+    db: fontdb::Database,
+}
+
+impl std::fmt::Debug for FontDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FontDatabase").finish_non_exhaustive()
+    }
 }
 
 /// Font metrics scaled to pixel units for a given font size.
@@ -16,14 +22,21 @@ pub struct FontMetrics {
     pub descent: f32,
     /// Line gap in pixels.
     pub line_gap: f32,
-    /// Font design units per em.
-    pub units_per_em: u16,
+}
+
+/// Compute pixel scale factor from a parsed font face and desired font size.
+///
+/// Returns `None` if the face's `units_per_em` overflows `u16`.
+pub(crate) fn pixel_scale(face: &rustybuzz::Face, font_size: f32) -> Option<f32> {
+    let upem = face.units_per_em();
+    let upem_u16 = u16::try_from(upem).ok()?;
+    Some(font_size / f32::from(upem_u16))
 }
 
 impl FontDatabase {
     /// Creates a new font database loaded with system fonts.
     pub fn new() -> Self {
-        let mut db = Database::new();
+        let mut db = fontdb::Database::new();
         db.load_system_fonts();
         Self { db }
     }
@@ -49,10 +62,7 @@ impl FontDatabase {
     pub fn font_metrics(&self, id: fontdb::ID, font_size: f32) -> Option<FontMetrics> {
         self.db.with_face_data(id, |data, face_index| {
             let face = rustybuzz::Face::from_slice(data, face_index)?;
-            let upem = face.units_per_em();
-            // units_per_em is always positive and fits in u16 for valid fonts.
-            let upem_u16 = u16::try_from(upem).ok()?;
-            let scale = font_size / f32::from(upem_u16);
+            let scale = pixel_scale(&face, font_size)?;
 
             // ttf_parser::Face methods via Deref: ascender(), descender(), line_gap()
             let ascent = f32::from(face.ascender()) * scale;
@@ -63,16 +73,18 @@ impl FontDatabase {
                 ascent,
                 descent,
                 line_gap,
-                units_per_em: upem_u16,
             })
         })?
     }
 
-    /// Provides access to the underlying [`fontdb::Database`].
+    /// Provides raw font data access for a given font ID.
     ///
-    /// Used by the shaping module to access raw font data.
-    pub(crate) fn inner(&self) -> &Database {
-        &self.db
+    /// The callback receives the font binary data and the face index within the
+    /// font collection. Returns `None` if the font ID is invalid.
+    ///
+    /// Used by `elidex-render` to create Vello `FontData` instances.
+    pub fn with_face_data<R>(&self, id: fontdb::ID, f: impl FnOnce(&[u8], u32) -> R) -> Option<R> {
+        self.db.with_face_data(id, f)
     }
 }
 
@@ -100,14 +112,7 @@ mod tests {
     #[test]
     fn query_system_font() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(&[
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ]) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES) else {
             // CI environment may not have fonts installed
             return;
         };
@@ -119,14 +124,7 @@ mod tests {
     #[test]
     fn font_metrics_pixel_scaling() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(&[
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ]) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES) else {
             return;
         };
         let metrics = db.font_metrics(id, 16.0).unwrap();
@@ -134,7 +132,5 @@ mod tests {
         assert!(metrics.ascent > 0.0);
         // Descent should be negative (below baseline)
         assert!(metrics.descent < 0.0);
-        // units_per_em should be a common value (typically 1000 or 2048)
-        assert!(metrics.units_per_em > 0);
     }
 }

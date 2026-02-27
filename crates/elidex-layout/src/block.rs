@@ -9,10 +9,7 @@ use elidex_plugin::{ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rec
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
-
-/// Maximum recursion depth for layout. Prevents stack overflow on
-/// deeply nested DOMs. Matches elidex-ecs's ancestor walk depth cap.
-const MAX_LAYOUT_DEPTH: u32 = 1000;
+use crate::MAX_LAYOUT_DEPTH;
 
 /// Replace non-finite f32 values (NaN, infinity) with 0.0.
 fn sanitize(v: f32) -> f32 {
@@ -23,16 +20,33 @@ fn sanitize(v: f32) -> f32 {
     }
 }
 
+/// Sanitize four edge values into an [`EdgeSizes`].
+fn sanitize_edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+    EdgeSizes::new(
+        sanitize(top),
+        sanitize(right),
+        sanitize(bottom),
+        sanitize(left),
+    )
+}
+
+/// Resolve a [`Dimension`] to pixels with a fallback for `Auto`.
+///
+/// Non-finite results are replaced with 0.0.
+fn resolve_dimension(dim: Dimension, containing: f32, auto_value: f32) -> f32 {
+    sanitize(match dim {
+        Dimension::Length(px) => px,
+        Dimension::Percentage(pct) => containing * pct / 100.0,
+        Dimension::Auto => auto_value,
+    })
+}
+
 /// Resolve a `Dimension` margin value to pixels.
 ///
 /// `Auto` returns 0.0 here; horizontal auto centering is handled separately.
 /// Non-finite results are replaced with 0.0.
 pub(crate) fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
-    sanitize(match dim {
-        Dimension::Length(px) => px,
-        Dimension::Percentage(pct) => containing_width * pct / 100.0,
-        Dimension::Auto => 0.0,
-    })
+    resolve_dimension(dim, containing_width, 0.0)
 }
 
 /// Resolve content width from the `width` property.
@@ -40,11 +54,11 @@ pub(crate) fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
 /// `horizontal_extra` is the sum of resolved margins, padding, and border widths.
 /// Non-finite results are replaced with 0.0.
 fn resolve_width(style: &ComputedStyle, containing_width: f32, horizontal_extra: f32) -> f32 {
-    sanitize(match style.width {
-        Dimension::Length(px) => px,
-        Dimension::Percentage(pct) => containing_width * pct / 100.0,
-        Dimension::Auto => (containing_width - horizontal_extra).max(0.0),
-    })
+    resolve_dimension(
+        style.width,
+        containing_width,
+        (containing_width - horizontal_extra).max(0.0),
+    )
 }
 
 /// Resolve content height. Returns `None` for auto/percentage (shrink-to-content).
@@ -91,13 +105,10 @@ fn apply_margin_auto_centering(
         }
         (false, false) => {
             let ml = resolve_margin(style.margin_left, containing_width);
-            let mr = resolve_margin(style.margin_right, containing_width);
-            if ml + mr + used_horizontal > containing_width {
-                // Overconstrained (LTR): margin-right absorbs the excess.
-                (ml, containing_width - used_horizontal - ml)
-            } else {
-                (ml, mr)
-            }
+            // CSS 2.1 §10.3.3: When no margins are auto, the system is
+            // over-constrained. In LTR, margin-right is recalculated to
+            // satisfy the constraint equation.
+            (ml, containing_width - used_horizontal - ml)
         }
     }
 }
@@ -117,6 +128,16 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
     }
 }
 
+/// Returns `true` if the display value establishes a block-level box.
+// TODO(Phase 2): InlineBlock should participate in inline formatting
+// context (CSS 2.1 §9.2.2), not force block context.
+fn is_block_level(display: Display) -> bool {
+    matches!(
+        display,
+        Display::Block | Display::InlineBlock | Display::Flex
+    )
+}
+
 /// Returns `true` if any child is block-level (block formatting context).
 ///
 /// When this returns `true` and inline children are also present, inline
@@ -125,17 +146,11 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
 /// Phase 2.
 // TODO(Phase 2): generate anonymous block boxes for mixed block/inline content.
 fn children_are_block(dom: &EcsDom, children: &[Entity]) -> bool {
-    for &child in children {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(child) {
-            match style.display {
-                // TODO(Phase 2): InlineBlock should participate in inline formatting
-                // context (CSS 2.1 §9.2.2), not force block context.
-                Display::Block | Display::InlineBlock | Display::Flex => return true,
-                Display::None | Display::Inline => {}
-            }
-        }
-    }
-    false
+    children.iter().any(|&child| {
+        dom.world()
+            .get::<&ComputedStyle>(child)
+            .is_ok_and(|s| is_block_level(s.display))
+    })
 }
 
 /// Layout a block-level element, inserting `LayoutBox` on it and all descendants.
@@ -175,14 +190,18 @@ fn layout_block_inner(
         .unwrap_or_default();
 
     // --- Sanitize padding and border (protect against NaN/infinity) ---
-    let pad_top = sanitize(style.padding_top);
-    let pad_right = sanitize(style.padding_right);
-    let pad_bottom = sanitize(style.padding_bottom);
-    let pad_left = sanitize(style.padding_left);
-    let bdr_top = sanitize(style.border_top_width);
-    let bdr_right = sanitize(style.border_right_width);
-    let bdr_bottom = sanitize(style.border_bottom_width);
-    let bdr_left = sanitize(style.border_left_width);
+    let padding = sanitize_edges(
+        style.padding_top,
+        style.padding_right,
+        style.padding_bottom,
+        style.padding_left,
+    );
+    let border = sanitize_edges(
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
+    );
 
     // --- Resolve margins ---
     let margin_top = resolve_margin(style.margin_top, containing_width);
@@ -191,12 +210,16 @@ fn layout_block_inner(
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
     let margin_right_raw = resolve_margin(style.margin_right, containing_width);
-    let horizontal_extra =
-        margin_left_raw + margin_right_raw + pad_left + pad_right + bdr_left + bdr_right;
+    let horizontal_extra = margin_left_raw
+        + margin_right_raw
+        + padding.left
+        + padding.right
+        + border.left
+        + border.right;
     let content_width = resolve_width(&style, containing_width, horizontal_extra);
 
     // --- Horizontal margin auto centering ---
-    let used_horizontal = content_width + pad_left + pad_right + bdr_left + bdr_right;
+    let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
     let (margin_left, margin_right) = if matches!(style.width, Dimension::Auto) {
         (margin_left_raw, margin_right_raw)
     } else {
@@ -204,15 +227,15 @@ fn layout_block_inner(
     };
 
     // --- Content rect position ---
-    let content_x = offset_x + margin_left + bdr_left + pad_left;
-    let content_y = offset_y + margin_top + bdr_top + pad_top;
+    let content_x = offset_x + margin_left + border.left + padding.left;
+    let content_y = offset_y + margin_top + border.top + padding.top;
 
     // --- Layout children (stop recursion at depth limit) ---
     let children = dom.children(entity);
     let content_height = if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
     } else if children_are_block(dom, &children) {
-        layout_block_children_inner(
+        stack_block_children(
             dom,
             &children,
             content_width,
@@ -242,37 +265,23 @@ fn layout_block_inner(
             width: content_width,
             height,
         },
-        padding: EdgeSizes {
-            top: pad_top,
-            right: pad_right,
-            bottom: pad_bottom,
-            left: pad_left,
-        },
-        border: EdgeSizes {
-            top: bdr_top,
-            right: bdr_right,
-            bottom: bdr_bottom,
-            left: bdr_left,
-        },
-        margin: EdgeSizes {
-            top: margin_top,
-            right: margin_right,
-            bottom: margin_bottom,
-            left: margin_left,
-        },
+        padding,
+        border,
+        margin: EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
 }
 
-/// Layout block-level children with vertical stacking and margin collapse.
+/// Stack block-level children with vertical margin collapse.
 ///
-/// Currently only collapses margins between adjacent block siblings.
+/// Shared by block children layout and document-root layout. Returns
+/// the total height consumed (`cursor_y` − `offset_y`).
 // TODO(Phase 2): implement parent-child margin collapse (CSS 2.1 §8.3.1)
 // when parent has no border-top/padding-top (first child) or
 // border-bottom/padding-bottom (last child).
-fn layout_block_children_inner(
+pub(crate) fn stack_block_children(
     dom: &mut EcsDom,
     children: &[Entity],
     containing_width: f32,
@@ -285,18 +294,18 @@ fn layout_block_children_inner(
     let mut prev_margin_bottom: Option<f32> = None;
 
     for &child in children {
-        let child_style = match dom.world().get::<&ComputedStyle>(child) {
-            Ok(s) => (*s).clone(),
+        let (child_display, child_margin_top_dim) = match dom.world().get::<&ComputedStyle>(child) {
+            Ok(s) => (s.display, s.margin_top),
             Err(_) => continue, // text node in block context: skip
         };
 
-        if child_style.display == Display::None || child_style.display == Display::Inline {
+        if !is_block_level(child_display) {
             continue;
         }
 
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
         // Both positive → max, both negative → min, mixed → sum.
-        let child_margin_top = resolve_margin(child_style.margin_top, containing_width);
+        let child_margin_top = resolve_margin(child_margin_top_dim, containing_width);
         if let Some(prev_mb) = prev_margin_bottom {
             let collapsed = collapse_margins(prev_mb, child_margin_top);
             cursor_y -= prev_mb + child_margin_top - collapsed;
@@ -324,6 +333,13 @@ mod tests {
     use super::*;
     use elidex_ecs::Attributes;
 
+    fn block_style() -> ComputedStyle {
+        ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        }
+    }
+
     fn make_dom_with_block_div(style: ComputedStyle) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let div = dom.create_element("div", Attributes::default());
@@ -333,11 +349,7 @@ mod tests {
 
     #[test]
     fn width_auto_fills_containing_block() {
-        let style = ComputedStyle {
-            display: Display::Block,
-            ..Default::default()
-        };
-        let (mut dom, div) = make_dom_with_block_div(style);
+        let (mut dom, div) = make_dom_with_block_div(block_style());
         let font_db = FontDatabase::new();
 
         let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
@@ -394,17 +406,13 @@ mod tests {
         dom.append_child(parent, child1);
         dom.append_child(parent, child2);
 
-        let parent_style = ComputedStyle {
-            display: Display::Block,
-            ..Default::default()
-        };
         let child_style = ComputedStyle {
             display: Display::Block,
             height: Dimension::Length(50.0),
             ..Default::default()
         };
 
-        dom.world_mut().insert_one(parent, parent_style);
+        dom.world_mut().insert_one(parent, block_style());
         dom.world_mut().insert_one(child1, child_style.clone());
         dom.world_mut().insert_one(child2, child_style);
 
@@ -422,13 +430,7 @@ mod tests {
         dom.append_child(parent, visible);
         dom.append_child(parent, hidden);
 
-        dom.world_mut().insert_one(
-            parent,
-            ComputedStyle {
-                display: Display::Block,
-                ..Default::default()
-            },
-        );
+        dom.world_mut().insert_one(parent, block_style());
         dom.world_mut().insert_one(
             visible,
             ComputedStyle {
@@ -460,13 +462,7 @@ mod tests {
         dom.append_child(parent, child1);
         dom.append_child(parent, child2);
 
-        dom.world_mut().insert_one(
-            parent,
-            ComputedStyle {
-                display: Display::Block,
-                ..Default::default()
-            },
-        );
+        dom.world_mut().insert_one(parent, block_style());
         dom.world_mut().insert_one(
             child1,
             ComputedStyle {
@@ -502,13 +498,7 @@ mod tests {
         dom.append_child(parent, child1);
         dom.append_child(parent, child2);
 
-        dom.world_mut().insert_one(
-            parent,
-            ComputedStyle {
-                display: Display::Block,
-                ..Default::default()
-            },
-        );
+        dom.world_mut().insert_one(parent, block_style());
         // Both negative: collapsed = min(-10, -20) = -20
         dom.world_mut().insert_one(
             child1,
@@ -545,13 +535,7 @@ mod tests {
         dom.append_child(parent, child1);
         dom.append_child(parent, child2);
 
-        dom.world_mut().insert_one(
-            parent,
-            ComputedStyle {
-                display: Display::Block,
-                ..Default::default()
-            },
-        );
+        dom.world_mut().insert_one(parent, block_style());
         // Mixed: collapsed = 20 + (-10) = 10
         dom.world_mut().insert_one(
             child1,

@@ -33,11 +33,13 @@ pub struct NodeHandle(u64);
 
 impl NodeHandle {
     /// Create a `NodeHandle` from a raw `u64` entity ID.
+    #[must_use]
     pub fn from_bits(bits: u64) -> Self {
         Self(bits)
     }
 
     /// Extract the raw `u64` entity ID.
+    #[must_use]
     pub fn to_bits(self) -> u64 {
         self.0
     }

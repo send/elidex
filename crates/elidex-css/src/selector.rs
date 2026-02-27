@@ -9,7 +9,7 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 /// A single component of a CSS selector.
 ///
 /// Components are stored right-to-left for efficient matching.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum SelectorComponent {
     /// The universal selector (`*`).
@@ -27,7 +27,7 @@ pub enum SelectorComponent {
 }
 
 /// A parsed CSS selector with its computed specificity.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Selector {
     /// Components stored right-to-left for efficient matching.
     pub components: Vec<SelectorComponent>,
@@ -46,6 +46,18 @@ pub struct Specificity {
     pub id: u16,
     pub class: u16,
     pub tag: u16,
+}
+
+impl Specificity {
+    /// Component-wise saturating addition of two specificities.
+    #[must_use]
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            id: self.id.saturating_add(other.id),
+            class: self.class.saturating_add(other.class),
+            tag: self.tag.saturating_add(other.tag),
+        }
+    }
 }
 
 impl Selector {
@@ -109,9 +121,7 @@ fn parse_one_selector(input: &mut Parser) -> Result<Selector, ()> {
         if ok {
             components.push(SelectorComponent::Descendant);
             components.extend(tmp_components);
-            specificity.id = specificity.id.saturating_add(tmp_specificity.id);
-            specificity.class = specificity.class.saturating_add(tmp_specificity.class);
-            specificity.tag = specificity.tag.saturating_add(tmp_specificity.tag);
+            specificity = specificity.saturating_add(tmp_specificity);
             continue;
         }
 
@@ -210,44 +220,29 @@ fn match_components(
     match &components[idx] {
         SelectorComponent::Universal => match_components(components, idx + 1, entity, dom),
         SelectorComponent::Tag(tag) => {
-            let matches = dom
-                .world()
+            dom.world()
                 .get::<&TagType>(entity)
                 .ok()
-                .is_some_and(|t| t.0 == *tag);
-            if matches {
-                match_components(components, idx + 1, entity, dom)
-            } else {
-                false
-            }
+                .is_some_and(|t| t.0 == *tag)
+                && match_components(components, idx + 1, entity, dom)
         }
         SelectorComponent::Class(class) => {
-            let matches = dom
-                .world()
+            dom.world()
                 .get::<&Attributes>(entity)
                 .ok()
                 .is_some_and(|attrs| {
                     attrs
                         .get("class")
                         .is_some_and(|c| c.split_whitespace().any(|w| w == class.as_str()))
-                });
-            if matches {
-                match_components(components, idx + 1, entity, dom)
-            } else {
-                false
-            }
+                })
+                && match_components(components, idx + 1, entity, dom)
         }
         SelectorComponent::Id(id) => {
-            let matches = dom
-                .world()
+            dom.world()
                 .get::<&Attributes>(entity)
                 .ok()
-                .is_some_and(|attrs| attrs.get("id") == Some(id.as_str()));
-            if matches {
-                match_components(components, idx + 1, entity, dom)
-            } else {
-                false
-            }
+                .is_some_and(|attrs| attrs.get("id") == Some(id.as_str()))
+                && match_components(components, idx + 1, entity, dom)
         }
         SelectorComponent::Descendant => {
             // Walk up ancestors looking for a match (depth-limited to match EcsDom's MAX_ANCESTOR_DEPTH).
@@ -460,10 +455,10 @@ mod tests {
         let e = elem_with_class(&mut dom, "div", "foo bar");
         let sel_foo = parse_sel(".foo").unwrap();
         let sel_bar = parse_sel(".bar").unwrap();
-        let sel_baz = parse_sel(".baz").unwrap();
+        let sel_absent = parse_sel(".baz").unwrap();
         assert!(sel_foo.matches(e, &dom));
         assert!(sel_bar.matches(e, &dom));
-        assert!(!sel_baz.matches(e, &dom));
+        assert!(!sel_absent.matches(e, &dom));
     }
 
     #[test]

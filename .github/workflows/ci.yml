@@ -111,7 +111,7 @@ jobs:
         run: cargo deny check
 
   msrv:
-    name: MSRV (1.75)
+    name: MSRV (1.88)
     needs: changes
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'push'
     timeout-minutes: 20
@@ -119,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.75
+      - uses: dtolnay/rust-toolchain@1.88
 
       - uses: Swatinem/rust-cache@v2
 

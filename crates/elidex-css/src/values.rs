@@ -6,39 +6,42 @@
 use cssparser::Parser;
 use elidex_plugin::{CssValue, LengthUnit};
 
-/// Parse a CSS length value (e.g. `10px`, `2em`, `0`).
+/// Try to parse a Dimension token or bare zero into a `CssValue`.
 ///
-/// Unitless `0` is treated as `0px` per CSS specification.
-#[allow(clippy::result_unit_err)]
-pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
-    let token = input.next().map_err(|_| ())?;
+/// Shared logic for `parse_length` and `parse_length_or_percentage`.
+fn try_dimension_or_zero(token: &cssparser::Token) -> Option<CssValue> {
     match *token {
         cssparser::Token::Dimension {
             value, ref unit, ..
-        } => {
-            let u = parse_length_unit(unit)?;
-            Ok(CssValue::Length(value, u))
-        }
-        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
-        _ => Err(()),
+        } => parse_length_unit(unit)
+            .ok()
+            .map(|u| CssValue::Length(value, u)),
+        cssparser::Token::Number { value: 0.0, .. } => Some(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => None,
     }
+}
+
+/// Parse a CSS length value (e.g. `10px`, `2em`, `0`).
+///
+/// Unitless `0` is treated as `0px` per CSS specification.
+#[cfg(test)]
+#[allow(clippy::result_unit_err)]
+pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
+    let token = input.next().map_err(|_| ())?;
+    try_dimension_or_zero(token).ok_or(())
 }
 
 /// Parse a length or percentage value.
 #[allow(clippy::result_unit_err)]
 pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let token = input.next().map_err(|_| ())?;
+    if let Some(val) = try_dimension_or_zero(token) {
+        return Ok(val);
+    }
     match *token {
-        cssparser::Token::Dimension {
-            value, ref unit, ..
-        } => {
-            let u = parse_length_unit(unit)?;
-            Ok(CssValue::Length(value, u))
-        }
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(()),
     }
 }
@@ -46,18 +49,15 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
 /// Parse a length, percentage, or `auto` keyword.
 #[allow(clippy::result_unit_err)]
 pub fn parse_length_percentage_or_auto(input: &mut Parser) -> Result<CssValue, ()> {
-    if input
-        .try_parse(|i| {
-            let ident = i.expect_ident().map_err(|_| ())?;
-            if ident.eq_ignore_ascii_case("auto") {
-                Ok(CssValue::Auto)
-            } else {
-                Err(())
-            }
-        })
-        .is_ok()
-    {
-        return Ok(CssValue::Auto);
+    if let Ok(val) = input.try_parse(|i| {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        if ident.eq_ignore_ascii_case("auto") {
+            Ok(CssValue::Auto)
+        } else {
+            Err(())
+        }
+    }) {
+        return Ok(val);
     }
     parse_length_or_percentage(input)
 }
@@ -97,13 +97,13 @@ mod tests {
         parse_length(&mut parser)
     }
 
-    fn lp(css: &str) -> Result<CssValue, ()> {
+    fn length_or_pct(css: &str) -> Result<CssValue, ()> {
         let mut input = ParserInput::new(css);
         let mut parser = Parser::new(&mut input);
         parse_length_or_percentage(&mut parser)
     }
 
-    fn lpa(css: &str) -> Result<CssValue, ()> {
+    fn length_pct_auto(css: &str) -> Result<CssValue, ()> {
         let mut input = ParserInput::new(css);
         let mut parser = Parser::new(&mut input);
         parse_length_percentage_or_auto(&mut parser)
@@ -132,12 +132,12 @@ mod tests {
 
     #[test]
     fn parse_percentage() {
-        assert_eq!(lp("50%"), Ok(CssValue::Percentage(50.0)));
+        assert_eq!(length_or_pct("50%"), Ok(CssValue::Percentage(50.0)));
     }
 
     #[test]
     fn parse_auto_keyword() {
-        assert_eq!(lpa("auto"), Ok(CssValue::Auto));
+        assert_eq!(length_pct_auto("auto"), Ok(CssValue::Auto));
     }
 
     #[test]

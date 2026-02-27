@@ -7,7 +7,7 @@ use crate::database::FontDatabase;
 use crate::shaping::shape_text;
 
 /// Measurement result for a text string at a given font size.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
     /// Total text width in pixels.
     pub width: f32,
@@ -48,14 +48,7 @@ pub fn measure_text(
 mod tests {
     use super::*;
 
-    const TEST_FAMILIES: &[&str] = &[
-        "Arial",
-        "Helvetica",
-        "Liberation Sans",
-        "DejaVu Sans",
-        "Noto Sans",
-        "Hiragino Sans",
-    ];
+    use crate::TEST_FONT_FAMILIES as TEST_FAMILIES;
 
     #[test]
     fn measure_text_positive_width() {

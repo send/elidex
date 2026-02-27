@@ -8,14 +8,13 @@ use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::{ComputedStyle, Display};
 use elidex_text::{find_break_opportunities, measure_text, BreakOpportunity, FontDatabase};
 
-/// Maximum recursion depth for inline text collection.
-const MAX_INLINE_DEPTH: u32 = 1000;
+use crate::MAX_LAYOUT_DEPTH;
 
 /// Recursively collect text content from inline children.
 ///
 /// Text nodes contribute their content directly. Inline elements
 /// contribute their children's text (flattened). `display: none`
-/// elements are skipped. Recursion stops at [`MAX_INLINE_DEPTH`].
+/// elements are skipped. Recursion stops at [`MAX_LAYOUT_DEPTH`].
 // TODO(Phase 2): preserve per-element styles (font-weight, font-size, etc.)
 // by returning styled text runs instead of a flat string.
 fn collect_text(dom: &EcsDom, children: &[Entity]) -> String {
@@ -23,7 +22,7 @@ fn collect_text(dom: &EcsDom, children: &[Entity]) -> String {
 }
 
 fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
-    if depth >= MAX_INLINE_DEPTH {
+    if depth >= MAX_LAYOUT_DEPTH {
         return String::new();
     }
     let mut text = String::new();

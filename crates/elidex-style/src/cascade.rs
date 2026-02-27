@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use elidex_css::{Declaration, Origin, Selector, Specificity, Stylesheet};
+use elidex_css::{Declaration, Origin, Specificity, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::CssValue;
 
@@ -62,13 +62,16 @@ pub(crate) fn collect_and_cascade<'a>(
         #[allow(clippy::cast_possible_truncation)] // Stylesheet count won't exceed u32::MAX.
         let sheet_index = sheet_idx as u32;
         for rule in &stylesheet.rules {
-            let matched = rule.selectors.iter().any(|sel| sel.matches(entity, dom));
-            if !matched {
+            // Single-pass: find max specificity among matching selectors.
+            let max_specificity = rule
+                .selectors
+                .iter()
+                .filter(|sel| sel.matches(entity, dom))
+                .map(|sel| sel.specificity)
+                .max();
+            let Some(max_specificity) = max_specificity else {
                 continue;
-            }
-
-            // Use the highest specificity among matching selectors.
-            let max_specificity = matching_specificity(&rule.selectors, entity, dom);
+            };
 
             for decl in &rule.declarations {
                 entries.push(CascadeEntry {
@@ -115,16 +118,6 @@ pub(crate) fn collect_and_cascade<'a>(
     winners
 }
 
-/// Find the highest specificity among selectors that match the entity.
-fn matching_specificity(selectors: &[Selector], entity: Entity, dom: &EcsDom) -> Specificity {
-    selectors
-        .iter()
-        .filter(|sel| sel.matches(entity, dom))
-        .map(|sel| sel.specificity)
-        .max()
-        .unwrap_or_default()
-}
-
 /// Retrieve inline style declarations from an element's `style` attribute.
 pub(crate) fn get_inline_declarations(entity: Entity, dom: &EcsDom) -> Vec<Declaration> {
     let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
@@ -152,13 +145,18 @@ mod tests {
         dom.create_element(tag, attrs)
     }
 
-    #[test]
-    fn single_declaration_wins() {
+    /// Setup a DOM with a document root and a single element child.
+    fn setup_with_element(tag: &str) -> (EcsDom, Entity, Entity) {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let div = elem(&mut dom, "div");
-        dom.append_child(root, div);
+        let el = elem(&mut dom, tag);
+        dom.append_child(root, el);
+        (dom, root, el)
+    }
 
+    #[test]
+    fn single_declaration_wins() {
+        let (dom, _, div) = setup_with_element("div");
         let ss = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);
@@ -282,10 +280,10 @@ mod tests {
         let div = elem_with_attrs(&mut dom, "div", attrs);
         dom.append_child(root, div);
 
-        let css = r#"
+        let css = r"
             .highlight { color: red; display: block; }
             div { color: blue; }
-        "#;
+        ";
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let winners = collect_and_cascade(div, &dom, &sheets, &[]);

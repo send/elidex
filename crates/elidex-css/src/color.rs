@@ -160,6 +160,7 @@ static NAMED_COLORS: &[(&str, CssColor)] = &[
 ];
 
 /// Look up a CSS named color (case-insensitive).
+#[cfg(test)]
 pub fn named_color(name: &str) -> Option<CssColor> {
     let lower = name.to_ascii_lowercase();
     named_color_lower(&lower)
@@ -285,13 +286,8 @@ fn parse_color_component(input: &mut Parser) -> Result<u8, ()> {
 fn parse_alpha_component(input: &mut Parser) -> Result<u8, ()> {
     let token = input.next().map_err(|_| ())?;
     match *token {
-        cssparser::Token::Number { value, .. } => {
-            // CSS spec: alpha is always 0.0–1.0, clamp out-of-range values.
-            Ok(clamp_u8(value.clamp(0.0, 1.0) * 255.0))
-        }
-        cssparser::Token::Percentage { unit_value, .. } => {
-            Ok(clamp_u8(unit_value.clamp(0.0, 1.0) * 255.0))
-        }
+        cssparser::Token::Number { value, .. } => Ok(clamp_u8(value * 255.0)),
+        cssparser::Token::Percentage { unit_value, .. } => Ok(clamp_u8(unit_value * 255.0)),
         _ => Err(()),
     }
 }

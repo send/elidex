@@ -4,6 +4,8 @@
 //! style resolution. It contains fully resolved values for all Phase 1
 //! CSS properties.
 
+use std::fmt;
+
 use crate::CssColor;
 
 /// The CSS `display` property.
@@ -17,6 +19,24 @@ pub enum Display {
     Flex,
 }
 
+impl AsRef<str> for Display {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Block => "block",
+            Self::Inline => "inline",
+            Self::InlineBlock => "inline-block",
+            Self::None => "none",
+            Self::Flex => "flex",
+        }
+    }
+}
+
+impl fmt::Display for Display {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
 /// The CSS `position` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Position {
@@ -25,6 +45,23 @@ pub enum Position {
     Relative,
     Absolute,
     Fixed,
+}
+
+impl AsRef<str> for Position {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Static => "static",
+            Self::Relative => "relative",
+            Self::Absolute => "absolute",
+            Self::Fixed => "fixed",
+        }
+    }
+}
+
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_ref())
+    }
 }
 
 /// The CSS `border-*-style` property.
@@ -37,7 +74,24 @@ pub enum BorderStyle {
     Dotted,
 }
 
-/// A dimension value: length in pixels, percentage, or `auto`.
+impl AsRef<str> for BorderStyle {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::None => "none",
+            Self::Solid => "solid",
+            Self::Dashed => "dashed",
+            Self::Dotted => "dotted",
+        }
+    }
+}
+
+impl fmt::Display for BorderStyle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+/// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Dimension {
     Length(f32),
@@ -82,6 +136,7 @@ pub struct ComputedStyle {
     /// Margin left. Initial: Length(0.0).
     pub margin_left: Dimension,
 
+    // TODO(Phase 2): replace padding_{top,right,bottom,left} with EdgeSizes
     /// Padding top in pixels. Initial: 0.0.
     pub padding_top: f32,
     /// Padding right in pixels. Initial: 0.0.
@@ -91,6 +146,7 @@ pub struct ComputedStyle {
     /// Padding left in pixels. Initial: 0.0.
     pub padding_left: f32,
 
+    // TODO(Phase 2): replace border_{top,right,bottom,left}_{width,style,color} with BorderSide struct
     /// Border top width in pixels. Computed initial: 0.0 (medium=3px, but 0 when style=none).
     pub border_top_width: f32,
     /// Border right width in pixels. Computed initial: 0.0.

@@ -12,5 +12,16 @@ readme = "README.md"
 keywords = ["browser-engine", "window", "event-loop"]
 categories = ["web-programming"]
 
+[dependencies]
+elidex-render.workspace = true
+elidex-parser.workspace = true
+elidex-css.workspace = true
+elidex-style.workspace = true
+elidex-layout.workspace = true
+elidex-text.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+
 [lints]
 workspace = true

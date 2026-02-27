@@ -17,6 +17,7 @@ pub struct PluginRegistry<T: Send + Sync + ?Sized> {
 
 impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
     /// Create an empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             static_lookup: HashMap::new(),
@@ -45,11 +46,6 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
         self.dynamic_lookup.insert(name, handler);
     }
 
-    /// Returns true if a dynamic name is shadowed by a static registration.
-    fn is_shadowed(&self, dynamic_key: &str) -> bool {
-        self.static_lookup.contains_key(dynamic_key)
-    }
-
     /// Returns the number of unique handler names.
     ///
     /// If the same name is registered both statically and dynamically,
@@ -58,7 +54,7 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
         let dynamic_only = self
             .dynamic_lookup
             .keys()
-            .filter(|k| !self.is_shadowed(k))
+            .filter(|k| !self.static_lookup.contains_key(k.as_str()))
             .count();
         self.static_lookup.len() + dynamic_only
     }
@@ -76,7 +72,7 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
         self.static_lookup.keys().copied().chain(
             self.dynamic_lookup
                 .keys()
-                .filter(|k| !self.is_shadowed(k))
+                .filter(|k| !self.static_lookup.contains_key(k.as_str()))
                 .map(String::as_str),
         )
     }

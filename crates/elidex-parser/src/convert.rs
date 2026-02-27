@@ -3,10 +3,15 @@
 //! Two-pass approach: html5ever parses into `RcDom`, then this module
 //! walks the tree and builds an ECS DOM.
 
+use std::fmt;
+
 use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 /// Result of parsing an HTML document.
+///
+/// `EcsDom` does not implement `Debug`, so this type provides a manual
+/// implementation that prints the document entity and error list.
 pub struct ParseResult {
     /// The populated DOM tree.
     pub dom: EcsDom,
@@ -14,6 +19,15 @@ pub struct ParseResult {
     pub document: Entity,
     /// Parse warnings collected from html5ever.
     pub errors: Vec<String>,
+}
+
+impl fmt::Debug for ParseResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParseResult")
+            .field("document", &self.document)
+            .field("errors", &self.errors)
+            .finish_non_exhaustive()
+    }
 }
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
@@ -42,28 +56,37 @@ fn convert_children(rc_handle: &Handle, parent: Entity, dom: &mut EcsDom) {
     }
 }
 
+/// Build element attributes and extract inline style from an element handle.
+fn build_element_data(handle: &Handle) -> Option<(String, Attributes, Option<InlineStyle>)> {
+    let NodeData::Element { name, attrs, .. } = &handle.data else {
+        return None;
+    };
+    let tag = name.local.as_ref().to_string();
+    let mut attributes = Attributes::default();
+    let mut inline_style = None;
+    for attr in attrs.borrow().iter() {
+        let name = attr.name.local.as_ref();
+        let value: &str = &attr.value;
+        if name == "style" {
+            inline_style = Some(parse_inline_style(value));
+        }
+        attributes.set(name, value);
+    }
+    // Presentational hints: <img width/height>
+    if tag == "img" {
+        inline_style = apply_presentational_hints(&attributes, inline_style);
+    }
+    Some((tag, attributes, inline_style))
+}
+
 fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
     match &handle.data {
-        NodeData::Element { name, attrs, .. } => {
-            let tag = name.local.as_ref();
-            let mut attributes = Attributes::default();
-            let mut inline_style = None;
-            for attr in attrs.borrow().iter() {
-                let attr_name: &str = attr.name.local.as_ref();
-                let attr_value: &str = &attr.value;
-                if attr_name == "style" {
-                    inline_style = Some(parse_inline_style(attr_value));
-                }
-                attributes.set(attr_name, attr_value);
-            }
-            // Presentational hints: <img width/height>
-            if tag == "img" {
-                inline_style = apply_presentational_hints(&attributes, inline_style);
-            }
-            let entity = dom.create_element(tag, attributes);
+        NodeData::Element { .. } => {
+            let (tag, attributes, inline_style) = build_element_data(handle)?;
+            let entity = dom.create_element(&tag, attributes);
             if let Some(style) = inline_style {
-                let res = dom.world_mut().insert_one(entity, style);
-                debug_assert!(res.is_ok(), "insert_one failed for InlineStyle");
+                let ok = dom.world_mut().insert_one(entity, style).is_ok();
+                debug_assert!(ok, "insert_one failed for InlineStyle");
             }
             convert_children(handle, entity, dom);
             Some(entity)
@@ -106,28 +129,21 @@ fn apply_presentational_hints(
     attrs: &Attributes,
     existing: Option<InlineStyle>,
 ) -> Option<InlineStyle> {
-    let width = attrs.get("width");
-    let height = attrs.get("height");
-    if width.is_none() && height.is_none() {
-        return existing;
-    }
-    let mut style = existing.unwrap_or_default();
-    if let Some(w) = width {
-        if !style.contains("width") {
-            style.set("width", format_dimension(w));
+    let mut style = None;
+    for &prop in &["width", "height"] {
+        if let Some(val) = attrs.get(prop) {
+            let s = style.get_or_insert_with(|| existing.clone().unwrap_or_default());
+            if !s.contains(prop) {
+                s.set(prop, format_dimension(val));
+            }
         }
     }
-    if let Some(h) = height {
-        if !style.contains("height") {
-            style.set("height", format_dimension(h));
-        }
-    }
-    Some(style)
+    style.or(existing)
 }
 
 /// Append "px" if the value is a bare number.
 fn format_dimension(value: &str) -> String {
-    if value.bytes().all(|b| b.is_ascii_digit()) && !value.is_empty() {
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
         format!("{value}px")
     } else {
         value.to_string()
@@ -142,7 +158,7 @@ mod tests {
 
     /// Walk children and find the first element with the given tag.
     fn find_tag(dom: &EcsDom, parent: Entity, tag: &str) -> Option<Entity> {
-        for child in dom.children(parent) {
+        for child in dom.children_iter(parent) {
             if let Ok(t) = dom.world().get::<&TagType>(child) {
                 if t.0 == tag {
                     return Some(child);
@@ -158,7 +174,7 @@ mod tests {
     /// Collect text content from direct children.
     fn child_text(dom: &EcsDom, parent: Entity) -> String {
         let mut result = String::new();
-        for child in dom.children(parent) {
+        for child in dom.children_iter(parent) {
             if let Ok(tc) = dom.world().get::<&TextContent>(child) {
                 result.push_str(&tc.0);
             }

@@ -72,8 +72,8 @@ cargo doc --workspace --no-deps  # Build docs
 
 ### CI
 
-- 5 jobs: `changes` (path filter), `check` (ubuntu/macos/windows: fmt + clippy + test), `doc` (cargo doc -D warnings), `deny` (standalone), `msrv` (1.75: check + test).
+- 5 jobs: `changes` (path filter), `check` (ubuntu/macos/windows: fmt + clippy + test), `doc` (cargo doc -D warnings), `deny` (standalone), `msrv` (1.88: check + test).
 - Path-based skip: `dorny/paths-filter@v3` detects `rust` (crates/\*\*, Cargo.\*, toolchain/fmt/clippy config, mise.toml) and `config` (deny.toml, Cargo.\*) changes. Push to main always runs all jobs.
 - Actions pinned: `actions/checkout@v4`, `Swatinem/rust-cache@v2`, `dorny/paths-filter@v3`, `taiki-e/install-action@v2`.
-- `rust-toolchain.toml`: `channel = "stable"`. MSRV `1.75` in `Cargo.toml`.
+- `rust-toolchain.toml`: `channel = "stable"`. MSRV `1.88` in `Cargo.toml`.
 

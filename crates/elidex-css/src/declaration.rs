@@ -110,8 +110,8 @@ pub(crate) fn parse_property_value(
 
     match name {
         // --- Shorthand properties ---
-        "margin" => expand_four_sides(input, "margin", important, parse_margin_value),
-        "padding" => expand_four_sides(input, "padding", important, parse_padding_value),
+        "margin" => expand_four_sides(input, "margin", important, parse_length_percentage_or_auto),
+        "padding" => expand_four_sides(input, "padding", important, parse_length_or_percentage),
         "border" => parse_border_shorthand(input, important),
 
         // --- Keyword properties ---
@@ -146,12 +146,12 @@ pub(crate) fn parse_property_value(
 
         // --- Length/percentage/auto properties ---
         "width" | "height" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
-            parse_lpa_property(input, name, important)
+            parse_value_property(input, name, important, parse_length_percentage_or_auto)
         }
 
         // --- Length/percentage properties (no auto) ---
         "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
-            parse_lp_property(input, name, important)
+            parse_value_property(input, name, important, parse_length_or_percentage)
         }
 
         // --- Border width ---
@@ -168,6 +168,15 @@ pub(crate) fn parse_property_value(
     }
 }
 
+/// Create a single-declaration `Vec`.
+fn single_decl(name: &str, value: CssValue, important: bool) -> Vec<Declaration> {
+    vec![Declaration {
+        property: name.to_string(),
+        value,
+        important,
+    }]
+}
+
 // --- Property-specific parsers ---
 
 fn parse_keyword_property(
@@ -181,11 +190,7 @@ fn parse_keyword_property(
             let ident = i.expect_ident().map_err(|_| ())?;
             let lower = ident.to_ascii_lowercase();
             if allowed.iter().any(|a| *a == lower) {
-                Ok(vec![Declaration {
-                    property: name.to_string(),
-                    value: CssValue::Keyword(lower),
-                    important,
-                }])
+                Ok(single_decl(name, CssValue::Keyword(lower), important))
             } else {
                 Err(())
             }
@@ -194,42 +199,54 @@ fn parse_keyword_property(
 }
 
 fn parse_color_property(input: &mut Parser, name: &str, important: bool) -> Vec<Declaration> {
+    // Try `currentcolor` keyword first (case-insensitive).
+    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        if ident.eq_ignore_ascii_case("currentcolor") {
+            Ok(single_decl(
+                name,
+                CssValue::Keyword("currentcolor".into()),
+                important,
+            ))
+        } else {
+            Err(())
+        }
+    }) {
+        return decls;
+    }
+
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let color = parse_color(i)?;
-            Ok(vec![Declaration {
-                property: name.to_string(),
-                value: CssValue::Color(color),
-                important,
-            }])
+            Ok(single_decl(name, CssValue::Color(color), important))
         })
         .unwrap_or_default()
 }
 
-fn parse_lpa_property(input: &mut Parser, name: &str, important: bool) -> Vec<Declaration> {
+/// Parse a single-value property using the given value parser function.
+fn parse_value_property(
+    input: &mut Parser,
+    name: &str,
+    important: bool,
+    value_parser: fn(&mut Parser) -> Result<CssValue, ()>,
+) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_length_percentage_or_auto(i)?;
-            Ok(vec![Declaration {
-                property: name.to_string(),
-                value: val,
-                important,
-            }])
+            let val = value_parser(i)?;
+            Ok(single_decl(name, val, important))
         })
         .unwrap_or_default()
 }
 
-fn parse_lp_property(input: &mut Parser, name: &str, important: bool) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_length_or_percentage(i)?;
-            Ok(vec![Declaration {
-                property: name.to_string(),
-                value: val,
-                important,
-            }])
-        })
-        .unwrap_or_default()
+/// Parse a border-width keyword (`thin`, `medium`, `thick`) into pixel values.
+fn parse_border_width_keyword(input: &mut Parser) -> Result<CssValue, ()> {
+    let ident = input.expect_ident().map_err(|_| ())?;
+    match ident.to_ascii_lowercase().as_str() {
+        "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
+        "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
+        "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
 }
 
 fn parse_border_width_property(
@@ -239,61 +256,30 @@ fn parse_border_width_property(
 ) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            // Try keyword first (thin/medium/thick).
-            if let Ok(val) = i.try_parse(|i2| -> Result<CssValue, ()> {
-                let ident = i2.expect_ident().map_err(|_| ())?;
-                match ident.to_ascii_lowercase().as_str() {
-                    "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
-                    "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
-                    "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
-                    _ => Err(()),
-                }
-            }) {
-                return Ok(vec![Declaration {
-                    property: name.to_string(),
-                    value: val,
-                    important,
-                }]);
-            }
-            // Fall back to length.
-            let val = parse_length_or_percentage(i)?;
-            Ok(vec![Declaration {
-                property: name.to_string(),
-                value: val,
-                important,
-            }])
+            // Try keyword first (thin/medium/thick), then fall back to length.
+            let val = i
+                .try_parse(parse_border_width_keyword)
+                .or_else(|()| parse_length_or_percentage(i))?;
+            Ok(single_decl(name, val, important))
         })
         .unwrap_or_default()
 }
 
 fn parse_font_size(input: &mut Parser, important: bool) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            // Try keyword sizes first.
-            if let Ok(val) = i.try_parse(|i2| -> Result<CssValue, ()> {
-                let ident = i2.expect_ident().map_err(|_| ())?;
-                match ident.to_ascii_lowercase().as_str() {
-                    "xx-small" | "xx-large" | "x-small" | "x-large" | "small" | "medium"
-                    | "large" | "smaller" | "larger" => {
-                        Ok(CssValue::Keyword(ident.to_ascii_lowercase()))
-                    }
-                    _ => Err(()),
-                }
-            }) {
-                return Ok(vec![Declaration {
-                    property: "font-size".to_string(),
-                    value: val,
-                    important,
-                }]);
-            }
-            let val = parse_length_or_percentage(i)?;
-            Ok(vec![Declaration {
-                property: "font-size".to_string(),
-                value: val,
-                important,
-            }])
-        })
-        .unwrap_or_default()
+    // Try keyword sizes first.
+    if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        let lower = ident.to_ascii_lowercase();
+        match lower.as_str() {
+            "xx-small" | "xx-large" | "x-small" | "x-large" | "small" | "medium" | "large"
+            | "smaller" | "larger" => Ok(CssValue::Keyword(lower)),
+            _ => Err(()),
+        }
+    }) {
+        return single_decl("font-size", val, important);
+    }
+    // Fall back to length/percentage.
+    parse_value_property(input, "font-size", important, parse_length_or_percentage)
 }
 
 fn parse_font_family(input: &mut Parser, important: bool) -> Vec<Declaration> {
@@ -352,56 +338,33 @@ fn parse_font_family(input: &mut Parser, important: bool) -> Vec<Declaration> {
 
 // --- Shorthand expansion helpers ---
 
+const SIDES: &[&str] = &["top", "right", "bottom", "left"];
+
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
 /// their longhand equivalents. Longhand properties produce a single declaration.
 fn expand_global_keyword(name: &str, val: CssValue, important: bool) -> Vec<Declaration> {
-    let longhands: &[&str] = match name {
-        "margin" => &["margin-top", "margin-right", "margin-bottom", "margin-left"],
-        "padding" => &[
-            "padding-top",
-            "padding-right",
-            "padding-bottom",
-            "padding-left",
-        ],
-        "border" => &[
-            "border-top-width",
-            "border-right-width",
-            "border-bottom-width",
-            "border-left-width",
-            "border-top-style",
-            "border-right-style",
-            "border-bottom-style",
-            "border-left-style",
-            "border-top-color",
-            "border-right-color",
-            "border-bottom-color",
-            "border-left-color",
-        ],
+    let longhands: Vec<String> = match name {
+        "margin" => SIDES.iter().map(|s| format!("margin-{s}")).collect(),
+        "padding" => SIDES.iter().map(|s| format!("padding-{s}")).collect(),
+        "border" => SIDES
+            .iter()
+            .flat_map(|s| {
+                ["width", "style", "color"]
+                    .iter()
+                    .map(move |prop| format!("border-{s}-{prop}"))
+            })
+            .collect(),
         // Longhand properties: single declaration.
-        _ => {
-            return vec![Declaration {
-                property: name.to_string(),
-                value: val,
-                important,
-            }];
-        }
+        _ => return single_decl(name, val, important),
     };
     longhands
         .iter()
         .map(|p| Declaration {
-            property: (*p).to_string(),
+            property: p.clone(),
             value: val.clone(),
             important,
         })
         .collect()
-}
-
-fn parse_margin_value(input: &mut Parser) -> Result<CssValue, ()> {
-    parse_length_percentage_or_auto(input)
-}
-
-fn parse_padding_value(input: &mut Parser) -> Result<CssValue, ()> {
-    parse_length_or_percentage(input)
 }
 
 /// Expand a 1–4 value shorthand (margin, padding) into four longhand declarations.
@@ -493,10 +456,9 @@ fn parse_border_shorthand(input: &mut Parser, important: bool) -> Vec<Declaratio
         if style.is_none() {
             if let Ok(s) = input.try_parse(|i| {
                 let ident = i.expect_ident().map_err(|_| ())?;
-                match ident.to_ascii_lowercase().as_str() {
-                    "none" | "solid" | "dashed" | "dotted" => {
-                        Ok(CssValue::Keyword(ident.to_ascii_lowercase()))
-                    }
+                let lower = ident.to_ascii_lowercase();
+                match lower.as_str() {
+                    "none" | "solid" | "dashed" | "dotted" => Ok(CssValue::Keyword(lower)),
                     _ => Err(()),
                 }
             }) {
@@ -505,22 +467,11 @@ fn parse_border_shorthand(input: &mut Parser, important: bool) -> Vec<Declaratio
             }
         }
 
-        // Try width (length or keyword).
+        // Try width (keyword or length).
         if width.is_none() {
             if let Ok(w) = input.try_parse(|i| {
-                // Keyword widths.
-                if let Ok(v) = i.try_parse(|i2| {
-                    let ident = i2.expect_ident().map_err(|_| ())?;
-                    match ident.to_ascii_lowercase().as_str() {
-                        "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
-                        "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
-                        "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
-                        _ => Err(()),
-                    }
-                }) {
-                    return Ok(v);
-                }
-                parse_length_or_percentage(i)
+                i.try_parse(parse_border_width_keyword)
+                    .or_else(|()| parse_length_or_percentage(i))
             }) {
                 width = Some(w);
                 continue;
@@ -772,5 +723,27 @@ mod tests {
         let decls = parse_single("color", "inherit");
         assert_eq!(decls.len(), 1);
         assert_eq!(decls[0].value, CssValue::Inherit);
+    }
+
+    #[test]
+    fn parse_currentcolor_keyword() {
+        let decls = parse_single("color", "currentcolor");
+        assert_eq!(decls.len(), 1);
+        assert_eq!(decls[0].property, "color");
+        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
+    }
+
+    #[test]
+    fn parse_currentcolor_case_insensitive() {
+        let decls = parse_single("background-color", "CurrentColor");
+        assert_eq!(decls.len(), 1);
+        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
+    }
+
+    #[test]
+    fn parse_border_color_currentcolor() {
+        let decls = parse_single("border-top-color", "currentColor");
+        assert_eq!(decls.len(), 1);
+        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
     }
 }

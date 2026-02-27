@@ -127,7 +127,7 @@ impl RobotsRules {
                 has_wildcard = true;
                 continue;
             }
-            if ua_lower.contains(key.as_str()) && best.map_or(true, |prev| key.len() > prev.len()) {
+            if ua_lower.contains(key.as_str()) && best.is_none_or(|prev| key.len() > prev.len()) {
                 best = Some(key.as_str());
             }
         }

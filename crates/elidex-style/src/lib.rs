@@ -118,21 +118,12 @@ fn walk_tree(
 
     // Update root_font_size for children: if this is the root element (html),
     // its font-size becomes the root font-size for rem resolution.
-    let child_ctx = if is_root_element(dom, entity) {
-        ResolveContext {
-            viewport_width: ctx.viewport_width,
-            viewport_height: ctx.viewport_height,
-            em_base: entity_style.font_size,
-            root_font_size: entity_style.font_size,
-        }
+    let root_fs = if is_root_element(dom, entity) {
+        entity_style.font_size
     } else {
-        ResolveContext {
-            viewport_width: ctx.viewport_width,
-            viewport_height: ctx.viewport_height,
-            em_base: entity_style.font_size,
-            root_font_size: ctx.root_font_size,
-        }
+        ctx.root_font_size
     };
+    let child_ctx = ctx.with_em_and_root(entity_style.font_size, root_fs);
 
     // Recurse into children.
     for child in children {
@@ -387,6 +378,20 @@ mod tests {
         let style = get_style(&dom, div);
         // border-*-color initial = currentcolor → element's color
         assert_eq!(style.border_top_color, CssColor::RED);
+    }
+
+    #[test]
+    fn currentcolor_background() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { color: blue; background-color: currentcolor; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.background_color, CssColor::BLUE);
     }
 
     #[test]

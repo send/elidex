@@ -1,6 +1,6 @@
 //! Text shaping via [`rustybuzz`] (HarfBuzz-compatible OpenType shaping).
 
-use crate::database::FontDatabase;
+use crate::database::{pixel_scale, FontDatabase};
 
 /// A single shaped glyph with positioning information.
 #[derive(Clone, Copy, Debug)]
@@ -39,11 +39,9 @@ pub fn shape_text(
     font_size: f32,
     text: &str,
 ) -> Option<ShapedText> {
-    db.inner().with_face_data(font_id, |data, face_index| {
+    db.with_face_data(font_id, |data, face_index| {
         let mut face = rustybuzz::Face::from_slice(data, face_index)?;
-        let upem = face.units_per_em();
-        let upem_u16 = u16::try_from(upem).ok()?;
-        let scale = font_size / f32::from(upem_u16);
+        let scale = pixel_scale(&face, font_size)?;
 
         // Set ppem for hinting. font_size is always non-negative and small.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -61,14 +59,14 @@ pub fn shape_text(
         let mut glyphs = Vec::with_capacity(infos.len());
         let mut total_advance = 0.0;
 
+        #[allow(clippy::cast_precision_loss)]
         for (info, pos) in infos.iter().zip(positions.iter()) {
-            #[allow(clippy::cast_precision_loss)]
             let x_advance = (pos.x_advance as f32) * scale;
-            #[allow(clippy::cast_precision_loss)]
             let x_offset = (pos.x_offset as f32) * scale;
-            #[allow(clippy::cast_precision_loss)]
             let y_offset = (pos.y_offset as f32) * scale;
 
+            // rustybuzz guarantees glyph_id <= u16::MAX.
+            debug_assert!(u16::try_from(info.glyph_id).is_ok());
             #[allow(clippy::cast_possible_truncation)]
             let glyph_id = info.glyph_id as u16;
 
@@ -96,14 +94,7 @@ mod tests {
 
     /// Helper: try to find a system font for testing.
     fn test_font(db: &FontDatabase) -> Option<fontdb::ID> {
-        db.query(&[
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ])
+        db.query(crate::TEST_FONT_FAMILIES)
     }
 
     #[test]

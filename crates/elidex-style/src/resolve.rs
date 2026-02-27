@@ -10,6 +10,9 @@ use elidex_plugin::{
 
 use crate::inherit::{get_initial_value, is_inherited};
 
+/// Cascade winner map: property name → winning CSS value.
+type PropertyMap<'a> = std::collections::HashMap<&'a str, &'a CssValue>;
+
 /// Context for resolving relative CSS values.
 pub(crate) struct ResolveContext {
     pub viewport_width: f32,
@@ -19,6 +22,22 @@ pub(crate) struct ResolveContext {
     /// own computed font-size.
     pub em_base: f32,
     pub root_font_size: f32,
+}
+
+impl ResolveContext {
+    /// Return a copy with a different `em_base` value.
+    pub fn with_em_base(&self, em_base: f32) -> Self {
+        Self { em_base, ..*self }
+    }
+
+    /// Return a copy with both `em_base` and `root_font_size` overridden.
+    pub fn with_em_and_root(&self, em_base: f32, root_font_size: f32) -> Self {
+        Self {
+            em_base,
+            root_font_size,
+            ..*self
+        }
+    }
 }
 
 /// Resolve a CSS length value to pixels.
@@ -53,7 +72,7 @@ fn resolve_font_size_keyword(keyword: &str, parent_font_size: f32) -> Option<f32
 
 /// Resolve `inherit` / `initial` / `unset` keywords, returning the effective
 /// [`CssValue`] to use for further resolution.
-pub(crate) fn resolve_keyword(
+fn resolve_keyword(
     property: &str,
     value: &CssValue,
     parent_style: &ComputedStyle,
@@ -73,6 +92,7 @@ pub(crate) fn resolve_keyword(
 }
 
 /// Extract a property's computed value back into a [`CssValue`] for inheritance.
+// Sync: build_computed_style, get_initial_value
 fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     match property {
         "color" => CssValue::Color(style.color),
@@ -84,8 +104,8 @@ fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue 
                 .map(|s| CssValue::Keyword(s.clone()))
                 .collect(),
         ),
-        "display" => CssValue::Keyword(display_to_string(style.display).to_string()),
-        "position" => CssValue::Keyword(position_to_string(style.position).to_string()),
+        "display" => CssValue::Keyword(style.display.as_ref().to_string()),
+        "position" => CssValue::Keyword(style.position.as_ref().to_string()),
         "background-color" => CssValue::Color(style.background_color),
         "width" => dimension_to_css_value(style.width),
         "height" => dimension_to_css_value(style.height),
@@ -101,18 +121,10 @@ fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue 
         "border-right-width" => CssValue::Length(style.border_right_width, LengthUnit::Px),
         "border-bottom-width" => CssValue::Length(style.border_bottom_width, LengthUnit::Px),
         "border-left-width" => CssValue::Length(style.border_left_width, LengthUnit::Px),
-        "border-top-style" => {
-            CssValue::Keyword(border_style_to_string(style.border_top_style).to_string())
-        }
-        "border-right-style" => {
-            CssValue::Keyword(border_style_to_string(style.border_right_style).to_string())
-        }
-        "border-bottom-style" => {
-            CssValue::Keyword(border_style_to_string(style.border_bottom_style).to_string())
-        }
-        "border-left-style" => {
-            CssValue::Keyword(border_style_to_string(style.border_left_style).to_string())
-        }
+        "border-top-style" => CssValue::Keyword(style.border_top_style.as_ref().to_string()),
+        "border-right-style" => CssValue::Keyword(style.border_right_style.as_ref().to_string()),
+        "border-bottom-style" => CssValue::Keyword(style.border_bottom_style.as_ref().to_string()),
+        "border-left-style" => CssValue::Keyword(style.border_left_style.as_ref().to_string()),
         "border-top-color" => CssValue::Color(style.border_top_color),
         "border-right-color" => CssValue::Color(style.border_right_color),
         "border-bottom-color" => CssValue::Color(style.border_bottom_color),
@@ -121,33 +133,8 @@ fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue 
     }
 }
 
-fn display_to_string(d: Display) -> &'static str {
-    match d {
-        Display::Block => "block",
-        Display::Inline => "inline",
-        Display::InlineBlock => "inline-block",
-        Display::None => "none",
-        Display::Flex => "flex",
-    }
-}
-
-fn position_to_string(p: Position) -> &'static str {
-    match p {
-        Position::Static => "static",
-        Position::Relative => "relative",
-        Position::Absolute => "absolute",
-        Position::Fixed => "fixed",
-    }
-}
-
-fn border_style_to_string(s: BorderStyle) -> &'static str {
-    match s {
-        BorderStyle::None => "none",
-        BorderStyle::Solid => "solid",
-        BorderStyle::Dashed => "dashed",
-        BorderStyle::Dotted => "dotted",
-    }
-}
+// Display, Position, and BorderStyle implement AsRef<str> in elidex-plugin,
+// so enum-to-string conversion is handled via .as_ref() directly.
 
 fn dimension_to_css_value(d: Dimension) -> CssValue {
     match d {
@@ -162,7 +149,7 @@ fn dimension_to_css_value(d: Dimension) -> CssValue {
 /// Resolution order: font-size first (dependencies), then color,
 /// then all remaining properties.
 pub(crate) fn build_computed_style(
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> ComputedStyle {
@@ -173,12 +160,7 @@ pub(crate) fn build_computed_style(
     style.font_size = element_font_size;
 
     // Create an element-level context with the resolved font-size.
-    let elem_ctx = ResolveContext {
-        viewport_width: ctx.viewport_width,
-        viewport_height: ctx.viewport_height,
-        em_base: element_font_size,
-        root_font_size: ctx.root_font_size,
-    };
+    let elem_ctx = ctx.with_em_base(element_font_size);
 
     // Phase 2: resolve color (needed by currentcolor).
     style.color = resolve_color(winners, parent_style);
@@ -188,74 +170,73 @@ pub(crate) fn build_computed_style(
     resolve_display(&mut style, winners, parent_style);
     resolve_position(&mut style, winners, parent_style);
     resolve_background_color(&mut style, winners, parent_style);
-    resolve_dimension_prop(&mut style, "width", winners, parent_style, &elem_ctx);
-    resolve_dimension_prop(&mut style, "height", winners, parent_style, &elem_ctx);
-    resolve_dimension_prop(&mut style, "margin-top", winners, parent_style, &elem_ctx);
-    resolve_dimension_prop(&mut style, "margin-right", winners, parent_style, &elem_ctx);
-    resolve_dimension_prop(
-        &mut style,
-        "margin-bottom",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_dimension_prop(&mut style, "margin-left", winners, parent_style, &elem_ctx);
-    resolve_padding_prop(&mut style, "padding-top", winners, parent_style, &elem_ctx);
-    resolve_padding_prop(
-        &mut style,
-        "padding-right",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_padding_prop(
-        &mut style,
-        "padding-bottom",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_padding_prop(&mut style, "padding-left", winners, parent_style, &elem_ctx);
+    // Dimension properties (width/height/margin).
+    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
+    resolve_prop("width", winners, parent_style, dim, |d| style.width = d);
+    resolve_prop("height", winners, parent_style, dim, |d| {
+        style.height = d;
+    });
+    for (prop, setter) in [
+        (
+            "margin-top",
+            (|s: &mut ComputedStyle, d| s.margin_top = d) as fn(&mut ComputedStyle, Dimension),
+        ),
+        ("margin-right", |s, d| s.margin_right = d),
+        ("margin-bottom", |s, d| s.margin_bottom = d),
+        ("margin-left", |s, d| s.margin_left = d),
+    ] {
+        resolve_prop(prop, winners, parent_style, dim, |d| setter(&mut style, d));
+    }
+
+    // Padding properties.
+    let px = |v: &CssValue| resolve_to_px(v, &elem_ctx);
+    for (prop, setter) in [
+        (
+            "padding-top",
+            (|s: &mut ComputedStyle, v| s.padding_top = v) as fn(&mut ComputedStyle, f32),
+        ),
+        ("padding-right", |s, v| s.padding_right = v),
+        ("padding-bottom", |s, v| s.padding_bottom = v),
+        ("padding-left", |s, v| s.padding_left = v),
+    ] {
+        resolve_prop(prop, winners, parent_style, px, |v| setter(&mut style, v));
+    }
 
     // Border styles must be resolved before border widths (width = 0 when style = none).
-    resolve_border_style_prop(&mut style, "border-top-style", winners, parent_style);
-    resolve_border_style_prop(&mut style, "border-right-style", winners, parent_style);
-    resolve_border_style_prop(&mut style, "border-bottom-style", winners, parent_style);
-    resolve_border_style_prop(&mut style, "border-left-style", winners, parent_style);
+    let bs = |v: &CssValue| resolve_border_style_value(v);
+    for (prop, setter) in [
+        (
+            "border-top-style",
+            (|s: &mut ComputedStyle, v| s.border_top_style = v)
+                as fn(&mut ComputedStyle, BorderStyle),
+        ),
+        ("border-right-style", |s, v| s.border_right_style = v),
+        ("border-bottom-style", |s, v| s.border_bottom_style = v),
+        ("border-left-style", |s, v| s.border_left_style = v),
+    ] {
+        resolve_prop(prop, winners, parent_style, bs, |v| setter(&mut style, v));
+    }
 
-    resolve_border_width_prop(
-        &mut style,
+    // Border widths (special: 0 when style = none).
+    for prop in &[
         "border-top-width",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_border_width_prop(
-        &mut style,
         "border-right-width",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_border_width_prop(
-        &mut style,
         "border-bottom-width",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
-    resolve_border_width_prop(
-        &mut style,
         "border-left-width",
-        winners,
-        parent_style,
-        &elem_ctx,
-    );
+    ] {
+        resolve_border_width_prop(&mut style, prop, winners, parent_style, &elem_ctx);
+    }
 
-    resolve_border_color_prop(&mut style, "border-top-color", winners, parent_style);
-    resolve_border_color_prop(&mut style, "border-right-color", winners, parent_style);
-    resolve_border_color_prop(&mut style, "border-bottom-color", winners, parent_style);
-    resolve_border_color_prop(&mut style, "border-left-color", winners, parent_style);
+    // Border colors (initial = currentcolor).
+    let current_color = style.color;
+    for prop in &[
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+    ] {
+        resolve_border_color_prop(&mut style, prop, winners, parent_style, current_color);
+    }
 
     style
 }
@@ -263,7 +244,7 @@ pub(crate) fn build_computed_style(
 // --- Individual property resolvers ---
 
 fn resolve_font_size(
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> f32 {
@@ -283,13 +264,7 @@ fn resolve_font_size_value(
     match value {
         CssValue::Length(v, unit) => {
             // For font-size, em is relative to parent, not self.
-            let font_ctx = ResolveContext {
-                viewport_width: ctx.viewport_width,
-                viewport_height: ctx.viewport_height,
-                em_base: parent_style.font_size,
-                root_font_size: ctx.root_font_size,
-            };
-            resolve_length(*v, *unit, &font_ctx)
+            resolve_length(*v, *unit, &ctx.with_em_base(parent_style.font_size))
         }
         CssValue::Percentage(p) => parent_style.font_size * p / 100.0,
         CssValue::Keyword(kw) => {
@@ -299,10 +274,7 @@ fn resolve_font_size_value(
     }
 }
 
-fn resolve_color(
-    winners: &std::collections::HashMap<&str, &CssValue>,
-    parent_style: &ComputedStyle,
-) -> CssColor {
+fn resolve_color(winners: &PropertyMap<'_>, parent_style: &ComputedStyle) -> CssColor {
     let Some(value) = winners.get("color") else {
         return parent_style.color;
     };
@@ -315,7 +287,7 @@ fn resolve_color(
 
 fn resolve_font_family(
     style: &mut ComputedStyle,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
     let Some(value) = winners.get("font-family") else {
@@ -340,84 +312,85 @@ fn resolve_font_family(
     }
 }
 
+/// Resolve a keyword enum property from the winners map.
+fn resolve_keyword_enum<T: Default>(
+    property: &str,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    from_keyword: impl Fn(&str) -> Option<T>,
+) -> Option<T> {
+    let value = winners.get(property)?;
+    let value = resolve_keyword_or_clone(property, value, parent_style);
+    Some(match value {
+        CssValue::Keyword(ref k) => from_keyword(k).unwrap_or_default(),
+        _ => T::default(),
+    })
+}
+
 fn resolve_display(
     style: &mut ComputedStyle,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("display") else {
-        return; // Non-inherited: keep default.
-    };
-    let value = resolve_keyword_or_clone("display", value, parent_style);
-    style.display = match value {
-        CssValue::Keyword(ref k) => match k.as_str() {
-            "block" => Display::Block,
-            "inline" => Display::Inline,
-            "inline-block" => Display::InlineBlock,
-            "none" => Display::None,
-            "flex" => Display::Flex,
-            _ => Display::default(),
-        },
-        _ => Display::default(),
-    };
+    if let Some(d) = resolve_keyword_enum("display", winners, parent_style, |k| match k {
+        "block" => Some(Display::Block),
+        "inline" => Some(Display::Inline),
+        "inline-block" => Some(Display::InlineBlock),
+        "none" => Some(Display::None),
+        "flex" => Some(Display::Flex),
+        _ => None,
+    }) {
+        style.display = d;
+    }
 }
 
 fn resolve_position(
     style: &mut ComputedStyle,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("position") else {
-        return;
-    };
-    let value = resolve_keyword_or_clone("position", value, parent_style);
-    style.position = match value {
-        CssValue::Keyword(ref k) => match k.as_str() {
-            "static" => Position::Static,
-            "relative" => Position::Relative,
-            "absolute" => Position::Absolute,
-            "fixed" => Position::Fixed,
-            _ => Position::default(),
-        },
-        _ => Position::default(),
-    };
+    if let Some(p) = resolve_keyword_enum("position", winners, parent_style, |k| match k {
+        "static" => Some(Position::Static),
+        "relative" => Some(Position::Relative),
+        "absolute" => Some(Position::Absolute),
+        "fixed" => Some(Position::Fixed),
+        _ => None,
+    }) {
+        style.position = p;
+    }
 }
 
 fn resolve_background_color(
     style: &mut ComputedStyle,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
     let Some(value) = winners.get("background-color") else {
         return;
     };
     let value = resolve_keyword_or_clone("background-color", value, parent_style);
-    if let CssValue::Color(c) = value {
-        style.background_color = c;
+    match value {
+        CssValue::Color(c) => style.background_color = c,
+        CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
+            style.background_color = style.color;
+        }
+        _ => {}
     }
 }
 
-fn resolve_dimension_prop(
-    style: &mut ComputedStyle,
+/// Resolve a property and apply the result via a setter closure.
+fn resolve_prop<T>(
     property: &str,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
+    convert: impl Fn(&CssValue) -> T,
+    set: impl FnOnce(T),
 ) {
     let Some(value) = winners.get(property) else {
         return;
     };
     let value = resolve_keyword_or_clone(property, value, parent_style);
-    let dim = resolve_dimension(&value, ctx);
-    match property {
-        "width" => style.width = dim,
-        "height" => style.height = dim,
-        "margin-top" => style.margin_top = dim,
-        "margin-right" => style.margin_right = dim,
-        "margin-bottom" => style.margin_bottom = dim,
-        "margin-left" => style.margin_left = dim,
-        _ => {}
-    }
+    set(convert(&value));
 }
 
 fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
@@ -430,38 +403,8 @@ fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
     }
 }
 
-fn resolve_padding_prop(
-    style: &mut ComputedStyle,
-    property: &str,
-    winners: &std::collections::HashMap<&str, &CssValue>,
-    parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-) {
-    let Some(value) = winners.get(property) else {
-        return;
-    };
-    let value = resolve_keyword_or_clone(property, value, parent_style);
-    let px = resolve_to_px(&value, ctx);
-    match property {
-        "padding-top" => style.padding_top = px,
-        "padding-right" => style.padding_right = px,
-        "padding-bottom" => style.padding_bottom = px,
-        "padding-left" => style.padding_left = px,
-        _ => {}
-    }
-}
-
-fn resolve_border_style_prop(
-    style: &mut ComputedStyle,
-    property: &str,
-    winners: &std::collections::HashMap<&str, &CssValue>,
-    parent_style: &ComputedStyle,
-) {
-    let Some(value) = winners.get(property) else {
-        return;
-    };
-    let value = resolve_keyword_or_clone(property, value, parent_style);
-    let bs = match value {
+fn resolve_border_style_value(value: &CssValue) -> BorderStyle {
+    match value {
         CssValue::Keyword(ref k) => match k.as_str() {
             "none" => BorderStyle::None,
             "solid" => BorderStyle::Solid,
@@ -470,20 +413,13 @@ fn resolve_border_style_prop(
             _ => BorderStyle::default(),
         },
         _ => BorderStyle::default(),
-    };
-    match property {
-        "border-top-style" => style.border_top_style = bs,
-        "border-right-style" => style.border_right_style = bs,
-        "border-bottom-style" => style.border_bottom_style = bs,
-        "border-left-style" => style.border_left_style = bs,
-        _ => {}
     }
 }
 
 fn resolve_border_width_prop(
     style: &mut ComputedStyle,
     property: &str,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
@@ -520,19 +456,20 @@ fn resolve_border_width_prop(
 fn resolve_border_color_prop(
     style: &mut ComputedStyle,
     property: &str,
-    winners: &std::collections::HashMap<&str, &CssValue>,
+    winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
+    current_color: CssColor,
 ) {
     let color = match winners.get(property) {
         Some(value) => {
             let value = resolve_keyword_or_clone(property, value, parent_style);
             match value {
                 CssValue::Color(c) => c,
-                CssValue::Keyword(ref k) if k == "currentcolor" => style.color,
-                _ => style.color, // fallback to currentcolor behavior
+                CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => current_color,
+                _ => current_color, // fallback to currentcolor behavior
             }
         }
-        None => style.color, // initial = currentcolor
+        None => current_color, // initial = currentcolor
     };
 
     match property {
@@ -707,7 +644,7 @@ mod tests {
             display: Display::Block,
             ..ComputedStyle::default()
         };
-        let resolved = resolve_keyword("display", &CssValue::Inherit, &parent).unwrap();
+        let resolved = resolve_keyword_or_clone("display", &CssValue::Inherit, &parent);
         assert_eq!(resolved, CssValue::Keyword("block".to_string()));
     }
 
@@ -717,7 +654,7 @@ mod tests {
             color: CssColor::RED,
             ..ComputedStyle::default()
         };
-        let resolved = resolve_keyword("color", &CssValue::Unset, &parent).unwrap();
+        let resolved = resolve_keyword_or_clone("color", &CssValue::Unset, &parent);
         assert_eq!(resolved, CssValue::Color(CssColor::RED));
     }
 
@@ -727,7 +664,7 @@ mod tests {
             display: Display::Block,
             ..ComputedStyle::default()
         };
-        let resolved = resolve_keyword("display", &CssValue::Unset, &parent).unwrap();
+        let resolved = resolve_keyword_or_clone("display", &CssValue::Unset, &parent);
         assert_eq!(resolved, CssValue::Keyword("inline".to_string()));
     }
 }

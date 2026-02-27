@@ -8,7 +8,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, Display};
 use elidex_text::FontDatabase;
 
-use crate::block::{collapse_margins, layout_block, resolve_margin};
+use crate::block::{layout_block, stack_block_children};
 
 /// Layout the entire DOM tree.
 ///
@@ -32,26 +32,14 @@ pub fn layout_tree(
     }
 }
 
-/// Find root entities (those with no parent) that are DOM elements or document roots.
-///
-/// An entity qualifies as a root if it has no parent and is either:
-/// - A styled element (has [`ComputedStyle`]), or
-/// - A document root (has children).
+/// Find root entities for layout: parentless entities with styles or children.
 fn find_roots(dom: &EcsDom) -> Vec<Entity> {
-    let mut roots = Vec::new();
-    for (entity, ()) in &mut dom.world().query::<()>() {
-        if dom.get_parent(entity).is_some() {
-            continue;
-        }
-        let has_style = dom.world().get::<&ComputedStyle>(entity).is_ok();
-        let has_children = dom.get_first_child(entity).is_some();
-        if has_style || has_children {
-            roots.push(entity);
-        }
-    }
-    // Sort by entity ID for deterministic layout order.
-    roots.sort_by_key(|e| e.to_bits());
-    roots
+    dom.root_entities()
+        .into_iter()
+        .filter(|&e| {
+            dom.world().get::<&ComputedStyle>(e).is_ok() || dom.get_first_child(e).is_some()
+        })
+        .collect()
 }
 
 /// Layout starting from a root entity.
@@ -74,30 +62,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
 
     // Document root: layout children as top-level blocks with margin collapse.
     let children = dom.children(root);
-    let mut cursor_y = 0.0_f32;
-    let mut prev_margin_bottom: Option<f32> = None;
-
-    for child in children {
-        let child_style = match dom.world().get::<&ComputedStyle>(child) {
-            Ok(s) => (*s).clone(),
-            Err(_) => continue,
-        };
-
-        if child_style.display == Display::None || child_style.display == Display::Inline {
-            continue;
-        }
-
-        // Margin collapse between top-level siblings.
-        let child_margin_top = resolve_margin(child_style.margin_top, viewport_width);
-        if let Some(prev_mb) = prev_margin_bottom {
-            let collapsed = collapse_margins(prev_mb, child_margin_top);
-            cursor_y -= prev_mb + child_margin_top - collapsed;
-        }
-
-        let lb = layout_block(dom, child, viewport_width, 0.0, cursor_y, font_db);
-        cursor_y += lb.margin_box().height;
-        prev_margin_bottom = Some(lb.margin.bottom);
-    }
+    stack_block_children(dom, &children, viewport_width, 0.0, 0.0, font_db, 0);
 }
 
 #[cfg(test)]

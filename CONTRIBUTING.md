@@ -38,4 +38,4 @@ Pull requests are tested on Ubuntu, macOS, and Windows. CI checks:
 - `cargo test --workspace`
 - `cargo doc --workspace --no-deps` (with `-D warnings`)
 - `cargo deny check` (licenses and vulnerabilities)
-- MSRV compatibility (Rust 1.75)
+- MSRV compatibility (Rust 1.88)

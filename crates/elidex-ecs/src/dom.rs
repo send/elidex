@@ -17,7 +17,6 @@
 
 use crate::components::{Attributes, TagType, TextContent, TreeRelation};
 use hecs::{Entity, World};
-use std::collections::HashSet;
 
 /// Maximum ancestor walk depth before assuming tree corruption.
 const MAX_ANCESTOR_DEPTH: usize = 10_000;
@@ -103,23 +102,7 @@ impl EcsDom {
         self.detach(child);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
-
-        if let Some(prev) = last_child {
-            self.update_rel(prev, |rel| rel.next_sibling = Some(child));
-        }
-
-        self.update_rel(child, |rel| {
-            rel.parent = Some(parent);
-            rel.prev_sibling = last_child;
-            rel.next_sibling = None;
-        });
-
-        self.update_rel(parent, |rel| {
-            if rel.first_child.is_none() {
-                rel.first_child = Some(child);
-            }
-            rel.last_child = Some(child);
-        });
+        self.link_node(parent, child, last_child, None);
 
         true
     }
@@ -166,21 +149,7 @@ impl EcsDom {
         // Re-read ref_child's prev_sibling AFTER detach (it may have changed
         // if new_child was an adjacent sibling).
         let ref_prev = self.read_rel(ref_child, |rel| rel.prev_sibling);
-
-        self.update_rel(new_child, |rel| {
-            rel.parent = Some(parent);
-            rel.prev_sibling = ref_prev;
-            rel.next_sibling = Some(ref_child);
-        });
-
-        self.update_rel(ref_child, |rel| rel.prev_sibling = Some(new_child));
-
-        // Update previous sibling's next pointer (or parent's first_child).
-        if let Some(prev_entity) = ref_prev {
-            self.update_rel(prev_entity, |rel| rel.next_sibling = Some(new_child));
-        } else {
-            self.update_rel(parent, |rel| rel.first_child = Some(new_child));
-        }
+        self.link_node(parent, new_child, ref_prev, Some(ref_child));
 
         true
     }
@@ -219,24 +188,7 @@ impl EcsDom {
             self.read_rel(old_child, |rel| (rel.prev_sibling, rel.next_sibling));
 
         // Place new_child in old_child's position.
-        self.update_rel(new_child, |rel| {
-            rel.parent = Some(parent);
-            rel.prev_sibling = old_prev;
-            rel.next_sibling = old_next;
-        });
-
-        // Update adjacent sibling pointers.
-        if let Some(prev_entity) = old_prev {
-            self.update_rel(prev_entity, |rel| rel.next_sibling = Some(new_child));
-        } else {
-            self.update_rel(parent, |rel| rel.first_child = Some(new_child));
-        }
-
-        if let Some(next_entity) = old_next {
-            self.update_rel(next_entity, |rel| rel.prev_sibling = Some(new_child));
-        } else {
-            self.update_rel(parent, |rel| rel.last_child = Some(new_child));
-        }
+        self.link_node(parent, new_child, old_prev, old_next);
 
         // Clear old_child's tree links.
         self.clear_rel(old_child);
@@ -252,7 +204,7 @@ impl EcsDom {
     /// Returns `false` if the entity does not exist.
     #[must_use = "returns false if the entity does not exist"]
     pub fn destroy_entity(&mut self, entity: Entity) -> bool {
-        if !self.world.contains(entity) {
+        if !self.contains(entity) {
             return false;
         }
         self.detach(entity);
@@ -269,6 +221,35 @@ impl EcsDom {
 
         let _ = self.world.despawn(entity);
         true
+    }
+
+    /// Place `node` into `parent`'s child list between `prev` and `next`.
+    ///
+    /// Updates all affected sibling pointers and parent's first/last child.
+    fn link_node(
+        &mut self,
+        parent: Entity,
+        node: Entity,
+        prev: Option<Entity>,
+        next: Option<Entity>,
+    ) {
+        self.update_rel(node, |rel| {
+            rel.parent = Some(parent);
+            rel.prev_sibling = prev;
+            rel.next_sibling = next;
+        });
+
+        if let Some(prev_entity) = prev {
+            self.update_rel(prev_entity, |rel| rel.next_sibling = Some(node));
+        } else {
+            self.update_rel(parent, |rel| rel.first_child = Some(node));
+        }
+
+        if let Some(next_entity) = next {
+            self.update_rel(next_entity, |rel| rel.prev_sibling = Some(node));
+        } else {
+            self.update_rel(parent, |rel| rel.last_child = Some(node));
+        }
     }
 
     // ---- Internal helpers ----
@@ -324,7 +305,8 @@ impl EcsDom {
         }
     }
 
-    /// Clear all tree links on an entity (parent, prev, next).
+    /// Clear parent and sibling links on an entity, preserving its own
+    /// `first_child` / `last_child` (children stay with the node).
     fn clear_rel(&mut self, entity: Entity) {
         self.update_rel(entity, |rel| {
             rel.parent = None;
@@ -360,14 +342,15 @@ impl EcsDom {
 
     /// Collect all direct children of `parent` in order.
     ///
-    /// Includes a visited-set guard to prevent infinite loops on corrupted
-    /// sibling chains.
+    /// Uses a depth counter (capped at [`MAX_ANCESTOR_DEPTH`]) to prevent
+    /// infinite loops on corrupted sibling chains.
     pub fn children(&self, parent: Entity) -> Vec<Entity> {
         let mut result = Vec::new();
         let mut current = self.read_rel(parent, |rel| rel.first_child);
-        let mut visited = HashSet::new();
+        let mut count = 0;
         while let Some(entity) = current {
-            if !visited.insert(entity) {
+            count += 1;
+            if count > MAX_ANCESTOR_DEPTH {
                 break;
             }
             result.push(entity);
@@ -376,7 +359,23 @@ impl EcsDom {
         result
     }
 
+    /// Returns a zero-allocation iterator over direct children of `parent`.
+    ///
+    /// Yields entities in sibling order. Stops after [`MAX_ANCESTOR_DEPTH`]
+    /// iterations to guard against corrupted sibling chains.
+    pub fn children_iter(&self, parent: Entity) -> ChildrenIter<'_> {
+        let next = self.read_rel(parent, |rel| rel.first_child);
+        ChildrenIter {
+            dom: self,
+            next,
+            remaining: MAX_ANCESTOR_DEPTH,
+        }
+    }
+
     /// Find all element entities with the given tag name.
+    ///
+    /// Comparison is **case-sensitive**. Callers should pass lowercase tag names
+    /// to match the parser's normalized output.
     ///
     /// **Complexity:** O(n) full scan over all entities with a `TagType`
     /// component. Consider caching results or adding a tag→entity index if
@@ -390,17 +389,29 @@ impl EcsDom {
             .collect()
     }
 
+    /// Returns all entities that have no parent, sorted by entity ID.
+    ///
+    /// Useful for finding layout roots or document roots for tree walks.
+    pub fn root_entities(&self) -> Vec<Entity> {
+        let mut roots: Vec<Entity> = self
+            .world
+            .query::<()>()
+            .iter()
+            .map(|(entity, ())| entity)
+            .filter(|&entity| self.get_parent(entity).is_none())
+            .collect();
+        roots.sort_by_key(|e| e.to_bits());
+        roots
+    }
+
     /// Detach an entity from its parent and siblings.
     fn detach(&mut self, entity: Entity) {
-        let (parent, prev, next) = {
-            let Ok(rel) = self.world.get::<&TreeRelation>(entity) else {
-                return;
-            };
-            if rel.parent.is_none() {
-                return;
-            }
+        let (parent, prev, next) = self.read_rel(entity, |rel| {
             (rel.parent, rel.prev_sibling, rel.next_sibling)
-        };
+        });
+        if parent.is_none() {
+            return;
+        }
 
         if let Some(prev_entity) = prev {
             self.update_rel(prev_entity, |rel| rel.next_sibling = next);
@@ -422,6 +433,30 @@ impl EcsDom {
         }
 
         self.clear_rel(entity);
+    }
+}
+
+/// Zero-allocation iterator over direct children of a DOM node.
+///
+/// Created by [`EcsDom::children_iter()`].
+pub struct ChildrenIter<'a> {
+    dom: &'a EcsDom,
+    next: Option<Entity>,
+    remaining: usize,
+}
+
+impl Iterator for ChildrenIter<'_> {
+    type Item = Entity;
+
+    fn next(&mut self) -> Option<Entity> {
+        let entity = self.next?;
+        if self.remaining == 0 {
+            self.next = None;
+            return None;
+        }
+        self.remaining -= 1;
+        self.next = self.dom.read_rel(entity, |rel| rel.next_sibling);
+        Some(entity)
     }
 }
 

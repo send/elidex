@@ -7,7 +7,7 @@ mod components;
 mod dom;
 
 pub use components::{Attributes, InlineStyle, TagType, TextContent, TreeRelation};
-pub use dom::EcsDom;
+pub use dom::{ChildrenIter, EcsDom};
 
 // Re-export hecs Entity for downstream consumers.
 pub use hecs::Entity;

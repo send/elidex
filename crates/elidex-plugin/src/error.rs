@@ -5,7 +5,7 @@ use std::fmt;
 /// Error returned when CSS value parsing fails.
 ///
 /// Contains the property name, the invalid input, and a human-readable message.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
     /// The CSS property that failed to parse (e.g. `"color"`).
     pub property: String,
@@ -30,7 +30,7 @@ impl std::error::Error for ParseError {}
 /// Error returned during HTML element creation or insertion.
 ///
 /// Contains the tag name, error kind, and a human-readable message.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HtmlParseError {
     /// The HTML tag that caused the error (e.g. `"div"`).
     pub tag: String,
