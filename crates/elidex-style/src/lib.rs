@@ -20,6 +20,8 @@ use elidex_css::Stylesheet;
 use elidex_ecs::{EcsDom, Entity, TagType};
 use elidex_plugin::ComputedStyle;
 
+pub use resolve::{dimension_to_css_value, get_computed_as_css_value};
+
 use cascade::{collect_and_cascade, get_inline_declarations};
 use resolve::{build_computed_style, ResolveContext};
 

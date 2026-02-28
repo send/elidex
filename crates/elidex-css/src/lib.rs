@@ -11,7 +11,9 @@ mod values;
 
 pub use declaration::{parse_declaration_block, Declaration, Origin};
 pub use parser::{parse_stylesheet, CssRule, Stylesheet};
-pub use selector::{Selector, SelectorComponent, Specificity};
+pub use selector::{
+    parse_selector_from_str, parse_selector_list, Selector, SelectorComponent, Specificity,
+};
 
 #[cfg(test)]
 mod integration_tests {

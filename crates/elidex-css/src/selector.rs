@@ -3,7 +3,7 @@
 //! Supports Phase 1 selector types: universal (`*`), tag, class, id,
 //! descendant (space), and child (`>`) combinators.
 
-use cssparser::{Parser, Token};
+use cssparser::{Parser, ParserInput, Token};
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
 /// A single component of a CSS selector.
@@ -269,6 +269,18 @@ fn match_components(
             }
         }
     }
+}
+
+/// Parse a comma-separated list of selectors from a string.
+///
+/// Convenience wrapper around [`parse_selector_list`] that handles
+/// `ParserInput` / `Parser` creation internally, so callers don't need
+/// a `cssparser` dependency.
+#[allow(clippy::result_unit_err)]
+pub fn parse_selector_from_str(selector: &str) -> Result<Vec<Selector>, ()> {
+    let mut input = ParserInput::new(selector);
+    let mut parser = Parser::new(&mut input);
+    parse_selector_list(&mut parser)
 }
 
 #[cfg(test)]

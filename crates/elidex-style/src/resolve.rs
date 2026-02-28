@@ -93,8 +93,10 @@ fn resolve_keyword(
 }
 
 /// Extract a property's computed value back into a [`CssValue`] for inheritance.
+///
+/// Also used by `getComputedStyle()` DOM API.
 // Sync: When adding a property, also update build_computed_style and get_initial_value.
-fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
+pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     match property {
         "color" => CssValue::Color(style.color),
         "font-size" => CssValue::Length(style.font_size, LengthUnit::Px),
@@ -148,7 +150,8 @@ fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue 
 // Display, Position, and BorderStyle implement AsRef<str> in elidex-plugin,
 // so enum-to-string conversion is handled via .as_ref() directly.
 
-fn dimension_to_css_value(d: Dimension) -> CssValue {
+/// Convert a [`Dimension`] back into a [`CssValue`] for CSS serialization.
+pub fn dimension_to_css_value(d: Dimension) -> CssValue {
     match d {
         Dimension::Length(v) => CssValue::Length(v, LengthUnit::Px),
         Dimension::Percentage(v) => CssValue::Percentage(v),
