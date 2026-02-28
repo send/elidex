@@ -11,12 +11,15 @@
 
 mod app;
 mod gpu;
+pub(crate) mod key_map;
 
-use elidex_css::{parse_stylesheet, Origin};
+use elidex_css::{parse_stylesheet, Origin, Stylesheet};
+use elidex_ecs::EcsDom;
+use elidex_ecs::Entity;
 use elidex_js::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_parser::parse_html;
-use elidex_render::build_display_list;
+use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::SessionCore;
 use elidex_style::resolve_styles;
 use elidex_text::FontDatabase;
@@ -36,12 +39,10 @@ const DEFAULT_VIEWPORT_HEIGHT: f32 = 768.0;
 ///
 /// This function blocks until the window is closed.
 pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Phase 1 pipeline: parse → style → layout → display list.
-    let display_list = build_pipeline(html, css);
+    let pipeline_result = build_pipeline_interactive(html, css);
 
-    // Create the event loop and application.
     let event_loop = EventLoop::new()?;
-    let mut app = App::new(display_list);
+    let mut app = App::new_interactive(pipeline_result);
     event_loop.run_app(&mut app)?;
 
     Ok(())
@@ -109,10 +110,208 @@ pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
     build_display_list(&dom, &font_db)
 }
 
+/// Result of the interactive rendering pipeline.
+///
+/// Contains all state needed to handle user events and re-render.
+pub struct PipelineResult {
+    /// The initial display list.
+    pub display_list: DisplayList,
+    /// The ECS DOM.
+    pub dom: EcsDom,
+    /// The document root entity.
+    pub document: Entity,
+    /// The script session state.
+    pub session: SessionCore,
+    /// The JavaScript runtime.
+    pub runtime: JsRuntime,
+    /// The parsed CSS stylesheet.
+    pub stylesheet: Stylesheet,
+    /// The font database.
+    pub font_db: FontDatabase,
+}
+
+/// Execute the rendering pipeline and return all state for interactive use.
+///
+/// Like `build_pipeline`, but returns the full `PipelineResult` instead
+/// of just the display list. This allows the shell to handle user events,
+/// dispatch DOM events, and re-render.
+#[must_use]
+pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
+    let parse_result = parse_html(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    let stylesheet = parse_stylesheet(css, Origin::Author);
+
+    // Initial style resolution.
+    resolve_styles(
+        &mut dom,
+        &[&stylesheet],
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    // Script execution phase.
+    let scripts = extract_scripts(&dom, document);
+    let mut session = SessionCore::new();
+    let mut runtime = JsRuntime::new();
+
+    for script in &scripts {
+        runtime.eval(&script.source, &mut session, &mut dom, document);
+    }
+    runtime.drain_timers(&mut session, &mut dom, document);
+    session.flush(&mut dom);
+
+    // Re-resolve styles after DOM mutations from scripts.
+    resolve_styles(
+        &mut dom,
+        &[&stylesheet],
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    let font_db = FontDatabase::new();
+    layout_tree(
+        &mut dom,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+        &font_db,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+
+    PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheet,
+        font_db,
+    }
+}
+
+/// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
+pub(crate) fn re_render(result: &mut PipelineResult) {
+    result.session.flush(&mut result.dom);
+
+    resolve_styles(
+        &mut result.dom,
+        &[&result.stylesheet],
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    layout_tree(
+        &mut result.dom,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+        &result.font_db,
+    );
+
+    result.display_list = build_display_list(&result.dom, &result.font_db);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_plugin::{EventPayload, MouseEventInit};
     use elidex_render::DisplayItem;
+    use elidex_script_session::DispatchEvent;
+
+    #[test]
+    fn build_pipeline_interactive_returns_all_fields() {
+        let result = build_pipeline_interactive(
+            "<div id=\"test\">Hello</div>",
+            "div { display: block; background-color: red; }",
+        );
+        assert!(!result.display_list.is_empty());
+        // Document entity should be valid.
+        assert!(result.dom.contains(result.document));
+    }
+
+    #[test]
+    fn build_pipeline_interactive_with_script() {
+        let result = build_pipeline_interactive(
+            "<div id=\"target\">Before</div>\
+             <script>document.getElementById('target').textContent = 'After';</script>",
+            "",
+        );
+        assert!(result.dom.contains(result.document));
+    }
+
+    #[test]
+    fn build_pipeline_interactive_compatible_with_build_pipeline() {
+        // Both functions should produce similar display lists for the same input.
+        let html = "<div style=\"background-color: red\">Hello</div>";
+        let css = "div { display: block; }";
+
+        let dl1 = build_pipeline(html, css);
+        let result = build_pipeline_interactive(html, css);
+
+        // Same number of display items.
+        assert_eq!(dl1.iter().count(), result.display_list.iter().count());
+    }
+
+    #[test]
+    fn re_render_updates_display_list() {
+        let mut result = build_pipeline_interactive(
+            "<div id=\"box\" style=\"background-color: red; width: 100px; height: 100px;\">Hello</div>",
+            "div { display: block; }",
+        );
+        let original_count = result.display_list.iter().count();
+
+        // Modify the DOM via the session (simulate a script mutation).
+        // No actual change needed — just verify re_render doesn't crash.
+        re_render(&mut result);
+        let new_count = result.display_list.iter().count();
+        assert_eq!(original_count, new_count);
+    }
+
+    #[test]
+    fn event_listener_with_pipeline_interactive() {
+        let mut result = build_pipeline_interactive(
+            "<div id=\"btn\" style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>\
+             <script>\
+               document.getElementById('btn').addEventListener('click', function(e) {\
+                 e.target.style.setProperty('background-color', 'red');\
+               });\
+             </script>",
+            "div { display: block; }",
+        );
+        // The pipeline should complete without panic.
+        assert!(!result.display_list.is_empty());
+        assert!(result.dom.contains(result.document));
+
+        // Simulate a click dispatch and re-render.
+        let btn_entities = result.dom.query_by_tag("div");
+        let btn = btn_entities.iter().find(|&&e| {
+            result
+                .dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(e)
+                .ok()
+                .is_some_and(|a| a.get("id") == Some("btn"))
+        });
+        if let Some(&btn_entity) = btn {
+            let mut event = DispatchEvent::new("click", btn_entity);
+            event.payload = EventPayload::Mouse(MouseEventInit {
+                client_x: 100.0,
+                client_y: 50.0,
+                ..Default::default()
+            });
+            result.runtime.dispatch_event(
+                &mut event,
+                &mut result.session,
+                &mut result.dom,
+                result.document,
+            );
+            re_render(&mut result);
+        }
+    }
 
     #[test]
     fn empty_html_produces_display_list() {

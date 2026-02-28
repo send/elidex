@@ -3,6 +3,7 @@
 pub mod console;
 pub mod document;
 pub mod element;
+pub mod events;
 pub mod timers;
 pub mod window;
 

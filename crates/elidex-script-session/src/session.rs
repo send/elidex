@@ -55,7 +55,8 @@ impl SessionCore {
     }
 
     /// Returns the number of pending (unflushed) mutations.
-    pub fn pending_count(&self) -> usize {
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
         self.pending.len()
     }
 

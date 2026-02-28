@@ -35,16 +35,6 @@ impl MiddlewareChain {
         self.middlewares.push(mw);
     }
 
-    /// Number of middlewares in the chain.
-    pub fn len(&self) -> usize {
-        self.middlewares.len()
-    }
-
-    /// Whether the chain is empty.
-    pub fn is_empty(&self) -> bool {
-        self.middlewares.is_empty()
-    }
-
     /// Run all middlewares on a request (pre-send).
     ///
     /// Converts the internal `Request` to plugin `HttpRequest`, runs each
@@ -149,20 +139,12 @@ mod tests {
     }
 
     #[test]
-    fn empty_chain() {
-        let chain = MiddlewareChain::new();
-        assert!(chain.is_empty());
-        assert_eq!(chain.len(), 0);
-    }
-
-    #[test]
     fn chain_adds_header() {
         let mut chain = MiddlewareChain::new();
         chain.add(Box::new(AddHeaderMw {
             name: "X-Test".into(),
             value: "yes".into(),
         }));
-        assert_eq!(chain.len(), 1);
 
         let mut request = Request {
             method: "GET".into(),

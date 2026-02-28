@@ -102,11 +102,6 @@ impl HttpTransport {
         &self.config
     }
 
-    /// Access the connection pool (for checkin after redirect etc).
-    pub fn pool(&self) -> &Arc<ConnectionPool> {
-        &self.pool
-    }
-
     /// Send a single HTTP request (no redirect following).
     pub async fn send(&self, request: &Request) -> Result<Response, NetError> {
         // Validate HTTP method
@@ -347,7 +342,8 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut buf = vec![0u8; 4096];
             let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
-            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
+            let response =
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
             stream.write_all(response).await.unwrap();
         });
 

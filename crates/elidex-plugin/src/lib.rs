@@ -6,6 +6,7 @@
 mod computed_style;
 mod context;
 mod error;
+mod event_types;
 mod js_value;
 mod layout_types;
 mod registry;
@@ -20,6 +21,7 @@ pub use computed_style::{
 };
 pub use context::StyleContext;
 pub use error::{HtmlErrorKind, HtmlParseError, ParseError};
+pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
 pub use registry::PluginRegistry;

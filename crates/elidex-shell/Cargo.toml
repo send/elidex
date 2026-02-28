@@ -13,6 +13,8 @@ keywords = ["browser-engine", "window", "event-loop"]
 categories = ["web-programming"]
 
 [dependencies]
+elidex-ecs.workspace = true
+elidex-plugin.workspace = true
 elidex-render.workspace = true
 elidex-parser.workspace = true
 elidex-css.workspace = true

@@ -31,6 +31,7 @@ pub fn to_boa(value: &elidex_plugin::JsValue) -> boa_engine::JsValue {
 /// Only primitive types are converted. Objects are mapped to `Undefined`
 /// because boa objects cannot be meaningfully represented as elidex values.
 /// Use the bridge for object reference resolution.
+#[cfg(test)]
 pub fn from_boa(
     value: &boa_engine::JsValue,
     ctx: &mut boa_engine::Context,

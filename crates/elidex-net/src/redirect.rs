@@ -181,7 +181,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut buf = vec![0u8; 4096];
             let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
-            let response = "HTTP/1.1 301 Moved\r\nLocation: http://10.0.0.1/secret\r\nContent-Length: 0\r\n\r\n".to_string();
+            let response = "HTTP/1.1 301 Moved\r\nLocation: http://10.0.0.1/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string();
             stream.write_all(response.as_bytes()).await.unwrap();
         });
 
@@ -244,7 +244,7 @@ mod tests {
             let mut buf = vec![0u8; 4096];
             let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
             let response = format!(
-                "HTTP/1.1 301 Moved\r\nLocation: http://127.0.0.1:{port}/dest\r\nContent-Length: 0\r\n\r\n"
+                "HTTP/1.1 301 Moved\r\nLocation: http://127.0.0.1:{port}/dest\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             );
             stream.write_all(response.as_bytes()).await.unwrap();
             drop(stream);
@@ -253,7 +253,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut buf = vec![0u8; 4096];
             let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
-            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
             stream.write_all(response).await.unwrap();
         });
 

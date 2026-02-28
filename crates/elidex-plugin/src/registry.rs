@@ -63,19 +63,6 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
     pub fn is_empty(&self) -> bool {
         self.static_lookup.is_empty() && self.dynamic_lookup.is_empty()
     }
-
-    /// Returns an iterator over all unique handler names.
-    ///
-    /// Static names are yielded first, then dynamic names that do not
-    /// overlap with static entries.
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.static_lookup.keys().copied().chain(
-            self.dynamic_lookup
-                .keys()
-                .filter(|k| !self.static_lookup.contains_key(k.as_str()))
-                .map(String::as_str),
-        )
-    }
 }
 
 impl<T: Send + Sync + ?Sized> fmt::Debug for PluginRegistry<T> {
@@ -204,21 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn names_iterator() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
-        registry.register_static("color", Box::new(TestHandler { name: "color" }));
-        registry.register_dynamic(
-            "background".to_string(),
-            Box::new(TestHandler { name: "background" }),
-        );
-
-        let mut names: Vec<&str> = registry.names().collect();
-        names.sort_unstable();
-        assert_eq!(names, vec!["background", "color"]);
-    }
-
-    #[test]
-    fn shadowed_dynamic_excluded_from_names() {
+    fn shadowed_dynamic_counted_once() {
         let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
         registry.register_static("color", Box::new(TestHandler { name: "static" }));
         registry.register_dynamic(
@@ -230,10 +203,7 @@ mod tests {
             Box::new(TestHandler { name: "background" }),
         );
 
-        // Shadowed dynamic "color" should not appear twice.
+        // Shadowed dynamic "color" should not be double-counted.
         assert_eq!(registry.len(), 2);
-        let names: Vec<&str> = registry.names().collect();
-        assert_eq!(names.iter().filter(|n| **n == "color").count(), 1);
-        assert!(names.contains(&"background"));
     }
 }

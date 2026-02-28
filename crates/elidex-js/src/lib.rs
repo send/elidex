@@ -24,13 +24,13 @@
 //! }
 //! ```
 
-pub mod bridge;
-pub mod error_conv;
-pub mod globals;
+mod bridge;
+mod error_conv;
+mod globals;
 pub mod runtime;
 pub mod script_extract;
-pub mod timer_queue;
-pub mod value_conv;
+mod timer_queue;
+mod value_conv;
 
 pub use runtime::{EvalResult, JsRuntime};
 pub use script_extract::{extract_scripts, ScriptEntry};

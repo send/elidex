@@ -108,9 +108,6 @@ impl OriginPool {
     }
 }
 
-/// Default maximum total connections across all origins.
-const DEFAULT_MAX_TOTAL_CONNECTIONS: usize = 256;
-
 /// Connection pool managing HTTP/1.1 and HTTP/2 connections per origin.
 pub struct ConnectionPool {
     connector: Connector,
@@ -130,11 +127,6 @@ impl std::fmt::Debug for ConnectionPool {
 }
 
 impl ConnectionPool {
-    /// Create a new pool with the given connector and per-origin limit.
-    pub fn new(connector: Connector, max_per_origin: usize) -> Self {
-        Self::with_global_limit(connector, max_per_origin, DEFAULT_MAX_TOTAL_CONNECTIONS)
-    }
-
     /// Create a new pool with explicit global connection limit.
     pub fn with_global_limit(
         connector: Connector,
@@ -212,28 +204,6 @@ impl ConnectionPool {
         if let Some(pool) = pools.get_mut(&key) {
             pool.active_h1 = pool.active_h1.saturating_sub(1);
         }
-    }
-
-    /// Evict stale idle connections across all origins.
-    ///
-    /// Iterates every origin pool and removes idle H1 connections older than
-    /// [`IDLE_TIMEOUT`] and dead H2 senders. Origins with no remaining
-    /// connections are removed entirely.
-    ///
-    /// Note: [`try_reuse()`](Self::try_reuse) also evicts stale connections,
-    /// but only for the single origin being checked out. This method provides
-    /// a global sweep. A background eviction task can be added if dead
-    /// connections cause noticeable latency on first request after idle periods.
-    pub fn evict_stale(&self) {
-        let mut pools = self
-            .pools
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        pools.retain(|_, pool| {
-            pool.evict_stale();
-            // Keep origin entry if there are idle connections, active connections, or h2 sender
-            !pool.idle_h1.is_empty() || pool.active_h1 > 0 || pool.h2_sender.is_some()
-        });
     }
 
     /// Try to reuse an existing connection from the pool.

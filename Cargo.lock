@@ -1025,9 +1025,11 @@ name = "elidex-shell"
 version = "0.1.0"
 dependencies = [
  "elidex-css",
+ "elidex-ecs",
  "elidex-js",
  "elidex-layout",
  "elidex-parser",
+ "elidex-plugin",
  "elidex-render",
  "elidex-script-session",
  "elidex-style",

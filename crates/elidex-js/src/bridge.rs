@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use boa_engine::JsObject;
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{JsObjectRef, SessionCore};
+use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
 
 /// Bridge providing boa native functions access to `SessionCore` and `EcsDom`.
 ///
@@ -33,6 +33,14 @@ struct HostBridgeInner {
     document_entity: Option<Entity>,
     /// Cache: `JsObjectRef` → boa `JsObject` for element identity preservation.
     js_object_cache: HashMap<JsObjectRef, JsObject>,
+    /// Event listener JS function storage: `ListenerId` → boa `JsObject`.
+    ///
+    /// TODO(Phase 3): entries are not cleaned up when entities are destroyed.
+    /// In Phase 2 entities are rarely destroyed at runtime so this is acceptable,
+    /// but long-running applications with dynamic DOM updates may accumulate
+    /// orphaned entries. Consider adding an entity-destruction hook that
+    /// bulk-removes listeners for the destroyed entity.
+    listener_store: HashMap<ListenerId, JsObject>,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -47,6 +55,7 @@ impl HostBridge {
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 js_object_cache: HashMap::new(),
+                listener_store: HashMap::new(),
             })),
         }
     }
@@ -133,6 +142,36 @@ impl HostBridge {
     pub fn get_cached_js_object(&self, obj_ref: JsObjectRef) -> Option<JsObject> {
         self.inner.borrow().js_object_cache.get(&obj_ref).cloned()
     }
+
+    /// Store a JS function object for an event listener.
+    pub fn store_listener(&self, id: ListenerId, func: JsObject) {
+        self.inner.borrow_mut().listener_store.insert(id, func);
+    }
+
+    /// Retrieve the JS function for an event listener.
+    pub fn get_listener(&self, id: ListenerId) -> Option<JsObject> {
+        self.inner.borrow().listener_store.get(&id).cloned()
+    }
+
+    /// Remove the JS function for an event listener.
+    pub fn remove_listener(&self, id: ListenerId) -> Option<JsObject> {
+        self.inner.borrow_mut().listener_store.remove(&id)
+    }
+
+    /// Check if a JS object pointer-equals the stored listener for a given ID.
+    ///
+    /// Uses reference identity (`JsObject::equals`), matching the DOM spec
+    /// requirement that `removeEventListener` identifies listeners by the
+    /// same function reference passed to `addEventListener`.
+    ///
+    /// Used by `removeEventListener` to find the matching listener entry.
+    pub fn listener_matches(&self, id: ListenerId, func: &JsObject) -> bool {
+        self.inner
+            .borrow()
+            .listener_store
+            .get(&id)
+            .is_some_and(|stored| JsObject::equals(stored, func))
+    }
 }
 
 impl Default for HostBridge {
@@ -153,6 +192,9 @@ unsafe impl boa_gc::Trace for HostBridge {
     boa_gc::custom_trace!(this, mark, {
         let inner = this.inner.borrow();
         for obj in inner.js_object_cache.values() {
+            mark(obj);
+        }
+        for obj in inner.listener_store.values() {
             mark(obj);
         }
     });

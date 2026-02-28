@@ -56,7 +56,8 @@ impl IdentityMap {
     /// Release a single [`JsObjectRef`], removing it from both maps.
     ///
     /// Returns `true` if the reference existed and was removed.
-    pub fn release(&mut self, obj_ref: JsObjectRef) -> bool {
+    #[cfg(test)]
+    fn release(&mut self, obj_ref: JsObjectRef) -> bool {
         if let Some(key) = self.reverse.remove(&obj_ref) {
             self.forward.remove(&key);
             true

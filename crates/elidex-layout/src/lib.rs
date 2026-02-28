@@ -5,12 +5,14 @@
 
 mod block;
 mod flex;
+pub mod hit_test;
 mod inline;
 mod layout;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::ComputedStyle;
 
+pub use hit_test::{hit_test, HitTestResult};
 pub use layout::layout_tree;
 
 /// Maximum recursion depth for layout tree walking.
