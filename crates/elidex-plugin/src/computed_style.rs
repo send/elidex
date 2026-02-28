@@ -17,6 +17,7 @@ pub enum Display {
     InlineBlock,
     None,
     Flex,
+    InlineFlex,
 }
 
 impl AsRef<str> for Display {
@@ -27,6 +28,145 @@ impl AsRef<str> for Display {
             Self::InlineBlock => "inline-block",
             Self::None => "none",
             Self::Flex => "flex",
+            Self::InlineFlex => "inline-flex",
+        }
+    }
+}
+
+/// The CSS `flex-direction` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum FlexDirection {
+    #[default]
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+impl AsRef<str> for FlexDirection {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Row => "row",
+            Self::RowReverse => "row-reverse",
+            Self::Column => "column",
+            Self::ColumnReverse => "column-reverse",
+        }
+    }
+}
+
+/// The CSS `flex-wrap` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum FlexWrap {
+    #[default]
+    Nowrap,
+    Wrap,
+    WrapReverse,
+}
+
+impl AsRef<str> for FlexWrap {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Nowrap => "nowrap",
+            Self::Wrap => "wrap",
+            Self::WrapReverse => "wrap-reverse",
+        }
+    }
+}
+
+/// The CSS `justify-content` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum JustifyContent {
+    #[default]
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+impl AsRef<str> for JustifyContent {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::FlexStart => "flex-start",
+            Self::FlexEnd => "flex-end",
+            Self::Center => "center",
+            Self::SpaceBetween => "space-between",
+            Self::SpaceAround => "space-around",
+            Self::SpaceEvenly => "space-evenly",
+        }
+    }
+}
+
+/// The CSS `align-items` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum AlignItems {
+    #[default]
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Baseline,
+}
+
+impl AsRef<str> for AlignItems {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Stretch => "stretch",
+            Self::FlexStart => "flex-start",
+            Self::FlexEnd => "flex-end",
+            Self::Center => "center",
+            Self::Baseline => "baseline",
+        }
+    }
+}
+
+/// The CSS `align-self` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum AlignSelf {
+    #[default]
+    Auto,
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Baseline,
+}
+
+impl AsRef<str> for AlignSelf {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Auto => "auto",
+            Self::Stretch => "stretch",
+            Self::FlexStart => "flex-start",
+            Self::FlexEnd => "flex-end",
+            Self::Center => "center",
+            Self::Baseline => "baseline",
+        }
+    }
+}
+
+/// The CSS `align-content` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum AlignContent {
+    #[default]
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+}
+
+impl AsRef<str> for AlignContent {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Stretch => "stretch",
+            Self::FlexStart => "flex-start",
+            Self::FlexEnd => "flex-end",
+            Self::Center => "center",
+            Self::SpaceBetween => "space-between",
+            Self::SpaceAround => "space-around",
         }
     }
 }
@@ -84,7 +224,17 @@ macro_rules! display_via_as_ref {
     };
 }
 
-display_via_as_ref!(Display, Position, BorderStyle);
+display_via_as_ref!(
+    Display,
+    Position,
+    BorderStyle,
+    FlexDirection,
+    FlexWrap,
+    JustifyContent,
+    AlignItems,
+    AlignSelf,
+    AlignContent,
+);
 
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -168,6 +318,30 @@ pub struct ComputedStyle {
     pub border_bottom_color: CssColor,
     /// Border left color. Initial: currentcolor (resolved to `color`).
     pub border_left_color: CssColor,
+
+    // --- Flex container properties (non-inherited) ---
+    /// Flex direction. Initial: `Row`.
+    pub flex_direction: FlexDirection,
+    /// Flex wrap. Initial: `Nowrap`.
+    pub flex_wrap: FlexWrap,
+    /// Justify content. Initial: `FlexStart`.
+    pub justify_content: JustifyContent,
+    /// Align items. Initial: `Stretch`.
+    pub align_items: AlignItems,
+    /// Align content. Initial: `Stretch`.
+    pub align_content: AlignContent,
+
+    // --- Flex item properties (non-inherited) ---
+    /// Flex grow factor. Initial: `0.0`.
+    pub flex_grow: f32,
+    /// Flex shrink factor. Initial: `1.0`.
+    pub flex_shrink: f32,
+    /// Flex basis. Initial: `Auto`.
+    pub flex_basis: Dimension,
+    /// Order. Initial: `0`.
+    pub order: i32,
+    /// Align self. Initial: `Auto`.
+    pub align_self: AlignSelf,
 }
 
 impl Default for ComputedStyle {
@@ -214,6 +388,20 @@ impl Default for ComputedStyle {
             border_right_color: color,
             border_bottom_color: color,
             border_left_color: color,
+
+            // Flex container
+            flex_direction: FlexDirection::default(),
+            flex_wrap: FlexWrap::default(),
+            justify_content: JustifyContent::default(),
+            align_items: AlignItems::default(),
+            align_content: AlignContent::default(),
+
+            // Flex item
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            flex_basis: Dimension::Auto,
+            order: 0,
+            align_self: AlignSelf::default(),
         }
     }
 }
@@ -247,6 +435,37 @@ mod tests {
         assert_eq!(Position::default(), Position::Static);
         assert_eq!(BorderStyle::default(), BorderStyle::None);
         assert_eq!(Dimension::default(), Dimension::Auto);
+        assert_eq!(FlexDirection::default(), FlexDirection::Row);
+        assert_eq!(FlexWrap::default(), FlexWrap::Nowrap);
+        assert_eq!(JustifyContent::default(), JustifyContent::FlexStart);
+        assert_eq!(AlignItems::default(), AlignItems::Stretch);
+        assert_eq!(AlignSelf::default(), AlignSelf::Auto);
+        assert_eq!(AlignContent::default(), AlignContent::Stretch);
+    }
+
+    #[test]
+    fn flex_enum_as_ref() {
+        assert_eq!(FlexDirection::RowReverse.as_ref(), "row-reverse");
+        assert_eq!(FlexWrap::WrapReverse.as_ref(), "wrap-reverse");
+        assert_eq!(JustifyContent::SpaceBetween.as_ref(), "space-between");
+        assert_eq!(AlignItems::Center.as_ref(), "center");
+        assert_eq!(AlignSelf::FlexEnd.as_ref(), "flex-end");
+        assert_eq!(AlignContent::SpaceAround.as_ref(), "space-around");
+    }
+
+    #[test]
+    fn computed_style_flex_defaults() {
+        let s = ComputedStyle::default();
+        assert_eq!(s.flex_direction, FlexDirection::Row);
+        assert_eq!(s.flex_wrap, FlexWrap::Nowrap);
+        assert_eq!(s.justify_content, JustifyContent::FlexStart);
+        assert_eq!(s.align_items, AlignItems::Stretch);
+        assert_eq!(s.align_content, AlignContent::Stretch);
+        assert_eq!(s.flex_grow, 0.0);
+        assert_eq!(s.flex_shrink, 1.0);
+        assert_eq!(s.flex_basis, Dimension::Auto);
+        assert_eq!(s.order, 0);
+        assert_eq!(s.align_self, AlignSelf::Auto);
     }
 
     #[test]

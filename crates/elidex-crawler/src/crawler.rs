@@ -5,7 +5,6 @@ use crate::robots;
 use crate::sites::Site;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
@@ -303,70 +302,14 @@ async fn read_body_limited(mut response: reqwest::Response) -> anyhow::Result<St
 
 /// Validate that a URL doesn't point to a private/internal address.
 ///
+/// Delegates to the shared SSRF protection in `elidex_plugin::url_security`.
+///
 /// **Known limitation (Phase 0):** This validates the *hostname string*, not
-/// the resolved IP address. A DNS name like `attacker.com` that resolves to
-/// `127.0.0.1` (DNS rebinding) will pass validation. Phase 1 should add a
-/// custom [`reqwest::dns::Resolve`] implementation that checks resolved IPs
-/// at the socket level before connecting.
+/// the resolved IP address. DNS-level SSRF protection (checking resolved IPs)
+/// is implemented in `elidex-net`'s connector.
 pub(crate) fn validate_url(url: &reqwest::Url) -> anyhow::Result<()> {
-    // Only allow http/https schemes.
-    match url.scheme() {
-        "http" | "https" => {}
-        scheme => anyhow::bail!("unsupported URL scheme: {scheme}"),
-    }
-
-    // Check for private/loopback hostnames.
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    if let Some(host) = url.host_str() {
-        let lower = host.to_ascii_lowercase();
-        if lower == "localhost"
-            || lower.ends_with(".local")
-            || lower.ends_with(".internal")
-            || lower == "::1"
-        {
-            anyhow::bail!("blocked private host: {host}");
-        }
-
-        // Parse as IP and check for private ranges.
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            if is_private_ip(ip) {
-                anyhow::bail!("blocked private IP: {ip}");
-            }
-        }
-    } else {
-        anyhow::bail!("URL has no host");
-    }
-
-    Ok(())
-}
-
-/// Check if an IP address is in a private/reserved range.
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()           // 127.0.0.0/8
-                || v4.is_private()     // 10/8, 172.16/12, 192.168/16
-                || v4.is_link_local()  // 169.254/16
-                || v4.is_broadcast()   // 255.255.255.255
-                || v4.is_unspecified() // 0.0.0.0
-                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64/10 (CGNAT)
-                || v4.is_documentation() // 192.0.2/24, 198.51.100/24, 203.0.113/24
-        }
-        IpAddr::V6(v6) => {
-            // Check IPv4-mapped addresses (::ffff:0:0/96) — delegate to V4 checks.
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_private_ip(IpAddr::V4(v4));
-            }
-            v6.is_loopback()       // ::1
-                || v6.is_unspecified() // ::
-                // Multicast ff00::/8
-                || v6.segments()[0] >> 8 == 0xff
-                // ULA (Unique Local Address) fc00::/7
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                // Link-local fe80::/10
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
-        }
-    }
+    // reqwest::Url is the same type as url::Url
+    elidex_plugin::url_security::validate_url(url).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Check if an error indicates that a bare domain cannot connect but `www.` might work.
@@ -396,6 +339,7 @@ fn add_www_prefix(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_plugin::url_security::is_private_ip;
 
     #[test]
     fn private_ips_blocked() {

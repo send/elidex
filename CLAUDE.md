@@ -12,13 +12,15 @@ crates/
   elidex-plugin-macros/ — Procedural macros (#[derive(SpecLevel)] etc.)
   elidex-ecs/           — ECS (hecs) based DOM prototype
   elidex-crawler/       — Web compatibility survey tool (binary crate)
-  elidex-parser/        — HTML/XML parser (html5ever wrapper)
+  elidex-parser/        — HTML/XML parser (html5ever wrapper, charset detection)
   elidex-css/           — CSS parser, value types, selector engine
   elidex-style/         — Cascade, inheritance, style resolution
   elidex-layout/        — Block, inline, flexbox layout
   elidex-text/          — Text shaping, measurement, line breaking
   elidex-render/        — Rendering backend abstraction
   elidex-shell/         — Window management, event loop shell
+  elidex-script-session/ — Script session abstraction (JS ↔ ECS DOM bridge)
+  elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
 ```
 
 ### Common Commands
@@ -55,6 +57,14 @@ cargo doc --workspace --no-deps  # Build docs
 - **Error chain**: Retry errors use `format!("{e:#}")` to preserve full anyhow error chain.
 - **`to_ascii_lowercase()` safety**: Verified — only modifies ASCII bytes, preserving byte positions. Safe to cross-index with original HTML.
 
+### elidex-parser
+
+- **Three entry points**: `parse_html(&str)` (existing, UTF-8), `parse_tolerant(&[u8], charset_hint)` (byte input with charset auto-detection), `parse_strict(&str)` (rejects documents with parse errors).
+- **Charset detection** (`charset.rs`): BOM always stripped first (`strip_bom()`), then encoding priority: HTTP charset hint → BOM encoding → `<meta charset>` prescan (1024 bytes) → `<meta http-equiv="Content-Type" content="…;charset=…">` prescan → UTF-8 default. Uses `encoding_rs` with `new_decoder_without_bom_handling()` to avoid encoding_rs's built-in BOM sniffing overriding our priority logic.
+- **ParseResult**: Extended with `encoding: Option<&'static str>` (set by `parse_tolerant`, `None` for `parse_html`).
+- **StrictParseError**: `Display` + `Error` impl, contains `Vec<String>` of html5ever error messages.
+- **Dependencies**: `encoding_rs 0.8` for charset detection/transcoding.
+
 ### elidex-ecs
 
 - **Tree invariants**: No cycles (ancestor walk with depth counter, capped at 10,000), consistent sibling links, parent↔child consistency, destroyed entity safety. `#[must_use]` on all mutation methods.
@@ -68,7 +78,41 @@ cargo doc --workspace --no-deps  # Build docs
 - **PluginRegistry**: Generic (`Debug` impl), static-first lookup, `#[must_use]` on `resolve()`, same-name re-registration overwrites. `is_shadowed()` helper for dedup.
 - **SpecLevel enums**: All `#[non_exhaustive]`, `Default` with `#[default]` on first variant.
 - **Error types**: `define_error_type!` macro for DRY error boilerplate (`ParseError`, `HtmlParseError`, `NetworkError`).
-- **Placeholder types**: All `#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]`.
+- **JsValue**: `#[non_exhaustive]` enum (Undefined/Null/Bool/Number/String/ObjectRef) — cross-engine JS value type.
+- **Network types**: `HttpRequest` (method/url/headers), `HttpResponse` (status/headers), `NetworkError` (kind/message), `NetworkErrorKind` enum.
+
+### elidex-layout
+
+- **Block layout**: `layout_block_inner()` handles block formatting context — width resolution, margin collapse (adjacent siblings, positive/negative), padding/border, vertical stacking. `is_block_level()` classifies display types.
+- **Inline layout**: `layout_inline()` handles inline formatting context — text shaping, line breaking, line box construction.
+- **Flexbox layout**: `flex.rs` implements CSS Flexbox Level 1 (simplified). `layout_flex()` entry point: box model resolution → item collection (`display:none` skipped) → `order` stable sort → line splitting (nowrap/wrap/wrap-reverse) → flexible length resolution (grow/shrink with frozen/unfrozen loop) → cross size resolution → main axis positioning (justify-content: 6 values) → cross axis alignment (align-items/align-self: stretch/flex-start/flex-end/center) → multi-line align-content distribution.
+- **Phase 2 simplifications**: `baseline` alignment → `flex-start`, `flex-basis: content` → `auto`, `InlineFlex` treated as block-level.
+- **Routing**: `block.rs` and `layout.rs` route `Display::Flex`/`InlineFlex` children to `flex::layout_flex()`.
+
+### elidex-script-session
+
+- **SessionCore**: Owns `IdentityMap` + `Vec<Mutation>`. `record_mutation()` buffers, `flush()` applies all via `apply_mutation()`. `get_or_create_wrapper()` for identity mapping, `release()` for cleanup.
+- **IdentityMap**: Bidirectional `(Entity, ComponentKind) ↔ JsObjectRef`. Monotonic counter for unique refs. `get_or_create()` is idempotent. `release()` single ref, `release_entity()` all refs for an entity.
+- **Mutation enum**: `AppendChild`, `InsertBefore`, `RemoveChild`, `ReplaceChild`, `SetAttribute`, `RemoveAttribute`, `SetTextContent`, `SetInnerHtml` (stub), `SetInlineStyle`, `RemoveInlineStyle`, `InsertCssRule`/`DeleteCssRule` (stubs).
+- **apply_mutation()**: Delegates tree ops to `EcsDom`, attribute/style ops via `world_mut()`. `SetInlineStyle` auto-inserts `InlineStyle` component if missing. Returns `Option<MutationRecord>`.
+- **DomApiHandler / CssomApiHandler traits**: `Send + Sync`, `method_name()`, `spec_level()` (default Living/Standard), `invoke(this, args, session, dom) -> Result<JsValue, DomApiError>`.
+- **Types**: `JsObjectRef(u64)`, `ComponentKind` enum (Element/Style/ClassList/Attributes/Dataset/ChildNodes), `DomApiError` + `DomApiErrorKind` (NotFoundError/HierarchyRequestError/InvalidStateError/SyntaxError/TypeError/Other).
+
+### elidex-net
+
+- **NetClient**: Top-level API integrating transport, cookies, middleware, redirect, CORS, HTTPS-upgrade. `send()` for raw HTTP, `load()` for resource loading (http/data/file).
+- **HttpTransport**: Sends requests via connection pool with timeout. Wraps hyper HTTP/1.1 and HTTP/2.
+- **ConnectionPool**: Per-origin pooling. `OriginKey(scheme, host, port)`. H1: up to 6 idle connections. H2: single multiplexed `SendRequest` clone. 90s idle eviction.
+- **Connector**: TCP+TLS with DNS-level SSRF protection. Uses `TokioIo<StreamWrapper>` for hyper compatibility. ALPN negotiation for H2.
+- **TLS**: rustls with ring provider, webpki-roots, TLS 1.2/1.3, ALPN `h2, http/1.1`.
+- **CookieJar**: `Set-Cookie` parsing via `cookie` crate. Domain/path matching (RFC 6265). `SameSite=Lax` default. Third-party blocking (simplified domain comparison, TODO: eTLD+1 in M2-7). Thread-safe via `Mutex`.
+- **Redirect**: Follows 301/302/303/307/308 up to max 20. 301-303 change to GET. SSRF re-validation on each hop (skipped when `allow_private_ips`).
+- **CORS**: `validate_cors()` checks `Access-Control-Allow-Origin` against request origin.
+- **HTTPS upgrade**: `upgrade_to_https()` rewrites HTTP URLs to HTTPS.
+- **MiddlewareChain**: Adapts plugin `NetworkMiddleware` trait to internal Request/Response types.
+- **data_url**: RFC 2397 parser (plain text + base64).
+- **ResourceLoader trait + SchemeDispatcher**: Routes http/https, data:, file:// with cookie injection and redirect following.
+- **SSRF shared module**: `elidex_plugin::url_security` — `validate_url()` + `is_private_ip()`, shared by elidex-net and elidex-crawler.
 
 ### CI
 

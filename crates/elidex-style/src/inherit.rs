@@ -33,8 +33,8 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Background
         "background-color" => CssValue::Color(CssColor::TRANSPARENT),
 
-        // Sizing
-        "width" | "height" => CssValue::Auto,
+        // Sizing (auto)
+        "width" | "height" | "flex-basis" => CssValue::Auto,
 
         // Margins and padding
         "margin-top" | "margin-right" | "margin-bottom" | "margin-left" | "padding-top"
@@ -56,6 +56,17 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "border-top-color" | "border-right-color" | "border-bottom-color" | "border-left-color" => {
             CssValue::Keyword("currentcolor".to_string())
         }
+
+        // Flex container
+        "flex-direction" => CssValue::Keyword("row".to_string()),
+        "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
+        "justify-content" => CssValue::Keyword("flex-start".to_string()),
+        "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
+
+        // Flex item
+        "align-self" => CssValue::Keyword("auto".to_string()),
+        "flex-grow" | "order" => CssValue::Number(0.0),
+        "flex-shrink" => CssValue::Number(1.0),
 
         _ => CssValue::Initial,
     }

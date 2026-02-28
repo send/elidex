@@ -9,16 +9,8 @@ use elidex_plugin::{ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rec
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
+use crate::sanitize;
 use crate::MAX_LAYOUT_DEPTH;
-
-/// Replace non-finite f32 values (NaN, infinity) with 0.0.
-fn sanitize(v: f32) -> f32 {
-    if v.is_finite() {
-        v
-    } else {
-        0.0
-    }
-}
 
 /// Sanitize four edge values into an [`EdgeSizes`].
 fn sanitize_edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
@@ -122,7 +114,7 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
 fn is_block_level(display: Display) -> bool {
     matches!(
         display,
-        Display::Block | Display::InlineBlock | Display::Flex
+        Display::Block | Display::InlineBlock | Display::Flex | Display::InlineFlex
     )
 }
 
@@ -162,6 +154,10 @@ pub(crate) fn layout_block(
 }
 
 /// Inner recursive implementation with depth tracking.
+///
+/// If the entity is a flex container (`display: Flex/InlineFlex`), delegates
+/// to [`crate::flex::layout_flex`] so that its children are laid out as flex
+/// items rather than block children.
 fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,
@@ -172,6 +168,20 @@ fn layout_block_inner(
     depth: u32,
 ) -> LayoutBox {
     let style = crate::get_style(dom, entity);
+
+    // A flex container reached via layout_block (e.g. a flex item that is itself
+    // a flex container) must use the flex algorithm for its own children.
+    if matches!(style.display, Display::Flex | Display::InlineFlex) {
+        return crate::flex::layout_flex(
+            dom,
+            entity,
+            containing_width,
+            offset_x,
+            offset_y,
+            font_db,
+            depth,
+        );
+    }
 
     // --- Sanitize padding and border (protect against NaN/infinity) ---
     let padding = sanitize_edges(
@@ -299,15 +309,27 @@ pub(crate) fn stack_block_children(
             cursor_y -= prev_mb + child_margin_top - collapsed;
         }
 
-        let child_box = layout_block_inner(
-            dom,
-            child,
-            containing_width,
-            offset_x,
-            cursor_y,
-            font_db,
-            depth,
-        );
+        let child_box = if matches!(child_display, Display::Flex | Display::InlineFlex) {
+            crate::flex::layout_flex(
+                dom,
+                child,
+                containing_width,
+                offset_x,
+                cursor_y,
+                font_db,
+                depth,
+            )
+        } else {
+            layout_block_inner(
+                dom,
+                child,
+                containing_width,
+                offset_x,
+                cursor_y,
+                font_db,
+                depth,
+            )
+        };
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
     }

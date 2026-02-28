@@ -12,6 +12,8 @@ members = [
     "crates/elidex-text",
     "crates/elidex-render",
     "crates/elidex-shell",
+    "crates/elidex-script-session",
+    "crates/elidex-net",
 ]
 
 [workspace.package]
@@ -26,6 +28,7 @@ publish = false
 [workspace.dependencies]
 anyhow = "1"
 cssparser = "0.34"
+encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 hecs = "0.10"
@@ -34,7 +37,7 @@ markup5ever_rcdom = "0.38"
 reqwest = { version = "0.12", features = ["gzip", "brotli"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
@@ -42,6 +45,18 @@ quote = "1"
 proc-macro2 = "1"
 fontdb = "0.23"
 rustybuzz = "0.20"
+bytes = "1"
+cookie = "0.18"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+rustls-pki-types = "1"
+tokio-rustls = "0.26"
+url = "2"
+webpki-roots = "0.26"
+elidex-net = { path = "crates/elidex-net" }
 elidex-plugin = { path = "crates/elidex-plugin" }
 elidex-ecs = { path = "crates/elidex-ecs" }
 elidex-css = { path = "crates/elidex-css" }
@@ -51,6 +66,7 @@ elidex-parser = { path = "crates/elidex-parser" }
 elidex-layout = { path = "crates/elidex-layout" }
 elidex-render = { path = "crates/elidex-render" }
 elidex-shell = { path = "crates/elidex-shell" }
+elidex-script-session = { path = "crates/elidex-script-session" }
 vello = "0.7"
 wgpu = "27"
 winit = "0.30"

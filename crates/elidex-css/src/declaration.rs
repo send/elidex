@@ -5,12 +5,19 @@
 //! longhand equivalents.
 
 use cssparser::{Parser, ParserInput, Token};
-use elidex_plugin::{CssValue, LengthUnit};
+use elidex_plugin::CssValue;
 
 use crate::color::parse_color;
 use crate::values::{
     parse_global_keyword, parse_length_or_percentage, parse_length_percentage_or_auto,
 };
+
+mod box_model;
+mod flex;
+mod font;
+
+#[cfg(test)]
+mod tests;
 
 /// The origin of a stylesheet in the cascade.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -107,15 +114,22 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
     match name {
         // --- Shorthand properties ---
-        "margin" => expand_four_sides(input, "margin", parse_length_percentage_or_auto),
-        "padding" => expand_four_sides(input, "padding", parse_length_or_percentage),
-        "border" => parse_border_shorthand(input),
+        "margin" => box_model::expand_four_sides(input, "margin", parse_length_percentage_or_auto),
+        "padding" => box_model::expand_four_sides(input, "padding", parse_length_or_percentage),
+        "border" => box_model::parse_border_shorthand(input),
 
         // --- Keyword properties ---
         "display" => parse_keyword_property(
             input,
             name,
-            &["block", "inline", "inline-block", "none", "flex"],
+            &[
+                "block",
+                "inline",
+                "inline-block",
+                "none",
+                "flex",
+                "inline-flex",
+            ],
         ),
         "position" => {
             parse_keyword_property(input, name, &["static", "relative", "absolute", "fixed"])
@@ -144,12 +158,72 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Border width ---
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
-            parse_border_width_property(input, name)
+            box_model::parse_border_width_property(input, name)
         }
 
         // --- Font properties ---
-        "font-size" => parse_font_size(input),
-        "font-family" => parse_font_family(input),
+        "font-size" => font::parse_font_size(input),
+        "font-family" => font::parse_font_family(input),
+
+        // --- Flex keyword properties ---
+        "flex-direction" => parse_keyword_property(
+            input,
+            name,
+            &["row", "row-reverse", "column", "column-reverse"],
+        ),
+        "flex-wrap" => parse_keyword_property(input, name, &["nowrap", "wrap", "wrap-reverse"]),
+        "justify-content" => parse_keyword_property(
+            input,
+            name,
+            &[
+                "flex-start",
+                "flex-end",
+                "center",
+                "space-between",
+                "space-around",
+                "space-evenly",
+            ],
+        ),
+        "align-items" => parse_keyword_property(
+            input,
+            name,
+            &["stretch", "flex-start", "flex-end", "center", "baseline"],
+        ),
+        "align-self" => parse_keyword_property(
+            input,
+            name,
+            &[
+                "auto",
+                "stretch",
+                "flex-start",
+                "flex-end",
+                "center",
+                "baseline",
+            ],
+        ),
+        "align-content" => parse_keyword_property(
+            input,
+            name,
+            &[
+                "stretch",
+                "flex-start",
+                "flex-end",
+                "center",
+                "space-between",
+                "space-around",
+            ],
+        ),
+
+        // --- Flex number properties ---
+        "flex-grow" | "flex-shrink" => flex::parse_non_negative_number(input, name),
+        "order" => flex::parse_integer_property(input, name),
+
+        // --- Flex basis ---
+        "flex-basis" => flex::parse_flex_basis(input),
+
+        // --- Flex shorthands ---
+        "flex" => flex::parse_flex_shorthand(input),
+        "flex-flow" => flex::parse_flex_flow_shorthand(input),
 
         // --- Unknown property: silently drop ---
         _ => Vec::new(),
@@ -216,111 +290,21 @@ fn parse_value_property(
         .unwrap_or_default()
 }
 
-/// Parse a border-width keyword (`thin`, `medium`, `thick`) into pixel values.
-fn parse_border_width_keyword(input: &mut Parser) -> Result<CssValue, ()> {
-    let ident = input.expect_ident().map_err(|_| ())?;
-    match ident.to_ascii_lowercase().as_str() {
-        "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
-        "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
-        "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
-        _ => Err(()),
-    }
-}
-
-fn parse_border_width_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            // Try keyword first (thin/medium/thick), then fall back to length.
-            let val = i
-                .try_parse(parse_border_width_keyword)
-                .or_else(|()| parse_length_or_percentage(i))?;
-            Ok(single_decl(name, val))
-        })
-        .unwrap_or_default()
-}
-
-fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
-    // Try keyword sizes first.
-    if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        let lower = ident.to_ascii_lowercase();
-        match lower.as_str() {
-            "xx-small" | "xx-large" | "x-small" | "x-large" | "small" | "medium" | "large"
-            | "smaller" | "larger" => Ok(CssValue::Keyword(lower)),
-            _ => Err(()),
-        }
-    }) {
-        return single_decl("font-size", val);
-    }
-    // Fall back to length/percentage.
-    parse_value_property(input, "font-size", parse_length_or_percentage)
-}
-
-fn parse_font_family(input: &mut Parser) -> Vec<Declaration> {
-    let mut families = Vec::new();
-
-    loop {
-        if input.is_exhausted() {
-            break;
-        }
-
-        let family = input.try_parse(|i| -> Result<CssValue, ()> {
-            let tok = i.next().map_err(|_| ())?;
-            match tok {
-                Token::Ident(ref name) => {
-                    // Unquoted font family names can be multi-word (e.g. "Times New Roman").
-                    // Greedily consume consecutive identifiers, joining with spaces.
-                    let mut full_name = name.as_ref().to_string();
-                    while let Ok(part) = i.try_parse(|i2| -> Result<String, ()> {
-                        let ident = i2.expect_ident().map_err(|_| ())?;
-                        Ok(ident.as_ref().to_string())
-                    }) {
-                        full_name.push(' ');
-                        full_name.push_str(&part);
-                    }
-                    Ok(CssValue::Keyword(full_name))
-                }
-                Token::QuotedString(ref s) => Ok(CssValue::String(s.as_ref().to_string())),
-                _ => Err(()),
-            }
-        });
-
-        match family {
-            Ok(f) => families.push(f),
-            Err(()) => break,
-        }
-
-        // Skip comma.
-        if input
-            .try_parse(|i| i.expect_comma().map_err(|_| ()))
-            .is_err()
-        {
-            break;
-        }
-    }
-
-    if families.is_empty() {
-        return Vec::new();
-    }
-
-    vec![Declaration {
-        property: "font-family".to_string(),
-        value: CssValue::List(families),
-        important: false,
-    }]
-}
-
 // --- Shorthand expansion helpers ---
-
-const SIDES: &[&str] = &["top", "right", "bottom", "left"];
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
 /// their longhand equivalents. Longhand properties produce a single declaration.
 fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
     let longhands: Vec<String> = match name {
-        "margin" => SIDES.iter().map(|s| format!("margin-{s}")).collect(),
-        "padding" => SIDES.iter().map(|s| format!("padding-{s}")).collect(),
-        "border" => SIDES
+        "margin" => box_model::SIDES
+            .iter()
+            .map(|s| format!("margin-{s}"))
+            .collect(),
+        "padding" => box_model::SIDES
+            .iter()
+            .map(|s| format!("padding-{s}"))
+            .collect(),
+        "border" => box_model::SIDES
             .iter()
             .flat_map(|s| {
                 ["width", "style", "color"]
@@ -328,6 +312,12 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
                     .map(move |prop| format!("border-{s}-{prop}"))
             })
             .collect(),
+        "flex" => vec![
+            "flex-grow".to_string(),
+            "flex-shrink".to_string(),
+            "flex-basis".to_string(),
+        ],
+        "flex-flow" => vec!["flex-direction".to_string(), "flex-wrap".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };
@@ -339,384 +329,4 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             important: false,
         })
         .collect()
-}
-
-/// Expand a 1–4 value shorthand (margin, padding) into four longhand declarations.
-fn expand_four_sides(
-    input: &mut Parser,
-    prefix: &str,
-    parse_fn: fn(&mut Parser) -> Result<CssValue, ()>,
-) -> Vec<Declaration> {
-    let mut values = Vec::new();
-    for _ in 0..4 {
-        if let Ok(v) = input.try_parse(parse_fn) {
-            values.push(v);
-        } else {
-            break;
-        }
-    }
-
-    if values.is_empty() {
-        return Vec::new();
-    }
-
-    let (top, right, bottom, left) = match values.len() {
-        1 => (
-            values[0].clone(),
-            values[0].clone(),
-            values[0].clone(),
-            values[0].clone(),
-        ),
-        2 => (
-            values[0].clone(),
-            values[1].clone(),
-            values[0].clone(),
-            values[1].clone(),
-        ),
-        3 => (
-            values[0].clone(),
-            values[1].clone(),
-            values[2].clone(),
-            values[1].clone(),
-        ),
-        _ => (
-            values[0].clone(),
-            values[1].clone(),
-            values[2].clone(),
-            values[3].clone(),
-        ),
-    };
-
-    vec![
-        Declaration {
-            property: format!("{prefix}-top"),
-            value: top,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-right"),
-            value: right,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-bottom"),
-            value: bottom,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-left"),
-            value: left,
-            important: false,
-        },
-    ]
-}
-
-/// Parse the `border` shorthand: `[width] [style] [color]` in any order.
-///
-/// Produces 12 longhand declarations (4 sides x 3 properties).
-fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    let mut width: Option<CssValue> = None;
-    let mut style: Option<CssValue> = None;
-    let mut color: Option<CssValue> = None;
-
-    // Parse up to 3 components in any order.
-    for _ in 0..3 {
-        if input.is_exhausted() {
-            break;
-        }
-
-        // Try style keyword first (most distinctive).
-        if style.is_none() {
-            if let Ok(s) = input.try_parse(|i| {
-                let ident = i.expect_ident().map_err(|_| ())?;
-                let lower = ident.to_ascii_lowercase();
-                match lower.as_str() {
-                    "none" | "solid" | "dashed" | "dotted" => Ok(CssValue::Keyword(lower)),
-                    _ => Err(()),
-                }
-            }) {
-                style = Some(s);
-                continue;
-            }
-        }
-
-        // Try width (keyword or length).
-        if width.is_none() {
-            if let Ok(w) = input.try_parse(|i| {
-                i.try_parse(parse_border_width_keyword)
-                    .or_else(|()| parse_length_or_percentage(i))
-            }) {
-                width = Some(w);
-                continue;
-            }
-        }
-
-        // Try color.
-        if color.is_none() {
-            if let Ok(c) = input.try_parse(parse_color) {
-                color = Some(CssValue::Color(c));
-                continue;
-            }
-        }
-
-        // Nothing matched — stop.
-        break;
-    }
-
-    if width.is_none() && style.is_none() && color.is_none() {
-        return Vec::new();
-    }
-
-    let w = width.unwrap_or(CssValue::Length(3.0, LengthUnit::Px)); // CSS default: medium
-    let s = style.unwrap_or(CssValue::Keyword("none".into())); // CSS default: none
-    let c = color.unwrap_or(CssValue::Keyword("currentcolor".into()));
-
-    let sides = ["top", "right", "bottom", "left"];
-    let mut decls = Vec::with_capacity(12);
-    for side in &sides {
-        decls.push(Declaration {
-            property: format!("border-{side}-width"),
-            value: w.clone(),
-            important: false,
-        });
-        decls.push(Declaration {
-            property: format!("border-{side}-style"),
-            value: s.clone(),
-            important: false,
-        });
-        decls.push(Declaration {
-            property: format!("border-{side}-color"),
-            value: c.clone(),
-            important: false,
-        });
-    }
-    decls
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use elidex_plugin::{CssColor, LengthUnit};
-
-    fn parse_decls(css: &str) -> Vec<Declaration> {
-        parse_declaration_block(css)
-    }
-
-    fn parse_single(property: &str, value: &str) -> Vec<Declaration> {
-        parse_decls(&format!("{property}: {value}"))
-    }
-
-    #[test]
-    fn parse_display_block() {
-        let decls = parse_single("display", "block");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].property, "display");
-        assert_eq!(decls[0].value, CssValue::Keyword("block".into()));
-    }
-
-    #[test]
-    fn parse_color_named() {
-        let decls = parse_single("color", "red");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
-    }
-
-    #[test]
-    fn parse_color_hex() {
-        let decls = parse_single("color", "#ff0000");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
-    }
-
-    #[test]
-    fn parse_background_color() {
-        let decls = parse_single("background-color", "blue");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Color(CssColor::BLUE));
-    }
-
-    #[test]
-    fn parse_font_size_px() {
-        let decls = parse_single("font-size", "16px");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Length(16.0, LengthUnit::Px));
-    }
-
-    #[test]
-    fn parse_font_family_list() {
-        let decls = parse_single("font-family", "Arial, sans-serif");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].property, "font-family");
-        match &decls[0].value {
-            CssValue::List(items) => {
-                assert_eq!(items.len(), 2);
-            }
-            other => panic!("expected List, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parse_font_family_multiword_unquoted() {
-        let decls = parse_single("font-family", "Times New Roman, sans-serif");
-        assert_eq!(decls.len(), 1);
-        match &decls[0].value {
-            CssValue::List(items) => {
-                assert_eq!(items.len(), 2);
-                assert_eq!(items[0], CssValue::Keyword("Times New Roman".into()));
-                assert_eq!(items[1], CssValue::Keyword("sans-serif".into()));
-            }
-            other => panic!("expected List, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parse_width_auto() {
-        let decls = parse_single("width", "auto");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Auto);
-    }
-
-    #[test]
-    fn parse_important_flag() {
-        let decls = parse_decls("color: red");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
-        assert!(!decls[0].important);
-    }
-
-    #[test]
-    fn parse_inline_important() {
-        // Browsers support !important in inline styles.
-        let decls = parse_decls("color: red !important");
-        assert_eq!(decls.len(), 1);
-        assert!(decls[0].important);
-        assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
-    }
-
-    #[test]
-    fn expand_margin_one() {
-        let decls = parse_single("margin", "10px");
-        assert_eq!(decls.len(), 4);
-        for d in &decls {
-            assert_eq!(d.value, CssValue::Length(10.0, LengthUnit::Px));
-        }
-        assert_eq!(decls[0].property, "margin-top");
-        assert_eq!(decls[1].property, "margin-right");
-        assert_eq!(decls[2].property, "margin-bottom");
-        assert_eq!(decls[3].property, "margin-left");
-    }
-
-    #[test]
-    fn expand_margin_two() {
-        let decls = parse_single("margin", "10px 20px");
-        assert_eq!(decls.len(), 4);
-        assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px)); // top
-        assert_eq!(decls[1].value, CssValue::Length(20.0, LengthUnit::Px)); // right
-        assert_eq!(decls[2].value, CssValue::Length(10.0, LengthUnit::Px)); // bottom
-        assert_eq!(decls[3].value, CssValue::Length(20.0, LengthUnit::Px)); // left
-    }
-
-    #[test]
-    fn expand_margin_four() {
-        let decls = parse_single("margin", "1px 2px 3px 4px");
-        assert_eq!(decls.len(), 4);
-        assert_eq!(decls[0].value, CssValue::Length(1.0, LengthUnit::Px));
-        assert_eq!(decls[1].value, CssValue::Length(2.0, LengthUnit::Px));
-        assert_eq!(decls[2].value, CssValue::Length(3.0, LengthUnit::Px));
-        assert_eq!(decls[3].value, CssValue::Length(4.0, LengthUnit::Px));
-    }
-
-    #[test]
-    fn expand_padding() {
-        let decls = parse_single("padding", "5px 10px");
-        assert_eq!(decls.len(), 4);
-        assert_eq!(decls[0].property, "padding-top");
-        assert_eq!(decls[0].value, CssValue::Length(5.0, LengthUnit::Px));
-        assert_eq!(decls[1].property, "padding-right");
-        assert_eq!(decls[1].value, CssValue::Length(10.0, LengthUnit::Px));
-    }
-
-    #[test]
-    fn global_keyword_expands_margin_shorthand() {
-        let decls = parse_single("margin", "inherit");
-        assert_eq!(decls.len(), 4);
-        assert_eq!(decls[0].property, "margin-top");
-        assert_eq!(decls[0].value, CssValue::Inherit);
-        assert_eq!(decls[1].property, "margin-right");
-        assert_eq!(decls[2].property, "margin-bottom");
-        assert_eq!(decls[3].property, "margin-left");
-    }
-
-    #[test]
-    fn global_keyword_expands_border_shorthand() {
-        let decls = parse_single("border", "initial");
-        assert_eq!(decls.len(), 12);
-        assert_eq!(decls[0].property, "border-top-width");
-        assert_eq!(decls[0].value, CssValue::Initial);
-    }
-
-    #[test]
-    fn global_keyword_longhand_unchanged() {
-        let decls = parse_single("color", "inherit");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].property, "color");
-        assert_eq!(decls[0].value, CssValue::Inherit);
-    }
-
-    #[test]
-    fn expand_border() {
-        let decls = parse_single("border", "1px solid black");
-        assert_eq!(decls.len(), 12);
-        // Check first side (top).
-        assert_eq!(decls[0].property, "border-top-width");
-        assert_eq!(decls[0].value, CssValue::Length(1.0, LengthUnit::Px));
-        assert_eq!(decls[1].property, "border-top-style");
-        assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
-        assert_eq!(decls[2].property, "border-top-color");
-        assert_eq!(decls[2].value, CssValue::Color(CssColor::BLACK));
-    }
-
-    #[test]
-    fn unknown_property_skipped() {
-        let decls = parse_single("-webkit-xxx", "value");
-        assert!(decls.is_empty());
-    }
-
-    #[test]
-    fn multiple_declarations() {
-        let decls = parse_decls("color: red; display: block; width: 100px");
-        assert_eq!(decls.len(), 3);
-        assert_eq!(decls[0].property, "color");
-        assert_eq!(decls[1].property, "display");
-        assert_eq!(decls[2].property, "width");
-    }
-
-    #[test]
-    fn global_keyword_inherit() {
-        let decls = parse_single("color", "inherit");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Inherit);
-    }
-
-    #[test]
-    fn parse_currentcolor_keyword() {
-        let decls = parse_single("color", "currentcolor");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].property, "color");
-        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
-    }
-
-    #[test]
-    fn parse_currentcolor_case_insensitive() {
-        let decls = parse_single("background-color", "CurrentColor");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
-    }
-
-    #[test]
-    fn parse_border_color_currentcolor() {
-        let decls = parse_single("border-top-color", "currentColor");
-        assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
-    }
 }

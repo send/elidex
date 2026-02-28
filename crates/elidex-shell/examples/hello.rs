@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         </div>
     "#;
 
-    let css = r#"
+    let css = r"
         body {
             margin: 0;
             padding: 20px;
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .red { background-color: #e74c3c; }
         .blue { background-color: #3498db; }
         .green { background-color: #27ae60; }
-    "#;
+    ";
 
     elidex_shell::run(html, css)
 }

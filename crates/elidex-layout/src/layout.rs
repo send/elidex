@@ -54,7 +54,12 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
         .ok();
 
     if let Some(display) = root_display {
-        if display != Display::None {
+        if display == Display::None {
+            return;
+        }
+        if matches!(display, Display::Flex | Display::InlineFlex) {
+            crate::flex::layout_flex(dom, root, viewport_width, 0.0, 0.0, font_db, 0);
+        } else {
             layout_block(dom, root, viewport_width, 0.0, 0.0, font_db);
         }
         return;

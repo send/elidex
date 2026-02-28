@@ -5,7 +5,8 @@
 //! and the border-width/border-style interaction.
 
 use elidex_plugin::{
-    BorderStyle, ComputedStyle, CssColor, CssValue, Dimension, Display, LengthUnit, Position,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, ComputedStyle, CssColor, CssValue, Dimension,
+    Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, Position,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -129,6 +130,17 @@ fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue 
         "border-right-color" => CssValue::Color(style.border_right_color),
         "border-bottom-color" => CssValue::Color(style.border_bottom_color),
         "border-left-color" => CssValue::Color(style.border_left_color),
+        "flex-direction" => CssValue::Keyword(style.flex_direction.as_ref().to_string()),
+        "flex-wrap" => CssValue::Keyword(style.flex_wrap.as_ref().to_string()),
+        "justify-content" => CssValue::Keyword(style.justify_content.as_ref().to_string()),
+        "align-items" => CssValue::Keyword(style.align_items.as_ref().to_string()),
+        "align-content" => CssValue::Keyword(style.align_content.as_ref().to_string()),
+        "align-self" => CssValue::Keyword(style.align_self.as_ref().to_string()),
+        "flex-grow" => CssValue::Number(style.flex_grow),
+        "flex-shrink" => CssValue::Number(style.flex_shrink),
+        "flex-basis" => dimension_to_css_value(style.flex_basis),
+        #[allow(clippy::cast_precision_loss)]
+        "order" => CssValue::Number(style.order as f32),
         _ => get_initial_value(property),
     }
 }
@@ -239,7 +251,104 @@ pub(crate) fn build_computed_style(
         resolve_border_color_prop(&mut style, prop, winners, parent_style, current_color);
     }
 
+    // --- Flex properties ---
+    resolve_flex_properties(&mut style, winners, parent_style, dim);
+
     style
+}
+
+/// Resolve all flex-related properties.
+fn resolve_flex_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    dim: impl Fn(&CssValue) -> Dimension,
+) {
+    if let Some(d) = resolve_keyword_enum("flex-direction", winners, parent_style, |k| match k {
+        "row" => Some(FlexDirection::Row),
+        "row-reverse" => Some(FlexDirection::RowReverse),
+        "column" => Some(FlexDirection::Column),
+        "column-reverse" => Some(FlexDirection::ColumnReverse),
+        _ => None,
+    }) {
+        style.flex_direction = d;
+    }
+    if let Some(w) = resolve_keyword_enum("flex-wrap", winners, parent_style, |k| match k {
+        "nowrap" => Some(FlexWrap::Nowrap),
+        "wrap" => Some(FlexWrap::Wrap),
+        "wrap-reverse" => Some(FlexWrap::WrapReverse),
+        _ => None,
+    }) {
+        style.flex_wrap = w;
+    }
+    if let Some(j) = resolve_keyword_enum("justify-content", winners, parent_style, |k| match k {
+        "flex-start" => Some(JustifyContent::FlexStart),
+        "flex-end" => Some(JustifyContent::FlexEnd),
+        "center" => Some(JustifyContent::Center),
+        "space-between" => Some(JustifyContent::SpaceBetween),
+        "space-around" => Some(JustifyContent::SpaceAround),
+        "space-evenly" => Some(JustifyContent::SpaceEvenly),
+        _ => None,
+    }) {
+        style.justify_content = j;
+    }
+    if let Some(a) = resolve_keyword_enum("align-items", winners, parent_style, |k| match k {
+        "stretch" => Some(AlignItems::Stretch),
+        "flex-start" => Some(AlignItems::FlexStart),
+        "flex-end" => Some(AlignItems::FlexEnd),
+        "center" => Some(AlignItems::Center),
+        "baseline" => Some(AlignItems::Baseline),
+        _ => None,
+    }) {
+        style.align_items = a;
+    }
+    if let Some(a) = resolve_keyword_enum("align-content", winners, parent_style, |k| match k {
+        "stretch" => Some(AlignContent::Stretch),
+        "flex-start" => Some(AlignContent::FlexStart),
+        "flex-end" => Some(AlignContent::FlexEnd),
+        "center" => Some(AlignContent::Center),
+        "space-between" => Some(AlignContent::SpaceBetween),
+        "space-around" => Some(AlignContent::SpaceAround),
+        _ => None,
+    }) {
+        style.align_content = a;
+    }
+    if let Some(a) = resolve_keyword_enum("align-self", winners, parent_style, |k| match k {
+        "auto" => Some(AlignSelf::Auto),
+        "stretch" => Some(AlignSelf::Stretch),
+        "flex-start" => Some(AlignSelf::FlexStart),
+        "flex-end" => Some(AlignSelf::FlexEnd),
+        "center" => Some(AlignSelf::Center),
+        "baseline" => Some(AlignSelf::Baseline),
+        _ => None,
+    }) {
+        style.align_self = a;
+    }
+
+    resolve_prop(
+        "flex-grow",
+        winners,
+        parent_style,
+        |v| resolve_non_negative_f32(v, 0.0),
+        |v| style.flex_grow = v,
+    );
+    resolve_prop(
+        "flex-shrink",
+        winners,
+        parent_style,
+        |v| resolve_non_negative_f32(v, 1.0),
+        |v| style.flex_shrink = v,
+    );
+    resolve_prop("flex-basis", winners, parent_style, &dim, |d| {
+        style.flex_basis = d;
+    });
+    resolve_prop(
+        "order",
+        winners,
+        parent_style,
+        |v| resolve_i32(v, 0),
+        |v| style.order = v,
+    );
 }
 
 // --- Individual property resolvers ---
@@ -339,6 +448,7 @@ fn resolve_display(
         "inline-block" => Some(Display::InlineBlock),
         "none" => Some(Display::None),
         "flex" => Some(Display::Flex),
+        "inline-flex" => Some(Display::InlineFlex),
         _ => None,
     }) {
         style.display = d;
@@ -495,6 +605,23 @@ fn resolve_border_color_prop(
         None => current_color,
     };
     set_border_color(style, property, color);
+}
+
+/// Resolve a [`CssValue::Number`] to a non-negative `f32`.
+fn resolve_non_negative_f32(value: &CssValue, default: f32) -> f32 {
+    match value {
+        CssValue::Number(n) => n.max(0.0),
+        _ => default,
+    }
+}
+
+/// Resolve a [`CssValue::Number`] to an `i32`.
+fn resolve_i32(value: &CssValue, default: i32) -> i32 {
+    match value {
+        #[allow(clippy::cast_possible_truncation)]
+        CssValue::Number(n) => *n as i32,
+        _ => default,
+    }
 }
 
 /// Resolve a [`CssValue`] to a pixel value (for padding/border-width).
@@ -684,5 +811,72 @@ mod tests {
         };
         let resolved = resolve_keyword_or_clone("display", &CssValue::Unset, &parent);
         assert_eq!(resolved, CssValue::Keyword("inline".to_string()));
+    }
+
+    #[test]
+    fn resolve_flex_direction() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let val = CssValue::Keyword("column-reverse".to_string());
+        winners.insert("flex-direction", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.flex_direction, FlexDirection::ColumnReverse);
+    }
+
+    #[test]
+    fn resolve_flex_grow_shrink_clamping() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let grow = CssValue::Number(-5.0);
+        let shrink = CssValue::Number(3.0);
+        winners.insert("flex-grow", &grow);
+        winners.insert("flex-shrink", &shrink);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // Negative clamped to 0.
+        assert_eq!(style.flex_grow, 0.0);
+        assert_eq!(style.flex_shrink, 3.0);
+    }
+
+    #[test]
+    fn resolve_flex_properties() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let wrap = CssValue::Keyword("wrap".to_string());
+        let justify = CssValue::Keyword("center".to_string());
+        let align = CssValue::Keyword("flex-end".to_string());
+        let basis = CssValue::Length(100.0, LengthUnit::Px);
+        let order = CssValue::Number(2.0);
+        winners.insert("flex-wrap", &wrap);
+        winners.insert("justify-content", &justify);
+        winners.insert("align-items", &align);
+        winners.insert("flex-basis", &basis);
+        winners.insert("order", &order);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.flex_wrap, FlexWrap::Wrap);
+        assert_eq!(style.justify_content, JustifyContent::Center);
+        assert_eq!(style.align_items, AlignItems::FlexEnd);
+        assert_eq!(style.flex_basis, Dimension::Length(100.0));
+        assert_eq!(style.order, 2);
+    }
+
+    #[test]
+    fn resolve_flex_defaults() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let winners: HashMap<&str, &CssValue> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.flex_direction, FlexDirection::Row);
+        assert_eq!(style.flex_wrap, FlexWrap::Nowrap);
+        assert_eq!(style.justify_content, JustifyContent::FlexStart);
+        assert_eq!(style.align_items, AlignItems::Stretch);
+        assert_eq!(style.align_content, AlignContent::Stretch);
+        assert_eq!(style.flex_grow, 0.0);
+        assert_eq!(style.flex_shrink, 1.0);
+        assert_eq!(style.flex_basis, Dimension::Auto);
+        assert_eq!(style.order, 0);
+        assert_eq!(style.align_self, AlignSelf::Auto);
     }
 }

@@ -19,6 +19,10 @@ pub struct ParseResult {
     pub document: Entity,
     /// Parse warnings collected from html5ever.
     pub errors: Vec<String>,
+    /// Detected encoding name (set by `parse_tolerant`, `None` for `parse_html`).
+    ///
+    /// Always a canonical name from `encoding_rs` (e.g. `"UTF-8"`, `"Shift_JIS"`).
+    pub encoding: Option<&'static str>,
 }
 
 impl fmt::Debug for ParseResult {
@@ -26,6 +30,7 @@ impl fmt::Debug for ParseResult {
         f.debug_struct("ParseResult")
             .field("document", &self.document)
             .field("errors", &self.errors)
+            .field("encoding", &self.encoding)
             .finish_non_exhaustive()
     }
 }
@@ -44,6 +49,7 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         dom,
         document,
         errors,
+        encoding: None,
     }
 }
 
