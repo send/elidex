@@ -124,7 +124,10 @@ cargo doc --workspace --no-deps  # Build docs
 - **value_conv.rs**: `to_boa()`/`from_boa()` bidirectional elidex↔boa JsValue conversion.
 - **error_conv.rs**: `dom_error_to_js_error()` — DomApiErrorKind → boa JsNativeError.
 - **boa 0.20 notes**: `ObjectInitializer` methods return `&mut Self`, accessors need `JsFunction` (via `to_js_function(&realm)`), `custom_trace!(this, mark, {body})` with 3 args, `from_copy_closure_with_captures` for safe closure registration.
-- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20.
+- **globals/fetch.rs**: `register_fetch()` — `fetch(url, options?)` global. Blocking HTTP via `FetchHandle::send_blocking()`. Returns `JsPromise::resolve(Response)` or `JsPromise::reject(TypeError)`. Response object: ok/status/statusText/url/type/redirected/headers properties + `text()`/`json()`/`clone()` methods. `json()` uses boa `JSON.parse()` via global object. Headers object: `get()` (combines duplicates per Fetch spec), `has()`, `forEach()`. `set()`/`delete()` omitted (Response headers immutable).
+- **fetch_handle.rs**: `FetchHandle` wraps tokio current-thread `Runtime` + `NetClient`. `send_blocking(&self, request)` blocks via `rt.block_on(client.send(request))`. Injected into `JsRuntime::with_fetch(Option<FetchHandle>)`.
+- **run_jobs() integration**: `eval()` calls `ctx.run_jobs()` after evaluation (bridge still bound) to drain microtask queue. `dispatch_event()` similarly calls `ctx.run_jobs()` after dispatch loop. Enables `fetch().then(r => r.text())` chains.
+- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, tokio (rt), url, bytes.
 
 ### elidex-net
 

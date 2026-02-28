@@ -8,6 +8,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::{ComponentKind, DispatchEvent, SessionCore};
 
 use crate::bridge::HostBridge;
+use crate::fetch_handle::FetchHandle;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
 
@@ -29,19 +30,34 @@ pub struct EvalResult {
 }
 
 impl JsRuntime {
-    /// Create a new JS runtime with elidex globals registered.
+    /// Create a new JS runtime with elidex globals registered (no fetch support).
     ///
     /// The `document_entity` must be passed to `eval()` and `drain_timers()`
     /// to bind the bridge to the correct document root.
     pub fn new() -> Self {
+        Self::with_fetch(None)
+    }
+
+    /// Create a new JS runtime with optional fetch support.
+    ///
+    /// If `fetch_handle` is `Some`, the `fetch()` global is registered.
+    pub fn with_fetch(fetch_handle: Option<FetchHandle>) -> Self {
         let bridge = HostBridge::new();
         let console_output = ConsoleOutput::new();
         let timer_queue = TimerQueueHandle::new();
 
         let mut ctx = Context::default();
 
+        let fetch_rc = fetch_handle.map(Rc::new);
+
         // Register globals.
-        crate::globals::register_all_globals(&mut ctx, &bridge, &console_output, &timer_queue);
+        crate::globals::register_all_globals(
+            &mut ctx,
+            &bridge,
+            &console_output,
+            &timer_queue,
+            fetch_rc,
+        );
 
         Self {
             ctx,
@@ -77,6 +93,9 @@ impl JsRuntime {
         let guard = UnbindGuard(&self.bridge);
 
         let result = self.ctx.eval(Source::from_bytes(source));
+
+        // Run microtask queue (Promise .then() callbacks) while bridge is bound.
+        self.ctx.run_jobs();
 
         drop(guard);
 
@@ -188,6 +207,9 @@ impl JsRuntime {
             ev.propagation_stopped = stop_propagation_flag.get();
             ev.immediate_propagation_stopped = stop_immediate_flag.get();
         });
+
+        // Run microtask queue (Promise .then() callbacks) while bridge is bound.
+        ctx.run_jobs();
 
         event.default_prevented
     }
@@ -558,5 +580,120 @@ mod tests {
             doc,
         );
         // If we get here without panic, GC trace is working.
+    }
+
+    // --- Promise / run_jobs integration tests ---
+
+    #[test]
+    fn eval_runs_promise_microtasks() {
+        // Promise.resolve().then() callback should fire during eval
+        // because run_jobs() is called while bridge is still bound.
+        let (mut runtime, mut session, mut dom, doc) = setup();
+
+        let result = runtime.eval(
+            "var resolved = false;\
+             Promise.resolve(42).then(function(v) { resolved = v; });",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        assert!(result.success);
+
+        // Check that the .then() callback ran.
+        runtime.eval(
+            "console.log('resolved=' + resolved);",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        let messages = runtime.console_output().messages();
+        assert!(
+            messages.iter().any(|m| m.1.contains("resolved=42")),
+            "Expected resolved=42 in console output, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn eval_promise_chain() {
+        // Multi-step promise chain should fully resolve.
+        let (mut runtime, mut session, mut dom, doc) = setup();
+
+        runtime.eval(
+            "var result = 0;\
+             Promise.resolve(1)\
+                 .then(function(v) { return v + 1; })\
+                 .then(function(v) { return v * 3; })\
+                 .then(function(v) { result = v; });",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+
+        runtime.eval(
+            "console.log('chain=' + result);",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        let messages = runtime.console_output().messages();
+        assert!(
+            messages.iter().any(|m| m.1.contains("chain=6")),
+            "Expected chain=6 (1+1=2, 2*3=6), got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_event_runs_promise_microtasks() {
+        // Promise microtasks in event handlers should fire during dispatch.
+        let (mut runtime, mut session, mut dom, doc) = setup();
+        let div = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, div);
+
+        runtime.eval(
+            "var asyncResult = '';\
+             var el = document.querySelector('div');\
+             el.addEventListener('click', function(e) {\
+                 Promise.resolve('async-ok').then(function(v) {\
+                     asyncResult = v;\
+                 });\
+             });",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        session.flush(&mut dom);
+
+        let mut event = DispatchEvent::new("click", div);
+        event.payload = EventPayload::Mouse(MouseEventInit {
+            client_x: 10.0,
+            client_y: 10.0,
+            ..Default::default()
+        });
+        runtime.dispatch_event(&mut event, &mut session, &mut dom, doc);
+
+        // Read the result.
+        runtime.eval(
+            "console.log('async=' + asyncResult);",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        let messages = runtime.console_output().messages();
+        assert!(
+            messages.iter().any(|m| m.1.contains("async=async-ok")),
+            "Expected async=async-ok, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn with_fetch_none_is_same_as_new() {
+        // JsRuntime::new() and JsRuntime::with_fetch(None) should behave identically.
+        let mut runtime = JsRuntime::with_fetch(None);
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        let result = runtime.eval("1 + 2", &mut session, &mut dom, doc);
+        assert!(result.success);
     }
 }

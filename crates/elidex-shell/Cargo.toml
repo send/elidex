@@ -23,6 +23,7 @@ elidex-layout.workspace = true
 elidex-text.workspace = true
 elidex-js.workspace = true
 elidex-script-session.workspace = true
+elidex-net.workspace = true
 winit.workspace = true
 wgpu.workspace = true
 pollster.workspace = true

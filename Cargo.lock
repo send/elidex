@@ -937,12 +937,16 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "boa_gc",
+ "bytes",
  "elidex-css",
  "elidex-dom-api",
  "elidex-ecs",
+ "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
+ "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1028,6 +1032,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-js",
  "elidex-layout",
+ "elidex-net",
  "elidex-parser",
  "elidex-plugin",
  "elidex-render",

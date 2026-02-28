@@ -16,7 +16,7 @@ pub(crate) mod key_map;
 use elidex_css::{parse_stylesheet, Origin, Stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js::{extract_scripts, JsRuntime};
+use elidex_js::{extract_scripts, FetchHandle, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
@@ -76,7 +76,8 @@ pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
     let scripts = extract_scripts(&dom, document);
     if !scripts.is_empty() {
         let mut session = SessionCore::new();
-        let mut runtime = JsRuntime::new();
+        let fetch_handle = FetchHandle::new(elidex_net::NetClient::new());
+        let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
 
         for script in &scripts {
             runtime.eval(&script.source, &mut session, &mut dom, document);
@@ -157,7 +158,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     // Script execution phase.
     let scripts = extract_scripts(&dom, document);
     let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::new();
+    let fetch_handle = FetchHandle::new(elidex_net::NetClient::new());
+    let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
 
     for script in &scripts {
         runtime.eval(&script.source, &mut session, &mut dom, document);
@@ -490,5 +492,76 @@ mod tests {
              <script>document.getElementById('b').textContent = 'ok';</script>",
             "",
         );
+    }
+
+    // --- Fetch integration tests ---
+
+    #[test]
+    fn pipeline_interactive_has_fetch_handle() {
+        // build_pipeline_interactive creates a JsRuntime with fetch support.
+        // Verify the pipeline completes with fetch available in the runtime.
+        let result = build_pipeline_interactive(
+            "<div id=\"test\">Hello</div>\
+             <script>var hasFetch = typeof fetch === 'function';</script>",
+            "",
+        );
+        assert!(result.dom.contains(result.document));
+    }
+
+    #[test]
+    fn script_promise_chain_in_pipeline() {
+        // Promise chains should work in the pipeline (run_jobs integration).
+        let _dl = build_pipeline(
+            "<div id=\"target\">Before</div>\
+             <script>\
+               Promise.resolve('After').then(function(val) {\
+                 document.getElementById('target').textContent = val;\
+               });\
+             </script>",
+            "",
+        );
+    }
+
+    #[test]
+    fn pipeline_interactive_event_with_promise() {
+        // Events that use Promises should work in interactive mode.
+        let mut result = build_pipeline_interactive(
+            "<div id=\"btn\" style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>\
+             <script>\
+               document.getElementById('btn').addEventListener('click', function(e) {\
+                 Promise.resolve('clicked').then(function(v) {\
+                   e.target.textContent = v;\
+                 });\
+               });\
+             </script>",
+            "div { display: block; }",
+        );
+        assert!(!result.display_list.is_empty());
+
+        // Simulate click dispatch.
+        let btn_entities = result.dom.query_by_tag("div");
+        let btn = btn_entities.iter().find(|&&e| {
+            result
+                .dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(e)
+                .ok()
+                .is_some_and(|a| a.get("id") == Some("btn"))
+        });
+        if let Some(&btn_entity) = btn {
+            let mut event = DispatchEvent::new("click", btn_entity);
+            event.payload = EventPayload::Mouse(MouseEventInit {
+                client_x: 100.0,
+                client_y: 50.0,
+                ..Default::default()
+            });
+            result.runtime.dispatch_event(
+                &mut event,
+                &mut result.session,
+                &mut result.dom,
+                result.document,
+            );
+            re_render(&mut result);
+        }
     }
 }

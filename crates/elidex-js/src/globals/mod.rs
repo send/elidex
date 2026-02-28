@@ -4,12 +4,16 @@ pub mod console;
 pub mod document;
 pub mod element;
 pub mod events;
+pub mod fetch;
 pub mod timers;
 pub mod window;
+
+use std::rc::Rc;
 
 use boa_engine::{Context, JsNativeError, JsResult, JsValue};
 
 use crate::bridge::HostBridge;
+use crate::fetch_handle::FetchHandle;
 use console::ConsoleOutput;
 use timers::TimerQueueHandle;
 
@@ -37,9 +41,11 @@ pub fn register_all_globals(
     bridge: &HostBridge,
     console_output: &ConsoleOutput,
     timer_queue: &TimerQueueHandle,
+    fetch_handle: Option<Rc<FetchHandle>>,
 ) {
     console::register_console(ctx, console_output);
     document::register_document(ctx, bridge);
     window::register_window(ctx, bridge);
     timers::register_timers(ctx, timer_queue);
+    fetch::register_fetch(ctx, fetch_handle);
 }
