@@ -41,7 +41,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let selector = require_js_string_arg(args, 0, "querySelector", ctx)?;
-                invoke_doc_handler_returning_ref(&elidex_dom_api::QuerySelector, selector, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    &elidex_dom_api::QuerySelector,
+                    selector,
+                    bridge,
+                    ctx,
+                )
             },
             b_qs,
         ),

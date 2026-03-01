@@ -367,7 +367,10 @@ impl App {
             }
             elidex_navigation::HistoryAction::PushState { url, .. }
             | elidex_navigation::HistoryAction::ReplaceState { url, .. } => {
-                let replace = matches!(action, elidex_navigation::HistoryAction::ReplaceState { .. });
+                let replace = matches!(
+                    action,
+                    elidex_navigation::HistoryAction::ReplaceState { .. }
+                );
                 if let Some(resolved_url) =
                     resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
                 {

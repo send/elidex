@@ -733,7 +733,8 @@ fn emit_list_marker_with_counter(
         .query(&families, style.font_weight)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
-    let marker_y = lb.content.y + ascent * MARKER_Y_CENTER_FACTOR - marker_size * MARKER_Y_CENTER_FACTOR;
+    let marker_y =
+        lb.content.y + ascent * MARKER_Y_CENTER_FACTOR - marker_size * MARKER_Y_CENTER_FACTOR;
 
     let color = apply_opacity(style.color, style.opacity);
 
@@ -780,7 +781,8 @@ fn emit_list_marker_with_counter(
             };
             let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
             let baseline_y = lb.content.y + ascent;
-            let mut text_x = lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
+            let mut text_x =
+                lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
             let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y);
             dl.push(DisplayItem::Text {
                 glyphs,
@@ -862,7 +864,10 @@ mod tests {
 
     /// Build a `Vec<String>` from [`TEST_FONT_FAMILIES`] for `ComputedStyle`.
     fn test_font_family_strings() -> Vec<String> {
-        TEST_FONT_FAMILIES.iter().map(|s| (*s).to_string()).collect()
+        TEST_FONT_FAMILIES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
     }
 
     /// Common test setup: creates a DOM with a root, one block element with a
@@ -870,10 +875,7 @@ mod tests {
     ///
     /// `style_fn` receives a default `ComputedStyle` with `display: Block` and
     /// `test_font_family_strings()` pre-filled; callers can override fields.
-    fn setup_block_element(
-        style: ComputedStyle,
-        layout: LayoutBox,
-    ) -> (EcsDom, Entity) {
+    fn setup_block_element(style: ComputedStyle, layout: LayoutBox) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let elem = dom.create_element("div", Attributes::default());
@@ -905,7 +907,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -928,7 +935,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -947,7 +959,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1122,9 +1139,24 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 20.0, y: 20.0, width: 100.0, height: 50.0 },
-                padding: EdgeSizes { top: 5.0, right: 5.0, bottom: 5.0, left: 5.0 },
-                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
+                content: Rect {
+                    x: 20.0,
+                    y: 20.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                padding: EdgeSizes {
+                    top: 5.0,
+                    right: 5.0,
+                    bottom: 5.0,
+                    left: 5.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
                 ..Default::default()
             },
         );
@@ -1150,7 +1182,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1175,7 +1212,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1234,7 +1276,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 400.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 400.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1272,7 +1319,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 400.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 400.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1325,8 +1377,18 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 12.0, y: 12.0, width: 100.0, height: 50.0 },
-                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
+                content: Rect {
+                    x: 12.0,
+                    y: 12.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
                 ..Default::default()
             },
         );
@@ -1352,8 +1414,18 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 2.0, y: 2.0, width: 100.0, height: 50.0 },
-                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
+                content: Rect {
+                    x: 2.0,
+                    y: 2.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
                 ..Default::default()
             },
         );
@@ -1374,8 +1446,16 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
-                border: EdgeSizes { top: 0.0, ..Default::default() }, // zero width, should be skipped
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 0.0,
+                    ..Default::default()
+                }, // zero width, should be skipped
                 ..Default::default()
             },
         );
@@ -1394,7 +1474,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -1416,7 +1501,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -1471,8 +1561,18 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 2.0, y: 2.0, width: 100.0, height: 50.0 },
-                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
+                content: Rect {
+                    x: 2.0,
+                    y: 2.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
                 ..Default::default()
             },
         );
@@ -1509,8 +1609,18 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 5.0, y: 5.0, width: 100.0, height: 50.0 },
-                border: EdgeSizes { top: 3.0, right: 2.0, bottom: 3.0, left: 2.0 },
+                content: Rect {
+                    x: 5.0,
+                    y: 5.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 3.0,
+                    right: 2.0,
+                    bottom: 3.0,
+                    left: 2.0,
+                },
                 ..Default::default()
             },
         );
@@ -1589,7 +1699,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 10.0, y: 10.0, width: 200.0, height: 100.0 },
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
                 ..Default::default()
             },
         );
@@ -1634,7 +1749,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -1657,7 +1777,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -1693,7 +1818,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1731,11 +1861,21 @@ mod tests {
             ComputedStyle {
                 display: Display::Block,
                 font_family: test_font_family_strings(),
-                color: CssColor { r: 0, g: 0, b: 0, a: 255 },
+                color: CssColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1750,7 +1890,12 @@ mod tests {
             ComputedStyle {
                 display: Display::Inline,
                 font_family: test_font_family_strings(),
-                color: CssColor { r: 255, g: 0, b: 0, a: 255 },
+                color: CssColor {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
                 ..Default::default()
             },
         );
@@ -1806,7 +1951,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1851,7 +2001,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
                 ..Default::default()
             },
         );
@@ -1912,7 +2067,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );
@@ -1936,7 +2096,12 @@ mod tests {
                 ..Default::default()
             },
             LayoutBox {
-                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
                 ..Default::default()
             },
         );

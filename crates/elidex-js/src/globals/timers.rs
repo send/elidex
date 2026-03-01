@@ -131,9 +131,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         js_string!("clearTimeout"),
         1,
         NativeFunction::from_copy_closure_with_captures(
-            |_this, args, timers, ctx| -> JsResult<JsValue> {
-                clear_timer_impl(args, timers, ctx)
-            },
+            |_this, args, timers, ctx| -> JsResult<JsValue> { clear_timer_impl(args, timers, ctx) },
             t,
         ),
     )
@@ -145,9 +143,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         js_string!("clearInterval"),
         1,
         NativeFunction::from_copy_closure_with_captures(
-            |_this, args, timers, ctx| -> JsResult<JsValue> {
-                clear_timer_impl(args, timers, ctx)
-            },
+            |_this, args, timers, ctx| -> JsResult<JsValue> { clear_timer_impl(args, timers, ctx) },
             t,
         ),
     )
@@ -175,9 +171,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         js_string!("cancelAnimationFrame"),
         1,
         NativeFunction::from_copy_closure_with_captures(
-            |_this, args, timers, ctx| -> JsResult<JsValue> {
-                clear_timer_impl(args, timers, ctx)
-            },
+            |_this, args, timers, ctx| -> JsResult<JsValue> { clear_timer_impl(args, timers, ctx) },
             t,
         ),
     )

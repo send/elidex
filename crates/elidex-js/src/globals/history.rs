@@ -133,8 +133,9 @@ pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                push_or_replace_state(args, bridge, ctx, |url, title| {
-                    HistoryAction::PushState { url, title }
+                push_or_replace_state(args, bridge, ctx, |url, title| HistoryAction::PushState {
+                    url,
+                    title,
                 })
             },
             b,

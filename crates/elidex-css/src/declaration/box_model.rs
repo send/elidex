@@ -110,10 +110,11 @@ pub(super) fn parse_border_width_property(input: &mut Parser, name: &str) -> Vec
         .unwrap_or_default()
 }
 
-/// Parse the `border` shorthand: `[width] [style] [color]` in any order.
+/// Parse border components: `[width] [style] [color]` in any order.
 ///
-/// Produces 12 longhand declarations (4 sides x 3 properties).
-pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
+/// Returns `(width, style, color)` with CSS defaults for missing values,
+/// or `None` if no component was recognised at all.
+fn parse_border_components(input: &mut Parser) -> Option<(CssValue, CssValue, CssValue)> {
     let mut width: Option<CssValue> = None;
     let mut style: Option<CssValue> = None;
     let mut color: Option<CssValue> = None;
@@ -163,12 +164,23 @@ pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
     }
 
     if width.is_none() && style.is_none() && color.is_none() {
-        return Vec::new();
+        return None;
     }
 
     let w = width.unwrap_or(CssValue::Length(3.0, LengthUnit::Px)); // CSS default: medium
     let s = style.unwrap_or(CssValue::Keyword("none".into())); // CSS default: none
     let c = color.unwrap_or(CssValue::Keyword("currentcolor".into()));
+
+    Some((w, s, c))
+}
+
+/// Parse the `border` shorthand: `[width] [style] [color]` in any order.
+///
+/// Produces 12 longhand declarations (4 sides x 3 properties).
+pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    let Some((w, s, c)) = parse_border_components(input) else {
+        return Vec::new();
+    };
 
     let mut decls = Vec::with_capacity(12);
     for side in SIDES {
@@ -189,4 +201,31 @@ pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
         });
     }
     decls
+}
+
+/// Parse a `border-{side}` shorthand: `[width] [style] [color]` in any order.
+///
+/// Produces 3 longhand declarations for the given side.
+pub(super) fn parse_border_side_shorthand(input: &mut Parser, side: &str) -> Vec<Declaration> {
+    let Some((w, s, c)) = parse_border_components(input) else {
+        return Vec::new();
+    };
+
+    vec![
+        Declaration {
+            property: format!("border-{side}-width"),
+            value: w,
+            important: false,
+        },
+        Declaration {
+            property: format!("border-{side}-style"),
+            value: s,
+            important: false,
+        },
+        Declaration {
+            property: format!("border-{side}-color"),
+            value: c,
+            important: false,
+        },
+    ]
 }

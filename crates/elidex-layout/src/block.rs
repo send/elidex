@@ -105,16 +105,14 @@ fn resolve_block_height(
                     px
                 }
             }
-            Dimension::Percentage(pct) => {
-                containing_height.map_or(content_height, |ch| {
-                    let resolved = ch * pct / 100.0;
-                    if style.box_sizing == BoxSizing::BorderBox {
-                        (resolved - vertical_pb(padding, border)).max(0.0)
-                    } else {
-                        resolved
-                    }
-                })
-            }
+            Dimension::Percentage(pct) => containing_height.map_or(content_height, |ch| {
+                let resolved = ch * pct / 100.0;
+                if style.box_sizing == BoxSizing::BorderBox {
+                    (resolved - vertical_pb(padding, border)).max(0.0)
+                } else {
+                    resolved
+                }
+            }),
             _ => content_height,
         }
     };
@@ -151,9 +149,9 @@ fn is_block_level(display: Display) -> bool {
 /// consecutive inline runs in anonymous block boxes.
 // TODO: generate anonymous block boxes for mixed block/inline content.
 fn children_are_block(dom: &EcsDom, children: &[Entity]) -> bool {
-    children.iter().any(|&child| {
-        crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display))
-    })
+    children
+        .iter()
+        .any(|&child| crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display)))
 }
 
 /// Layout a block-level element, inserting `LayoutBox` on it and all descendants.
@@ -467,8 +465,7 @@ fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta: f32) {
         return;
     }
     for &child in children {
-        let is_block =
-            crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
+        let is_block = crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !is_block {
             continue;
         }

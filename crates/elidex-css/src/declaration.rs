@@ -139,6 +139,11 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "margin" => box_model::expand_four_sides(input, "margin", parse_length_percentage_or_auto),
         "padding" => box_model::expand_four_sides(input, "padding", parse_length_or_percentage),
         "border" => box_model::parse_border_shorthand(input),
+        "border-top" => box_model::parse_border_side_shorthand(input, "top"),
+        "border-right" => box_model::parse_border_side_shorthand(input, "right"),
+        "border-bottom" => box_model::parse_border_side_shorthand(input, "bottom"),
+        "border-left" => box_model::parse_border_side_shorthand(input, "left"),
+        "background" => parse_background_shorthand(input),
 
         // --- Keyword properties ---
         "display" => parse_keyword_property(
@@ -341,7 +346,11 @@ fn parse_keyword_property(input: &mut Parser, name: &str, allowed: &[&str]) -> V
 
 fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `currentcolor` keyword first (case-insensitive).
-    if let Ok(val) = try_keyword_value(input, "currentcolor", &CssValue::Keyword("currentcolor".into())) {
+    if let Ok(val) = try_keyword_value(
+        input,
+        "currentcolor",
+        &CssValue::Keyword("currentcolor".into()),
+    ) {
         return single_decl(name, val);
     }
 
@@ -642,6 +651,17 @@ fn parse_list_style_shorthand(input: &mut Parser) -> Vec<Declaration> {
         .unwrap_or_default()
 }
 
+// --- Background shorthand ---
+
+/// Parse the `background` shorthand, extracting only `background-color`.
+///
+/// Phase 4 will handle background-image, background-position, background-size,
+/// background-repeat, background-origin, background-clip, and background-attachment.
+/// For now, try to parse the value as a color and emit `background-color`.
+fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    parse_color_property(input, "background-color")
+}
+
 // --- Shorthand expansion helpers ---
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
@@ -664,6 +684,13 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
                     .map(move |prop| format!("border-{s}-{prop}"))
             })
             .collect(),
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            let side = &name["border-".len()..];
+            ["width", "style", "color"]
+                .iter()
+                .map(|prop| format!("border-{side}-{prop}"))
+                .collect()
+        }
         "flex" => vec![
             "flex-grow".to_string(),
             "flex-shrink".to_string(),
@@ -673,6 +700,7 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         "text-decoration" => vec!["text-decoration-line".to_string()],
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
+        "background" => vec!["background-color".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

@@ -1130,3 +1130,79 @@ fn parse_overflow_invalid_rejected() {
         "unsupported overflow value should be rejected"
     );
 }
+
+// --- background shorthand expansion ---
+
+#[test]
+fn parse_background_hex_color() {
+    let decls = parse_single("background", "#ff0000");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "background-color");
+    assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
+}
+
+#[test]
+fn parse_background_named_color() {
+    let decls = parse_single("background", "red");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "background-color");
+    assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
+}
+
+#[test]
+fn global_keyword_expands_background_shorthand() {
+    let decls = parse_single("background", "inherit");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "background-color");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+}
+
+// --- border-side shorthand expansion ---
+
+#[test]
+fn expand_border_bottom_full() {
+    let decls = parse_single("border-bottom", "1px solid red");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "border-bottom-width");
+    assert_eq!(decls[0].value, CssValue::Length(1.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "border-bottom-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
+    assert_eq!(decls[2].property, "border-bottom-color");
+    assert_eq!(decls[2].value, CssValue::Color(CssColor::RED));
+}
+
+#[test]
+fn expand_border_top_full() {
+    let decls = parse_single("border-top", "2px dashed blue");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "border-top-width");
+    assert_eq!(decls[0].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "border-top-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".into()));
+    assert_eq!(decls[2].property, "border-top-color");
+    assert_eq!(decls[2].value, CssValue::Color(CssColor::BLUE));
+}
+
+#[test]
+fn expand_border_left_style_only() {
+    let decls = parse_single("border-left", "none");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "border-left-width");
+    assert_eq!(decls[0].value, CssValue::Length(3.0, LengthUnit::Px)); // default: medium
+    assert_eq!(decls[1].property, "border-left-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("none".into()));
+    assert_eq!(decls[2].property, "border-left-color");
+    assert_eq!(decls[2].value, CssValue::Keyword("currentcolor".into()));
+}
+
+#[test]
+fn global_keyword_expands_border_bottom_shorthand() {
+    let decls = parse_single("border-bottom", "inherit");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "border-bottom-width");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "border-bottom-style");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+    assert_eq!(decls[2].property, "border-bottom-color");
+    assert_eq!(decls[2].value, CssValue::Inherit);
+}

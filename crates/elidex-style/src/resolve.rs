@@ -545,11 +545,65 @@ fn resolve_var_references(
         if let CssValue::Var(..) = value {
             let mut visited = HashSet::new();
             if let Some(val) = resolve_var_value(value, custom_props, 0, &mut visited) {
-                resolved.insert((*name).to_string(), val);
+                // Expand shorthand property names to their longhands so that
+                // downstream resolvers (which only look up longhand keys) can
+                // find the value.  When var() is the entire shorthand value,
+                // parse_property_value stores it under the shorthand name
+                // (e.g. "background") because var() is detected before the
+                // shorthand match.  After resolution we re-key it here.
+                expand_resolved_shorthand(&mut resolved, name, val);
             }
         }
     }
     resolved
+}
+
+/// Expand a resolved shorthand value into longhand entries.
+///
+/// For simple shorthands where the resolved value maps to a single longhand
+/// (e.g. `background` → `background-color`), insert under the longhand key.
+/// For per-side border shorthands (`border-top`, etc.), insert under the 3
+/// longhand keys with appropriate defaults.
+fn expand_resolved_shorthand(resolved: &mut HashMap<String, CssValue>, name: &str, val: CssValue) {
+    match name {
+        "background" => {
+            resolved.insert("background-color".to_string(), val);
+        }
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            // The resolved value is a single color/keyword — treat it as the
+            // most common case: `border-side: <width> <style> <color>` where
+            // only one component was specified via var().
+            // For a single resolved color, store it as the border-side-color.
+            let side = &name["border-".len()..];
+            match &val {
+                CssValue::Color(_) => {
+                    resolved.insert(format!("border-{side}-color"), val);
+                }
+                CssValue::Keyword(k) => {
+                    // Could be a style keyword (solid, dashed, none, etc.)
+                    let style_keywords = [
+                        "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge",
+                        "inset", "outset",
+                    ];
+                    if style_keywords.contains(&k.as_str()) {
+                        resolved.insert(format!("border-{side}-style"), val);
+                    } else {
+                        resolved.insert(format!("border-{side}-color"), val);
+                    }
+                }
+                CssValue::Length(_, _) => {
+                    resolved.insert(format!("border-{side}-width"), val);
+                }
+                _ => {
+                    // Fallback: store under the shorthand name as-is.
+                    resolved.insert(name.to_string(), val);
+                }
+            }
+        }
+        _ => {
+            resolved.insert((*name).to_string(), val);
+        }
+    }
 }
 
 /// Resolve a single `CssValue::Var` to a concrete value.
@@ -634,6 +688,13 @@ fn merge_winners<'a>(
             merged.insert(name, value);
         }
         // Unresolved CssValue::Var is intentionally dropped.
+    }
+    // Include resolved entries with new keys (from shorthand expansion,
+    // e.g. "background" → "background-color").
+    for (name, value) in resolved {
+        if !merged.contains_key(name.as_str()) {
+            merged.insert(name.as_str(), value);
+        }
     }
     merged
 }
@@ -823,20 +884,54 @@ fn resolve_font_family(
     parent_style: &ComputedStyle,
 ) {
     match get_resolved_winner("font-family", winners, parent_style) {
-        Some(CssValue::List(items)) => {
-            style.font_family = items
-                .iter()
-                .filter_map(|v| match v {
-                    CssValue::String(s) => Some(s.clone()),
-                    CssValue::Keyword(k) => Some(k.clone()),
-                    _ => None,
-                })
-                .collect();
+        Some(CssValue::List(ref items)) => {
+            style.font_family = extract_font_family_names(items);
+        }
+        Some(CssValue::RawTokens(ref raw) | CssValue::String(ref raw)) => {
+            style.font_family = parse_font_family_from_raw(raw);
+        }
+        Some(CssValue::Keyword(ref k)) => {
+            // A single keyword (e.g. from var() resolving to a generic family).
+            style.font_family = vec![k.clone()];
         }
         _ => {
             style.font_family.clone_from(&parent_style.font_family);
         }
     }
+}
+
+/// Extract font family names from a parsed `CssValue::List`.
+fn extract_font_family_names(items: &[CssValue]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|v| match v {
+            CssValue::String(s) => Some(s.clone()),
+            CssValue::Keyword(k) => Some(k.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Parse a comma-separated font-family string (from `var()` resolution)
+/// into a list of family names.
+///
+/// Handles quoted names (`'SFMono-Regular'`, `"Courier New"`), unquoted
+/// multi-word names (`Times New Roman`), and generic families (`monospace`).
+fn parse_font_family_from_raw(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|s| {
+            let trimmed = s.trim();
+            // Strip matching outer quotes (single or double).
+            if (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+                || (trimmed.starts_with('"') && trimmed.ends_with('"'))
+            {
+                trimmed[1..trimmed.len() - 1].to_string()
+            } else {
+                trimmed.to_string()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 fn resolve_font_weight(
@@ -2021,5 +2116,119 @@ mod tests {
         winners.insert("display", &val);
         let style = build_computed_style(&winners, &parent, &ctx);
         assert_eq!(style.display, Display::ListItem);
+    }
+
+    // --- var() resolution for font-family ---
+
+    #[test]
+    fn var_resolution_font_family_comma_list() {
+        // Simulates: --fonts: 'SFMono-Regular', Consolas, monospace
+        //            font-family: var(--fonts)
+        let mut parent = ComputedStyle::default();
+        parent.custom_properties.insert(
+            "--fonts".into(),
+            "'SFMono-Regular', Consolas, monospace".into(),
+        );
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--fonts".into(), None);
+        winners.insert("font-family", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.font_family,
+            vec![
+                "SFMono-Regular".to_string(),
+                "Consolas".to_string(),
+                "monospace".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn var_resolution_font_family_double_quoted() {
+        // Double-quoted family names should also be unquoted.
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--fonts".into(), "\"Courier New\", monospace".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--fonts".into(), None);
+        winners.insert("font-family", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.font_family,
+            vec!["Courier New".to_string(), "monospace".to_string()]
+        );
+    }
+
+    #[test]
+    fn var_resolution_font_family_single_generic() {
+        // A single generic family from var() should also work.
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--mono".into(), "monospace".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--mono".into(), None);
+        winners.insert("font-family", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.font_family, vec!["monospace".to_string()]);
+    }
+
+    #[test]
+    fn parse_font_family_from_raw_mixed_quotes() {
+        let result = parse_font_family_from_raw(
+            "'SFMono-Regular', Consolas, \"Liberation Mono\", monospace",
+        );
+        assert_eq!(
+            result,
+            vec![
+                "SFMono-Regular".to_string(),
+                "Consolas".to_string(),
+                "Liberation Mono".to_string(),
+                "monospace".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_font_family_from_raw_empty() {
+        let result = parse_font_family_from_raw("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn var_background_shorthand_expands_to_background_color() {
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--bg".into(), "#0d1117".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        // Simulates `background: var(--bg)` — stored under "background" key.
+        let var_val = CssValue::Var("--bg".into(), None);
+        winners.insert("background", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.background_color, CssColor::new(0x0d, 0x11, 0x17, 255));
+    }
+
+    #[test]
+    fn var_border_side_shorthand_expands_color() {
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--border".into(), "#30363d".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        // Simulates `border-bottom: var(--border)` — stored under "border-bottom" key.
+        let var_val = CssValue::Var("--border".into(), None);
+        winners.insert("border-bottom", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.border_bottom_color,
+            CssColor::new(0x30, 0x36, 0x3d, 255)
+        );
     }
 }

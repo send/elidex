@@ -206,9 +206,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                Ok(url_prop(bridge, url_href))
-            },
+            |_this, _args, bridge, _ctx| -> JsResult<JsValue> { Ok(url_prop(bridge, url_href)) },
             b,
         ),
         js_string!("toString"),

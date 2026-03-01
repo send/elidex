@@ -1,6 +1,16 @@
-//! Minimal example: render a styled HTML page in a window.
+//! Render a styled HTML page or load a URL in the elidex browser.
+//!
+//! Usage:
+//!   cargo run --example hello -p elidex-shell                    # built-in demo
+//!   cargo run --example hello -p elidex-shell -- <https://send.sh> # load URL
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // If a URL is passed as the first argument, load it.
+    if let Some(url) = std::env::args().nth(1) {
+        return elidex_shell::run_url(&url);
+    }
+
+    // Otherwise, render the built-in demo page.
     let html = r#"
         <div class="header">
             <h1>elidex</h1>
