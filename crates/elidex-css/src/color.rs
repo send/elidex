@@ -1,8 +1,8 @@
 //! CSS color parsing.
 //!
 //! Supports named colors (CSS Color Level 4, all 148), hex notation
-//! (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`), `rgb()`/`rgba()`, and
-//! the `transparent` keyword.
+//! (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`), `rgb()`/`rgba()`,
+//! `hsl()`/`hsla()`, and the `transparent` keyword.
 
 use cssparser::Parser;
 use elidex_plugin::CssColor;
@@ -200,6 +200,11 @@ pub fn parse_color(input: &mut Parser) -> Result<CssColor, ()> {
                         parse_rgb_function(i).map_err(|()| i.new_custom_error(()))
                     })
                     .map_err(|_: cssparser::ParseError<'_, ()>| ()),
+                "hsl" | "hsla" => input
+                    .parse_nested_block(|i| {
+                        parse_hsl_function(i).map_err(|()| i.new_custom_error(()))
+                    })
+                    .map_err(|_: cssparser::ParseError<'_, ()>| ()),
                 _ => Err(()),
             }
         }
@@ -295,6 +300,115 @@ fn parse_alpha_component(input: &mut Parser) -> Result<u8, ()> {
 fn clamp_u8(v: f32) -> u8 {
     // Clamping to [0, 255] guarantees the cast is safe.
     v.round().clamp(0.0, 255.0) as u8
+}
+
+/// Convert HSL to RGB (CSS Color Level 4 algorithm).
+///
+/// - `h`: hue in degrees (0–360, wraps around)
+/// - `s`: saturation (0.0–1.0)
+/// - `l`: lightness (0.0–1.0)
+#[allow(clippy::many_single_char_names)]
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §12).
+    let h = if h.is_finite() { h } else { 0.0 };
+    // Normalize hue to [0, 360).
+    let h = ((h % 360.0) + 360.0) % 360.0;
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = h / 60.0;
+    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
+
+    let (r1, g1, b1) = if h_prime < 1.0 {
+        (c, x, 0.0)
+    } else if h_prime < 2.0 {
+        (x, c, 0.0)
+    } else if h_prime < 3.0 {
+        (0.0, c, x)
+    } else if h_prime < 4.0 {
+        (0.0, x, c)
+    } else if h_prime < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+
+    let m = l - c / 2.0;
+    (
+        clamp_u8((r1 + m) * 255.0),
+        clamp_u8((g1 + m) * 255.0),
+        clamp_u8((b1 + m) * 255.0),
+    )
+}
+
+/// Parse a hue value: `<number>` or `<angle>` (deg/grad/rad/turn).
+fn parse_hue(input: &mut Parser) -> Result<f32, ()> {
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        cssparser::Token::Number { value, .. } => Ok(value),
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
+            let lower = unit.to_ascii_lowercase();
+            match lower.as_str() {
+                "deg" => Ok(value),
+                "grad" => Ok(value * 360.0 / 400.0),
+                "rad" => Ok(value * 180.0 / std::f32::consts::PI),
+                "turn" => Ok(value * 360.0),
+                _ => Err(()),
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+/// Parse a percentage value, clamp to 0.0–1.0, and return.
+///
+/// CSS Color Level 4 §4.2.4: saturation and lightness are clamped to [0%, 100%].
+fn parse_percentage_unit_value(input: &mut Parser) -> Result<f32, ()> {
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        cssparser::Token::Percentage { unit_value, .. } => Ok(unit_value.clamp(0.0, 1.0)),
+        _ => Err(()),
+    }
+}
+
+/// Parse the contents of `hsl(h, s%, l%)` or `hsla(h, s%, l%, a)`.
+///
+/// Supports both comma-separated and space-separated syntax (CSS Color Level 4).
+#[allow(clippy::many_single_char_names)]
+fn parse_hsl_function(input: &mut Parser) -> Result<CssColor, ()> {
+    let h = parse_hue(input)?;
+
+    // Detect separator: comma or space.
+    let is_comma = input.try_parse(Parser::expect_comma).is_ok();
+
+    let s = parse_percentage_unit_value(input)?;
+    if is_comma {
+        input.expect_comma().map_err(|_| ())?;
+    }
+    let l = parse_percentage_unit_value(input)?;
+
+    let (r, g, b) = hsl_to_rgb(h, s, l);
+
+    // Optional alpha.
+    let a = if is_comma {
+        if input.try_parse(Parser::expect_comma).is_ok() {
+            parse_alpha_component(input)?
+        } else {
+            255
+        }
+    } else if input
+        .try_parse(|i| i.expect_delim('/').map_err(|_| ()))
+        .is_ok()
+    {
+        parse_alpha_component(input)?
+    } else {
+        255
+    };
+
+    Ok(CssColor::new(r, g, b, a))
 }
 
 #[cfg(test)]
@@ -411,5 +525,213 @@ mod tests {
     #[test]
     fn named_color_table_has_148_entries() {
         assert_eq!(NAMED_COLORS.len(), 148);
+    }
+
+    // --- hsl()/hsla() tests (M3-6) ---
+
+    #[test]
+    fn hsl_green() {
+        let c = parse("hsl(120, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 255);
+    }
+
+    #[test]
+    fn hsl_red() {
+        let c = parse("hsl(0, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 255);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+    }
+
+    #[test]
+    fn hsl_blue() {
+        let c = parse("hsl(240, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 255);
+    }
+
+    #[test]
+    fn hsla_semi_transparent_red() {
+        let c = parse("hsla(0, 100%, 50%, 0.5)").unwrap();
+        assert_eq!(c.r, 255);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 128);
+    }
+
+    #[test]
+    fn hsl_360_equals_0() {
+        let c0 = parse("hsl(0, 100%, 50%)").unwrap();
+        let c360 = parse("hsl(360, 100%, 50%)").unwrap();
+        assert_eq!(c0, c360);
+    }
+
+    #[test]
+    fn hsl_to_rgb_grey_when_s_zero() {
+        // saturation=0 → grey at lightness level
+        let c = parse("hsl(0, 0%, 50%)").unwrap();
+        assert_eq!(c.r, 128);
+        assert_eq!(c.g, 128);
+        assert_eq!(c.b, 128);
+    }
+
+    #[test]
+    fn hsl_to_rgb_black_when_l_zero() {
+        let c = parse("hsl(120, 100%, 0%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+    }
+
+    #[test]
+    fn hsl_to_rgb_white_when_l_one() {
+        let c = parse("hsl(120, 100%, 100%)").unwrap();
+        assert_eq!(c.r, 255);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 255);
+    }
+
+    #[test]
+    fn hsl_negative_hue_wraparound() {
+        // -120 deg should wrap to 240 deg (blue)
+        let c = parse("hsl(-120, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 255);
+    }
+
+    #[test]
+    fn hsla_is_hsl_alias() {
+        let hsl = parse("hsl(120, 100%, 50%)").unwrap();
+        let hsla = parse("hsla(120, 100%, 50%)").unwrap();
+        assert_eq!(hsl, hsla);
+    }
+
+    // --- Angle unit tests ---
+
+    #[test]
+    fn hsl_hue_deg_unit() {
+        // 120deg = green
+        let c = parse("hsl(120deg, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+    }
+
+    #[test]
+    fn hsl_hue_grad_unit() {
+        // 200grad = 180deg = cyan
+        let c = parse("hsl(200grad, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 255);
+    }
+
+    #[test]
+    fn hsl_hue_rad_unit() {
+        // π rad ≈ 180deg = cyan
+        let c = parse("hsl(3.14159265rad, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert!(c.g >= 254); // slight floating-point variance
+        assert!(c.b >= 254);
+    }
+
+    #[test]
+    fn hsl_hue_turn_unit() {
+        // 0.5turn = 180deg = cyan
+        let c = parse("hsl(0.5turn, 100%, 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 255);
+    }
+
+    #[test]
+    fn hsl_infinity_hue_treated_as_zero() {
+        // Infinity hue should be treated as 0 (red)
+        let normal = parse("hsl(0, 100%, 50%)").unwrap();
+        let (r, g, b) = super::hsl_to_rgb(f32::INFINITY, 1.0, 0.5);
+        assert_eq!(r, normal.r);
+        assert_eq!(g, normal.g);
+        assert_eq!(b, normal.b);
+    }
+
+    #[test]
+    fn hsl_nan_hue_treated_as_zero() {
+        let (r, g, b) = super::hsl_to_rgb(f32::NAN, 1.0, 0.5);
+        assert_eq!(r, 255); // hue=0 → red
+        assert_eq!(g, 0);
+        assert_eq!(b, 0);
+    }
+
+    #[test]
+    fn hsla_space_syntax() {
+        // hsl(120 100% 50%) space-separated syntax
+        let c = parse("hsl(120 100% 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 255);
+    }
+
+    #[test]
+    fn hsla_space_with_slash_alpha() {
+        let c = parse("hsl(120 100% 50% / 0.5)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 128);
+    }
+
+    #[test]
+    fn hsla_space_with_percentage_alpha() {
+        let c = parse("hsl(120 100% 50% / 50%)").unwrap();
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 128);
+    }
+
+    // --- HSL rejection tests ---
+
+    #[test]
+    fn hsl_missing_components_rejected() {
+        assert!(parse("hsl(120)").is_err());
+    }
+
+    #[test]
+    fn hsl_bare_numbers_for_sl_rejected() {
+        // s and l must be percentages, not bare numbers.
+        assert!(parse("hsl(120, 50, 50)").is_err());
+    }
+
+    #[test]
+    fn hsl_mixed_separators_rejected() {
+        // Cannot mix comma and space syntax.
+        assert!(parse("hsl(120 100%, 50%)").is_err());
+    }
+
+    #[test]
+    fn hsl_out_of_range_saturation_clamped() {
+        // 200% saturation is clamped to 100%.
+        let c = parse("hsl(120, 200%, 50%)").unwrap();
+        assert_eq!(c, CssColor::new(0, 255, 0, 255));
+    }
+
+    #[test]
+    fn hsl_out_of_range_lightness_clamped() {
+        // -50% lightness is clamped to 0% (black).
+        let c = parse("hsl(0, 100%, -50%)").unwrap();
+        assert_eq!(c, CssColor::new(0, 0, 0, 255));
+    }
+
+    #[test]
+    fn hsl_hue_above_360_wraps() {
+        // 480 == 120 (green).
+        let c = parse("hsl(480, 100%, 50%)").unwrap();
+        assert_eq!(c, CssColor::new(0, 255, 0, 255));
     }
 }

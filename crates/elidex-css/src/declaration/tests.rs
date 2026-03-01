@@ -894,3 +894,239 @@ fn parse_text_align_invalid_rejected() {
     let decls = parse_single("text-align", "middle");
     assert!(decls.is_empty(), "invalid text-align should be rejected");
 }
+
+// --- M3-6: white-space ---
+
+#[test]
+fn parse_white_space_normal() {
+    let decls = parse_single("white-space", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into()));
+}
+
+#[test]
+fn parse_white_space_pre() {
+    let decls = parse_single("white-space", "pre");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("pre".into()));
+}
+
+#[test]
+fn parse_white_space_nowrap() {
+    let decls = parse_single("white-space", "nowrap");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("nowrap".into()));
+}
+
+#[test]
+fn parse_white_space_pre_wrap() {
+    let decls = parse_single("white-space", "pre-wrap");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("pre-wrap".into()));
+}
+
+#[test]
+fn parse_white_space_pre_line() {
+    let decls = parse_single("white-space", "pre-line");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("pre-line".into()));
+}
+
+#[test]
+fn parse_white_space_invalid_rejected() {
+    let decls = parse_single("white-space", "break-spaces");
+    assert!(decls.is_empty());
+}
+
+// --- M3-6: overflow ---
+
+#[test]
+fn parse_overflow_visible() {
+    let decls = parse_single("overflow", "visible");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("visible".into()));
+}
+
+#[test]
+fn parse_overflow_hidden() {
+    let decls = parse_single("overflow", "hidden");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("hidden".into()));
+}
+
+#[test]
+fn parse_overflow_scroll_maps_to_hidden() {
+    let decls = parse_single("overflow", "scroll");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("hidden".into()));
+}
+
+#[test]
+fn parse_overflow_auto_maps_to_hidden() {
+    let decls = parse_single("overflow", "auto");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("hidden".into()));
+}
+
+// --- M3-6: min/max width/height ---
+
+#[test]
+fn parse_min_width_px() {
+    let decls = parse_single("min-width", "100px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "min-width");
+    assert_eq!(decls[0].value, CssValue::Length(100.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_max_width_px() {
+    let decls = parse_single("max-width", "500px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "max-width");
+    assert_eq!(decls[0].value, CssValue::Length(500.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_max_width_none() {
+    let decls = parse_single("max-width", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Auto);
+}
+
+#[test]
+fn parse_min_height_percentage() {
+    let decls = parse_single("min-height", "50%");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "min-height");
+    assert_eq!(decls[0].value, CssValue::Percentage(50.0));
+}
+
+#[test]
+fn parse_max_height_none() {
+    let decls = parse_single("max-height", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Auto);
+}
+
+#[test]
+fn parse_min_width_negative_rejected() {
+    let decls = parse_single("min-width", "-10px");
+    assert!(decls.is_empty(), "negative min-width should be rejected");
+}
+
+#[test]
+fn parse_max_width_negative_rejected() {
+    let decls = parse_single("max-width", "-5px");
+    assert!(decls.is_empty(), "negative max-width should be rejected");
+}
+
+#[test]
+fn parse_min_height_negative_rejected() {
+    let decls = parse_single("min-height", "-20%");
+    assert!(decls.is_empty(), "negative min-height should be rejected");
+}
+
+#[test]
+fn parse_min_width_zero() {
+    let decls = parse_single("min-width", "0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "min-width");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_max_width_zero() {
+    let decls = parse_single("max-width", "0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "max-width");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_gap_positive_percentage() {
+    let decls = parse_single("row-gap", "25%");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Percentage(25.0));
+}
+
+// --- M3-6: list-style-type & display: list-item ---
+
+#[test]
+fn parse_display_list_item() {
+    let decls = parse_single("display", "list-item");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("list-item".into()));
+}
+
+#[test]
+fn parse_list_style_type_disc() {
+    let decls = parse_single("list-style-type", "disc");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("disc".into()));
+}
+
+#[test]
+fn parse_list_style_type_decimal() {
+    let decls = parse_single("list-style-type", "decimal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("decimal".into()));
+}
+
+#[test]
+fn parse_list_style_type_none() {
+    let decls = parse_single("list-style-type", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+}
+
+#[test]
+fn parse_list_style_shorthand() {
+    let decls = parse_single("list-style", "square");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "list-style-type");
+    assert_eq!(decls[0].value, CssValue::Keyword("square".into()));
+}
+
+#[test]
+fn parse_list_style_shorthand_rejects_extra_tokens() {
+    // "disc foo" should be rejected entirely — no partial parse.
+    let decls = parse_single("list-style", "disc foo");
+    assert!(
+        decls.is_empty(),
+        "list-style with extra tokens should be rejected"
+    );
+}
+
+#[test]
+fn parse_list_style_shorthand_rejects_unknown() {
+    let decls = parse_single("list-style", "unknown-value");
+    assert!(
+        decls.is_empty(),
+        "unknown list-style-type should be rejected"
+    );
+}
+
+#[test]
+fn parse_list_style_shorthand_with_important() {
+    let decls = parse_decls("list-style: disc !important");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "list-style-type");
+    assert_eq!(decls[0].value, CssValue::Keyword("disc".into()));
+    assert!(decls[0].important);
+}
+
+#[test]
+fn parse_max_height_negative_rejected() {
+    let decls = parse_single("max-height", "-10px");
+    assert!(decls.is_empty(), "negative max-height should be rejected");
+}
+
+#[test]
+fn parse_overflow_invalid_rejected() {
+    let decls = parse_single("overflow", "clip");
+    assert!(
+        decls.is_empty(),
+        "unsupported overflow value should be rejected"
+    );
+}

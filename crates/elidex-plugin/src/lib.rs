@@ -17,8 +17,8 @@ mod values;
 
 pub use computed_style::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, Dimension, Display,
-    FlexDirection, FlexWrap, JustifyContent, LineHeight, Position, TextAlign, TextDecorationLine,
-    TextTransform,
+    FlexDirection, FlexWrap, JustifyContent, LineHeight, ListStyleType, Overflow, Position,
+    TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
 };
 pub use context::StyleContext;
 pub use error::{HtmlErrorKind, HtmlParseError, ParseError};

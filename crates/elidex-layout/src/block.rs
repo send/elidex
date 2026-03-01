@@ -10,7 +10,7 @@ use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
 use crate::sanitize;
-use crate::{resolve_dimension_value, sanitize_edge_values, MAX_LAYOUT_DEPTH};
+use crate::{resolve_dimension_value, resolve_min_max, sanitize_edge_values, MAX_LAYOUT_DEPTH};
 
 /// Resolve a `Dimension` margin value to pixels.
 ///
@@ -84,7 +84,11 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
 fn is_block_level(display: Display) -> bool {
     matches!(
         display,
-        Display::Block | Display::InlineBlock | Display::Flex | Display::InlineFlex
+        Display::Block
+            | Display::InlineBlock
+            | Display::Flex
+            | Display::InlineFlex
+            | Display::ListItem
     )
 }
 
@@ -234,6 +238,23 @@ fn layout_block_inner(
         }
     }
 
+    // --- Apply min-width / max-width constraints (CSS 2.1 §10.4) ---
+    // min-width wins over max-width when they conflict.
+    // For box-sizing: border-box, min/max are specified as border-box values,
+    // so subtract padding+border to compare with content_width.
+    {
+        let mut min_w = resolve_min_max(style.min_width, containing_width, 0.0);
+        let mut max_w = resolve_min_max(style.max_width, containing_width, f32::INFINITY);
+        if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
+            let pb = padding.left + padding.right + border.left + border.right;
+            min_w = (min_w - pb).max(0.0);
+            if max_w < f32::INFINITY {
+                max_w = (max_w - pb).max(0.0);
+            }
+        }
+        content_width = content_width.max(min_w).min(max_w).max(min_w);
+    }
+
     // --- Horizontal margin auto centering ---
     let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
     let (margin_left, margin_right) =
@@ -302,7 +323,7 @@ fn layout_block_inner(
         layout_inline_context(dom, &children, content_width, &style, font_db)
     };
 
-    let height = if intrinsic.is_some() {
+    let mut height = if intrinsic.is_some() {
         // Replaced element height already resolved above.
         content_height
     } else {
@@ -331,6 +352,22 @@ fn layout_block_inner(
             _ => content_height,
         }
     };
+
+    // --- Apply min-height / max-height constraints ---
+    // For box-sizing: border-box, subtract vertical padding+border.
+    {
+        let ch = containing_height.unwrap_or(0.0);
+        let mut min_h = resolve_min_max(style.min_height, ch, 0.0);
+        let mut max_h = resolve_min_max(style.max_height, ch, f32::INFINITY);
+        if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
+            let pb = padding.top + padding.bottom + border.top + border.bottom;
+            min_h = (min_h - pb).max(0.0);
+            if max_h < f32::INFINITY {
+                max_h = (max_h - pb).max(0.0);
+            }
+        }
+        height = height.max(min_h).min(max_h).max(min_h);
+    }
 
     let lb = LayoutBox {
         content: Rect {
@@ -1453,6 +1490,200 @@ mod tests {
             (child_lb.content.height - 100.0).abs() < f32::EPSILON,
             "child height = 50% of 200 = 100, got {}",
             child_lb.content.height
+        );
+    }
+
+    // --- M3-6: min-width / max-width / min-height / max-height ---
+
+    #[test]
+    fn min_width_constrains_auto() {
+        // width: auto in 800px container, min-width: 900px → width = 900.
+        let style = ComputedStyle {
+            display: Display::Block,
+            min_width: Dimension::Length(900.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.width - 900.0).abs() < 1.0,
+            "min-width should force width to 900, got {}",
+            lb.content.width
+        );
+    }
+
+    #[test]
+    fn max_width_constrains_auto() {
+        // width: auto in 800px container, max-width: 500px → width = 500.
+        let style = ComputedStyle {
+            display: Display::Block,
+            max_width: Dimension::Length(500.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.width - 500.0).abs() < 1.0,
+            "max-width should limit width to 500, got {}",
+            lb.content.width
+        );
+    }
+
+    #[test]
+    fn min_width_overrides_max_width() {
+        // CSS spec: when min > max, min wins.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(400.0),
+            min_width: Dimension::Length(600.0),
+            max_width: Dimension::Length(500.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.width - 600.0).abs() < 1.0,
+            "min-width wins over max-width, got {}",
+            lb.content.width
+        );
+    }
+
+    #[test]
+    fn max_width_none_is_unconstrained() {
+        // max-width: Auto (=none) should not constrain.
+        let style = ComputedStyle {
+            display: Display::Block,
+            max_width: Dimension::Auto,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.width - 800.0).abs() < 1.0,
+            "max-width: none should not constrain, got {}",
+            lb.content.width
+        );
+    }
+
+    #[test]
+    fn min_height_constrains_auto() {
+        // Block with no children → auto height = 0, min-height: 200px → height = 200.
+        let style = ComputedStyle {
+            display: Display::Block,
+            min_height: Dimension::Length(200.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.height - 200.0).abs() < 1.0,
+            "min-height should force height to 200, got {}",
+            lb.content.height
+        );
+    }
+
+    #[test]
+    fn max_height_constrains_explicit() {
+        // height: 400px, max-height: 300px → height = 300.
+        let style = ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(400.0),
+            max_height: Dimension::Length(300.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.height - 300.0).abs() < 1.0,
+            "max-height should limit height to 300, got {}",
+            lb.content.height
+        );
+    }
+
+    #[test]
+    fn min_width_percentage() {
+        // min-width: 50% of 800px = 400px, width: 200px → constrained to 400.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(200.0),
+            min_width: Dimension::Percentage(50.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.content.width - 400.0).abs() < 1.0,
+            "min-width 50% of 800 = 400, got {}",
+            lb.content.width
+        );
+    }
+
+    // --- M3-6: Display::ListItem is block-level ---
+
+    #[test]
+    fn list_item_is_block_level() {
+        assert!(is_block_level(Display::ListItem));
+    }
+
+    // --- L15: border-box + min/max ---
+
+    #[test]
+    fn min_width_border_box_subtracts_padding() {
+        // border-box: min-width: 200px with 20px padding each side.
+        // Content min-width = 200 - 40 = 160. width: auto → fills 800 - 40 = 760 > 160, no effect.
+        // width: 100px → content 100, but min-width 160 wins.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(100.0),
+            min_width: Dimension::Length(200.0),
+            box_sizing: BoxSizing::BorderBox,
+            padding_left: 20.0,
+            padding_right: 20.0,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // border-box width: 100px, padding: 40px → content = 60px.
+        // border-box min-width: 200px → content min = 200 - 40 = 160.
+        // Final content width = max(60, 160) = 160.
+        assert!(
+            (lb.content.width - 160.0).abs() < 1.0,
+            "border-box min-width should subtract padding, got {}",
+            lb.content.width
+        );
+    }
+
+    #[test]
+    fn max_width_border_box_subtracts_padding() {
+        // border-box: max-width: 200px with 20px padding each side.
+        // Content max-width = 200 - 40 = 160.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(300.0),
+            max_width: Dimension::Length(200.0),
+            box_sizing: BoxSizing::BorderBox,
+            padding_left: 20.0,
+            padding_right: 20.0,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // border-box width: 300px → content = 260px.
+        // border-box max-width: 200px → content max = 160.
+        // Final content width = min(260, 160) = 160.
+        assert!(
+            (lb.content.width - 160.0).abs() < 1.0,
+            "border-box max-width should subtract padding, got {}",
+            lb.content.width
         );
     }
 }

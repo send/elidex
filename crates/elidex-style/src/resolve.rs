@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use elidex_plugin::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, CssColor, CssValue,
-    Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight, Position,
-    TextAlign, TextDecorationLine, TextTransform,
+    Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight,
+    ListStyleType, Overflow, Position, TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -126,6 +126,8 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         },
         "text-transform" => CssValue::Keyword(style.text_transform.as_ref().to_string()),
         "text-align" => CssValue::Keyword(style.text_align.as_ref().to_string()),
+        "white-space" => CssValue::Keyword(style.white_space.as_ref().to_string()),
+        "list-style-type" => CssValue::Keyword(style.list_style_type.as_ref().to_string()),
         "text-decoration-line" => {
             let d = &style.text_decoration_line;
             if d.underline && d.line_through {
@@ -139,9 +141,26 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         }
         "display" => CssValue::Keyword(style.display.as_ref().to_string()),
         "position" => CssValue::Keyword(style.position.as_ref().to_string()),
+        "overflow" => CssValue::Keyword(style.overflow.as_ref().to_string()),
         "background-color" => CssValue::Color(style.background_color),
         "width" => dimension_to_css_value(style.width),
         "height" => dimension_to_css_value(style.height),
+        "min-width" => dimension_to_css_value(style.min_width),
+        "max-width" => {
+            if style.max_width == Dimension::Auto {
+                CssValue::Keyword("none".to_string())
+            } else {
+                dimension_to_css_value(style.max_width)
+            }
+        }
+        "min-height" => dimension_to_css_value(style.min_height),
+        "max-height" => {
+            if style.max_height == Dimension::Auto {
+                CssValue::Keyword("none".to_string())
+            } else {
+                dimension_to_css_value(style.max_height)
+            }
+        }
         "margin-top" => dimension_to_css_value(style.margin_top),
         "margin-right" => dimension_to_css_value(style.margin_right),
         "margin-bottom" => dimension_to_css_value(style.margin_bottom),
@@ -199,6 +218,7 @@ pub fn dimension_to_css_value(d: Dimension) -> CssValue {
 /// Resolution order: font-size first (dependencies), then color,
 /// then all remaining properties.
 // Sync: When adding a property, also update get_computed_as_css_value and get_initial_value.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn build_computed_style(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
@@ -210,7 +230,7 @@ pub(crate) fn build_computed_style(
     let custom_props = build_custom_properties(winners, parent_style);
     style.custom_properties = custom_props;
 
-    // --- Phase 2: Resolve var() references in winners ---
+    // --- Resolve var() references in winners ---
     let resolved_winners = resolve_var_references(winners, &style.custom_properties);
     let winners = merge_winners(winners, &resolved_winners);
 
@@ -224,6 +244,36 @@ pub(crate) fn build_computed_style(
     resolve_line_height(&mut style, &winners, parent_style, &elem_ctx);
     resolve_text_transform(&mut style, &winners, parent_style);
     resolve_text_align(&mut style, &winners, parent_style);
+    if let Some(val) = resolve_keyword_enum("white-space", &winners, parent_style, |k| match k {
+        "normal" => Some(WhiteSpace::Normal),
+        "pre" => Some(WhiteSpace::Pre),
+        "nowrap" => Some(WhiteSpace::NoWrap),
+        "pre-wrap" => Some(WhiteSpace::PreWrap),
+        "pre-line" => Some(WhiteSpace::PreLine),
+        _ => None,
+    }) {
+        style.white_space = val;
+    }
+    // white-space is inherited: apply parent if not declared.
+    if !winners.contains_key("white-space") {
+        style.white_space = parent_style.white_space;
+    }
+    if let Some(val) =
+        resolve_keyword_enum("list-style-type", &winners, parent_style, |k| match k {
+            "disc" => Some(ListStyleType::Disc),
+            "circle" => Some(ListStyleType::Circle),
+            "square" => Some(ListStyleType::Square),
+            "decimal" => Some(ListStyleType::Decimal),
+            "none" => Some(ListStyleType::None),
+            _ => None,
+        })
+    {
+        style.list_style_type = val;
+    }
+    // list-style-type is inherited: apply parent if not declared.
+    if !winners.contains_key("list-style-type") {
+        style.list_style_type = parent_style.list_style_type;
+    }
 
     // --- Text decoration (non-inherited) ---
     resolve_text_decoration_line(&mut style, &winners, parent_style);
@@ -236,12 +286,31 @@ pub(crate) fn build_computed_style(
     // --- Display & positioning ---
     resolve_display(&mut style, &winners, parent_style);
     resolve_position(&mut style, &winners, parent_style);
+    if let Some(val) = resolve_keyword_enum("overflow", &winners, parent_style, |k| match k {
+        "visible" => Some(Overflow::Visible),
+        "hidden" => Some(Overflow::Hidden),
+        _ => None,
+    }) {
+        style.overflow = val;
+    }
 
     // --- Box model: dimensions, margin, padding ---
     let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
     resolve_prop("width", &winners, parent_style, dim, |d| style.width = d);
     resolve_prop("height", &winners, parent_style, dim, |d| {
         style.height = d;
+    });
+    resolve_prop("min-width", &winners, parent_style, dim, |d| {
+        style.min_width = d;
+    });
+    resolve_prop("max-width", &winners, parent_style, dim, |d| {
+        style.max_width = d;
+    });
+    resolve_prop("min-height", &winners, parent_style, dim, |d| {
+        style.min_height = d;
+    });
+    resolve_prop("max-height", &winners, parent_style, dim, |d| {
+        style.max_height = d;
     });
     for (prop, setter) in [
         (
@@ -843,6 +912,7 @@ fn resolve_display(
             "none" => Some(Display::None),
             "flex" => Some(Display::Flex),
             "inline-flex" => Some(Display::InlineFlex),
+            "list-item" => Some(Display::ListItem),
             _ => None,
         }
     );
@@ -914,7 +984,7 @@ fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
 /// Resolve a border-style keyword to a [`BorderStyle`] enum value.
 ///
 /// Phase 1 supports: `none`, `solid`, `dashed`, `dotted`.
-// TODO(Phase 2): support double, groove, ridge, inset, outset
+// TODO(Phase 4): support double, groove, ridge, inset, outset
 fn resolve_border_style_value(value: &CssValue) -> BorderStyle {
     match value {
         CssValue::Keyword(ref k) => match k.as_str() {
@@ -1069,11 +1139,11 @@ fn resolve_i32(value: &CssValue, default: i32) -> i32 {
 
 /// Resolve a [`CssValue`] to a pixel value (for padding/border-width).
 ///
-/// Percentage values are not yet supported (Phase 2) and resolve to `0.0`.
+/// Percentage values are not yet supported (Phase 4) and resolve to `0.0`.
 fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
-        // TODO(Phase 2): resolve CssValue::Percentage against containing block width
+        // TODO(Phase 4): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,
         _ => 0.0,
     }
@@ -1731,5 +1801,162 @@ mod tests {
             "expected column-gap=16 from parent, got {}",
             style.column_gap
         );
+    }
+
+    // --- M3-6: white-space resolution ---
+
+    #[test]
+    fn resolve_white_space_keyword() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("pre".to_string());
+        winners.insert("white-space", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.white_space, WhiteSpace::Pre);
+    }
+
+    #[test]
+    fn resolve_white_space_inherits_from_parent() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            white_space: WhiteSpace::NoWrap,
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap<'_> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.white_space, WhiteSpace::NoWrap);
+    }
+
+    #[test]
+    fn resolve_white_space_computed_value() {
+        let style = ComputedStyle {
+            white_space: WhiteSpace::PreWrap,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("white-space", &style),
+            CssValue::Keyword("pre-wrap".to_string())
+        );
+    }
+
+    // --- M3-6: overflow resolution ---
+
+    #[test]
+    fn resolve_overflow_keyword() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("hidden".to_string());
+        winners.insert("overflow", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.overflow, Overflow::Hidden);
+    }
+
+    #[test]
+    fn resolve_overflow_computed_value() {
+        let style = ComputedStyle {
+            overflow: Overflow::Hidden,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("overflow", &style),
+            CssValue::Keyword("hidden".to_string())
+        );
+    }
+
+    // --- M3-6: min/max width/height resolution ---
+
+    #[test]
+    fn resolve_min_width() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Length(100.0, LengthUnit::Px);
+        winners.insert("min-width", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.min_width, Dimension::Length(100.0));
+    }
+
+    #[test]
+    fn resolve_max_width_none() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Auto;
+        winners.insert("max-width", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.max_width, Dimension::Auto);
+    }
+
+    #[test]
+    fn resolve_max_width_computed_none() {
+        let style = ComputedStyle {
+            max_width: Dimension::Auto,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("max-width", &style),
+            CssValue::Keyword("none".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_min_height_percentage() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Percentage(25.0);
+        winners.insert("min-height", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.min_height, Dimension::Percentage(25.0));
+    }
+
+    // --- M3-6: list-style-type resolution ---
+
+    #[test]
+    fn resolve_list_style_type_keyword() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("decimal".to_string());
+        winners.insert("list-style-type", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.list_style_type, ListStyleType::Decimal);
+    }
+
+    #[test]
+    fn resolve_list_style_type_inherits() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            list_style_type: ListStyleType::Square,
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap<'_> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.list_style_type, ListStyleType::Square);
+    }
+
+    #[test]
+    fn resolve_list_style_type_computed_value() {
+        let style = ComputedStyle {
+            list_style_type: ListStyleType::Circle,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("list-style-type", &style),
+            CssValue::Keyword("circle".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_display_list_item() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("list-item".to_string());
+        winners.insert("display", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.display, Display::ListItem);
     }
 }

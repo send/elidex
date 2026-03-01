@@ -19,6 +19,7 @@ pub enum Display {
     None,
     Flex,
     InlineFlex,
+    ListItem,
 }
 
 impl AsRef<str> for Display {
@@ -30,6 +31,7 @@ impl AsRef<str> for Display {
             Self::None => "none",
             Self::Flex => "flex",
             Self::InlineFlex => "inline-flex",
+            Self::ListItem => "list-item",
         }
     }
 }
@@ -293,6 +295,72 @@ impl fmt::Display for LineHeight {
     }
 }
 
+/// The CSS `white-space` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum WhiteSpace {
+    #[default]
+    Normal,
+    Pre,
+    NoWrap,
+    PreWrap,
+    PreLine,
+}
+
+impl AsRef<str> for WhiteSpace {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Normal => "normal",
+            Self::Pre => "pre",
+            Self::NoWrap => "nowrap",
+            Self::PreWrap => "pre-wrap",
+            Self::PreLine => "pre-line",
+        }
+    }
+}
+
+/// The CSS `overflow` property.
+///
+/// CSS `scroll` and `auto` are mapped to `Hidden` during parsing
+/// (scrollbar rendering is deferred to Phase 4).
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Hidden,
+}
+
+impl AsRef<str> for Overflow {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Visible => "visible",
+            Self::Hidden => "hidden",
+        }
+    }
+}
+
+/// The CSS `list-style-type` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum ListStyleType {
+    #[default]
+    Disc,
+    Circle,
+    Square,
+    Decimal,
+    None,
+}
+
+impl AsRef<str> for ListStyleType {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Disc => "disc",
+            Self::Circle => "circle",
+            Self::Square => "square",
+            Self::Decimal => "decimal",
+            Self::None => "none",
+        }
+    }
+}
+
 /// The CSS `box-sizing` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum BoxSizing {
@@ -347,6 +415,9 @@ display_via_as_ref!(
     Position,
     BorderStyle,
     BoxSizing,
+    WhiteSpace,
+    Overflow,
+    ListStyleType,
     FlexDirection,
     FlexWrap,
     JustifyContent,
@@ -387,6 +458,10 @@ pub struct ComputedStyle {
     pub text_transform: TextTransform,
     /// Text alignment. Initial: `Left`.
     pub text_align: TextAlign,
+    /// White-space handling. Initial: `Normal`.
+    pub white_space: WhiteSpace,
+    /// List style type. Initial: `Disc`.
+    pub list_style_type: ListStyleType,
 
     // --- Non-inherited properties ---
     /// Display type. Initial: Inline.
@@ -396,10 +471,21 @@ pub struct ComputedStyle {
     /// Background color. Initial: transparent.
     pub background_color: CssColor,
 
+    /// Overflow behavior. Initial: Visible.
+    pub overflow: Overflow,
+
     /// Content width. Initial: Auto.
     pub width: Dimension,
     /// Content height. Initial: Auto.
     pub height: Dimension,
+    /// Minimum width. Initial: Length(0.0).
+    pub min_width: Dimension,
+    /// Maximum width. Initial: Auto (= none/unconstrained).
+    pub max_width: Dimension,
+    /// Minimum height. Initial: Length(0.0).
+    pub min_height: Dimension,
+    /// Maximum height. Initial: Auto (= none/unconstrained).
+    pub max_height: Dimension,
 
     /// Margin top. Initial: Length(0.0).
     pub margin_top: Dimension,
@@ -510,14 +596,21 @@ impl Default for ComputedStyle {
             line_height: LineHeight::Normal,
             text_transform: TextTransform::default(),
             text_align: TextAlign::default(),
+            white_space: WhiteSpace::default(),
+            list_style_type: ListStyleType::default(),
 
             // Non-inherited
             display: Display::default(),
             position: Position::default(),
             background_color: CssColor::TRANSPARENT,
+            overflow: Overflow::default(),
 
             width: Dimension::Auto,
             height: Dimension::Auto,
+            min_width: Dimension::Length(0.0),
+            max_width: Dimension::Auto,
+            min_height: Dimension::Length(0.0),
+            max_height: Dimension::Auto,
 
             margin_top: Dimension::Length(0.0),
             margin_right: Dimension::Length(0.0),
@@ -719,5 +812,46 @@ mod tests {
         assert_eq!(s.box_sizing, BoxSizing::ContentBox);
         assert!((s.border_radius - 0.0).abs() < f32::EPSILON);
         assert!((s.opacity - 1.0).abs() < f32::EPSILON);
+    }
+
+    // --- M3-6: WhiteSpace, Overflow, ListStyleType types ---
+
+    #[test]
+    fn white_space_defaults_and_as_ref() {
+        assert_eq!(WhiteSpace::default(), WhiteSpace::Normal);
+        assert_eq!(WhiteSpace::Normal.as_ref(), "normal");
+        assert_eq!(WhiteSpace::Pre.as_ref(), "pre");
+        assert_eq!(WhiteSpace::NoWrap.as_ref(), "nowrap");
+        assert_eq!(WhiteSpace::PreWrap.as_ref(), "pre-wrap");
+        assert_eq!(WhiteSpace::PreLine.as_ref(), "pre-line");
+    }
+
+    #[test]
+    fn overflow_defaults_and_as_ref() {
+        assert_eq!(Overflow::default(), Overflow::Visible);
+        assert_eq!(Overflow::Visible.as_ref(), "visible");
+        assert_eq!(Overflow::Hidden.as_ref(), "hidden");
+    }
+
+    #[test]
+    fn list_style_type_defaults_and_as_ref() {
+        assert_eq!(ListStyleType::default(), ListStyleType::Disc);
+        assert_eq!(ListStyleType::Disc.as_ref(), "disc");
+        assert_eq!(ListStyleType::Circle.as_ref(), "circle");
+        assert_eq!(ListStyleType::Square.as_ref(), "square");
+        assert_eq!(ListStyleType::Decimal.as_ref(), "decimal");
+        assert_eq!(ListStyleType::None.as_ref(), "none");
+    }
+
+    #[test]
+    fn computed_style_m3_6_defaults() {
+        let s = ComputedStyle::default();
+        assert_eq!(s.white_space, WhiteSpace::Normal);
+        assert_eq!(s.overflow, Overflow::Visible);
+        assert_eq!(s.list_style_type, ListStyleType::Disc);
+        assert_eq!(s.min_width, Dimension::Length(0.0));
+        assert_eq!(s.max_width, Dimension::Auto);
+        assert_eq!(s.min_height, Dimension::Length(0.0));
+        assert_eq!(s.max_height, Dimension::Auto);
     }
 }

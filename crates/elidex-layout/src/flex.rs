@@ -17,7 +17,7 @@ use elidex_text::FontDatabase;
 
 use crate::block::{layout_block, resolve_margin};
 use crate::sanitize;
-use crate::{sanitize_edge_values, MAX_LAYOUT_DEPTH};
+use crate::{resolve_min_max, sanitize_edge_values, MAX_LAYOUT_DEPTH};
 
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -148,6 +148,10 @@ pub(super) struct FlexItem {
     pub(super) align: AlignItems,
     /// Whether the item's cross-size dimension is `auto` (stretch only applies when true).
     pub(super) cross_size_auto: bool,
+    /// Minimum content size on the main axis (from min-width/min-height).
+    pub(super) min_main: f32,
+    /// Maximum content size on the main axis (from max-width/max-height).
+    pub(super) max_main: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +472,32 @@ fn collect_flex_items(
             }
         };
 
+        // Resolve min/max constraints on the main axis.
+        // For box-sizing: border-box, subtract padding+border from min/max
+        // so they compare correctly with content-level hypo_main.
+        let containing_main = ctx.container_main;
+        let (mut min_main, mut max_main) = if ctx.horizontal {
+            (
+                resolve_min_max(child_style.min_width, containing_main, 0.0),
+                resolve_min_max(child_style.max_width, containing_main, f32::INFINITY),
+            )
+        } else {
+            // Column direction: items' containing block is the flex container itself.
+            let ch = ctx.container_definite_height.unwrap_or(0.0);
+            (
+                resolve_min_max(child_style.min_height, ch, 0.0),
+                resolve_min_max(child_style.max_height, ch, f32::INFINITY),
+            )
+        };
+        if child_style.box_sizing == BoxSizing::BorderBox {
+            min_main = (min_main - pb_main).max(0.0);
+            if max_main < f32::INFINITY {
+                max_main = (max_main - pb_main).max(0.0);
+            }
+        }
+        // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
+        let hypo_main = hypo_main.max(min_main).min(max_main).max(min_main);
+
         items.push(FlexItem {
             entity: child,
             source_order,
@@ -483,6 +513,8 @@ fn collect_flex_items(
             final_cross: 0.0,
             align: effective_align(child_style.align_self, ctx.align_items),
             cross_size_auto,
+            min_main,
+            max_main,
         });
     }
     items

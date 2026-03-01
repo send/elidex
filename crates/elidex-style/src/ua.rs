@@ -13,7 +13,7 @@ use elidex_css::{parse_stylesheet, Origin, Stylesheet};
 /// Phase 1 property set.
 const UA_CSS: &str = r"
 html, body, div, p, h1, h2, h3, h4, h5, h6,
-ul, ol, li, dl, dt, dd, blockquote, pre,
+ul, ol, dl, dt, dd, blockquote, pre,
 form, fieldset, table, address, article, aside,
 details, figcaption, figure, footer, header,
 main, nav, section, summary, hr {
@@ -75,9 +75,20 @@ ul, ol {
     padding-left: 40px;
 }
 
-/* Spec: display: list-item. Using block until list markers are supported. */
 li {
-    display: block;
+    display: list-item;
+}
+
+ol > li {
+    list-style-type: decimal;
+}
+
+pre {
+    white-space: pre;
+}
+
+code, kbd, samp, tt {
+    font-family: monospace;
 }
 
 blockquote {
@@ -160,6 +171,84 @@ mod tests {
         assert_eq!(
             display.unwrap().value,
             CssValue::Keyword("none".to_string())
+        );
+    }
+
+    #[test]
+    fn li_display_list_item() {
+        let ss = ua_stylesheet();
+        // Find the dedicated `li` rule (not the group rule).
+        // The group rule (html, body, div, ..., li, ...) has display:block;
+        // the dedicated `li` rule has display:list-item.
+        let li_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "li"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "display" && d.value == CssValue::Keyword("list-item".to_string())
+            })
+        });
+        assert!(li_rule.is_some(), "li display: list-item rule not found");
+    }
+
+    #[test]
+    fn pre_white_space_pre() {
+        let ss = ua_stylesheet();
+        let pre_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "pre"))
+            }) && r.declarations.iter().any(|d| d.property == "white-space")
+        });
+        assert!(pre_rule.is_some(), "pre white-space rule not found");
+        let ws = pre_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "white-space")
+            .unwrap();
+        assert_eq!(ws.value, CssValue::Keyword("pre".to_string()));
+    }
+
+    #[test]
+    fn code_has_font_family_monospace() {
+        let ss = ua_stylesheet();
+        let code_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "code"))
+            }) && r.declarations.iter().any(|d| d.property == "font-family")
+        });
+        assert!(code_rule.is_some(), "code font-family rule not found");
+        let ff = code_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "font-family")
+            .unwrap();
+        assert_eq!(
+            ff.value,
+            CssValue::List(vec![CssValue::Keyword("monospace".to_string())])
+        );
+    }
+
+    #[test]
+    fn code_does_not_have_white_space_pre() {
+        let ss = ua_stylesheet();
+        // code should NOT have white-space: pre (only pre does).
+        let code_ws_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "code"))
+            }) && r.declarations.iter().any(|d| d.property == "white-space")
+        });
+        assert!(
+            code_ws_rule.is_none(),
+            "code should not have white-space in UA stylesheet"
         );
     }
 }

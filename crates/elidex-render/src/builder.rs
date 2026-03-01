@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use elidex_ecs::{EcsDom, Entity, ImageData, TextContent};
 use elidex_plugin::{
-    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, TextAlign, TextDecorationLine,
-    TextTransform,
+    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, ListStyleType, Overflow, Rect,
+    TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
 };
 use elidex_text::{shape_text, FontDatabase};
 
@@ -80,6 +80,7 @@ fn walk(
     }
 
     // Emit background + borders for elements with a LayoutBox.
+    let mut has_clip = false;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
         if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
             emit_background(
@@ -97,12 +98,23 @@ fn walk(
                     emit_image(&lb, &image_data, style.opacity, dl);
                 }
             }
+
+            // overflow: hidden → clip children to padding box (CSS Overflow §3).
+            if style.overflow == Overflow::Hidden {
+                let pb = lb.padding_box();
+                dl.push(DisplayItem::PushClip { rect: pb });
+                has_clip = true;
+            }
+
+            // List marker rendering — counter is managed per-parent, passed down.
+            // The walk function handles this instead (see below).
         }
     }
 
     // Process children in inline runs vs block children.
     let children: Vec<Entity> = dom.children_iter(entity).collect();
     let mut inline_run = Vec::new();
+    let mut list_counter = 0_usize;
 
     for &child in &children {
         if is_block_child(dom, child) {
@@ -111,6 +123,28 @@ fn walk(
                 emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
                 inline_run.clear();
             }
+
+            // Emit list marker for list-item children.
+            // Counter increments for every list-item regardless of list-style-type;
+            // list-style-type: none only suppresses marker rendering.
+            if let Ok(child_style) = dom.world().get::<&ComputedStyle>(child) {
+                if child_style.display == Display::ListItem {
+                    list_counter += 1;
+                    if child_style.list_style_type != ListStyleType::None {
+                        if let Ok(child_lb) = dom.world().get::<&LayoutBox>(child) {
+                            emit_list_marker_with_counter(
+                                &child_lb,
+                                &child_style,
+                                list_counter,
+                                font_db,
+                                font_cache,
+                                dl,
+                            );
+                        }
+                    }
+                }
+            }
+
             // Recurse into block child.
             walk(dom, child, font_db, font_cache, dl);
         } else {
@@ -122,6 +156,10 @@ fn walk(
     // Flush trailing inline run.
     if !inline_run.is_empty() {
         emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
+    }
+
+    if has_clip {
+        dl.push(DisplayItem::PopClip);
     }
 }
 
@@ -173,7 +211,7 @@ fn emit_inline_run(
     }
 
     // Check if all segments are whitespace-only after cross-segment collapsing.
-    let collapsed = collapse_segments(&segments);
+    let collapsed = collapse_segments(&segments, parent_style.white_space);
     if collapsed.is_empty() {
         return;
     }
@@ -352,17 +390,72 @@ fn emit_styled_segments(
     }
 }
 
-/// Collapse whitespace across segments, returning (`collapsed_text`, `original_index`) pairs.
-fn collapse_segments(segments: &[StyledTextSegment]) -> Vec<(String, usize)> {
+/// Collapse whitespace across segments according to `white-space` mode.
+///
+/// | Mode    | collapse spaces | collapse newlines | wrap  |
+/// |---------|:---:|:---:|:---:|
+/// | Normal  | Yes | Yes | Yes |
+/// | Pre     | No  | No  | No  |
+/// | NoWrap  | Yes | Yes | No  |
+/// | PreWrap | No  | No  | Yes |
+/// | PreLine | Yes | No  | Yes |
+fn collapse_segments(
+    segments: &[StyledTextSegment],
+    white_space: WhiteSpace,
+) -> Vec<(String, usize)> {
+    let collapse_spaces = matches!(
+        white_space,
+        WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine
+    );
+    let collapse_newlines = matches!(white_space, WhiteSpace::Normal | WhiteSpace::NoWrap);
+
+    // Pre / PreWrap: preserve text, but still normalize \r\n → \n (CSS Text §4.1).
+    if !collapse_spaces && !collapse_newlines {
+        return segments
+            .iter()
+            .enumerate()
+            .filter(|(_, seg)| !seg.text.is_empty())
+            .map(|(idx, seg)| {
+                let text = seg.text.replace("\r\n", "\n").replace('\r', "\n");
+                (text, idx)
+            })
+            .collect();
+    }
+
     let mut result: Vec<(String, usize)> = Vec::new();
     let mut prev_was_space = true; // Leading whitespace is trimmed.
     for (idx, seg) in segments.iter().enumerate() {
+        // CSS Text §4.1 Phase I: normalize \r\n → \n, bare \r → \n.
+        let normalized = seg.text.replace("\r\n", "\n").replace('\r', "\n");
         let mut seg_text = String::new();
-        for ch in seg.text.chars() {
-            if ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ' {
-                if !prev_was_space {
-                    seg_text.push(' ');
-                    prev_was_space = true;
+        for ch in normalized.chars() {
+            let is_newline = ch == '\n';
+            let is_space = ch == ' ' || ch == '\t';
+
+            if is_newline {
+                if collapse_newlines {
+                    // Treat newlines as spaces (Normal / NoWrap).
+                    if collapse_spaces && !prev_was_space {
+                        seg_text.push(' ');
+                        prev_was_space = true;
+                    }
+                } else {
+                    // PreLine: preserve newlines; strip spaces/tabs immediately
+                    // before the forced break (CSS Text §4).
+                    let trimmed = seg_text.trim_end_matches([' ', '\t']);
+                    seg_text.truncate(trimmed.len());
+                    seg_text.push('\n');
+                    prev_was_space = true; // Reset space state after newline.
+                }
+            } else if is_space {
+                if collapse_spaces {
+                    if !prev_was_space {
+                        seg_text.push(' ');
+                        prev_was_space = true;
+                    }
+                } else {
+                    seg_text.push(ch);
+                    prev_was_space = false;
                 }
             } else {
                 seg_text.push(ch);
@@ -373,16 +466,23 @@ fn collapse_segments(segments: &[StyledTextSegment]) -> Vec<(String, usize)> {
             result.push((seg_text, idx));
         }
     }
-    // Trim trailing whitespace from the last segment.
-    if let Some(last) = result.last_mut() {
-        let trimmed = last.0.trim_end().to_string();
-        last.0 = trimmed;
-    }
-    // Trim leading whitespace from the first segment (safety net; the
-    // prev_was_space=true initialization already suppresses leading spaces).
-    if let Some(first) = result.first_mut() {
-        let trimmed = first.0.trim_start().to_string();
-        first.0 = trimmed;
+    // Trim trailing/leading whitespace from the result.
+    // For PreLine: only trim spaces/tabs, preserve newlines.
+    if collapse_newlines {
+        if let Some(last) = result.last_mut() {
+            last.0 = last.0.trim_end().to_string();
+        }
+        if let Some(first) = result.first_mut() {
+            first.0 = first.0.trim_start().to_string();
+        }
+    } else {
+        // PreLine: trim only spaces/tabs, not newlines.
+        if let Some(last) = result.last_mut() {
+            last.0 = last.0.trim_end_matches([' ', '\t']).to_string();
+        }
+        if let Some(first) = result.first_mut() {
+            first.0 = first.0.trim_start_matches([' ', '\t']).to_string();
+        }
     }
     result.retain(|(text, _)| !text.is_empty());
     result
@@ -399,35 +499,6 @@ fn measure_segment_width(text: &str, seg: &StyledTextSegment, font_db: &FontData
         return 0.0;
     };
     shaped.glyphs.iter().map(|g| g.x_advance).sum()
-}
-
-/// Collapse whitespace per CSS `white-space: normal` rules.
-///
-/// Replaces newlines, carriage returns, and tabs with spaces, then
-/// collapses runs of consecutive spaces to a single space. Strips
-/// leading and trailing whitespace (inter-element whitespace).
-#[cfg(test)]
-fn collapse_whitespace(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut prev_was_space = false;
-    for ch in text.chars() {
-        if ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ' {
-            if !prev_was_space {
-                result.push(' ');
-                prev_was_space = true;
-            }
-        } else {
-            result.push(ch);
-            prev_was_space = false;
-        }
-    }
-
-    // Trim leading/trailing whitespace (handles inter-element whitespace).
-    let trimmed = result.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    trimmed.to_string()
 }
 
 /// Apply opacity to a color by multiplying its alpha channel.
@@ -549,6 +620,111 @@ fn emit_image(lb: &LayoutBox, image_data: &ImageData, opacity: f32, dl: &mut Dis
         image_height: image_data.height,
         opacity,
     });
+}
+
+/// Emit a list marker for a `display: list-item` element.
+///
+/// - `disc`/`circle`/`square`: small shape rendered to the left of the content box.
+/// - `decimal`: rendered as "N." text to the left.
+///
+/// The marker is positioned in the element's left padding area, vertically
+/// centered on the first line (approximated by font ascent).
+fn emit_list_marker_with_counter(
+    lb: &LayoutBox,
+    style: &ComputedStyle,
+    counter: usize,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let marker_size = style.font_size * 0.35;
+    let marker_x = lb.content.x - style.font_size * 0.75;
+
+    let families: Vec<&str> = style.font_family.iter().map(String::as_str).collect();
+    let ascent = font_db
+        .query(&families, style.font_weight)
+        .and_then(|fid| font_db.font_metrics(fid, style.font_size))
+        .map_or(style.font_size, |m| m.ascent);
+    let marker_y = lb.content.y + ascent * 0.5 - marker_size * 0.5;
+
+    let color = apply_opacity(style.color, style.opacity);
+
+    match style.list_style_type {
+        ListStyleType::Disc => {
+            let rect = Rect {
+                x: marker_x,
+                y: marker_y,
+                width: marker_size,
+                height: marker_size,
+            };
+            dl.push(DisplayItem::RoundedRect {
+                rect,
+                radius: marker_size / 2.0,
+                color,
+            });
+        }
+        ListStyleType::Circle => {
+            let rect = Rect {
+                x: marker_x,
+                y: marker_y,
+                width: marker_size,
+                height: marker_size,
+            };
+            dl.push(DisplayItem::StrokedRoundedRect {
+                rect,
+                radius: marker_size / 2.0,
+                stroke_width: 1.0,
+                color,
+            });
+        }
+        ListStyleType::Square => {
+            let rect = Rect {
+                x: marker_x,
+                y: marker_y,
+                width: marker_size,
+                height: marker_size,
+            };
+            dl.push(DisplayItem::SolidRect { rect, color });
+        }
+        ListStyleType::Decimal => {
+            let marker_text = format!("{counter}.");
+            let Some(font_id) = font_db.query(&families, style.font_weight) else {
+                return;
+            };
+            let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {
+                return;
+            };
+            let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+                return;
+            };
+            let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
+            let baseline_y = lb.content.y + ascent;
+            let text_x = lb.content.x - text_width - style.font_size * 0.3;
+
+            let glyphs: Vec<GlyphEntry> = shaped
+                .glyphs
+                .iter()
+                .scan(text_x, |cx, g| {
+                    let x = *cx + g.x_offset;
+                    let y = baseline_y - g.y_offset;
+                    *cx += g.x_advance;
+                    Some(GlyphEntry {
+                        glyph_id: u32::from(g.glyph_id),
+                        x,
+                        y,
+                    })
+                })
+                .collect();
+            dl.push(DisplayItem::Text {
+                glyphs,
+                font_blob,
+                font_index,
+                font_size: style.font_size,
+                color,
+            });
+        }
+        ListStyleType::None => {}
+    }
 }
 
 /// Walk up the ancestor chain to find the nearest entity with a `LayoutBox`.
@@ -942,38 +1118,6 @@ mod tests {
         assert!((rect.y - 13.0).abs() < f32::EPSILON);
         assert!((rect.width - 114.0).abs() < f32::EPSILON);
         assert!((rect.height - 64.0).abs() < f32::EPSILON);
-    }
-
-    // --- Whitespace processing tests ---
-
-    #[test]
-    fn collapse_whitespace_newlines_and_tabs() {
-        assert_eq!(collapse_whitespace("hello\n  world"), "hello world");
-        assert_eq!(collapse_whitespace("a\t\tb"), "a b");
-        assert_eq!(collapse_whitespace("a\r\nb"), "a b");
-    }
-
-    #[test]
-    fn collapse_whitespace_multiple_spaces() {
-        assert_eq!(collapse_whitespace("hello   world"), "hello world");
-    }
-
-    #[test]
-    fn collapse_whitespace_trims() {
-        assert_eq!(collapse_whitespace("  hello  "), "hello");
-        assert_eq!(collapse_whitespace("\n  \n"), "");
-    }
-
-    #[test]
-    fn collapse_whitespace_only() {
-        assert_eq!(collapse_whitespace("   "), "");
-        assert_eq!(collapse_whitespace("\n\t\r "), "");
-    }
-
-    #[test]
-    fn collapse_whitespace_preserves_content() {
-        assert_eq!(collapse_whitespace("hello"), "hello");
-        assert_eq!(collapse_whitespace("hello world"), "hello world");
     }
 
     #[test]
@@ -2137,5 +2281,646 @@ mod tests {
             text_first_x[1],
             text_first_x[0]
         );
+    }
+
+    // --- M3-6: overflow: hidden → PushClip/PopClip ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn overflow_hidden_emits_clip() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                overflow: Overflow::Hidden,
+                background_color: CssColor::WHITE,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let has_push_clip =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::PushClip { .. }));
+        let has_pop_clip = dl.0.iter().any(|i| matches!(i, DisplayItem::PopClip));
+        assert!(has_push_clip, "overflow:hidden should emit PushClip");
+        assert!(has_pop_clip, "overflow:hidden should emit PopClip");
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn overflow_visible_no_clip() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                overflow: Overflow::Visible,
+                background_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let has_push_clip =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::PushClip { .. }));
+        assert!(!has_push_clip, "overflow:visible should not emit PushClip");
+    }
+
+    // --- M3-6: list markers ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_disc_emits_marker() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ul = dom.create_element("ul", Attributes::default());
+        dom.append_child(root, ul);
+        let li = dom.create_element("li", Attributes::default());
+        dom.append_child(ul, li);
+
+        dom.world_mut().insert_one(
+            ul,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ul,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 100.0,
+                },
+                padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
+                ..Default::default()
+            },
+        );
+
+        dom.world_mut().insert_one(
+            li,
+            ComputedStyle {
+                display: Display::ListItem,
+                list_style_type: ListStyleType::Disc,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            li,
+            LayoutBox {
+                content: Rect {
+                    x: 40.0,
+                    y: 0.0,
+                    width: 760.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Disc marker should emit a RoundedRect.
+        let has_marker =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::RoundedRect { .. }));
+        assert!(has_marker, "disc list marker should emit RoundedRect");
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_square_emits_solid_rect_marker() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ul = dom.create_element("ul", Attributes::default());
+        dom.append_child(root, ul);
+        let li = dom.create_element("li", Attributes::default());
+        dom.append_child(ul, li);
+
+        dom.world_mut().insert_one(
+            ul,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ul,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 100.0,
+                },
+                padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
+                ..Default::default()
+            },
+        );
+
+        dom.world_mut().insert_one(
+            li,
+            ComputedStyle {
+                display: Display::ListItem,
+                list_style_type: ListStyleType::Square,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            li,
+            LayoutBox {
+                content: Rect {
+                    x: 40.0,
+                    y: 0.0,
+                    width: 760.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // The first SolidRect with a very small width is the square marker.
+        let small_rects: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::SolidRect { rect, .. } if rect.width < 10.0))
+                .collect();
+        assert!(
+            !small_rects.is_empty(),
+            "square list marker should emit small SolidRect"
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_none_no_marker() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ul = dom.create_element("ul", Attributes::default());
+        dom.append_child(root, ul);
+        let li = dom.create_element("li", Attributes::default());
+        dom.append_child(ul, li);
+
+        dom.world_mut().insert_one(
+            ul,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ul,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 100.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        dom.world_mut().insert_one(
+            li,
+            ComputedStyle {
+                display: Display::ListItem,
+                list_style_type: ListStyleType::None,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            li,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // list-style-type: none should not emit any marker shapes.
+        let has_rounded =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::RoundedRect { .. }));
+        assert!(!has_rounded, "list-style-type:none should not emit marker");
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_circle_emits_stroked_marker() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ul = dom.create_element("ul", Attributes::default());
+        dom.append_child(root, ul);
+        let li = dom.create_element("li", Attributes::default());
+        dom.append_child(ul, li);
+
+        dom.world_mut().insert_one(
+            ul,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ul,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 100.0,
+                },
+                padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
+                ..Default::default()
+            },
+        );
+
+        dom.world_mut().insert_one(
+            li,
+            ComputedStyle {
+                display: Display::ListItem,
+                list_style_type: ListStyleType::Circle,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            li,
+            LayoutBox {
+                content: Rect {
+                    x: 40.0,
+                    y: 0.0,
+                    width: 760.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Circle marker should emit StrokedRoundedRect (outline), not filled RoundedRect.
+        let has_stroked =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::StrokedRoundedRect { .. }));
+        assert!(
+            has_stroked,
+            "circle list marker should emit StrokedRoundedRect"
+        );
+        let has_filled =
+            dl.0.iter()
+                .any(|i| matches!(i, DisplayItem::RoundedRect { .. }));
+        assert!(
+            !has_filled,
+            "circle list marker should not emit filled RoundedRect"
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_decimal_emits_text_marker() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ol = dom.create_element("ol", Attributes::default());
+        dom.append_child(root, ol);
+        let li = dom.create_element("li", Attributes::default());
+        dom.append_child(ol, li);
+
+        dom.world_mut().insert_one(
+            ol,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ol,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 100.0,
+                },
+                padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
+                ..Default::default()
+            },
+        );
+
+        dom.world_mut().insert_one(
+            li,
+            ComputedStyle {
+                display: Display::ListItem,
+                list_style_type: ListStyleType::Decimal,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            li,
+            LayoutBox {
+                content: Rect {
+                    x: 40.0,
+                    y: 0.0,
+                    width: 760.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Decimal marker emits Text items (if fonts are available) or nothing
+        // (graceful fallback). It should never emit shape-based markers.
+        let has_shape = dl.0.iter().any(|i| {
+            matches!(
+                i,
+                DisplayItem::RoundedRect { .. } | DisplayItem::StrokedRoundedRect { .. }
+            )
+        });
+        assert!(
+            !has_shape,
+            "decimal list marker should not emit shape-based markers"
+        );
+        // If system fonts are available, a Text item should be emitted.
+        let has_text = dl.0.iter().any(|i| matches!(i, DisplayItem::Text { .. }));
+        if font_db.query(&["serif"], 400).is_some() {
+            assert!(
+                has_text,
+                "decimal marker should emit Text when fonts available"
+            );
+        }
+    }
+
+    // --- M3-6: white-space collapse tests ---
+
+    fn make_segment(text: &str) -> StyledTextSegment {
+        StyledTextSegment {
+            text: text.to_string(),
+            color: CssColor::BLACK,
+            font_family: vec!["serif".to_string()],
+            font_size: 16.0,
+            font_weight: 400,
+            text_transform: TextTransform::None,
+            text_decoration_line: TextDecorationLine::default(),
+            opacity: 1.0,
+        }
+    }
+
+    #[test]
+    fn collapse_segments_normal_collapses_spaces_and_newlines() {
+        let segments = vec![make_segment("hello  \n  world")];
+        let result = collapse_segments(&segments, WhiteSpace::Normal);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello world");
+    }
+
+    #[test]
+    fn collapse_segments_pre_preserves_all() {
+        let segments = vec![make_segment("hello  \n  world")];
+        let result = collapse_segments(&segments, WhiteSpace::Pre);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello  \n  world");
+    }
+
+    #[test]
+    fn collapse_segments_pre_line_collapses_spaces_preserves_newlines() {
+        let segments = vec![make_segment("hello   \n   world")];
+        let result = collapse_segments(&segments, WhiteSpace::PreLine);
+        assert_eq!(result.len(), 1);
+        // Spaces collapsed, but newline preserved.
+        assert!(
+            result[0].0.contains('\n'),
+            "pre-line should preserve newlines"
+        );
+        assert!(
+            !result[0].0.contains("   "),
+            "pre-line should collapse spaces"
+        );
+    }
+
+    #[test]
+    fn collapse_segments_nowrap_same_as_normal() {
+        let segments = vec![make_segment("hello  \n  world")];
+        let result = collapse_segments(&segments, WhiteSpace::NoWrap);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello world");
+    }
+
+    #[test]
+    fn collapse_segments_pre_wrap_preserves_all() {
+        let segments = vec![make_segment("  hello  \n  world  ")];
+        let result = collapse_segments(&segments, WhiteSpace::PreWrap);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "  hello  \n  world  ");
+    }
+
+    #[test]
+    fn collapse_segments_pre_line_preserves_trailing_newline() {
+        // pre-line: spaces collapse, newlines preserved; trailing newline kept.
+        let segments = vec![make_segment("hello\n")];
+        let result = collapse_segments(&segments, WhiteSpace::PreLine);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello\n");
+    }
+
+    #[test]
+    fn collapse_segments_pre_line_trims_trailing_spaces_only() {
+        let segments = vec![make_segment("hello   ")];
+        let result = collapse_segments(&segments, WhiteSpace::PreLine);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello");
+    }
+
+    #[test]
+    fn collapse_segments_pre_line_strips_spaces_before_newline() {
+        // CSS Text §4: spaces/tabs immediately preceding a forced break are removed.
+        let segments = vec![make_segment("hello   \nworld")];
+        let result = collapse_segments(&segments, WhiteSpace::PreLine);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello\nworld");
+    }
+
+    #[test]
+    fn collapse_segments_crlf_normalized_to_lf() {
+        // CSS Text §4.1 Phase I: \r\n → single \n.
+        let segments = vec![make_segment("hello\r\nworld")];
+        let result = collapse_segments(&segments, WhiteSpace::PreLine);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello\nworld");
+    }
+
+    #[test]
+    fn collapse_segments_bare_cr_normalized_to_lf() {
+        // CSS Text §4.1 Phase I: bare \r → \n.
+        let segments = vec![make_segment("hello\rworld")];
+        let result = collapse_segments(&segments, WhiteSpace::Pre);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello\nworld");
+    }
+
+    // --- L11: nested overflow:hidden ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn nested_overflow_hidden_balanced_clips() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let outer = dom.create_element("div", Attributes::default());
+        dom.append_child(root, outer);
+        let inner = dom.create_element("div", Attributes::default());
+        dom.append_child(outer, inner);
+
+        for (entity, w, h) in [(outer, 200.0, 100.0), (inner, 100.0, 50.0)] {
+            dom.world_mut().insert_one(
+                entity,
+                ComputedStyle {
+                    display: Display::Block,
+                    overflow: Overflow::Hidden,
+                    background_color: CssColor::WHITE,
+                    ..Default::default()
+                },
+            );
+            dom.world_mut().insert_one(
+                entity,
+                LayoutBox {
+                    content: Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: w,
+                        height: h,
+                    },
+                    ..Default::default()
+                },
+            );
+        }
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let push_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::PushClip { .. }))
+                .count();
+        let pop_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::PopClip))
+                .count();
+        assert_eq!(push_count, 2, "should have 2 PushClip for nested overflow");
+        assert_eq!(pop_count, 2, "should have 2 PopClip for nested overflow");
+        assert_eq!(push_count, pop_count, "PushClip/PopClip must be balanced");
+    }
+
+    // --- L14: multi-item list counter ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn list_item_counter_increments() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let ol = dom.create_element("ol", Attributes::default());
+        dom.append_child(root, ol);
+        let li1 = dom.create_element("li", Attributes::default());
+        dom.append_child(ol, li1);
+        let li2 = dom.create_element("li", Attributes::default());
+        dom.append_child(ol, li2);
+
+        dom.world_mut().insert_one(
+            ol,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            ol,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 200.0,
+                },
+                padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
+                ..Default::default()
+            },
+        );
+
+        for (li, y_off) in [(li1, 0.0), (li2, 20.0)] {
+            dom.world_mut().insert_one(
+                li,
+                ComputedStyle {
+                    display: Display::ListItem,
+                    list_style_type: ListStyleType::Disc,
+                    ..Default::default()
+                },
+            );
+            dom.world_mut().insert_one(
+                li,
+                LayoutBox {
+                    content: Rect {
+                        x: 40.0,
+                        y: y_off,
+                        width: 760.0,
+                        height: 20.0,
+                    },
+                    ..Default::default()
+                },
+            );
+        }
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Both list items should emit a marker (RoundedRect for disc).
+        let marker_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::RoundedRect { .. }))
+                .count();
+        assert_eq!(marker_count, 2, "two disc markers for two list items");
     }
 }

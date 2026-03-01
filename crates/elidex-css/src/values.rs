@@ -46,6 +46,19 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     }
 }
 
+/// Parse a non-negative length or percentage value.
+///
+/// Returns `Err(())` if the value is negative.
+#[allow(clippy::result_unit_err)]
+pub fn parse_non_negative_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
+    let val = parse_length_or_percentage(input)?;
+    match &val {
+        CssValue::Length(px, _) if *px < 0.0 => Err(()),
+        CssValue::Percentage(pct) if *pct < 0.0 => Err(()),
+        _ => Ok(val),
+    }
+}
+
 /// Parse a length, percentage, or `auto` keyword.
 #[allow(clippy::result_unit_err)]
 pub fn parse_length_percentage_or_auto(input: &mut Parser) -> Result<CssValue, ()> {

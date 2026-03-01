@@ -69,6 +69,26 @@ pub(crate) fn resolve_dimension_value(dim: Dimension, containing: f32, auto_valu
     }
 }
 
+/// Resolve a `Dimension` to a pixel value for min/max constraints.
+///
+/// `Auto` returns `default_value` (0.0 for min-*, infinity for max-*).
+/// Percentages against indefinite or non-positive containing sizes return
+/// `default_value`. Negative results are clamped to 0.
+pub(crate) fn resolve_min_max(dim: Dimension, containing: f32, default_value: f32) -> f32 {
+    match dim {
+        Dimension::Length(px) if px.is_finite() => px.max(0.0),
+        Dimension::Percentage(pct) => {
+            // Guard against indefinite containing sizes (flex) and zero/negative.
+            if containing > 0.0 && containing < f32::MAX / 2.0 {
+                sanitize(containing * pct / 100.0).max(0.0)
+            } else {
+                default_value
+            }
+        }
+        _ => default_value,
+    }
+}
+
 /// Get the computed style for an entity, or a default if none is attached.
 fn get_style(dom: &EcsDom, entity: Entity) -> ComputedStyle {
     dom.world()

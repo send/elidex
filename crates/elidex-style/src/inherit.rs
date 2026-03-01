@@ -14,6 +14,8 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "line-height",
     "text-transform",
     "text-align",
+    "white-space",
+    "list-style-type",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -37,9 +39,16 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Inherited text
         "font-weight" => CssValue::Number(400.0),
-        "line-height" => CssValue::Keyword("normal".to_string()),
-        "text-transform" | "text-decoration-line" => CssValue::Keyword("none".to_string()),
+        "line-height" | "white-space" => CssValue::Keyword("normal".to_string()),
+        // Keyword "none" initial values
+        "text-transform"
+        | "text-decoration-line"
+        | "border-top-style"
+        | "border-right-style"
+        | "border-bottom-style"
+        | "border-left-style" => CssValue::Keyword("none".to_string()),
         "text-align" => CssValue::Keyword("left".to_string()),
+        "list-style-type" => CssValue::Keyword("disc".to_string()),
 
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
@@ -48,23 +57,20 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Background
         "background-color" => CssValue::Color(CssColor::TRANSPARENT),
 
-        // Sizing (auto)
-        "width" | "height" | "flex-basis" => CssValue::Auto,
+        // Display
+        "overflow" => CssValue::Keyword("visible".to_string()),
 
-        // Margins and padding
-        "margin-top" | "margin-right" | "margin-bottom" | "margin-left" | "padding-top"
-        | "padding-right" | "padding-bottom" | "padding-left" => {
-            CssValue::Length(0.0, LengthUnit::Px)
-        }
+        // Sizing (auto)
+        "width" | "height" | "flex-basis" | "max-width" | "max-height" => CssValue::Auto,
+
+        // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
+        "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
+        | "margin-left" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
+        | "border-radius" | "row-gap" | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
 
         // Border width (CSS initial = medium = 3px)
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
             CssValue::Length(3.0, LengthUnit::Px)
-        }
-
-        // Border style
-        "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
-            CssValue::Keyword("none".to_string())
         }
 
         // Border color (currentcolor)
@@ -74,7 +80,6 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Box model
         "box-sizing" => CssValue::Keyword("content-box".to_string()),
-        "border-radius" | "row-gap" | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
 
         // Flex container
         "flex-direction" => CssValue::Keyword("row".to_string()),
@@ -241,5 +246,52 @@ mod tests {
             get_initial_value("text-align"),
             CssValue::Keyword("left".to_string())
         );
+    }
+
+    // --- M3-6: white-space, overflow, list-style-type, min/max ---
+
+    #[test]
+    fn white_space_inherited() {
+        assert!(is_inherited("white-space"));
+    }
+
+    #[test]
+    fn list_style_type_inherited() {
+        assert!(is_inherited("list-style-type"));
+    }
+
+    #[test]
+    fn m3_6_non_inherited() {
+        assert!(!is_inherited("overflow"));
+        assert!(!is_inherited("min-width"));
+        assert!(!is_inherited("max-width"));
+        assert!(!is_inherited("min-height"));
+        assert!(!is_inherited("max-height"));
+    }
+
+    #[test]
+    fn initial_values_m3_6() {
+        assert_eq!(
+            get_initial_value("white-space"),
+            CssValue::Keyword("normal".to_string())
+        );
+        assert_eq!(
+            get_initial_value("overflow"),
+            CssValue::Keyword("visible".to_string())
+        );
+        assert_eq!(
+            get_initial_value("list-style-type"),
+            CssValue::Keyword("disc".to_string())
+        );
+        assert_eq!(
+            get_initial_value("min-width"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(get_initial_value("max-width"), CssValue::Auto);
+        assert_eq!(
+            get_initial_value("min-height"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(get_initial_value("max-height"), CssValue::Auto);
     }
 }

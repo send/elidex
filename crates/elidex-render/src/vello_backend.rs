@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use vello::kurbo::{Affine, Rect as VelloRect};
+use vello::kurbo::{Affine, Rect as VelloRect, Stroke};
 use vello::peniko::{
     Blob, Color, Fill, FontData, ImageAlphaType, ImageData as PenikoImageData, ImageFormat, Mix,
 };
@@ -133,6 +133,17 @@ pub(crate) fn build_scene(
     display_list: &DisplayList,
     font_cache: &mut HashMap<*const Vec<u8>, FontData>,
 ) {
+    debug_assert_eq!(
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PushClip { .. }))
+            .count(),
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PopClip))
+            .count(),
+        "PushClip/PopClip must be balanced in display list"
+    );
     for item in display_list.iter() {
         match item {
             DisplayItem::SolidRect { rect, color } => {
@@ -165,6 +176,23 @@ pub(crate) fn build_scene(
                 let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
                 let vello_color = convert_color(*color);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
+            }
+            DisplayItem::StrokedRoundedRect {
+                rect,
+                radius,
+                stroke_width,
+                color,
+            } => {
+                let vello_rect = VelloRect::new(
+                    f64::from(rect.x),
+                    f64::from(rect.y),
+                    f64::from(rect.x + rect.width),
+                    f64::from(rect.y + rect.height),
+                );
+                let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
+                let vello_color = convert_color(*color);
+                let stroke = Stroke::new(f64::from(*stroke_width));
+                scene.stroke(&stroke, Affine::IDENTITY, vello_color, None, &rounded);
             }
             DisplayItem::Image {
                 rect,
@@ -207,6 +235,18 @@ pub(crate) fn build_scene(
                         scene.pop_layer();
                     }
                 }
+            }
+            DisplayItem::PushClip { rect } => {
+                let clip = VelloRect::new(
+                    f64::from(rect.x),
+                    f64::from(rect.y),
+                    f64::from(rect.x + rect.width),
+                    f64::from(rect.y + rect.height),
+                );
+                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &clip);
+            }
+            DisplayItem::PopClip => {
+                scene.pop_layer();
             }
             DisplayItem::Text {
                 glyphs,
@@ -311,5 +351,52 @@ mod tests {
         }]);
         build_scene(&mut scene, &dl, &mut fc);
         // Should not panic — smoke test.
+    }
+
+    #[test]
+    fn stroked_rounded_rect_builds_scene() {
+        let mut scene = Scene::new();
+        let mut fc = HashMap::new();
+        let dl = DisplayList(vec![DisplayItem::StrokedRoundedRect {
+            rect: Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 8.0,
+                height: 8.0,
+            },
+            radius: 4.0,
+            stroke_width: 1.0,
+            color: CssColor::BLACK,
+        }]);
+        build_scene(&mut scene, &dl, &mut fc);
+        // Should not panic — smoke test for stroked rounded rect.
+    }
+
+    #[test]
+    fn push_pop_clip_builds_scene() {
+        let mut scene = Scene::new();
+        let mut fc = HashMap::new();
+        let dl = DisplayList(vec![
+            DisplayItem::PushClip {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+            },
+            DisplayItem::SolidRect {
+                rect: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 50.0,
+                    height: 50.0,
+                },
+                color: CssColor::RED,
+            },
+            DisplayItem::PopClip,
+        ]);
+        build_scene(&mut scene, &dl, &mut fc);
+        // Should not panic — smoke test for clip layer.
     }
 }

@@ -71,47 +71,105 @@ fn split_into_lines(
 // Flexible length resolution (§9.7)
 // ---------------------------------------------------------------------------
 
-// TODO(Phase 3): Replace with spec-compliant frozen/unfrozen 2-pass loop (CSS §9.7)
-// once min-width/max-width constraints are implemented. The current single-pass is
-// sufficient while those constraints are absent.
+/// Resolve flexible lengths with min/max clamping (CSS §9.7).
+///
+/// Uses a simplified freeze loop: after initial grow/shrink distribution,
+/// items that violate min/max constraints are frozen at their clamped size,
+/// and remaining free space is redistributed among unfrozen items.
 #[allow(clippy::cast_precision_loss)]
 pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32, gap_main: f32) {
     if items.is_empty() {
         return;
     }
-    let total_hypo: f32 = items
-        .iter()
-        .map(|i| i.hypo_main + i.pb_main + i.margin_main)
-        .sum();
     // Subtract total gap from available space.
     let total_gap = if items.len() > 1 {
         gap_main * (items.len() - 1) as f32
     } else {
         0.0
     };
-    let free_space = container_main - total_hypo - total_gap;
 
-    if free_space > 0.0 {
-        let total_grow: f32 = items.iter().map(|i| i.grow).sum();
-        if total_grow > 0.0 {
-            for item in items.iter_mut() {
-                if item.grow > 0.0 {
-                    let portion = free_space * (item.grow / total_grow);
-                    item.final_main = (item.hypo_main + portion).max(0.0);
+    let mut frozen = vec![false; items.len()];
+
+    // Iterative freeze loop (max iterations = item count to guarantee termination).
+    for _ in 0..items.len() {
+        let total_hypo: f32 = items
+            .iter()
+            .enumerate()
+            .map(|(i, it)| {
+                if frozen[i] {
+                    it.final_main + it.pb_main + it.margin_main
+                } else {
+                    it.hypo_main + it.pb_main + it.margin_main
+                }
+            })
+            .sum();
+        let free_space = container_main - total_hypo - total_gap;
+
+        if free_space > 0.0 {
+            let total_grow: f32 = items
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !frozen[*i])
+                .map(|(_, it)| it.grow)
+                .sum();
+            if total_grow > 0.0 {
+                for (i, item) in items.iter_mut().enumerate() {
+                    if !frozen[i] && item.grow > 0.0 {
+                        let portion = free_space * (item.grow / total_grow);
+                        item.final_main = (item.hypo_main + portion).max(0.0);
+                    }
+                }
+            }
+        } else if free_space < 0.0 {
+            let total_shrink_scaled: f32 = items
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !frozen[*i])
+                .map(|(_, it)| it.shrink * it.hypo_main)
+                .sum();
+            if total_shrink_scaled > 0.0 {
+                for (i, item) in items.iter_mut().enumerate() {
+                    if !frozen[i] && item.shrink > 0.0 {
+                        let scaled = item.shrink * item.hypo_main;
+                        let portion = free_space.abs() * (scaled / total_shrink_scaled);
+                        item.final_main = (item.hypo_main - portion).max(0.0);
+                    }
                 }
             }
         }
-    } else if free_space < 0.0 {
-        let total_shrink_scaled: f32 = items.iter().map(|i| i.shrink * i.hypo_main).sum();
-        if total_shrink_scaled > 0.0 {
-            for item in items.iter_mut() {
-                if item.shrink > 0.0 {
-                    let scaled = item.shrink * item.hypo_main;
-                    let portion = free_space.abs() * (scaled / total_shrink_scaled);
-                    item.final_main = (item.hypo_main - portion).max(0.0);
-                }
+
+        // Freeze items that violate min/max constraints.
+        let mut any_frozen = false;
+        for (i, item) in items.iter_mut().enumerate() {
+            if frozen[i] {
+                continue;
+            }
+            let clamped = item
+                .final_main
+                .max(item.min_main)
+                .min(item.max_main)
+                .max(item.min_main);
+            // Epsilon accounts for floating-point rounding during grow/shrink
+            // distribution. The final clamp pass (after the loop) corrects any
+            // remaining sub-pixel violations.
+            if (clamped - item.final_main).abs() > 0.001 {
+                item.final_main = clamped;
+                frozen[i] = true;
+                any_frozen = true;
             }
         }
+        if !any_frozen {
+            break;
+        }
+    }
+
+    // Final clamp for any remaining items.
+    for item in items.iter_mut() {
+        item.final_main = item
+            .final_main
+            .max(item.min_main)
+            .min(item.max_main)
+            .max(item.min_main);
     }
 }
 

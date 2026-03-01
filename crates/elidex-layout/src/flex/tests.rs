@@ -841,3 +841,71 @@ fn gap_with_flex_shrink() {
     let gap = lb1.content.x - (lb0.content.x + lb0.content.width);
     assert!((gap - 20.0).abs() < 1.0);
 }
+
+// --- M3-6: min/max width in flex items ---
+
+#[test]
+fn flex_item_min_width_prevents_shrink() {
+    // Two items each 300px in 400px container. Normal shrink would give 200 each.
+    // Item 0 has min-width: 250px → frozen at 250, item 1 gets 150.
+    let item0 = ComputedStyle {
+        display: Display::Block,
+        width: Dimension::Length(300.0),
+        height: Dimension::Length(50.0),
+        min_width: Dimension::Length(250.0),
+        ..Default::default()
+    };
+    let (mut dom, container, items) =
+        make_flex_dom(flex_container(), &[item0, flex_item(300.0, 50.0)]);
+    let font_db = FontDatabase::new();
+    layout_flex(&mut dom, container, 400.0, None, 0.0, 0.0, &font_db, 0);
+
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    assert!(
+        lb0.content.width >= 249.0,
+        "item 0 should respect min-width 250, got {}",
+        lb0.content.width
+    );
+    assert!(
+        lb1.content.width < lb0.content.width,
+        "item 1 should be smaller than item 0"
+    );
+}
+
+#[test]
+fn flex_item_max_width_prevents_grow() {
+    // Two items each 100px, flex-grow: 1 in 800px container. Normal would give 400 each.
+    // Item 0 has max-width: 200px → frozen at 200, item 1 gets remainder.
+    let item0 = ComputedStyle {
+        display: Display::Block,
+        width: Dimension::Length(100.0),
+        height: Dimension::Length(50.0),
+        flex_grow: 1.0,
+        max_width: Dimension::Length(200.0),
+        ..Default::default()
+    };
+    let item1 = ComputedStyle {
+        display: Display::Block,
+        width: Dimension::Length(100.0),
+        height: Dimension::Length(50.0),
+        flex_grow: 1.0,
+        ..Default::default()
+    };
+    let (mut dom, container, items) = make_flex_dom(flex_container(), &[item0, item1]);
+    let font_db = FontDatabase::new();
+    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    assert!(
+        lb0.content.width <= 201.0,
+        "item 0 should respect max-width 200, got {}",
+        lb0.content.width
+    );
+    assert!(
+        lb1.content.width > lb0.content.width,
+        "item 1 should get remaining space, got {}",
+        lb1.content.width
+    );
+}

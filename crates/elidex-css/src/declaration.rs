@@ -10,6 +10,7 @@ use elidex_plugin::{CssValue, LengthUnit};
 use crate::color::parse_color;
 use crate::values::{
     parse_global_keyword, parse_length_or_percentage, parse_length_percentage_or_auto,
+    parse_non_negative_length_or_percentage,
 };
 
 mod box_model;
@@ -149,6 +150,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "none",
                 "flex",
                 "inline-flex",
+                "list-item",
             ],
         ),
         "position" => {
@@ -206,6 +208,30 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Text decoration ---
         "text-decoration" | "text-decoration-line" => parse_text_decoration_line(input),
+
+        // --- White-space ---
+        "white-space" => parse_keyword_property(
+            input,
+            name,
+            &["normal", "pre", "nowrap", "pre-wrap", "pre-line"],
+        ),
+
+        // --- Overflow ---
+        "overflow" => parse_overflow(input),
+
+        // --- Min/max sizing ---
+        "min-width" | "min-height" => {
+            parse_value_property(input, name, parse_non_negative_length_or_percentage)
+        }
+        "max-width" | "max-height" => parse_max_dimension(input, name),
+
+        // --- List style ---
+        "list-style-type" => parse_keyword_property(
+            input,
+            name,
+            &["disc", "circle", "square", "decimal", "none"],
+        ),
+        "list-style" => parse_list_style_shorthand(input),
 
         // --- Gap properties ---
         "row-gap" | "column-gap" => parse_value_property(input, name, parse_gap_value),
@@ -359,28 +385,12 @@ fn parse_value_property(
 fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let tok = i.next().map_err(|_| ())?;
-            match tok {
-                Token::Number { value, .. } if *value == 0.0 => Ok(single_decl(
-                    "border-radius",
-                    CssValue::Length(0.0, LengthUnit::Px),
-                )),
-                Token::Dimension { value, unit, .. } => {
-                    let v = *value;
-                    if v < 0.0 {
-                        return Err(());
-                    }
-                    let u = match unit.as_ref() {
-                        "px" => LengthUnit::Px,
-                        "em" => LengthUnit::Em,
-                        "rem" => LengthUnit::Rem,
-                        _ => return Err(()),
-                    };
-                    Ok(single_decl("border-radius", CssValue::Length(v, u)))
-                }
-                // Reject percentages — cannot resolve without box dimensions.
-                _ => Err(()),
+            let val = parse_non_negative_length_or_percentage(i)?;
+            // Reject percentages — cannot resolve without box dimensions.
+            if matches!(val, CssValue::Percentage(_)) {
+                return Err(());
             }
+            Ok(single_decl("border-radius", val))
         })
         .unwrap_or_default()
 }
@@ -581,6 +591,79 @@ fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
         .unwrap_or_default()
 }
 
+// --- Overflow parsing ---
+
+/// Parse `overflow`. Maps `scroll`/`auto` to `Hidden` (Phase 3 simplification).
+fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(
+            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
+                let ident = i.expect_ident()?.clone();
+                let mapped = match ident.to_ascii_lowercase().as_str() {
+                    "visible" => "visible",
+                    "hidden" | "scroll" | "auto" => "hidden",
+                    _ => return Err(i.new_custom_error(())),
+                };
+                Ok(single_decl(
+                    "overflow",
+                    CssValue::Keyword(mapped.to_string()),
+                ))
+            },
+        )
+        .unwrap_or_default()
+}
+
+// --- Max dimension parsing ---
+
+/// Parse `max-width`/`max-height`: `none` | `<length>` | `<percentage>`.
+fn parse_max_dimension(input: &mut Parser, name: &str) -> Vec<Declaration> {
+    // Try `none` keyword first (→ Auto = unconstrained).
+    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        if ident.eq_ignore_ascii_case("none") {
+            Ok(single_decl(name, CssValue::Auto))
+        } else {
+            Err(())
+        }
+    }) {
+        return decls;
+    }
+    parse_value_property(input, name, parse_non_negative_length_or_percentage)
+}
+
+// --- List-style shorthand ---
+
+/// Parse `list-style` shorthand, extracting only `list-style-type`.
+///
+/// Rejects declarations with extra unknown tokens after the keyword, while
+/// allowing `!important` (starts with `!`) to remain for the caller.
+fn parse_list_style_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    let allowed = &["disc", "circle", "square", "decimal", "none"];
+    input
+        .try_parse(
+            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
+                let kw = try_parse_keyword(i, allowed)?;
+                // Reject trailing tokens that are not `!important`.
+                // Peek via try_parse (always rolls back on Err).
+                let has_extra = i
+                    .try_parse(|peek| {
+                        let tok = peek.next().map_err(|_| ())?;
+                        if matches!(tok, Token::Delim('!')) {
+                            Err(()) // Likely !important — roll back, allow
+                        } else {
+                            Ok(()) // Unknown extra token — signal rejection
+                        }
+                    })
+                    .is_ok();
+                if has_extra {
+                    return Err(i.new_custom_error(()));
+                }
+                Ok(single_decl("list-style-type", CssValue::Keyword(kw)))
+            },
+        )
+        .unwrap_or_default()
+}
+
 // --- Shorthand expansion helpers ---
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
@@ -611,6 +694,7 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         "flex-flow" => vec!["flex-direction".to_string(), "flex-wrap".to_string()],
         "text-decoration" => vec!["text-decoration-line".to_string()],
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
+        "list-style" => vec!["list-style-type".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

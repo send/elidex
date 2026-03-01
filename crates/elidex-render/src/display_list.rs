@@ -39,6 +39,17 @@ pub enum DisplayItem {
         /// The fill color.
         color: CssColor,
     },
+    /// Stroke (outline) a rounded rectangle.
+    StrokedRoundedRect {
+        /// The rectangle to stroke.
+        rect: Rect,
+        /// Uniform corner radius in pixels.
+        radius: f32,
+        /// Stroke line width in pixels.
+        stroke_width: f32,
+        /// The stroke color.
+        color: CssColor,
+    },
     /// Draw a decoded image.
     Image {
         /// The destination rectangle (position and size).
@@ -52,6 +63,13 @@ pub enum DisplayItem {
         /// Element opacity (0.0–1.0).
         opacity: f32,
     },
+    /// Begin a clip region (for `overflow: hidden`).
+    PushClip {
+        /// The clipping rectangle.
+        rect: Rect,
+    },
+    /// End a clip region.
+    PopClip,
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.
