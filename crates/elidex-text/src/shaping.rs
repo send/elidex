@@ -95,7 +95,7 @@ mod tests {
 
     /// Helper: try to find a system font for testing.
     fn test_font(db: &FontDatabase) -> Option<fontdb::ID> {
-        db.query(crate::TEST_FONT_FAMILIES)
+        db.query(crate::TEST_FONT_FAMILIES, 400)
     }
 
     #[test]

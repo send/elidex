@@ -885,18 +885,16 @@ impl ApplicationHandler for App {
                         .unwrap_or_default();
                     if mods.alt_key() {
                         let nav_url = match &key_event.logical_key {
-                            winit::keyboard::Key::Named(
-                                winit::keyboard::NamedKey::ArrowLeft,
-                            ) => self
-                                .interactive
-                                .as_mut()
-                                .and_then(|i| i.nav_controller.go_back().cloned()),
-                            winit::keyboard::Key::Named(
-                                winit::keyboard::NamedKey::ArrowRight,
-                            ) => self
-                                .interactive
-                                .as_mut()
-                                .and_then(|i| i.nav_controller.go_forward().cloned()),
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
+                                self.interactive
+                                    .as_mut()
+                                    .and_then(|i| i.nav_controller.go_back().cloned())
+                            }
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
+                                self.interactive
+                                    .as_mut()
+                                    .and_then(|i| i.nav_controller.go_forward().cloned())
+                            }
                             _ => None,
                         };
                         if let Some(url) = nav_url {

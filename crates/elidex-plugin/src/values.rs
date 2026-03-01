@@ -31,6 +31,16 @@ pub enum CssValue {
     Unset,
     /// A list of CSS values (e.g. `font-family: Arial, sans-serif`).
     List(Vec<CssValue>),
+    /// A `var()` function reference.
+    ///
+    /// First argument is the custom property name (e.g. `--bg`),
+    /// second is an optional fallback value (e.g. `var(--bg, #000)`).
+    Var(String, Option<Box<CssValue>>),
+    /// Raw token string for custom property values.
+    ///
+    /// Custom properties (CSS Variables Level 1) accept arbitrary token
+    /// sequences that are not type-checked at parse time.
+    RawTokens(String),
 }
 
 impl CssValue {

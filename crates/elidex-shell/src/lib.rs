@@ -855,7 +855,7 @@ mod tests {
     #[test]
     fn inline_run_produces_single_text_item() {
         // Verifies that inline text is collected and rendered correctly.
-        let html = r#"<p>Hello <strong>world</strong>!</p>"#;
+        let html = r"<p>Hello <strong>world</strong>!</p>";
         let css = "p { display: block; }";
         let dl = build_pipeline(html, css);
         let text_count = dl

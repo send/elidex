@@ -20,6 +20,48 @@ pub(super) fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
     parse_value_property(input, "font-size", parse_length_or_percentage)
 }
 
+pub(super) fn parse_font_weight(input: &mut Parser) -> Vec<Declaration> {
+    // Try keyword first: normal (400), bold (700).
+    if let Ok(kw) = input.try_parse(|i| try_parse_keyword(i, &["normal", "bold"]).map_err(|_| ())) {
+        return single_decl("font-weight", CssValue::Keyword(kw));
+    }
+    // Try numeric weight (100-900).
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let tok = i.next().map_err(|_| ())?;
+            let Token::Number { value: n, .. } = *tok else {
+                return Err(());
+            };
+            // CSS font-weight accepts 1-1000; we support the common 100-900 range.
+            if !(1.0..=1000.0).contains(&n) {
+                return Err(());
+            }
+            Ok(single_decl("font-weight", CssValue::Number(n)))
+        })
+        .unwrap_or_default()
+}
+
+pub(super) fn parse_line_height(input: &mut Parser) -> Vec<Declaration> {
+    // Try keyword: normal.
+    if let Ok(kw) = input.try_parse(|i| try_parse_keyword(i, &["normal"]).map_err(|_| ())) {
+        return single_decl("line-height", CssValue::Keyword(kw));
+    }
+    // Try unitless number (e.g. 1.5).
+    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
+        let tok = i.next().map_err(|_| ())?;
+        if let Token::Number { value, .. } = *tok {
+            if value >= 0.0 {
+                return Ok(single_decl("line-height", CssValue::Number(value)));
+            }
+        }
+        Err(())
+    }) {
+        return decls;
+    }
+    // Fall back to length/percentage.
+    parse_value_property(input, "line-height", parse_length_or_percentage)
+}
+
 pub(super) fn parse_font_family(input: &mut Parser) -> Vec<Declaration> {
     let mut families = Vec::new();
 

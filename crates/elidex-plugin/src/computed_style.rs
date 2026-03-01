@@ -4,6 +4,7 @@
 //! style resolution. It contains fully resolved values for all Phase 1
 //! CSS properties.
 
+use std::collections::HashMap;
 use std::fmt;
 
 use crate::CssColor;
@@ -192,6 +193,87 @@ impl AsRef<str> for Position {
     }
 }
 
+/// The CSS `text-transform` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
+impl AsRef<str> for TextTransform {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::None => "none",
+            Self::Uppercase => "uppercase",
+            Self::Lowercase => "lowercase",
+            Self::Capitalize => "capitalize",
+        }
+    }
+}
+
+/// The CSS `text-decoration-line` property.
+///
+/// Not inherited. Multiple values possible (e.g. `underline line-through`).
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct TextDecorationLine {
+    /// Whether `underline` is set.
+    pub underline: bool,
+    /// Whether `line-through` is set.
+    pub line_through: bool,
+}
+
+impl fmt::Display for TextDecorationLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (self.underline, self.line_through) {
+            (false, false) => f.write_str("none"),
+            (true, false) => f.write_str("underline"),
+            (false, true) => f.write_str("line-through"),
+            (true, true) => f.write_str("underline line-through"),
+        }
+    }
+}
+
+/// The CSS `line-height` property, preserving keyword/number semantics.
+///
+/// CSS Variables Level 1 requires `normal` and unitless `<number>` to be
+/// inherited as-is and recomputed relative to each element's `font-size`.
+/// Storing the resolved px value at computed time would lose this semantic.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum LineHeight {
+    /// `line-height: normal` — typically 1.2 × font-size.
+    #[default]
+    Normal,
+    /// Unitless number multiplier (e.g. `line-height: 1.5`).
+    Number(f32),
+    /// Absolute length in pixels (e.g. `line-height: 24px` or resolved from `%`).
+    Px(f32),
+}
+
+impl LineHeight {
+    /// Resolve to an absolute pixel value given the element's font size.
+    #[must_use]
+    pub fn resolve_px(self, font_size: f32) -> f32 {
+        match self {
+            Self::Normal => font_size * 1.2,
+            Self::Number(n) => font_size * n,
+            Self::Px(px) => px,
+        }
+    }
+}
+
+impl fmt::Display for LineHeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal => f.write_str("normal"),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Px(px) => write!(f, "{px}px"),
+        }
+    }
+}
+
 /// The CSS `border-*-style` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum BorderStyle {
@@ -234,6 +316,7 @@ display_via_as_ref!(
     AlignItems,
     AlignSelf,
     AlignContent,
+    TextTransform,
 );
 
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
@@ -256,8 +339,14 @@ pub struct ComputedStyle {
     pub color: CssColor,
     /// Font size in pixels. Initial: 16.0.
     pub font_size: f32,
+    /// Font weight (100-900). Initial: 400 (normal).
+    pub font_weight: u16,
     /// Font family list. Initial: `["serif"]`.
     pub font_family: Vec<String>,
+    /// Line height. Initial: `Normal` (1.2 × font-size).
+    pub line_height: LineHeight,
+    /// Text transform. Initial: `None`.
+    pub text_transform: TextTransform,
 
     // --- Non-inherited properties ---
     /// Display type. Initial: Inline.
@@ -319,6 +408,10 @@ pub struct ComputedStyle {
     /// Border left color. Initial: currentcolor (resolved to `color`).
     pub border_left_color: CssColor,
 
+    // --- Text decoration (non-inherited) ---
+    /// Text decoration line. Initial: none.
+    pub text_decoration_line: TextDecorationLine,
+
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
     pub flex_direction: FlexDirection,
@@ -342,6 +435,13 @@ pub struct ComputedStyle {
     pub order: i32,
     /// Align self. Initial: `Auto`.
     pub align_self: AlignSelf,
+
+    // --- Custom properties (CSS Variables) ---
+    /// Custom property values (e.g. `--bg: #0d1117`).
+    ///
+    /// Keys include the `--` prefix. Values are raw token strings.
+    /// Custom properties are inherited by default (CSS Variables Level 1).
+    pub custom_properties: HashMap<String, String>,
 }
 
 impl Default for ComputedStyle {
@@ -351,7 +451,10 @@ impl Default for ComputedStyle {
             // Inherited
             color,
             font_size: 16.0,
+            font_weight: 400,
             font_family: vec!["serif".to_string()],
+            line_height: LineHeight::Normal,
+            text_transform: TextTransform::default(),
 
             // Non-inherited
             display: Display::default(),
@@ -389,6 +492,9 @@ impl Default for ComputedStyle {
             border_bottom_color: color,
             border_left_color: color,
 
+            // Text decoration (non-inherited)
+            text_decoration_line: TextDecorationLine::default(),
+
             // Flex container
             flex_direction: FlexDirection::default(),
             flex_wrap: FlexWrap::default(),
@@ -402,6 +508,9 @@ impl Default for ComputedStyle {
             flex_basis: Dimension::Auto,
             order: 0,
             align_self: AlignSelf::default(),
+
+            // Custom properties
+            custom_properties: HashMap::new(),
         }
     }
 }
@@ -483,5 +592,49 @@ mod tests {
         assert_ne!(l, p);
         assert_ne!(p, a);
         assert_ne!(l, a);
+    }
+
+    // --- M3-1: Text property types ---
+
+    #[test]
+    fn text_transform_defaults_and_as_ref() {
+        assert_eq!(TextTransform::default(), TextTransform::None);
+        assert_eq!(TextTransform::None.as_ref(), "none");
+        assert_eq!(TextTransform::Uppercase.as_ref(), "uppercase");
+        assert_eq!(TextTransform::Lowercase.as_ref(), "lowercase");
+        assert_eq!(TextTransform::Capitalize.as_ref(), "capitalize");
+    }
+
+    #[test]
+    fn text_decoration_line_display() {
+        let none = TextDecorationLine::default();
+        assert_eq!(none.to_string(), "none");
+
+        let ul = TextDecorationLine {
+            underline: true,
+            line_through: false,
+        };
+        assert_eq!(ul.to_string(), "underline");
+
+        let lt = TextDecorationLine {
+            underline: false,
+            line_through: true,
+        };
+        assert_eq!(lt.to_string(), "line-through");
+
+        let both = TextDecorationLine {
+            underline: true,
+            line_through: true,
+        };
+        assert_eq!(both.to_string(), "underline line-through");
+    }
+
+    #[test]
+    fn computed_style_text_defaults() {
+        let s = ComputedStyle::default();
+        assert_eq!(s.font_weight, 400);
+        assert_eq!(s.line_height, LineHeight::Normal);
+        assert_eq!(s.text_transform, TextTransform::None);
+        assert_eq!(s.text_decoration_line, TextDecorationLine::default());
     }
 }

@@ -191,7 +191,10 @@ pub(super) fn resolve_container_cross(
 /// Based on the item's `align-self` (resolved to `AlignItems`), returns the
 /// offset within the line's cross space.
 fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
-    debug_assert!(line_cross >= 0.0, "line_cross must be non-negative: {line_cross}");
+    debug_assert!(
+        line_cross >= 0.0,
+        "line_cross must be non-negative: {line_cross}"
+    );
     let item_outer_cross = item.final_cross + item.margin_cross;
     match item.align {
         AlignItems::FlexEnd => line_cross - item_outer_cross,

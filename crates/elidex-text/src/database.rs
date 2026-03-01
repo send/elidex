@@ -39,16 +39,18 @@ impl FontDatabase {
         Self { db }
     }
 
-    /// Queries for a font matching any of the given family names.
+    /// Queries for a font matching any of the given family names and weight.
     ///
     /// CSS generic family names (`serif`, `sans-serif`, `monospace`,
     /// `cursive`, `fantasy`) are mapped to the corresponding `fontdb`
     /// generic variants. All other names are treated as specific font
     /// family names.
     ///
+    /// `weight` is the CSS font-weight value (100-900). Pass `400` for normal.
+    ///
     /// Returns the first match found, or `None` if no font matches.
     #[must_use]
-    pub fn query(&self, families: &[&str]) -> Option<fontdb::ID> {
+    pub fn query(&self, families: &[&str], weight: u16) -> Option<fontdb::ID> {
         let family_list: Vec<fontdb::Family<'_>> = families
             .iter()
             .map(|name| match *name {
@@ -62,6 +64,7 @@ impl FontDatabase {
             .collect();
         let query = fontdb::Query {
             families: &family_list,
+            weight: fontdb::Weight(weight),
             ..fontdb::Query::default()
         };
         self.db.query(&query)
@@ -119,13 +122,15 @@ mod tests {
     #[test]
     fn nonexistent_font_returns_none() {
         let db = FontDatabase::new();
-        assert!(db.query(&["__nonexistent_font_family_12345__"]).is_none());
+        assert!(db
+            .query(&["__nonexistent_font_family_12345__"], 400)
+            .is_none());
     }
 
     #[test]
     fn query_system_font() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(crate::TEST_FONT_FAMILIES) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
             // CI environment may not have fonts installed
             return;
         };
@@ -137,7 +142,7 @@ mod tests {
     #[test]
     fn font_metrics_pixel_scaling() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(crate::TEST_FONT_FAMILIES) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
             return;
         };
         let metrics = db.font_metrics(id, 16.0).unwrap();
@@ -145,5 +150,25 @@ mod tests {
         assert!(metrics.ascent > 0.0);
         // Descent should be negative (below baseline)
         assert!(metrics.descent < 0.0);
+    }
+
+    #[test]
+    fn query_with_bold_weight() {
+        let db = FontDatabase::new();
+        // Bold font query (weight 700) should also succeed.
+        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 700) else {
+            // Some CI environments may not have bold variants.
+            return;
+        };
+    }
+
+    #[test]
+    fn query_with_normal_weight() {
+        let db = FontDatabase::new();
+        // Normal weight (400) is the standard default.
+        // If any font is available at all, 400 should work.
+        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
+            return;
+        };
     }
 }

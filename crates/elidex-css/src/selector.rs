@@ -24,6 +24,8 @@ pub enum SelectorComponent {
     Descendant,
     /// Child combinator (`>`).
     Child,
+    /// A pseudo-class selector (e.g. `:root`, `:hover`).
+    PseudoClass(String),
 }
 
 /// A parsed CSS selector with its computed specificity.
@@ -174,7 +176,7 @@ fn parse_compound_selector(
         }
     });
 
-    // Parse class and ID selectors (these chain without whitespace).
+    // Parse class, ID, and pseudo-class selectors (these chain without whitespace).
     loop {
         let ok = input
             .try_parse(|i| -> Result<(), ()> {
@@ -187,6 +189,16 @@ fn parse_compound_selector(
                     Token::Delim('.') => {
                         let class_name = i.expect_ident().map_err(|_| ())?.as_ref().to_string();
                         components.push(SelectorComponent::Class(class_name));
+                        specificity.class = specificity.class.saturating_add(1);
+                        Ok(())
+                    }
+                    Token::Colon => {
+                        let pseudo_name = i
+                            .expect_ident()
+                            .map_err(|_| ())?
+                            .as_ref()
+                            .to_ascii_lowercase();
+                        components.push(SelectorComponent::PseudoClass(pseudo_name));
                         specificity.class = specificity.class.saturating_add(1);
                         Ok(())
                     }
@@ -268,7 +280,29 @@ fn match_components(
                 false
             }
         }
+        SelectorComponent::PseudoClass(ref name) => {
+            let matched = match name.as_str() {
+                "root" => is_root_element(entity, dom),
+                // Other pseudo-classes: unmatched for now.
+                _ => false,
+            };
+            matched && match_components(components, idx + 1, entity, dom)
+        }
     }
+}
+
+/// Check if the entity is the root element (`<html>`).
+///
+/// The root element is the `<html>` tag whose parent is the document root
+/// (an entity without a `TagType` component).
+fn is_root_element(entity: Entity, dom: &EcsDom) -> bool {
+    dom.world()
+        .get::<&TagType>(entity)
+        .ok()
+        .is_some_and(|t| t.0 == "html")
+        && dom
+            .get_parent(entity)
+            .is_some_and(|p| dom.world().get::<&TagType>(p).is_err())
 }
 
 /// Parse a comma-separated list of selectors from a string.
@@ -519,5 +553,70 @@ mod tests {
 
         let sel_direct = parse_sel("span > p").unwrap();
         assert!(sel_direct.matches(p, &dom));
+    }
+
+    // --- Pseudo-class tests (M3-0) ---
+
+    #[test]
+    fn parse_pseudo_class_root() {
+        let sel = parse_sel(":root").unwrap();
+        assert_eq!(
+            sel.components,
+            vec![SelectorComponent::PseudoClass("root".into())]
+        );
+        // Pseudo-class has class-level specificity (0, 1, 0).
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 1,
+                tag: 0
+            }
+        );
+    }
+
+    #[test]
+    fn parse_pseudo_class_with_tag() {
+        let sel = parse_sel("html:root").unwrap();
+        assert!(sel
+            .components
+            .contains(&SelectorComponent::PseudoClass("root".into())));
+        assert!(sel
+            .components
+            .contains(&SelectorComponent::Tag("html".into())));
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 1,
+                tag: 1
+            }
+        );
+    }
+
+    #[test]
+    fn match_root_pseudo_class() {
+        let mut dom = EcsDom::new();
+        let doc_root = dom.create_document_root();
+        let html = dom.create_element("html", Attributes::default());
+        let body = dom.create_element("body", Attributes::default());
+        dom.append_child(doc_root, html);
+        dom.append_child(html, body);
+
+        let sel = parse_sel(":root").unwrap();
+        assert!(sel.matches(html, &dom));
+        assert!(!sel.matches(body, &dom));
+    }
+
+    #[test]
+    fn root_requires_document_parent() {
+        // An html element without a proper document root parent should not match :root.
+        let mut dom = EcsDom::new();
+        let html = dom.create_element("html", Attributes::default());
+        let body = dom.create_element("body", Attributes::default());
+        dom.append_child(html, body);
+        // html has no parent at all — :root requires parent to be non-element.
+        let sel = parse_sel(":root").unwrap();
+        assert!(!sel.matches(html, &dom));
     }
 }

@@ -133,7 +133,12 @@ fn walk_tree(
     }
 }
 
-/// Check if entity is the `<html>` root element.
+/// Check if entity is the `<html>` root element (tag name only).
+///
+/// Simplified check for the style tree walk — only needs the tag name since
+/// the tree walk already processes elements in document order.
+/// See also `elidex_css::selector::is_root_element` which additionally
+/// verifies the parent is a document root (for selector matching).
 fn is_root_element(dom: &EcsDom, entity: Entity) -> bool {
     dom.world()
         .get::<&TagType>(entity)
@@ -456,5 +461,331 @@ mod tests {
         let style = get_style(&dom, div);
         // Later stylesheet wins at same specificity.
         assert_eq!(style.color, CssColor::BLUE);
+    }
+
+    // --- Custom properties + var() integration tests (M3-0) ---
+
+    #[test]
+    fn root_custom_properties_inherited() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = ":root { --text-color: #ff0000; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        // The div should inherit custom properties from html (:root).
+        let style = get_style(&dom, div);
+        assert_eq!(
+            style.custom_properties.get("--text-color"),
+            Some(&"#ff0000".to_string())
+        );
+    }
+
+    #[test]
+    fn var_resolves_color_from_root() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = ":root { --text-color: #ff0000; } div { color: var(--text-color); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.color, CssColor::RED);
+    }
+
+    #[test]
+    fn var_resolves_background_from_root() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = ":root { --bg: #0d1117; } div { background-color: var(--bg); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.background_color, CssColor::new(0x0d, 0x11, 0x17, 255));
+    }
+
+    #[test]
+    fn var_fallback_when_undefined() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { color: var(--undefined, blue); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.color, CssColor::BLUE);
+    }
+
+    #[test]
+    fn var_fallback_length_when_undefined() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { width: var(--undefined, 100px); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.width, Dimension::Length(100.0));
+    }
+
+    #[test]
+    fn var_resolves_font_size_from_root() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = ":root { --fs: 24px; } div { font-size: var(--fs); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.font_size, 24.0);
+    }
+
+    // --- M3-1 Font & Text tests ---
+
+    #[test]
+    fn font_weight_resolution() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { font-weight: bold; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.font_weight, 700);
+    }
+
+    #[test]
+    fn font_weight_numeric_resolution() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { font-weight: 300; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.font_weight, 300);
+    }
+
+    #[test]
+    fn font_weight_inheritance() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(body, div);
+        dom.append_child(div, span);
+
+        let css = "div { font-weight: bold; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let span_style = get_style(&dom, span);
+        assert_eq!(span_style.font_weight, 700);
+    }
+
+    #[test]
+    fn line_height_normal() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        // No line-height set → default Normal.
+        resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.line_height, elidex_plugin::LineHeight::Normal);
+        // resolve_px gives font_size * 1.2
+        let expected = style.font_size * 1.2;
+        assert!((style.line_height.resolve_px(style.font_size) - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn line_height_px() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { line-height: 24px; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.line_height, elidex_plugin::LineHeight::Px(24.0));
+    }
+
+    #[test]
+    fn line_height_number_multiplier() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { font-size: 20px; line-height: 1.5; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.line_height, elidex_plugin::LineHeight::Number(1.5));
+        // resolve_px recomputes per element's font-size.
+        assert!((style.line_height.resolve_px(20.0) - 30.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn line_height_number_inherits_semantically() {
+        // CSS spec: unitless <number> is inherited as-is, recomputed per font-size.
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(body, div);
+        dom.append_child(div, span);
+
+        let css = "div { font-size: 16px; line-height: 1.5; } span { font-size: 32px; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let span_style = get_style(&dom, span);
+        // span inherits line-height: 1.5 as Number, NOT as 24px.
+        assert_eq!(
+            span_style.line_height,
+            elidex_plugin::LineHeight::Number(1.5)
+        );
+        // resolve_px with span's font-size: 32 * 1.5 = 48
+        assert!(
+            (span_style.line_height.resolve_px(span_style.font_size) - 48.0).abs() < f32::EPSILON
+        );
+    }
+
+    #[test]
+    fn text_transform_resolution() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { text-transform: uppercase; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(
+            style.text_transform,
+            elidex_plugin::TextTransform::Uppercase
+        );
+    }
+
+    #[test]
+    fn text_transform_inheritance() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(body, div);
+        dom.append_child(div, span);
+
+        let css = "div { text-transform: capitalize; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let span_style = get_style(&dom, span);
+        assert_eq!(
+            span_style.text_transform,
+            elidex_plugin::TextTransform::Capitalize
+        );
+    }
+
+    #[test]
+    fn text_decoration_line_resolution() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { text-decoration: underline; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert!(style.text_decoration_line.underline);
+        assert!(!style.text_decoration_line.line_through);
+    }
+
+    #[test]
+    fn text_decoration_not_inherited() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(body, div);
+        dom.append_child(div, span);
+
+        let css = "div { text-decoration: underline; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let div_style = get_style(&dom, div);
+        assert!(div_style.text_decoration_line.underline);
+
+        let span_style = get_style(&dom, span);
+        // text-decoration-line is NOT inherited
+        assert!(!span_style.text_decoration_line.underline);
+    }
+
+    #[test]
+    fn text_decoration_multiple_values() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { text-decoration: underline line-through; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert!(style.text_decoration_line.underline);
+        assert!(style.text_decoration_line.line_through);
+    }
+
+    #[test]
+    fn sendsh_style_integration() {
+        // Simulates send.sh's CSS pattern: :root defines theme variables,
+        // body uses them via var().
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = r"
+            :root {
+                --color-canvas-default: #0d1117;
+                --color-fg-default: #e6edf3;
+            }
+            body {
+                background-color: var(--color-canvas-default);
+                color: var(--color-fg-default);
+            }
+        ";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let body_style = get_style(&dom, body);
+        assert_eq!(
+            body_style.background_color,
+            CssColor::new(0x0d, 0x11, 0x17, 255)
+        );
+        assert_eq!(body_style.color, CssColor::new(0xe6, 0xed, 0xf3, 255));
+
+        // div inherits color from body.
+        let div_style = get_style(&dom, div);
+        assert_eq!(div_style.color, CssColor::new(0xe6, 0xed, 0xf3, 255));
     }
 }

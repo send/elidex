@@ -50,16 +50,18 @@ fn measure_segment_widths(
     font_db: &FontDatabase,
     families: &[&str],
     font_size: f32,
+    font_weight: u16,
     segment: &str,
 ) -> (f32, f32) {
-    let seg_width = measure_text(font_db, families, font_size, segment).map_or(0.0, |m| m.width);
+    let seg_width =
+        measure_text(font_db, families, font_size, font_weight, segment).map_or(0.0, |m| m.width);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {
         0.0
     } else {
-        measure_text(font_db, families, font_size, trimmed).map_or(0.0, |m| m.width)
+        measure_text(font_db, families, font_size, font_weight, trimmed).map_or(0.0, |m| m.width)
     };
     (seg_width, trimmed_width)
 }
@@ -88,12 +90,15 @@ pub(crate) fn layout_inline_context(
         .map(String::as_str)
         .collect();
     let font_size = parent_style.font_size;
+    let font_weight = parent_style.font_weight;
 
-    // Get line height from font metrics (text-independent).
-    let Some(probe) = measure_text(font_db, &families, font_size, "x") else {
+    // Use CSS line-height (resolved to px via the element's font-size).
+    let line_height = parent_style.line_height.resolve_px(font_size);
+
+    // Verify a font is available (needed for segment width measurement).
+    if measure_text(font_db, &families, font_size, font_weight, "x").is_none() {
         return 0.0; // no font available
-    };
-    let line_height = probe.line_height;
+    }
 
     // Find break opportunities and build segments with their trailing break type.
     let breaks = find_break_opportunities(&text);
@@ -124,7 +129,7 @@ pub(crate) fn layout_inline_context(
         }
 
         let (seg_width, trimmed_width) =
-            measure_segment_widths(font_db, &families, font_size, segment);
+            measure_segment_widths(font_db, &families, font_size, font_weight, segment);
 
         if current_line_width + trimmed_width > containing_width && on_line {
             // Current line overflows — wrap to next line.
@@ -205,13 +210,14 @@ mod tests {
         let font_db = FontDatabase::new();
 
         // Early return if no font available
-        let Some(probe) = measure_text(&font_db, TEST_FAMILIES, style.font_size, "x") else {
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
             return;
-        };
+        }
 
+        let css_line_height = style.line_height.resolve_px(style.font_size);
         let children = dom.children(parent);
         let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
-        assert!((h - probe.line_height).abs() < f32::EPSILON);
+        assert!((h - css_line_height).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -227,14 +233,15 @@ mod tests {
         };
         let font_db = FontDatabase::new();
 
-        let Some(probe) = measure_text(&font_db, TEST_FAMILIES, style.font_size, "x") else {
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
             return;
-        };
+        }
 
+        let css_line_height = style.line_height.resolve_px(style.font_size);
         // Wide container: should still produce 2 lines due to \n
         let children = dom.children(parent);
         let h = layout_inline_context(&dom, &children, 8000.0, &style, &font_db);
-        assert!((h - probe.line_height * 2.0).abs() < f32::EPSILON);
+        assert!((h - css_line_height * 2.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -250,13 +257,14 @@ mod tests {
         };
         let font_db = FontDatabase::new();
 
-        let Some(probe) = measure_text(&font_db, TEST_FAMILIES, style.font_size, "x") else {
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
             return;
-        };
+        }
 
+        let css_line_height = style.line_height.resolve_px(style.font_size);
         // Use a very narrow width to force wrapping
         let children = dom.children(parent);
         let h = layout_inline_context(&dom, &children, 1.0, &style, &font_db);
-        assert!(h > probe.line_height);
+        assert!(h > css_line_height);
     }
 }

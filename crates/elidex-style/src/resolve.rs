@@ -4,9 +4,12 @@
 //! fields, resolving relative lengths, font-size keywords, `currentcolor`,
 //! and the border-width/border-style interaction.
 
+use std::collections::{HashMap, HashSet};
+
 use elidex_plugin::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, ComputedStyle, CssColor, CssValue, Dimension,
-    Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, Position,
+    Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight, Position,
+    TextDecorationLine, TextTransform,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -97,6 +100,14 @@ fn resolve_keyword(
 /// Also used by `getComputedStyle()` DOM API.
 // Sync: When adding a property, also update build_computed_style and get_initial_value.
 pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
+    // Custom properties: return the raw token string.
+    if property.starts_with("--") {
+        return match style.custom_properties.get(property) {
+            Some(raw) => CssValue::RawTokens(raw.clone()),
+            None => CssValue::RawTokens(String::new()),
+        };
+    }
+
     match property {
         "color" => CssValue::Color(style.color),
         "font-size" => CssValue::Length(style.font_size, LengthUnit::Px),
@@ -107,6 +118,24 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
                 .map(|s| CssValue::Keyword(s.clone()))
                 .collect(),
         ),
+        "font-weight" => CssValue::Number(f32::from(style.font_weight)),
+        "line-height" => match style.line_height {
+            LineHeight::Normal => CssValue::Keyword("normal".to_string()),
+            LineHeight::Number(n) => CssValue::Number(n),
+            LineHeight::Px(px) => CssValue::Length(px, LengthUnit::Px),
+        },
+        "text-transform" => CssValue::Keyword(style.text_transform.as_ref().to_string()),
+        "text-decoration-line" => {
+            let d = &style.text_decoration_line;
+            if d.underline && d.line_through {
+                CssValue::List(vec![
+                    CssValue::Keyword("underline".to_string()),
+                    CssValue::Keyword("line-through".to_string()),
+                ])
+            } else {
+                CssValue::Keyword(d.to_string())
+            }
+        }
         "display" => CssValue::Keyword(style.display.as_ref().to_string()),
         "position" => CssValue::Keyword(style.position.as_ref().to_string()),
         "background-color" => CssValue::Color(style.background_color),
@@ -171,26 +200,40 @@ pub(crate) fn build_computed_style(
 ) -> ComputedStyle {
     let mut style = ComputedStyle::default();
 
+    // --- Phase 1: Build custom properties map (inherit from parent + override) ---
+    let custom_props = build_custom_properties(winners, parent_style);
+    style.custom_properties = custom_props;
+
+    // --- Phase 2: Resolve var() references in winners ---
+    let resolved_winners = resolve_var_references(winners, &style.custom_properties);
+    let winners = merge_winners(winners, &resolved_winners);
+
     // --- Font properties (inherit by default) ---
     // Font-size must be resolved first: em units in all other properties depend on it.
-    let element_font_size = resolve_font_size(winners, parent_style, ctx);
+    let element_font_size = resolve_font_size(&winners, parent_style, ctx);
     style.font_size = element_font_size;
     let elem_ctx = ctx.with_em_base(element_font_size);
-    resolve_font_family(&mut style, winners, parent_style);
+    resolve_font_weight(&mut style, &winners, parent_style);
+    resolve_font_family(&mut style, &winners, parent_style);
+    resolve_line_height(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_text_transform(&mut style, &winners, parent_style);
+
+    // --- Text decoration (non-inherited) ---
+    resolve_text_decoration_line(&mut style, &winners, parent_style);
 
     // --- Color properties ---
     // Color must precede border-color (initial = currentcolor) and background-color.
-    style.color = resolve_color(winners, parent_style);
-    resolve_background_color(&mut style, winners, parent_style);
+    style.color = resolve_color(&winners, parent_style);
+    resolve_background_color(&mut style, &winners, parent_style);
 
     // --- Display & positioning ---
-    resolve_display(&mut style, winners, parent_style);
-    resolve_position(&mut style, winners, parent_style);
+    resolve_display(&mut style, &winners, parent_style);
+    resolve_position(&mut style, &winners, parent_style);
 
     // --- Box model: dimensions, margin, padding ---
     let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
-    resolve_prop("width", winners, parent_style, dim, |d| style.width = d);
-    resolve_prop("height", winners, parent_style, dim, |d| {
+    resolve_prop("width", &winners, parent_style, dim, |d| style.width = d);
+    resolve_prop("height", &winners, parent_style, dim, |d| {
         style.height = d;
     });
     for (prop, setter) in [
@@ -202,7 +245,7 @@ pub(crate) fn build_computed_style(
         ("margin-bottom", |s, d| s.margin_bottom = d),
         ("margin-left", |s, d| s.margin_left = d),
     ] {
-        resolve_prop(prop, winners, parent_style, dim, |d| setter(&mut style, d));
+        resolve_prop(prop, &winners, parent_style, dim, |d| setter(&mut style, d));
     }
     let px = |v: &CssValue| resolve_to_px(v, &elem_ctx);
     for (prop, setter) in [
@@ -214,16 +257,162 @@ pub(crate) fn build_computed_style(
         ("padding-bottom", |s, v| s.padding_bottom = v),
         ("padding-left", |s, v| s.padding_left = v),
     ] {
-        resolve_prop(prop, winners, parent_style, px, |v| setter(&mut style, v));
+        resolve_prop(prop, &winners, parent_style, px, |v| setter(&mut style, v));
     }
 
     // --- Border properties (style → width → color) ---
-    resolve_border_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
 
     // --- Flex properties ---
-    resolve_flex_properties(&mut style, winners, parent_style, dim);
+    resolve_flex_properties(&mut style, &winners, parent_style, dim);
 
     style
+}
+
+// --- Custom property resolution ---
+
+/// Build the custom properties map: inherit all from parent, then override
+/// with any custom properties declared on this element.
+///
+/// Per CSS Variables Level 1:
+/// - `RawTokens`: set the property to the raw value.
+/// - `Initial`: remove the property (custom properties have no initial value;
+///   their initial value is the "guaranteed-invalid value").
+/// - `Inherit`/`Unset`: keep the inherited value (custom properties are
+///   always inherited, so both behave as `inherit` — already handled by the
+///   parent clone).
+fn build_custom_properties(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) -> HashMap<String, String> {
+    let mut props = parent_style.custom_properties.clone();
+    for (name, value) in winners {
+        if name.starts_with("--") {
+            match value {
+                CssValue::RawTokens(raw) => {
+                    props.insert((*name).to_string(), raw.clone());
+                }
+                CssValue::Initial => {
+                    props.remove(*name);
+                }
+                // Inherit/Unset: keep inherited value (already cloned from parent).
+                _ => {}
+            }
+        }
+    }
+    props
+}
+
+/// Maximum recursion depth for resolving `var()` references (cycle protection).
+const MAX_VAR_DEPTH: usize = 32;
+
+/// Resolve all `CssValue::Var` references in the winners map.
+///
+/// Returns a map of property name → resolved `CssValue` for properties that
+/// had `var()` references.
+fn resolve_var_references(
+    winners: &PropertyMap<'_>,
+    custom_props: &HashMap<String, String>,
+) -> HashMap<String, CssValue> {
+    let mut resolved = HashMap::new();
+    for (name, value) in winners {
+        if name.starts_with("--") {
+            continue; // Custom properties themselves don't get var-resolved here.
+        }
+        if let CssValue::Var(..) = value {
+            let mut visited = HashSet::new();
+            if let Some(val) = resolve_var_value(value, custom_props, 0, &mut visited) {
+                resolved.insert((*name).to_string(), val);
+            }
+        }
+    }
+    resolved
+}
+
+/// Resolve a single `CssValue::Var` to a concrete value.
+///
+/// Uses both depth limiting and a visited set for cycle detection.
+/// If a custom property name is already in the visited set, the reference
+/// is circular and resolution fails (returns `None`).
+#[must_use]
+fn resolve_var_value(
+    value: &CssValue,
+    custom_props: &HashMap<String, String>,
+    depth: usize,
+    visited: &mut HashSet<String>,
+) -> Option<CssValue> {
+    if depth > MAX_VAR_DEPTH {
+        return None;
+    }
+
+    let CssValue::Var(ref name, ref fallback) = value else {
+        return Some(value.clone());
+    };
+
+    // Cycle detection: if we've already visited this property, bail out.
+    if !visited.insert(name.clone()) {
+        return None;
+    }
+
+    // Look up the custom property.
+    if let Some(raw) = custom_props.get(name) {
+        // The raw value itself might contain var() references.
+        let parsed = parse_raw_value(raw);
+        if let CssValue::Var(..) = &parsed {
+            // Recursively resolve nested var().
+            let result = resolve_var_value(&parsed, custom_props, depth + 1, visited);
+            visited.remove(name);
+            return result;
+        }
+        visited.remove(name);
+        return Some(parsed);
+    }
+
+    visited.remove(name);
+
+    // Property not found: use fallback if available.
+    match fallback {
+        Some(fb) => {
+            if let CssValue::Var(..) = fb.as_ref() {
+                resolve_var_value(fb, custom_props, depth + 1, visited)
+            } else {
+                Some(*fb.clone())
+            }
+        }
+        None => None, // No fallback, var() unresolvable.
+    }
+}
+
+/// Parse a raw token string into a typed [`CssValue`].
+///
+/// Delegates to `elidex_css::parse_raw_token_value()` which uses cssparser
+/// internally.
+fn parse_raw_value(raw: &str) -> CssValue {
+    elidex_css::parse_raw_token_value(raw)
+}
+
+/// Merge resolved `var()` values back into the winners map.
+fn merge_winners<'a>(
+    original: &PropertyMap<'a>,
+    resolved: &'a HashMap<String, CssValue>,
+) -> HashMap<&'a str, &'a CssValue> {
+    let mut merged: HashMap<&str, &CssValue> = HashMap::new();
+    // Copy originals, replacing var()-resolved entries and dropping unresolved
+    // Var values. Unresolved var() should make the property "invalid at
+    // computed-value time" (CSS Variables Level 1 §5), which means downstream
+    // resolvers see no entry and apply inherited/initial as appropriate.
+    for (name, value) in original {
+        if name.starts_with("--") {
+            continue;
+        }
+        if let Some(resolved_val) = resolved.get(*name) {
+            merged.insert(name, resolved_val);
+        } else if !matches!(value, CssValue::Var(..)) {
+            merged.insert(name, value);
+        }
+        // Unresolved CssValue::Var is intentionally dropped.
+    }
+    merged
 }
 
 /// Resolve a CSS keyword property to its corresponding enum variant.
@@ -450,6 +639,114 @@ fn resolve_font_family(
             style.font_family.clone_from(&parent_style.font_family);
         }
     }
+}
+
+fn resolve_font_weight(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    let Some(value) = winners.get("font-weight") else {
+        style.font_weight = parent_style.font_weight;
+        return;
+    };
+    let value = resolve_keyword_or_clone("font-weight", value, parent_style);
+    style.font_weight = match &value {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        CssValue::Number(n) => n.round().clamp(1.0, 1000.0) as u16,
+        CssValue::Keyword(k) => match k.as_str() {
+            "normal" => 400,
+            "bold" => 700,
+            _ => parent_style.font_weight,
+        },
+        _ => parent_style.font_weight,
+    };
+}
+
+fn resolve_line_height(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    let Some(value) = winners.get("line-height") else {
+        style.line_height = parent_style.line_height;
+        return;
+    };
+    let value = resolve_keyword_or_clone("line-height", value, parent_style);
+    style.line_height = match &value {
+        CssValue::Keyword(k) if k == "normal" => LineHeight::Normal,
+        // Unitless number: inherited as-is, recomputed per element's font-size.
+        CssValue::Number(n) => LineHeight::Number(*n),
+        // Absolute length: resolve to px.
+        CssValue::Length(v, unit) => LineHeight::Px(resolve_length(*v, *unit, ctx)),
+        // Percentage: resolve to px (relative to element's font-size).
+        CssValue::Percentage(p) => LineHeight::Px(style.font_size * p / 100.0),
+        _ => parent_style.line_height,
+    };
+}
+
+fn resolve_text_transform(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    let Some(value) = winners.get("text-transform") else {
+        // Inherited: use parent's value.
+        style.text_transform = parent_style.text_transform;
+        return;
+    };
+    let value = resolve_keyword_or_clone("text-transform", value, parent_style);
+    style.text_transform = match value {
+        CssValue::Keyword(ref k) => match k.as_str() {
+            "none" => TextTransform::None,
+            "uppercase" => TextTransform::Uppercase,
+            "lowercase" => TextTransform::Lowercase,
+            "capitalize" => TextTransform::Capitalize,
+            _ => parent_style.text_transform,
+        },
+        _ => parent_style.text_transform,
+    };
+}
+
+fn resolve_text_decoration_line(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    let Some(value) = winners.get("text-decoration-line") else {
+        // Non-inherited: keep default (none). Don't inherit from parent.
+        return;
+    };
+    let value = resolve_keyword_or_clone("text-decoration-line", value, parent_style);
+    style.text_decoration_line = match &value {
+        CssValue::Keyword(k) => match k.as_str() {
+            "underline" => TextDecorationLine {
+                underline: true,
+                line_through: false,
+            },
+            "line-through" => TextDecorationLine {
+                underline: false,
+                line_through: true,
+            },
+            // "none" and unrecognized keywords.
+            _ => TextDecorationLine::default(),
+        },
+        CssValue::List(items) => {
+            let mut result = TextDecorationLine::default();
+            for item in items {
+                if let CssValue::Keyword(k) = item {
+                    match k.as_str() {
+                        "underline" => result.underline = true,
+                        "line-through" => result.line_through = true,
+                        _ => {}
+                    }
+                }
+            }
+            result
+        }
+        _ => TextDecorationLine::default(),
+    };
 }
 
 /// Resolve a keyword enum property from the winners map.
@@ -962,5 +1259,218 @@ mod tests {
         assert_eq!(style.flex_basis, Dimension::Auto);
         assert_eq!(style.order, 0);
         assert_eq!(style.align_self, AlignSelf::Auto);
+    }
+
+    // --- Custom property + var() resolution tests (M3-0) ---
+
+    #[test]
+    fn custom_properties_from_winners() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let raw = CssValue::RawTokens("#0d1117".into());
+        winners.insert("--bg", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.custom_properties.get("--bg"),
+            Some(&"#0d1117".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_properties_inherited_from_parent() {
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--text-color".into(), "#e6edf3".into());
+        let ctx = default_ctx();
+        let winners: HashMap<&str, &CssValue> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.custom_properties.get("--text-color"),
+            Some(&"#e6edf3".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_property_override() {
+        let mut parent = ComputedStyle::default();
+        parent.custom_properties.insert("--bg".into(), "red".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let raw = CssValue::RawTokens("blue".into());
+        winners.insert("--bg", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(
+            style.custom_properties.get("--bg"),
+            Some(&"blue".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_property_initial_removes_inherited() {
+        // `--bg: initial` should remove the inherited value.
+        let mut parent = ComputedStyle::default();
+        parent.custom_properties.insert("--bg".into(), "red".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let initial = CssValue::Initial;
+        winners.insert("--bg", &initial);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.custom_properties.get("--bg"), None);
+    }
+
+    #[test]
+    fn unresolved_var_treated_as_invalid() {
+        // An unresolvable var() should be treated as "invalid at computed-value
+        // time" — the property falls back to inherited/initial, not to Var.
+        let parent = ComputedStyle {
+            display: Display::Block,
+            ..ComputedStyle::default()
+        };
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--undefined".into(), None);
+        // display is non-inherited, so invalid → initial (Inline).
+        winners.insert("display", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.display, Display::Inline);
+    }
+
+    #[test]
+    fn var_resolution_color() {
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--text".into(), "#ff0000".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--text".into(), None);
+        winners.insert("color", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.color, CssColor::RED);
+    }
+
+    #[test]
+    fn var_resolution_with_fallback() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var(
+            "--undefined".into(),
+            Some(Box::new(CssValue::Color(CssColor::BLUE))),
+        );
+        winners.insert("color", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.color, CssColor::BLUE);
+    }
+
+    #[test]
+    fn var_resolution_undefined_no_fallback() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--undefined".into(), None);
+        winners.insert("color", &var_val);
+        // Undefined with no fallback → color stays at parent/default value.
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // color inherits from parent (BLACK by default).
+        assert_eq!(style.color, CssColor::BLACK);
+    }
+
+    #[test]
+    fn var_resolution_background_color() {
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--bg".into(), "#0d1117".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--bg".into(), None);
+        winners.insert("background-color", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.background_color, CssColor::new(0x0d, 0x11, 0x17, 255));
+    }
+
+    #[test]
+    fn var_resolution_display() {
+        let mut parent = ComputedStyle::default();
+        parent.custom_properties.insert("--d".into(), "flex".into());
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let var_val = CssValue::Var("--d".into(), None);
+        winners.insert("display", &var_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.display, Display::Flex);
+    }
+
+    #[test]
+    fn parse_raw_value_color() {
+        let val = parse_raw_value("#ff0000");
+        assert_eq!(val, CssValue::Color(CssColor::RED));
+    }
+
+    #[test]
+    fn parse_raw_value_keyword() {
+        let val = parse_raw_value("block");
+        assert_eq!(val, CssValue::Keyword("block".into()));
+    }
+
+    #[test]
+    fn parse_raw_value_length() {
+        let val = parse_raw_value("16px");
+        assert_eq!(val, CssValue::Length(16.0, LengthUnit::Px));
+    }
+
+    #[test]
+    fn parse_raw_value_multi_token() {
+        let val = parse_raw_value("\"Courier New\", monospace");
+        assert!(matches!(val, CssValue::RawTokens(_)));
+    }
+
+    #[test]
+    fn var_circular_reference_returns_none() {
+        // --a references --b, --b references --a → cycle.
+        let mut custom_props = HashMap::new();
+        custom_props.insert("--a".into(), "var(--b)".into());
+        custom_props.insert("--b".into(), "var(--a)".into());
+
+        let var_a = CssValue::Var("--a".into(), None);
+        let mut visited = HashSet::new();
+        let result = resolve_var_value(&var_a, &custom_props, 0, &mut visited);
+        assert!(result.is_none(), "circular var() should resolve to None");
+    }
+
+    #[test]
+    fn var_self_reference_returns_none() {
+        // --x references itself → cycle.
+        let mut custom_props = HashMap::new();
+        custom_props.insert("--x".into(), "var(--x)".into());
+
+        let var_x = CssValue::Var("--x".into(), None);
+        let mut visited = HashSet::new();
+        let result = resolve_var_value(&var_x, &custom_props, 0, &mut visited);
+        assert!(
+            result.is_none(),
+            "self-referencing var() should resolve to None"
+        );
+    }
+
+    #[test]
+    fn get_computed_custom_property() {
+        let mut style = ComputedStyle::default();
+        style
+            .custom_properties
+            .insert("--bg".into(), "#0d1117".into());
+
+        let val = get_computed_as_css_value("--bg", &style);
+        assert_eq!(val, CssValue::RawTokens("#0d1117".into()));
+    }
+
+    #[test]
+    fn get_computed_custom_property_undefined() {
+        let style = ComputedStyle::default();
+        let val = get_computed_as_css_value("--undefined", &style);
+        assert_eq!(val, CssValue::RawTokens(String::new()));
     }
 }

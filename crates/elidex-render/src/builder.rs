@@ -7,8 +7,12 @@
 //! and tabs are replaced with spaces, and runs of spaces are collapsed
 //! to a single space. Whitespace-only text is discarded.
 
+use std::borrow::Cow;
+
 use elidex_ecs::{EcsDom, Entity, TextContent};
-use elidex_plugin::{ComputedStyle, CssColor, Display, LayoutBox};
+use elidex_plugin::{
+    ComputedStyle, CssColor, Display, LayoutBox, LineHeight, TextDecorationLine, TextTransform,
+};
 use elidex_text::{shape_text, FontDatabase};
 
 use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
@@ -217,9 +221,15 @@ fn emit_background(lb: &LayoutBox, bg: CssColor, dl: &mut DisplayList) {
 struct TextContext {
     font_family: Vec<String>,
     font_size: f32,
+    font_weight: u16,
+    /// CSS line-height (for future multi-line text rendering).
+    #[allow(dead_code)]
+    line_height: LineHeight,
     color: CssColor,
     content_x: f32,
     content_y: f32,
+    text_transform: TextTransform,
+    text_decoration_line: TextDecorationLine,
 }
 
 /// Gather style and layout info from `parent` for text rendering.
@@ -236,9 +246,13 @@ fn text_context(dom: &EcsDom, parent: Entity) -> Option<TextContext> {
     Some(TextContext {
         font_family: style.font_family.clone(),
         font_size: style.font_size,
+        font_weight: style.font_weight,
+        line_height: style.line_height,
         color: style.color,
         content_x: lb.content.x,
         content_y: lb.content.y,
+        text_transform: style.text_transform,
+        text_decoration_line: style.text_decoration_line,
     })
 }
 
@@ -278,9 +292,13 @@ fn emit_text(
         return;
     };
 
+    // Apply text-transform before shaping.
+    let transformed = apply_text_transform(text, ctx.text_transform);
+    let text: &str = &transformed;
+
     let families: Vec<&str> = ctx.font_family.iter().map(String::as_str).collect();
     let font_size = ctx.font_size;
-    let Some(font_id) = font_db.query(&families) else {
+    let Some(font_id) = font_db.query(&families, ctx.font_weight) else {
         return;
     };
     let Some(shaped) = shape_text(font_db, font_id, font_size, text) else {
@@ -291,9 +309,9 @@ fn emit_text(
     };
 
     // Get font metrics for baseline positioning.
-    let ascent = font_db
-        .font_metrics(font_id, font_size)
-        .map_or(font_size, |m| m.ascent);
+    let metrics = font_db.font_metrics(font_id, font_size);
+    let ascent = metrics.map_or(font_size, |m| m.ascent);
+    let descent = metrics.map_or(-font_size * 0.25, |m| m.descent);
 
     let baseline_y = ctx.content_y + ascent;
     let mut cursor_x = ctx.content_x;
@@ -310,6 +328,8 @@ fn emit_text(
         cursor_x += glyph.x_advance;
     }
 
+    let text_width = cursor_x - ctx.content_x;
+
     dl.push(DisplayItem::Text {
         glyphs,
         font_blob,
@@ -317,6 +337,63 @@ fn emit_text(
         font_size,
         color: ctx.color,
     });
+
+    // Emit text decoration (underline / line-through) as SolidRect items.
+    let decoration_thickness = (font_size / 16.0).max(1.0);
+    if ctx.text_decoration_line.underline {
+        // Position underline just below the baseline.
+        let y = baseline_y - descent * 0.5;
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: ctx.content_x,
+                y,
+                width: text_width,
+                height: decoration_thickness,
+            },
+            color: ctx.color,
+        });
+    }
+    if ctx.text_decoration_line.line_through {
+        // Position line-through at approximately half x-height (midpoint of ascent).
+        let y = baseline_y - ascent * 0.4;
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: ctx.content_x,
+                y,
+                width: text_width,
+                height: decoration_thickness,
+            },
+            color: ctx.color,
+        });
+    }
+}
+
+/// Apply CSS `text-transform` to a string before shaping.
+fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
+    match transform {
+        TextTransform::None => Cow::Borrowed(text),
+        TextTransform::Uppercase => Cow::Owned(text.to_uppercase()),
+        TextTransform::Lowercase => Cow::Owned(text.to_lowercase()),
+        TextTransform::Capitalize => Cow::Owned(capitalize_words(text)),
+    }
+}
+
+/// Capitalize the first letter of each word (whitespace-delimited).
+fn capitalize_words(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut prev_was_whitespace = true;
+    for ch in text.chars() {
+        if prev_was_whitespace && ch.is_alphabetic() {
+            for upper in ch.to_uppercase() {
+                result.push(upper);
+            }
+            prev_was_whitespace = false;
+        } else {
+            result.push(ch);
+            prev_was_whitespace = ch.is_whitespace();
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -457,7 +534,7 @@ mod tests {
             "Noto Sans",
             "Hiragino Sans",
         ];
-        if font_db.query(&families_ref).is_none() {
+        if font_db.query(&families_ref, 400).is_none() {
             return;
         }
 
@@ -803,16 +880,15 @@ mod tests {
             "Noto Sans",
             "Hiragino Sans",
         ];
-        if font_db.query(&families_ref).is_none() {
+        if font_db.query(&families_ref, 400).is_none() {
             return;
         }
 
         let dl = build_display_list(&dom, &font_db);
-        let text_items: Vec<_> = dl
-            .0
-            .iter()
-            .filter(|i| matches!(i, DisplayItem::Text { .. }))
-            .collect();
+        let text_items: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Text { .. }))
+                .collect();
         // Should be a single text item (not three overlapping ones).
         assert_eq!(text_items.len(), 1);
         let DisplayItem::Text { glyphs, .. } = &text_items[0] else {
@@ -820,5 +896,111 @@ mod tests {
         };
         // "Hello world!" = 12 glyphs.
         assert_eq!(glyphs.len(), 12);
+    }
+
+    // --- M3-1: text-transform tests ---
+
+    #[test]
+    fn apply_text_transform_uppercase() {
+        assert_eq!(
+            super::apply_text_transform("hello", TextTransform::Uppercase),
+            "HELLO"
+        );
+    }
+
+    #[test]
+    fn apply_text_transform_lowercase() {
+        assert_eq!(
+            super::apply_text_transform("HELLO", TextTransform::Lowercase),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn apply_text_transform_capitalize() {
+        assert_eq!(
+            super::apply_text_transform("hello world", TextTransform::Capitalize),
+            "Hello World"
+        );
+    }
+
+    #[test]
+    fn apply_text_transform_none() {
+        assert_eq!(
+            super::apply_text_transform("Hello", TextTransform::None),
+            "Hello"
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn text_decoration_underline_emits_solid_rect() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(root, div);
+        dom.append_child(div, text);
+
+        let test_families = vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ];
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_families,
+                text_decoration_line: TextDecorationLine {
+                    underline: true,
+                    line_through: false,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+
+        let dl = build_display_list(&dom, &font_db);
+        // Should have: Text item + SolidRect for underline.
+        let text_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Text { .. }))
+                .count();
+        let rect_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::SolidRect { .. }))
+                .count();
+        assert_eq!(text_count, 1);
+        // At least 1 rect for underline (no background since transparent).
+        assert!(rect_count >= 1, "expected underline rect, got {rect_count}");
     }
 }

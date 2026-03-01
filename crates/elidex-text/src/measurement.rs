@@ -25,15 +25,18 @@ pub struct TextMetrics {
 /// shapes the text, and combines glyph advances with font metrics to produce
 /// a complete measurement.
 ///
+/// `weight` is the CSS font-weight value (100-900). Pass `400` for normal.
+///
 /// Returns `None` if no matching font is found.
 #[must_use]
 pub fn measure_text(
     db: &FontDatabase,
     families: &[&str],
     font_size: f32,
+    weight: u16,
     text: &str,
 ) -> Option<TextMetrics> {
-    let font_id = db.query(families)?;
+    let font_id = db.query(families, weight)?;
     let metrics = db.font_metrics(font_id, font_size)?;
     let shaped = shape_text(db, font_id, font_size, text)?;
 
@@ -54,7 +57,7 @@ mod tests {
     #[test]
     fn measure_text_positive_width() {
         let db = FontDatabase::new();
-        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, "Hello, world!") else {
+        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, "Hello, world!") else {
             return;
         };
         assert!(m.width > 0.0);
@@ -65,7 +68,7 @@ mod tests {
     #[test]
     fn line_height_formula() {
         let db = FontDatabase::new();
-        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, "Test") else {
+        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, "Test") else {
             return;
         };
         // line_height should be >= ascent - descent (line_gap >= 0 for most fonts)
@@ -76,14 +79,14 @@ mod tests {
     #[test]
     fn nonexistent_font_returns_none() {
         let db = FontDatabase::new();
-        let result = measure_text(&db, &["__nonexistent_font_12345__"], 16.0, "test");
+        let result = measure_text(&db, &["__nonexistent_font_12345__"], 16.0, 400, "test");
         assert!(result.is_none());
     }
 
     #[test]
     fn empty_string_zero_width() {
         let db = FontDatabase::new();
-        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, "") else {
+        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, "") else {
             return;
         };
         assert!(m.width.abs() < f32::EPSILON);

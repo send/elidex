@@ -9,11 +9,72 @@ mod parser;
 mod selector;
 mod values;
 
-pub use declaration::{parse_declaration_block, Declaration, Origin};
+pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
 pub use parser::{parse_stylesheet, CssRule, Stylesheet};
 pub use selector::{
     parse_selector_from_str, parse_selector_list, Selector, SelectorComponent, Specificity,
 };
+
+use cssparser::{Parser, ParserInput};
+use elidex_plugin::CssValue;
+
+/// Parse a raw CSS token string into a typed [`CssValue`].
+///
+/// Tries `var()`, color, length/percentage/auto, keyword in order;
+/// falls back to `CssValue::RawTokens`.
+pub fn parse_raw_token_value(raw: &str) -> CssValue {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return CssValue::RawTokens(String::new());
+    }
+
+    // Try var() function first.
+    {
+        let mut pi = ParserInput::new(trimmed);
+        let mut parser = Parser::new(&mut pi);
+        if let Ok(var_val) = parser.try_parse(parse_var_function) {
+            if parser.is_exhausted() {
+                return var_val;
+            }
+        }
+    }
+
+    // Try color.
+    {
+        let mut pi = ParserInput::new(trimmed);
+        let mut parser = Parser::new(&mut pi);
+        if let Ok(c) = parser.try_parse(color::parse_color) {
+            if parser.is_exhausted() {
+                return CssValue::Color(c);
+            }
+        }
+    }
+
+    // Try length/percentage/auto.
+    {
+        let mut pi = ParserInput::new(trimmed);
+        let mut parser = Parser::new(&mut pi);
+        if let Ok(val) = parser.try_parse(values::parse_length_percentage_or_auto) {
+            if parser.is_exhausted() {
+                return val;
+            }
+        }
+    }
+
+    // Try keyword (single ident).
+    {
+        let mut pi = ParserInput::new(trimmed);
+        let mut parser = Parser::new(&mut pi);
+        if let Ok(cssparser::Token::Ident(ident)) = parser.next() {
+            let s = ident.to_string();
+            if parser.is_exhausted() {
+                return CssValue::Keyword(s);
+            }
+        }
+    }
+
+    CssValue::RawTokens(trimmed.to_string())
+}
 
 #[cfg(test)]
 mod integration_tests {

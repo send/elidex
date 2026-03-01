@@ -307,7 +307,10 @@ mod tests {
     #[test]
     fn filter_headers_cross_origin_strips_referer() {
         let headers = vec![
-            ("referer".to_string(), "https://example.com/page".to_string()),
+            (
+                "referer".to_string(),
+                "https://example.com/page".to_string(),
+            ),
             ("accept".to_string(), "text/html".to_string()),
         ];
         let from = url::Url::parse("https://example.com/a").unwrap();

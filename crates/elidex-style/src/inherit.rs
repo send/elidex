@@ -5,14 +5,22 @@
 
 use elidex_plugin::{CssColor, CssValue, LengthUnit};
 
-/// Inherited properties (Phase 1).
-const INHERITED_PROPERTIES: &[&str] = &["color", "font-size", "font-family"];
+/// Inherited properties.
+const INHERITED_PROPERTIES: &[&str] = &[
+    "color",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "line-height",
+    "text-transform",
+];
 
 /// Returns `true` if the named CSS property is inherited.
 ///
+/// Custom properties (`--*`) are always inherited per CSS Variables Level 1.
 /// Unknown properties are treated as non-inherited.
 pub(crate) fn is_inherited(property: &str) -> bool {
-    INHERITED_PROPERTIES.contains(&property)
+    property.starts_with("--") || INHERITED_PROPERTIES.contains(&property)
 }
 
 /// Returns the CSS initial value for a known property.
@@ -25,6 +33,11 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "color" => CssValue::Color(CssColor::BLACK),
         "font-size" => CssValue::Length(16.0, LengthUnit::Px),
         "font-family" => CssValue::List(vec![CssValue::Keyword("serif".to_string())]),
+
+        // Inherited text
+        "font-weight" => CssValue::Number(400.0),
+        "line-height" => CssValue::Keyword("normal".to_string()),
+        "text-transform" | "text-decoration-line" => CssValue::Keyword("none".to_string()),
 
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
@@ -117,5 +130,60 @@ mod tests {
             CssValue::Keyword("currentcolor".to_string())
         );
         assert_eq!(get_initial_value("unknown"), CssValue::Initial);
+    }
+
+    // --- Custom property inheritance (M3-0) ---
+
+    #[test]
+    fn custom_property_is_inherited() {
+        assert!(is_inherited("--bg"));
+        assert!(is_inherited("--text-color"));
+        assert!(is_inherited("--anything"));
+    }
+
+    #[test]
+    fn non_custom_property_inheritance_unchanged() {
+        // Ensure regular non-inherited properties remain non-inherited.
+        assert!(!is_inherited("display"));
+        assert!(!is_inherited("background-color"));
+    }
+
+    // --- M3-1 text property inheritance ---
+
+    #[test]
+    fn font_weight_inherited() {
+        assert!(is_inherited("font-weight"));
+    }
+
+    #[test]
+    fn line_height_inherited() {
+        assert!(is_inherited("line-height"));
+    }
+
+    #[test]
+    fn text_transform_inherited() {
+        assert!(is_inherited("text-transform"));
+    }
+
+    #[test]
+    fn text_decoration_line_not_inherited() {
+        assert!(!is_inherited("text-decoration-line"));
+    }
+
+    #[test]
+    fn initial_values_m3_1() {
+        assert_eq!(get_initial_value("font-weight"), CssValue::Number(400.0));
+        assert_eq!(
+            get_initial_value("line-height"),
+            CssValue::Keyword("normal".to_string())
+        );
+        assert_eq!(
+            get_initial_value("text-transform"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("text-decoration-line"),
+            CssValue::Keyword("none".to_string())
+        );
     }
 }

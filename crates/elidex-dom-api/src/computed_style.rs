@@ -42,7 +42,7 @@ impl CssomApiHandler for GetComputedStyle {
 /// Convert a `CssValue` to its CSS string representation.
 fn css_value_to_string(value: &CssValue) -> String {
     match value {
-        CssValue::Keyword(s) | CssValue::String(s) => s.clone(),
+        CssValue::Keyword(s) | CssValue::String(s) | CssValue::RawTokens(s) => s.clone(),
         CssValue::Length(n, unit) => {
             let unit_str = match unit {
                 elidex_plugin::LengthUnit::Px => "px",
@@ -71,6 +71,10 @@ fn css_value_to_string(value: &CssValue) -> String {
             .map(css_value_to_string)
             .collect::<Vec<_>>()
             .join(", "),
+        CssValue::Var(name, fallback) => match fallback {
+            Some(fb) => format!("var({name}, {})", css_value_to_string(fb)),
+            None => format!("var({name})"),
+        },
         _ => {
             debug_assert!(false, "unhandled CssValue variant: {value:?}");
             String::new()
@@ -127,6 +131,46 @@ mod tests {
             .unwrap();
         // CssColor::RED display format.
         assert!(matches!(result, JsValue::String(_)));
+    }
+
+    #[test]
+    fn css_value_to_string_raw_tokens() {
+        let val = CssValue::RawTokens("#0d1117".into());
+        assert_eq!(css_value_to_string(&val), "#0d1117");
+    }
+
+    #[test]
+    fn css_value_to_string_var() {
+        let val = CssValue::Var("--bg".into(), None);
+        assert_eq!(css_value_to_string(&val), "var(--bg)");
+
+        let val_fb = CssValue::Var(
+            "--bg".into(),
+            Some(Box::new(CssValue::Keyword("red".into()))),
+        );
+        assert_eq!(css_value_to_string(&val_fb), "var(--bg, red)");
+    }
+
+    #[test]
+    fn get_computed_custom_property() {
+        let mut dom = EcsDom::new();
+        let elem = dom.create_element("div", Attributes::default());
+        let mut style = ComputedStyle::default();
+        style
+            .custom_properties
+            .insert("--bg".into(), "#0d1117".into());
+        let _ = dom.world_mut().insert_one(elem, style);
+
+        let mut session = SessionCore::new();
+        let result = GetComputedStyle
+            .invoke(
+                elem,
+                &[JsValue::String("--bg".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::String("#0d1117".into()));
     }
 
     #[test]

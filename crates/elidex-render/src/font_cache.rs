@@ -70,7 +70,7 @@ mod tests {
             "Noto Sans",
             "Hiragino Sans",
         ];
-        let Some(id) = db.query(families) else {
+        let Some(id) = db.query(families, 400) else {
             return;
         };
 
