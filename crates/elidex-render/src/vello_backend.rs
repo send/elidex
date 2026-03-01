@@ -8,7 +8,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use vello::kurbo::{Affine, Rect as VelloRect};
-use vello::peniko::{Blob, Color, Fill, FontData};
+use vello::peniko::{
+    Blob, Color, Fill, FontData, ImageAlphaType, ImageData as PenikoImageData, ImageFormat, Mix,
+};
 use vello::{AaConfig, AaSupport, Glyph, RenderParams, Renderer, RendererOptions, Scene};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages};
 
@@ -125,6 +127,7 @@ fn convert_color(c: CssColor) -> Color {
 /// The `Arc<Vec<u8>>` references in `display_list` must outlive the returned
 /// `FontData` entries (they do, since `FontData` clones the data into its own
 /// `Blob`).
+#[allow(clippy::too_many_lines)]
 pub(crate) fn build_scene(
     scene: &mut Scene,
     display_list: &DisplayList,
@@ -162,6 +165,48 @@ pub(crate) fn build_scene(
                 let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
                 let vello_color = convert_color(*color);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
+            }
+            DisplayItem::Image {
+                rect,
+                pixels,
+                image_width,
+                image_height,
+                opacity,
+            } => {
+                if *image_width > 0 && *image_height > 0 {
+                    let needs_layer = *opacity < 1.0;
+                    if needs_layer {
+                        let clip = VelloRect::new(
+                            f64::from(rect.x),
+                            f64::from(rect.y),
+                            f64::from(rect.x + rect.width),
+                            f64::from(rect.y + rect.height),
+                        );
+                        scene.push_layer(
+                            Fill::NonZero,
+                            Mix::Normal,
+                            *opacity,
+                            Affine::IDENTITY,
+                            &clip,
+                        );
+                    }
+                    let blob = Blob::from(pixels.as_ref().clone());
+                    let image = PenikoImageData {
+                        data: blob,
+                        format: ImageFormat::Rgba8,
+                        alpha_type: ImageAlphaType::Alpha,
+                        width: *image_width,
+                        height: *image_height,
+                    };
+                    let scale_x = f64::from(rect.width) / f64::from(*image_width);
+                    let scale_y = f64::from(rect.height) / f64::from(*image_height);
+                    let transform = Affine::translate((f64::from(rect.x), f64::from(rect.y)))
+                        * Affine::scale_non_uniform(scale_x, scale_y);
+                    scene.draw_image(&image, transform);
+                    if needs_layer {
+                        scene.pop_layer();
+                    }
+                }
             }
             DisplayItem::Text {
                 glyphs,
@@ -228,6 +273,26 @@ mod tests {
         }]);
         build_scene(&mut scene, &dl, &mut fc);
         // Scene contains data (encoding is non-empty).
+    }
+
+    #[test]
+    fn image_builds_scene() {
+        let mut scene = Scene::new();
+        let mut fc = HashMap::new();
+        let dl = DisplayList(vec![DisplayItem::Image {
+            rect: Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            pixels: Arc::new(vec![255u8; 4 * 2 * 2]), // 2×2 white
+            image_width: 2,
+            image_height: 2,
+            opacity: 1.0,
+        }]);
+        build_scene(&mut scene, &dl, &mut fc);
+        // Should not panic — smoke test.
     }
 
     #[test]

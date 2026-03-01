@@ -6,7 +6,7 @@
 mod components;
 mod dom;
 
-pub use components::{Attributes, InlineStyle, TagType, TextContent};
+pub use components::{Attributes, ImageData, InlineStyle, TagType, TextContent};
 pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.

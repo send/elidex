@@ -1,15 +1,18 @@
 //! Document loader — fetches a URL and produces a `LoadedDocument`.
 //!
 //! Coordinates HTTP fetch, charset detection, HTML parsing, and
-//! sub-resource extraction (CSS, JS) into a single pipeline.
+//! sub-resource extraction (CSS, JS, images) into a single pipeline.
 
 use std::fmt;
+use std::sync::Arc;
 
 use elidex_css::{parse_stylesheet, Origin, Stylesheet};
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_net::{FetchHandle, NetError};
 
-use crate::resource::{extract_script_sources, extract_style_sources, ScriptSource, StyleSource};
+use crate::resource::{
+    extract_image_sources, extract_script_sources, extract_style_sources, ScriptSource, StyleSource,
+};
 
 /// A fully loaded document with parsed DOM and resolved sub-resources.
 pub struct LoadedDocument {
@@ -101,6 +104,7 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
 /// 3. Parses the HTML with `parse_tolerant()`.
 /// 4. Extracts and fetches external stylesheets.
 /// 5. Extracts and fetches external scripts.
+/// 6. Extracts, fetches, and decodes images (`<img src="...">`).
 ///
 /// Sub-resource fetch errors are logged and skipped (the page still loads).
 pub fn load_document(
@@ -125,7 +129,7 @@ pub fn load_document(
     for err in &parse_result.errors {
         tracing::warn!("HTML parse warning: {err}");
     }
-    let dom = parse_result.dom;
+    let mut dom = parse_result.dom;
     let document = parse_result.document;
 
     // 4. Extract and fetch stylesheets.
@@ -173,12 +177,60 @@ pub fn load_document(
         }
     }
 
+    // 6. Extract and fetch images.
+    let image_sources = extract_image_sources(&dom, document);
+    for source in &image_sources {
+        match resolve_and_fetch_binary(&response.url, &source.src, fetch_handle) {
+            Ok(data) => match decode_image(&data) {
+                Ok(image_data) => {
+                    let _ = dom.world_mut().insert_one(source.entity, image_data);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to decode image {}: {e}", source.src);
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Failed to fetch image {}: {e}", source.src);
+            }
+        }
+    }
+
     Ok(LoadedDocument {
         dom,
         document,
         stylesheets,
         scripts,
         url: response.url,
+    })
+}
+
+/// Resolve a potentially relative URL against a base and fetch its raw bytes.
+// TODO: `data:` URIs are not supported — `send_blocking` only handles HTTP/HTTPS.
+// Add `NetClient::load()` path for data/file scheme support.
+fn resolve_and_fetch_binary(
+    base: &url::Url,
+    href: &str,
+    fetch_handle: &FetchHandle,
+) -> Result<Vec<u8>, LoadError> {
+    let resolved = base
+        .join(href)
+        .map_err(|e| LoadError::InvalidUrl(format!("{href}: {e}")))?;
+    let response = fetch_handle.send_blocking(make_get_request(resolved))?;
+    if !(200..300).contains(&response.status) {
+        tracing::warn!("HTTP {}: {}", response.status, response.url);
+    }
+    Ok(response.body.to_vec())
+}
+
+/// Decode image bytes into RGBA8 pixel data.
+fn decode_image(bytes: &[u8]) -> Result<ImageData, image::ImageError> {
+    let img = image::load_from_memory(bytes)?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(ImageData {
+        pixels: Arc::new(rgba.into_raw()),
+        width,
+        height,
     })
 }
 
@@ -265,5 +317,56 @@ mod tests {
         let net_err = NetError::new(elidex_net::NetErrorKind::Timeout, "timed out");
         let err: LoadError = net_err.into();
         assert!(matches!(err, LoadError::Network(_)));
+    }
+
+    // --- Image decode tests ---
+
+    #[test]
+    fn decode_minimal_png() {
+        // Valid 1×1 white RGB PNG (69 bytes, generated with correct CRCs).
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1×1
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, // 8-bit RGB + CRC
+            0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, // IDAT chunk (12 bytes)
+            0x78, 0x9C, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, // zlib compressed
+            0x05, 0xFE, 0x02, 0xFE, 0x0D, 0xEF, 0x46, 0xB8, // + CRC
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        let result = decode_image(png_bytes);
+        assert!(result.is_ok(), "decode failed: {:?}", result.err());
+        let img = result.unwrap();
+        assert_eq!(img.width, 1);
+        assert_eq!(img.height, 1);
+        assert_eq!(img.pixels.len(), 4); // 1×1×4 (RGBA8)
+    }
+
+    #[test]
+    fn decode_minimal_jpeg() {
+        // Create a valid 1×1 JPEG using the image crate's encoder.
+        let pixel = image::RgbImage::from_pixel(1, 1, image::Rgb([255, 255, 255]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        pixel.write_to(&mut buf, image::ImageFormat::Jpeg).unwrap();
+
+        let result = decode_image(buf.get_ref());
+        assert!(result.is_ok(), "decode failed: {:?}", result.err());
+        let img = result.unwrap();
+        assert_eq!(img.width, 1);
+        assert_eq!(img.height, 1);
+        assert_eq!(img.pixels.len(), 4); // 1×1×4 (RGBA8)
+    }
+
+    #[test]
+    fn decode_invalid_bytes_fails() {
+        let result = decode_image(b"not an image");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_empty_bytes_fails() {
+        let result = decode_image(b"");
+        assert!(result.is_err());
     }
 }

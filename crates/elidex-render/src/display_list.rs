@@ -39,6 +39,19 @@ pub enum DisplayItem {
         /// The fill color.
         color: CssColor,
     },
+    /// Draw a decoded image.
+    Image {
+        /// The destination rectangle (position and size).
+        rect: Rect,
+        /// Decoded RGBA8 pixel data.
+        pixels: Arc<Vec<u8>>,
+        /// Image width in pixels.
+        image_width: u32,
+        /// Image height in pixels.
+        image_height: u32,
+        /// Element opacity (0.0–1.0).
+        opacity: f32,
+    },
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.

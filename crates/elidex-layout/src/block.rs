@@ -4,7 +4,7 @@
 //! block-level elements, handling width/height resolution, margin auto
 //! centering, and vertical stacking of child blocks.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect};
 use elidex_text::FontDatabase;
 
@@ -128,6 +128,7 @@ pub(crate) fn layout_block(
 /// If the entity is a flex container (`display: Flex/InlineFlex`), delegates
 /// to [`crate::flex::layout_flex`] so that its children are laid out as flex
 /// items rather than block children.
+#[allow(clippy::too_many_lines)]
 fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,
@@ -171,6 +172,13 @@ fn layout_block_inner(
     let margin_top = resolve_margin(style.margin_top, containing_width);
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
 
+    // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
+    let intrinsic = dom
+        .world()
+        .get::<&ImageData>(entity)
+        .ok()
+        .map(|img| (img.width, img.height));
+
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
     let margin_right_raw = resolve_margin(style.margin_right, containing_width);
@@ -180,13 +188,18 @@ fn layout_block_inner(
         + padding.right
         + border.left
         + border.right;
-    let mut content_width = sanitize(resolve_dimension_value(
-        style.width,
-        containing_width,
-        (containing_width - horizontal_extra).max(0.0),
-    ));
+    let mut content_width = if let Some((iw, ih)) = intrinsic {
+        resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border)
+    } else {
+        sanitize(resolve_dimension_value(
+            style.width,
+            containing_width,
+            (containing_width - horizontal_extra).max(0.0),
+        ))
+    };
     // box-sizing: border-box — subtract padding + border from specified width.
-    if style.box_sizing == BoxSizing::BorderBox {
+    // Only for non-replaced elements or replaced elements with explicit dimensions.
+    if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
         if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
             let pb_horizontal = padding.left + padding.right + border.left + border.right;
             content_width = (content_width - pb_horizontal).max(0.0);
@@ -195,11 +208,12 @@ fn layout_block_inner(
 
     // --- Horizontal margin auto centering ---
     let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
-    let (margin_left, margin_right) = if matches!(style.width, Dimension::Auto) {
-        (margin_left_raw, margin_right_raw)
-    } else {
-        apply_margin_auto_centering(&style, containing_width, used_horizontal)
-    };
+    let (margin_left, margin_right) =
+        if matches!(style.width, Dimension::Auto) && intrinsic.is_none() {
+            (margin_left_raw, margin_right_raw)
+        } else {
+            apply_margin_auto_centering(&style, containing_width, used_horizontal)
+        };
 
     // --- Content rect position ---
     let content_x = offset_x + margin_left + border.left + padding.left;
@@ -207,7 +221,10 @@ fn layout_block_inner(
 
     // --- Layout children (stop recursion at depth limit) ---
     let children = dom.children(entity);
-    let content_height = if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
+    let content_height = if let Some((iw, ih)) = intrinsic {
+        // Replaced element: use intrinsic/CSS height, no child layout.
+        resolve_replaced_height(&style, content_width, iw, ih, &padding, &border)
+    } else if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
     } else if children_are_block(dom, &children) {
         stack_block_children(
@@ -223,16 +240,21 @@ fn layout_block_inner(
         layout_inline_context(dom, &children, content_width, &style, font_db)
     };
 
-    let height = match style.height {
-        Dimension::Length(px) if px.is_finite() => {
-            if style.box_sizing == BoxSizing::BorderBox {
-                let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
-                (px - pb_vertical).max(0.0)
-            } else {
-                px
+    let height = if intrinsic.is_some() {
+        // Replaced element height already resolved above.
+        content_height
+    } else {
+        match style.height {
+            Dimension::Length(px) if px.is_finite() => {
+                if style.box_sizing == BoxSizing::BorderBox {
+                    let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
+                    (px - pb_vertical).max(0.0)
+                } else {
+                    px
+                }
             }
+            _ => content_height,
         }
-        _ => content_height,
     };
 
     let lb = LayoutBox {
@@ -249,6 +271,84 @@ fn layout_block_inner(
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
+}
+
+/// Resolve width for a replaced element (e.g. `<img>`).
+///
+/// CSS 2.1 §10.3.2: replaced elements with `width: auto` use intrinsic width.
+/// When only height is specified, width is computed from the aspect ratio.
+#[allow(clippy::cast_precision_loss)]
+fn resolve_replaced_width(
+    style: &ComputedStyle,
+    containing_width: f32,
+    intrinsic_w: u32,
+    intrinsic_h: u32,
+    padding: &EdgeSizes,
+    border: &EdgeSizes,
+) -> f32 {
+    let iw = intrinsic_w as f32;
+    let ih = intrinsic_h as f32;
+    let pb_horizontal = padding.left + padding.right + border.left + border.right;
+
+    if style.width == Dimension::Auto {
+        match style.height {
+            Dimension::Length(h) if h.is_finite() && ih > 0.0 => {
+                // height specified, width auto: compute from aspect ratio.
+                let css_h = if style.box_sizing == BoxSizing::BorderBox {
+                    let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
+                    (h - pb_vertical).max(0.0)
+                } else {
+                    h
+                };
+                (css_h * iw / ih).max(0.0)
+            }
+            _ => iw, // Both auto or height auto: use intrinsic width.
+        }
+    } else {
+        let raw = sanitize(resolve_dimension_value(style.width, containing_width, iw));
+        if style.box_sizing == BoxSizing::BorderBox {
+            (raw - pb_horizontal).max(0.0)
+        } else {
+            raw
+        }
+    }
+}
+
+/// Resolve height for a replaced element (e.g. `<img>`).
+///
+/// CSS 2.1 §10.6.2: replaced elements with `height: auto` use intrinsic height.
+/// When only width is specified, height is computed from the aspect ratio.
+#[allow(clippy::cast_precision_loss)]
+fn resolve_replaced_height(
+    style: &ComputedStyle,
+    used_width: f32,
+    intrinsic_w: u32,
+    intrinsic_h: u32,
+    padding: &EdgeSizes,
+    border: &EdgeSizes,
+) -> f32 {
+    let iw = intrinsic_w as f32;
+    let ih = intrinsic_h as f32;
+
+    match style.height {
+        Dimension::Auto => {
+            if !matches!(style.width, Dimension::Auto) && iw > 0.0 {
+                // width specified, height auto: compute from aspect ratio.
+                (used_width * ih / iw).max(0.0)
+            } else {
+                ih // Both auto: use intrinsic height.
+            }
+        }
+        Dimension::Length(h) if h.is_finite() => {
+            if style.box_sizing == BoxSizing::BorderBox {
+                let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
+                (h - pb_vertical).max(0.0)
+            } else {
+                h
+            }
+        }
+        _ => ih,
+    }
 }
 
 /// Stack block-level children with vertical margin collapse.
@@ -319,6 +419,8 @@ pub(crate) fn stack_block_children(
 #[cfg(test)]
 #[allow(unused_must_use)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use elidex_ecs::Attributes;
 
@@ -715,5 +817,129 @@ mod tests {
         let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
         // auto: content_width = 800 - 20 - 20 = 760 (no border-box subtraction).
         assert!((lb.content.width - 760.0).abs() < f32::EPSILON);
+    }
+
+    // --- M3-4: replaced element (image) layout ---
+
+    fn make_dom_with_image(style: ComputedStyle, img_w: u32, img_h: u32) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let img = dom.create_element("img", Attributes::default());
+        dom.world_mut().insert_one(img, style);
+        dom.world_mut().insert_one(
+            img,
+            ImageData {
+                pixels: Arc::new(vec![0u8; (img_w * img_h * 4) as usize]),
+                width: img_w,
+                height: img_h,
+            },
+        );
+        (dom, img)
+    }
+
+    #[test]
+    fn replaced_element_intrinsic_size() {
+        // width:auto, height:auto → use intrinsic dimensions.
+        let style = ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        };
+        let (mut dom, img) = make_dom_with_image(style, 200, 100);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 200.0).abs() < f32::EPSILON);
+        assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn replaced_element_css_width_aspect_ratio() {
+        // width:300px, height:auto → height computed from aspect ratio.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(300.0),
+            ..Default::default()
+        };
+        let (mut dom, img) = make_dom_with_image(style, 200, 100);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 300.0).abs() < f32::EPSILON);
+        // height = 300 * 100/200 = 150
+        assert!((lb.content.height - 150.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn replaced_element_css_height_aspect_ratio() {
+        // width:auto, height:200px → width computed from aspect ratio.
+        let style = ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(200.0),
+            ..Default::default()
+        };
+        let (mut dom, img) = make_dom_with_image(style, 300, 100);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+        // width = 200 * 300/100 = 600
+        assert!((lb.content.width - 600.0).abs() < f32::EPSILON);
+        assert!((lb.content.height - 200.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn replaced_element_both_dimensions_specified() {
+        // width:400px, height:300px → both used as-is.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(400.0),
+            height: Dimension::Length(300.0),
+            ..Default::default()
+        };
+        let (mut dom, img) = make_dom_with_image(style, 200, 100);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
+        assert!((lb.content.height - 300.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn replaced_element_border_box() {
+        // box-sizing: border-box with padding.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(220.0),
+            height: Dimension::Length(120.0),
+            padding_left: 10.0,
+            padding_right: 10.0,
+            padding_top: 10.0,
+            padding_bottom: 10.0,
+            box_sizing: BoxSizing::BorderBox,
+            ..Default::default()
+        };
+        let (mut dom, img) = make_dom_with_image(style, 200, 100);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+        // content = 220 - 10 - 10 = 200
+        assert!((lb.content.width - 200.0).abs() < f32::EPSILON);
+        // content height = 120 - 10 - 10 = 100
+        assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn no_image_data_normal_layout() {
+        // Element without ImageData → normal block layout.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(400.0),
+            height: Dimension::Length(200.0),
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
+        assert!((lb.content.height - 200.0).abs() < f32::EPSILON);
     }
 }

@@ -1,7 +1,9 @@
 //! DOM component types stored on ECS entities.
 
-use hecs::Entity;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use hecs::Entity;
 
 /// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
 macro_rules! impl_string_map {
@@ -84,3 +86,20 @@ pub struct InlineStyle {
 }
 
 impl_string_map!(InlineStyle, properties, "style property");
+
+/// Decoded image pixel data for `<img>` elements.
+///
+/// Stored as a component on image entities after the image has been
+/// fetched and decoded. Pixel data is RGBA8 format (4 bytes per pixel).
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    /// RGBA8 pixel data (width × height × 4 bytes).
+    ///
+    /// Wrapped in `Arc` so that the display list can share the data
+    /// without cloning the entire pixel buffer every frame.
+    pub pixels: Arc<Vec<u8>>,
+    /// Image width in pixels.
+    pub width: u32,
+    /// Image height in pixels.
+    pub height: u32,
+}

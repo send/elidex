@@ -8,8 +8,9 @@
 //! to a single space. Whitespace-only text is discarded.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
-use elidex_ecs::{EcsDom, Entity, TextContent};
+use elidex_ecs::{EcsDom, Entity, ImageData, TextContent};
 use elidex_plugin::{
     BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, LineHeight, TextDecorationLine,
     TextTransform,
@@ -89,6 +90,13 @@ fn walk(
                 dl,
             );
             emit_borders(&lb, &style, dl);
+
+            // Emit image for replaced elements with decoded pixel data.
+            if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
+                if style.opacity > 0.0 {
+                    emit_image(&lb, &image_data, style.opacity, dl);
+                }
+            }
         }
     }
 
@@ -317,6 +325,22 @@ fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut DisplayList) {
             color: apply_opacity(style.border_left_color, opacity),
         });
     }
+}
+
+/// Emit a `DisplayItem::Image` for a replaced element.
+///
+/// The image is drawn within the content rect of the layout box.
+fn emit_image(lb: &LayoutBox, image_data: &ImageData, opacity: f32, dl: &mut DisplayList) {
+    if image_data.width == 0 || image_data.height == 0 {
+        return;
+    }
+    dl.push(DisplayItem::Image {
+        rect: lb.content,
+        pixels: Arc::clone(&image_data.pixels),
+        image_width: image_data.width,
+        image_height: image_data.height,
+        opacity,
+    });
 }
 
 /// Parent style and layout info needed for text rendering.
@@ -1408,6 +1432,153 @@ mod tests {
             super::apply_text_transform("Hello", TextTransform::None),
             "Hello"
         );
+    }
+
+    // --- M3-4: image rendering tests ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn image_data_emits_image_item() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let img = dom.create_element("img", Attributes::default());
+        dom.append_child(root, img);
+
+        dom.world_mut().insert_one(
+            img,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            img,
+            LayoutBox {
+                content: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            img,
+            elidex_ecs::ImageData {
+                pixels: Arc::new(vec![255u8; 4]), // 1×1 white pixel
+                width: 1,
+                height: 1,
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let image_items: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Image { .. }))
+                .collect();
+        assert_eq!(image_items.len(), 1);
+        match &image_items[0] {
+            DisplayItem::Image {
+                rect,
+                image_width,
+                image_height,
+                ..
+            } => {
+                assert!((rect.width - 200.0).abs() < f32::EPSILON);
+                assert!((rect.height - 100.0).abs() < f32::EPSILON);
+                assert_eq!(*image_width, 1);
+                assert_eq!(*image_height, 1);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn no_image_data_no_image_item() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let image_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Image { .. }))
+                .count();
+        assert_eq!(image_count, 0);
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn image_opacity_zero_skipped() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let img = dom.create_element("img", Attributes::default());
+        dom.append_child(root, img);
+
+        dom.world_mut().insert_one(
+            img,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                opacity: 0.0,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            img,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            img,
+            elidex_ecs::ImageData {
+                pixels: Arc::new(vec![255u8; 4]),
+                width: 1,
+                height: 1,
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let image_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Image { .. }))
+                .count();
+        assert_eq!(image_count, 0);
     }
 
     #[test]

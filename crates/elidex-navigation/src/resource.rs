@@ -1,7 +1,7 @@
-//! Extract style and script sources from the DOM tree.
+//! Extract sub-resource sources from the DOM tree.
 //!
 //! Walks the DOM in document order to collect `<style>`, `<link rel="stylesheet">`,
-//! and `<script>` elements, producing lists of resources to fetch or inline.
+//! `<script>`, and `<img>` elements, producing lists of resources to fetch or inline.
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TextContent};
 
@@ -133,6 +133,47 @@ fn collect_scripts(dom: &EcsDom, entity: Entity, sources: &mut Vec<ScriptSource>
 
     for child in dom.children_iter(entity) {
         collect_scripts(dom, child, sources);
+    }
+}
+
+/// An image source found in the document.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageSource {
+    /// The `src` attribute value (relative or absolute URL).
+    pub src: String,
+    /// The entity of the `<img>` element in the DOM.
+    pub entity: Entity,
+}
+
+/// Extract all image sources from the DOM in document order.
+///
+/// Collects `<img src="...">` elements, skipping those without a `src`
+/// attribute or with an empty `src`.
+pub fn extract_image_sources(dom: &EcsDom, document: Entity) -> Vec<ImageSource> {
+    let mut sources = Vec::new();
+    collect_images(dom, document, &mut sources);
+    sources
+}
+
+fn collect_images(dom: &EcsDom, entity: Entity, sources: &mut Vec<ImageSource>) {
+    if let Ok(tag) = dom.world().get::<&TagType>(entity) {
+        if tag.0 == "img" {
+            if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
+                if let Some(src) = attrs.get("src") {
+                    if !src.is_empty() {
+                        sources.push(ImageSource {
+                            src: src.to_string(),
+                            entity,
+                        });
+                    }
+                }
+            }
+            return; // <img> is void element, no children.
+        }
+    }
+
+    for child in dom.children_iter(entity) {
+        collect_images(dom, child, sources);
     }
 }
 
@@ -395,5 +436,98 @@ mod tests {
         let _ = dom.append_child(doc, link);
         let sources = extract_style_sources(&dom, doc);
         assert_eq!(sources, vec![StyleSource::External("alt.css".into())]);
+    }
+
+    // --- Image source extraction tests ---
+
+    #[test]
+    fn extract_img_src() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let mut attrs = Attributes::default();
+        attrs.set("src", "photo.png");
+        let img = dom.create_element("img", attrs);
+        let _ = dom.append_child(doc, img);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].src, "photo.png");
+        assert_eq!(sources[0].entity, img);
+    }
+
+    #[test]
+    fn img_without_src_skipped() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let img = dom.create_element("img", Attributes::default());
+        let _ = dom.append_child(doc, img);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert!(sources.is_empty());
+    }
+
+    #[test]
+    fn img_empty_src_skipped() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let mut attrs = Attributes::default();
+        attrs.set("src", "");
+        let img = dom.create_element("img", attrs);
+        let _ = dom.append_child(doc, img);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert!(sources.is_empty());
+    }
+
+    #[test]
+    fn multiple_images_document_order() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let body = dom.create_element("body", Attributes::default());
+        let _ = dom.append_child(doc, body);
+
+        let mut a1 = Attributes::default();
+        a1.set("src", "a.png");
+        let img1 = dom.create_element("img", a1);
+        let _ = dom.append_child(body, img1);
+
+        let mut a2 = Attributes::default();
+        a2.set("src", "b.jpg");
+        let img2 = dom.create_element("img", a2);
+        let _ = dom.append_child(body, img2);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].src, "a.png");
+        assert_eq!(sources[1].src, "b.jpg");
+    }
+
+    #[test]
+    fn nested_img_in_div() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, div);
+        let mut attrs = Attributes::default();
+        attrs.set("src", "nested.png");
+        let img = dom.create_element("img", attrs);
+        let _ = dom.append_child(div, img);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].src, "nested.png");
+    }
+
+    #[test]
+    fn non_img_elements_skipped() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, div);
+        let span = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(doc, span);
+
+        let sources = extract_image_sources(&dom, doc);
+        assert!(sources.is_empty());
     }
 }
