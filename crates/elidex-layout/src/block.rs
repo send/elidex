@@ -5,7 +5,7 @@
 //! centering, and vertical stacking of child blocks.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect};
+use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect};
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
@@ -180,11 +180,18 @@ fn layout_block_inner(
         + padding.right
         + border.left
         + border.right;
-    let content_width = sanitize(resolve_dimension_value(
+    let mut content_width = sanitize(resolve_dimension_value(
         style.width,
         containing_width,
         (containing_width - horizontal_extra).max(0.0),
     ));
+    // box-sizing: border-box — subtract padding + border from specified width.
+    if style.box_sizing == BoxSizing::BorderBox {
+        if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
+            let pb_horizontal = padding.left + padding.right + border.left + border.right;
+            content_width = (content_width - pb_horizontal).max(0.0);
+        }
+    }
 
     // --- Horizontal margin auto centering ---
     let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
@@ -217,7 +224,14 @@ fn layout_block_inner(
     };
 
     let height = match style.height {
-        Dimension::Length(px) if px.is_finite() => px,
+        Dimension::Length(px) if px.is_finite() => {
+            if style.box_sizing == BoxSizing::BorderBox {
+                let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
+                (px - pb_vertical).max(0.0)
+            } else {
+                px
+            }
+        }
         _ => content_height,
     };
 
@@ -596,5 +610,110 @@ mod tests {
         let lb = layout_block(&mut dom, div, 1000.0, 0.0, 0.0, &font_db);
         assert!((lb.content.width - 500.0).abs() < f32::EPSILON);
         assert!((lb.margin.left - 100.0).abs() < f32::EPSILON);
+    }
+
+    // --- M3-2: box-sizing: border-box ---
+
+    #[test]
+    fn box_sizing_content_box_default() {
+        // Default content-box: content_width = specified width.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(200.0),
+            padding_left: 10.0,
+            padding_right: 10.0,
+            border_left_width: 2.0,
+            border_right_width: 2.0,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 200.0).abs() < f32::EPSILON);
+        // border box = 200 + 20 + 4 = 224
+        let bb = lb.border_box();
+        assert!((bb.width - 224.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn box_sizing_border_box_width() {
+        // border-box: specified 200px includes padding + border.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(200.0),
+            padding_left: 10.0,
+            padding_right: 10.0,
+            border_left_width: 2.0,
+            border_right_width: 2.0,
+            box_sizing: BoxSizing::BorderBox,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // content = 200 - 10 - 10 - 2 - 2 = 176
+        assert!((lb.content.width - 176.0).abs() < f32::EPSILON);
+        // border box = 176 + 20 + 4 = 200
+        let bb = lb.border_box();
+        assert!((bb.width - 200.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn box_sizing_border_box_height() {
+        let style = ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(100.0),
+            padding_top: 10.0,
+            padding_bottom: 10.0,
+            border_top_width: 2.0,
+            border_bottom_width: 2.0,
+            box_sizing: BoxSizing::BorderBox,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // content height = 100 - 10 - 10 - 2 - 2 = 76
+        assert!((lb.content.height - 76.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn box_sizing_border_box_percentage_width() {
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Percentage(50.0), // 50% of 800 = 400
+            padding_left: 20.0,
+            padding_right: 20.0,
+            box_sizing: BoxSizing::BorderBox,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // content = 400 - 20 - 20 = 360
+        assert!((lb.content.width - 360.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn box_sizing_border_box_auto_width_unchanged() {
+        // auto width should not be affected by border-box.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Auto,
+            padding_left: 20.0,
+            padding_right: 20.0,
+            box_sizing: BoxSizing::BorderBox,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // auto: content_width = 800 - 20 - 20 = 760 (no border-box subtraction).
+        assert!((lb.content.width - 760.0).abs() < f32::EPSILON);
     }
 }

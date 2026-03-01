@@ -5,7 +5,7 @@
 //! longhand equivalents.
 
 use cssparser::{Parser, ParserInput, Token};
-use elidex_plugin::CssValue;
+use elidex_plugin::{CssValue, LengthUnit};
 
 use crate::color::parse_color;
 use crate::values::{
@@ -189,6 +189,11 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         // --- Line height ---
         "line-height" => font::parse_line_height(input),
 
+        // --- Box model ---
+        "box-sizing" => parse_keyword_property(input, name, &["content-box", "border-box"]),
+        "border-radius" => parse_border_radius(input),
+        "opacity" => parse_opacity(input),
+
         // --- Text transform ---
         "text-transform" => parse_keyword_property(
             input,
@@ -333,6 +338,54 @@ fn parse_value_property(
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let val = value_parser(i)?;
             Ok(single_decl(name, val))
+        })
+        .unwrap_or_default()
+}
+
+// --- Border radius parsing ---
+
+/// Parse `border-radius` as a non-negative `<length>`.
+///
+/// Percentages are rejected (Phase 3 limitation — percentage border-radius
+/// requires box dimensions which are unavailable at style resolution time).
+/// Negative values are rejected per CSS Backgrounds and Borders Level 3 §5.3.
+fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let tok = i.next().map_err(|_| ())?;
+            match tok {
+                Token::Number { value, .. } if *value == 0.0 => Ok(single_decl(
+                    "border-radius",
+                    CssValue::Length(0.0, LengthUnit::Px),
+                )),
+                Token::Dimension { value, unit, .. } => {
+                    let v = *value;
+                    if v < 0.0 {
+                        return Err(());
+                    }
+                    let u = match unit.as_ref() {
+                        "px" => LengthUnit::Px,
+                        "em" => LengthUnit::Em,
+                        "rem" => LengthUnit::Rem,
+                        _ => return Err(()),
+                    };
+                    Ok(single_decl("border-radius", CssValue::Length(v, u)))
+                }
+                // Reject percentages — cannot resolve without box dimensions.
+                _ => Err(()),
+            }
+        })
+        .unwrap_or_default()
+}
+
+// --- Opacity parsing ---
+
+/// Parse `opacity` as a number (0.0–1.0), clamping out-of-range values.
+fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let n = i.expect_number().map_err(|_| ())?;
+            Ok(single_decl("opacity", CssValue::Number(n.clamp(0.0, 1.0))))
         })
         .unwrap_or_default()
 }

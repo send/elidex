@@ -788,4 +788,86 @@ mod tests {
         let div_style = get_style(&dom, div);
         assert_eq!(div_style.color, CssColor::new(0xe6, 0xed, 0xf3, 255));
     }
+
+    // --- M3-2: Box model integration tests ---
+
+    #[test]
+    fn box_sizing_border_box_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css =
+            "div { box-sizing: border-box; width: 200px; padding: 10px; border: 2px solid black; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.box_sizing, elidex_plugin::BoxSizing::BorderBox);
+        assert_eq!(style.border_top_width, 2.0);
+        assert_eq!(style.border_top_style, BorderStyle::Solid);
+    }
+
+    #[test]
+    fn opacity_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { opacity: 0.5; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert!((style.opacity - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn border_radius_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { border-radius: 8px; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert!((style.border_radius - 8.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn box_sizing_not_inherited_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("span", Attributes::default());
+        dom.append_child(body, parent);
+        dom.append_child(parent, child);
+
+        let css = "div { box-sizing: border-box; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let parent_style = get_style(&dom, parent);
+        let child_style = get_style(&dom, child);
+        assert_eq!(parent_style.box_sizing, elidex_plugin::BoxSizing::BorderBox);
+        // Non-inherited: child should have content-box.
+        assert_eq!(child_style.box_sizing, elidex_plugin::BoxSizing::ContentBox);
+    }
+
+    #[test]
+    fn opacity_border_radius_combined() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { opacity: 0.8; border-radius: 12px; background-color: red; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert!((style.opacity - 0.8).abs() < f32::EPSILON);
+        assert!((style.border_radius - 12.0).abs() < f32::EPSILON);
+        assert_eq!(style.background_color, CssColor::RED);
+    }
 }

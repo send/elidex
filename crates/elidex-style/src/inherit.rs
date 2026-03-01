@@ -70,6 +70,10 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
             CssValue::Keyword("currentcolor".to_string())
         }
 
+        // Box model
+        "box-sizing" => CssValue::Keyword("content-box".to_string()),
+        "border-radius" => CssValue::Length(0.0, LengthUnit::Px),
+
         // Flex container
         "flex-direction" => CssValue::Keyword("row".to_string()),
         "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
@@ -79,7 +83,7 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Flex item
         "align-self" => CssValue::Keyword("auto".to_string()),
         "flex-grow" | "order" => CssValue::Number(0.0),
-        "flex-shrink" => CssValue::Number(1.0),
+        "flex-shrink" | "opacity" => CssValue::Number(1.0),
 
         _ => CssValue::Initial,
     }
@@ -185,5 +189,27 @@ mod tests {
             get_initial_value("text-decoration-line"),
             CssValue::Keyword("none".to_string())
         );
+    }
+
+    // --- M3-2: Box model initial values ---
+
+    #[test]
+    fn box_model_properties_not_inherited() {
+        assert!(!is_inherited("box-sizing"));
+        assert!(!is_inherited("border-radius"));
+        assert!(!is_inherited("opacity"));
+    }
+
+    #[test]
+    fn initial_values_m3_2() {
+        assert_eq!(
+            get_initial_value("box-sizing"),
+            CssValue::Keyword("content-box".to_string())
+        );
+        assert_eq!(
+            get_initial_value("border-radius"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(get_initial_value("opacity"), CssValue::Number(1.0));
     }
 }

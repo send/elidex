@@ -10,7 +10,7 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, ComputedStyle, Dimension, Display, EdgeSizes,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes,
     FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
@@ -62,12 +62,14 @@ fn resolve_percentage_main(pct: f32, containing_main: f32) -> Option<f32> {
 /// Resolve flex-basis to a main-axis size in pixels.
 ///
 /// Returns `None` when content sizing is needed.
+/// When `box-sizing: border-box`, subtracts main-axis padding and border
+/// from the resolved value so it represents content size.
 fn resolve_flex_basis(
     style: &ComputedStyle,
     direction: FlexDirection,
     containing_main: f32,
 ) -> Option<f32> {
-    match style.flex_basis {
+    let raw = match style.flex_basis {
         Dimension::Length(px) => Some(px),
         Dimension::Percentage(pct) => resolve_percentage_main(pct, containing_main),
         Dimension::Auto => {
@@ -82,7 +84,24 @@ fn resolve_flex_basis(
                 Dimension::Auto => None,
             }
         }
+    };
+    let px = raw?;
+    // Adjust for box-sizing: border-box — convert from border-box to content size.
+    if style.box_sizing == BoxSizing::BorderBox {
+        let pb = if is_main_horizontal(direction) {
+            sanitize(style.padding_left)
+                + sanitize(style.padding_right)
+                + sanitize(style.border_left_width)
+                + sanitize(style.border_right_width)
+        } else {
+            sanitize(style.padding_top)
+                + sanitize(style.padding_bottom)
+                + sanitize(style.border_top_width)
+                + sanitize(style.border_bottom_width)
+        };
+        return Some((px - pb).max(0.0));
     }
+    Some(px)
 }
 
 /// Resolve the effective alignment for a flex item.
@@ -330,18 +349,35 @@ fn resolve_content_width(
     let used =
         margin_left + margin_right + padding.left + padding.right + border.left + border.right;
     let auto_value = (containing_width - used).max(0.0);
-    sanitize(crate::resolve_dimension_value(
+    let mut w = sanitize(crate::resolve_dimension_value(
         style.width,
         containing_width,
         auto_value,
-    ))
+    ));
+    if style.box_sizing == BoxSizing::BorderBox {
+        if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
+            let pb = padding.left + padding.right + border.left + border.right;
+            w = (w - pb).max(0.0);
+        }
+    }
+    w
 }
 
 // TODO(Phase 3): Resolve percentage heights against containing block height.
 // Currently treated as auto (indefinite) because containing_height is not tracked.
 pub(super) fn resolve_explicit_height(style: &ComputedStyle) -> Option<f32> {
     match style.height {
-        Dimension::Length(px) if px.is_finite() => Some(px),
+        Dimension::Length(px) if px.is_finite() => {
+            if style.box_sizing == BoxSizing::BorderBox {
+                let pb = sanitize(style.padding_top)
+                    + sanitize(style.padding_bottom)
+                    + sanitize(style.border_top_width)
+                    + sanitize(style.border_bottom_width);
+                Some((px - pb).max(0.0))
+            } else {
+                Some(px)
+            }
+        }
         _ => None,
     }
 }

@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, ComputedStyle, CssColor, CssValue, Dimension,
-    Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight, Position,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, CssColor, CssValue,
+    Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight, Position,
     TextDecorationLine, TextTransform,
 };
 
@@ -172,6 +172,9 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "flex-basis" => dimension_to_css_value(style.flex_basis),
         #[allow(clippy::cast_precision_loss)]
         "order" => CssValue::Number(style.order as f32),
+        "box-sizing" => CssValue::Keyword(style.box_sizing.as_ref().to_string()),
+        "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
+        "opacity" => CssValue::Number(style.opacity),
         _ => get_initial_value(property),
     }
 }
@@ -262,6 +265,28 @@ pub(crate) fn build_computed_style(
 
     // --- Border properties (style → width → color) ---
     resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // --- Box model: box-sizing, border-radius, opacity ---
+    if let Some(val) = resolve_keyword_enum("box-sizing", &winners, parent_style, |k| match k {
+        "content-box" => Some(BoxSizing::ContentBox),
+        "border-box" => Some(BoxSizing::BorderBox),
+        _ => None,
+    }) {
+        style.box_sizing = val;
+    }
+    resolve_prop("border-radius", &winners, parent_style, px, |v| {
+        style.border_radius = v.max(0.0);
+    });
+    resolve_prop(
+        "opacity",
+        &winners,
+        parent_style,
+        |v| match v {
+            CssValue::Number(n) => n.clamp(0.0, 1.0),
+            _ => 1.0,
+        },
+        |v| style.opacity = v,
+    );
 
     // --- Flex properties ---
     resolve_flex_properties(&mut style, &winners, parent_style, dim);
@@ -1472,5 +1497,87 @@ mod tests {
         let style = ComputedStyle::default();
         let val = get_computed_as_css_value("--undefined", &style);
         assert_eq!(val, CssValue::RawTokens(String::new()));
+    }
+
+    // --- M3-2: Box model resolution ---
+
+    #[test]
+    fn resolve_box_sizing_border_box() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let val = CssValue::Keyword("border-box".to_string());
+        winners.insert("box-sizing", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.box_sizing, BoxSizing::BorderBox);
+    }
+
+    #[test]
+    fn resolve_box_sizing_not_inherited() {
+        let parent = ComputedStyle {
+            box_sizing: BoxSizing::BorderBox,
+            ..ComputedStyle::default()
+        };
+        let ctx = default_ctx();
+        let winners: HashMap<&str, &CssValue> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // Non-inherited: should be initial (content-box), not parent's border-box.
+        assert_eq!(style.box_sizing, BoxSizing::ContentBox);
+    }
+
+    #[test]
+    fn resolve_border_radius_px() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let val = CssValue::Length(8.0, LengthUnit::Px);
+        winners.insert("border-radius", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.border_radius - 8.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_opacity() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let val = CssValue::Number(0.5);
+        winners.insert("opacity", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.opacity - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_opacity_clamped() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        let val = CssValue::Number(2.0);
+        winners.insert("opacity", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.opacity - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn get_computed_box_model_properties() {
+        let style = ComputedStyle {
+            box_sizing: BoxSizing::BorderBox,
+            border_radius: 10.0,
+            opacity: 0.75,
+            ..ComputedStyle::default()
+        };
+
+        assert_eq!(
+            get_computed_as_css_value("box-sizing", &style),
+            CssValue::Keyword("border-box".to_string())
+        );
+        assert_eq!(
+            get_computed_as_css_value("border-radius", &style),
+            CssValue::Length(10.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_computed_as_css_value("opacity", &style),
+            CssValue::Number(0.75)
+        );
     }
 }

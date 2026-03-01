@@ -16,7 +16,7 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, ComputedStyle, Dimension, Display,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, Dimension, Display,
     FlexDirection, FlexWrap, JustifyContent, LineHeight, Position, TextDecorationLine,
     TextTransform,
 };

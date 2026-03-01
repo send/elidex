@@ -11,7 +11,8 @@ use std::borrow::Cow;
 
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::{
-    ComputedStyle, CssColor, Display, LayoutBox, LineHeight, TextDecorationLine, TextTransform,
+    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, LineHeight, TextDecorationLine,
+    TextTransform,
 };
 use elidex_text::{shape_text, FontDatabase};
 
@@ -77,10 +78,17 @@ fn walk(
         }
     }
 
-    // Emit background color for elements with a LayoutBox.
+    // Emit background + borders for elements with a LayoutBox.
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
         if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
-            emit_background(&lb, style.background_color, dl);
+            emit_background(
+                &lb,
+                style.background_color,
+                style.border_radius,
+                style.opacity,
+                dl,
+            );
+            emit_borders(&lb, &style, dl);
         }
     }
 
@@ -206,15 +214,109 @@ fn collapse_whitespace(text: &str) -> String {
     trimmed.to_string()
 }
 
-/// Emit a `SolidRect` for the element's background color.
-fn emit_background(lb: &LayoutBox, bg: CssColor, dl: &mut DisplayList) {
-    if bg.a == 0 {
+/// Apply opacity to a color by multiplying its alpha channel.
+fn apply_opacity(color: CssColor, opacity: f32) -> CssColor {
+    if opacity >= 1.0 {
+        return color;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let a = (f32::from(color.a) * opacity).round() as u8;
+    CssColor {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a,
+    }
+}
+
+/// Emit a background rect (solid or rounded) with opacity applied.
+fn emit_background(
+    lb: &LayoutBox,
+    bg: CssColor,
+    border_radius: f32,
+    opacity: f32,
+    dl: &mut DisplayList,
+) {
+    let color = apply_opacity(bg, opacity);
+    if color.a == 0 {
         return; // transparent
     }
-    dl.push(DisplayItem::SolidRect {
-        rect: lb.border_box(),
-        color: bg,
-    });
+    let rect = lb.border_box();
+    if border_radius > 0.0 {
+        dl.push(DisplayItem::RoundedRect {
+            rect,
+            radius: border_radius,
+            color,
+        });
+    } else {
+        dl.push(DisplayItem::SolidRect { rect, color });
+    }
+}
+
+/// Emit border rectangles as `SolidRect` items.
+///
+/// Each side is drawn only when `border-style != none` and `border-width > 0`.
+/// Styles other than `none` are rendered as solid rectangles; `dashed`/`dotted`
+/// rendering is Phase 4 scope.
+///
+/// Top and bottom borders span the full width. Left and right borders are
+/// inset by the top/bottom border widths to avoid overlapping at corners,
+/// which would cause visible darkening when `opacity < 1.0`.
+fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut DisplayList) {
+    let bb = lb.border_box();
+    let opacity = style.opacity;
+
+    // top (full width)
+    if style.border_top_style != BorderStyle::None && lb.border.top > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: bb.x,
+                y: bb.y,
+                width: bb.width,
+                height: lb.border.top,
+            },
+            color: apply_opacity(style.border_top_color, opacity),
+        });
+    }
+    // bottom (full width)
+    if style.border_bottom_style != BorderStyle::None && lb.border.bottom > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: bb.x,
+                y: bb.y + bb.height - lb.border.bottom,
+                width: bb.width,
+                height: lb.border.bottom,
+            },
+            color: apply_opacity(style.border_bottom_color, opacity),
+        });
+    }
+    // right (inset by top/bottom to avoid corner overlap)
+    let v_inset_top = lb.border.top;
+    let v_inset_bottom = lb.border.bottom;
+    let v_height = (bb.height - v_inset_top - v_inset_bottom).max(0.0);
+    if style.border_right_style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: bb.x + bb.width - lb.border.right,
+                y: bb.y + v_inset_top,
+                width: lb.border.right,
+                height: v_height,
+            },
+            color: apply_opacity(style.border_right_color, opacity),
+        });
+    }
+    // left (inset by top/bottom to avoid corner overlap)
+    if style.border_left_style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: bb.x,
+                y: bb.y + v_inset_top,
+                width: lb.border.left,
+                height: v_height,
+            },
+            color: apply_opacity(style.border_left_color, opacity),
+        });
+    }
 }
 
 /// Parent style and layout info needed for text rendering.
@@ -230,6 +332,7 @@ struct TextContext {
     content_y: f32,
     text_transform: TextTransform,
     text_decoration_line: TextDecorationLine,
+    opacity: f32,
 }
 
 /// Gather style and layout info from `parent` for text rendering.
@@ -253,6 +356,7 @@ fn text_context(dom: &EcsDom, parent: Entity) -> Option<TextContext> {
         content_y: lb.content.y,
         text_transform: style.text_transform,
         text_decoration_line: style.text_decoration_line,
+        opacity: style.opacity,
     })
 }
 
@@ -329,13 +433,14 @@ fn emit_text(
     }
 
     let text_width = cursor_x - ctx.content_x;
+    let text_color = apply_opacity(ctx.color, ctx.opacity);
 
     dl.push(DisplayItem::Text {
         glyphs,
         font_blob,
         font_index,
         font_size,
-        color: ctx.color,
+        color: text_color,
     });
 
     // Emit text decoration (underline / line-through) as SolidRect items.
@@ -350,7 +455,7 @@ fn emit_text(
                 width: text_width,
                 height: decoration_thickness,
             },
-            color: ctx.color,
+            color: text_color,
         });
     }
     if ctx.text_decoration_line.line_through {
@@ -363,7 +468,7 @@ fn emit_text(
                 width: text_width,
                 height: decoration_thickness,
             },
-            color: ctx.color,
+            color: text_color,
         });
     }
 }
@@ -896,6 +1001,379 @@ mod tests {
         };
         // "Hello world!" = 12 glyphs.
         assert_eq!(glyphs.len(), 12);
+    }
+
+    // --- M3-2: border rendering tests ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn emit_borders_four_sides() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                border_top_style: BorderStyle::Solid,
+                border_right_style: BorderStyle::Solid,
+                border_bottom_style: BorderStyle::Solid,
+                border_left_style: BorderStyle::Solid,
+                border_top_color: CssColor::RED,
+                border_right_color: CssColor::RED,
+                border_bottom_color: CssColor::RED,
+                border_left_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 12.0,
+                    y: 12.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // 4 border SolidRects (no background since transparent).
+        let rect_count =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::SolidRect { .. }))
+                .count();
+        assert_eq!(rect_count, 4);
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn emit_borders_style_none_skipped() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                // Only top border is solid; others are none (default).
+                border_top_style: BorderStyle::Solid,
+                border_top_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 2.0,
+                    y: 2.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Only 1 border (top), others skipped because style=none.
+        assert_eq!(dl.0.len(), 1);
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn emit_borders_zero_width_skipped() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                border_top_style: BorderStyle::Solid,
+                border_top_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 0.0, // zero width, should be skipped
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        assert!(dl.0.is_empty());
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn background_with_border_radius_emits_rounded_rect() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::RED,
+                border_radius: 10.0,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        assert_eq!(dl.0.len(), 1);
+        assert!(
+            matches!(&dl.0[0], DisplayItem::RoundedRect { radius, .. } if (*radius - 10.0).abs() < f32::EPSILON)
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn background_without_border_radius_emits_solid_rect() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::RED,
+                border_radius: 0.0,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        assert_eq!(dl.0.len(), 1);
+        assert!(matches!(&dl.0[0], DisplayItem::SolidRect { .. }));
+    }
+
+    #[test]
+    fn opacity_half_halves_alpha() {
+        let color = CssColor::new(255, 0, 0, 200);
+        let result = apply_opacity(color, 0.5);
+        assert_eq!(result.r, 255);
+        assert_eq!(result.g, 0);
+        assert_eq!(result.b, 0);
+        assert_eq!(result.a, 100);
+    }
+
+    #[test]
+    fn opacity_zero_makes_transparent() {
+        let color = CssColor::RED;
+        let result = apply_opacity(color, 0.0);
+        assert_eq!(result.a, 0);
+    }
+
+    #[test]
+    fn opacity_one_unchanged() {
+        let color = CssColor::RED;
+        let result = apply_opacity(color, 1.0);
+        assert_eq!(result, CssColor::RED);
+    }
+
+    /// Known Phase 4 limitation: when both `border-radius` and `border` are
+    /// set, the background is a `RoundedRect` but borders are axis-aligned
+    /// `SolidRect` items. Borders do not follow rounded corners.
+    #[test]
+    #[allow(unused_must_use)]
+    fn border_radius_with_border_known_limitation() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::RED,
+                border_radius: 10.0,
+                border_top_style: BorderStyle::Solid,
+                border_right_style: BorderStyle::Solid,
+                border_bottom_style: BorderStyle::Solid,
+                border_left_style: BorderStyle::Solid,
+                border_top_color: CssColor::BLACK,
+                border_right_color: CssColor::BLACK,
+                border_bottom_color: CssColor::BLACK,
+                border_left_color: CssColor::BLACK,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 2.0,
+                    y: 2.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 2.0,
+                    right: 2.0,
+                    bottom: 2.0,
+                    left: 2.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // 1 RoundedRect (background) + 4 SolidRect (borders).
+        let rounded =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::RoundedRect { .. }))
+                .count();
+        let rects =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::SolidRect { .. }))
+                .count();
+        assert_eq!(rounded, 1);
+        assert_eq!(rects, 4);
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn border_corners_no_overlap() {
+        // Verify that left/right borders are inset by top/bottom widths.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                background_color: CssColor::TRANSPARENT,
+                border_top_style: BorderStyle::Solid,
+                border_right_style: BorderStyle::Solid,
+                border_bottom_style: BorderStyle::Solid,
+                border_left_style: BorderStyle::Solid,
+                border_top_color: CssColor::RED,
+                border_right_color: CssColor::RED,
+                border_bottom_color: CssColor::RED,
+                border_left_color: CssColor::RED,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 5.0,
+                    y: 5.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                border: EdgeSizes {
+                    top: 3.0,
+                    right: 2.0,
+                    bottom: 3.0,
+                    left: 2.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        let rects: Vec<_> =
+            dl.0.iter()
+                .filter_map(|i| match i {
+                    DisplayItem::SolidRect { rect, .. } => Some(rect),
+                    _ => None,
+                })
+                .collect();
+        assert_eq!(rects.len(), 4);
+        // border-box: x=3, y=2, w=104, h=56 (content 100x50 + border 2+2 / 3+3)
+        // top: full width, y=2, h=3
+        let top = rects[0];
+        assert!((top.y - 2.0).abs() < f32::EPSILON);
+        assert!((top.height - 3.0).abs() < f32::EPSILON);
+        assert!((top.width - 104.0).abs() < f32::EPSILON);
+        // bottom: full width, y=55, h=3
+        let bottom = rects[1];
+        assert!((bottom.y - 55.0).abs() < f32::EPSILON);
+        assert!((bottom.height - 3.0).abs() < f32::EPSILON);
+        // right: inset by top(3)+bottom(3), height=50
+        let right = rects[2];
+        assert!((right.y - 5.0).abs() < f32::EPSILON); // 2 + 3
+        assert!((right.height - 50.0).abs() < f32::EPSILON); // 56 - 3 - 3
+                                                             // left: same inset
+        let left = rects[3];
+        assert!((left.y - 5.0).abs() < f32::EPSILON);
+        assert!((left.height - 50.0).abs() < f32::EPSILON);
     }
 
     // --- M3-1: text-transform tests ---

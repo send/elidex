@@ -558,3 +558,52 @@ fn stretch_skips_explicit_cross_size() {
     // 30px item should NOT stretch to 60px because height is explicit.
     assert!((lb0.content.height - 30.0).abs() < 1.0);
 }
+
+// --- M3-2: box-sizing: border-box in flex ---
+
+#[test]
+fn flex_item_border_box_width() {
+    let container = flex_container();
+    let item = ComputedStyle {
+        display: Display::Block,
+        width: Dimension::Length(200.0),
+        height: Dimension::Length(50.0),
+        padding_left: 10.0,
+        padding_right: 10.0,
+        border_left_width: 2.0,
+        border_right_width: 2.0,
+        box_sizing: BoxSizing::BorderBox,
+        ..Default::default()
+    };
+    let (mut dom, cont, items) = make_flex_dom(container, &[item]);
+    let font_db = FontDatabase::new();
+    layout_flex(&mut dom, cont, 800.0, 0.0, 0.0, &font_db, 0);
+
+    let lb = get_lb(&dom, items[0]);
+    // border-box: content = 200 - 10 - 10 - 2 - 2 = 176
+    assert!((lb.content.width - 176.0).abs() < f32::EPSILON);
+    // border_box() = 200
+    let bb = lb.border_box();
+    assert!((bb.width - 200.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn flex_container_border_box_height() {
+    let container = ComputedStyle {
+        display: Display::Flex,
+        height: Dimension::Length(200.0),
+        padding_top: 15.0,
+        padding_bottom: 15.0,
+        border_top_width: 5.0,
+        border_bottom_width: 5.0,
+        box_sizing: BoxSizing::BorderBox,
+        ..Default::default()
+    };
+    let item = flex_item(100.0, 50.0);
+    let (mut dom, cont, _) = make_flex_dom(container, &[item]);
+    let font_db = FontDatabase::new();
+    let lb = layout_flex(&mut dom, cont, 800.0, 0.0, 0.0, &font_db, 0);
+
+    // content height = 200 - 15 - 15 - 5 - 5 = 160
+    assert!((lb.content.height - 160.0).abs() < f32::EPSILON);
+}

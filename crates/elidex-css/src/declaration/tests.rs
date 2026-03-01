@@ -643,3 +643,90 @@ fn parse_var_in_line_height() {
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].value, CssValue::Var("--lh".into(), None));
 }
+
+// --- M3-2: Box model property tests ---
+
+#[test]
+fn parse_box_sizing_content_box() {
+    let decls = parse_single("box-sizing", "content-box");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "box-sizing");
+    assert_eq!(decls[0].value, CssValue::Keyword("content-box".into()));
+}
+
+#[test]
+fn parse_box_sizing_border_box() {
+    let decls = parse_single("box-sizing", "border-box");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("border-box".into()));
+}
+
+#[test]
+fn parse_box_sizing_invalid() {
+    let decls = parse_single("box-sizing", "padding-box");
+    assert!(decls.is_empty());
+}
+
+#[test]
+fn parse_border_radius_zero() {
+    let decls = parse_single("border-radius", "0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "border-radius");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_border_radius_px() {
+    let decls = parse_single("border-radius", "5px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Length(5.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_border_radius_percentage_rejected() {
+    // Percentages are rejected in Phase 3 — resolution requires box dimensions.
+    let decls = parse_single("border-radius", "50%");
+    assert!(decls.is_empty());
+}
+
+#[test]
+fn parse_border_radius_negative_rejected() {
+    let decls = parse_single("border-radius", "-5px");
+    assert!(decls.is_empty());
+}
+
+#[test]
+fn parse_opacity_zero() {
+    let decls = parse_single("opacity", "0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "opacity");
+    assert_eq!(decls[0].value, CssValue::Number(0.0));
+}
+
+#[test]
+fn parse_opacity_half() {
+    let decls = parse_single("opacity", "0.5");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Number(0.5));
+}
+
+#[test]
+fn parse_opacity_one() {
+    let decls = parse_single("opacity", "1");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Number(1.0));
+}
+
+#[test]
+fn parse_opacity_clamp_negative() {
+    let decls = parse_single("opacity", "-0.5");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Number(0.0));
+}
+
+#[test]
+fn parse_opacity_clamp_above_one() {
+    let decls = parse_single("opacity", "1.5");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Number(1.0));
+}

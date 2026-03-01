@@ -274,6 +274,23 @@ impl fmt::Display for LineHeight {
     }
 }
 
+/// The CSS `box-sizing` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum BoxSizing {
+    #[default]
+    ContentBox,
+    BorderBox,
+}
+
+impl AsRef<str> for BoxSizing {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::ContentBox => "content-box",
+            Self::BorderBox => "border-box",
+        }
+    }
+}
+
 /// The CSS `border-*-style` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum BorderStyle {
@@ -310,6 +327,7 @@ display_via_as_ref!(
     Display,
     Position,
     BorderStyle,
+    BoxSizing,
     FlexDirection,
     FlexWrap,
     JustifyContent,
@@ -412,6 +430,14 @@ pub struct ComputedStyle {
     /// Text decoration line. Initial: none.
     pub text_decoration_line: TextDecorationLine,
 
+    // --- Box model (non-inherited) ---
+    /// Box sizing model. Initial: content-box.
+    pub box_sizing: BoxSizing,
+    /// Border radius (uniform, all corners) in pixels. Initial: 0.0.
+    pub border_radius: f32,
+    /// Opacity (0.0–1.0). Initial: 1.0.
+    pub opacity: f32,
+
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
     pub flex_direction: FlexDirection,
@@ -494,6 +520,11 @@ impl Default for ComputedStyle {
 
             // Text decoration (non-inherited)
             text_decoration_line: TextDecorationLine::default(),
+
+            // Box model
+            box_sizing: BoxSizing::default(),
+            border_radius: 0.0,
+            opacity: 1.0,
 
             // Flex container
             flex_direction: FlexDirection::default(),
@@ -636,5 +667,24 @@ mod tests {
         assert_eq!(s.line_height, LineHeight::Normal);
         assert_eq!(s.text_transform, TextTransform::None);
         assert_eq!(s.text_decoration_line, TextDecorationLine::default());
+    }
+
+    // --- M3-2: Box model types ---
+
+    #[test]
+    fn box_sizing_defaults_and_as_ref() {
+        assert_eq!(BoxSizing::default(), BoxSizing::ContentBox);
+        assert_eq!(BoxSizing::ContentBox.as_ref(), "content-box");
+        assert_eq!(BoxSizing::BorderBox.as_ref(), "border-box");
+        assert_eq!(BoxSizing::ContentBox.to_string(), "content-box");
+        assert_eq!(BoxSizing::BorderBox.to_string(), "border-box");
+    }
+
+    #[test]
+    fn computed_style_box_model_defaults() {
+        let s = ComputedStyle::default();
+        assert_eq!(s.box_sizing, BoxSizing::ContentBox);
+        assert!((s.border_radius - 0.0).abs() < f32::EPSILON);
+        assert!((s.opacity - 1.0).abs() < f32::EPSILON);
     }
 }

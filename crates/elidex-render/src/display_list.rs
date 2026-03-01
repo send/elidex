@@ -30,6 +30,15 @@ pub enum DisplayItem {
         /// The fill color.
         color: CssColor,
     },
+    /// Fill a rounded rectangle with a solid color.
+    RoundedRect {
+        /// The rectangle to fill.
+        rect: Rect,
+        /// Uniform corner radius in pixels.
+        radius: f32,
+        /// The fill color.
+        color: CssColor,
+    },
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.

@@ -148,6 +148,21 @@ pub(crate) fn build_scene(
                     &vello_rect,
                 );
             }
+            DisplayItem::RoundedRect {
+                rect,
+                radius,
+                color,
+            } => {
+                let vello_rect = VelloRect::new(
+                    f64::from(rect.x),
+                    f64::from(rect.y),
+                    f64::from(rect.x + rect.width),
+                    f64::from(rect.y + rect.height),
+                );
+                let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
+                let vello_color = convert_color(*color);
+                scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
+            }
             DisplayItem::Text {
                 glyphs,
                 font_blob,
@@ -213,5 +228,23 @@ mod tests {
         }]);
         build_scene(&mut scene, &dl, &mut fc);
         // Scene contains data (encoding is non-empty).
+    }
+
+    #[test]
+    fn rounded_rect_builds_scene() {
+        let mut scene = Scene::new();
+        let mut fc = HashMap::new();
+        let dl = DisplayList(vec![DisplayItem::RoundedRect {
+            rect: Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            radius: 8.0,
+            color: CssColor::BLUE,
+        }]);
+        build_scene(&mut scene, &dl, &mut fc);
+        // Should not panic — smoke test.
     }
 }
