@@ -171,22 +171,23 @@ pub(crate) fn build_computed_style(
 ) -> ComputedStyle {
     let mut style = ComputedStyle::default();
 
-    // Phase 1: resolve font-size (needed by em units in other properties).
+    // --- Font properties (inherit by default) ---
+    // Font-size must be resolved first: em units in all other properties depend on it.
     let element_font_size = resolve_font_size(winners, parent_style, ctx);
     style.font_size = element_font_size;
-
-    // Create an element-level context with the resolved font-size.
     let elem_ctx = ctx.with_em_base(element_font_size);
-
-    // Phase 2: resolve color (needed by currentcolor).
-    style.color = resolve_color(winners, parent_style);
-
-    // Phase 3: resolve all other properties.
     resolve_font_family(&mut style, winners, parent_style);
+
+    // --- Color properties ---
+    // Color must precede border-color (initial = currentcolor) and background-color.
+    style.color = resolve_color(winners, parent_style);
+    resolve_background_color(&mut style, winners, parent_style);
+
+    // --- Display & positioning ---
     resolve_display(&mut style, winners, parent_style);
     resolve_position(&mut style, winners, parent_style);
-    resolve_background_color(&mut style, winners, parent_style);
-    // Dimension properties (width/height/margin).
+
+    // --- Box model: dimensions, margin, padding ---
     let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
     resolve_prop("width", winners, parent_style, dim, |d| style.width = d);
     resolve_prop("height", winners, parent_style, dim, |d| {
@@ -203,8 +204,6 @@ pub(crate) fn build_computed_style(
     ] {
         resolve_prop(prop, winners, parent_style, dim, |d| setter(&mut style, d));
     }
-
-    // Padding properties.
     let px = |v: &CssValue| resolve_to_px(v, &elem_ctx);
     for (prop, setter) in [
         (
@@ -218,46 +217,41 @@ pub(crate) fn build_computed_style(
         resolve_prop(prop, winners, parent_style, px, |v| setter(&mut style, v));
     }
 
-    // Border styles must be resolved before border widths (width = 0 when style = none).
-    let bs = |v: &CssValue| resolve_border_style_value(v);
-    for (prop, setter) in [
-        (
-            "border-top-style",
-            (|s: &mut ComputedStyle, v| s.border_top_style = v)
-                as fn(&mut ComputedStyle, BorderStyle),
-        ),
-        ("border-right-style", |s, v| s.border_right_style = v),
-        ("border-bottom-style", |s, v| s.border_bottom_style = v),
-        ("border-left-style", |s, v| s.border_left_style = v),
-    ] {
-        resolve_prop(prop, winners, parent_style, bs, |v| setter(&mut style, v));
-    }
-
-    // Border widths (special: 0 when style = none).
-    for prop in &[
-        "border-top-width",
-        "border-right-width",
-        "border-bottom-width",
-        "border-left-width",
-    ] {
-        resolve_border_width_prop(&mut style, prop, winners, parent_style, &elem_ctx);
-    }
-
-    // Border colors (initial = currentcolor).
-    let current_color = style.color;
-    for prop in &[
-        "border-top-color",
-        "border-right-color",
-        "border-bottom-color",
-        "border-left-color",
-    ] {
-        resolve_border_color_prop(&mut style, prop, winners, parent_style, current_color);
-    }
+    // --- Border properties (style → width → color) ---
+    resolve_border_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // --- Flex properties ---
     resolve_flex_properties(&mut style, winners, parent_style, dim);
 
     style
+}
+
+/// Resolve a CSS keyword property to its corresponding enum variant.
+///
+/// Matches the keyword string from a `CssValue::Keyword` against a list of
+/// `(keyword_str, EnumVariant)` pairs via `$parser`, falling back to the
+/// enum's `Default` if no match. The result is assigned to `$field` only
+/// when the property is present in the cascade winners.
+///
+/// # Example
+///
+/// ```ignore
+/// resolve_keyword_enum_prop!(
+///     "display", winners, parent_style, style.display,
+///     |k| match k {
+///         "none" => Some(Display::None),
+///         "inline" => Some(Display::Inline),
+///         "flex" => Some(Display::Flex),
+///         _ => None,
+///     }
+/// );
+/// ```
+macro_rules! resolve_keyword_enum_prop {
+    ($prop:expr, $winners:expr, $parent:expr, $field:expr, $parser:expr) => {
+        if let Some(val) = resolve_keyword_enum($prop, $winners, $parent, $parser) {
+            $field = val;
+        }
+    };
 }
 
 /// Resolve all flex-related properties.
@@ -267,66 +261,7 @@ fn resolve_flex_properties(
     parent_style: &ComputedStyle,
     dim: impl Fn(&CssValue) -> Dimension,
 ) {
-    if let Some(d) = resolve_keyword_enum("flex-direction", winners, parent_style, |k| match k {
-        "row" => Some(FlexDirection::Row),
-        "row-reverse" => Some(FlexDirection::RowReverse),
-        "column" => Some(FlexDirection::Column),
-        "column-reverse" => Some(FlexDirection::ColumnReverse),
-        _ => None,
-    }) {
-        style.flex_direction = d;
-    }
-    if let Some(w) = resolve_keyword_enum("flex-wrap", winners, parent_style, |k| match k {
-        "nowrap" => Some(FlexWrap::Nowrap),
-        "wrap" => Some(FlexWrap::Wrap),
-        "wrap-reverse" => Some(FlexWrap::WrapReverse),
-        _ => None,
-    }) {
-        style.flex_wrap = w;
-    }
-    if let Some(j) = resolve_keyword_enum("justify-content", winners, parent_style, |k| match k {
-        "flex-start" => Some(JustifyContent::FlexStart),
-        "flex-end" => Some(JustifyContent::FlexEnd),
-        "center" => Some(JustifyContent::Center),
-        "space-between" => Some(JustifyContent::SpaceBetween),
-        "space-around" => Some(JustifyContent::SpaceAround),
-        "space-evenly" => Some(JustifyContent::SpaceEvenly),
-        _ => None,
-    }) {
-        style.justify_content = j;
-    }
-    if let Some(a) = resolve_keyword_enum("align-items", winners, parent_style, |k| match k {
-        "stretch" => Some(AlignItems::Stretch),
-        "flex-start" => Some(AlignItems::FlexStart),
-        "flex-end" => Some(AlignItems::FlexEnd),
-        "center" => Some(AlignItems::Center),
-        "baseline" => Some(AlignItems::Baseline),
-        _ => None,
-    }) {
-        style.align_items = a;
-    }
-    if let Some(a) = resolve_keyword_enum("align-content", winners, parent_style, |k| match k {
-        "stretch" => Some(AlignContent::Stretch),
-        "flex-start" => Some(AlignContent::FlexStart),
-        "flex-end" => Some(AlignContent::FlexEnd),
-        "center" => Some(AlignContent::Center),
-        "space-between" => Some(AlignContent::SpaceBetween),
-        "space-around" => Some(AlignContent::SpaceAround),
-        _ => None,
-    }) {
-        style.align_content = a;
-    }
-    if let Some(a) = resolve_keyword_enum("align-self", winners, parent_style, |k| match k {
-        "auto" => Some(AlignSelf::Auto),
-        "stretch" => Some(AlignSelf::Stretch),
-        "flex-start" => Some(AlignSelf::FlexStart),
-        "flex-end" => Some(AlignSelf::FlexEnd),
-        "center" => Some(AlignSelf::Center),
-        "baseline" => Some(AlignSelf::Baseline),
-        _ => None,
-    }) {
-        style.align_self = a;
-    }
+    resolve_flex_keyword_enums(style, winners, parent_style);
 
     resolve_prop(
         "flex-grow",
@@ -351,6 +286,98 @@ fn resolve_flex_properties(
         parent_style,
         |v| resolve_i32(v, 0),
         |v| style.order = v,
+    );
+}
+
+/// Resolve flex keyword-enum properties (direction, wrap, alignment).
+fn resolve_flex_keyword_enums(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    resolve_keyword_enum_prop!(
+        "flex-direction",
+        winners,
+        parent_style,
+        style.flex_direction,
+        |k| match k {
+            "row" => Some(FlexDirection::Row),
+            "row-reverse" => Some(FlexDirection::RowReverse),
+            "column" => Some(FlexDirection::Column),
+            "column-reverse" => Some(FlexDirection::ColumnReverse),
+            _ => None,
+        }
+    );
+    resolve_keyword_enum_prop!(
+        "flex-wrap",
+        winners,
+        parent_style,
+        style.flex_wrap,
+        |k| match k {
+            "nowrap" => Some(FlexWrap::Nowrap),
+            "wrap" => Some(FlexWrap::Wrap),
+            "wrap-reverse" => Some(FlexWrap::WrapReverse),
+            _ => None,
+        }
+    );
+    resolve_keyword_enum_prop!(
+        "justify-content",
+        winners,
+        parent_style,
+        style.justify_content,
+        |k| match k {
+            "flex-start" => Some(JustifyContent::FlexStart),
+            "flex-end" => Some(JustifyContent::FlexEnd),
+            "center" => Some(JustifyContent::Center),
+            "space-between" => Some(JustifyContent::SpaceBetween),
+            "space-around" => Some(JustifyContent::SpaceAround),
+            "space-evenly" => Some(JustifyContent::SpaceEvenly),
+            _ => None,
+        }
+    );
+    resolve_keyword_enum_prop!(
+        "align-items",
+        winners,
+        parent_style,
+        style.align_items,
+        |k| match k {
+            "stretch" => Some(AlignItems::Stretch),
+            "flex-start" => Some(AlignItems::FlexStart),
+            "flex-end" => Some(AlignItems::FlexEnd),
+            "center" => Some(AlignItems::Center),
+            "baseline" => Some(AlignItems::Baseline),
+            _ => None,
+        }
+    );
+    resolve_keyword_enum_prop!(
+        "align-content",
+        winners,
+        parent_style,
+        style.align_content,
+        |k| match k {
+            "stretch" => Some(AlignContent::Stretch),
+            "flex-start" => Some(AlignContent::FlexStart),
+            "flex-end" => Some(AlignContent::FlexEnd),
+            "center" => Some(AlignContent::Center),
+            "space-between" => Some(AlignContent::SpaceBetween),
+            "space-around" => Some(AlignContent::SpaceAround),
+            _ => None,
+        }
+    );
+    resolve_keyword_enum_prop!(
+        "align-self",
+        winners,
+        parent_style,
+        style.align_self,
+        |k| match k {
+            "auto" => Some(AlignSelf::Auto),
+            "stretch" => Some(AlignSelf::Stretch),
+            "flex-start" => Some(AlignSelf::FlexStart),
+            "flex-end" => Some(AlignSelf::FlexEnd),
+            "center" => Some(AlignSelf::Center),
+            "baseline" => Some(AlignSelf::Baseline),
+            _ => None,
+        }
     );
 }
 
@@ -445,17 +472,21 @@ fn resolve_display(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    if let Some(d) = resolve_keyword_enum("display", winners, parent_style, |k| match k {
-        "block" => Some(Display::Block),
-        "inline" => Some(Display::Inline),
-        "inline-block" => Some(Display::InlineBlock),
-        "none" => Some(Display::None),
-        "flex" => Some(Display::Flex),
-        "inline-flex" => Some(Display::InlineFlex),
-        _ => None,
-    }) {
-        style.display = d;
-    }
+    resolve_keyword_enum_prop!(
+        "display",
+        winners,
+        parent_style,
+        style.display,
+        |k| match k {
+            "block" => Some(Display::Block),
+            "inline" => Some(Display::Inline),
+            "inline-block" => Some(Display::InlineBlock),
+            "none" => Some(Display::None),
+            "flex" => Some(Display::Flex),
+            "inline-flex" => Some(Display::InlineFlex),
+            _ => None,
+        }
+    );
 }
 
 fn resolve_position(
@@ -463,15 +494,19 @@ fn resolve_position(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    if let Some(p) = resolve_keyword_enum("position", winners, parent_style, |k| match k {
-        "static" => Some(Position::Static),
-        "relative" => Some(Position::Relative),
-        "absolute" => Some(Position::Absolute),
-        "fixed" => Some(Position::Fixed),
-        _ => None,
-    }) {
-        style.position = p;
-    }
+    resolve_keyword_enum_prop!(
+        "position",
+        winners,
+        parent_style,
+        style.position,
+        |k| match k {
+            "static" => Some(Position::Static),
+            "relative" => Some(Position::Relative),
+            "absolute" => Some(Position::Absolute),
+            "fixed" => Some(Position::Fixed),
+            _ => None,
+        }
+    );
 }
 
 fn resolve_background_color(
@@ -563,6 +598,52 @@ fn set_border_color(style: &mut ComputedStyle, prop: &str, color: CssColor) {
         "border-right-color" => style.border_right_color = color,
         "border-bottom-color" => style.border_bottom_color = color,
         "border-left-color" => style.border_left_color = color,
+        _ => {}
+    }
+}
+
+/// Resolve all border properties (style, width, color) for all four sides.
+///
+/// Resolution order: style first (width depends on style being none), then
+/// width, then color. Each group iterates over top/right/bottom/left.
+fn resolve_border_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
+
+    // Border styles must be resolved before border widths (width = 0 when style = none).
+    let bs = |v: &CssValue| resolve_border_style_value(v);
+    for side in &SIDES {
+        let prop = format!("border-{side}-style");
+        resolve_prop(&prop, winners, parent_style, bs, |v| {
+            set_border_style(style, side, v);
+        });
+    }
+
+    // Border widths (special: 0 when style = none).
+    for side in &SIDES {
+        let prop = format!("border-{side}-width");
+        resolve_border_width_prop(style, &prop, winners, parent_style, ctx);
+    }
+
+    // Border colors (initial = currentcolor).
+    let current_color = style.color;
+    for side in &SIDES {
+        let prop = format!("border-{side}-color");
+        resolve_border_color_prop(style, &prop, winners, parent_style, current_color);
+    }
+}
+
+/// Set a border-style field by side name.
+fn set_border_style(style: &mut ComputedStyle, side: &str, value: BorderStyle) {
+    match side {
+        "top" => style.border_top_style = value,
+        "right" => style.border_right_style = value,
+        "bottom" => style.border_bottom_style = value,
+        "left" => style.border_left_style = value,
         _ => {}
     }
 }

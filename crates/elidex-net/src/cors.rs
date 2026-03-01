@@ -75,6 +75,9 @@ pub fn validate_cors(
 ///
 /// Format: `scheme://host:port` with port always included (using known
 /// defaults for http/https), and IPv6 addresses wrapped in brackets.
+///
+/// Note: `port_or_known_default()` returns 0 for non-http/https schemes,
+/// but CORS is only meaningful for http/https origins, so this is fine.
 fn build_origin(url: &url::Url) -> String {
     let scheme = url.scheme();
     let host = url.host_str().unwrap_or("");

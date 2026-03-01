@@ -269,14 +269,18 @@ fn parse_rgb_function(input: &mut Parser) -> Result<CssColor, ()> {
     Ok(CssColor::new(r, g, b, a))
 }
 
-/// Parse a single color component (0–255 integer or percentage).
-fn parse_color_component(input: &mut Parser) -> Result<u8, ()> {
+fn parse_component(input: &mut Parser, scale_number: f32) -> Result<u8, ()> {
     let token = input.next().map_err(|_| ())?;
     match *token {
-        cssparser::Token::Number { value, .. } => Ok(clamp_u8(value)),
+        cssparser::Token::Number { value, .. } => Ok(clamp_u8(value * scale_number)),
         cssparser::Token::Percentage { unit_value, .. } => Ok(clamp_u8(unit_value * 255.0)),
         _ => Err(()),
     }
+}
+
+/// Parse a single color component (0–255 integer or percentage).
+fn parse_color_component(input: &mut Parser) -> Result<u8, ()> {
+    parse_component(input, 1.0)
 }
 
 /// Parse an alpha component.
@@ -284,12 +288,7 @@ fn parse_color_component(input: &mut Parser) -> Result<u8, ()> {
 /// Per CSS Color Level 4, alpha is a `<number>` in `[0, 1]` or a `<percentage>`.
 /// Out-of-range values are clamped.
 fn parse_alpha_component(input: &mut Parser) -> Result<u8, ()> {
-    let token = input.next().map_err(|_| ())?;
-    match *token {
-        cssparser::Token::Number { value, .. } => Ok(clamp_u8(value * 255.0)),
-        cssparser::Token::Percentage { unit_value, .. } => Ok(clamp_u8(unit_value * 255.0)),
-        _ => Err(()),
-    }
+    parse_component(input, 255.0)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

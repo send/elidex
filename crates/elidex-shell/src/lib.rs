@@ -10,17 +10,21 @@
 //! ```
 
 mod app;
+pub(crate) mod chrome;
 mod gpu;
 pub(crate) mod key_map;
+
+use std::rc::Rc;
 
 use elidex_css::{parse_stylesheet, Origin, Stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js::{extract_scripts, FetchHandle, JsRuntime};
+use elidex_js::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
+use elidex_net::FetchHandle;
 use elidex_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
-use elidex_script_session::SessionCore;
+use elidex_script_session::{DispatchEvent, SessionCore};
 use elidex_style::resolve_styles;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
@@ -76,7 +80,7 @@ pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
     let scripts = extract_scripts(&dom, document);
     if !scripts.is_empty() {
         let mut session = SessionCore::new();
-        let fetch_handle = FetchHandle::new(elidex_net::NetClient::new());
+        let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
         let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
 
         for script in &scripts {
@@ -89,6 +93,10 @@ pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
         runtime.drain_timers(&mut session, &mut dom, document);
 
         // Flush any buffered mutations from the session to the DOM.
+        session.flush(&mut dom);
+
+        // Dispatch lifecycle events.
+        dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
         session.flush(&mut dom);
 
         // Re-resolve styles after DOM mutations from scripts.
@@ -125,10 +133,14 @@ pub struct PipelineResult {
     pub session: SessionCore,
     /// The JavaScript runtime.
     pub runtime: JsRuntime,
-    /// The parsed CSS stylesheet.
-    pub stylesheet: Stylesheet,
-    /// The font database.
-    pub font_db: FontDatabase,
+    /// All parsed CSS stylesheets.
+    pub stylesheets: Vec<Stylesheet>,
+    /// The font database (shared across navigations to avoid re-scanning).
+    pub font_db: Rc<FontDatabase>,
+    /// The URL of the current page, if loaded from a URL.
+    pub url: Option<url::Url>,
+    /// Shared fetch handle (for cookie sharing across navigation).
+    pub fetch_handle: Rc<FetchHandle>,
 }
 
 /// Execute the rendering pipeline and return all state for interactive use.
@@ -145,12 +157,13 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let mut dom = parse_result.dom;
     let document = parse_result.document;
 
-    let stylesheet = parse_stylesheet(css, Origin::Author);
+    let stylesheets = vec![parse_stylesheet(css, Origin::Author)];
+    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution.
     resolve_styles(
         &mut dom,
-        &[&stylesheet],
+        &stylesheet_refs,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
     );
@@ -158,8 +171,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     // Script execution phase.
     let scripts = extract_scripts(&dom, document);
     let mut session = SessionCore::new();
-    let fetch_handle = FetchHandle::new(elidex_net::NetClient::new());
-    let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
+    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
+    let mut runtime = JsRuntime::with_fetch(Some(Rc::clone(&fetch_handle)));
 
     for script in &scripts {
         runtime.eval(&script.source, &mut session, &mut dom, document);
@@ -167,15 +180,19 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     runtime.drain_timers(&mut session, &mut dom, document);
     session.flush(&mut dom);
 
+    // Dispatch lifecycle events.
+    dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
+    session.flush(&mut dom);
+
     // Re-resolve styles after DOM mutations from scripts.
     resolve_styles(
         &mut dom,
-        &[&stylesheet],
+        &stylesheet_refs,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
     );
 
-    let font_db = FontDatabase::new();
+    let font_db = Rc::new(FontDatabase::new());
     layout_tree(
         &mut dom,
         DEFAULT_VIEWPORT_WIDTH,
@@ -191,18 +208,49 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         document,
         session,
         runtime,
-        stylesheet,
+        stylesheets,
         font_db,
+        url: None,
+        fetch_handle,
     }
+}
+
+/// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.
+///
+/// Per the HTML spec:
+/// - `DOMContentLoaded` fires after HTML parsing and script execution complete.
+/// - `load` fires after all sub-resources (stylesheets, images) have loaded.
+///
+/// Both events bubble but are not cancelable.
+fn dispatch_lifecycle_events(
+    runtime: &mut JsRuntime,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+) {
+    // DOMContentLoaded: bubbles, not cancelable.
+    let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
+    dcl_event.cancelable = false;
+    runtime.dispatch_event(&mut dcl_event, session, dom, document);
+
+    // Flush mutations from DOMContentLoaded handlers before dispatching load.
+    session.flush(dom);
+
+    // load: does NOT bubble (spec), not cancelable.
+    let mut load_event = DispatchEvent::new("load", document);
+    load_event.bubbles = false;
+    load_event.cancelable = false;
+    runtime.dispatch_event(&mut load_event, session, dom, document);
 }
 
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
 pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
+    let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
     resolve_styles(
         &mut result.dom,
-        &[&result.stylesheet],
+        &stylesheet_refs,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
     );
@@ -217,12 +265,118 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.display_list = build_display_list(&result.dom, &result.font_db);
 }
 
+/// Build a pipeline from a pre-loaded document (from [`elidex_navigation::load_document`]).
+///
+/// Merges all stylesheets, executes all scripts in document order,
+/// resolves styles, computes layout, and builds the display list.
+pub fn build_pipeline_from_loaded(
+    loaded: elidex_navigation::LoadedDocument,
+    fetch_handle: Rc<FetchHandle>,
+    font_db: Rc<FontDatabase>,
+) -> PipelineResult {
+    let elidex_navigation::LoadedDocument {
+        mut dom,
+        document,
+        stylesheets,
+        scripts,
+        url,
+    } = loaded;
+
+    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
+
+    // Initial style resolution.
+    resolve_styles(
+        &mut dom,
+        &stylesheet_refs,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    // Script execution phase.
+    let mut session = SessionCore::new();
+    let mut runtime = JsRuntime::with_fetch(Some(Rc::clone(&fetch_handle)));
+
+    // Set the current URL on the bridge so window.location works in scripts.
+    runtime.set_current_url(Some(url.clone()));
+
+    for script in &scripts {
+        runtime.eval(&script.source, &mut session, &mut dom, document);
+    }
+    runtime.drain_timers(&mut session, &mut dom, document);
+    session.flush(&mut dom);
+
+    // Dispatch lifecycle events.
+    dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
+    session.flush(&mut dom);
+
+    // Re-resolve styles after DOM mutations from scripts.
+    resolve_styles(
+        &mut dom,
+        &stylesheet_refs,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    layout_tree(
+        &mut dom,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+        &font_db,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+
+    PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: Some(url),
+        fetch_handle,
+    }
+}
+
+/// Build a pipeline from a URL.
+///
+/// Creates a `FetchHandle`, loads the document, and runs the full pipeline.
+pub fn build_pipeline_from_url(
+    url: &url::Url,
+) -> Result<PipelineResult, elidex_navigation::LoadError> {
+    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
+    let loaded = elidex_navigation::load_document(url, &fetch_handle)?;
+    let font_db = Rc::new(FontDatabase::new());
+    Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
+}
+
+/// Run the browser from a URL string, opening a window.
+///
+/// Parses the URL, fetches the page and its resources, executes scripts,
+/// renders the result, and runs the event loop.
+///
+/// This function blocks until the window is closed.
+pub fn run_url(url_str: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let url = url::Url::parse(url_str)
+        .map_err(|e| elidex_navigation::LoadError::InvalidUrl(format!("{url_str}: {e}")))?;
+    let pipeline_result = build_pipeline_from_url(&url)?;
+
+    // Set the window title to the URL.
+    let title = format!("elidex \u{2014} {url}");
+
+    let event_loop = EventLoop::new()?;
+    let mut app = App::new_interactive_with_url(pipeline_result, title);
+    event_loop.run_app(&mut app)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use elidex_plugin::{EventPayload, MouseEventInit};
     use elidex_render::DisplayItem;
-    use elidex_script_session::DispatchEvent;
 
     #[test]
     fn build_pipeline_interactive_returns_all_fields() {
@@ -563,5 +717,138 @@ mod tests {
             );
             re_render(&mut result);
         }
+    }
+
+    // --- Lifecycle event tests ---
+
+    #[test]
+    fn domcontentloaded_fires() {
+        // DOMContentLoaded listener should fire during pipeline build.
+        let result = build_pipeline_interactive(
+            "<div id=\"target\">Before</div>\
+             <script>\
+               document.addEventListener('DOMContentLoaded', function() {\
+                 document.getElementById('target').textContent = 'DCL fired';\
+               });\
+             </script>",
+            "",
+        );
+        // The listener should have been invoked during build.
+        let messages = result.runtime.console_output().messages();
+        // Check the DOM — textContent should have been changed.
+        let divs = result.dom.query_by_tag("div");
+        let target = divs.iter().find(|&&e| {
+            result
+                .dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(e)
+                .ok()
+                .is_some_and(|a| a.get("id") == Some("target"))
+        });
+        if let Some(&target_entity) = target {
+            let text_child = result.dom.get_first_child(target_entity);
+            if let Some(tc) = text_child {
+                let text = result
+                    .dom
+                    .world()
+                    .get::<&elidex_ecs::TextContent>(tc)
+                    .map(|t| t.0.clone())
+                    .unwrap_or_default();
+                assert_eq!(text, "DCL fired");
+            }
+        }
+        let _ = messages;
+    }
+
+    #[test]
+    fn load_event_fires() {
+        // load listener should fire during pipeline build.
+        let result = build_pipeline_interactive(
+            "<div id=\"target\">Before</div>\
+             <script>\
+               document.addEventListener('load', function() {\
+                 document.getElementById('target').textContent = 'loaded';\
+               });\
+             </script>",
+            "",
+        );
+        let divs = result.dom.query_by_tag("div");
+        let target = divs.iter().find(|&&e| {
+            result
+                .dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(e)
+                .ok()
+                .is_some_and(|a| a.get("id") == Some("target"))
+        });
+        if let Some(&target_entity) = target {
+            let text_child = result.dom.get_first_child(target_entity);
+            if let Some(tc) = text_child {
+                let text = result
+                    .dom
+                    .world()
+                    .get::<&elidex_ecs::TextContent>(tc)
+                    .map(|t| t.0.clone())
+                    .unwrap_or_default();
+                assert_eq!(text, "loaded");
+            }
+        }
+    }
+
+    #[test]
+    fn domcontentloaded_fires_before_load() {
+        // DOMContentLoaded should fire before load.
+        let result = build_pipeline_interactive(
+            "<script>\
+               var order = [];\
+               document.addEventListener('DOMContentLoaded', function() {\
+                 order.push('dcl');\
+               });\
+               document.addEventListener('load', function() {\
+                 order.push('load');\
+               });\
+             </script>",
+            "",
+        );
+        // Check that both events fired in the right order via console.
+        // We need to read the `order` variable.
+        // Use a follow-up eval to check.
+        let mut session = result.session;
+        let mut dom = result.dom;
+        let mut runtime = result.runtime;
+        runtime.eval(
+            "console.log('order=' + order.join(','));",
+            &mut session,
+            &mut dom,
+            result.document,
+        );
+        let messages = runtime.console_output().messages();
+        assert!(
+            messages.iter().any(|m| m.1.contains("order=dcl,load")),
+            "Expected DOMContentLoaded before load, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn lifecycle_events_not_cancelable() {
+        // preventDefault() on lifecycle events should not prevent them.
+        let result = build_pipeline_interactive(
+            "<script>\
+               var prevented = false;\
+               document.addEventListener('DOMContentLoaded', function(e) {\
+                 e.preventDefault();\
+                 prevented = e.defaultPrevented;\
+                 console.log('dcl-prevented=' + prevented);\
+               });\
+             </script>",
+            "",
+        );
+        let messages = result.runtime.console_output().messages();
+        // DOMContentLoaded is not cancelable, so preventDefault should have no effect.
+        // The `defaultPrevented` property should remain false.
+        assert!(
+            messages.iter().any(|m| m.1.contains("dcl-prevented=false")),
+            "DOMContentLoaded should not be cancelable, got: {messages:?}"
+        );
     }
 }

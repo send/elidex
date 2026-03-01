@@ -65,18 +65,8 @@ impl From<elidex_plugin::NetworkError> for NetError {
             elidex_plugin::NetworkErrorKind::Timeout => NetErrorKind::Timeout,
             elidex_plugin::NetworkErrorKind::DnsFailure => NetErrorKind::DnsFailure,
             elidex_plugin::NetworkErrorKind::TlsFailure => NetErrorKind::TlsFailure,
-            _ => {
-                // Detect SSRF-related errors from validate_url()
-                let msg_lower = err.message.to_ascii_lowercase();
-                if msg_lower.contains("blocked private")
-                    || msg_lower.contains("unsupported url scheme")
-                    || msg_lower.contains("url has no host")
-                {
-                    NetErrorKind::SsrfBlocked
-                } else {
-                    NetErrorKind::Other
-                }
-            }
+            elidex_plugin::NetworkErrorKind::SsrfBlocked => NetErrorKind::SsrfBlocked,
+            _ => NetErrorKind::Other,
         };
         Self::new(kind, err.message)
     }
@@ -174,7 +164,7 @@ mod tests {
     #[test]
     fn net_error_from_plugin_ssrf_error() {
         let plugin_err = elidex_plugin::NetworkError {
-            kind: elidex_plugin::NetworkErrorKind::Other,
+            kind: elidex_plugin::NetworkErrorKind::SsrfBlocked,
             message: "blocked private IP: 10.0.0.1".into(),
         };
         let err: NetError = plugin_err.into();
@@ -184,7 +174,7 @@ mod tests {
     #[test]
     fn net_error_from_plugin_scheme_error() {
         let plugin_err = elidex_plugin::NetworkError {
-            kind: elidex_plugin::NetworkErrorKind::Other,
+            kind: elidex_plugin::NetworkErrorKind::SsrfBlocked,
             message: "unsupported URL scheme: ftp".into(),
         };
         let err: NetError = plugin_err.into();

@@ -101,6 +101,14 @@ impl DomApiHandler for GetElementById {
 /// `document.createElement(tagName)` — creates a new element.
 pub struct CreateElement;
 
+/// Validates that a tag name contains only ASCII alphanumeric, `-`, `_`, and `.`.
+fn is_valid_tag_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
 impl DomApiHandler for CreateElement {
     fn method_name(&self) -> &str {
         "createElement"
@@ -114,6 +122,12 @@ impl DomApiHandler for CreateElement {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let tag = require_string_arg(args, 0)?;
+        if !is_valid_tag_name(&tag) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::SyntaxError,
+                message: format!("Invalid tag name: {tag}"),
+            });
+        }
         let entity = dom.create_element(tag.to_ascii_lowercase(), Attributes::default());
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
@@ -153,69 +167,69 @@ impl DomApiHandler for CreateTextNode {
 // DOM tree walk helpers
 // ---------------------------------------------------------------------------
 
-/// Find the first element matching any selector under `root` (pre-order DFS).
-fn find_first_match(root: Entity, selectors: &[Selector], dom: &EcsDom) -> Option<Entity> {
-    let mut stack = Vec::new();
-    // Push children in reverse for correct DFS order.
-    let children = dom.children(root);
+/// Pre-order DFS traversal starting from `root` (excluding root itself).
+/// Calls `visitor` for each entity. The visitor returns `true` to continue, `false` to stop early.
+fn traverse_pre_order(dom: &EcsDom, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
+    let mut stack: Vec<Entity> = Vec::new();
+    // Push children of root in reverse order for correct traversal order.
+    let children: Vec<_> = dom.children_iter(root).collect();
     for child in children.into_iter().rev() {
         stack.push(child);
     }
     while let Some(entity) = stack.pop() {
-        if dom.world().get::<&TagType>(entity).is_ok()
-            && selectors.iter().any(|sel| sel.matches(entity, dom))
-        {
-            return Some(entity);
+        if !visitor(entity) {
+            return;
         }
-        let children = dom.children(entity);
+        let children: Vec<_> = dom.children_iter(entity).collect();
         for child in children.into_iter().rev() {
             stack.push(child);
         }
     }
-    None
+}
+
+/// Find the first element matching any selector under `root` (pre-order DFS).
+fn find_first_match(root: Entity, selectors: &[Selector], dom: &EcsDom) -> Option<Entity> {
+    let mut result = None;
+    traverse_pre_order(dom, root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|sel| sel.matches(entity, dom))
+        {
+            result = Some(entity);
+            false // stop
+        } else {
+            true // continue
+        }
+    });
+    result
 }
 
 /// Find all elements matching any selector under `root` (pre-order DFS).
 fn find_all_matches(root: Entity, selectors: &[Selector], dom: &EcsDom) -> Vec<Entity> {
     let mut result = Vec::new();
-    let mut stack = Vec::new();
-    let children = dom.children(root);
-    for child in children.into_iter().rev() {
-        stack.push(child);
-    }
-    while let Some(entity) = stack.pop() {
+    traverse_pre_order(dom, root, |entity| {
         if dom.world().get::<&TagType>(entity).is_ok()
             && selectors.iter().any(|sel| sel.matches(entity, dom))
         {
             result.push(entity);
         }
-        let children = dom.children(entity);
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
+        true // always continue
+    });
     result
 }
 
 /// Find the first element with a matching `id` attribute under `root`.
 fn find_by_id(root: Entity, id: &str, dom: &EcsDom) -> Option<Entity> {
-    let mut stack = Vec::new();
-    let children = dom.children(root);
-    for child in children.into_iter().rev() {
-        stack.push(child);
-    }
-    while let Some(entity) = stack.pop() {
+    let mut result = None;
+    traverse_pre_order(dom, root, |entity| {
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
             if attrs.get("id") == Some(id) {
-                return Some(entity);
+                result = Some(entity);
+                return false; // stop
             }
         }
-        let children = dom.children(entity);
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-    None
+        true // continue
+    });
+    result
 }
 
 #[cfg(test)]

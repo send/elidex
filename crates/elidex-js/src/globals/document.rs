@@ -154,6 +154,34 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     );
 
+    // document.addEventListener(type, listener, capture?)
+    let b_add_listener = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                crate::globals::add_event_listener_for(doc, args, bridge, ctx)
+            },
+            b_add_listener,
+        ),
+        js_string!("addEventListener"),
+        2,
+    );
+
+    // document.removeEventListener(type, listener, capture?)
+    let b_rm_listener = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                crate::globals::remove_event_listener_for(doc, args, bridge, ctx)
+            },
+            b_rm_listener,
+        ),
+        js_string!("removeEventListener"),
+        2,
+    );
+
     let document = init.build();
     ctx.register_global_property(js_string!("document"), document, Attribute::all())
         .expect("failed to register document");

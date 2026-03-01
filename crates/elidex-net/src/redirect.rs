@@ -26,7 +26,7 @@ use bytes::Bytes;
 /// cookies only from the final response.
 ///
 /// Full per-hop cookie handling requires passing the `CookieJar` into
-/// this function, which is planned for M2-7 (Navigation).
+/// this function, which is a future improvement (Phase 3).
 pub async fn follow_redirects(
     transport: &HttpTransport,
     mut request: Request,
@@ -113,9 +113,9 @@ fn changes_to_get(status: u16) -> bool {
 
 /// Filter headers for redirect — strip sensitive headers on cross-origin.
 ///
-/// Per RFC 9110 §15.4, `Authorization`, `Cookie`, and `Proxy-Authorization`
-/// headers are stripped when the redirect target differs in origin (scheme,
-/// host, or port) from the original request.
+/// Per RFC 9110 §15.4, `Authorization`, `Cookie`, `Proxy-Authorization`,
+/// and `Referer` headers are stripped when the redirect target differs in
+/// origin (scheme, host, or port) from the original request.
 fn filter_headers_for_redirect(
     headers: &[(String, String)],
     original_url: &url::Url,
@@ -129,7 +129,10 @@ fn filter_headers_for_redirect(
         .iter()
         .filter(|(k, _)| {
             let lower = k.to_ascii_lowercase();
-            lower != "authorization" && lower != "cookie" && lower != "proxy-authorization"
+            lower != "authorization"
+                && lower != "cookie"
+                && lower != "proxy-authorization"
+                && lower != "referer"
         })
         .cloned()
         .collect()
@@ -296,6 +299,19 @@ mod tests {
         ];
         let from = url::Url::parse("https://example.com/a").unwrap();
         let to = url::Url::parse("https://attacker.com/b").unwrap();
+        let filtered = filter_headers_for_redirect(&headers, &from, &to);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, "accept");
+    }
+
+    #[test]
+    fn filter_headers_cross_origin_strips_referer() {
+        let headers = vec![
+            ("referer".to_string(), "https://example.com/page".to_string()),
+            ("accept".to_string(), "text/html".to_string()),
+        ];
+        let from = url::Url::parse("https://example.com/a").unwrap();
+        let to = url::Url::parse("https://other.com/b").unwrap();
         let filtered = filter_headers_for_redirect(&headers, &from, &to);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].0, "accept");

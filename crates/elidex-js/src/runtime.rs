@@ -7,8 +7,9 @@ use boa_engine::{Context, JsValue, Source};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::{ComponentKind, DispatchEvent, SessionCore};
 
+use elidex_net::FetchHandle;
+
 use crate::bridge::HostBridge;
-use crate::fetch_handle::FetchHandle;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
 
@@ -41,14 +42,14 @@ impl JsRuntime {
     /// Create a new JS runtime with optional fetch support.
     ///
     /// If `fetch_handle` is `Some`, the `fetch()` global is registered.
-    pub fn with_fetch(fetch_handle: Option<FetchHandle>) -> Self {
+    /// The `Rc<FetchHandle>` is shared with the navigation layer so that
+    /// cookies and connection pools are reused across `fetch()` and navigation.
+    pub fn with_fetch(fetch_handle: Option<Rc<FetchHandle>>) -> Self {
         let bridge = HostBridge::new();
         let console_output = ConsoleOutput::new();
         let timer_queue = TimerQueueHandle::new();
 
         let mut ctx = Context::default();
-
-        let fetch_rc = fetch_handle.map(Rc::new);
 
         // Register globals.
         crate::globals::register_all_globals(
@@ -56,7 +57,7 @@ impl JsRuntime {
             &bridge,
             &console_output,
             &timer_queue,
-            fetch_rc,
+            fetch_handle,
         );
 
         Self {
@@ -211,6 +212,12 @@ impl JsRuntime {
         // Run microtask queue (Promise .then() callbacks) while bridge is bound.
         ctx.run_jobs();
 
+        // Sync flags after microtask queue processing — microtasks may have
+        // called preventDefault() via the shared Rc<Cell> flags.
+        event.default_prevented = prevent_default_flag.get();
+        event.propagation_stopped = stop_propagation_flag.get();
+        event.immediate_propagation_stopped = stop_immediate_flag.get();
+
         event.default_prevented
     }
 
@@ -227,6 +234,28 @@ impl JsRuntime {
     /// Returns a reference to the bridge.
     pub fn bridge(&self) -> &HostBridge {
         &self.bridge
+    }
+
+    // --- Navigation state delegates ---
+
+    /// Set the current page URL on the bridge.
+    pub fn set_current_url(&self, url: Option<url::Url>) {
+        self.bridge.set_current_url(url);
+    }
+
+    /// Take the pending navigation request (if any).
+    pub fn take_pending_navigation(&self) -> Option<elidex_navigation::NavigationRequest> {
+        self.bridge.take_pending_navigation()
+    }
+
+    /// Take the pending history action (if any).
+    pub fn take_pending_history(&self) -> Option<elidex_navigation::HistoryAction> {
+        self.bridge.take_pending_history()
+    }
+
+    /// Set the session history length on the bridge.
+    pub fn set_history_length(&self, len: usize) {
+        self.bridge.set_history_length(len);
     }
 }
 
@@ -254,13 +283,13 @@ mod tests {
     fn add_event_listener_registers_in_ecs() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('click', function() {});
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -277,15 +306,15 @@ mod tests {
     fn remove_event_listener_clears() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var handler = function() {};
             var el = document.querySelector('div');
             el.addEventListener('click', handler);
             el.removeEventListener('click', handler);
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -302,15 +331,15 @@ mod tests {
     fn duplicate_add_event_listener_ignored() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var handler = function() {};
             var el = document.querySelector('div');
             el.addEventListener('click', handler);
             el.addEventListener('click', handler);
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -327,15 +356,15 @@ mod tests {
     fn capture_flag_mismatch_keeps_listener() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var handler = function() {};
             var el = document.querySelector('div');
             el.addEventListener('click', handler, true);
             el.removeEventListener('click', handler, false);
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -352,15 +381,15 @@ mod tests {
     fn dispatch_event_invokes_listener() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('click', function(e) {
                 e.target.textContent = 'clicked';
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -389,15 +418,15 @@ mod tests {
     fn dispatch_event_prevent_default() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('click', function(e) {
                 e.preventDefault();
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -414,30 +443,30 @@ mod tests {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let outer = dom.create_element("div", Attributes::default());
         let inner = dom.create_element("span", Attributes::default());
-        dom.append_child(doc, outer);
-        dom.append_child(outer, inner);
+        let _ = dom.append_child(doc, outer);
+        let _ = dom.append_child(outer, inner);
 
         // Listener on inner that stops propagation.
         runtime.eval(
-            r#"
+            r"
             var inner = document.querySelector('span');
             inner.addEventListener('click', function(e) {
                 e.stopPropagation();
                 console.log('inner-click');
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
         );
         // Register outer listener separately.
         runtime.eval(
-            r#"
+            r"
             var outer = document.querySelector('div');
             outer.addEventListener('click', function(e) {
                 console.log('outer-click');
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -464,15 +493,15 @@ mod tests {
     fn event_mouse_properties() {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('click', function(e) {
                 console.log('x=' + e.clientX + ' y=' + e.clientY);
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -499,15 +528,15 @@ mod tests {
 
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('keydown', function(e) {
                 console.log('key=' + e.key + ' code=' + e.code);
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -533,16 +562,16 @@ mod tests {
         let (mut runtime, mut session, mut dom, doc) = setup();
         let outer = dom.create_element("div", Attributes::default());
         let inner = dom.create_element("span", Attributes::default());
-        dom.append_child(doc, outer);
-        dom.append_child(outer, inner);
+        let _ = dom.append_child(doc, outer);
+        let _ = dom.append_child(outer, inner);
 
         runtime.eval(
-            r#"
+            r"
             var outer = document.querySelector('div');
             outer.addEventListener('click', function(e) {
                 console.log('bubbled');
             });
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -563,10 +592,10 @@ mod tests {
         // during boa's GC cycle (which would happen if Trace is wrong).
         let (mut runtime, mut session, mut dom, doc) = setup();
         let div = dom.create_element("div", Attributes::default());
-        dom.append_child(doc, div);
+        let _ = dom.append_child(doc, div);
 
         runtime.eval(
-            r#"
+            r"
             var el = document.querySelector('div');
             el.addEventListener('click', function() {});
             el.addEventListener('keydown', function() {});
@@ -574,7 +603,7 @@ mod tests {
             for (var i = 0; i < 100; i++) {
                 var obj = { value: i };
             }
-            "#,
+            ",
             &mut session,
             &mut dom,
             doc,
@@ -695,5 +724,78 @@ mod tests {
 
         let result = runtime.eval("1 + 2", &mut session, &mut dom, doc);
         assert!(result.success);
+    }
+
+    // --- document.addEventListener / removeEventListener ---
+
+    #[test]
+    fn document_add_event_listener() {
+        let (mut runtime, mut session, mut dom, doc) = setup();
+
+        runtime.eval(
+            r"
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('dcl-handler');
+            });
+            ",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+
+        let listeners = dom
+            .world()
+            .get::<&elidex_script_session::EventListeners>(doc)
+            .unwrap();
+        assert_eq!(listeners.len(), 1);
+    }
+
+    #[test]
+    fn document_remove_event_listener() {
+        let (mut runtime, mut session, mut dom, doc) = setup();
+
+        runtime.eval(
+            r"
+            var handler = function() {};
+            document.addEventListener('load', handler);
+            document.removeEventListener('load', handler);
+            ",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+
+        let listeners = dom
+            .world()
+            .get::<&elidex_script_session::EventListeners>(doc)
+            .unwrap();
+        assert_eq!(listeners.len(), 0);
+    }
+
+    #[test]
+    fn document_event_listener_dispatch() {
+        let (mut runtime, mut session, mut dom, doc) = setup();
+
+        runtime.eval(
+            r"
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('dcl-fired');
+            });
+            ",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        session.flush(&mut dom);
+
+        let mut event = DispatchEvent::new("DOMContentLoaded", doc);
+        event.cancelable = false;
+        runtime.dispatch_event(&mut event, &mut session, &mut dom, doc);
+
+        let output = runtime.console_output().messages();
+        assert!(
+            output.iter().any(|m| m.1.contains("dcl-fired")),
+            "Expected dcl-fired in console output, got: {output:?}"
+        );
     }
 }

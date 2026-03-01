@@ -124,7 +124,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
                     .first()
                     .map(|v| v.to_number(ctx))
                     .transpose()?
-                    .map_or(0, |n| n as u64);
+                    .map_or(0, |n| n.max(0.0) as u64);
                 timers.borrow_mut().clear_timer(TimerId::from_raw(id));
                 Ok(JsValue::undefined())
             },
@@ -145,7 +145,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
                     .first()
                     .map(|v| v.to_number(ctx))
                     .transpose()?
-                    .map_or(0, |n| n as u64);
+                    .map_or(0, |n| n.max(0.0) as u64);
                 timers.borrow_mut().clear_timer(TimerId::from_raw(id));
                 Ok(JsValue::undefined())
             },
@@ -187,7 +187,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
                     .first()
                     .map(|v| v.to_number(ctx))
                     .transpose()?
-                    .map_or(0, |n| n as u64);
+                    .map_or(0, |n| n.max(0.0) as u64);
                 timers.borrow_mut().clear_timer(TimerId::from_raw(id));
                 Ok(JsValue::undefined())
             },

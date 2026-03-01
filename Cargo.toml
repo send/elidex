@@ -16,6 +16,7 @@ members = [
     "crates/elidex-net",
     "crates/elidex-dom-api",
     "crates/elidex-js",
+    "crates/elidex-navigation",
 ]
 
 [workspace.package]
@@ -71,8 +72,12 @@ elidex-shell = { path = "crates/elidex-shell" }
 elidex-script-session = { path = "crates/elidex-script-session" }
 elidex-dom-api = { path = "crates/elidex-dom-api" }
 elidex-js = { path = "crates/elidex-js" }
+elidex-navigation = { path = "crates/elidex-navigation" }
 boa_engine = { version = "0.20", features = ["annex-b"] }
 boa_gc = "0.20"
+egui = "0.33"
+egui-wgpu = "0.33"
+egui-winit = "0.33"
 vello = "0.7"
 wgpu = "27"
 winit = "0.30"

@@ -1,4 +1,11 @@
 //! Box model property parsers: margin/padding shorthand, border shorthand/width.
+//!
+//! Shorthand expansion patterns:
+//! - `expand_four_sides()`: Generic 1-4 value → 4 longhands (margin, padding). Takes a
+//!   parse function, reuses it for each side.
+//! - `parse_border_shorthand()`: Any-order multi-type (width/style/color in any order)
+//!   → 12 longhands (4 sides x 3 properties).
+//! - `parse_border_width_property()`: Single longhand with keyword fallback (thin/medium/thick).
 
 use cssparser::Parser;
 use elidex_plugin::{CssValue, LengthUnit};
@@ -6,7 +13,7 @@ use elidex_plugin::{CssValue, LengthUnit};
 use crate::color::parse_color;
 use crate::values::parse_length_or_percentage;
 
-use super::Declaration;
+use super::{try_parse_keyword, Declaration};
 
 pub(super) const SIDES: &[&str] = &["top", "right", "bottom", "left"];
 
@@ -30,30 +37,32 @@ pub(super) fn expand_four_sides(
     }
 
     let (top, right, bottom, left) = match values.len() {
-        1 => (
-            values[0].clone(),
-            values[0].clone(),
-            values[0].clone(),
-            values[0].clone(),
-        ),
-        2 => (
-            values[0].clone(),
-            values[1].clone(),
-            values[0].clone(),
-            values[1].clone(),
-        ),
-        3 => (
-            values[0].clone(),
-            values[1].clone(),
-            values[2].clone(),
-            values[1].clone(),
-        ),
-        _ => (
-            values[0].clone(),
-            values[1].clone(),
-            values[2].clone(),
-            values[3].clone(),
-        ),
+        1 => {
+            let mut it = values.into_iter();
+            let v = it.next().unwrap();
+            (v.clone(), v.clone(), v.clone(), v)
+        }
+        2 => {
+            let mut it = values.into_iter();
+            let tb = it.next().unwrap();
+            let lr = it.next().unwrap();
+            (tb.clone(), lr.clone(), tb, lr)
+        }
+        3 => {
+            let mut it = values.into_iter();
+            let top = it.next().unwrap();
+            let right = it.next().unwrap();
+            let bottom = it.next().unwrap();
+            (top, right.clone(), bottom, right)
+        }
+        _ => {
+            let mut it = values.into_iter();
+            let top = it.next().unwrap();
+            let right = it.next().unwrap();
+            let bottom = it.next().unwrap();
+            let left = it.next().unwrap();
+            (top, right, bottom, left)
+        }
     };
 
     vec![
@@ -82,12 +91,12 @@ pub(super) fn expand_four_sides(
 
 /// Parse a border-width keyword (`thin`, `medium`, `thick`) into pixel values.
 fn parse_border_width_keyword(input: &mut Parser) -> Result<CssValue, ()> {
-    let ident = input.expect_ident().map_err(|_| ())?;
-    match ident.to_ascii_lowercase().as_str() {
+    let kw = try_parse_keyword(input, &["thin", "medium", "thick"]).map_err(|_| ())?;
+    match kw.as_str() {
         "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
         "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
         "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
-        _ => Err(()),
+        _ => unreachable!(),
     }
 }
 

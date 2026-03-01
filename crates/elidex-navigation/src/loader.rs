@@ -1,0 +1,269 @@
+//! Document loader — fetches a URL and produces a `LoadedDocument`.
+//!
+//! Coordinates HTTP fetch, charset detection, HTML parsing, and
+//! sub-resource extraction (CSS, JS) into a single pipeline.
+
+use std::fmt;
+
+use elidex_css::{parse_stylesheet, Origin, Stylesheet};
+use elidex_ecs::{EcsDom, Entity};
+use elidex_net::{FetchHandle, NetError};
+
+use crate::resource::{extract_script_sources, extract_style_sources, ScriptSource, StyleSource};
+
+/// A fully loaded document with parsed DOM and resolved sub-resources.
+pub struct LoadedDocument {
+    /// The ECS DOM tree.
+    pub dom: EcsDom,
+    /// The document root entity.
+    pub document: Entity,
+    /// Parsed stylesheets (`<style>` inline + external CSS).
+    pub stylesheets: Vec<Stylesheet>,
+    /// Resolved scripts (inline source + fetched external source), in document order.
+    pub scripts: Vec<ResolvedScript>,
+    /// The final URL of the document (after redirects).
+    pub url: url::Url,
+}
+
+/// A script ready for execution.
+#[derive(Debug)]
+pub struct ResolvedScript {
+    /// The JavaScript source code.
+    pub source: String,
+    /// The entity of the `<script>` element in the DOM.
+    pub entity: Entity,
+}
+
+/// Error returned by [`load_document`].
+#[derive(Debug)]
+pub enum LoadError {
+    /// A network error occurred while fetching the document or a sub-resource.
+    Network(NetError),
+    /// The URL is invalid or unsupported.
+    InvalidUrl(String),
+}
+
+impl fmt::Display for LoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Network(e) => write!(f, "network error: {e}"),
+            Self::InvalidUrl(msg) => write!(f, "invalid URL: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Network(e) => Some(e),
+            Self::InvalidUrl(_) => None,
+        }
+    }
+}
+
+impl From<NetError> for LoadError {
+    fn from(err: NetError) -> Self {
+        Self::Network(err)
+    }
+}
+
+/// Extract a charset from a `Content-Type` header value.
+///
+/// Iterates all `;`-separated parameters for a case-insensitive `charset=`
+/// prefix (RFC 7231: parameter names are case-insensitive).
+/// Returns `None` if no charset parameter is found.
+fn extract_charset(content_type: &str) -> Option<String> {
+    let prefix = "charset=";
+    for part in content_type.split(';').skip(1) {
+        let trimmed = part.trim();
+        if trimmed.len() >= prefix.len() && trimmed[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            let value = &trimmed[prefix.len()..];
+            return Some(value.trim_matches('"').trim().to_string());
+        }
+    }
+    None
+}
+
+/// Create a GET request with no headers or body for the given URL.
+fn make_get_request(url: url::Url) -> elidex_net::Request {
+    elidex_net::Request {
+        method: "GET".to_string(),
+        url,
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+    }
+}
+
+/// Load a document from a URL.
+///
+/// 1. Fetches the HTML via `FetchHandle::send_blocking()`.
+/// 2. Detects charset from the `Content-Type` header.
+/// 3. Parses the HTML with `parse_tolerant()`.
+/// 4. Extracts and fetches external stylesheets.
+/// 5. Extracts and fetches external scripts.
+///
+/// Sub-resource fetch errors are logged and skipped (the page still loads).
+pub fn load_document(
+    url: &url::Url,
+    fetch_handle: &FetchHandle,
+) -> Result<LoadedDocument, LoadError> {
+    // 1. Fetch the HTML document.
+    let response = fetch_handle.send_blocking(make_get_request(url.clone()))?;
+    if !(200..300).contains(&response.status) {
+        tracing::warn!("HTTP {}: {}", response.status, url);
+    }
+
+    // 2. Extract charset from Content-Type header.
+    let charset_hint = response
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .and_then(|(_, v)| extract_charset(v));
+
+    // 3. Parse the HTML.
+    let parse_result = elidex_parser::parse_tolerant(&response.body, charset_hint.as_deref());
+    for err in &parse_result.errors {
+        tracing::warn!("HTML parse warning: {err}");
+    }
+    let dom = parse_result.dom;
+    let document = parse_result.document;
+
+    // 4. Extract and fetch stylesheets.
+    let style_sources = extract_style_sources(&dom, document);
+    let mut stylesheets = Vec::new();
+    for source in &style_sources {
+        match source {
+            StyleSource::Inline(css) => {
+                stylesheets.push(parse_stylesheet(css, Origin::Author));
+            }
+            StyleSource::External(href) => {
+                match resolve_and_fetch_text(&response.url, href, fetch_handle) {
+                    Ok(css_text) => {
+                        stylesheets.push(parse_stylesheet(&css_text, Origin::Author));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch stylesheet {href}: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Extract and fetch scripts.
+    let script_sources = extract_script_sources(&dom, document);
+    let mut scripts = Vec::new();
+    for source in script_sources {
+        match source {
+            ScriptSource::Inline { source, entity } => {
+                scripts.push(ResolvedScript { source, entity });
+            }
+            ScriptSource::External { src, entity } => {
+                match resolve_and_fetch_text(&response.url, &src, fetch_handle) {
+                    Ok(js_text) => {
+                        scripts.push(ResolvedScript {
+                            source: js_text,
+                            entity,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch script {src}: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(LoadedDocument {
+        dom,
+        document,
+        stylesheets,
+        scripts,
+        url: response.url,
+    })
+}
+
+/// Resolve a potentially relative URL against a base and fetch its text content.
+fn resolve_and_fetch_text(
+    base: &url::Url,
+    href: &str,
+    fetch_handle: &FetchHandle,
+) -> Result<String, LoadError> {
+    let resolved = base
+        .join(href)
+        .map_err(|e| LoadError::InvalidUrl(format!("{href}: {e}")))?;
+    let response = fetch_handle.send_blocking(make_get_request(resolved))?;
+    if !(200..300).contains(&response.status) {
+        tracing::warn!("HTTP {}: {}", response.status, response.url);
+    }
+    // L-10: Log non-UTF-8 sub-resources before lossy conversion.
+    if std::str::from_utf8(&response.body).is_err() {
+        tracing::debug!(
+            "Non-UTF-8 response body for {}, using lossy conversion",
+            response.url
+        );
+    }
+    Ok(String::from_utf8_lossy(&response.body).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_charset_basic() {
+        assert_eq!(
+            extract_charset("text/html; charset=UTF-8"),
+            Some("UTF-8".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_charset_quoted() {
+        assert_eq!(
+            extract_charset("text/html; charset=\"ISO-8859-1\""),
+            Some("ISO-8859-1".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_charset_missing() {
+        assert_eq!(extract_charset("text/html"), None);
+    }
+
+    #[test]
+    fn extract_charset_uppercase() {
+        assert_eq!(
+            extract_charset("text/html; CHARSET=utf-8"),
+            Some("utf-8".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_charset_mixed_case() {
+        assert_eq!(
+            extract_charset("text/html; Charset=UTF-8"),
+            Some("UTF-8".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_charset_second_param() {
+        assert_eq!(
+            extract_charset("text/html; boundary=something; charset=UTF-8"),
+            Some("UTF-8".to_string())
+        );
+    }
+
+    #[test]
+    fn load_error_display() {
+        let err = LoadError::InvalidUrl("bad url".to_string());
+        assert!(err.to_string().contains("bad url"));
+    }
+
+    #[test]
+    fn load_error_from_net_error() {
+        let net_err = NetError::new(elidex_net::NetErrorKind::Timeout, "timed out");
+        let err: LoadError = net_err.into();
+        assert!(matches!(err, LoadError::Network(_)));
+    }
+}

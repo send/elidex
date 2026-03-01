@@ -33,6 +33,58 @@ pub enum CssValue {
     List(Vec<CssValue>),
 }
 
+impl CssValue {
+    /// Extract the keyword string if this is a `Keyword` variant.
+    pub fn as_keyword(&self) -> Option<&str> {
+        match self {
+            Self::Keyword(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Extract the length and unit if this is a `Length` variant.
+    pub fn as_length(&self) -> Option<(f32, LengthUnit)> {
+        match self {
+            Self::Length(v, u) => Some((*v, *u)),
+            _ => None,
+        }
+    }
+
+    /// Extract the color if this is a `Color` variant.
+    pub fn as_color(&self) -> Option<&CssColor> {
+        match self {
+            Self::Color(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Extract the number if this is a `Number` variant.
+    pub fn as_number(&self) -> Option<f32> {
+        match self {
+            Self::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Extract the percentage if this is a `Percentage` variant.
+    pub fn as_percentage(&self) -> Option<f32> {
+        match self {
+            Self::Percentage(p) => Some(*p),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this is the `Auto` variant.
+    pub fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+
+    /// Returns `true` if this is a global keyword (`initial`, `inherit`, or `unset`).
+    pub fn is_global_keyword(&self) -> bool {
+        matches!(self, Self::Initial | Self::Inherit | Self::Unset)
+    }
+}
+
 /// CSS length units.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -248,5 +300,56 @@ mod tests {
         let _ = ComputedValue::StringList(vec!["Arial".into(), "sans-serif".into()]);
         let _ = ComputedValue::Auto;
         let _ = ComputedValue::None;
+    }
+
+    #[test]
+    fn css_value_as_keyword() {
+        let v = CssValue::Keyword("block".into());
+        assert_eq!(v.as_keyword(), Some("block"));
+        assert_eq!(CssValue::Auto.as_keyword(), None);
+    }
+
+    #[test]
+    fn css_value_as_color() {
+        let v = CssValue::Color(CssColor::RED);
+        assert_eq!(v.as_color(), Some(&CssColor::RED));
+        assert_eq!(CssValue::Auto.as_color(), None);
+    }
+
+    #[test]
+    fn css_value_as_number_accessor() {
+        let v = CssValue::Number(1.5);
+        assert_eq!(v.as_number(), Some(1.5));
+        assert_eq!(CssValue::Auto.as_number(), None);
+    }
+
+    #[test]
+    fn css_value_as_percentage_accessor() {
+        let v = CssValue::Percentage(50.0);
+        assert_eq!(v.as_percentage(), Some(50.0));
+        assert_eq!(CssValue::Auto.as_percentage(), None);
+    }
+
+    #[test]
+    fn css_value_is_auto() {
+        assert!(CssValue::Auto.is_auto());
+        assert!(!CssValue::Initial.is_auto());
+        assert!(!CssValue::Number(0.0).is_auto());
+    }
+
+    #[test]
+    fn css_value_is_global_keyword() {
+        assert!(CssValue::Initial.is_global_keyword());
+        assert!(CssValue::Inherit.is_global_keyword());
+        assert!(CssValue::Unset.is_global_keyword());
+        assert!(!CssValue::Auto.is_global_keyword());
+        assert!(!CssValue::Keyword("block".into()).is_global_keyword());
+    }
+
+    #[test]
+    fn css_value_as_length() {
+        let v = CssValue::Length(10.0, LengthUnit::Px);
+        assert_eq!(v.as_length(), Some((10.0, LengthUnit::Px)));
+        assert_eq!(CssValue::Auto.as_length(), None);
     }
 }

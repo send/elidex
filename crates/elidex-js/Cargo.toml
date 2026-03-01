@@ -16,11 +16,10 @@ elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
-elidex-css.workspace = true
 elidex-net.workspace = true
+elidex-navigation.workspace = true
 boa_engine.workspace = true
 boa_gc.workspace = true
-tokio = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 url.workspace = true
 bytes.workspace = true

@@ -200,6 +200,17 @@ impl SchemeDispatcher {
             )
         })?;
 
+        // Re-check size after read to guard against TOCTOU (file grew between stat and read)
+        if body.len() > max_bytes {
+            return Err(NetError::new(
+                NetErrorKind::ResponseTooLarge,
+                format!(
+                    "file too large after read: {} bytes (limit: {max_bytes})",
+                    body.len()
+                ),
+            ));
+        }
+
         // Guess content type from extension
         let content_type = guess_content_type(&path);
 

@@ -17,6 +17,8 @@ use super::element::{extract_entity, ENTITY_KEY};
 /// Register `window` global (aliased as `globalThis`).
 ///
 /// Provides `window.getComputedStyle(element)`.
+/// Also makes `window.location` and `window.history` accessible
+/// (the actual objects are registered as global properties in `register_all_globals`).
 pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
 

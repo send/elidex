@@ -17,7 +17,7 @@ pub mod computed_style;
 pub mod document;
 pub mod element;
 pub mod style;
-pub mod util;
+pub(crate) mod util;
 
 // Re-export handlers for convenient access.
 pub use class_list::{ClassListAdd, ClassListContains, ClassListRemove, ClassListToggle};

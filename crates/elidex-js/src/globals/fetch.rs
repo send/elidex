@@ -15,7 +15,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
-use crate::fetch_handle::FetchHandle;
+use elidex_net::FetchHandle;
 
 /// Hidden property key storing the response body bytes on a Response object.
 const BODY_KEY: &str = "__elidex_fetch_body__";

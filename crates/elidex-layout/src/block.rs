@@ -10,45 +10,15 @@ use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
 use crate::sanitize;
-use crate::MAX_LAYOUT_DEPTH;
-
-/// Sanitize four edge values into an [`EdgeSizes`].
-fn sanitize_edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
-    EdgeSizes::new(
-        sanitize(top),
-        sanitize(right),
-        sanitize(bottom),
-        sanitize(left),
-    )
-}
-
-/// Resolve a [`Dimension`] to pixels with a fallback for `Auto`.
-///
-/// Non-finite results are replaced with 0.0.
-fn resolve_dimension(dim: Dimension, containing: f32, auto_value: f32) -> f32 {
-    sanitize(match dim {
-        Dimension::Length(px) => px,
-        Dimension::Percentage(pct) => containing * pct / 100.0,
-        Dimension::Auto => auto_value,
-    })
-}
+use crate::{resolve_dimension_value, sanitize_edge_values, MAX_LAYOUT_DEPTH};
 
 /// Resolve a `Dimension` margin value to pixels.
 ///
 /// `Auto` returns 0.0 here; horizontal auto centering is handled separately.
-/// Non-finite results are replaced with 0.0.
+/// Non-finite results are replaced with 0.0. Margins may be negative (unlike
+/// padding/border), so `sanitize()` is used instead of clamping to non-negative.
 pub(crate) fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
-    resolve_dimension(dim, containing_width, 0.0)
-}
-
-/// Resolve content height. Returns `None` for auto/percentage (shrink-to-content).
-///
-/// Non-finite lengths are treated as auto.
-fn resolve_height(style: &ComputedStyle) -> Option<f32> {
-    match style.height {
-        Dimension::Length(px) if px.is_finite() => Some(px),
-        Dimension::Length(_) | Dimension::Percentage(_) | Dimension::Auto => None,
-    }
+    sanitize(resolve_dimension_value(dim, containing_width, 0.0))
 }
 
 /// Apply horizontal `margin: auto` centering (CSS 2.1 §10.3.3).
@@ -183,14 +153,14 @@ fn layout_block_inner(
         );
     }
 
-    // --- Sanitize padding and border (protect against NaN/infinity) ---
-    let padding = sanitize_edges(
+    // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
+    let padding = sanitize_edge_values(
         style.padding_top,
         style.padding_right,
         style.padding_bottom,
         style.padding_left,
     );
-    let border = sanitize_edges(
+    let border = sanitize_edge_values(
         style.border_top_width,
         style.border_right_width,
         style.border_bottom_width,
@@ -210,11 +180,11 @@ fn layout_block_inner(
         + padding.right
         + border.left
         + border.right;
-    let content_width = resolve_dimension(
+    let content_width = sanitize(resolve_dimension_value(
         style.width,
         containing_width,
         (containing_width - horizontal_extra).max(0.0),
-    );
+    ));
 
     // --- Horizontal margin auto centering ---
     let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
@@ -243,18 +213,13 @@ fn layout_block_inner(
             depth + 1,
         )
     } else {
-        layout_inline_context(
-            dom,
-            &children,
-            content_width,
-            content_x,
-            content_y,
-            &style,
-            font_db,
-        )
+        layout_inline_context(dom, &children, content_width, &style, font_db)
     };
 
-    let height = resolve_height(&style).unwrap_or(content_height);
+    let height = match style.height {
+        Dimension::Length(px) if px.is_finite() => px,
+        _ => content_height,
+    };
 
     let lb = LayoutBox {
         content: Rect {

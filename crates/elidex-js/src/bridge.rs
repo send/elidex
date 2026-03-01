@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 use boa_engine::JsObject;
 use elidex_ecs::{EcsDom, Entity};
+use elidex_navigation::{HistoryAction, NavigationRequest};
 use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
 
 /// Bridge providing boa native functions access to `SessionCore` and `EcsDom`.
@@ -41,6 +42,14 @@ struct HostBridgeInner {
     /// orphaned entries. Consider adding an entity-destruction hook that
     /// bulk-removes listeners for the destroyed entity.
     listener_store: HashMap<ListenerId, JsObject>,
+    /// The URL of the currently loaded page.
+    current_url: Option<url::Url>,
+    /// A navigation request pending after script execution.
+    pending_navigation: Option<NavigationRequest>,
+    /// A history action pending after script execution.
+    pending_history: Option<HistoryAction>,
+    /// The number of entries in the session history.
+    history_length: usize,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -56,6 +65,10 @@ impl HostBridge {
                 document_entity: None,
                 js_object_cache: HashMap::new(),
                 listener_store: HashMap::new(),
+                current_url: None,
+                pending_navigation: None,
+                pending_history: None,
+                history_length: 0,
             })),
         }
     }
@@ -171,6 +184,48 @@ impl HostBridge {
             .listener_store
             .get(&id)
             .is_some_and(|stored| JsObject::equals(stored, func))
+    }
+
+    // --- Navigation state ---
+
+    /// Set the current page URL.
+    pub fn set_current_url(&self, url: Option<url::Url>) {
+        self.inner.borrow_mut().current_url = url;
+    }
+
+    /// Get the current page URL.
+    pub fn current_url(&self) -> Option<url::Url> {
+        self.inner.borrow().current_url.clone()
+    }
+
+    /// Set a pending navigation request.
+    pub fn set_pending_navigation(&self, request: NavigationRequest) {
+        self.inner.borrow_mut().pending_navigation = Some(request);
+    }
+
+    /// Take (remove) the pending navigation request.
+    pub fn take_pending_navigation(&self) -> Option<NavigationRequest> {
+        self.inner.borrow_mut().pending_navigation.take()
+    }
+
+    /// Set a pending history action.
+    pub fn set_pending_history(&self, action: HistoryAction) {
+        self.inner.borrow_mut().pending_history = Some(action);
+    }
+
+    /// Take (remove) the pending history action.
+    pub fn take_pending_history(&self) -> Option<HistoryAction> {
+        self.inner.borrow_mut().pending_history.take()
+    }
+
+    /// Set the session history length.
+    pub fn set_history_length(&self, len: usize) {
+        self.inner.borrow_mut().history_length = len;
+    }
+
+    /// Get the session history length.
+    pub fn history_length(&self) -> usize {
+        self.inner.borrow().history_length
     }
 }
 

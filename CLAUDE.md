@@ -18,7 +18,7 @@ crates/
   elidex-layout/        — Block, inline, flexbox layout
   elidex-text/          — Text shaping, measurement, line breaking
   elidex-render/        — Rendering backend abstraction
-  elidex-shell/         — Window management, event loop shell
+  elidex-shell/         — Window management, event loop shell, browser chrome (egui)
   elidex-script-session/ — Script session abstraction (JS ↔ ECS DOM bridge)
   elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
   elidex-dom-api/       — DOM API handler implementations (engine-independent)
@@ -125,9 +125,8 @@ cargo doc --workspace --no-deps  # Build docs
 - **error_conv.rs**: `dom_error_to_js_error()` — DomApiErrorKind → boa JsNativeError.
 - **boa 0.20 notes**: `ObjectInitializer` methods return `&mut Self`, accessors need `JsFunction` (via `to_js_function(&realm)`), `custom_trace!(this, mark, {body})` with 3 args, `from_copy_closure_with_captures` for safe closure registration.
 - **globals/fetch.rs**: `register_fetch()` — `fetch(url, options?)` global. Blocking HTTP via `FetchHandle::send_blocking()`. Returns `JsPromise::resolve(Response)` or `JsPromise::reject(TypeError)`. Response object: ok/status/statusText/url/type/redirected/headers properties + `text()`/`json()`/`clone()` methods. `json()` uses boa `JSON.parse()` via global object. Headers object: `get()` (combines duplicates per Fetch spec), `has()`, `forEach()`. `set()`/`delete()` omitted (Response headers immutable).
-- **fetch_handle.rs**: `FetchHandle` wraps tokio current-thread `Runtime` + `NetClient`. `send_blocking(&self, request)` blocks via `rt.block_on(client.send(request))`. Injected into `JsRuntime::with_fetch(Option<FetchHandle>)`.
 - **run_jobs() integration**: `eval()` calls `ctx.run_jobs()` after evaluation (bridge still bound) to drain microtask queue. `dispatch_event()` similarly calls `ctx.run_jobs()` after dispatch loop. Enables `fetch().then(r => r.text())` chains.
-- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, tokio (rt), url, bytes.
+- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, url, bytes.
 
 ### elidex-net
 
@@ -143,7 +142,17 @@ cargo doc --workspace --no-deps  # Build docs
 - **MiddlewareChain**: Adapts plugin `NetworkMiddleware` trait to internal Request/Response types.
 - **data_url**: RFC 2397 parser (plain text + base64).
 - **ResourceLoader trait + SchemeDispatcher**: Routes http/https, data:, file:// with cookie injection and redirect following.
+- **FetchHandle**: Wraps tokio current-thread `Runtime` + `NetClient`. `send_blocking(&self, request)` blocks via `rt.block_on(client.send(request))`. Used by elidex-js (`JsRuntime::with_fetch`) and elidex-navigation (`load_document`).
 - **SSRF shared module**: `elidex_plugin::url_security` — `validate_url()` + `is_private_ip()`, shared by elidex-net and elidex-crawler.
+
+### elidex-shell
+
+- **chrome.rs**: Browser chrome UI (egui overlay). `ChromeState` (address_text, address_focused), `ChromeAction` enum (Navigate/Back/Forward/Reload), `build()` draws egui `TopBottomPanel` with back/forward/reload buttons and address bar. `CHROME_HEIGHT = 36.0` logical pixels.
+- **egui integration**: `RenderState` holds `egui::Context`, `egui_winit::State`, `egui_wgpu::Renderer`. Initialized in `try_init_render_state()`. Overlay rendered via `render_egui_overlay()` using `LoadOp::Load` render pass after Vello blit. `forget_lifetime()` on `RenderPass` (wgpu 22+ render passes don't borrow encoder).
+- **Event routing**: egui-first — `on_window_event()` passes events to `egui_state` first; if consumed, content handlers are skipped. Address bar focus (`address_focused`) suppresses content keyboard events.
+- **Chrome actions**: `handle_chrome_action()` — Navigate (URL parse with `https://` fallback), Back/Forward (via `NavigationController`), Reload (re-navigate current URL).
+- **URL sync**: `chrome.set_url()` called in `navigate()`, `navigate_to_history_url()`, and `handle_history_action()` (PushState/ReplaceState).
+- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible).
 
 ### CI
 

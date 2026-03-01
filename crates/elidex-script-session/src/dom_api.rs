@@ -1,54 +1,24 @@
 //! DOM API handler trait for script-engine method dispatch.
 
-use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{DomSpecLevel, JsValue};
-
-use crate::session::SessionCore;
-use crate::types::DomApiError;
-
-/// Handler for a single DOM API method.
-///
-/// Implementations of this trait register with a [`PluginRegistry`] and are
-/// dispatched by the script engine when JS code calls a DOM method.
-///
-/// [`PluginRegistry`]: elidex_plugin::PluginRegistry
-pub trait DomApiHandler: Send + Sync {
-    /// Returns the DOM method name (e.g. `"appendChild"`, `"setAttribute"`).
-    fn method_name(&self) -> &str;
-
-    /// Returns the specification level of this DOM API method.
-    fn spec_level(&self) -> DomSpecLevel {
-        DomSpecLevel::Living
-    }
-
-    /// Invoke the DOM method.
+define_api_handler!(
+    /// Handler for a single DOM API method.
     ///
-    /// # Parameters
+    /// Implementations of this trait register with a [`PluginRegistry`] and are
+    /// dispatched by the script engine when JS code calls a DOM method.
     ///
-    /// - `this` — The entity on which the method is called.
-    /// - `args` — JS arguments passed to the method.
-    /// - `session` — The session core for identity mapping and mutation recording.
-    /// - `dom` — The ECS DOM for direct reads and entity creation.
-    ///
-    /// # Errors
-    ///
-    /// Returns `DomApiError` if the operation fails (e.g. wrong argument types,
-    /// node not found, hierarchy constraint violation).
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError>;
-}
+    /// [`PluginRegistry`]: elidex_plugin::PluginRegistry
+    DomApiHandler,
+    elidex_plugin::DomSpecLevel,
+    elidex_plugin::DomSpecLevel::Living
+);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::DomApiErrorKind;
-    use elidex_ecs::Attributes;
-    use elidex_plugin::PluginRegistry;
+    use crate::session::SessionCore;
+    use crate::types::DomApiError;
+    use elidex_ecs::{Attributes, EcsDom, Entity};
+    use elidex_plugin::{DomSpecLevel, JsValue, PluginRegistry};
 
     struct MockGetTagName;
 
@@ -67,10 +37,7 @@ mod tests {
             let tag = dom
                 .world()
                 .get::<&elidex_ecs::TagType>(this)
-                .map_err(|_| DomApiError {
-                    kind: DomApiErrorKind::NotFoundError,
-                    message: "entity has no tag".into(),
-                })?;
+                .map_err(|_| DomApiError::not_found("entity has no tag"))?;
             Ok(JsValue::String(tag.0.to_uppercase()))
         }
     }

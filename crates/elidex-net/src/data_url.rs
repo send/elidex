@@ -62,7 +62,7 @@ pub fn parse_data_url(url: &url::Url) -> Result<DataUrl, NetError> {
     };
 
     // Reject if the raw data part is too large (conservative pre-check)
-    if data_part.len() > MAX_DATA_URL_BYTES * 2 {
+    if data_part.len() > MAX_DATA_URL_BYTES {
         return Err(NetError::new(
             NetErrorKind::InvalidDataUrl,
             format!(

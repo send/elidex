@@ -17,7 +17,13 @@ use elidex_text::FontDatabase;
 
 use crate::block::{layout_block, resolve_margin};
 use crate::sanitize;
-use crate::MAX_LAYOUT_DEPTH;
+use crate::{sanitize_edge_values, MAX_LAYOUT_DEPTH};
+
+/// Sentinel value representing an indefinite container main-axis size.
+///
+/// Uses `f32::MAX / 2.0` (approximately 1.7e38) to avoid overflow when adding margins/padding,
+/// while remaining large enough to never be reached by real layout values.
+const INDEFINITE_MAIN_SIZE: f32 = f32::MAX / 2.0;
 
 mod algo;
 
@@ -42,6 +48,17 @@ pub(super) fn is_reversed(dir: FlexDirection) -> bool {
     )
 }
 
+/// Resolve a percentage dimension against the containing main-axis size.
+///
+/// Returns `None` if the container is indefinite (percentage cannot be resolved).
+fn resolve_percentage_main(pct: f32, containing_main: f32) -> Option<f32> {
+    if containing_main >= INDEFINITE_MAIN_SIZE {
+        None
+    } else {
+        Some(containing_main * pct / 100.0)
+    }
+}
+
 /// Resolve flex-basis to a main-axis size in pixels.
 ///
 /// Returns `None` when content sizing is needed.
@@ -52,7 +69,7 @@ fn resolve_flex_basis(
 ) -> Option<f32> {
     match style.flex_basis {
         Dimension::Length(px) => Some(px),
-        Dimension::Percentage(pct) => Some(containing_main * pct / 100.0),
+        Dimension::Percentage(pct) => resolve_percentage_main(pct, containing_main),
         Dimension::Auto => {
             let fallback = if is_main_horizontal(direction) {
                 style.width
@@ -61,7 +78,7 @@ fn resolve_flex_basis(
             };
             match fallback {
                 Dimension::Length(px) => Some(px),
-                Dimension::Percentage(pct) => Some(containing_main * pct / 100.0),
+                Dimension::Percentage(pct) => resolve_percentage_main(pct, containing_main),
                 Dimension::Auto => None,
             }
         }
@@ -141,14 +158,18 @@ fn resolve_container_main(
     style: &ComputedStyle,
     horizontal: bool,
     content_width: f32,
-    containing_width: f32,
+    _containing_width: f32,
 ) -> f32 {
     if horizontal {
         content_width
     } else {
         match style.height {
             Dimension::Length(px) => sanitize(px),
-            Dimension::Percentage(pct) => sanitize(containing_width * pct / 100.0),
+            Dimension::Percentage(_pct) => {
+                // TODO(Phase 3): Resolve percentage height against containing block height.
+                // Currently treated as indefinite because containing_height is not tracked.
+                f32::MAX
+            }
             Dimension::Auto => f32::MAX,
         }
     }
@@ -166,7 +187,7 @@ pub(crate) fn layout_flex(
 ) -> LayoutBox {
     let style = crate::get_style(dom, entity);
 
-    let padding = sanitize_edges(&style);
+    let padding = sanitize_padding(&style);
     let border = sanitize_border(&style);
     let margin_top = resolve_margin(style.margin_top, containing_width);
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
@@ -280,21 +301,21 @@ pub(crate) fn layout_flex(
 // Helpers — box model
 // ---------------------------------------------------------------------------
 
-fn sanitize_edges(style: &ComputedStyle) -> EdgeSizes {
-    EdgeSizes::new(
-        sanitize(style.padding_top),
-        sanitize(style.padding_right),
-        sanitize(style.padding_bottom),
-        sanitize(style.padding_left),
+fn sanitize_padding(style: &ComputedStyle) -> EdgeSizes {
+    sanitize_edge_values(
+        style.padding_top,
+        style.padding_right,
+        style.padding_bottom,
+        style.padding_left,
     )
 }
 
 fn sanitize_border(style: &ComputedStyle) -> EdgeSizes {
-    EdgeSizes::new(
-        sanitize(style.border_top_width),
-        sanitize(style.border_right_width),
-        sanitize(style.border_bottom_width),
-        sanitize(style.border_left_width),
+    sanitize_edge_values(
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
     )
 }
 
@@ -306,21 +327,18 @@ fn resolve_content_width(
     margin_left: f32,
     margin_right: f32,
 ) -> f32 {
-    match style.width {
-        Dimension::Length(px) => sanitize(px),
-        Dimension::Percentage(pct) => sanitize(containing_width * pct / 100.0),
-        Dimension::Auto => {
-            let used = margin_left
-                + margin_right
-                + padding.left
-                + padding.right
-                + border.left
-                + border.right;
-            (containing_width - used).max(0.0)
-        }
-    }
+    let used =
+        margin_left + margin_right + padding.left + padding.right + border.left + border.right;
+    let auto_value = (containing_width - used).max(0.0);
+    sanitize(crate::resolve_dimension_value(
+        style.width,
+        containing_width,
+        auto_value,
+    ))
 }
 
+// TODO(Phase 3): Resolve percentage heights against containing block height.
+// Currently treated as auto (indefinite) because containing_height is not tracked.
 pub(super) fn resolve_explicit_height(style: &ComputedStyle) -> Option<f32> {
     match style.height {
         Dimension::Length(px) if px.is_finite() => Some(px),

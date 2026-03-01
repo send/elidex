@@ -5,20 +5,16 @@ use elidex_plugin::CssValue;
 
 use crate::values::parse_length_or_percentage;
 
-use super::{parse_value_property, single_decl, Declaration};
+use super::{parse_value_property, single_decl, try_parse_keyword, Declaration};
+
+const FONT_SIZE_KEYWORDS: &[&str] = &[
+    "xx-small", "xx-large", "x-small", "x-large", "small", "medium", "large", "smaller", "larger",
+];
 
 pub(super) fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
     // Try keyword sizes first.
-    if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        let lower = ident.to_ascii_lowercase();
-        match lower.as_str() {
-            "xx-small" | "xx-large" | "x-small" | "x-large" | "small" | "medium" | "large"
-            | "smaller" | "larger" => Ok(CssValue::Keyword(lower)),
-            _ => Err(()),
-        }
-    }) {
-        return single_decl("font-size", val);
+    if let Ok(kw) = input.try_parse(|i| try_parse_keyword(i, FONT_SIZE_KEYWORDS).map_err(|_| ())) {
+        return single_decl("font-size", CssValue::Keyword(kw));
     }
     // Fall back to length/percentage.
     parse_value_property(input, "font-size", parse_length_or_percentage)

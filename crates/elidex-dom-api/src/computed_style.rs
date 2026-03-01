@@ -52,7 +52,10 @@ fn css_value_to_string(value: &CssValue) -> String {
                 elidex_plugin::LengthUnit::Vh => "vh",
                 elidex_plugin::LengthUnit::Vmin => "vmin",
                 elidex_plugin::LengthUnit::Vmax => "vmax",
-                _ => "",
+                _ => {
+                    debug_assert!(false, "unhandled LengthUnit variant: {unit:?}");
+                    ""
+                }
             };
             format!("{n}{unit_str}")
         }
@@ -68,7 +71,10 @@ fn css_value_to_string(value: &CssValue) -> String {
             .map(css_value_to_string)
             .collect::<Vec<_>>()
             .join(", "),
-        _ => String::new(),
+        _ => {
+            debug_assert!(false, "unhandled CssValue variant: {value:?}");
+            String::new()
+        }
     }
 }
 

@@ -232,6 +232,11 @@ impl ConnectionPool {
             }
         }
 
+        // Clean up empty OriginPool entries to prevent unbounded map growth
+        if pool.idle_h1.is_empty() && pool.active_h1 == 0 && pool.h2_sender.is_none() {
+            pools.remove(key);
+        }
+
         None
     }
 

@@ -10,7 +10,7 @@ mod inline;
 mod layout;
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::ComputedStyle;
+use elidex_plugin::{ComputedStyle, Dimension, EdgeSizes};
 
 pub use hit_test::{hit_test, HitTestResult};
 pub use layout::layout_tree;
@@ -27,6 +27,45 @@ fn sanitize(v: f32) -> f32 {
         v
     } else {
         0.0
+    }
+}
+
+/// Clamp edge values to non-negative: negative values become `0.0`,
+/// zero and positive values are preserved as-is. NaN and infinity also become `0.0`.
+pub(crate) fn sanitize_edge_values(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+    EdgeSizes {
+        top: if top.is_finite() && top > 0.0 {
+            top
+        } else {
+            0.0
+        },
+        right: if right.is_finite() && right > 0.0 {
+            right
+        } else {
+            0.0
+        },
+        bottom: if bottom.is_finite() && bottom > 0.0 {
+            bottom
+        } else {
+            0.0
+        },
+        left: if left.is_finite() && left > 0.0 {
+            left
+        } else {
+            0.0
+        },
+    }
+}
+
+/// Resolve a CSS dimension to a pixel value.
+/// - Length: use directly
+/// - Percentage: relative to `containing`
+/// - Auto: returns `auto_value`
+pub(crate) fn resolve_dimension_value(dim: Dimension, containing: f32, auto_value: f32) -> f32 {
+    match dim {
+        Dimension::Length(px) => px,
+        Dimension::Percentage(pct) => containing * pct / 100.0,
+        Dimension::Auto => auto_value,
     }
 }
 

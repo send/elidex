@@ -121,6 +121,13 @@ pub enum NetworkErrorKind {
     DnsFailure,
     /// TLS handshake or certificate error.
     TlsFailure,
+    /// The request was blocked by SSRF protection.
+    ///
+    /// Emitted for three scenarios:
+    /// - Unsupported URL scheme (only `http`/`https` allowed)
+    /// - Host resolves to a private/reserved IP address
+    /// - URL has no host component
+    SsrfBlocked,
     /// An unclassified network error.
     #[default]
     Other,
@@ -133,6 +140,7 @@ impl std::fmt::Display for NetworkErrorKind {
             Self::Timeout => f.write_str("timeout"),
             Self::DnsFailure => f.write_str("DNS failure"),
             Self::TlsFailure => f.write_str("TLS failure"),
+            Self::SsrfBlocked => f.write_str("SSRF blocked"),
             Self::Other => f.write_str("network error"),
         }
     }

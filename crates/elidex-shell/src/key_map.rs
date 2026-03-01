@@ -9,7 +9,7 @@ use winit::keyboard::{Key, NamedKey, PhysicalKey};
 /// The `key` value corresponds to `KeyboardEvent.key` in the DOM spec.
 /// The `code` value corresponds to `KeyboardEvent.code` (physical key position).
 #[must_use]
-pub fn winit_key_to_dom(logical: &Key, physical: &PhysicalKey) -> (String, String) {
+pub fn winit_key_to_dom(logical: &Key, physical: PhysicalKey) -> (String, String) {
     let key = match logical {
         Key::Named(named) => named_key_to_dom(*named).to_string(),
         Key::Character(c) => c.to_string(),
@@ -17,7 +17,7 @@ pub fn winit_key_to_dom(logical: &Key, physical: &PhysicalKey) -> (String, Strin
     };
 
     let code = match physical {
-        PhysicalKey::Code(kc) => physical_key_to_dom(*kc).to_string(),
+        PhysicalKey::Code(kc) => physical_key_to_dom(kc).to_string(),
         PhysicalKey::Unidentified(_) => "Unidentified".to_string(),
     };
 
@@ -141,7 +141,7 @@ mod tests {
     fn enter_key_mapping() {
         let logical = Key::Named(NamedKey::Enter);
         let physical = PhysicalKey::Code(KeyCode::Enter);
-        let (key, code) = winit_key_to_dom(&logical, &physical);
+        let (key, code) = winit_key_to_dom(&logical, physical);
         assert_eq!(key, "Enter");
         assert_eq!(code, "Enter");
     }
@@ -150,7 +150,7 @@ mod tests {
     fn character_key_mapping() {
         let logical = Key::Character(SmolStr::new("a"));
         let physical = PhysicalKey::Code(KeyCode::KeyA);
-        let (key, code) = winit_key_to_dom(&logical, &physical);
+        let (key, code) = winit_key_to_dom(&logical, physical);
         assert_eq!(key, "a");
         assert_eq!(code, "KeyA");
     }
@@ -159,7 +159,7 @@ mod tests {
     fn arrow_key_mapping() {
         let logical = Key::Named(NamedKey::ArrowUp);
         let physical = PhysicalKey::Code(KeyCode::ArrowUp);
-        let (key, code) = winit_key_to_dom(&logical, &physical);
+        let (key, code) = winit_key_to_dom(&logical, physical);
         assert_eq!(key, "ArrowUp");
         assert_eq!(code, "ArrowUp");
     }
@@ -168,7 +168,7 @@ mod tests {
     fn space_key_mapping() {
         let logical = Key::Named(NamedKey::Space);
         let physical = PhysicalKey::Code(KeyCode::Space);
-        let (key, code) = winit_key_to_dom(&logical, &physical);
+        let (key, code) = winit_key_to_dom(&logical, physical);
         assert_eq!(key, " ");
         assert_eq!(code, "Space");
     }
@@ -177,7 +177,7 @@ mod tests {
     fn unidentified_key() {
         let logical = Key::Dead(None);
         let physical = PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified);
-        let (key, code) = winit_key_to_dom(&logical, &physical);
+        let (key, code) = winit_key_to_dom(&logical, physical);
         assert_eq!(key, "Unidentified");
         assert_eq!(code, "Unidentified");
     }

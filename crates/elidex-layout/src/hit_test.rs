@@ -97,8 +97,10 @@ mod tests {
     }
 
     fn set_style(dom: &mut EcsDom, entity: Entity, display: Display) {
-        let mut style = ComputedStyle::default();
-        style.display = display;
+        let style = ComputedStyle {
+            display,
+            ..Default::default()
+        };
         let _ = dom.world_mut().insert_one(entity, style);
     }
 
@@ -131,7 +133,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let outer = elem(&mut dom, "div");
         let inner = elem(&mut dom, "span");
-        dom.append_child(outer, inner);
+        let _ = dom.append_child(outer, inner);
 
         set_layout(&mut dom, outer, 0.0, 0.0, 200.0, 200.0);
         set_layout(&mut dom, inner, 50.0, 50.0, 50.0, 50.0);
@@ -151,8 +153,8 @@ mod tests {
         let parent = elem(&mut dom, "div");
         let a = elem(&mut dom, "span");
         let b = elem(&mut dom, "span");
-        dom.append_child(parent, a);
-        dom.append_child(parent, b);
+        let _ = dom.append_child(parent, a);
+        let _ = dom.append_child(parent, b);
 
         // Overlapping boxes — b is later in tree order so it wins.
         set_layout(&mut dom, parent, 0.0, 0.0, 200.0, 200.0);
@@ -168,7 +170,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "div");
         let hidden = elem(&mut dom, "span");
-        dom.append_child(parent, hidden);
+        let _ = dom.append_child(parent, hidden);
 
         set_layout(&mut dom, parent, 0.0, 0.0, 200.0, 200.0);
         set_layout(&mut dom, hidden, 0.0, 0.0, 200.0, 200.0);
@@ -217,7 +219,8 @@ mod tests {
         let mut deepest = parent;
         for i in 0..10 {
             let child = elem(&mut dom, "div");
-            dom.append_child(parent, child);
+            let _ = dom.append_child(parent, child);
+            #[allow(clippy::cast_precision_loss)]
             let offset = (i + 1) as f32 * 10.0;
             set_layout(
                 &mut dom,

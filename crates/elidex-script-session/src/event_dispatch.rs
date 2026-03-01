@@ -36,11 +36,9 @@ pub struct DispatchEvent {
 }
 
 impl DispatchEvent {
-    /// Create a new dispatch event with the given type and target.
-    ///
-    /// Defaults: `bubbles = true`, `cancelable = true`.
-    /// Override fields as needed for non-bubbling (`focus`, `blur`) or
-    /// non-cancelable (`mousemove`) events.
+    /// Creates a new event. **Warning**: defaults to `bubbles: true` and
+    /// `cancelable: true`. Override these fields for events that don't bubble
+    /// (e.g. `load`, `focus`, `blur`) or aren't cancelable.
     #[must_use]
     pub fn new(event_type: impl Into<String>, target: Entity) -> Self {
         Self {
@@ -191,7 +189,7 @@ pub fn dispatch_event(
     // Phase 1: Capture (root → target, exclusive)
     event.phase = EventPhase::Capturing;
     for (entity, ids) in &plan.capture {
-        if event.propagation_stopped {
+        if event.propagation_stopped || event.immediate_propagation_stopped {
             break;
         }
         event.current_target = Some(*entity);
@@ -204,7 +202,7 @@ pub fn dispatch_event(
     }
 
     // Phase 2: At-target
-    if !event.propagation_stopped {
+    if !event.propagation_stopped && !event.immediate_propagation_stopped {
         if let Some((target, ids)) = &plan.at_target {
             event.phase = EventPhase::AtTarget;
             event.current_target = Some(*target);
@@ -218,10 +216,10 @@ pub fn dispatch_event(
     }
 
     // Phase 3: Bubble (target → root, exclusive, reversed)
-    if event.bubbles && !event.propagation_stopped {
+    if event.bubbles && !event.propagation_stopped && !event.immediate_propagation_stopped {
         event.phase = EventPhase::Bubbling;
         for (entity, ids) in &plan.bubble {
-            if event.propagation_stopped {
+            if event.propagation_stopped || event.immediate_propagation_stopped {
                 break;
             }
             event.current_target = Some(*entity);
@@ -263,8 +261,8 @@ mod tests {
         let root = elem(&mut dom, "div");
         let child = elem(&mut dom, "p");
         let grandchild = elem(&mut dom, "span");
-        dom.append_child(root, child);
-        dom.append_child(child, grandchild);
+        let _ = dom.append_child(root, child);
+        let _ = dom.append_child(child, grandchild);
 
         let path = build_propagation_path(&dom, grandchild);
         assert_eq!(path, vec![root, child, grandchild]);
@@ -284,7 +282,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let root = elem(&mut dom, "div");
         let target = elem(&mut dom, "span");
-        dom.append_child(root, target);
+        let _ = dom.append_child(root, target);
 
         // Add capture listener on root.
         let mut root_listeners = EventListeners::new();
@@ -306,7 +304,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let root = elem(&mut dom, "div");
         let target = elem(&mut dom, "span");
-        dom.append_child(root, target);
+        let _ = dom.append_child(root, target);
 
         // Add bubble listener on root.
         let mut root_listeners = EventListeners::new();
@@ -328,7 +326,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let root = elem(&mut dom, "div");
         let target = elem(&mut dom, "span");
-        dom.append_child(root, target);
+        let _ = dom.append_child(root, target);
 
         // Bubble listener on root.
         let mut root_listeners = EventListeners::new();
@@ -353,8 +351,8 @@ mod tests {
         let root = elem(&mut dom, "div");
         let mid = elem(&mut dom, "p");
         let target = elem(&mut dom, "span");
-        dom.append_child(root, mid);
-        dom.append_child(mid, target);
+        let _ = dom.append_child(root, mid);
+        let _ = dom.append_child(mid, target);
 
         // Capture listener on root that stops propagation.
         let mut root_listeners = EventListeners::new();
@@ -440,7 +438,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let root = elem(&mut dom, "div");
         let target = elem(&mut dom, "span");
-        dom.append_child(root, target);
+        let _ = dom.append_child(root, target);
 
         // Capture listener on root.
         let mut root_listeners = EventListeners::new();

@@ -241,17 +241,30 @@ fn single_decl(name: &str, value: CssValue) -> Vec<Declaration> {
 
 // --- Property-specific parsers ---
 
+/// Try to parse an identifier and match it against the given keyword list.
+/// Returns the matched keyword (lowercased) or Err if no match.
+pub(crate) fn try_parse_keyword<'i>(
+    input: &mut Parser<'i, '_>,
+    allowed: &[&str],
+) -> Result<String, cssparser::ParseError<'i, ()>> {
+    let location = input.current_source_location();
+    let ident = input.expect_ident()?.clone();
+    let lower = ident.to_ascii_lowercase();
+    if allowed.contains(&lower.as_str()) {
+        Ok(lower)
+    } else {
+        Err(location.new_unexpected_token_error(Token::Ident(ident)))
+    }
+}
+
 fn parse_keyword_property(input: &mut Parser, name: &str, allowed: &[&str]) -> Vec<Declaration> {
     input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let ident = i.expect_ident().map_err(|_| ())?;
-            let lower = ident.to_ascii_lowercase();
-            if allowed.iter().any(|a| *a == lower) {
-                Ok(single_decl(name, CssValue::Keyword(lower)))
-            } else {
-                Err(())
-            }
-        })
+        .try_parse(
+            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
+                let kw = try_parse_keyword(i, allowed)?;
+                Ok(single_decl(name, CssValue::Keyword(kw)))
+            },
+        )
         .unwrap_or_default()
 }
 

@@ -1,5 +1,6 @@
 //! Shared argument extraction and validation helpers.
 
+use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind};
 
@@ -33,6 +34,34 @@ pub fn require_object_ref_arg(args: &[JsValue], index: usize) -> Result<u64, Dom
             message: format!("argument {index} must be an object"),
         }),
     }
+}
+
+/// Create a `NotFoundError` with the given message.
+pub(crate) fn not_found_error(message: &str) -> DomApiError {
+    DomApiError {
+        kind: DomApiErrorKind::NotFoundError,
+        message: message.into(),
+    }
+}
+
+/// Get immutable `Attributes` for an entity, returning `NotFoundError` if missing.
+pub(crate) fn require_attrs(
+    entity: Entity,
+    dom: &EcsDom,
+) -> Result<hecs::Ref<'_, Attributes>, DomApiError> {
+    dom.world()
+        .get::<&Attributes>(entity)
+        .map_err(|_| not_found_error("element not found"))
+}
+
+/// Get mutable `Attributes` for an entity, returning `NotFoundError` if missing.
+pub(crate) fn require_attrs_mut(
+    entity: Entity,
+    dom: &mut EcsDom,
+) -> Result<hecs::RefMut<'_, Attributes>, DomApiError> {
+    dom.world_mut()
+        .get::<&mut Attributes>(entity)
+        .map_err(|_| not_found_error("element not found"))
 }
 
 /// Escape HTML text content for serialization.

@@ -8,6 +8,8 @@
 //! - **`Mutation`** — Buffered DOM mutation operations applied on flush
 //! - **`DomApiHandler`** / **`CssomApiHandler`** — Traits for DOM/CSSOM method dispatch
 
+#[macro_use]
+mod macros;
 mod cssom_api;
 mod dom_api;
 pub mod event_dispatch;

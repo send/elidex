@@ -1,16 +1,16 @@
 //! `FetchHandle`: blocking HTTP fetch via tokio Runtime + `NetClient`.
 //!
 //! Wraps a tokio `Runtime` (current-thread) and a `NetClient` to provide
-//! synchronous `send_blocking()` for use in the JS `fetch()` global.
+//! synchronous `send_blocking()` for use in JS `fetch()` and navigation.
 //!
 //! # Phase 2 limitation
 //!
 //! All HTTP requests block the UI thread. A future phase will introduce true
 //! async I/O with a shared tokio runtime.
 
-use elidex_net::{NetClient, NetError, Request, Response};
+use crate::{NetClient, NetError, Request, Response};
 
-/// Handle for blocking HTTP requests from JavaScript.
+/// Handle for blocking HTTP requests from JavaScript and navigation.
 ///
 /// Owns a lightweight tokio current-thread runtime and a `NetClient`.
 /// The runtime is used exclusively for blocking on async `NetClient::send()`.
@@ -20,6 +20,11 @@ pub struct FetchHandle {
 }
 
 impl FetchHandle {
+    /// Create a `FetchHandle` with a default `NetClient`.
+    pub fn with_default_client() -> Self {
+        Self::new(NetClient::default())
+    }
+
     /// Create a new `FetchHandle` with the given `NetClient`.
     ///
     /// Builds a current-thread tokio runtime with I/O and timer drivers enabled.
@@ -48,7 +53,7 @@ impl std::fmt::Debug for FetchHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_net::{NetClientConfig, TransportConfig};
+    use crate::{NetClientConfig, TransportConfig};
 
     fn test_client() -> NetClient {
         NetClient::with_config(NetClientConfig {

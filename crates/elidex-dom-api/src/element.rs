@@ -7,7 +7,16 @@ use elidex_script_session::{
     DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
 };
 
-use crate::util::{escape_attr, escape_html, require_object_ref_arg, require_string_arg};
+use crate::util::{
+    escape_attr, escape_html, not_found_error, require_attrs, require_attrs_mut,
+    require_object_ref_arg, require_string_arg,
+};
+
+/// HTML raw text elements whose text children must NOT be escaped during
+/// serialization (the content is literal, not entity-decoded by parsers).
+const RAW_TEXT_ELEMENTS: &[&str] = &[
+    "script", "style", "xmp", "iframe", "noembed", "noframes", "noscript",
+];
 
 // ---------------------------------------------------------------------------
 // appendChild
@@ -32,14 +41,11 @@ impl DomApiHandler for AppendChild {
         let (child_entity, _) = session
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
-            .ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "child not found".into(),
-            })?;
+            .ok_or_else(|| not_found_error("child not found"))?;
         if !dom.append_child(this, child_entity) {
             return Err(DomApiError {
                 kind: DomApiErrorKind::HierarchyRequestError,
-                message: "appendChild failed".into(),
+                message: "appendChild: hierarchy request error (cycle or invalid parent)".into(),
             });
         }
         Ok(JsValue::ObjectRef(child_ref))
@@ -69,10 +75,7 @@ impl DomApiHandler for InsertBefore {
         let (new_entity, _) = session
             .identity_map()
             .get(JsObjectRef::from_raw(new_ref))
-            .ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "newChild not found".into(),
-            })?;
+            .ok_or_else(|| not_found_error("newChild not found"))?;
 
         // Per DOM spec, insertBefore(node, null) is equivalent to appendChild(node).
         let ref_child_is_null = matches!(args.get(1), None | Some(JsValue::Null));
@@ -80,7 +83,8 @@ impl DomApiHandler for InsertBefore {
             if !dom.append_child(this, new_entity) {
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertBefore(node, null) failed (appendChild equivalent)".into(),
+                    message: "insertBefore: hierarchy request error (cycle or invalid parent)"
+                        .into(),
                 });
             }
             return Ok(JsValue::ObjectRef(new_ref));
@@ -90,14 +94,12 @@ impl DomApiHandler for InsertBefore {
         let (ref_entity, _) = session
             .identity_map()
             .get(JsObjectRef::from_raw(ref_ref))
-            .ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "refChild not found".into(),
-            })?;
+            .ok_or_else(|| not_found_error("refChild not found"))?;
         if !dom.insert_before(this, new_entity, ref_entity) {
             return Err(DomApiError {
                 kind: DomApiErrorKind::HierarchyRequestError,
-                message: "insertBefore failed".into(),
+                message: "insertBefore: hierarchy request error (invalid reference child or cycle)"
+                    .into(),
             });
         }
         Ok(JsValue::ObjectRef(new_ref))
@@ -127,15 +129,9 @@ impl DomApiHandler for RemoveChild {
         let (child_entity, _) = session
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
-            .ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "child not found".into(),
-            })?;
+            .ok_or_else(|| not_found_error("child not found"))?;
         if !dom.remove_child(this, child_entity) {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "child is not a child of this element".into(),
-            });
+            return Err(not_found_error("child is not a child of this element"));
         }
         Ok(JsValue::ObjectRef(child_ref))
     }
@@ -160,14 +156,8 @@ impl DomApiHandler for GetAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?;
-        let attrs = dom
-            .world()
-            .get::<&Attributes>(this)
-            .map_err(|_| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "element not found".into(),
-            })?;
+        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        let attrs = require_attrs(this, dom)?;
         match attrs.get(&name) {
             Some(val) => Ok(JsValue::String(val.to_string())),
             None => Ok(JsValue::Null),
@@ -194,15 +184,10 @@ impl DomApiHandler for SetAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?;
+        // Per DOM spec, attribute names are lowercased for HTML elements.
+        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
         let value = require_string_arg(args, 1)?;
-        let mut attrs = dom
-            .world_mut()
-            .get::<&mut Attributes>(this)
-            .map_err(|_| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "element not found".into(),
-            })?;
+        let mut attrs = require_attrs_mut(this, dom)?;
         attrs.set(name, value);
         Ok(JsValue::Undefined)
     }
@@ -227,14 +212,8 @@ impl DomApiHandler for RemoveAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?;
-        let mut attrs = dom
-            .world_mut()
-            .get::<&mut Attributes>(this)
-            .map_err(|_| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "element not found".into(),
-            })?;
+        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        let mut attrs = require_attrs_mut(this, dom)?;
         attrs.remove(&name);
         Ok(JsValue::Undefined)
     }
@@ -298,7 +277,7 @@ impl DomApiHandler for SetTextContent {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
@@ -309,9 +288,10 @@ impl DomApiHandler for SetTextContent {
             return Ok(JsValue::Undefined);
         }
 
-        // Remove all children.
+        // Remove all children and release their identity map entries.
         let children = dom.children(this);
         for child in children {
+            session.release(child);
             if !dom.remove_child(this, child) {
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
@@ -323,7 +303,12 @@ impl DomApiHandler for SetTextContent {
         // Create and append a text node if text is non-empty.
         if !text.is_empty() {
             let text_node = dom.create_text(text);
-            let _ = dom.append_child(this, text_node);
+            if !dom.append_child(this, text_node) {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message: "SetTextContent: failed to append text node".into(),
+                });
+            }
         }
 
         Ok(JsValue::Undefined)
@@ -357,8 +342,13 @@ impl DomApiHandler for GetInnerHtml {
 /// Serialize children of an entity to HTML.
 pub fn serialize_inner_html(entity: Entity, dom: &EcsDom) -> String {
     let mut html = String::new();
+    let raw_text = dom
+        .world()
+        .get::<&TagType>(entity)
+        .ok()
+        .is_some_and(|tag| RAW_TEXT_ELEMENTS.contains(&tag.0.as_str()));
     for child in dom.children_iter(entity) {
-        serialize_node(child, dom, &mut html);
+        serialize_node(child, dom, &mut html, raw_text);
     }
     html
 }
@@ -369,10 +359,23 @@ const VOID_ELEMENTS: &[&str] = &[
     "track", "wbr",
 ];
 
-fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String) {
+/// Returns `true` if the attribute name contains characters that would break
+/// HTML serialization (`"`, `>`, `<`, `=`, or ASCII whitespace).
+fn is_safe_attr_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b != b'"' && b != b'>' && b != b'<' && b != b'=' && !b.is_ascii_whitespace())
+}
+
+fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String, in_raw_text: bool) {
     // Text node.
     if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
-        html.push_str(&escape_html(&tc.0));
+        if in_raw_text {
+            html.push_str(&tc.0);
+        } else {
+            html.push_str(&escape_html(&tc.0));
+        }
         return;
     }
     // Element node.
@@ -380,7 +383,14 @@ fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String) {
         html.push('<');
         html.push_str(&tag.0);
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-            for (name, value) in attrs.iter() {
+            // Sort attributes by name for deterministic output.
+            let mut sorted: Vec<(&str, &str)> = attrs.iter().collect();
+            sorted.sort_by_key(|(name, _)| *name);
+            for (name, value) in sorted {
+                // Skip attributes with unsafe names that would break serialization.
+                if !is_safe_attr_name(name) {
+                    continue;
+                }
                 html.push(' ');
                 html.push_str(name);
                 html.push_str("=\"");
@@ -393,8 +403,9 @@ fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String) {
         if VOID_ELEMENTS.contains(&tag.0.as_str()) {
             return;
         }
+        let child_raw_text = RAW_TEXT_ELEMENTS.contains(&tag.0.as_str());
         for child in dom.children_iter(entity) {
-            serialize_node(child, dom, html);
+            serialize_node(child, dom, html, child_raw_text);
         }
         html.push_str("</");
         html.push_str(&tag.0);
@@ -403,7 +414,7 @@ fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String) {
     }
     // Non-element, non-text nodes (e.g., document roots): recurse into children.
     for child in dom.children_iter(entity) {
-        serialize_node(child, dom, html);
+        serialize_node(child, dom, html, false);
     }
 }
 
@@ -598,6 +609,55 @@ mod tests {
             .unwrap();
         assert_eq!(result, JsValue::ObjectRef(child_ref));
         assert_eq!(dom.children(parent), vec![child]);
+    }
+
+    #[test]
+    fn get_attribute_case_insensitive() {
+        let (mut dom, parent, _, mut session) = setup();
+        let set_handler = SetAttribute;
+        set_handler
+            .invoke(
+                parent,
+                &[
+                    JsValue::String("Data-X".into()),
+                    JsValue::String("42".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+
+        let get_handler = GetAttribute;
+        // Both "data-x" and "Data-X" should find the attribute (stored as "data-x")
+        let result = get_handler
+            .invoke(
+                parent,
+                &[JsValue::String("Data-X".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::String("42".into()));
+    }
+
+    #[test]
+    fn remove_attribute_case_insensitive() {
+        let (mut dom, parent, _, mut session) = setup();
+        {
+            let mut attrs = dom.world_mut().get::<&mut Attributes>(parent).unwrap();
+            attrs.set("class", "active");
+        }
+        let handler = RemoveAttribute;
+        handler
+            .invoke(
+                parent,
+                &[JsValue::String("CLASS".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let attrs = dom.world().get::<&Attributes>(parent).unwrap();
+        assert!(!attrs.contains("class"));
     }
 
     #[test]

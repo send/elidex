@@ -133,16 +133,25 @@ impl Connector {
         port: u16,
     ) -> Result<Vec<SocketAddr>, NetError> {
         let lookup = format!("{host}:{port}");
-        let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&lookup)
-            .await
-            .map_err(|e| {
-                NetError::with_source(
-                    NetErrorKind::DnsFailure,
-                    format!("DNS resolution failed for {host}"),
-                    e,
-                )
-            })?
-            .collect();
+        let addrs: Vec<SocketAddr> = tokio::time::timeout(
+            self.config.connect_timeout,
+            tokio::net::lookup_host(&lookup),
+        )
+        .await
+        .map_err(|_| {
+            NetError::new(
+                NetErrorKind::Timeout,
+                format!("DNS resolution for {host} timed out"),
+            )
+        })?
+        .map_err(|e| {
+            NetError::with_source(
+                NetErrorKind::DnsFailure,
+                format!("DNS resolution failed for {host}"),
+                e,
+            )
+        })?
+        .collect();
 
         if addrs.is_empty() {
             return Err(NetError::new(

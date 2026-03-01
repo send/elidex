@@ -200,7 +200,8 @@ fn apply_set_attribute(
     value: &str,
 ) -> Option<MutationRecord> {
     let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
-    attrs.set(name.to_owned(), value.to_owned());
+    let name = name.to_ascii_lowercase();
+    attrs.set(name, value.to_owned());
     Some(MutationRecord {
         kind: MutationKind::Attribute,
         target: entity,
@@ -209,7 +210,8 @@ fn apply_set_attribute(
 
 fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Option<MutationRecord> {
     let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
-    attrs.remove(name);
+    let name = name.to_ascii_lowercase();
+    attrs.remove(&name);
     Some(MutationRecord {
         kind: MutationKind::Attribute,
         target: entity,

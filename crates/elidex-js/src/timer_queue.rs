@@ -116,9 +116,10 @@ impl TimerQueue {
 
     /// Cancel a timer by ID (`clearTimeout`, `clearInterval`, `cancelAnimationFrame`).
     ///
-    /// IDs of 0 are ignored (produced by `NaN as u64` / `clearTimeout(undefined)`).
+    /// IDs of 0 or IDs that were never allocated are ignored, preventing
+    /// unbounded growth of the cancelled set from bogus JS values.
     pub fn clear_timer(&mut self, id: TimerId) {
-        if id.0 != 0 {
+        if id.0 != 0 && id.0 < self.next_id {
             self.cancelled.insert(id);
         }
     }

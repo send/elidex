@@ -21,7 +21,7 @@ pub fn validate_url(url: &url::Url) -> Result<(), NetworkError> {
         "http" | "https" => {}
         scheme => {
             return Err(NetworkError {
-                kind: NetworkErrorKind::Other,
+                kind: NetworkErrorKind::SsrfBlocked,
                 message: format!("unsupported URL scheme: {scheme}"),
             });
         }
@@ -36,7 +36,7 @@ pub fn validate_url(url: &url::Url) -> Result<(), NetworkError> {
             || lower == "::1"
         {
             return Err(NetworkError {
-                kind: NetworkErrorKind::Other,
+                kind: NetworkErrorKind::SsrfBlocked,
                 message: format!("blocked private host: {host}"),
             });
         }
@@ -44,14 +44,14 @@ pub fn validate_url(url: &url::Url) -> Result<(), NetworkError> {
         if let Ok(ip) = host.parse::<IpAddr>() {
             if is_private_ip(ip) {
                 return Err(NetworkError {
-                    kind: NetworkErrorKind::Other,
+                    kind: NetworkErrorKind::SsrfBlocked,
                     message: format!("blocked private IP: {ip}"),
                 });
             }
         }
     } else {
         return Err(NetworkError {
-            kind: NetworkErrorKind::Other,
+            kind: NetworkErrorKind::SsrfBlocked,
             message: "URL has no host".to_string(),
         });
     }

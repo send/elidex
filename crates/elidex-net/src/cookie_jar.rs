@@ -276,6 +276,14 @@ fn parse_set_cookie(
         None // session cookie
     };
 
+    // Reject single-label domains (public suffixes like "com", "org", "net").
+    // A proper implementation would use a Public Suffix List, but rejecting
+    // domains with no dots catches the most obvious cases.
+    let bare_domain = domain.strip_prefix('.').unwrap_or(&domain);
+    if !bare_domain.contains('.') {
+        return None;
+    }
+
     // Third-party cookie blocking (simplified)
     if !is_same_site(request_domain, &domain) {
         return None;
@@ -555,6 +563,27 @@ mod tests {
             .collect();
         jar.store_from_response(&url, &headers);
         assert_eq!(jar.len(), MAX_COOKIES_PER_DOMAIN);
+    }
+
+    #[test]
+    fn single_label_domain_rejected() {
+        // Cookies with single-label domains (public suffixes like "com")
+        // should be rejected.
+        let result = parse_set_cookie("k=v; Domain=com", "example.com", "/");
+        assert!(
+            result.is_none(),
+            "single-label domain 'com' should be rejected"
+        );
+
+        let result = parse_set_cookie("k=v; Domain=org", "example.org", "/");
+        assert!(
+            result.is_none(),
+            "single-label domain 'org' should be rejected"
+        );
+
+        // Multi-label domains should still work
+        let result = parse_set_cookie("k=v; Domain=example.com", "example.com", "/");
+        assert!(result.is_some(), "multi-label domain should be accepted");
     }
 
     #[test]

@@ -30,6 +30,11 @@ fn validate_token(token: &str) -> Result<(), DomApiError> {
     Ok(())
 }
 
+/// Normalize whitespace in a class string: collapse multiple spaces, trim.
+fn normalize_class_string(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn get_class_string(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     let attrs = dom
         .world()
@@ -76,8 +81,7 @@ impl DomApiHandler for ClassListAdd {
         validate_token(&class_name)?;
         let current = get_class_string(this, dom)?;
         if !current.split_whitespace().any(|c| c == class_name) {
-            // Normalize existing whitespace before appending.
-            let normalized: String = current.split_whitespace().collect::<Vec<_>>().join(" ");
+            let normalized = normalize_class_string(&current);
             let new_class = if normalized.is_empty() {
                 class_name
             } else {
@@ -151,8 +155,7 @@ impl DomApiHandler for ClassListToggle {
             set_class_string(this, dom, new_class.join(" "))?;
             Ok(JsValue::Bool(false))
         } else {
-            // Normalize existing whitespace before appending.
-            let normalized: String = current.split_whitespace().collect::<Vec<_>>().join(" ");
+            let normalized = normalize_class_string(&current);
             let new_class = if normalized.is_empty() {
                 class_name
             } else {

@@ -236,16 +236,24 @@ fn build_authority(url: &url::Url) -> Result<String, NetError> {
     let host = url
         .host_str()
         .ok_or_else(|| NetError::new(NetErrorKind::InvalidUrl, "URL has no host"))?;
+    // IPv6 addresses contain ':' and need brackets in the authority.
+    // url::Url::host_str() may already include brackets for IPv6, so
+    // only add them if not already present.
+    let host_part = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
     match url.port() {
         Some(port) => {
             let is_default = matches!((url.scheme(), port), ("http", 80) | ("https", 443));
             if is_default {
-                Ok(host.to_string())
+                Ok(host_part)
             } else {
-                Ok(format!("{host}:{port}"))
+                Ok(format!("{host_part}:{port}"))
             }
         }
-        None => Ok(host.to_string()),
+        None => Ok(host_part),
     }
 }
 
@@ -363,6 +371,30 @@ mod tests {
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"hello");
         assert_eq!(response.version, HttpVersion::H1);
+    }
+
+    #[test]
+    fn build_authority_ipv4() {
+        let url = url::Url::parse("http://example.com/path").unwrap();
+        assert_eq!(build_authority(&url).unwrap(), "example.com");
+    }
+
+    #[test]
+    fn build_authority_ipv4_non_default_port() {
+        let url = url::Url::parse("http://example.com:8080/path").unwrap();
+        assert_eq!(build_authority(&url).unwrap(), "example.com:8080");
+    }
+
+    #[test]
+    fn build_authority_ipv6() {
+        let url = url::Url::parse("http://[::1]:8080/path").unwrap();
+        assert_eq!(build_authority(&url).unwrap(), "[::1]:8080");
+    }
+
+    #[test]
+    fn build_authority_ipv6_default_port() {
+        let url = url::Url::parse("http://[::1]/path").unwrap();
+        assert_eq!(build_authority(&url).unwrap(), "[::1]");
     }
 
     #[tokio::test]

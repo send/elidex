@@ -57,6 +57,32 @@ pub struct DomApiError {
     pub message: String,
 }
 
+impl DomApiError {
+    /// Create a `NotFoundError`.
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            kind: DomApiErrorKind::NotFoundError,
+            message: message.into(),
+        }
+    }
+
+    /// Create a `TypeError`.
+    pub fn type_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: DomApiErrorKind::TypeError,
+            message: message.into(),
+        }
+    }
+
+    /// Create a `SyntaxError`.
+    pub fn syntax_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: DomApiErrorKind::SyntaxError,
+            message: message.into(),
+        }
+    }
+}
+
 impl fmt::Display for DomApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.message.is_empty() {

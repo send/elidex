@@ -5,7 +5,7 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
-use elidex_script_session::{ComponentKind, DomApiHandler, EventListeners, JsObjectRef};
+use elidex_script_session::{ComponentKind, DomApiHandler, JsObjectRef};
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
@@ -359,51 +359,7 @@ fn build_element_object(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                let event_type = require_js_string_arg(args, 0, "addEventListener", ctx)?;
-                let listener_fn = args
-                    .get(1)
-                    .and_then(|v| v.as_object().cloned())
-                    .ok_or_else(|| {
-                        JsNativeError::typ()
-                            .with_message("addEventListener: argument 1 must be a function")
-                    })?;
-                let capture = args.get(2).is_some_and(JsValue::to_boolean);
-
-                bridge.with(|_session, dom| {
-                    // Check for duplicate: same (type, capture, JsObject pointer).
-                    let is_duplicate =
-                        dom.world()
-                            .get::<&EventListeners>(entity)
-                            .ok()
-                            .is_some_and(|listeners| {
-                                listeners.matching_all(&event_type).iter().any(|entry| {
-                                    entry.capture == capture
-                                        && bridge.listener_matches(entry.id, &listener_fn)
-                                })
-                            });
-
-                    if is_duplicate {
-                        return;
-                    }
-
-                    // Check if the component already exists by reading it first.
-                    let has_listeners = dom.world().get::<&EventListeners>(entity).is_ok();
-
-                    let id = if has_listeners {
-                        dom.world_mut()
-                            .get::<&mut EventListeners>(entity)
-                            .unwrap()
-                            .add(&event_type, capture)
-                    } else {
-                        let mut listeners = EventListeners::new();
-                        let id = listeners.add(&event_type, capture);
-                        let _ = dom.world_mut().insert_one(entity, listeners);
-                        id
-                    };
-                    bridge.store_listener(id, listener_fn);
-                });
-
-                Ok(JsValue::undefined())
+                crate::globals::add_event_listener_for(entity, args, bridge, ctx)
             },
             b,
         ),
@@ -417,43 +373,7 @@ fn build_element_object(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                let event_type = require_js_string_arg(args, 0, "removeEventListener", ctx)?;
-                let listener_fn = args
-                    .get(1)
-                    .and_then(|v| v.as_object().cloned())
-                    .ok_or_else(|| {
-                        JsNativeError::typ()
-                            .with_message("removeEventListener: argument 1 must be a function")
-                    })?;
-                let capture = args.get(2).is_some_and(JsValue::to_boolean);
-
-                bridge.with(|_session, dom| {
-                    // Find the matching entry by (type, capture, JsObject pointer).
-                    let matching_id =
-                        dom.world()
-                            .get::<&EventListeners>(entity)
-                            .ok()
-                            .and_then(|listeners| {
-                                listeners
-                                    .matching_all(&event_type)
-                                    .into_iter()
-                                    .find(|entry| {
-                                        entry.capture == capture
-                                            && bridge.listener_matches(entry.id, &listener_fn)
-                                    })
-                                    .map(|entry| entry.id)
-                            });
-
-                    let Some(id) = matching_id else { return };
-
-                    // Remove from ECS and bridge.
-                    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
-                        listeners.remove(id);
-                    }
-                    bridge.remove_listener(id);
-                });
-
-                Ok(JsValue::undefined())
+                crate::globals::remove_event_listener_for(entity, args, bridge, ctx)
             },
             b,
         ),

@@ -68,14 +68,12 @@ fn measure_segment_widths(
 ///
 /// Returns the total height consumed by all line boxes.
 /// Text is measured using the parent element's font properties.
-// TODO(Phase 2): use offset_x/offset_y to position line boxes and assign
+// TODO(Phase 3): use caller-provided offsets to position line boxes and assign
 // LayoutBox components to inline elements and text nodes.
 pub(crate) fn layout_inline_context(
     dom: &EcsDom,
     children: &[Entity],
     containing_width: f32,
-    _offset_x: f32,
-    _offset_y: f32,
     parent_style: &ComputedStyle,
     font_db: &FontDatabase,
 ) -> f32 {
@@ -179,7 +177,7 @@ mod tests {
         let font_db = FontDatabase::new();
         let children = dom.children(parent);
 
-        let h = layout_inline_context(&dom, &children, 800.0, 0.0, 0.0, &style, &font_db);
+        let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!(h.abs() < f32::EPSILON);
     }
 
@@ -189,7 +187,7 @@ mod tests {
         let style = ComputedStyle::default();
         let font_db = FontDatabase::new();
 
-        let h = layout_inline_context(&dom, &[], 800.0, 0.0, 0.0, &style, &font_db);
+        let h = layout_inline_context(&dom, &[], 800.0, &style, &font_db);
         assert!(h.abs() < f32::EPSILON);
     }
 
@@ -212,7 +210,7 @@ mod tests {
         };
 
         let children = dom.children(parent);
-        let h = layout_inline_context(&dom, &children, 800.0, 0.0, 0.0, &style, &font_db);
+        let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!((h - probe.line_height).abs() < f32::EPSILON);
     }
 
@@ -235,7 +233,7 @@ mod tests {
 
         // Wide container: should still produce 2 lines due to \n
         let children = dom.children(parent);
-        let h = layout_inline_context(&dom, &children, 8000.0, 0.0, 0.0, &style, &font_db);
+        let h = layout_inline_context(&dom, &children, 8000.0, &style, &font_db);
         assert!((h - probe.line_height * 2.0).abs() < f32::EPSILON);
     }
 
@@ -258,7 +256,7 @@ mod tests {
 
         // Use a very narrow width to force wrapping
         let children = dom.children(parent);
-        let h = layout_inline_context(&dom, &children, 1.0, 0.0, 0.0, &style, &font_db);
+        let h = layout_inline_context(&dom, &children, 1.0, &style, &font_db);
         assert!(h > probe.line_height);
     }
 }

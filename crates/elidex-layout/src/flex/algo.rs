@@ -34,7 +34,7 @@ pub(super) fn build_line_ranges(
 
 fn split_into_lines(items: &[FlexItem], container_main: f32, wrap: FlexWrap) -> Vec<usize> {
     if items.is_empty() {
-        return vec![0];
+        return Vec::new();
     }
     if matches!(wrap, FlexWrap::Nowrap) {
         return vec![items.len()];
@@ -186,6 +186,87 @@ pub(super) fn resolve_container_cross(
 // Positioning
 // ---------------------------------------------------------------------------
 
+/// Compute the cross-axis alignment offset for a single flex item.
+///
+/// Based on the item's `align-self` (resolved to `AlignItems`), returns the
+/// offset within the line's cross space.
+fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
+    debug_assert!(line_cross >= 0.0, "line_cross must be non-negative: {line_cross}");
+    let item_outer_cross = item.final_cross + item.margin_cross;
+    match item.align {
+        AlignItems::FlexEnd => line_cross - item_outer_cross,
+        AlignItems::Center => (line_cross - item_outer_cross) / 2.0,
+        _ => 0.0,
+    }
+}
+
+/// Re-layout a flex item at its final position and overwrite its `LayoutBox`
+/// with flex-resolved dimensions.
+///
+/// This overwrites the item's `ComputedStyle` width/height to the flex-resolved
+/// values (NOT restored — re-layout requires re-resolving styles first), then
+/// runs `layout_block` to position descendants, and finally patches the
+/// `LayoutBox` with the correct flex content size.
+fn relayout_item_at_position(
+    dom: &mut EcsDom,
+    item: &FlexItem,
+    ctx: &FlexContext,
+    margin_box_x: f32,
+    margin_box_y: f32,
+    font_db: &FontDatabase,
+) {
+    let item_content_width = if ctx.horizontal {
+        item.final_main
+    } else {
+        (item.final_cross - item.pb_cross).max(0.0)
+    };
+    let item_content_height = if ctx.horizontal {
+        (item.final_cross - item.pb_cross).max(0.0)
+    } else {
+        item.final_main
+    };
+
+    // Overwrite the item's width/height to flex-resolved values.
+    {
+        let mut style = crate::get_style(dom, item.entity);
+        if ctx.horizontal {
+            style.width = Dimension::Length(item.final_main);
+            style.height = Dimension::Length(item_content_height);
+        } else {
+            style.width = Dimension::Length(item_content_width);
+            style.height = Dimension::Length(item.final_main);
+        }
+        let _ = dom.world_mut().insert_one(item.entity, style);
+    }
+
+    // Re-layout the item at its final margin-box position so
+    // descendants get correct absolute coordinates.
+    let child_lb = layout_block(
+        dom,
+        item.entity,
+        ctx.containing_width,
+        margin_box_x,
+        margin_box_y,
+        font_db,
+    );
+
+    // Overwrite the item's LayoutBox with flex-resolved dimensions.
+    // child_lb.content.x/y already include margin + border + padding
+    // offsets from the margin-box position, so use them directly.
+    let lb = LayoutBox {
+        content: Rect {
+            x: child_lb.content.x,
+            y: child_lb.content.y,
+            width: item_content_width,
+            height: item_content_height,
+        },
+        padding: child_lb.padding,
+        border: child_lb.border,
+        margin: child_lb.margin,
+    };
+    let _ = dom.world_mut().insert_one(item.entity, lb);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn position_items(
     dom: &mut EcsDom,
@@ -228,78 +309,22 @@ pub(super) fn position_items(
                 main_cursor -= item_outer_main;
             }
 
-            let item_outer_cross = item.final_cross + item.margin_cross;
-            let cross_align_offset = match item.align {
-                AlignItems::FlexEnd => line_cross - item_outer_cross,
-                AlignItems::Center => (line_cross - item_outer_cross) / 2.0,
-                _ => 0.0,
-            };
+            let align_offset = cross_align_offset(item, line_cross);
 
             // Margin-box position: layout_block adds margins internally.
             let (margin_box_x, margin_box_y) = if ctx.horizontal {
                 (
                     ctx.content_x + main_cursor,
-                    ctx.content_y + cross_offset + cross_align_offset,
+                    ctx.content_y + cross_offset + align_offset,
                 )
             } else {
                 (
-                    ctx.content_x + cross_offset + cross_align_offset,
+                    ctx.content_x + cross_offset + align_offset,
                     ctx.content_y + main_cursor,
                 )
             };
 
-            let item_content_width = if ctx.horizontal {
-                item.final_main
-            } else {
-                (item.final_cross - item.pb_cross).max(0.0)
-            };
-            let item_content_height = if ctx.horizontal {
-                (item.final_cross - item.pb_cross).max(0.0)
-            } else {
-                item.final_main
-            };
-
-            // Temporarily set the item's width/height to the flex-resolved
-            // values so that layout_block uses the correct containing block
-            // width for the item's children.
-            {
-                let mut style = crate::get_style(dom, item.entity);
-                if ctx.horizontal {
-                    style.width = Dimension::Length(item.final_main);
-                    style.height = Dimension::Length(item_content_height);
-                } else {
-                    style.width = Dimension::Length(item_content_width);
-                    style.height = Dimension::Length(item.final_main);
-                }
-                let _ = dom.world_mut().insert_one(item.entity, style);
-            }
-
-            // Re-layout the item at its final margin-box position so
-            // descendants get correct absolute coordinates.
-            let child_lb = layout_block(
-                dom,
-                item.entity,
-                ctx.containing_width,
-                margin_box_x,
-                margin_box_y,
-                font_db,
-            );
-
-            // Overwrite the item's LayoutBox with flex-resolved dimensions.
-            // child_lb.content.x/y already include margin + border + padding
-            // offsets from the margin-box position, so use them directly.
-            let lb = LayoutBox {
-                content: Rect {
-                    x: child_lb.content.x,
-                    y: child_lb.content.y,
-                    width: item_content_width,
-                    height: item_content_height,
-                },
-                padding: child_lb.padding,
-                border: child_lb.border,
-                margin: child_lb.margin,
-            };
-            let _ = dom.world_mut().insert_one(item.entity, lb);
+            relayout_item_at_position(dom, item, ctx, margin_box_x, margin_box_y, font_db);
 
             if reversed_main {
                 main_cursor -= gap;

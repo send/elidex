@@ -26,13 +26,11 @@
 
 mod bridge;
 mod error_conv;
-pub mod fetch_handle;
 mod globals;
 pub mod runtime;
 pub mod script_extract;
 mod timer_queue;
 mod value_conv;
 
-pub use fetch_handle::FetchHandle;
 pub use runtime::{EvalResult, JsRuntime};
 pub use script_extract::{extract_scripts, ScriptEntry};

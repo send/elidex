@@ -27,11 +27,9 @@ impl boa_gc::Finalize for SharedFlag {
 }
 
 // Safety: SharedFlag contains no GC-managed objects, trace is a no-op.
-// The `mark(&())` call is a no-op placeholder required by the macro.
 #[allow(unsafe_code)]
 unsafe impl boa_gc::Trace for SharedFlag {
     boa_gc::custom_trace!(this, mark, {
-        mark(&());
         let _ = this;
     });
 }
