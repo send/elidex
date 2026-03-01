@@ -7,7 +7,6 @@ use elidex_plugin::{
 };
 use elidex_text::FontDatabase;
 
-use crate::block::layout_block;
 use crate::sanitize;
 
 use super::{is_reversed, resolve_explicit_height, FlexContext, FlexItem};
@@ -21,8 +20,9 @@ pub(super) fn build_line_ranges(
     items: &[FlexItem],
     container_main: f32,
     wrap: FlexWrap,
+    gap_main: f32,
 ) -> Vec<(usize, usize)> {
-    let line_lengths = split_into_lines(items, container_main, wrap);
+    let line_lengths = split_into_lines(items, container_main, wrap, gap_main);
     let mut ranges = Vec::with_capacity(line_lengths.len());
     let mut start = 0;
     for len in line_lengths {
@@ -32,7 +32,12 @@ pub(super) fn build_line_ranges(
     ranges
 }
 
-fn split_into_lines(items: &[FlexItem], container_main: f32, wrap: FlexWrap) -> Vec<usize> {
+fn split_into_lines(
+    items: &[FlexItem],
+    container_main: f32,
+    wrap: FlexWrap,
+    gap_main: f32,
+) -> Vec<usize> {
     if items.is_empty() {
         return Vec::new();
     }
@@ -43,14 +48,20 @@ fn split_into_lines(items: &[FlexItem], container_main: f32, wrap: FlexWrap) -> 
     let mut lines = Vec::new();
     let mut line_start = 0;
     let mut line_main = 0.0_f32;
+    let mut line_count = 0_usize;
     for (i, item) in items.iter().enumerate() {
         let item_main = item.hypo_main + item.pb_main + item.margin_main;
-        if i > line_start && line_main + item_main > container_main {
+        // Include gap between items when checking overflow.
+        let gap_before = if line_count > 0 { gap_main } else { 0.0 };
+        if i > line_start && line_main + gap_before + item_main > container_main {
             lines.push(i - line_start);
             line_start = i;
-            line_main = 0.0;
+            line_main = item_main;
+            line_count = 1;
+        } else {
+            line_main += gap_before + item_main;
+            line_count += 1;
         }
-        line_main += item_main;
     }
     lines.push(items.len() - line_start);
     lines
@@ -63,7 +74,8 @@ fn split_into_lines(items: &[FlexItem], container_main: f32, wrap: FlexWrap) -> 
 // TODO(Phase 3): Replace with spec-compliant frozen/unfrozen 2-pass loop (CSS §9.7)
 // once min-width/max-width constraints are implemented. The current single-pass is
 // sufficient while those constraints are absent.
-pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32) {
+#[allow(clippy::cast_precision_loss)]
+pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32, gap_main: f32) {
     if items.is_empty() {
         return;
     }
@@ -71,7 +83,13 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
         .iter()
         .map(|i| i.hypo_main + i.pb_main + i.margin_main)
         .sum();
-    let free_space = container_main - total_hypo;
+    // Subtract total gap from available space.
+    let total_gap = if items.len() > 1 {
+        gap_main * (items.len() - 1) as f32
+    } else {
+        0.0
+    };
+    let free_space = container_main - total_hypo - total_gap;
 
     if free_space > 0.0 {
         let total_grow: f32 = items.iter().map(|i| i.grow).sum();
@@ -117,7 +135,15 @@ pub(super) fn layout_items_cross(
         } else {
             ctx.content_width
         };
-        let child_lb = layout_block(dom, item.entity, child_containing, 0.0, 0.0, font_db);
+        let child_lb = crate::block::layout_block_with_height(
+            dom,
+            item.entity,
+            child_containing,
+            ctx.container_definite_height,
+            0.0,
+            0.0,
+            font_db,
+        );
         item.final_cross = if ctx.horizontal {
             child_lb.content.height + item.pb_cross
         } else {
@@ -171,7 +197,7 @@ pub(super) fn resolve_container_cross(
     total_line_cross: f32,
 ) -> f32 {
     let explicit = if ctx.horizontal {
-        resolve_explicit_height(style)
+        resolve_explicit_height(style, ctx.containing_height)
     } else {
         match style.width {
             Dimension::Length(px) => Some(sanitize(px)),
@@ -244,10 +270,11 @@ fn relayout_item_at_position(
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
-    let child_lb = layout_block(
+    let child_lb = crate::block::layout_block_with_height(
         dom,
         item.entity,
         ctx.containing_width,
+        ctx.container_definite_height,
         margin_box_x,
         margin_box_y,
         font_db,
@@ -271,6 +298,7 @@ fn relayout_item_at_position(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::cast_precision_loss)]
 pub(super) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
@@ -297,9 +325,17 @@ pub(super) fn position_items(
             .iter()
             .map(|i| i.final_main + i.pb_main + i.margin_main)
             .sum();
-        let free_space = (ctx.container_main - total_main_used).max(0.0);
-        let (mut main_cursor, gap) =
+        // Total gap between items on the main axis.
+        let total_gap = if line_items.len() > 1 {
+            ctx.gap_main * (line_items.len() - 1) as f32
+        } else {
+            0.0
+        };
+        let free_space = (ctx.container_main - total_main_used - total_gap).max(0.0);
+        let (mut main_cursor, justify_gap) =
             compute_justify_offsets(ctx.justify, free_space, line_items.len());
+        // Effective gap = CSS gap + justify-content gap.
+        let gap = ctx.gap_main + justify_gap;
 
         if reversed_main {
             main_cursor = ctx.container_main - main_cursor;
@@ -338,6 +374,7 @@ pub(super) fn position_items(
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 pub(super) fn compute_container_height(
     style: &ComputedStyle,
     ctx: &FlexContext,
@@ -346,18 +383,33 @@ pub(super) fn compute_container_height(
     total_line_cross: f32,
 ) -> f32 {
     if ctx.horizontal {
-        resolve_explicit_height(style).unwrap_or(total_line_cross)
+        // Auto height: include cross-axis gaps between lines.
+        let cross_gaps = if line_ranges.len() > 1 {
+            ctx.gap_cross * (line_ranges.len() - 1) as f32
+        } else {
+            0.0
+        };
+        resolve_explicit_height(style, ctx.containing_height)
+            .unwrap_or(total_line_cross + cross_gaps)
     } else {
         let max_line_main: f32 = line_ranges
             .iter()
             .map(|&(s, e)| {
-                items[s..e]
+                let item_sum: f32 = items[s..e]
                     .iter()
                     .map(|i| i.final_main + i.pb_main + i.margin_main)
-                    .sum::<f32>()
+                    .sum();
+                // Add main-axis gap between items within the line.
+                let count = e - s;
+                let gaps = if count > 1 {
+                    ctx.gap_main * (count - 1) as f32
+                } else {
+                    0.0
+                };
+                item_sum + gaps
             })
             .fold(0.0_f32, f32::max);
-        resolve_explicit_height(style).unwrap_or(max_line_main)
+        resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
     }
 }
 
@@ -412,6 +464,7 @@ pub(super) fn compute_align_content_offsets(
     container_cross: f32,
     align_content: AlignContent,
     wrap: FlexWrap,
+    gap_cross: f32,
 ) -> AlignContentResult {
     let n = line_cross_sizes.len();
     if n == 0 {
@@ -428,7 +481,12 @@ pub(super) fn compute_align_content_offsets(
     }
 
     let total: f32 = line_cross_sizes.iter().sum();
-    let free = (container_cross - total).max(0.0);
+    let total_cross_gap = if n > 1 {
+        gap_cross * (n - 1) as f32
+    } else {
+        0.0
+    };
+    let free = (container_cross - total - total_cross_gap).max(0.0);
     let nf = n as f32;
 
     let mut cursor = match align_content {
@@ -463,7 +521,7 @@ pub(super) fn compute_align_content_offsets(
         effective_line_sizes.push(line_size + stretch_extra);
         cursor += line_size + stretch_extra;
         if i < n - 1 {
-            cursor += gap;
+            cursor += gap + gap_cross;
         }
     }
     AlignContentResult {

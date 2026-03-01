@@ -730,3 +730,167 @@ fn parse_opacity_clamp_above_one() {
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].value, CssValue::Number(1.0));
 }
+
+// --- M3-5: gap + text-align parsing ---
+
+#[test]
+fn parse_row_gap() {
+    let decls = parse_single("row-gap", "10px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_column_gap() {
+    let decls = parse_single("column-gap", "20px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "column-gap");
+    assert_eq!(decls[0].value, CssValue::Length(20.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_gap_shorthand_one_value() {
+    let decls = parse_single("gap", "15px");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(15.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(15.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_gap_shorthand_two_values() {
+    let decls = parse_single("gap", "10px 20px");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(20.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_text_align_left() {
+    let decls = parse_single("text-align", "left");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("left".into()));
+}
+
+#[test]
+fn parse_text_align_center() {
+    let decls = parse_single("text-align", "center");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("center".into()));
+}
+
+#[test]
+fn parse_text_align_right() {
+    let decls = parse_single("text-align", "right");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("right".into()));
+}
+
+#[test]
+fn parse_text_align_start_maps_to_left() {
+    let decls = parse_single("text-align", "start");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("left".into()));
+}
+
+#[test]
+fn parse_text_align_justify_maps_to_left() {
+    let decls = parse_single("text-align", "justify");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("left".into()));
+}
+
+// L1: text-align: end → right
+#[test]
+fn parse_text_align_end_maps_to_right() {
+    let decls = parse_single("text-align", "end");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("right".into()));
+}
+
+// L3: gap: normal → 0px
+#[test]
+fn parse_gap_normal_keyword() {
+    let decls = parse_single("gap", "normal");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_row_gap_normal_keyword() {
+    let decls = parse_single("row-gap", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+// M5: negative gap rejected
+#[test]
+fn parse_gap_negative_rejected() {
+    let decls = parse_single("row-gap", "-10px");
+    assert!(decls.is_empty(), "negative gap should be rejected");
+}
+
+#[test]
+fn parse_gap_shorthand_negative_rejected() {
+    let decls = parse_single("gap", "-5px");
+    assert!(
+        decls.is_empty(),
+        "negative gap shorthand should be rejected"
+    );
+}
+
+// L4: gap: normal + length mixed values
+#[test]
+fn parse_gap_shorthand_normal_and_length() {
+    let decls = parse_single("gap", "normal 10px");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(10.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_gap_shorthand_length_and_normal() {
+    let decls = parse_single("gap", "10px normal");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+// L5: negative percentage gap rejected
+#[test]
+fn parse_gap_negative_percentage_rejected() {
+    let decls = parse_single("row-gap", "-50%");
+    assert!(
+        decls.is_empty(),
+        "negative percentage gap should be rejected"
+    );
+}
+
+// L6: gap: 0 shorthand
+#[test]
+fn parse_gap_zero_shorthand() {
+    let decls = parse_single("gap", "0");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "row-gap");
+    assert_eq!(decls[0].value, CssValue::Length(0.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-gap");
+    assert_eq!(decls[1].value, CssValue::Length(0.0, LengthUnit::Px));
+}
+
+// L7: invalid text-align value rejected
+#[test]
+fn parse_text_align_invalid_rejected() {
+    let decls = parse_single("text-align", "middle");
+    assert!(decls.is_empty(), "invalid text-align should be rejected");
+}

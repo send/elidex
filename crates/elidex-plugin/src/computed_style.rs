@@ -193,6 +193,25 @@ impl AsRef<str> for Position {
     }
 }
 
+/// The CSS `text-align` property.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl AsRef<str> for TextAlign {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+        }
+    }
+}
+
 /// The CSS `text-transform` property.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum TextTransform {
@@ -334,6 +353,7 @@ display_via_as_ref!(
     AlignItems,
     AlignSelf,
     AlignContent,
+    TextAlign,
     TextTransform,
 );
 
@@ -365,6 +385,8 @@ pub struct ComputedStyle {
     pub line_height: LineHeight,
     /// Text transform. Initial: `None`.
     pub text_transform: TextTransform,
+    /// Text alignment. Initial: `Left`.
+    pub text_align: TextAlign,
 
     // --- Non-inherited properties ---
     /// Display type. Initial: Inline.
@@ -438,6 +460,12 @@ pub struct ComputedStyle {
     /// Opacity (0.0–1.0). Initial: 1.0.
     pub opacity: f32,
 
+    // --- Flex gap properties (non-inherited) ---
+    /// Row gap in pixels. Initial: 0.0.
+    pub row_gap: f32,
+    /// Column gap in pixels. Initial: 0.0.
+    pub column_gap: f32,
+
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
     pub flex_direction: FlexDirection,
@@ -481,6 +509,7 @@ impl Default for ComputedStyle {
             font_family: vec!["serif".to_string()],
             line_height: LineHeight::Normal,
             text_transform: TextTransform::default(),
+            text_align: TextAlign::default(),
 
             // Non-inherited
             display: Display::default(),
@@ -525,6 +554,10 @@ impl Default for ComputedStyle {
             box_sizing: BoxSizing::default(),
             border_radius: 0.0,
             opacity: 1.0,
+
+            // Flex gap
+            row_gap: 0.0,
+            column_gap: 0.0,
 
             // Flex container
             flex_direction: FlexDirection::default(),

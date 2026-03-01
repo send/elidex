@@ -862,10 +862,11 @@ mod tests {
             .iter()
             .filter(|i| matches!(i, DisplayItem::Text { .. }))
             .count();
-        // Inline run should produce exactly one text item (not three).
+        // Styled inline runs: one text item per styled segment.
+        // "Hello " (p style), "world" (strong style), "!" (p style) = 3.
         assert_eq!(
-            text_count, 1,
-            "Expected 1 text item for inline run, got {text_count}"
+            text_count, 3,
+            "Expected 3 text items for styled inline run, got {text_count}"
         );
     }
 }

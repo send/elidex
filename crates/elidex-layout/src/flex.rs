@@ -166,6 +166,13 @@ pub(super) struct FlexContext {
     pub(super) align_items: AlignItems,
     pub(super) align_content: AlignContent,
     pub(super) containing_width: f32,
+    pub(super) containing_height: Option<f32>,
+    /// The container's own definite height (for children's percentage height resolution).
+    pub(super) container_definite_height: Option<f32>,
+    /// Gap between items on the main axis.
+    pub(super) gap_main: f32,
+    /// Gap between lines on the cross axis.
+    pub(super) gap_cross: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -177,28 +184,28 @@ fn resolve_container_main(
     style: &ComputedStyle,
     horizontal: bool,
     content_width: f32,
-    _containing_width: f32,
+    containing_height: Option<f32>,
 ) -> f32 {
     if horizontal {
         content_width
     } else {
         match style.height {
             Dimension::Length(px) => sanitize(px),
-            Dimension::Percentage(_pct) => {
-                // TODO(Phase 3): Resolve percentage height against containing block height.
-                // Currently treated as indefinite because containing_height is not tracked.
-                f32::MAX
+            Dimension::Percentage(pct) => {
+                containing_height.map_or(INDEFINITE_MAIN_SIZE, |ch| sanitize(ch * pct / 100.0))
             }
-            Dimension::Auto => f32::MAX,
+            Dimension::Auto => INDEFINITE_MAIN_SIZE,
         }
     }
 }
 
 /// Layout a flex container and return its `LayoutBox`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) fn layout_flex(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
+    containing_height: Option<f32>,
     offset_x: f32,
     offset_y: f32,
     font_db: &FontDatabase,
@@ -225,7 +232,7 @@ pub(crate) fn layout_flex(
     let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
     let horizontal = is_main_horizontal(style.flex_direction);
     let container_main =
-        resolve_container_main(&style, horizontal, content_width, containing_width);
+        resolve_container_main(&style, horizontal, content_width, containing_height);
 
     // --- Early return for empty containers ---
     let children = dom.children(entity);
@@ -235,7 +242,7 @@ pub(crate) fn layout_flex(
                 x: content_x,
                 y: content_y,
                 width: content_width,
-                height: resolve_explicit_height(&style).unwrap_or(0.0),
+                height: resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
             },
             padding,
             border,
@@ -244,6 +251,24 @@ pub(crate) fn layout_flex(
         let _ = dom.world_mut().insert_one(entity, lb.clone());
         return lb;
     }
+
+    // Resolve gap: row-gap applies between rows, column-gap between columns.
+    // For flex-direction: row, main axis is horizontal → gap_main = column_gap, gap_cross = row_gap.
+    // For flex-direction: column, main axis is vertical → gap_main = row_gap, gap_cross = column_gap.
+    let (gap_main, gap_cross) = if horizontal {
+        (
+            sanitize(style.column_gap).max(0.0),
+            sanitize(style.row_gap).max(0.0),
+        )
+    } else {
+        (
+            sanitize(style.row_gap).max(0.0),
+            sanitize(style.column_gap).max(0.0),
+        )
+    };
+
+    // Container's own definite height for children's percentage height resolution.
+    let container_definite_height = resolve_explicit_height(&style, containing_height);
 
     let ctx = FlexContext {
         content_x,
@@ -257,6 +282,10 @@ pub(crate) fn layout_flex(
         align_items: style.align_items,
         align_content: style.align_content,
         containing_width,
+        containing_height,
+        container_definite_height,
+        gap_main,
+        gap_cross,
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---
@@ -267,9 +296,9 @@ pub(crate) fn layout_flex(
             .then(a.source_order.cmp(&b.source_order))
     });
 
-    let line_ranges = algo::build_line_ranges(&items, ctx.container_main, ctx.wrap);
+    let line_ranges = algo::build_line_ranges(&items, ctx.container_main, ctx.wrap, ctx.gap_main);
     for &(start, end) in &line_ranges {
-        algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main);
+        algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main, ctx.gap_main);
     }
 
     algo::layout_items_cross(dom, &mut items, &ctx, font_db);
@@ -282,6 +311,7 @@ pub(crate) fn layout_flex(
         container_cross,
         ctx.align_content,
         ctx.wrap,
+        ctx.gap_cross,
     );
 
     // Stretch items using effective line sizes (includes align-content stretch extra).
@@ -363,9 +393,10 @@ fn resolve_content_width(
     w
 }
 
-// TODO(Phase 3): Resolve percentage heights against containing block height.
-// Currently treated as auto (indefinite) because containing_height is not tracked.
-pub(super) fn resolve_explicit_height(style: &ComputedStyle) -> Option<f32> {
+pub(crate) fn resolve_explicit_height(
+    style: &ComputedStyle,
+    containing_height: Option<f32>,
+) -> Option<f32> {
     match style.height {
         Dimension::Length(px) if px.is_finite() => {
             if style.box_sizing == BoxSizing::BorderBox {
@@ -378,6 +409,18 @@ pub(super) fn resolve_explicit_height(style: &ComputedStyle) -> Option<f32> {
                 Some(px)
             }
         }
+        Dimension::Percentage(pct) => containing_height.map(|ch| {
+            let resolved = ch * pct / 100.0;
+            if style.box_sizing == BoxSizing::BorderBox {
+                let pb = sanitize(style.padding_top)
+                    + sanitize(style.padding_bottom)
+                    + sanitize(style.border_top_width)
+                    + sanitize(style.border_bottom_width);
+                (resolved - pb).max(0.0)
+            } else {
+                resolved
+            }
+        }),
         _ => None,
     }
 }

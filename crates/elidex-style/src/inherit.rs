@@ -13,6 +13,7 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "font-family",
     "line-height",
     "text-transform",
+    "text-align",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -38,6 +39,7 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "font-weight" => CssValue::Number(400.0),
         "line-height" => CssValue::Keyword("normal".to_string()),
         "text-transform" | "text-decoration-line" => CssValue::Keyword("none".to_string()),
+        "text-align" => CssValue::Keyword("left".to_string()),
 
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
@@ -72,7 +74,7 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Box model
         "box-sizing" => CssValue::Keyword("content-box".to_string()),
-        "border-radius" => CssValue::Length(0.0, LengthUnit::Px),
+        "border-radius" | "row-gap" | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
 
         // Flex container
         "flex-direction" => CssValue::Keyword("row".to_string()),
@@ -211,5 +213,33 @@ mod tests {
             CssValue::Length(0.0, LengthUnit::Px)
         );
         assert_eq!(get_initial_value("opacity"), CssValue::Number(1.0));
+    }
+
+    // L4: M3-5 gap and text-align properties
+    #[test]
+    fn gap_properties_not_inherited() {
+        assert!(!is_inherited("row-gap"));
+        assert!(!is_inherited("column-gap"));
+    }
+
+    #[test]
+    fn text_align_inherited() {
+        assert!(is_inherited("text-align"));
+    }
+
+    #[test]
+    fn initial_values_m3_5() {
+        assert_eq!(
+            get_initial_value("row-gap"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("column-gap"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("text-align"),
+            CssValue::Keyword("left".to_string())
+        );
     }
 }

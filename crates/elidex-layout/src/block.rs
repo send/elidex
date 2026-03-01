@@ -116,6 +116,32 @@ pub(crate) fn layout_block(
         dom,
         entity,
         containing_width,
+        None,
+        offset_x,
+        offset_y,
+        font_db,
+        0,
+    )
+}
+
+/// Layout a block-level element with an explicit containing height.
+///
+/// Used when the parent has a definite height (e.g. `height: 500px`) so that
+/// children with `height: 50%` can be resolved.
+pub(crate) fn layout_block_with_height(
+    dom: &mut EcsDom,
+    entity: Entity,
+    containing_width: f32,
+    containing_height: Option<f32>,
+    offset_x: f32,
+    offset_y: f32,
+    font_db: &FontDatabase,
+) -> LayoutBox {
+    layout_block_inner(
+        dom,
+        entity,
+        containing_width,
+        containing_height,
         offset_x,
         offset_y,
         font_db,
@@ -128,11 +154,12 @@ pub(crate) fn layout_block(
 /// If the entity is a flex container (`display: Flex/InlineFlex`), delegates
 /// to [`crate::flex::layout_flex`] so that its children are laid out as flex
 /// items rather than block children.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
+    containing_height: Option<f32>,
     offset_x: f32,
     offset_y: f32,
     font_db: &FontDatabase,
@@ -147,6 +174,7 @@ fn layout_block_inner(
             dom,
             entity,
             containing_width,
+            containing_height,
             offset_x,
             offset_y,
             font_db,
@@ -217,25 +245,59 @@ fn layout_block_inner(
 
     // --- Content rect position ---
     let content_x = offset_x + margin_left + border.left + padding.left;
-    let content_y = offset_y + margin_top + border.top + padding.top;
+    let mut content_y = offset_y + margin_top + border.top + padding.top;
 
     // --- Layout children (stop recursion at depth limit) ---
     let children = dom.children(entity);
+    let mut collapsed_margin_top = margin_top;
+    let mut collapsed_margin_bottom = margin_bottom;
+
+    // Compute the definite height of this element (if any) for children's percentage heights.
+    let child_containing_height = crate::flex::resolve_explicit_height(&style, containing_height);
+
     let content_height = if let Some((iw, ih)) = intrinsic {
         // Replaced element: use intrinsic/CSS height, no child layout.
         resolve_replaced_height(&style, content_width, iw, ih, &padding, &border)
     } else if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
     } else if children_are_block(dom, &children) {
-        stack_block_children(
+        let result = stack_block_children(
             dom,
             &children,
             content_width,
+            child_containing_height,
             content_x,
             content_y,
             font_db,
             depth + 1,
-        )
+        );
+
+        // Parent-child margin collapse (CSS 2.1 §8.3.1):
+        // First child's top margin collapses with parent's top margin
+        // when parent has no border-top and no padding-top.
+        if border.top == 0.0 && padding.top == 0.0 {
+            if let Some(first_mt) = result.first_child_margin_top {
+                let new_margin_top = collapse_margins(margin_top, first_mt);
+                // Parent content origin shifts by (new_margin - old_margin), and
+                // the first child's margin is absorbed into the parent, so all
+                // children shift by that delta minus the first child's margin.
+                let delta = (new_margin_top - collapsed_margin_top) - first_mt;
+                content_y = offset_y + new_margin_top + border.top + padding.top;
+                shift_block_children(dom, &children, delta);
+                collapsed_margin_top = new_margin_top;
+            }
+        }
+        // Last child's bottom margin collapses with parent's bottom margin
+        // when parent has no border-bottom and no padding-bottom and
+        // the parent's height is auto (CSS 2.1 §8.3.1).
+        if border.bottom == 0.0 && padding.bottom == 0.0 && matches!(style.height, Dimension::Auto)
+        {
+            if let Some(last_mb) = result.last_child_margin_bottom {
+                collapsed_margin_bottom = collapse_margins(margin_bottom, last_mb);
+            }
+        }
+
+        result.height
     } else {
         layout_inline_context(dom, &children, content_width, &style, font_db)
     };
@@ -253,6 +315,19 @@ fn layout_block_inner(
                     px
                 }
             }
+            Dimension::Percentage(pct) => {
+                // Percentage heights resolve against the containing block's height.
+                // If the containing block has no definite height, treat as auto.
+                containing_height.map_or(content_height, |ch| {
+                    let resolved = ch * pct / 100.0;
+                    if style.box_sizing == BoxSizing::BorderBox {
+                        let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
+                        (resolved - pb_vertical).max(0.0)
+                    } else {
+                        resolved
+                    }
+                })
+            }
             _ => content_height,
         }
     };
@@ -266,7 +341,12 @@ fn layout_block_inner(
         },
         padding,
         border,
-        margin: EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
+        margin: EdgeSizes::new(
+            collapsed_margin_top,
+            margin_right,
+            collapsed_margin_bottom,
+            margin_left,
+        ),
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
@@ -351,24 +431,64 @@ fn resolve_replaced_height(
     }
 }
 
+/// Shift all block-level children's `LayoutBox.content.y` by `delta`,
+/// recursively including descendants.
+///
+/// Used after parent-child margin collapse to reposition children that were
+/// laid out before the collapse was detected.
+fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta: f32) {
+    if delta.abs() < f32::EPSILON {
+        return;
+    }
+    for &child in children {
+        let is_block = dom
+            .world()
+            .get::<&ComputedStyle>(child)
+            .is_ok_and(|s| is_block_level(s.display));
+        if !is_block {
+            continue;
+        }
+        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
+            lb.content.y += delta;
+        }
+        // Recurse into descendants so nested layout positions stay consistent.
+        let grandchildren = dom.children(child);
+        if !grandchildren.is_empty() {
+            shift_block_children(dom, &grandchildren, delta);
+        }
+    }
+}
+
+/// Result of stacking block children, including margin info for parent-child collapse.
+pub(crate) struct StackResult {
+    /// Total content height consumed by stacked children.
+    pub height: f32,
+    /// Top margin of the first block child (for parent-child collapse).
+    pub first_child_margin_top: Option<f32>,
+    /// Bottom margin of the last block child (for parent-child collapse).
+    pub last_child_margin_bottom: Option<f32>,
+}
+
 /// Stack block-level children with vertical margin collapse.
 ///
 /// Shared by block children layout and document-root layout. Returns
-/// the total height consumed (`cursor_y` − `offset_y`).
-// TODO(Phase 2): implement parent-child margin collapse (CSS 2.1 §8.3.1)
-// when parent has no border-top/padding-top (first child) or
-// border-bottom/padding-bottom (last child).
+/// the total height consumed and first/last child margin info for
+/// parent-child collapse (CSS 2.1 §8.3.1).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn stack_block_children(
     dom: &mut EcsDom,
     children: &[Entity],
     containing_width: f32,
+    containing_height: Option<f32>,
     offset_x: f32,
     offset_y: f32,
     font_db: &FontDatabase,
     depth: u32,
-) -> f32 {
+) -> StackResult {
     let mut cursor_y = offset_y;
     let mut prev_margin_bottom: Option<f32> = None;
+    let mut first_child_margin_top: Option<f32> = None;
+    let mut last_child_margin_bottom: Option<f32> = None;
 
     for &child in children {
         let (child_display, child_margin_top_dim) = match dom.world().get::<&ComputedStyle>(child) {
@@ -383,6 +503,9 @@ pub(crate) fn stack_block_children(
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
         // Both positive → max, both negative → min, mixed → sum.
         let child_margin_top = resolve_margin(child_margin_top_dim, containing_width);
+        if first_child_margin_top.is_none() {
+            first_child_margin_top = Some(child_margin_top);
+        }
         if let Some(prev_mb) = prev_margin_bottom {
             let collapsed = collapse_margins(prev_mb, child_margin_top);
             cursor_y -= prev_mb + child_margin_top - collapsed;
@@ -393,6 +516,7 @@ pub(crate) fn stack_block_children(
                 dom,
                 child,
                 containing_width,
+                containing_height,
                 offset_x,
                 cursor_y,
                 font_db,
@@ -403,6 +527,7 @@ pub(crate) fn stack_block_children(
                 dom,
                 child,
                 containing_width,
+                containing_height,
                 offset_x,
                 cursor_y,
                 font_db,
@@ -411,9 +536,14 @@ pub(crate) fn stack_block_children(
         };
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
+        last_child_margin_bottom = Some(child_box.margin.bottom);
     }
 
-    cursor_y - offset_y
+    StackResult {
+        height: cursor_y - offset_y,
+        first_child_margin_top,
+        last_child_margin_bottom,
+    }
 }
 
 #[cfg(test)]
@@ -941,5 +1071,388 @@ mod tests {
         let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
         assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
         assert!((lb.content.height - 200.0).abs() < f32::EPSILON);
+    }
+
+    // --- M3-5: Parent-child margin collapse ---
+
+    #[test]
+    fn parent_child_first_child_margin_collapse() {
+        // Parent margin-top=10, first child margin-top=20, no border/padding.
+        // Collapsed margin = max(10, 20) = 20.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(10.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(20.0),
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        // Parent's margin-top should collapse with child's: max(10, 20) = 20.
+        assert!(
+            (lb.margin.top - 20.0).abs() < f32::EPSILON,
+            "expected collapsed margin-top=20, got {}",
+            lb.margin.top
+        );
+        // Child's content.y should reflect the collapsed margin (20), not original (10).
+        let child_lb = dom.world().get::<&LayoutBox>(child).unwrap();
+        assert!(
+            (child_lb.content.y - 20.0).abs() < f32::EPSILON,
+            "expected child content.y=20 (collapsed margin), got {}",
+            child_lb.content.y
+        );
+    }
+
+    #[test]
+    fn parent_child_margin_collapse_shifts_grandchildren() {
+        // Parent margin-top=10, child margin-top=20, grandchild inside child.
+        // After collapse, both child and grandchild must shift.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        let grandchild = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.append_child(child, grandchild);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(10.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(20.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            grandchild,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        assert!(
+            (lb.margin.top - 20.0).abs() < f32::EPSILON,
+            "collapsed margin-top should be 20, got {}",
+            lb.margin.top
+        );
+        let child_lb = dom.world().get::<&LayoutBox>(child).unwrap();
+        let grandchild_lb = dom.world().get::<&LayoutBox>(grandchild).unwrap();
+        // Grandchild should be inside child, which is at content.y=20.
+        assert!(
+            (grandchild_lb.content.y - child_lb.content.y).abs() < f32::EPSILON,
+            "grandchild should be at child's content.y={}, got {}",
+            child_lb.content.y,
+            grandchild_lb.content.y
+        );
+    }
+
+    #[test]
+    fn parent_child_last_child_margin_collapse() {
+        // Parent margin-bottom=5, last child margin-bottom=15, no border/padding,
+        // height:auto → bottom margin collapses.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_bottom: Dimension::Length(5.0),
+                // height defaults to Auto
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_bottom: Dimension::Length(15.0),
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        // Parent's margin-bottom should collapse with child's: max(5, 15) = 15.
+        assert!(
+            (lb.margin.bottom - 15.0).abs() < f32::EPSILON,
+            "expected collapsed margin-bottom=15, got {}",
+            lb.margin.bottom
+        );
+        // Child's content.y should be at top (no top margin on either).
+        let child_lb = dom.world().get::<&LayoutBox>(child).unwrap();
+        assert!(
+            child_lb.content.y.abs() < f32::EPSILON,
+            "expected child content.y=0, got {}",
+            child_lb.content.y
+        );
+    }
+
+    #[test]
+    fn parent_child_no_bottom_collapse_with_explicit_height() {
+        // Parent has height: 200px → bottom margin does NOT collapse (CSS 2.1 §8.3.1).
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_bottom: Dimension::Length(5.0),
+                height: Dimension::Length(200.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_bottom: Dimension::Length(15.0),
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        // height is explicit → no bottom collapse. Parent keeps its own margin-bottom.
+        assert!(
+            (lb.margin.bottom - 5.0).abs() < f32::EPSILON,
+            "expected margin-bottom=5 (no collapse), got {}",
+            lb.margin.bottom
+        );
+    }
+
+    #[test]
+    fn parent_child_no_collapse_with_border() {
+        // Parent has border-top > 0 → no first-child collapse.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(10.0),
+                border_top_width: 1.0,
+                border_top_style: elidex_plugin::BorderStyle::Solid,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(20.0),
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        // border-top prevents collapse: parent keeps its own margin-top.
+        assert!(
+            (lb.margin.top - 10.0).abs() < f32::EPSILON,
+            "expected margin-top=10 (no collapse), got {}",
+            lb.margin.top
+        );
+    }
+
+    #[test]
+    fn parent_child_no_collapse_with_padding() {
+        // Parent has padding-top > 0 → no first-child collapse.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(10.0),
+                padding_top: 5.0,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                margin_top: Dimension::Length(20.0),
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+        // padding-top prevents collapse: parent keeps its own margin-top.
+        assert!(
+            (lb.margin.top - 10.0).abs() < f32::EPSILON,
+            "expected margin-top=10 (no collapse), got {}",
+            lb.margin.top
+        );
+    }
+
+    // --- M3-5: Percentage heights ---
+
+    #[test]
+    fn percentage_height_with_definite_parent() {
+        // Parent height=200, child height=50% → 100.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(200.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Percentage(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+        let child_lb = dom
+            .world()
+            .get::<&LayoutBox>(child)
+            .map(|lb| (*lb).clone())
+            .expect("child LayoutBox");
+        assert!(
+            (child_lb.content.height - 100.0).abs() < f32::EPSILON,
+            "expected height=100 (50% of 200), got {}",
+            child_lb.content.height
+        );
+    }
+
+    #[test]
+    fn percentage_height_without_definite_parent() {
+        // Parent height=auto, child height=50% → falls back to auto (content height).
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                // height: Auto (default)
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Percentage(50.0),
+                // No content → height = 0.
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+        let child_lb = dom
+            .world()
+            .get::<&LayoutBox>(child)
+            .map(|lb| (*lb).clone())
+            .expect("child LayoutBox");
+        // Auto parent → percentage height unresolvable → auto → content height (0).
+        assert!(
+            child_lb.content.height.abs() < f32::EPSILON,
+            "expected height=0 (auto fallback), got {}",
+            child_lb.content.height
+        );
+    }
+
+    #[test]
+    fn percentage_height_nested_blocks() {
+        // Grandparent height=400, parent height=50% (=200), child height=50% (=100).
+        let mut dom = EcsDom::new();
+        let gp = dom.create_element("div", Attributes::default());
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_element("div", Attributes::default());
+        dom.append_child(gp, parent);
+        dom.append_child(parent, child);
+        dom.world_mut().insert_one(
+            gp,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(400.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Percentage(50.0),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            child,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Percentage(50.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        layout_block(&mut dom, gp, 800.0, 0.0, 0.0, &font_db);
+
+        let parent_lb = dom
+            .world()
+            .get::<&LayoutBox>(parent)
+            .map(|lb| (*lb).clone())
+            .expect("parent LayoutBox");
+        let child_lb = dom
+            .world()
+            .get::<&LayoutBox>(child)
+            .map(|lb| (*lb).clone())
+            .expect("child LayoutBox");
+        assert!(
+            (parent_lb.content.height - 200.0).abs() < f32::EPSILON,
+            "parent height = 50% of 400 = 200, got {}",
+            parent_lb.content.height
+        );
+        assert!(
+            (child_lb.content.height - 100.0).abs() < f32::EPSILON,
+            "child height = 50% of 200 = 100, got {}",
+            child_lb.content.height
+        );
     }
 }

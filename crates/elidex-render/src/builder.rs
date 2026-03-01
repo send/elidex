@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use elidex_ecs::{EcsDom, Entity, ImageData, TextContent};
 use elidex_plugin::{
-    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, LineHeight, TextDecorationLine,
+    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, TextAlign, TextDecorationLine,
     TextTransform,
 };
 use elidex_text::{shape_text, FontDatabase};
@@ -133,12 +133,24 @@ fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
     dom.world().get::<&LayoutBox>(entity).is_ok()
 }
 
-/// Collect text from an inline run and render it as a single text item.
+/// A segment of text with its own style properties.
+struct StyledTextSegment {
+    text: String,
+    color: CssColor,
+    font_family: Vec<String>,
+    font_size: f32,
+    font_weight: u16,
+    text_transform: TextTransform,
+    text_decoration_line: TextDecorationLine,
+    opacity: f32,
+}
+
+/// Collect styled text segments from an inline run and render them.
 ///
 /// An inline run is a sequence of non-block children (text nodes and
-/// inline elements). Text is collected recursively from inline elements,
-/// whitespace-collapsed per CSS `white-space: normal`, and rendered at
-/// the parent's content position.
+/// inline elements). Each text segment preserves its element's style
+/// (color, font, etc.), allowing `<span style="color:red">` to render
+/// in the correct color.
 fn emit_inline_run(
     dom: &EcsDom,
     parent: Entity,
@@ -147,51 +159,246 @@ fn emit_inline_run(
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
-    let raw_text = collect_inline_text(dom, run);
-    let text = collapse_whitespace(&raw_text);
-    if text.is_empty() {
+    let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
+        Ok(s) => (*s).clone(),
+        Err(_) => return,
+    };
+    let Some(lb) = find_nearest_layout_box(dom, parent) else {
+        return;
+    };
+
+    let segments = collect_styled_inline_text(dom, run, &parent_style, 0);
+    if segments.is_empty() {
         return;
     }
 
-    emit_text(dom, parent, &text, font_db, font_cache, dl);
-}
+    // Check if all segments are whitespace-only after cross-segment collapsing.
+    let collapsed = collapse_segments(&segments);
+    if collapsed.is_empty() {
+        return;
+    }
 
-/// Recursively collect text content from a list of inline entities.
-///
-/// Text nodes contribute their content directly. Inline elements (those
-/// with `ComputedStyle` but no `LayoutBox`) contribute their children's
-/// text, flattened. `display: none` elements are skipped.
-fn collect_inline_text(dom: &EcsDom, entities: &[Entity]) -> String {
-    collect_inline_text_inner(dom, entities, 0)
+    emit_styled_segments(
+        &segments,
+        &collapsed,
+        &lb,
+        &parent_style,
+        font_db,
+        font_cache,
+        dl,
+    );
 }
 
 /// Maximum recursion depth for inline text collection.
 const MAX_INLINE_DEPTH: u32 = 100;
 
-fn collect_inline_text_inner(dom: &EcsDom, entities: &[Entity], depth: u32) -> String {
+/// Recursively collect styled text segments from inline entities.
+///
+/// Text nodes produce segments inheriting their closest element ancestor's style.
+/// Inline elements (with `ComputedStyle` but no `LayoutBox`) use their own style
+/// for their children's text. `display: none` elements are skipped.
+fn collect_styled_inline_text(
+    dom: &EcsDom,
+    entities: &[Entity],
+    parent_style: &ComputedStyle,
+    depth: u32,
+) -> Vec<StyledTextSegment> {
     if depth >= MAX_INLINE_DEPTH {
-        return String::new();
+        return Vec::new();
     }
-    let mut text = String::new();
+    let mut segments = Vec::new();
     for &entity in entities {
         // Check for display: none on elements.
         if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
             if style.display == Display::None {
                 continue;
             }
-        }
-
-        // Text node: contribute content directly.
-        if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
-            text.push_str(&tc.0);
+            // Inline element: use this element's style for its children.
+            let children: Vec<Entity> = dom.children_iter(entity).collect();
+            segments.extend(collect_styled_inline_text(
+                dom,
+                &children,
+                &style,
+                depth + 1,
+            ));
             continue;
         }
 
-        // Inline element: recurse into children.
-        let children: Vec<Entity> = dom.children_iter(entity).collect();
-        text.push_str(&collect_inline_text_inner(dom, &children, depth + 1));
+        // Text node: produce a segment with the parent's style.
+        if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+            if !tc.0.is_empty() {
+                segments.push(StyledTextSegment {
+                    text: tc.0.clone(),
+                    color: parent_style.color,
+                    font_family: parent_style.font_family.clone(),
+                    font_size: parent_style.font_size,
+                    font_weight: parent_style.font_weight,
+                    text_transform: parent_style.text_transform,
+                    text_decoration_line: parent_style.text_decoration_line,
+                    opacity: parent_style.opacity,
+                });
+            }
+        }
     }
-    text
+    segments
+}
+
+/// Emit styled text segments as display items.
+///
+/// Each segment is independently shaped and rendered. Segments are placed
+/// sequentially along the x-axis. Text-align is applied to the total run width.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn emit_styled_segments(
+    segments: &[StyledTextSegment],
+    collapsed: &[(String, usize)],
+    lb: &LayoutBox,
+    parent_style: &ComputedStyle,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    // For center/right alignment, measure total width first (extra shaping pass).
+    // For left alignment, skip measurement and shape directly during emit.
+    let align_offset = match parent_style.text_align {
+        TextAlign::Left => 0.0,
+        TextAlign::Center | TextAlign::Right => {
+            let total_width: f32 = collapsed
+                .iter()
+                .map(|(text, idx)| {
+                    let seg = &segments[*idx];
+                    measure_segment_width(text, seg, font_db)
+                })
+                .sum();
+            match parent_style.text_align {
+                TextAlign::Center => (lb.content.width - total_width).max(0.0) / 2.0,
+                TextAlign::Right => (lb.content.width - total_width).max(0.0),
+                TextAlign::Left => unreachable!(),
+            }
+        }
+    };
+
+    // Emit display items (single shaping pass per segment).
+    let mut cursor_x = lb.content.x + align_offset;
+
+    for (text, idx) in collapsed {
+        let seg = &segments[*idx];
+        let transformed = apply_text_transform(text, seg.text_transform);
+        let families: Vec<&str> = seg.font_family.iter().map(String::as_str).collect();
+        let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+            continue;
+        };
+        let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+            continue;
+        };
+        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+            continue;
+        };
+
+        let metrics = font_db.font_metrics(font_id, seg.font_size);
+        let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
+        let descent = metrics.map_or(-seg.font_size * 0.25, |m| m.descent);
+        let baseline_y = lb.content.y + ascent;
+
+        let seg_start_x = cursor_x;
+        let mut glyphs = Vec::with_capacity(shaped.glyphs.len());
+        for glyph in &shaped.glyphs {
+            let x = cursor_x + glyph.x_offset;
+            let y = baseline_y - glyph.y_offset;
+            glyphs.push(GlyphEntry {
+                glyph_id: u32::from(glyph.glyph_id),
+                x,
+                y,
+            });
+            cursor_x += glyph.x_advance;
+        }
+
+        let seg_width = cursor_x - seg_start_x;
+        let text_color = apply_opacity(seg.color, seg.opacity);
+
+        dl.push(DisplayItem::Text {
+            glyphs,
+            font_blob,
+            font_index,
+            font_size: seg.font_size,
+            color: text_color,
+        });
+
+        // Text decoration.
+        let decoration_thickness = (seg.font_size / 16.0).max(1.0);
+        if seg.text_decoration_line.underline {
+            let y = baseline_y - descent * 0.5;
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect {
+                    x: seg_start_x,
+                    y,
+                    width: seg_width,
+                    height: decoration_thickness,
+                },
+                color: text_color,
+            });
+        }
+        if seg.text_decoration_line.line_through {
+            let y = baseline_y - ascent * 0.4;
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect {
+                    x: seg_start_x,
+                    y,
+                    width: seg_width,
+                    height: decoration_thickness,
+                },
+                color: text_color,
+            });
+        }
+    }
+}
+
+/// Collapse whitespace across segments, returning (`collapsed_text`, `original_index`) pairs.
+fn collapse_segments(segments: &[StyledTextSegment]) -> Vec<(String, usize)> {
+    let mut result: Vec<(String, usize)> = Vec::new();
+    let mut prev_was_space = true; // Leading whitespace is trimmed.
+    for (idx, seg) in segments.iter().enumerate() {
+        let mut seg_text = String::new();
+        for ch in seg.text.chars() {
+            if ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ' {
+                if !prev_was_space {
+                    seg_text.push(' ');
+                    prev_was_space = true;
+                }
+            } else {
+                seg_text.push(ch);
+                prev_was_space = false;
+            }
+        }
+        if !seg_text.is_empty() {
+            result.push((seg_text, idx));
+        }
+    }
+    // Trim trailing whitespace from the last segment.
+    if let Some(last) = result.last_mut() {
+        let trimmed = last.0.trim_end().to_string();
+        last.0 = trimmed;
+    }
+    // Trim leading whitespace from the first segment (safety net; the
+    // prev_was_space=true initialization already suppresses leading spaces).
+    if let Some(first) = result.first_mut() {
+        let trimmed = first.0.trim_start().to_string();
+        first.0 = trimmed;
+    }
+    result.retain(|(text, _)| !text.is_empty());
+    result
+}
+
+/// Measure a segment's text width after text-transform.
+fn measure_segment_width(text: &str, seg: &StyledTextSegment, font_db: &FontDatabase) -> f32 {
+    let transformed = apply_text_transform(text, seg.text_transform);
+    let families: Vec<&str> = seg.font_family.iter().map(String::as_str).collect();
+    let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+        return 0.0;
+    };
+    let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+        return 0.0;
+    };
+    shaped.glyphs.iter().map(|g| g.x_advance).sum()
 }
 
 /// Collapse whitespace per CSS `white-space: normal` rules.
@@ -199,6 +406,7 @@ fn collect_inline_text_inner(dom: &EcsDom, entities: &[Entity], depth: u32) -> S
 /// Replaces newlines, carriage returns, and tabs with spaces, then
 /// collapses runs of consecutive spaces to a single space. Strips
 /// leading and trailing whitespace (inter-element whitespace).
+#[cfg(test)]
 fn collapse_whitespace(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut prev_was_space = false;
@@ -343,47 +551,6 @@ fn emit_image(lb: &LayoutBox, image_data: &ImageData, opacity: f32, dl: &mut Dis
     });
 }
 
-/// Parent style and layout info needed for text rendering.
-struct TextContext {
-    font_family: Vec<String>,
-    font_size: f32,
-    font_weight: u16,
-    /// CSS line-height (for future multi-line text rendering).
-    #[allow(dead_code)]
-    line_height: LineHeight,
-    color: CssColor,
-    content_x: f32,
-    content_y: f32,
-    text_transform: TextTransform,
-    text_decoration_line: TextDecorationLine,
-    opacity: f32,
-}
-
-/// Gather style and layout info from `parent` for text rendering.
-///
-/// Font properties (family, size, color) come from `parent`'s
-/// [`ComputedStyle`]. Position comes from the nearest ancestor with
-/// a [`LayoutBox`] — which may be `parent` itself (block element) or
-/// a further-up block ancestor when `parent` is an inline element
-/// that has no `LayoutBox` in Phase 2.
-fn text_context(dom: &EcsDom, parent: Entity) -> Option<TextContext> {
-    let style = dom.world().get::<&ComputedStyle>(parent).ok()?;
-    let lb = find_nearest_layout_box(dom, parent)?;
-
-    Some(TextContext {
-        font_family: style.font_family.clone(),
-        font_size: style.font_size,
-        font_weight: style.font_weight,
-        line_height: style.line_height,
-        color: style.color,
-        content_x: lb.content.x,
-        content_y: lb.content.y,
-        text_transform: style.text_transform,
-        text_decoration_line: style.text_decoration_line,
-        opacity: style.opacity,
-    })
-}
-
 /// Walk up the ancestor chain to find the nearest entity with a `LayoutBox`.
 ///
 /// Starts with `entity` itself, then checks its parent, grandparent, etc.
@@ -397,104 +564,6 @@ fn find_nearest_layout_box(dom: &EcsDom, entity: Entity) -> Option<LayoutBox> {
         current = dom.get_parent(current)?;
     }
     None
-}
-
-/// Emit a `Text` display item.
-///
-/// Uses `parent`'s `ComputedStyle` for font properties and nearest
-/// ancestor's `LayoutBox` for position. Text is shaped to obtain glyph
-/// IDs and positions.
-fn emit_text(
-    dom: &EcsDom,
-    parent: Entity,
-    text: &str,
-    font_db: &FontDatabase,
-    font_cache: &mut FontCache,
-    dl: &mut DisplayList,
-) {
-    if text.is_empty() {
-        return;
-    }
-
-    let Some(ctx) = text_context(dom, parent) else {
-        return;
-    };
-
-    // Apply text-transform before shaping.
-    let transformed = apply_text_transform(text, ctx.text_transform);
-    let text: &str = &transformed;
-
-    let families: Vec<&str> = ctx.font_family.iter().map(String::as_str).collect();
-    let font_size = ctx.font_size;
-    let Some(font_id) = font_db.query(&families, ctx.font_weight) else {
-        return;
-    };
-    let Some(shaped) = shape_text(font_db, font_id, font_size, text) else {
-        return;
-    };
-    let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-        return;
-    };
-
-    // Get font metrics for baseline positioning.
-    let metrics = font_db.font_metrics(font_id, font_size);
-    let ascent = metrics.map_or(font_size, |m| m.ascent);
-    let descent = metrics.map_or(-font_size * 0.25, |m| m.descent);
-
-    let baseline_y = ctx.content_y + ascent;
-    let mut cursor_x = ctx.content_x;
-    let mut glyphs = Vec::with_capacity(shaped.glyphs.len());
-
-    for glyph in &shaped.glyphs {
-        let x = cursor_x + glyph.x_offset;
-        let y = baseline_y - glyph.y_offset;
-        glyphs.push(GlyphEntry {
-            glyph_id: u32::from(glyph.glyph_id),
-            x,
-            y,
-        });
-        cursor_x += glyph.x_advance;
-    }
-
-    let text_width = cursor_x - ctx.content_x;
-    let text_color = apply_opacity(ctx.color, ctx.opacity);
-
-    dl.push(DisplayItem::Text {
-        glyphs,
-        font_blob,
-        font_index,
-        font_size,
-        color: text_color,
-    });
-
-    // Emit text decoration (underline / line-through) as SolidRect items.
-    let decoration_thickness = (font_size / 16.0).max(1.0);
-    if ctx.text_decoration_line.underline {
-        // Position underline just below the baseline.
-        let y = baseline_y - descent * 0.5;
-        dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: ctx.content_x,
-                y,
-                width: text_width,
-                height: decoration_thickness,
-            },
-            color: text_color,
-        });
-    }
-    if ctx.text_decoration_line.line_through {
-        // Position line-through at approximately half x-height (midpoint of ascent).
-        let y = baseline_y - ascent * 0.4;
-        dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: ctx.content_x,
-                y,
-                width: text_width,
-                height: decoration_thickness,
-            },
-            color: text_color,
-        });
-    }
 }
 
 /// Apply CSS `text-transform` to a string before shaping.
@@ -1018,13 +1087,147 @@ mod tests {
             dl.0.iter()
                 .filter(|i| matches!(i, DisplayItem::Text { .. }))
                 .collect();
-        // Should be a single text item (not three overlapping ones).
-        assert_eq!(text_items.len(), 1);
-        let DisplayItem::Text { glyphs, .. } = &text_items[0] else {
-            unreachable!();
-        };
-        // "Hello world!" = 12 glyphs.
-        assert_eq!(glyphs.len(), 12);
+        // Styled inline runs: one text item per styled segment.
+        // "Hello " (parent style), "world" (strong style), "!" (parent style).
+        assert_eq!(text_items.len(), 3);
+        let total_glyphs: usize = text_items
+            .iter()
+            .map(|item| {
+                let DisplayItem::Text { glyphs, .. } = item else {
+                    unreachable!();
+                };
+                glyphs.len()
+            })
+            .sum();
+        // "Hello world!" = 12 glyphs total across 3 segments.
+        assert_eq!(total_glyphs, 12);
+    }
+
+    // L9: text-align center/right in builder
+    #[test]
+    #[allow(unused_must_use)]
+    fn text_align_center_offsets_text() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(root, p);
+        let txt = dom.create_text("Hi");
+        dom.append_child(p, txt);
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                text_align: TextAlign::Center,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: elidex_plugin::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 400.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        // Early return if no font available (CI).
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+        let dl = build_display_list(&dom, &font_db);
+        let text_items: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Text { .. }))
+                .collect();
+        assert!(!text_items.is_empty(), "should have text items");
+        // Center-aligned text: first glyph should be shifted right from 0.
+        // Exact offset = (400 - text_width) / 2, which is > 0 for any short text.
+        if let DisplayItem::Text { glyphs, .. } = text_items[0] {
+            assert!(
+                glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+                "center-aligned text should be between 0 and container width, got x={}",
+                glyphs[0].x
+            );
+        }
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn text_align_right_offsets_text() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(root, p);
+        let txt = dom.create_text("Hi");
+        dom.append_child(p, txt);
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                text_align: TextAlign::Right,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: elidex_plugin::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 400.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        // Early return if no font available (CI).
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+        let dl = build_display_list(&dom, &font_db);
+        let text_items: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Text { .. }))
+                .collect();
+        assert!(!text_items.is_empty(), "should have text items");
+        // Right-aligned: offset = 400 - text_width, so glyph x > center offset.
+        if let DisplayItem::Text { glyphs, .. } = text_items[0] {
+            assert!(
+                glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+                "right-aligned text should be between 0 and container width, got x={}",
+                glyphs[0].x
+            );
+            // Right offset should be > center offset for the same text.
+            // "Hi" in 400px: right offset ≈ 380+, center offset ≈ 190+.
+            assert!(
+                glyphs[0].x > 200.0,
+                "right-aligned text should be in right half, got x={}",
+                glyphs[0].x
+            );
+        }
     }
 
     // --- M3-2: border rendering tests ---
@@ -1651,5 +1854,288 @@ mod tests {
         assert_eq!(text_count, 1);
         // At least 1 rect for underline (no background since transparent).
         assert!(rect_count >= 1, "expected underline rect, got {rect_count}");
+    }
+
+    // --- M3-5: styled inline runs ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn styled_span_color_preserved() {
+        // <p><span style="color:red">red</span> normal</p>
+        // The span text should have a different color from the parent text.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", elidex_ecs::Attributes::default());
+        let span = dom.create_element("span", elidex_ecs::Attributes::default());
+        let t_red = dom.create_text("red");
+        let t_normal = dom.create_text(" normal");
+        dom.append_child(root, p);
+        dom.append_child(p, span);
+        dom.append_child(span, t_red);
+        dom.append_child(p, t_normal);
+
+        let test_families = vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ];
+
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_families.clone(),
+                color: CssColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: elidex_plugin::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            span,
+            ComputedStyle {
+                display: Display::Inline,
+                font_family: test_families.clone(),
+                color: CssColor {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+
+        let dl = build_display_list(&dom, &font_db);
+        let text_items: Vec<_> =
+            dl.0.iter()
+                .filter_map(|i| {
+                    if let DisplayItem::Text { color, .. } = i {
+                        Some(*color)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        // Should have 2 text items (span "red" + parent "normal").
+        assert_eq!(text_items.len(), 2);
+        // First text item from span should be red.
+        assert_eq!(
+            text_items[0],
+            CssColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            }
+        );
+        // Second text item from parent should be black.
+        assert_eq!(
+            text_items[1],
+            CssColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            }
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn display_none_inline_skipped() {
+        // <p>visible <span style="display:none">hidden</span></p>
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", elidex_ecs::Attributes::default());
+        let span = dom.create_element("span", elidex_ecs::Attributes::default());
+        let t1 = dom.create_text("visible ");
+        let t2 = dom.create_text("hidden");
+        dom.append_child(root, p);
+        dom.append_child(p, t1);
+        dom.append_child(p, span);
+        dom.append_child(span, t2);
+
+        let test_families = vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ];
+
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_families.clone(),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: elidex_plugin::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            span,
+            ComputedStyle {
+                display: Display::None,
+                font_family: test_families,
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+
+        let dl = build_display_list(&dom, &font_db);
+        let text_items: Vec<_> =
+            dl.0.iter()
+                .filter(|i| matches!(i, DisplayItem::Text { .. }))
+                .collect();
+        // Only "visible" — hidden span is skipped.
+        assert_eq!(text_items.len(), 1);
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn styled_segments_x_consecutive() {
+        // <p><span>A</span><span>B</span></p>
+        // Two segments: A and B should have consecutive x positions.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", elidex_ecs::Attributes::default());
+        let s1 = dom.create_element("span", elidex_ecs::Attributes::default());
+        let s2 = dom.create_element("span", elidex_ecs::Attributes::default());
+        let t1 = dom.create_text("A");
+        let t2 = dom.create_text("B");
+        dom.append_child(root, p);
+        dom.append_child(p, s1);
+        dom.append_child(s1, t1);
+        dom.append_child(p, s2);
+        dom.append_child(s2, t2);
+
+        let test_families = vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ];
+
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_families.clone(),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: elidex_plugin::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+        for &span in &[s1, s2] {
+            dom.world_mut().insert_one(
+                span,
+                ComputedStyle {
+                    display: Display::Inline,
+                    font_family: test_families.clone(),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let font_db = FontDatabase::new();
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref, 400).is_none() {
+            return;
+        }
+
+        let dl = build_display_list(&dom, &font_db);
+        let text_first_x: Vec<f32> =
+            dl.0.iter()
+                .filter_map(|i| {
+                    if let DisplayItem::Text { glyphs, .. } = i {
+                        glyphs.first().map(|g| g.x)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        // Two text items, second starts after first.
+        assert_eq!(text_first_x.len(), 2);
+        assert!(
+            text_first_x[1] > text_first_x[0],
+            "second segment x={} should be > first x={}",
+            text_first_x[1],
+            text_first_x[0]
+        );
     }
 }

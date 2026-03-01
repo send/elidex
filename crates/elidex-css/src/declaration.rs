@@ -194,6 +194,9 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "border-radius" => parse_border_radius(input),
         "opacity" => parse_opacity(input),
 
+        // --- Text alignment ---
+        "text-align" => parse_text_align(input),
+
         // --- Text transform ---
         "text-transform" => parse_keyword_property(
             input,
@@ -203,6 +206,10 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Text decoration ---
         "text-decoration" | "text-decoration-line" => parse_text_decoration_line(input),
+
+        // --- Gap properties ---
+        "row-gap" | "column-gap" => parse_value_property(input, name, parse_gap_value),
+        "gap" => parse_gap_shorthand(input),
 
         // --- Flex keyword properties ---
         "flex-direction" => parse_keyword_property(
@@ -504,6 +511,76 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
     slice.trim().to_string()
 }
 
+// --- Text-align ---
+
+/// Parse `text-align`. Maps `start` and `justify` to `left` (Phase 3 simplification).
+fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(
+            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
+                let ident = i.expect_ident()?.clone();
+                let mapped = match ident.to_ascii_lowercase().as_str() {
+                    "left" | "start" | "justify" => "left",
+                    "center" => "center",
+                    "right" | "end" => "right",
+                    _ => return Err(i.new_custom_error(())),
+                };
+                Ok(single_decl(
+                    "text-align",
+                    CssValue::Keyword(mapped.to_string()),
+                ))
+            },
+        )
+        .unwrap_or_default()
+}
+
+// --- Gap properties ---
+
+/// Parse a gap value: `normal` (→ 0px for flex) or a non-negative length/percentage.
+fn parse_gap_value(input: &mut Parser) -> Result<CssValue, ()> {
+    // `normal` keyword → 0px for flex containers (CSS Box Alignment §8).
+    if let Ok(val) = input.try_parse(|i| {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        if ident.eq_ignore_ascii_case("normal") {
+            Ok(CssValue::Length(0.0, LengthUnit::Px))
+        } else {
+            Err(())
+        }
+    }) {
+        return Ok(val);
+    }
+    let val = parse_length_or_percentage(input)?;
+    // Reject negative gap values (CSS Box Alignment §8).
+    match &val {
+        CssValue::Length(v, _) if *v < 0.0 => Err(()),
+        CssValue::Percentage(p) if *p < 0.0 => Err(()),
+        _ => Ok(val),
+    }
+}
+
+/// Parse the `gap` shorthand: 1 value → both row-gap and column-gap,
+/// 2 values → row-gap then column-gap.
+fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let row = parse_gap_value(i)?;
+            let col = i.try_parse(parse_gap_value).unwrap_or(row.clone());
+            Ok(vec![
+                Declaration {
+                    property: "row-gap".to_string(),
+                    value: row,
+                    important: false,
+                },
+                Declaration {
+                    property: "column-gap".to_string(),
+                    value: col,
+                    important: false,
+                },
+            ])
+        })
+        .unwrap_or_default()
+}
+
 // --- Shorthand expansion helpers ---
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
@@ -533,6 +610,7 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         ],
         "flex-flow" => vec!["flex-direction".to_string(), "flex-wrap".to_string()],
         "text-decoration" => vec!["text-decoration-line".to_string()],
+        "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

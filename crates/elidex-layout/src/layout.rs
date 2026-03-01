@@ -58,7 +58,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
             return;
         }
         if matches!(display, Display::Flex | Display::InlineFlex) {
-            crate::flex::layout_flex(dom, root, viewport_width, 0.0, 0.0, font_db, 0);
+            crate::flex::layout_flex(dom, root, viewport_width, None, 0.0, 0.0, font_db, 0);
         } else {
             layout_block(dom, root, viewport_width, 0.0, 0.0, font_db);
         }
@@ -67,7 +67,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
 
     // Document root: layout children as top-level blocks with margin collapse.
     let children = dom.children(root);
-    stack_block_children(dom, &children, viewport_width, 0.0, 0.0, font_db, 0);
+    let _ = stack_block_children(dom, &children, viewport_width, None, 0.0, 0.0, font_db, 0);
 }
 
 #[cfg(test)]

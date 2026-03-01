@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use elidex_plugin::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, CssColor, CssValue,
     Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight, Position,
-    TextDecorationLine, TextTransform,
+    TextAlign, TextDecorationLine, TextTransform,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -125,6 +125,7 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
             LineHeight::Px(px) => CssValue::Length(px, LengthUnit::Px),
         },
         "text-transform" => CssValue::Keyword(style.text_transform.as_ref().to_string()),
+        "text-align" => CssValue::Keyword(style.text_align.as_ref().to_string()),
         "text-decoration-line" => {
             let d = &style.text_decoration_line;
             if d.underline && d.line_through {
@@ -172,6 +173,8 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "flex-basis" => dimension_to_css_value(style.flex_basis),
         #[allow(clippy::cast_precision_loss)]
         "order" => CssValue::Number(style.order as f32),
+        "row-gap" => CssValue::Length(style.row_gap, LengthUnit::Px),
+        "column-gap" => CssValue::Length(style.column_gap, LengthUnit::Px),
         "box-sizing" => CssValue::Keyword(style.box_sizing.as_ref().to_string()),
         "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
         "opacity" => CssValue::Number(style.opacity),
@@ -220,6 +223,7 @@ pub(crate) fn build_computed_style(
     resolve_font_family(&mut style, &winners, parent_style);
     resolve_line_height(&mut style, &winners, parent_style, &elem_ctx);
     resolve_text_transform(&mut style, &winners, parent_style);
+    resolve_text_align(&mut style, &winners, parent_style);
 
     // --- Text decoration (non-inherited) ---
     resolve_text_decoration_line(&mut style, &winners, parent_style);
@@ -290,6 +294,17 @@ pub(crate) fn build_computed_style(
 
     // --- Flex properties ---
     resolve_flex_properties(&mut style, &winners, parent_style, dim);
+
+    // --- Gap properties ---
+    // NOTE: gap percentages resolve to 0 because resolve_to_px has no
+    // containing block width. Proper percentage gap requires layout-time
+    // resolution with Dimension storage (Phase 4).
+    resolve_prop("row-gap", &winners, parent_style, px, |v| {
+        style.row_gap = v.max(0.0);
+    });
+    resolve_prop("column-gap", &winners, parent_style, px, |v| {
+        style.column_gap = v.max(0.0);
+    });
 
     style
 }
@@ -731,6 +746,28 @@ fn resolve_text_transform(
             _ => parent_style.text_transform,
         },
         _ => parent_style.text_transform,
+    };
+}
+
+fn resolve_text_align(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    let Some(value) = winners.get("text-align") else {
+        // Inherited: use parent's value.
+        style.text_align = parent_style.text_align;
+        return;
+    };
+    let value = resolve_keyword_or_clone("text-align", value, parent_style);
+    style.text_align = match value {
+        CssValue::Keyword(ref k) => match k.as_str() {
+            "left" => TextAlign::Left,
+            "center" => TextAlign::Center,
+            "right" => TextAlign::Right,
+            _ => parent_style.text_align,
+        },
+        _ => parent_style.text_align,
     };
 }
 
@@ -1578,6 +1615,121 @@ mod tests {
         assert_eq!(
             get_computed_as_css_value("opacity", &style),
             CssValue::Number(0.75)
+        );
+    }
+
+    // --- M3-5: gap + text-align resolution ---
+
+    #[test]
+    fn resolve_row_gap_px() {
+        let ctx = default_ctx();
+        let val = CssValue::Length(10.0, LengthUnit::Px);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("row-gap", &val);
+        let parent = ComputedStyle::default();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.row_gap - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_column_gap_negative_clamped() {
+        let ctx = default_ctx();
+        let val = CssValue::Length(-5.0, LengthUnit::Px);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("column-gap", &val);
+        let parent = ComputedStyle::default();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.column_gap).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_text_align_center() {
+        let ctx = default_ctx();
+        let val = CssValue::Keyword("center".into());
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("text-align", &val);
+        let parent = ComputedStyle::default();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.text_align, TextAlign::Center);
+    }
+
+    #[test]
+    fn resolve_text_align_inherited() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            text_align: TextAlign::Right,
+            ..ComputedStyle::default()
+        };
+        let winners: HashMap<&str, &CssValue> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // text-align is inherited — child inherits Right from parent.
+        assert_eq!(style.text_align, TextAlign::Right);
+    }
+
+    #[test]
+    fn resolve_gap_computed_value() {
+        let style = ComputedStyle {
+            row_gap: 8.0,
+            column_gap: 16.0,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("row-gap", &style),
+            CssValue::Length(8.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_computed_as_css_value("column-gap", &style),
+            CssValue::Length(16.0, LengthUnit::Px)
+        );
+    }
+
+    #[test]
+    fn resolve_text_align_computed_value() {
+        let style = ComputedStyle {
+            text_align: TextAlign::Center,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("text-align", &style),
+            CssValue::Keyword("center".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_row_gap_length_value() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let gap_val = CssValue::Length(12.0, LengthUnit::Px);
+        winners.insert("row-gap", &gap_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.row_gap - 12.0).abs() < f32::EPSILON);
+    }
+
+    // L3: gap: inherit resolves from parent
+    #[test]
+    fn resolve_gap_inherit_from_parent() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            row_gap: 8.0,
+            column_gap: 16.0,
+            ..ComputedStyle::default()
+        };
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let inherit_val = CssValue::Inherit;
+        winners.insert("row-gap", &inherit_val);
+        winners.insert("column-gap", &inherit_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // gap is non-inherited, but `inherit` keyword forces parent value.
+        assert!(
+            (style.row_gap - 8.0).abs() < f32::EPSILON,
+            "expected row-gap=8 from parent, got {}",
+            style.row_gap
+        );
+        assert!(
+            (style.column_gap - 16.0).abs() < f32::EPSILON,
+            "expected column-gap=16 from parent, got {}",
+            style.column_gap
         );
     }
 }
