@@ -315,7 +315,7 @@ mod tests {
         let handler = QuerySelector;
         let result = handler.invoke(
             doc,
-            &[JsValue::String("[invalid".into())],
+            &[JsValue::String(">>>".into())],
             &mut session,
             &mut dom,
         );

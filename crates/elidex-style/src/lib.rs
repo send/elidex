@@ -870,4 +870,102 @@ mod tests {
         assert!((style.border_radius - 12.0).abs() < f32::EPSILON);
         assert_eq!(style.background_color, CssColor::RED);
     }
+
+    // --- M3-3: Selector enhancement integration tests ---
+
+    #[test]
+    fn attr_selector_style_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("type", "text");
+        let input = dom.create_element("input", attrs);
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, input);
+        dom.append_child(body, div);
+
+        let css = r#"[type="text"] { color: red; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let input_style = get_style(&dom, input);
+        assert_eq!(input_style.color, CssColor::RED);
+        // div should not be affected.
+        let div_style = get_style(&dom, div);
+        assert_ne!(div_style.color, CssColor::RED);
+    }
+
+    #[test]
+    fn adjacent_sibling_style_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let h1 = dom.create_element("h1", Attributes::default());
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(body, h1);
+        dom.append_child(body, p);
+
+        let css = "h1 + p { color: blue; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let p_style = get_style(&dom, p);
+        assert_eq!(p_style.color, CssColor::BLUE);
+    }
+
+    #[test]
+    fn first_child_style_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let li1 = dom.create_element("li", Attributes::default());
+        let li2 = dom.create_element("li", Attributes::default());
+        dom.append_child(body, li1);
+        dom.append_child(body, li2);
+
+        // Use background-color (non-inherited) to avoid inheritance leaks.
+        let css = "li:first-child { background-color: green; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let li1_style = get_style(&dom, li1);
+        assert_eq!(li1_style.background_color, CssColor::new(0, 128, 0, 255));
+        let li2_style = get_style(&dom, li2);
+        assert_ne!(li2_style.background_color, CssColor::new(0, 128, 0, 255));
+    }
+
+    #[test]
+    fn not_selector_style_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("class", "hidden");
+        let hidden = dom.create_element("div", attrs);
+        let visible = dom.create_element("div", Attributes::default());
+        dom.append_child(body, hidden);
+        dom.append_child(body, visible);
+
+        let css = "div:not(.hidden) { color: red; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let hidden_style = get_style(&dom, hidden);
+        assert_ne!(hidden_style.color, CssColor::RED);
+        let visible_style = get_style(&dom, visible);
+        assert_eq!(visible_style.color, CssColor::RED);
+    }
+
+    #[test]
+    fn child_first_child_combined_style_integration() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let ul = dom.create_element("ul", Attributes::default());
+        let li1 = dom.create_element("li", Attributes::default());
+        let li2 = dom.create_element("li", Attributes::default());
+        dom.append_child(body, ul);
+        dom.append_child(ul, li1);
+        dom.append_child(ul, li2);
+
+        let css = "ul > li:first-child { color: red; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let li1_style = get_style(&dom, li1);
+        assert_eq!(li1_style.color, CssColor::RED);
+        let li2_style = get_style(&dom, li2);
+        assert_ne!(li2_style.color, CssColor::RED);
+    }
 }
