@@ -12,7 +12,8 @@ mod values;
 pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
 pub use parser::{parse_stylesheet, CssRule, Stylesheet};
 pub use selector::{
-    parse_selector_from_str, parse_selector_list, Selector, SelectorComponent, Specificity,
+    parse_selector_from_str, parse_selector_list, PseudoElement, Selector, SelectorComponent,
+    Specificity,
 };
 
 use cssparser::{Parser, ParserInput};
@@ -45,6 +46,20 @@ pub fn parse_raw_token_value(raw: &str) -> CssValue {
     // Try length/percentage/auto.
     if let Ok(val) = try_parse_exhaustive(&mut parser, values::parse_length_percentage_or_auto) {
         return val;
+    }
+
+    // Try quoted string.
+    if let Ok(s) = parser.try_parse(|i| -> Result<String, ()> {
+        let tok = i.next().map_err(|_| ())?;
+        if let cssparser::Token::QuotedString(val) = tok {
+            let s = val.to_string();
+            if i.is_exhausted() {
+                return Ok(s);
+            }
+        }
+        Err(())
+    }) {
+        return CssValue::String(s);
     }
 
     // Try keyword (single ident).

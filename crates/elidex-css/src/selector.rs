@@ -3,10 +3,20 @@
 //! Supports: universal (`*`), tag, class, id, descendant (space), child (`>`),
 //! adjacent sibling (`+`), general sibling (`~`), attribute selectors,
 //! pseudo-classes (`:root`, `:first-child`, `:last-child`, `:only-child`,
-//! `:empty`), and negation (`:not()`).
+//! `:empty`, `:hover`, `:focus`, `:active`, `:link`, `:visited`),
+//! and negation (`:not()`).
 
 use cssparser::{Parser, ParserInput, Token};
-use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+use elidex_ecs::{Attributes, EcsDom, ElementState, Entity, TagType};
+
+/// A CSS pseudo-element (`::before`, `::after`).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PseudoElement {
+    /// The `::before` pseudo-element (generated content before element).
+    Before,
+    /// The `::after` pseudo-element (generated content after element).
+    After,
+}
 
 /// A single component of a CSS selector.
 ///
@@ -68,6 +78,12 @@ pub struct Selector {
     pub components: Vec<SelectorComponent>,
     /// Computed specificity.
     pub specificity: Specificity,
+    /// Optional pseudo-element (`::before`, `::after`).
+    ///
+    /// Pseudo-elements must appear at the end of a selector and are not
+    /// part of element matching — they are stored separately and used
+    /// during style resolution to generate content.
+    pub pseudo_element: Option<PseudoElement>,
 }
 
 /// CSS selector specificity `(id, class, tag)`.
@@ -99,7 +115,9 @@ impl Selector {
     /// Check if this selector matches the given entity in the DOM.
     pub fn matches(&self, entity: Entity, dom: &EcsDom) -> bool {
         if self.components.is_empty() {
-            return false;
+            // Empty components with a pseudo-element (e.g., `::before` alone)
+            // is equivalent to `*::before` — matches any element.
+            return self.pseudo_element.is_some();
         }
         match_components(&self.components, 0, entity, dom)
     }
@@ -151,44 +169,74 @@ fn try_parse_combinator(
 fn parse_one_selector(input: &mut Parser) -> Result<Selector, ()> {
     let mut components = Vec::new();
     let mut specificity = Specificity::default();
+    let mut pseudo_element: Option<PseudoElement> = None;
 
     // Parse the first compound selector.
-    parse_compound_selector(input, &mut components, &mut specificity, false)?;
+    parse_compound_selector(
+        input,
+        &mut components,
+        &mut specificity,
+        false,
+        &mut pseudo_element,
+    )?;
 
-    loop {
-        // Try explicit combinators: > (child), + (adjacent sibling), ~ (general sibling).
-        let explicit_combinators = [
-            ('>', SelectorComponent::Child),
-            ('+', SelectorComponent::AdjacentSibling),
-            ('~', SelectorComponent::GeneralSibling),
-        ];
-        if let Some(combinator) = try_parse_combinator(input, &explicit_combinators) {
-            components.push(combinator);
-            parse_compound_selector(input, &mut components, &mut specificity, false)?;
-            continue;
+    // If a pseudo-element was found, no more compounds are allowed.
+    if pseudo_element.is_none() {
+        loop {
+            // Try explicit combinators: > (child), + (adjacent sibling), ~ (general sibling).
+            let explicit_combinators = [
+                ('>', SelectorComponent::Child),
+                ('+', SelectorComponent::AdjacentSibling),
+                ('~', SelectorComponent::GeneralSibling),
+            ];
+            if let Some(combinator) = try_parse_combinator(input, &explicit_combinators) {
+                components.push(combinator);
+                parse_compound_selector(
+                    input,
+                    &mut components,
+                    &mut specificity,
+                    false,
+                    &mut pseudo_element,
+                )?;
+                if pseudo_element.is_some() {
+                    break;
+                }
+                continue;
+            }
+
+            // Try descendant combinator: if we can parse another compound selector
+            // without an explicit combinator, whitespace was the separator.
+            // We use a temporary vec to avoid corrupting `components` on failure.
+            let mut tmp_components = Vec::new();
+            let mut tmp_specificity = Specificity::default();
+            let mut tmp_pseudo = None;
+            let ok = input
+                .try_parse(|i| {
+                    parse_compound_selector(
+                        i,
+                        &mut tmp_components,
+                        &mut tmp_specificity,
+                        false,
+                        &mut tmp_pseudo,
+                    )
+                })
+                .is_ok();
+            if ok {
+                components.push(SelectorComponent::Descendant);
+                components.extend(tmp_components);
+                specificity = specificity.saturating_add(tmp_specificity);
+                if tmp_pseudo.is_some() {
+                    pseudo_element = tmp_pseudo;
+                    break;
+                }
+                continue;
+            }
+
+            break;
         }
-
-        // Try descendant combinator: if we can parse another compound selector
-        // without an explicit combinator, whitespace was the separator.
-        // We use a temporary vec to avoid corrupting `components` on failure.
-        let mut tmp_components = Vec::new();
-        let mut tmp_specificity = Specificity::default();
-        let ok = input
-            .try_parse(|i| {
-                parse_compound_selector(i, &mut tmp_components, &mut tmp_specificity, false)
-            })
-            .is_ok();
-        if ok {
-            components.push(SelectorComponent::Descendant);
-            components.extend(tmp_components);
-            specificity = specificity.saturating_add(tmp_specificity);
-            continue;
-        }
-
-        break;
     }
 
-    if components.is_empty() {
+    if components.is_empty() && pseudo_element.is_none() {
         return Err(());
     }
 
@@ -196,6 +244,7 @@ fn parse_one_selector(input: &mut Parser) -> Result<Selector, ()> {
     Ok(Selector {
         components,
         specificity,
+        pseudo_element,
     })
 }
 
@@ -214,6 +263,7 @@ fn parse_compound_selector(
     components: &mut Vec<SelectorComponent>,
     specificity: &mut Specificity,
     in_negation: bool,
+    pseudo_element: &mut Option<PseudoElement>,
 ) -> Result<(), ()> {
     let start_len = components.len();
 
@@ -235,7 +285,7 @@ fn parse_compound_selector(
         }
     });
 
-    // Parse class, ID, pseudo-class, attribute, and :not() selectors.
+    // Parse class, ID, pseudo-class, attribute, :not(), and pseudo-element selectors.
     loop {
         let ok = input
             .try_parse(|i| -> Result<(), ()> {
@@ -252,7 +302,7 @@ fn parse_compound_selector(
                         Ok(())
                     }
                     Token::Colon => {
-                        parse_pseudo(i, components, specificity, in_negation)?;
+                        parse_pseudo(i, components, specificity, in_negation, pseudo_element)?;
                         Ok(())
                     }
                     Token::SquareBracketBlock => {
@@ -278,25 +328,68 @@ fn parse_compound_selector(
         if !ok {
             break;
         }
+        // If a pseudo-element was parsed, stop — nothing may follow it.
+        if pseudo_element.is_some() {
+            break;
+        }
     }
 
-    if components.len() > start_len {
+    if components.len() > start_len || pseudo_element.is_some() {
         Ok(())
     } else {
         Err(())
     }
 }
 
-/// Parse a pseudo-class or functional pseudo-class (`:not()`).
+/// Parse a pseudo-class, functional pseudo-class (`:not()`), or pseudo-element.
 ///
-/// Called after consuming the `Token::Colon`. When `in_negation` is true,
+/// Called after consuming the first `Token::Colon`. When `in_negation` is true,
 /// `:not()` is rejected (CSS Selectors Level 3 forbids nested `:not()`).
+///
+/// Pseudo-elements use `::` syntax (CSS3) or legacy single-colon (CSS2) for
+/// `before` and `after`. They are stored in `pseudo_element`, not in `components`.
 fn parse_pseudo(
     input: &mut Parser,
     components: &mut Vec<SelectorComponent>,
     specificity: &mut Specificity,
     in_negation: bool,
+    pseudo_element: &mut Option<PseudoElement>,
 ) -> Result<(), ()> {
+    // Try `::pseudo-element` (double-colon syntax).
+    if !in_negation {
+        let parsed_pe = input
+            .try_parse(|i| -> Result<(), ()> {
+                match i.next().map_err(|_| ())? {
+                    Token::Colon => {}
+                    _ => return Err(()),
+                }
+                let name = i
+                    .expect_ident()
+                    .map_err(|_| ())?
+                    .as_ref()
+                    .to_ascii_lowercase();
+                match name.as_str() {
+                    "before" => {
+                        *pseudo_element = Some(PseudoElement::Before);
+                        // Pseudo-elements contribute to tag-level specificity.
+                        specificity.tag = specificity.tag.saturating_add(1);
+                        Ok(())
+                    }
+                    "after" => {
+                        *pseudo_element = Some(PseudoElement::After);
+                        specificity.tag = specificity.tag.saturating_add(1);
+                        Ok(())
+                    }
+                    _ => Err(()),
+                }
+            })
+            .is_ok();
+        if parsed_pe {
+            return Ok(());
+        }
+    }
+
+    // Try `:not(...)` functional pseudo-class.
     let parsed_not = !in_negation
         && input
             .try_parse(|inner| -> Result<(), ()> {
@@ -305,11 +398,13 @@ fn parse_pseudo(
                         .parse_nested_block(|block| {
                             let mut not_components = Vec::new();
                             let mut not_specificity = Specificity::default();
+                            let mut not_pseudo = None;
                             if parse_compound_selector(
                                 block,
                                 &mut not_components,
                                 &mut not_specificity,
                                 true,
+                                &mut not_pseudo,
                             )
                             .is_err()
                             {
@@ -332,6 +427,24 @@ fn parse_pseudo(
             .map_err(|_| ())?
             .as_ref()
             .to_ascii_lowercase();
+
+        // Legacy single-colon pseudo-elements (CSS2 `:before` / `:after`).
+        if !in_negation {
+            match pseudo_name.as_str() {
+                "before" => {
+                    *pseudo_element = Some(PseudoElement::Before);
+                    specificity.tag = specificity.tag.saturating_add(1);
+                    return Ok(());
+                }
+                "after" => {
+                    *pseudo_element = Some(PseudoElement::After);
+                    specificity.tag = specificity.tag.saturating_add(1);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         components.push(SelectorComponent::PseudoClass(pseudo_name));
         specificity.class = specificity.class.saturating_add(1);
     }
@@ -481,6 +594,21 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                 && last_element_child(dom, parent) == Some(entity)
         }),
         "empty" => dom.get_first_child(entity).is_none(),
+        "hover" | "focus" | "active" | "link" | "visited" => {
+            let state = dom
+                .world()
+                .get::<&ElementState>(entity)
+                .ok()
+                .map_or(ElementState::default(), |s| *s);
+            match name {
+                "hover" => state.contains(ElementState::HOVER),
+                "focus" => state.contains(ElementState::FOCUS),
+                "active" => state.contains(ElementState::ACTIVE),
+                "link" => state.contains(ElementState::LINK),
+                "visited" => state.contains(ElementState::VISITED),
+                _ => unreachable!(),
+            }
+        }
         _ => false,
     }
 }
@@ -1448,5 +1576,184 @@ mod tests {
         let sel = parse_sel("ul > li:first-child").unwrap();
         assert!(sel.matches(li1, &dom));
         assert!(!sel.matches(li2, &dom));
+    }
+
+    // --- M3.5-0: Pseudo-element parse tests ---
+
+    #[test]
+    fn parse_pseudo_element_before() {
+        let sel = parse_sel("p::before").unwrap();
+        assert_eq!(sel.components, vec![SelectorComponent::Tag("p".into())]);
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
+        // tag(p) + pseudo-element(::before) = (0,0,2)
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 0,
+                tag: 2
+            }
+        );
+    }
+
+    #[test]
+    fn parse_pseudo_element_after() {
+        let sel = parse_sel("p::after").unwrap();
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::After));
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 0,
+                tag: 2
+            }
+        );
+    }
+
+    #[test]
+    fn parse_pseudo_element_legacy_single_colon() {
+        // CSS2 legacy: `:before` → PseudoElement::Before
+        let sel = parse_sel(":before").unwrap();
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
+    }
+
+    #[test]
+    fn parse_pseudo_element_legacy_after() {
+        let sel = parse_sel(":after").unwrap();
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::After));
+    }
+
+    #[test]
+    fn parse_pseudo_element_class_before() {
+        let sel = parse_sel(".foo::before").unwrap();
+        assert_eq!(sel.components, vec![SelectorComponent::Class("foo".into())]);
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
+        // class(.foo) + pseudo-element(::before) = (0,1,1)
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 1,
+                tag: 1
+            }
+        );
+    }
+
+    #[test]
+    fn parse_pseudo_element_alone() {
+        // `::before` alone is valid (implies universal selector)
+        let sel = parse_sel("::before").unwrap();
+        assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 0,
+                tag: 1
+            }
+        );
+    }
+
+    #[test]
+    fn parse_regular_selector_no_pseudo_element() {
+        let sel = parse_sel("div").unwrap();
+        assert_eq!(sel.pseudo_element, None);
+    }
+
+    #[test]
+    fn parse_pseudo_element_matches_element() {
+        // Selector `p::before` should still match the `p` element itself.
+        let mut dom = EcsDom::new();
+        let p = elem(&mut dom, "p");
+        let sel = parse_sel("p::before").unwrap();
+        assert!(sel.matches(p, &dom));
+    }
+
+    // ---- Dynamic pseudo-class tests ----
+
+    #[test]
+    fn hover_matches_when_state_set() {
+        let mut dom = EcsDom::new();
+        let div = elem(&mut dom, "div");
+        let sel = parse_sel("div:hover").unwrap();
+
+        // No state → no match.
+        assert!(!sel.matches(div, &dom));
+
+        // Set HOVER → matches.
+        let mut state = ElementState::default();
+        state.insert(ElementState::HOVER);
+        let _ = dom.world_mut().insert_one(div, state);
+        assert!(sel.matches(div, &dom));
+    }
+
+    #[test]
+    fn focus_matches_when_state_set() {
+        let mut dom = EcsDom::new();
+        let input = elem(&mut dom, "input");
+        let sel = parse_sel("input:focus").unwrap();
+
+        assert!(!sel.matches(input, &dom));
+
+        let mut state = ElementState::default();
+        state.insert(ElementState::FOCUS);
+        let _ = dom.world_mut().insert_one(input, state);
+        assert!(sel.matches(input, &dom));
+    }
+
+    #[test]
+    fn active_matches_when_state_set() {
+        let mut dom = EcsDom::new();
+        let btn = elem(&mut dom, "button");
+        let sel = parse_sel("button:active").unwrap();
+
+        assert!(!sel.matches(btn, &dom));
+
+        let mut state = ElementState::default();
+        state.insert(ElementState::ACTIVE);
+        let _ = dom.world_mut().insert_one(btn, state);
+        assert!(sel.matches(btn, &dom));
+    }
+
+    #[test]
+    fn link_matches_when_state_set() {
+        let mut dom = EcsDom::new();
+        let a = elem(&mut dom, "a");
+        let sel = parse_sel("a:link").unwrap();
+
+        assert!(!sel.matches(a, &dom));
+
+        let mut state = ElementState::default();
+        state.insert(ElementState::LINK);
+        let _ = dom.world_mut().insert_one(a, state);
+        assert!(sel.matches(a, &dom));
+
+        // :visited should not match (only LINK set).
+        let visited_sel = parse_sel("a:visited").unwrap();
+        assert!(!visited_sel.matches(a, &dom));
+    }
+
+    #[test]
+    fn combined_tag_and_hover_selector() {
+        let mut dom = EcsDom::new();
+        let a = elem(&mut dom, "a");
+        let sel = parse_sel("a:hover").unwrap();
+
+        // Set both LINK and HOVER.
+        let mut state = ElementState::default();
+        state.insert(ElementState::LINK);
+        state.insert(ElementState::HOVER);
+        let _ = dom.world_mut().insert_one(a, state);
+        assert!(sel.matches(a, &dom));
+
+        // Specificity: :hover is (0,1,0) + tag a is (0,0,1) = (0,1,1).
+        assert_eq!(
+            sel.specificity,
+            Specificity {
+                id: 0,
+                class: 1,
+                tag: 1
+            }
+        );
     }
 }

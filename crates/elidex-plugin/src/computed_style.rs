@@ -277,6 +277,27 @@ keyword_enum! {
     }
 }
 
+/// A single item in a `content` property value.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum ContentItem {
+    /// A literal string (e.g. `content: ">>"`).
+    String(String),
+    /// An `attr()` function reference (e.g. `content: attr(title)`).
+    Attr(String),
+}
+
+/// The computed value of the CSS `content` property.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub enum ContentValue {
+    /// `content: normal` — no generated content for regular elements.
+    #[default]
+    Normal,
+    /// `content: none` — suppress generated content.
+    None,
+    /// One or more content items.
+    Items(Vec<ContentItem>),
+}
+
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Dimension {
@@ -431,6 +452,10 @@ pub struct ComputedStyle {
     /// Align self. Initial: `Auto`.
     pub align_self: AlignSelf,
 
+    // --- Generated content (non-inherited) ---
+    /// The `content` property. Initial: `Normal`.
+    pub content: ContentValue,
+
     // --- Custom properties (CSS Variables) ---
     /// Custom property values (e.g. `--bg: #0d1117`).
     ///
@@ -520,6 +545,9 @@ impl Default for ComputedStyle {
             flex_basis: Dimension::Auto,
             order: 0,
             align_self: AlignSelf::default(),
+
+            // Generated content
+            content: ContentValue::Normal,
 
             // Custom properties
             custom_properties: HashMap::new(),

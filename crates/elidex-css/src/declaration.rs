@@ -303,6 +303,9 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "flex" => flex::parse_flex_shorthand(input),
         "flex-flow" => flex::parse_flex_flow_shorthand(input),
 
+        // --- Content property ---
+        "content" => parse_content(input),
+
         // --- Unknown property: silently drop ---
         _ => Vec::new(),
     }
@@ -649,6 +652,66 @@ fn parse_list_style_shorthand(input: &mut Parser) -> Vec<Declaration> {
             Ok(single_decl("list-style-type", CssValue::Keyword(kw)))
         })
         .unwrap_or_default()
+}
+
+// --- Content property ---
+
+/// Parse the CSS `content` property.
+///
+/// Accepts: `none`, `normal`, one or more quoted strings, and `attr(name)`.
+fn parse_content(input: &mut Parser) -> Vec<Declaration> {
+    // Try `none` / `normal` keywords first.
+    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
+        return single_decl("content", val);
+    }
+    if let Ok(val) = try_keyword_value(input, "normal", &CssValue::Keyword("normal".to_string())) {
+        return single_decl("content", val);
+    }
+
+    // Collect one or more content items: quoted strings or attr() functions.
+    let mut items: Vec<CssValue> = Vec::new();
+    loop {
+        // Try quoted string.
+        let ok = input
+            .try_parse(|i| -> Result<(), ()> {
+                let tok = i.next().map_err(|_| ())?;
+                match tok {
+                    Token::QuotedString(ref s) => {
+                        items.push(CssValue::String(s.as_ref().to_string()));
+                        Ok(())
+                    }
+                    Token::Function(ref name) if name.eq_ignore_ascii_case("attr") => {
+                        i.parse_nested_block(
+                            |block| -> Result<(), cssparser::ParseError<'_, ()>> {
+                                let attr_name = match block.expect_ident() {
+                                    Ok(n) => n.as_ref().to_string(),
+                                    Err(e) => return Err(e.into()),
+                                };
+                                items.push(CssValue::Keyword(format!("attr:{attr_name}")));
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+                        Ok(())
+                    }
+                    _ => Err(()),
+                }
+            })
+            .is_ok();
+        if !ok {
+            break;
+        }
+    }
+
+    if items.is_empty() {
+        return Vec::new();
+    }
+
+    if items.len() == 1 {
+        return single_decl("content", items.swap_remove(0));
+    }
+
+    single_decl("content", CssValue::List(items))
 }
 
 // --- Background shorthand ---

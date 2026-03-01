@@ -7,9 +7,10 @@
 use std::collections::{HashMap, HashSet};
 
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, CssColor, CssValue,
-    Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LengthUnit, LineHeight,
-    ListStyleType, Overflow, Position, TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
+    ContentValue, CssColor, CssValue, Dimension, Display, FlexDirection, FlexWrap, JustifyContent,
+    LengthUnit, LineHeight, ListStyleType, Overflow, Position, TextAlign, TextDecorationLine,
+    TextTransform, WhiteSpace,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -122,6 +123,7 @@ fn keyword_from<T: AsRef<str>>(val: &T) -> CssValue {
 ///
 /// Also used by `getComputedStyle()` DOM API.
 // Sync: When adding a property, also update build_computed_style and get_initial_value.
+#[allow(clippy::too_many_lines)]
 pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     // Custom properties: return the raw token string.
     if property.starts_with("--") {
@@ -220,6 +222,28 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "box-sizing" => keyword_from(&style.box_sizing),
         "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
         "opacity" => CssValue::Number(style.opacity),
+        "content" => match &style.content {
+            ContentValue::Normal => CssValue::Keyword("normal".to_string()),
+            ContentValue::None => CssValue::Keyword("none".to_string()),
+            ContentValue::Items(items) => {
+                if items.len() == 1 {
+                    match &items[0] {
+                        ContentItem::String(s) => CssValue::String(s.clone()),
+                        ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                    }
+                } else {
+                    CssValue::List(
+                        items
+                            .iter()
+                            .map(|item| match item {
+                                ContentItem::String(s) => CssValue::String(s.clone()),
+                                ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                            })
+                            .collect(),
+                    )
+                }
+            }
+        },
         _ => get_initial_value(property),
     }
 }
@@ -318,6 +342,9 @@ pub(crate) fn build_computed_style(
     let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
     resolve_flex_properties(&mut style, &winners, parent_style, dim);
     resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 8: Content property (non-inherited).
+    resolve_content(&mut style, &winners, parent_style);
 
     style
 }
@@ -490,6 +517,52 @@ fn resolve_gap_properties(
     resolve_prop("column-gap", winners, parent_style, px, |v| {
         style.column_gap = v.max(0.0);
     });
+}
+
+// --- Content property resolution ---
+
+/// Resolve the `content` property to a [`ContentValue`].
+///
+/// `content` is non-inherited. Keywords `normal` and `none` map directly;
+/// string values produce `ContentValue::Items`. `attr:name` convention
+/// (from the parser) becomes `ContentItem::Attr`.
+fn resolve_content(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    let Some(value) = get_resolved_winner("content", winners, parent_style) else {
+        return; // not declared → default (Normal)
+    };
+    style.content = match &value {
+        CssValue::Keyword(k) => match k.as_str() {
+            "none" => ContentValue::None,
+            "normal" => ContentValue::Normal,
+            k if k.starts_with("attr:") => {
+                ContentValue::Items(vec![ContentItem::Attr(k["attr:".len()..].to_string())])
+            }
+            _ => ContentValue::Normal,
+        },
+        CssValue::String(s) => ContentValue::Items(vec![ContentItem::String(s.clone())]),
+        CssValue::List(items) => {
+            let content_items: Vec<ContentItem> = items
+                .iter()
+                .filter_map(|item| match item {
+                    CssValue::String(s) => Some(ContentItem::String(s.clone())),
+                    CssValue::Keyword(k) if k.starts_with("attr:") => {
+                        Some(ContentItem::Attr(k["attr:".len()..].to_string()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if content_items.is_empty() {
+                ContentValue::Normal
+            } else {
+                ContentValue::Items(content_items)
+            }
+        }
+        _ => ContentValue::Normal,
+    };
 }
 
 // --- Custom property resolution ---

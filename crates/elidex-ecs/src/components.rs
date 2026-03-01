@@ -87,6 +87,52 @@ pub struct InlineStyle {
 
 impl_string_map!(InlineStyle, properties, "style property");
 
+/// Marker component for pseudo-element entities (`::before`, `::after`).
+///
+/// Pseudo-element entities are generated during style resolution and
+/// inserted as children of the originating element. They carry a
+/// `ComputedStyle` and `TextContent` but are not real DOM elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PseudoElementMarker;
+
+/// Dynamic element state flags for CSS pseudo-class matching.
+///
+/// Tracks whether an element is hovered, focused, active, or a link.
+/// Used by the selector engine to match `:hover`, `:focus`, `:active`,
+/// `:link`, and `:visited` pseudo-classes.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ElementState(pub u8);
+
+impl ElementState {
+    pub const HOVER: u8 = 0b0000_0001;
+    pub const FOCUS: u8 = 0b0000_0010;
+    pub const ACTIVE: u8 = 0b0000_0100;
+    pub const LINK: u8 = 0b0000_1000;
+    pub const VISITED: u8 = 0b0001_0000;
+
+    /// Returns `true` if the given flag is set.
+    #[must_use]
+    pub fn contains(self, flag: u8) -> bool {
+        self.0 & flag != 0
+    }
+
+    /// Set the given flag.
+    pub fn insert(&mut self, flag: u8) {
+        self.0 |= flag;
+    }
+
+    /// Clear the given flag.
+    pub fn remove(&mut self, flag: u8) {
+        self.0 &= !flag;
+    }
+
+    /// Returns `true` if no flags are set.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
 /// Decoded image pixel data for `<img>` elements.
 ///
 /// Stored as a component on image entities after the image has been

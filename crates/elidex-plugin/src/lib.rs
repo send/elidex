@@ -15,9 +15,9 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, Dimension, Display,
-    FlexDirection, FlexWrap, JustifyContent, LineHeight, ListStyleType, Overflow, Position,
-    TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
+    ContentValue, Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LineHeight,
+    ListStyleType, Overflow, Position, TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};

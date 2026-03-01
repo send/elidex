@@ -1206,3 +1206,47 @@ fn global_keyword_expands_border_bottom_shorthand() {
     assert_eq!(decls[2].property, "border-bottom-color");
     assert_eq!(decls[2].value, CssValue::Inherit);
 }
+
+// --- M3.5-0: content property ---
+
+#[test]
+fn parse_content_string() {
+    let decls = parse_single("content", r#""hello""#);
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "content");
+    assert_eq!(decls[0].value, CssValue::String("hello".to_string()));
+}
+
+#[test]
+fn parse_content_none() {
+    let decls = parse_single("content", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("none".to_string()));
+}
+
+#[test]
+fn parse_content_normal() {
+    let decls = parse_single("content", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".to_string()));
+}
+
+#[test]
+fn parse_content_multiple_strings() {
+    let decls = parse_single("content", r#""a" "b""#);
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::String("a".to_string()),
+            CssValue::String("b".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn parse_content_attr() {
+    let decls = parse_single("content", "attr(title)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("attr:title".to_string()));
+}

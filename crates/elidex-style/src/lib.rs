@@ -16,13 +16,13 @@ pub mod inherit;
 pub mod resolve;
 pub mod ua;
 
-use elidex_css::Stylesheet;
-use elidex_ecs::{EcsDom, Entity, TagType};
-use elidex_plugin::ComputedStyle;
+use elidex_css::{PseudoElement, Stylesheet};
+use elidex_ecs::{Attributes, EcsDom, Entity, PseudoElementMarker, TagType};
+use elidex_plugin::{ComputedStyle, ContentItem, ContentValue, Display};
 
 pub use resolve::{dimension_to_css_value, get_computed_as_css_value};
 
-use cascade::{collect_and_cascade, get_inline_declarations};
+use cascade::{collect_and_cascade, collect_and_cascade_pseudo, get_inline_declarations};
 use resolve::{build_computed_style, ResolveContext};
 
 /// Resolve styles for all elements in the DOM tree.
@@ -85,13 +85,27 @@ fn walk_tree(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
-    // Collect children first (releases immutable borrow on dom).
-    let children = dom.children(entity);
-
     // Only resolve styles for element nodes (those with TagType).
     let is_element = dom.world().get::<&TagType>(entity).is_ok();
 
     let entity_style = if is_element {
+        // Set LINK state for `<a href>` elements BEFORE cascade,
+        // so :link pseudo-class matching can see the state.
+        if is_link_element(dom, entity) {
+            let mut state = dom
+                .world()
+                .get::<&ElementState>(entity)
+                .ok()
+                .map_or(ElementState::default(), |s| *s);
+            state.insert(ElementState::LINK);
+            let _ = dom.world_mut().insert_one(entity, state);
+        }
+
+        // Remove stale pseudo-element entities from previous resolution
+        // BEFORE cascade, so :empty and other structural pseudo-classes
+        // don't see generated content children.
+        remove_pseudo_entities(dom, entity);
+
         // Collect inline style declarations.
         let inline_decls = get_inline_declarations(entity, dom);
 
@@ -106,6 +120,26 @@ fn walk_tree(
 
         // Attach ComputedStyle to the entity.
         let _ = dom.world_mut().insert_one(entity, style.clone());
+
+        // Only generate pseudo-elements for visible elements.
+        if style.display != Display::None {
+            generate_pseudo_entity(
+                dom,
+                entity,
+                stylesheets,
+                &style,
+                &element_ctx,
+                PseudoElement::Before,
+            );
+            generate_pseudo_entity(
+                dom,
+                entity,
+                stylesheets,
+                &style,
+                &element_ctx,
+                PseudoElement::After,
+            );
+        }
 
         style
     } else {
@@ -122,10 +156,127 @@ fn walk_tree(
     };
     let child_ctx = ctx.with_em_and_root(entity_style.font_size, root_fs);
 
-    // Recurse into children.
+    // Recurse into children (re-collect since pseudo entities may have been added).
+    let children = dom.children(entity);
     for child in children {
+        // Skip pseudo-element entities — they already have their ComputedStyle.
+        if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
+            continue;
+        }
         walk_tree(dom, child, stylesheets, &entity_style, &child_ctx);
     }
+}
+
+use elidex_ecs::ElementState;
+
+/// Check if an entity is a link element (`<a>` with `href` attribute).
+fn is_link_element(dom: &EcsDom, entity: Entity) -> bool {
+    let is_a = dom
+        .world()
+        .get::<&TagType>(entity)
+        .ok()
+        .is_some_and(|t| t.0 == "a");
+    if !is_a {
+        return false;
+    }
+    dom.world()
+        .get::<&Attributes>(entity)
+        .ok()
+        .is_some_and(|attrs| attrs.get("href").is_some())
+}
+
+/// Remove all pseudo-element child entities from a parent.
+///
+/// Called before generating new pseudo-elements to avoid stale entities
+/// from a previous style resolution pass.
+fn remove_pseudo_entities(dom: &mut EcsDom, parent: Entity) {
+    let pseudo_children: Vec<Entity> = dom
+        .children_iter(parent)
+        .filter(|&child| dom.world().get::<&PseudoElementMarker>(child).is_ok())
+        .collect();
+    for pe in pseudo_children {
+        let _ = dom.destroy_entity(pe);
+    }
+}
+
+/// Generate a pseudo-element entity (`::before` or `::after`) if the
+/// originating element has matching CSS rules with non-empty content.
+fn generate_pseudo_entity(
+    dom: &mut EcsDom,
+    entity: Entity,
+    stylesheets: &[&Stylesheet],
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    pseudo: PseudoElement,
+) {
+    // Cascade pseudo-element rules.
+    let winners = collect_and_cascade_pseudo(entity, dom, stylesheets, pseudo);
+    if winners.is_empty() {
+        return;
+    }
+
+    // Build computed style for the pseudo-element (inherits from originating element).
+    let pe_style = build_computed_style(&winners, parent_style, ctx);
+
+    // Only generate if content produces actual text.
+    // TODO: per CSS spec, `content: ""` should still generate a pseudo-element
+    // box (used for clearfix, decorative elements, etc.).  We currently skip
+    // empty content because the layout pipeline requires TextContent for
+    // pseudo-element sizing.  Fix when box-model-only pseudo-elements are needed.
+    let text = match &pe_style.content {
+        ContentValue::Items(items) => resolve_content_text(items, entity, dom),
+        _ => return, // Normal or None → no generation
+    };
+
+    if text.is_empty() {
+        return;
+    }
+
+    // Create the pseudo-element entity with inline display.
+    let mut style = pe_style;
+    // Pseudo-elements default to inline display unless explicitly set.
+    if !winners.contains_key("display") {
+        style.display = Display::Inline;
+    }
+
+    // Use create_text() to ensure the entity has a TreeRelation component,
+    // which is required for EcsDom tree operations (append_child, destroy_entity, etc.).
+    let pe_entity = dom.create_text(text);
+    let _ = dom.world_mut().insert_one(pe_entity, style);
+    let _ = dom.world_mut().insert_one(pe_entity, PseudoElementMarker);
+
+    // Insert as first child (::before) or last child (::after).
+    match pseudo {
+        PseudoElement::Before => {
+            let first_child = dom.get_first_child(entity);
+            if let Some(fc) = first_child {
+                let _ = dom.insert_before(entity, pe_entity, fc);
+            } else {
+                let _ = dom.append_child(entity, pe_entity);
+            }
+        }
+        PseudoElement::After => {
+            let _ = dom.append_child(entity, pe_entity);
+        }
+    }
+}
+
+/// Resolve content items to a text string.
+fn resolve_content_text(items: &[ContentItem], entity: Entity, dom: &EcsDom) -> String {
+    let mut result = String::new();
+    for item in items {
+        match item {
+            ContentItem::String(s) => result.push_str(s),
+            ContentItem::Attr(name) => {
+                if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
+                    if let Some(val) = attrs.get(name) {
+                        result.push_str(val);
+                    }
+                }
+            }
+        }
+    }
+    result
 }
 
 /// Check if entity is the `<html>` root element (tag name only).
@@ -146,7 +297,7 @@ fn is_root_element(dom: &EcsDom, entity: Entity) -> bool {
 mod tests {
     use super::*;
     use elidex_css::{parse_stylesheet, Origin};
-    use elidex_ecs::Attributes;
+    use elidex_ecs::{Attributes, TextContent};
     use elidex_plugin::{BorderStyle, CssColor, Dimension, Display, Position};
 
     fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
@@ -962,5 +1113,317 @@ mod tests {
         assert_eq!(li1_style.color, CssColor::RED);
         let li2_style = get_style(&dom, li2);
         assert_ne!(li2_style.color, CssColor::RED);
+    }
+
+    // --- M3.5-0: Pseudo-element tests ---
+
+    #[test]
+    fn pseudo_before_generates_entity() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(body, p);
+
+        let css = r#"p::before { content: ">>"; color: red; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        // p should have a pseudo-element child.
+        let children: Vec<Entity> = dom.children_iter(p).collect();
+        let pe = children
+            .iter()
+            .find(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok());
+        assert!(pe.is_some(), "pseudo-element entity not found");
+        let pe = *pe.unwrap();
+        // Check text content.
+        let tc = dom.world().get::<&TextContent>(pe).unwrap();
+        assert_eq!(tc.0, ">>");
+        // Check style.
+        let pe_style = get_style(&dom, pe);
+        assert_eq!(pe_style.color, CssColor::RED);
+    }
+
+    #[test]
+    fn pseudo_after_generates_entity() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(body, p);
+
+        let css = r#"p::after { content: "<<"; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children: Vec<Entity> = dom.children_iter(p).collect();
+        let last = children.last().unwrap();
+        assert!(dom.world().get::<&PseudoElementMarker>(*last).is_ok());
+        let tc = dom.world().get::<&TextContent>(*last).unwrap();
+        assert_eq!(tc.0, "<<");
+    }
+
+    #[test]
+    fn pseudo_content_none_no_entity() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(body, p);
+
+        let css = r"p::before { content: none; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children: Vec<Entity> = dom.children_iter(p).collect();
+        let has_pe = children
+            .iter()
+            .any(|&c| dom.world().get::<&PseudoElementMarker>(c).is_ok());
+        assert!(!has_pe);
+    }
+
+    #[test]
+    fn pseudo_content_attr() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("title", "TitleText");
+        let p = dom.create_element("p", attrs);
+        dom.append_child(body, p);
+
+        let css = r"p::before { content: attr(title); }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children: Vec<Entity> = dom.children_iter(p).collect();
+        let pe = children
+            .iter()
+            .find(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .unwrap();
+        let tc = dom.world().get::<&TextContent>(*pe).unwrap();
+        assert_eq!(tc.0, "TitleText");
+    }
+
+    #[test]
+    fn pseudo_cascade_later_wins() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("class", "x");
+        let p = dom.create_element("p", attrs);
+        dom.append_child(body, p);
+
+        let css = r#".x::before { content: "A"; } .x::before { content: "B"; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children: Vec<Entity> = dom.children_iter(p).collect();
+        let pe = children
+            .iter()
+            .find(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .unwrap();
+        let tc = dom.world().get::<&TextContent>(*pe).unwrap();
+        assert_eq!(tc.0, "B");
+    }
+
+    #[test]
+    fn pseudo_re_resolve_removes_old() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("hello");
+        dom.append_child(body, p);
+        dom.append_child(p, text);
+
+        let css = r#"p::before { content: ">>"; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        // First resolution: one pseudo entity + one text node.
+        let pe_count1 = dom
+            .children_iter(p)
+            .filter(|&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .count();
+        assert_eq!(pe_count1, 1);
+
+        // Re-resolve: should still have exactly one PE.
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+        let pe_count2 = dom
+            .children_iter(p)
+            .filter(|&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .count();
+        assert_eq!(pe_count2, 1);
+    }
+
+    #[test]
+    fn pseudo_does_not_affect_normal_element_matching() {
+        // Ensure pseudo-element selectors don't affect normal element styling.
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(body, p);
+
+        let css = r#"p::before { content: ">>"; color: red; } p { color: blue; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        // p itself should be blue, not red.
+        let p_style = get_style(&dom, p);
+        assert_eq!(p_style.color, CssColor::BLUE);
+    }
+
+    #[test]
+    fn link_element_gets_link_state() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("href", "https://example.com");
+        let a = dom.create_element("a", attrs);
+        dom.append_child(body, a);
+
+        resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+
+        let state = dom
+            .world()
+            .get::<&ElementState>(a)
+            .ok()
+            .map(|s| *s)
+            .unwrap_or_default();
+        assert!(state.contains(ElementState::LINK));
+    }
+
+    #[test]
+    fn ua_link_gets_blue_color() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let mut attrs = Attributes::default();
+        attrs.set("href", "https://example.com");
+        let a = dom.create_element("a", attrs);
+        let text = dom.create_text("Link");
+        dom.append_child(body, a);
+        dom.append_child(a, text);
+
+        resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+
+        let style = get_style(&dom, a);
+        // UA a:link color is #0000ee = rgb(0, 0, 238)
+        assert_eq!(style.color, CssColor::new(0, 0, 238, 255));
+    }
+
+    #[test]
+    fn pseudo_before_after_full_pipeline() {
+        // Full pipeline: parse CSS → resolve styles → verify pseudo entities.
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(body, p);
+        dom.append_child(p, text);
+
+        let css = "p::before { content: \">> \"; color: red; } p::after { content: \" <<\"; color: blue; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children = dom.children(p);
+        // Should have: ::before PE, text node, ::after PE = 3 children
+        assert_eq!(
+            children.len(),
+            3,
+            "expected 3 children (::before, text, ::after)"
+        );
+
+        // First child: ::before
+        let before_pe = children[0];
+        assert!(dom.world().get::<&PseudoElementMarker>(before_pe).is_ok());
+        let before_tc = dom.world().get::<&TextContent>(before_pe).unwrap();
+        assert_eq!(before_tc.0, ">> ");
+        let before_style = get_style(&dom, before_pe);
+        assert_eq!(before_style.color, CssColor::new(255, 0, 0, 255));
+
+        // Last child: ::after
+        let after_pe = children[2];
+        assert!(dom.world().get::<&PseudoElementMarker>(after_pe).is_ok());
+        let after_tc = dom.world().get::<&TextContent>(after_pe).unwrap();
+        assert_eq!(after_tc.0, " <<");
+        let after_style = get_style(&dom, after_pe);
+        assert_eq!(after_style.color, CssColor::new(0, 0, 255, 255));
+
+        // Middle child: original text node (no PseudoElementMarker)
+        let text_node = children[1];
+        assert!(dom.world().get::<&PseudoElementMarker>(text_node).is_err());
+    }
+
+    #[test]
+    fn hover_pseudo_class_applies_style() {
+        use elidex_ecs::ElementState as DomState;
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let css = "div { color: black; } div:hover { color: red; }";
+        let ss = parse_stylesheet(css, Origin::Author);
+
+        // Without hover: color is black.
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+        let style_no_hover = get_style(&dom, div);
+        assert_eq!(style_no_hover.color, CssColor::new(0, 0, 0, 255));
+
+        // Set hover state and re-resolve.
+        let mut state = DomState::default();
+        state.insert(DomState::HOVER);
+        dom.world_mut().insert_one(div, state);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let style_hover = get_style(&dom, div);
+        assert_eq!(style_hover.color, CssColor::new(255, 0, 0, 255));
+    }
+
+    #[test]
+    fn pseudo_content_var_resolution() {
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let p = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(body, p);
+        dom.append_child(p, text);
+
+        let css = r#":root { --icon: ">>"; } p::before { content: var(--icon); }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        // The ::before pseudo-element should have content from var(--icon).
+        let children = dom.children(p);
+        let pe_children: Vec<_> = children
+            .iter()
+            .filter(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .collect();
+        assert_eq!(pe_children.len(), 1, "expected 1 pseudo-element");
+        let tc = dom.world().get::<&TextContent>(*pe_children[0]).unwrap();
+        assert_eq!(tc.0, ">>");
+    }
+
+    #[test]
+    fn hover_pseudo_element_combined() {
+        use elidex_ecs::ElementState as DomState;
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(body, div);
+        dom.append_child(div, text);
+
+        let css = r#"div:hover::before { content: ">>"; color: green; }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+
+        // Without hover: no pseudo-element generated.
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+        let children = dom.children(div);
+        let pe_count = children
+            .iter()
+            .filter(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .count();
+        assert_eq!(pe_count, 0, "no PE without hover");
+
+        // Set hover and re-resolve.
+        let mut state = DomState::default();
+        state.insert(DomState::HOVER);
+        dom.world_mut().insert_one(div, state);
+        resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+
+        let children = dom.children(div);
+        let pe_children: Vec<_> = children
+            .iter()
+            .filter(|&&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
+            .collect();
+        assert_eq!(pe_children.len(), 1, "1 PE with hover");
+        let tc = dom.world().get::<&TextContent>(*pe_children[0]).unwrap();
+        assert_eq!(tc.0, ">>");
+        let pe_style = get_style(&dom, *pe_children[0]);
+        assert_eq!(pe_style.color, CssColor::new(0, 128, 0, 255));
     }
 }

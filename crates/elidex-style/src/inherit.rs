@@ -39,7 +39,7 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Inherited text
         "font-weight" => CssValue::Number(400.0),
-        "line-height" | "white-space" => CssValue::Keyword("normal".to_string()),
+        "line-height" | "white-space" | "content" => CssValue::Keyword("normal".to_string()),
         // Keyword "none" initial values
         "text-transform"
         | "text-decoration-line"

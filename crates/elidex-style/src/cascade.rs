@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use elidex_css::{Declaration, Origin, Specificity, Stylesheet};
+use elidex_css::{Declaration, Origin, PseudoElement, Specificity, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::CssValue;
 
@@ -57,16 +57,60 @@ pub(crate) fn collect_and_cascade<'a>(
 ) -> HashMap<&'a str, &'a CssValue> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
-    // Collect from stylesheets.
+    // Collect from stylesheets (only selectors without pseudo-elements).
+    collect_matching_rules(&mut entries, entity, dom, stylesheets, None);
+
+    // Collect inline styles (highest specificity, treated as author origin).
+    // Inline styles use a synthetic source_order of u32::MAX to ensure they
+    // come after any stylesheet declarations at the same priority.
+    for decl in inline_declarations {
+        entries.push(CascadeEntry {
+            property: &decl.property,
+            value: &decl.value,
+            priority: CascadePriority {
+                importance_layer: importance_layer(Origin::Author, decl.important),
+                is_inline: true,
+                specificity: Specificity::default(),
+                stylesheet_index: u32::MAX,
+                source_order: u32::MAX,
+            },
+        });
+    }
+
+    // Sort by priority (ascending — last entry wins).
+    entries.sort_by(|a, b| a.priority.cmp(&b.priority));
+
+    // Last-wins per property.
+    let mut winners: HashMap<&str, &CssValue> = HashMap::with_capacity(entries.len());
+    for entry in &entries {
+        winners.insert(entry.property, entry.value);
+    }
+
+    winners
+}
+
+/// Collect matching rules from stylesheets, filtered by pseudo-element.
+///
+/// When `pseudo` is `None`, only selectors without pseudo-elements are matched.
+/// When `pseudo` is `Some(pe)`, only selectors with that specific pseudo-element
+/// are matched (against the originating element).
+fn collect_matching_rules<'a>(
+    entries: &mut Vec<CascadeEntry<'a>>,
+    entity: Entity,
+    dom: &EcsDom,
+    stylesheets: &'a [&'a Stylesheet],
+    pseudo: Option<&PseudoElement>,
+) {
     for (sheet_idx, stylesheet) in stylesheets.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)] // Stylesheet count won't exceed u32::MAX.
         let sheet_index = sheet_idx as u32;
         for rule in &stylesheet.rules {
-            // Single-pass: find max specificity among matching selectors.
+            // Single-pass: find max specificity among matching selectors
+            // filtered by pseudo-element.
             let max_specificity = rule
                 .selectors
                 .iter()
-                .filter(|sel| sel.matches(entity, dom))
+                .filter(|sel| sel.pseudo_element.as_ref() == pseudo && sel.matches(entity, dom))
                 .map(|sel| sel.specificity)
                 .max();
             let Some(max_specificity) = max_specificity else {
@@ -88,23 +132,22 @@ pub(crate) fn collect_and_cascade<'a>(
             }
         }
     }
+}
 
-    // Collect inline styles (highest specificity, treated as author origin).
-    // Inline styles use a synthetic source_order of u32::MAX to ensure they
-    // come after any stylesheet declarations at the same priority.
-    for decl in inline_declarations {
-        entries.push(CascadeEntry {
-            property: &decl.property,
-            value: &decl.value,
-            priority: CascadePriority {
-                importance_layer: importance_layer(Origin::Author, decl.important),
-                is_inline: true,
-                specificity: Specificity::default(),
-                stylesheet_index: u32::MAX,
-                source_order: u32::MAX,
-            },
-        });
-    }
+/// Collect and cascade declarations for a pseudo-element.
+///
+/// Similar to [`collect_and_cascade`] but only matches selectors that target
+/// the given pseudo-element. Inline styles are not included (pseudo-elements
+/// cannot have inline styles).
+pub(crate) fn collect_and_cascade_pseudo<'a>(
+    entity: Entity,
+    dom: &EcsDom,
+    stylesheets: &'a [&'a Stylesheet],
+    pseudo: PseudoElement,
+) -> HashMap<&'a str, &'a CssValue> {
+    let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
+
+    collect_matching_rules(&mut entries, entity, dom, stylesheets, Some(&pseudo));
 
     // Sort by priority (ascending — last entry wins).
     entries.sort_by(|a, b| a.priority.cmp(&b.priority));

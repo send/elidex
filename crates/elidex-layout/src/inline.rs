@@ -4,7 +4,7 @@
 //! Text nodes are measured via `elidex-text::measure_text()` and
 //! greedily packed into lines that fit the containing block width.
 
-use elidex_ecs::{EcsDom, Entity, TextContent};
+use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display};
 use elidex_text::{find_break_opportunities, measure_text, BreakOpportunity, FontDatabase};
 
@@ -31,7 +31,14 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
             if style.display == Display::None {
                 continue;
             }
-            // Inline element: collect text from its children
+            // Pseudo-element: use text directly (skip child recursion).
+            if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
+                if let Ok(tc) = dom.world().get::<&TextContent>(child) {
+                    text.push_str(&tc.0);
+                }
+                continue;
+            }
+            // Inline element: collect text from its children.
             let grandchildren = dom.children(child);
             text.push_str(&collect_text_inner(dom, &grandchildren, depth + 1));
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {

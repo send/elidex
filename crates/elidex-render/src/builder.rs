@@ -10,7 +10,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use elidex_ecs::{EcsDom, Entity, ImageData, TextContent};
+use elidex_ecs::{EcsDom, Entity, ImageData, PseudoElementMarker, TextContent};
 use elidex_plugin::{
     BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, ListStyleType, Overflow, Rect,
     TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
@@ -282,6 +282,24 @@ fn collect_styled_inline_text(
         // Check for display: none on elements.
         if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
             if style.display == Display::None {
+                continue;
+            }
+            // Pseudo-element: emit text with own style (skip child recursion).
+            if dom.world().get::<&PseudoElementMarker>(entity).is_ok() {
+                if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+                    if !tc.0.is_empty() {
+                        segments.push(StyledTextSegment {
+                            text: tc.0.clone(),
+                            color: style.color,
+                            font_family: style.font_family.clone(),
+                            font_size: style.font_size,
+                            font_weight: style.font_weight,
+                            text_transform: style.text_transform,
+                            text_decoration_line: style.text_decoration_line,
+                            opacity: style.opacity,
+                        });
+                    }
+                }
                 continue;
             }
             // Inline element: use this element's style for its children.

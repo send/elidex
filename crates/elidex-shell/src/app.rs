@@ -4,6 +4,7 @@
 //! GPU initialization, frame rendering via Vello, and user input
 //! event dispatch to the DOM.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -11,7 +12,9 @@ use winit::event::{ElementState, Modifiers, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use elidex_ecs::{Attributes, Entity, TagType, MAX_ANCESTOR_DEPTH};
+use elidex_ecs::{
+    Attributes, ElementState as DomElementState, Entity, TagType, MAX_ANCESTOR_DEPTH,
+};
 use elidex_layout::hit_test;
 use elidex_navigation::NavigationController;
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
@@ -44,6 +47,10 @@ struct InteractiveState {
     pipeline: PipelineResult,
     cursor_pos: Option<(f64, f64)>,
     focus_target: Option<Entity>,
+    /// Entities in the current hover chain (hit entity + all ancestors).
+    hovered_entities: Vec<Entity>,
+    /// Entities that received `:active` state on mouse press.
+    active_entities: Vec<Entity>,
     modifiers: Modifiers,
     nav_controller: NavigationController,
     window_title: String,
@@ -69,6 +76,8 @@ impl App {
                 pipeline,
                 cursor_pos: None,
                 focus_target: None,
+                hovered_entities: Vec::new(),
+                active_entities: Vec::new(),
                 modifiers: Modifiers::default(),
                 nav_controller: NavigationController::new(),
                 window_title: "elidex".to_string(),
@@ -92,6 +101,8 @@ impl App {
                 pipeline,
                 cursor_pos: None,
                 focus_target: None,
+                hovered_entities: Vec::new(),
+                active_entities: Vec::new(),
                 modifiers: Modifiers::default(),
                 nav_controller,
                 window_title: title,
@@ -133,8 +144,18 @@ impl App {
             };
             let hit_entity = hit.entity;
 
-            // Update focus target on any click.
-            interactive.focus_target = Some(hit_entity);
+            // Update focus: remove FOCUS from old target, set on new.
+            if interactive.focus_target != Some(hit_entity) {
+                if let Some(old_focus) = interactive.focus_target {
+                    update_element_state(&mut pipeline.dom, old_focus, |s| {
+                        s.remove(DomElementState::FOCUS);
+                    });
+                }
+                update_element_state(&mut pipeline.dom, hit_entity, |s| {
+                    s.insert(DomElementState::FOCUS);
+                });
+                interactive.focus_target = Some(hit_entity);
+            }
 
             // DOM spec: 0=primary, 1=auxiliary, 2=secondary, 3=back, 4=forward.
             let button_num = match button {
@@ -332,6 +353,8 @@ impl App {
                 interactive.pipeline = new_pipeline;
                 interactive.window_title = format!("elidex \u{2014} {url}");
                 interactive.focus_target = None;
+                interactive.hovered_entities.clear();
+                interactive.active_entities.clear();
                 interactive.chrome.set_url(url);
                 self.display_list = interactive.pipeline.display_list.clone();
                 true
@@ -464,6 +487,39 @@ fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<String
         depth += 1;
     }
     None
+}
+
+/// Collect the hover chain: the entity itself and all its ancestors.
+///
+/// Depth-limited to [`MAX_ANCESTOR_DEPTH`] to guard against tree corruption.
+fn collect_hover_chain(dom: &elidex_ecs::EcsDom, entity: Entity) -> Vec<Entity> {
+    let mut chain = Vec::new();
+    let mut current = Some(entity);
+    let mut depth = 0;
+    while let Some(e) = current {
+        if depth > MAX_ANCESTOR_DEPTH {
+            break;
+        }
+        chain.push(e);
+        current = dom.get_parent(e);
+        depth += 1;
+    }
+    chain
+}
+
+/// Update the `ElementState` component on an entity, creating one if absent.
+fn update_element_state(
+    dom: &mut elidex_ecs::EcsDom,
+    entity: Entity,
+    f: impl FnOnce(&mut DomElementState),
+) {
+    let mut state = dom
+        .world()
+        .get::<&DomElementState>(entity)
+        .ok()
+        .map_or(DomElementState::default(), |s| *s);
+    f(&mut state);
+    let _ = dom.world_mut().insert_one(entity, state);
 }
 
 /// Create the window, GPU context, and Vello renderer.
@@ -811,8 +867,82 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                if let Some(interactive) = &mut self.interactive {
+                let hover_changed = if let Some(interactive) = &mut self.interactive {
                     interactive.cursor_pos = Some((position.x, position.y));
+
+                    // Update hover state: hit-test and compare with previous hover chain.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let x = position.x as f32;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let y = (position.y as f32) - crate::chrome::CHROME_HEIGHT;
+                    let new_chain = if y >= 0.0 {
+                        hit_test(&interactive.pipeline.dom, x, y)
+                            .map(|hit| collect_hover_chain(&interactive.pipeline.dom, hit.entity))
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+
+                    if new_chain == interactive.hovered_entities {
+                        false
+                    } else {
+                        let old_chain =
+                            std::mem::replace(&mut interactive.hovered_entities, new_chain.clone());
+                        let new_set: HashSet<Entity> = new_chain.iter().copied().collect();
+                        let old_set: HashSet<Entity> = old_chain.iter().copied().collect();
+                        // Remove HOVER from entities no longer hovered.
+                        for &e in &old_chain {
+                            if !new_set.contains(&e) {
+                                update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                                    s.remove(DomElementState::HOVER);
+                                });
+                            }
+                        }
+                        // Add HOVER to newly hovered entities.
+                        for &e in &new_chain {
+                            if !old_set.contains(&e) {
+                                update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                                    s.insert(DomElementState::HOVER);
+                                });
+                            }
+                        }
+                        // Re-render to apply :hover style changes.
+                        crate::re_render(&mut interactive.pipeline);
+                        true
+                    }
+                } else {
+                    false
+                };
+                if hover_changed {
+                    if let Some(interactive) = &self.interactive {
+                        self.display_list = interactive.pipeline.display_list.clone();
+                    }
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                // Clear all hover and active state when cursor leaves the window.
+                if let Some(interactive) = &mut self.interactive {
+                    let had_hover = !interactive.hovered_entities.is_empty();
+                    let had_active = !interactive.active_entities.is_empty();
+                    // Clear ACTIVE from press-time entities (may differ from hover chain).
+                    for &e in &std::mem::take(&mut interactive.active_entities) {
+                        update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                            s.remove(DomElementState::ACTIVE);
+                        });
+                    }
+                    // Clear HOVER (and any remaining ACTIVE) from hover chain.
+                    for &e in &std::mem::take(&mut interactive.hovered_entities) {
+                        update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                            s.remove(DomElementState::HOVER);
+                            s.remove(DomElementState::ACTIVE);
+                        });
+                    }
+                    if had_hover || had_active {
+                        crate::re_render(&mut interactive.pipeline);
+                    }
+                }
+                if let Some(interactive) = &self.interactive {
+                    self.display_list = interactive.pipeline.display_list.clone();
                 }
             }
             _ => {}
@@ -878,7 +1008,39 @@ impl ApplicationHandler for App {
                 button,
                 ..
             } => {
+                // Set ACTIVE state on hover chain and remember which
+                // entities received it (cursor may move before release).
+                if let Some(interactive) = &mut self.interactive {
+                    interactive.active_entities = interactive.hovered_entities.clone();
+                    for &e in &interactive.active_entities {
+                        update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                            s.insert(DomElementState::ACTIVE);
+                        });
+                    }
+                }
                 self.handle_click(button);
+                if let Some(s) = &self.render_state {
+                    s.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                ..
+            } => {
+                // Clear ACTIVE state from the entities that were active at
+                // press time (not the current hover chain, which may differ).
+                if let Some(interactive) = &mut self.interactive {
+                    let active = std::mem::take(&mut interactive.active_entities);
+                    for &e in &active {
+                        update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                            s.remove(DomElementState::ACTIVE);
+                        });
+                    }
+                    crate::re_render(&mut interactive.pipeline);
+                }
+                if let Some(interactive) = &self.interactive {
+                    self.display_list = interactive.pipeline.display_list.clone();
+                }
                 if let Some(s) = &self.render_state {
                     s.window.request_redraw();
                 }

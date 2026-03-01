@@ -109,6 +109,16 @@ hr {
     margin-top: 8px;
     margin-bottom: 8px;
 }
+
+a:link {
+    color: #0000ee;
+    text-decoration-line: underline;
+}
+
+a:visited {
+    color: #551a8b;
+    text-decoration-line: underline;
+}
 ";
 
 /// Returns the parsed UA stylesheet (lazily initialized, cached).
@@ -121,7 +131,7 @@ pub fn ua_stylesheet() -> &'static Stylesheet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_plugin::{CssValue, LengthUnit};
+    use elidex_plugin::{CssColor, CssValue, LengthUnit};
 
     #[test]
     fn ua_parses_without_error() {
@@ -232,6 +242,60 @@ mod tests {
         assert_eq!(
             ff.value,
             CssValue::List(vec![CssValue::Keyword("monospace".to_string())])
+        );
+    }
+
+    #[test]
+    fn a_link_has_blue_color_and_underline() {
+        let ss = ua_stylesheet();
+        let link_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components.iter().any(
+                    |c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "a"),
+                ) && sel.components.iter().any(
+                    |c| matches!(c, elidex_css::SelectorComponent::PseudoClass(p) if p == "link"),
+                )
+            }) && r.declarations.iter().any(|d| d.property == "color")
+        });
+        assert!(link_rule.is_some(), "a:link color rule not found");
+        let color_decl = link_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "color")
+            .unwrap();
+        // #0000ee = rgb(0, 0, 238)
+        assert_eq!(
+            color_decl.value,
+            CssValue::Color(CssColor::new(0, 0, 238, 255))
+        );
+    }
+
+    #[test]
+    fn a_visited_has_purple_color() {
+        let ss = ua_stylesheet();
+        let visited_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components.iter().any(
+                    |c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "a"),
+                ) && sel.components.iter().any(
+                    |c| {
+                        matches!(c, elidex_css::SelectorComponent::PseudoClass(p) if p == "visited")
+                    },
+                )
+            }) && r.declarations.iter().any(|d| d.property == "color")
+        });
+        assert!(visited_rule.is_some(), "a:visited color rule not found");
+        let color_decl = visited_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "color")
+            .unwrap();
+        // #551a8b = rgb(85, 26, 139)
+        assert_eq!(
+            color_decl.value,
+            CssValue::Color(CssColor::new(85, 26, 139, 255))
         );
     }
 
