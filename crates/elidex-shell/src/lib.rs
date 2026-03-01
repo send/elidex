@@ -851,4 +851,21 @@ mod tests {
             "DOMContentLoaded should not be cancelable, got: {messages:?}"
         );
     }
+
+    #[test]
+    fn inline_run_produces_single_text_item() {
+        // Verifies that inline text is collected and rendered correctly.
+        let html = r#"<p>Hello <strong>world</strong>!</p>"#;
+        let css = "p { display: block; }";
+        let dl = build_pipeline(html, css);
+        let text_count = dl
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::Text { .. }))
+            .count();
+        // Inline run should produce exactly one text item (not three).
+        assert_eq!(
+            text_count, 1,
+            "Expected 1 text item for inline run, got {text_count}"
+        );
+    }
 }

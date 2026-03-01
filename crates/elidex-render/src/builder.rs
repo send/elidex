@@ -2,6 +2,10 @@
 //!
 //! Walks the DOM tree in pre-order (painter's order) and emits
 //! [`DisplayItem`]s for background rectangles and text content.
+//!
+//! Text processing follows CSS `white-space: normal` rules: newlines
+//! and tabs are replaced with spaces, and runs of spaces are collapsed
+//! to a single space. Whitespace-only text is discarded.
 
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::{ComputedStyle, CssColor, Display, LayoutBox};
@@ -15,6 +19,12 @@ use crate::font_cache::FontCache;
 /// Each element with a [`LayoutBox`] component is visited in pre-order.
 /// Background colors produce [`DisplayItem::SolidRect`] entries; text
 /// nodes produce [`DisplayItem::Text`] entries via re-shaping.
+///
+/// Children of each element are processed in "inline runs": consecutive
+/// non-block children (text nodes and inline elements) have their text
+/// collected, whitespace-collapsed, and rendered as a single text item.
+/// This avoids position overlap when multiple text nodes share the same
+/// block ancestor.
 ///
 /// # Prerequisites
 ///
@@ -42,6 +52,11 @@ fn find_roots(dom: &EcsDom) -> Vec<Entity> {
 }
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
+///
+/// Children are grouped into "inline runs" (consecutive non-block children)
+/// and "block children" (those with a `LayoutBox`). Inline runs have their
+/// text collected and rendered as a single item; block children are
+/// recursed into normally.
 fn walk(
     dom: &EcsDom,
     entity: Entity,
@@ -65,24 +80,126 @@ fn walk(
         }
     }
 
-    // Check if this entity is a text node.
-    // Clone and drop the ECS borrow before calling emit_text, which borrows
-    // other components (ComputedStyle, LayoutBox) from the same world.
-    let text_owned = dom
-        .world()
-        .get::<&TextContent>(entity)
-        .ok()
-        .map(|tc| tc.0.clone());
-    if let Some(ref text) = text_owned {
-        if let Some(parent) = dom.get_parent(entity) {
-            emit_text(dom, parent, text, font_db, font_cache, dl);
+    // Process children in inline runs vs block children.
+    let children: Vec<Entity> = dom.children_iter(entity).collect();
+    let mut inline_run = Vec::new();
+
+    for &child in &children {
+        if is_block_child(dom, child) {
+            // Flush any pending inline run before the block child.
+            if !inline_run.is_empty() {
+                emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
+                inline_run.clear();
+            }
+            // Recurse into block child.
+            walk(dom, child, font_db, font_cache, dl);
+        } else {
+            // Text node or inline element — add to current run.
+            inline_run.push(child);
         }
     }
 
-    // Recurse into children.
-    for child in dom.children_iter(entity) {
-        walk(dom, child, font_db, font_cache, dl);
+    // Flush trailing inline run.
+    if !inline_run.is_empty() {
+        emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
     }
+}
+
+/// Check whether a child entity is a block-level child (has a `LayoutBox`).
+///
+/// Block children are recursed into separately; non-block children (text
+/// nodes and inline elements) are collected into inline runs.
+fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
+    dom.world().get::<&LayoutBox>(entity).is_ok()
+}
+
+/// Collect text from an inline run and render it as a single text item.
+///
+/// An inline run is a sequence of non-block children (text nodes and
+/// inline elements). Text is collected recursively from inline elements,
+/// whitespace-collapsed per CSS `white-space: normal`, and rendered at
+/// the parent's content position.
+fn emit_inline_run(
+    dom: &EcsDom,
+    parent: Entity,
+    run: &[Entity],
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let raw_text = collect_inline_text(dom, run);
+    let text = collapse_whitespace(&raw_text);
+    if text.is_empty() {
+        return;
+    }
+
+    emit_text(dom, parent, &text, font_db, font_cache, dl);
+}
+
+/// Recursively collect text content from a list of inline entities.
+///
+/// Text nodes contribute their content directly. Inline elements (those
+/// with `ComputedStyle` but no `LayoutBox`) contribute their children's
+/// text, flattened. `display: none` elements are skipped.
+fn collect_inline_text(dom: &EcsDom, entities: &[Entity]) -> String {
+    collect_inline_text_inner(dom, entities, 0)
+}
+
+/// Maximum recursion depth for inline text collection.
+const MAX_INLINE_DEPTH: u32 = 100;
+
+fn collect_inline_text_inner(dom: &EcsDom, entities: &[Entity], depth: u32) -> String {
+    if depth >= MAX_INLINE_DEPTH {
+        return String::new();
+    }
+    let mut text = String::new();
+    for &entity in entities {
+        // Check for display: none on elements.
+        if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
+            if style.display == Display::None {
+                continue;
+            }
+        }
+
+        // Text node: contribute content directly.
+        if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+            text.push_str(&tc.0);
+            continue;
+        }
+
+        // Inline element: recurse into children.
+        let children: Vec<Entity> = dom.children_iter(entity).collect();
+        text.push_str(&collect_inline_text_inner(dom, &children, depth + 1));
+    }
+    text
+}
+
+/// Collapse whitespace per CSS `white-space: normal` rules.
+///
+/// Replaces newlines, carriage returns, and tabs with spaces, then
+/// collapses runs of consecutive spaces to a single space. Strips
+/// leading and trailing whitespace (inter-element whitespace).
+fn collapse_whitespace(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut prev_was_space = false;
+    for ch in text.chars() {
+        if ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ' {
+            if !prev_was_space {
+                result.push(' ');
+                prev_was_space = true;
+            }
+        } else {
+            result.push(ch);
+            prev_was_space = false;
+        }
+    }
+
+    // Trim leading/trailing whitespace (handles inter-element whitespace).
+    let trimmed = result.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    trimmed.to_string()
 }
 
 /// Emit a `SolidRect` for the element's background color.
@@ -105,26 +222,46 @@ struct TextContext {
     content_y: f32,
 }
 
-/// Gather parent style and layout info needed for text rendering.
+/// Gather style and layout info from `parent` for text rendering.
 ///
-/// Returns `None` if the parent lacks the required components.
+/// Font properties (family, size, color) come from `parent`'s
+/// [`ComputedStyle`]. Position comes from the nearest ancestor with
+/// a [`LayoutBox`] — which may be `parent` itself (block element) or
+/// a further-up block ancestor when `parent` is an inline element
+/// that has no `LayoutBox` in Phase 2.
 fn text_context(dom: &EcsDom, parent: Entity) -> Option<TextContext> {
     let style = dom.world().get::<&ComputedStyle>(parent).ok()?;
-    let parent_lb = dom.world().get::<&LayoutBox>(parent).ok()?;
+    let lb = find_nearest_layout_box(dom, parent)?;
+
     Some(TextContext {
         font_family: style.font_family.clone(),
         font_size: style.font_size,
         color: style.color,
-        content_x: parent_lb.content.x,
-        content_y: parent_lb.content.y,
+        content_x: lb.content.x,
+        content_y: lb.content.y,
     })
 }
 
-/// Emit `Text` display items for a text node.
+/// Walk up the ancestor chain to find the nearest entity with a `LayoutBox`.
 ///
-/// Uses the parent element's `ComputedStyle` for font properties and
-/// `LayoutBox` for position. Text is re-shaped to obtain glyph IDs and
-/// positions.
+/// Starts with `entity` itself, then checks its parent, grandparent, etc.
+/// Returns `None` if no ancestor has a `LayoutBox` (capped at 1000 depth).
+fn find_nearest_layout_box(dom: &EcsDom, entity: Entity) -> Option<LayoutBox> {
+    let mut current = entity;
+    for _ in 0..1000 {
+        if let Ok(lb) = dom.world().get::<&LayoutBox>(current) {
+            return Some((*lb).clone());
+        }
+        current = dom.get_parent(current)?;
+    }
+    None
+}
+
+/// Emit a `Text` display item.
+///
+/// Uses `parent`'s `ComputedStyle` for font properties and nearest
+/// ancestor's `LayoutBox` for position. Text is shaped to obtain glyph
+/// IDs and positions.
 fn emit_text(
     dom: &EcsDom,
     parent: Entity,
@@ -530,5 +667,158 @@ mod tests {
         assert!((rect.y - 13.0).abs() < f32::EPSILON);
         assert!((rect.width - 114.0).abs() < f32::EPSILON);
         assert!((rect.height - 64.0).abs() < f32::EPSILON);
+    }
+
+    // --- Whitespace processing tests ---
+
+    #[test]
+    fn collapse_whitespace_newlines_and_tabs() {
+        assert_eq!(collapse_whitespace("hello\n  world"), "hello world");
+        assert_eq!(collapse_whitespace("a\t\tb"), "a b");
+        assert_eq!(collapse_whitespace("a\r\nb"), "a b");
+    }
+
+    #[test]
+    fn collapse_whitespace_multiple_spaces() {
+        assert_eq!(collapse_whitespace("hello   world"), "hello world");
+    }
+
+    #[test]
+    fn collapse_whitespace_trims() {
+        assert_eq!(collapse_whitespace("  hello  "), "hello");
+        assert_eq!(collapse_whitespace("\n  \n"), "");
+    }
+
+    #[test]
+    fn collapse_whitespace_only() {
+        assert_eq!(collapse_whitespace("   "), "");
+        assert_eq!(collapse_whitespace("\n\t\r "), "");
+    }
+
+    #[test]
+    fn collapse_whitespace_preserves_content() {
+        assert_eq!(collapse_whitespace("hello"), "hello");
+        assert_eq!(collapse_whitespace("hello world"), "hello world");
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn whitespace_only_text_node_skipped() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        let ws = dom.create_text("   \n   ");
+        dom.append_child(root, div);
+        dom.append_child(div, ws);
+
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            div,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        // Whitespace-only text should produce no display items.
+        assert!(dl.0.is_empty());
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn inline_elements_text_collected() {
+        // <p>Hello <strong>world</strong>!</p>
+        // Should produce a single "Hello world!" text item.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let p = dom.create_element("p", Attributes::default());
+        let t1 = dom.create_text("Hello ");
+        let strong = dom.create_element("strong", Attributes::default());
+        let t2 = dom.create_text("world");
+        let t3 = dom.create_text("!");
+        dom.append_child(root, p);
+        dom.append_child(p, t1);
+        dom.append_child(p, strong);
+        dom.append_child(strong, t2);
+        dom.append_child(p, t3);
+
+        let test_families = vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ];
+
+        dom.world_mut().insert_one(
+            p,
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_families.clone(),
+                ..Default::default()
+            },
+        );
+        dom.world_mut().insert_one(
+            p,
+            LayoutBox {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 20.0,
+                },
+                ..Default::default()
+            },
+        );
+        // strong is inline — no LayoutBox, but has ComputedStyle.
+        dom.world_mut().insert_one(
+            strong,
+            ComputedStyle {
+                display: Display::Inline,
+                font_family: test_families,
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        let families_ref: Vec<&str> = vec![
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Hiragino Sans",
+        ];
+        if font_db.query(&families_ref).is_none() {
+            return;
+        }
+
+        let dl = build_display_list(&dom, &font_db);
+        let text_items: Vec<_> = dl
+            .0
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::Text { .. }))
+            .collect();
+        // Should be a single text item (not three overlapping ones).
+        assert_eq!(text_items.len(), 1);
+        let DisplayItem::Text { glyphs, .. } = &text_items[0] else {
+            unreachable!();
+        };
+        // "Hello world!" = 12 glyphs.
+        assert_eq!(glyphs.len(), 12);
     }
 }

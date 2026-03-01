@@ -54,19 +54,19 @@ impl ChromeState {
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     // Back button.
-                    let back_btn = ui.add_enabled(can_go_back, egui::Button::new("\u{2190}"));
+                    let back_btn = ui.add_enabled(can_go_back, egui::Button::new("<"));
                     if back_btn.clicked() {
                         action = Some(ChromeAction::Back);
                     }
 
                     // Forward button.
-                    let fwd_btn = ui.add_enabled(can_go_forward, egui::Button::new("\u{2192}"));
+                    let fwd_btn = ui.add_enabled(can_go_forward, egui::Button::new(">"));
                     if fwd_btn.clicked() {
                         action = Some(ChromeAction::Forward);
                     }
 
                     // Reload button.
-                    if ui.button("\u{21bb}").clicked() {
+                    if ui.button("R").clicked() {
                         action = Some(ChromeAction::Reload);
                     }
 
