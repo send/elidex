@@ -22,58 +22,63 @@ use elidex_plugin::CssValue;
 ///
 /// Tries `var()`, color, length/percentage/auto, keyword in order;
 /// falls back to `CssValue::RawTokens`.
+#[must_use]
 pub fn parse_raw_token_value(raw: &str) -> CssValue {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return CssValue::RawTokens(String::new());
     }
 
+    let mut pi = ParserInput::new(trimmed);
+    let mut parser = Parser::new(&mut pi);
+
     // Try var() function first.
-    {
-        let mut pi = ParserInput::new(trimmed);
-        let mut parser = Parser::new(&mut pi);
-        if let Ok(var_val) = parser.try_parse(parse_var_function) {
-            if parser.is_exhausted() {
-                return var_val;
-            }
-        }
+    if let Ok(var_val) = try_parse_exhaustive(&mut parser, parse_var_function) {
+        return var_val;
     }
 
     // Try color.
-    {
-        let mut pi = ParserInput::new(trimmed);
-        let mut parser = Parser::new(&mut pi);
-        if let Ok(c) = parser.try_parse(color::parse_color) {
-            if parser.is_exhausted() {
-                return CssValue::Color(c);
-            }
-        }
+    if let Ok(c) = try_parse_exhaustive(&mut parser, color::parse_color) {
+        return CssValue::Color(c);
     }
 
     // Try length/percentage/auto.
-    {
-        let mut pi = ParserInput::new(trimmed);
-        let mut parser = Parser::new(&mut pi);
-        if let Ok(val) = parser.try_parse(values::parse_length_percentage_or_auto) {
-            if parser.is_exhausted() {
-                return val;
-            }
-        }
+    if let Ok(val) = try_parse_exhaustive(&mut parser, values::parse_length_percentage_or_auto) {
+        return val;
     }
 
     // Try keyword (single ident).
-    {
-        let mut pi = ParserInput::new(trimmed);
-        let mut parser = Parser::new(&mut pi);
-        if let Ok(cssparser::Token::Ident(ident)) = parser.next() {
+    if let Ok(kw) = parser.try_parse(|i| -> Result<String, ()> {
+        let tok = i.next().map_err(|_| ())?;
+        if let cssparser::Token::Ident(ident) = tok {
             let s = ident.to_string();
-            if parser.is_exhausted() {
-                return CssValue::Keyword(s);
+            if i.is_exhausted() {
+                return Ok(s);
             }
         }
+        Err(())
+    }) {
+        return CssValue::Keyword(kw);
     }
 
     CssValue::RawTokens(trimmed.to_string())
+}
+
+/// Try a parser function and accept only if it consumed all remaining tokens.
+///
+/// Resets the parser position if the parse fails or if trailing tokens remain.
+fn try_parse_exhaustive<T>(
+    parser: &mut Parser,
+    parse_fn: fn(&mut Parser) -> Result<T, ()>,
+) -> Result<T, ()> {
+    parser.try_parse(|i| {
+        let val = parse_fn(i)?;
+        if i.is_exhausted() {
+            Ok(val)
+        } else {
+            Err(())
+        }
+    })
 }
 
 #[cfg(test)]

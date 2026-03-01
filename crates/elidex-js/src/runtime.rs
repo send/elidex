@@ -13,6 +13,17 @@ use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
 
+/// Drop guard that calls `HostBridge::unbind()` on drop.
+///
+/// Ensures `unbind()` is called even if boa panics during eval or dispatch,
+/// preventing dangling raw pointers from surviving stack unwinding.
+struct UnbindGuard<'a>(&'a HostBridge);
+impl Drop for UnbindGuard<'_> {
+    fn drop(&mut self) {
+        self.0.unbind();
+    }
+}
+
 /// JavaScript runtime wrapping a boa `Context` with elidex globals.
 pub struct JsRuntime {
     ctx: Context,
@@ -82,14 +93,6 @@ impl JsRuntime {
         dom: &mut EcsDom,
         document_entity: Entity,
     ) -> EvalResult {
-        // Guard ensures unbind() on both normal return and panic unwind.
-        struct UnbindGuard<'a>(&'a HostBridge);
-        impl Drop for UnbindGuard<'_> {
-            fn drop(&mut self) {
-                self.0.unbind();
-            }
-        }
-
         self.bridge.bind(session, dom, document_entity);
         let guard = UnbindGuard(&self.bridge);
 
@@ -146,13 +149,6 @@ impl JsRuntime {
         dom: &mut EcsDom,
         document_entity: Entity,
     ) -> bool {
-        struct UnbindGuard<'a>(&'a HostBridge);
-        impl Drop for UnbindGuard<'_> {
-            fn drop(&mut self) {
-                self.0.unbind();
-            }
-        }
-
         self.bridge.bind(session, dom, document_entity);
         let _guard = UnbindGuard(&self.bridge);
 

@@ -2,9 +2,16 @@
 
 use elidex_ecs::{EcsDom, Entity, InlineStyle};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
+use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-use crate::util::require_string_arg;
+use crate::util::{not_found_error, require_string_arg};
+
+/// Ensure an `InlineStyle` component exists on the entity, inserting a default if missing.
+fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
+    if dom.world_mut().get::<&InlineStyle>(entity).is_err() {
+        let _ = dom.world_mut().insert_one(entity, InlineStyle::default());
+    }
+}
 
 // ---------------------------------------------------------------------------
 // style.setProperty
@@ -28,18 +35,12 @@ impl DomApiHandler for StyleSetProperty {
         let property = require_string_arg(args, 0)?;
         let value = require_string_arg(args, 1)?;
 
-        // Insert InlineStyle component if missing.
-        if dom.world_mut().get::<&InlineStyle>(this).is_err() {
-            let _ = dom.world_mut().insert_one(this, InlineStyle::default());
-        }
+        ensure_inline_style(this, dom);
 
         let mut style = dom
             .world_mut()
             .get::<&mut InlineStyle>(this)
-            .map_err(|_| DomApiError {
-                kind: DomApiErrorKind::NotFoundError,
-                message: "element not found".into(),
-            })?;
+            .map_err(|_| not_found_error("element not found"))?;
         style.set(property, value);
         Ok(JsValue::Undefined)
     }

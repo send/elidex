@@ -252,6 +252,11 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// Extract charset from a `Content-Type` value, e.g. `"text/html; charset=EUC-JP"`.
+///
+/// Note: A similar function exists in `elidex_navigation::loader::extract_charset`
+/// for HTTP `Content-Type` headers. That version iterates `;`-separated parameters.
+/// Keeping both avoids a cross-crate dependency for a small function with slightly
+/// different input contexts (HTML attribute prescan vs. HTTP header).
 fn extract_charset_from_content_type(content: &str) -> Option<String> {
     let lower = content.to_ascii_lowercase();
     let idx = lower.find("charset=")?;

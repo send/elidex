@@ -1,7 +1,7 @@
 //! Computed style representation for resolved CSS property values.
 //!
 //! [`ComputedStyle`] is an ECS component attached to every element after
-//! style resolution. It contains fully resolved values for all Phase 1
+//! style resolution. It contains fully resolved values for all supported
 //! CSS properties.
 
 use std::collections::HashMap;
@@ -9,229 +9,160 @@ use std::fmt;
 
 use crate::CssColor;
 
-/// The CSS `display` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum Display {
-    Block,
-    #[default]
-    Inline,
-    InlineBlock,
-    None,
-    Flex,
-    InlineFlex,
-    ListItem,
+/// Define a CSS keyword enum with `Default` (first variant), `AsRef<str>`, and
+/// `fmt::Display` implementations.
+///
+/// # Syntax
+///
+/// ```ignore
+/// keyword_enum! {
+///     /// Doc comment for the enum.
+///     EnumName {
+///         VariantA => "variant-a",
+///         VariantB => "variant-b",
+///     }
+/// }
+/// ```
+///
+/// The **first** variant automatically receives `#[default]`.
+macro_rules! keyword_enum {
+    (
+        $( #[doc = $doc:expr] )*
+        $name:ident {
+            $first_variant:ident => $first_str:expr,
+            $( $variant:ident => $str:expr, )*
+        }
+    ) => {
+        $( #[doc = $doc] )*
+        #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+        pub enum $name {
+            #[default]
+            $first_variant,
+            $( $variant, )*
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                match self {
+                    Self::$first_variant => $first_str,
+                    $( Self::$variant => $str, )*
+                }
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.as_ref())
+            }
+        }
+    };
 }
 
-impl AsRef<str> for Display {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Block => "block",
-            Self::Inline => "inline",
-            Self::InlineBlock => "inline-block",
-            Self::None => "none",
-            Self::Flex => "flex",
-            Self::InlineFlex => "inline-flex",
-            Self::ListItem => "list-item",
-        }
+keyword_enum! {
+    /// The CSS `display` property.
+    Display {
+        Inline => "inline",
+        Block => "block",
+        InlineBlock => "inline-block",
+        None => "none",
+        Flex => "flex",
+        InlineFlex => "inline-flex",
+        ListItem => "list-item",
     }
 }
 
-/// The CSS `flex-direction` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum FlexDirection {
-    #[default]
-    Row,
-    RowReverse,
-    Column,
-    ColumnReverse,
-}
-
-impl AsRef<str> for FlexDirection {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Row => "row",
-            Self::RowReverse => "row-reverse",
-            Self::Column => "column",
-            Self::ColumnReverse => "column-reverse",
-        }
+keyword_enum! {
+    /// The CSS `flex-direction` property.
+    FlexDirection {
+        Row => "row",
+        RowReverse => "row-reverse",
+        Column => "column",
+        ColumnReverse => "column-reverse",
     }
 }
 
-/// The CSS `flex-wrap` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum FlexWrap {
-    #[default]
-    Nowrap,
-    Wrap,
-    WrapReverse,
-}
-
-impl AsRef<str> for FlexWrap {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Nowrap => "nowrap",
-            Self::Wrap => "wrap",
-            Self::WrapReverse => "wrap-reverse",
-        }
+keyword_enum! {
+    /// The CSS `flex-wrap` property.
+    FlexWrap {
+        Nowrap => "nowrap",
+        Wrap => "wrap",
+        WrapReverse => "wrap-reverse",
     }
 }
 
-/// The CSS `justify-content` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum JustifyContent {
-    #[default]
-    FlexStart,
-    FlexEnd,
-    Center,
-    SpaceBetween,
-    SpaceAround,
-    SpaceEvenly,
-}
-
-impl AsRef<str> for JustifyContent {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::FlexStart => "flex-start",
-            Self::FlexEnd => "flex-end",
-            Self::Center => "center",
-            Self::SpaceBetween => "space-between",
-            Self::SpaceAround => "space-around",
-            Self::SpaceEvenly => "space-evenly",
-        }
+keyword_enum! {
+    /// The CSS `justify-content` property.
+    JustifyContent {
+        FlexStart => "flex-start",
+        FlexEnd => "flex-end",
+        Center => "center",
+        SpaceBetween => "space-between",
+        SpaceAround => "space-around",
+        SpaceEvenly => "space-evenly",
     }
 }
 
-/// The CSS `align-items` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum AlignItems {
-    #[default]
-    Stretch,
-    FlexStart,
-    FlexEnd,
-    Center,
-    Baseline,
-}
-
-impl AsRef<str> for AlignItems {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Stretch => "stretch",
-            Self::FlexStart => "flex-start",
-            Self::FlexEnd => "flex-end",
-            Self::Center => "center",
-            Self::Baseline => "baseline",
-        }
+keyword_enum! {
+    /// The CSS `align-items` property.
+    AlignItems {
+        Stretch => "stretch",
+        FlexStart => "flex-start",
+        FlexEnd => "flex-end",
+        Center => "center",
+        Baseline => "baseline",
     }
 }
 
-/// The CSS `align-self` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum AlignSelf {
-    #[default]
-    Auto,
-    Stretch,
-    FlexStart,
-    FlexEnd,
-    Center,
-    Baseline,
-}
-
-impl AsRef<str> for AlignSelf {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Auto => "auto",
-            Self::Stretch => "stretch",
-            Self::FlexStart => "flex-start",
-            Self::FlexEnd => "flex-end",
-            Self::Center => "center",
-            Self::Baseline => "baseline",
-        }
+keyword_enum! {
+    /// The CSS `align-self` property.
+    AlignSelf {
+        Auto => "auto",
+        Stretch => "stretch",
+        FlexStart => "flex-start",
+        FlexEnd => "flex-end",
+        Center => "center",
+        Baseline => "baseline",
     }
 }
 
-/// The CSS `align-content` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum AlignContent {
-    #[default]
-    Stretch,
-    FlexStart,
-    FlexEnd,
-    Center,
-    SpaceBetween,
-    SpaceAround,
-}
-
-impl AsRef<str> for AlignContent {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Stretch => "stretch",
-            Self::FlexStart => "flex-start",
-            Self::FlexEnd => "flex-end",
-            Self::Center => "center",
-            Self::SpaceBetween => "space-between",
-            Self::SpaceAround => "space-around",
-        }
+keyword_enum! {
+    /// The CSS `align-content` property.
+    AlignContent {
+        Stretch => "stretch",
+        FlexStart => "flex-start",
+        FlexEnd => "flex-end",
+        Center => "center",
+        SpaceBetween => "space-between",
+        SpaceAround => "space-around",
     }
 }
 
-/// The CSS `position` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum Position {
-    #[default]
-    Static,
-    Relative,
-    Absolute,
-    Fixed,
-}
-
-impl AsRef<str> for Position {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Static => "static",
-            Self::Relative => "relative",
-            Self::Absolute => "absolute",
-            Self::Fixed => "fixed",
-        }
+keyword_enum! {
+    /// The CSS `position` property.
+    Position {
+        Static => "static",
+        Relative => "relative",
+        Absolute => "absolute",
+        Fixed => "fixed",
     }
 }
 
-/// The CSS `text-align` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum TextAlign {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-impl AsRef<str> for TextAlign {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Left => "left",
-            Self::Center => "center",
-            Self::Right => "right",
-        }
+keyword_enum! {
+    /// The CSS `text-align` property.
+    TextAlign {
+        Left => "left",
+        Center => "center",
+        Right => "right",
     }
 }
 
-/// The CSS `text-transform` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum TextTransform {
-    #[default]
-    None,
-    Uppercase,
-    Lowercase,
-    Capitalize,
-}
-
-impl AsRef<str> for TextTransform {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::None => "none",
-            Self::Uppercase => "uppercase",
-            Self::Lowercase => "lowercase",
-            Self::Capitalize => "capitalize",
-        }
+keyword_enum! {
+    /// The CSS `text-transform` property.
+    TextTransform {
+        None => "none",
+        Uppercase => "uppercase",
+        Lowercase => "lowercase",
+        Capitalize => "capitalize",
     }
 }
 
@@ -295,138 +226,56 @@ impl fmt::Display for LineHeight {
     }
 }
 
-/// The CSS `white-space` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum WhiteSpace {
-    #[default]
-    Normal,
-    Pre,
-    NoWrap,
-    PreWrap,
-    PreLine,
-}
-
-impl AsRef<str> for WhiteSpace {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Normal => "normal",
-            Self::Pre => "pre",
-            Self::NoWrap => "nowrap",
-            Self::PreWrap => "pre-wrap",
-            Self::PreLine => "pre-line",
-        }
+keyword_enum! {
+    /// The CSS `white-space` property.
+    WhiteSpace {
+        Normal => "normal",
+        Pre => "pre",
+        NoWrap => "nowrap",
+        PreWrap => "pre-wrap",
+        PreLine => "pre-line",
     }
 }
 
-/// The CSS `overflow` property.
-///
-/// CSS `scroll` and `auto` are mapped to `Hidden` during parsing
-/// (scrollbar rendering is deferred to Phase 4).
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum Overflow {
-    #[default]
-    Visible,
-    Hidden,
-}
-
-impl AsRef<str> for Overflow {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Visible => "visible",
-            Self::Hidden => "hidden",
-        }
+keyword_enum! {
+    /// The CSS `overflow` property.
+    ///
+    /// CSS `scroll` and `auto` are mapped to `Hidden` during parsing
+    /// (scrollbar rendering is deferred to Phase 4).
+    Overflow {
+        Visible => "visible",
+        Hidden => "hidden",
     }
 }
 
-/// The CSS `list-style-type` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum ListStyleType {
-    #[default]
-    Disc,
-    Circle,
-    Square,
-    Decimal,
-    None,
-}
-
-impl AsRef<str> for ListStyleType {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Disc => "disc",
-            Self::Circle => "circle",
-            Self::Square => "square",
-            Self::Decimal => "decimal",
-            Self::None => "none",
-        }
+keyword_enum! {
+    /// The CSS `list-style-type` property.
+    ListStyleType {
+        Disc => "disc",
+        Circle => "circle",
+        Square => "square",
+        Decimal => "decimal",
+        None => "none",
     }
 }
 
-/// The CSS `box-sizing` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum BoxSizing {
-    #[default]
-    ContentBox,
-    BorderBox,
-}
-
-impl AsRef<str> for BoxSizing {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ContentBox => "content-box",
-            Self::BorderBox => "border-box",
-        }
+keyword_enum! {
+    /// The CSS `box-sizing` property.
+    BoxSizing {
+        ContentBox => "content-box",
+        BorderBox => "border-box",
     }
 }
 
-/// The CSS `border-*-style` property.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum BorderStyle {
-    #[default]
-    None,
-    Solid,
-    Dashed,
-    Dotted,
-}
-
-impl AsRef<str> for BorderStyle {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::None => "none",
-            Self::Solid => "solid",
-            Self::Dashed => "dashed",
-            Self::Dotted => "dotted",
-        }
+keyword_enum! {
+    /// The CSS `border-*-style` property.
+    BorderStyle {
+        None => "none",
+        Solid => "solid",
+        Dashed => "dashed",
+        Dotted => "dotted",
     }
 }
-
-/// Implement `fmt::Display` by delegating to `AsRef<str>`.
-macro_rules! display_via_as_ref {
-    ($($ty:ty),+ $(,)?) => {
-        $(impl fmt::Display for $ty {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.as_ref())
-            }
-        })+
-    };
-}
-
-display_via_as_ref!(
-    Display,
-    Position,
-    BorderStyle,
-    BoxSizing,
-    WhiteSpace,
-    Overflow,
-    ListStyleType,
-    FlexDirection,
-    FlexWrap,
-    JustifyContent,
-    AlignItems,
-    AlignSelf,
-    AlignContent,
-    TextAlign,
-    TextTransform,
-);
 
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -435,6 +284,12 @@ pub enum Dimension {
     Percentage(f32),
     #[default]
     Auto,
+}
+
+impl Dimension {
+    /// Zero-length constant (`Length(0.0)`), used as the CSS initial value
+    /// for margins, `min-width`, `min-height`, etc.
+    pub const ZERO: Self = Self::Length(0.0);
 }
 
 /// Fully resolved CSS property values for an element.
@@ -496,7 +351,7 @@ pub struct ComputedStyle {
     /// Margin left. Initial: Length(0.0).
     pub margin_left: Dimension,
 
-    // TODO(Phase 2): replace padding_{top,right,bottom,left} with EdgeSizes
+    // TODO: replace padding_{top,right,bottom,left} with EdgeSizes
     /// Padding top in pixels. Initial: 0.0.
     pub padding_top: f32,
     /// Padding right in pixels. Initial: 0.0.
@@ -506,7 +361,7 @@ pub struct ComputedStyle {
     /// Padding left in pixels. Initial: 0.0.
     pub padding_left: f32,
 
-    // TODO(Phase 2): replace border_{top,right,bottom,left}_{width,style,color} with BorderSide struct
+    // TODO: replace border_{top,right,bottom,left}_{width,style,color} with BorderSide struct
     /// Border top width in pixels. Computed initial: 0.0 (medium=3px, but 0 when style=none).
     pub border_top_width: f32,
     /// Border right width in pixels. Computed initial: 0.0.
@@ -607,15 +462,15 @@ impl Default for ComputedStyle {
 
             width: Dimension::Auto,
             height: Dimension::Auto,
-            min_width: Dimension::Length(0.0),
+            min_width: Dimension::ZERO,
             max_width: Dimension::Auto,
-            min_height: Dimension::Length(0.0),
+            min_height: Dimension::ZERO,
             max_height: Dimension::Auto,
 
-            margin_top: Dimension::Length(0.0),
-            margin_right: Dimension::Length(0.0),
-            margin_bottom: Dimension::Length(0.0),
-            margin_left: Dimension::Length(0.0),
+            margin_top: Dimension::ZERO,
+            margin_right: Dimension::ZERO,
+            margin_bottom: Dimension::ZERO,
+            margin_left: Dimension::ZERO,
 
             padding_top: 0.0,
             padding_right: 0.0,
@@ -687,7 +542,7 @@ mod tests {
         assert_eq!(s.background_color, CssColor::TRANSPARENT);
         assert_eq!(s.width, Dimension::Auto);
         assert_eq!(s.height, Dimension::Auto);
-        assert_eq!(s.margin_top, Dimension::Length(0.0));
+        assert_eq!(s.margin_top, Dimension::ZERO);
         assert_eq!(s.padding_top, 0.0);
         assert_eq!(s.border_top_width, 0.0);
         assert_eq!(s.border_top_style, BorderStyle::None);
@@ -849,9 +704,9 @@ mod tests {
         assert_eq!(s.white_space, WhiteSpace::Normal);
         assert_eq!(s.overflow, Overflow::Visible);
         assert_eq!(s.list_style_type, ListStyleType::Disc);
-        assert_eq!(s.min_width, Dimension::Length(0.0));
+        assert_eq!(s.min_width, Dimension::ZERO);
         assert_eq!(s.max_width, Dimension::Auto);
-        assert_eq!(s.min_height, Dimension::Length(0.0));
+        assert_eq!(s.min_height, Dimension::ZERO);
         assert_eq!(s.max_height, Dimension::Auto);
     }
 }

@@ -15,9 +15,12 @@ use std::rc::Rc;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue};
 use elidex_ecs::Entity;
 use elidex_net::FetchHandle;
-use elidex_script_session::EventListeners;
+use elidex_plugin::JsValue as ElidexJsValue;
+use elidex_script_session::{DomApiHandler, EventListeners};
 
 use crate::bridge::HostBridge;
+use crate::error_conv::dom_error_to_js_error;
+use crate::value_conv;
 use console::ConsoleOutput;
 use timers::TimerQueueHandle;
 
@@ -37,6 +40,41 @@ pub(crate) fn require_js_string_arg(
             .with_message(format!("{method}: argument {index} is required"))
             .into()),
     }
+}
+
+/// Invoke a `DomApiHandler` via the bridge and return the converted boa `JsValue`.
+///
+/// This is the common pattern for DOM methods that take string arguments,
+/// invoke a handler, and return the result as a boa value.
+#[must_use = "DOM handler result must be returned to the JS caller"]
+pub(crate) fn invoke_dom_handler(
+    handler: &impl DomApiHandler,
+    entity: Entity,
+    args: &[ElidexJsValue],
+    bridge: &HostBridge,
+) -> JsResult<JsValue> {
+    bridge.with(|session, dom| {
+        let result = handler
+            .invoke(entity, args, session, dom)
+            .map_err(dom_error_to_js_error)?;
+        Ok(value_conv::to_boa(&result))
+    })
+}
+
+/// Invoke a `DomApiHandler` via the bridge, ignoring the return value (returns `undefined`).
+#[must_use = "DOM handler result must be returned to the JS caller"]
+pub(crate) fn invoke_dom_handler_void(
+    handler: &impl DomApiHandler,
+    entity: Entity,
+    args: &[ElidexJsValue],
+    bridge: &HostBridge,
+) -> JsResult<JsValue> {
+    bridge.with(|session, dom| {
+        handler
+            .invoke(entity, args, session, dom)
+            .map_err(dom_error_to_js_error)?;
+        Ok(JsValue::undefined())
+    })
 }
 
 /// Extract the `capture` flag from the third argument of addEventListener/removeEventListener.

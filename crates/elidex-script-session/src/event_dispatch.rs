@@ -4,7 +4,7 @@
 //! function traverses the propagation path and invokes listeners via a
 //! callback, keeping the implementation engine-independent.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::{EventPayload, EventPhase};
 
 use crate::event_listener::{EventListeners, ListenerId};
@@ -68,7 +68,7 @@ pub fn build_propagation_path(dom: &EcsDom, target: Entity) -> Vec<Entity> {
     while let Some(entity) = current {
         path.push(entity);
         depth += 1;
-        if depth > 10_000 {
+        if depth > MAX_ANCESTOR_DEPTH {
             break;
         }
         current = dom.get_parent(entity);

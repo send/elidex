@@ -75,6 +75,11 @@ impl From<NetError> for LoadError {
 /// Iterates all `;`-separated parameters for a case-insensitive `charset=`
 /// prefix (RFC 7231: parameter names are case-insensitive).
 /// Returns `None` if no charset parameter is found.
+///
+/// Note: A similar function exists in `elidex_parser::charset::extract_charset_from_content_type`
+/// for `<meta>` tag prescan. That version handles quote styles differently and operates
+/// on raw byte prescan results. Keeping both avoids a cross-crate dependency for a
+/// small function with slightly different input contexts (HTTP header vs. HTML attribute).
 fn extract_charset(content_type: &str) -> Option<String> {
     let prefix = "charset=";
     for part in content_type.split(';').skip(1) {
@@ -204,14 +209,16 @@ pub fn load_document(
     })
 }
 
-/// Resolve a potentially relative URL against a base and fetch its raw bytes.
+/// Resolve a potentially relative URL against a base and fetch the response.
+///
+/// Shared by [`resolve_and_fetch_binary`] and [`resolve_and_fetch_text`].
 // TODO: `data:` URIs are not supported — `send_blocking` only handles HTTP/HTTPS.
 // Add `NetClient::load()` path for data/file scheme support.
-fn resolve_and_fetch_binary(
+fn resolve_and_fetch(
     base: &url::Url,
     href: &str,
     fetch_handle: &FetchHandle,
-) -> Result<Vec<u8>, LoadError> {
+) -> Result<elidex_net::Response, LoadError> {
     let resolved = base
         .join(href)
         .map_err(|e| LoadError::InvalidUrl(format!("{href}: {e}")))?;
@@ -219,6 +226,16 @@ fn resolve_and_fetch_binary(
     if !(200..300).contains(&response.status) {
         tracing::warn!("HTTP {}: {}", response.status, response.url);
     }
+    Ok(response)
+}
+
+/// Resolve a potentially relative URL against a base and fetch its raw bytes.
+fn resolve_and_fetch_binary(
+    base: &url::Url,
+    href: &str,
+    fetch_handle: &FetchHandle,
+) -> Result<Vec<u8>, LoadError> {
+    let response = resolve_and_fetch(base, href, fetch_handle)?;
     Ok(response.body.to_vec())
 }
 
@@ -240,13 +257,7 @@ fn resolve_and_fetch_text(
     href: &str,
     fetch_handle: &FetchHandle,
 ) -> Result<String, LoadError> {
-    let resolved = base
-        .join(href)
-        .map_err(|e| LoadError::InvalidUrl(format!("{href}: {e}")))?;
-    let response = fetch_handle.send_blocking(make_get_request(resolved))?;
-    if !(200..300).contains(&response.status) {
-        tracing::warn!("HTTP {}: {}", response.status, response.url);
-    }
+    let response = resolve_and_fetch(base, href, fetch_handle)?;
     // L-10: Log non-UTF-8 sub-resources before lossy conversion.
     if std::str::from_utf8(&response.body).is_err() {
         tracing::debug!(

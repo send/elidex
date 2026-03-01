@@ -12,8 +12,38 @@ use elidex_navigation::HistoryAction;
 
 use crate::bridge::HostBridge;
 
+/// Extract `(title, url?)` from pushState/replaceState args (state arg is ignored in Phase 2).
+fn extract_state_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(String, Option<String>)> {
+    let title = args
+        .get(1)
+        .map(|v| v.to_string(ctx))
+        .transpose()?
+        .map(|s| s.to_std_string_escaped())
+        .unwrap_or_default();
+    let url = args
+        .get(2)
+        .filter(|v| !v.is_undefined() && !v.is_null())
+        .map(|v| v.to_string(ctx))
+        .transpose()?
+        .map(|s| s.to_std_string_escaped());
+    Ok((title, url))
+}
+
+/// Shared implementation for pushState/replaceState.
+///
+/// `make_action` converts `(url, title)` into the appropriate `HistoryAction` variant.
+fn push_or_replace_state(
+    args: &[JsValue],
+    bridge: &HostBridge,
+    ctx: &mut Context,
+    make_action: fn(Option<String>, String) -> HistoryAction,
+) -> JsResult<JsValue> {
+    let (title, url) = extract_state_args(args, ctx)?;
+    bridge.set_pending_history(make_action(url, title));
+    Ok(JsValue::undefined())
+}
+
 /// Register the `window.history` object.
-#[allow(clippy::too_many_lines)]
 pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     // Clone the realm before creating ObjectInitializer to avoid borrow conflict.
     let realm = ctx.realm().clone();
@@ -103,21 +133,9 @@ pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                // state is ignored in Phase 2.
-                let title = args
-                    .get(1)
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
-                let url = args
-                    .get(2)
-                    .filter(|v| !v.is_undefined() && !v.is_null())
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped());
-                bridge.set_pending_history(HistoryAction::PushState { url, title });
-                Ok(JsValue::undefined())
+                push_or_replace_state(args, bridge, ctx, |url, title| {
+                    HistoryAction::PushState { url, title }
+                })
             },
             b,
         ),
@@ -130,21 +148,9 @@ pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                // state is ignored in Phase 2.
-                let title = args
-                    .get(1)
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
-                let url = args
-                    .get(2)
-                    .filter(|v| !v.is_undefined() && !v.is_null())
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped());
-                bridge.set_pending_history(HistoryAction::ReplaceState { url, title });
-                Ok(JsValue::undefined())
+                push_or_replace_state(args, bridge, ctx, |url, title| {
+                    HistoryAction::ReplaceState { url, title }
+                })
             },
             b,
         ),

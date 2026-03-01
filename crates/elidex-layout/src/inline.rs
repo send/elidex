@@ -15,7 +15,7 @@ use crate::MAX_LAYOUT_DEPTH;
 /// Text nodes contribute their content directly. Inline elements
 /// contribute their children's text (flattened). `display: none`
 /// elements are skipped. Recursion stops at [`MAX_LAYOUT_DEPTH`].
-// TODO(Phase 2): preserve per-element styles (font-weight, font-size, etc.)
+// TODO: preserve per-element styles (font-weight, font-size, etc.)
 // by returning styled text runs instead of a flat string.
 fn collect_text(dom: &EcsDom, children: &[Entity]) -> String {
     collect_text_inner(dom, children, 0)
@@ -27,7 +27,7 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
     }
     let mut text = String::new();
     for &child in children {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(child) {
+        if let Some(style) = crate::try_get_style(dom, child) {
             if style.display == Display::None {
                 continue;
             }
@@ -70,7 +70,7 @@ fn measure_segment_widths(
 ///
 /// Returns the total height consumed by all line boxes.
 /// Text is measured using the parent element's font properties.
-// TODO(Phase 3): use caller-provided offsets to position line boxes and assign
+// TODO: use caller-provided offsets to position line boxes and assign
 // LayoutBox components to inline elements and text nodes.
 pub(crate) fn layout_inline_context(
     dom: &EcsDom,

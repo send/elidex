@@ -11,7 +11,7 @@ use winit::event::{ElementState, Modifiers, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use elidex_ecs::{Attributes, Entity, TagType};
+use elidex_ecs::{Attributes, Entity, TagType, MAX_ANCESTOR_DEPTH};
 use elidex_layout::hit_test;
 use elidex_navigation::NavigationController;
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
@@ -109,107 +109,107 @@ impl App {
     // TODO(Phase 3): split into handle_mouse_down / handle_mouse_up,
     // track press target per button, and dispatch mouseup on release.
     fn handle_click(&mut self, button: MouseButton) {
-        let Some(interactive) = &mut self.interactive else {
-            return;
-        };
-        let Some((cx, cy)) = interactive.cursor_pos else {
-            return;
-        };
-        #[allow(clippy::cast_possible_truncation)]
-        let x = cx as f32;
-        // Offset Y by chrome bar height so hit testing is relative to content.
-        #[allow(clippy::cast_possible_truncation)]
-        let y = (cy as f32) - crate::chrome::CHROME_HEIGHT;
-        if y < 0.0 {
-            return; // Click is within the chrome bar.
-        }
-
-        let pipeline = &mut interactive.pipeline;
-        let Some(hit) = hit_test(&pipeline.dom, x, y) else {
-            return;
-        };
-
-        // Update focus target on any click.
-        interactive.focus_target = Some(hit.entity);
-
-        // DOM spec: 0=primary, 1=auxiliary, 2=secondary, 3=back, 4=forward.
-        let button_num = match button {
-            MouseButton::Middle => 1,
-            MouseButton::Right => 2,
-            MouseButton::Back => 3,
-            MouseButton::Forward => 4,
-            MouseButton::Left | MouseButton::Other(_) => 0,
-        };
-
-        let mods = interactive.modifiers.state();
-        let mouse_init = MouseEventInit {
-            client_x: cx,
-            client_y: cy,
-            button: button_num,
-            alt_key: mods.alt_key(),
-            ctrl_key: mods.control_key(),
-            meta_key: mods.super_key(),
-            shift_key: mods.shift_key(),
-            ..Default::default()
-        };
-
-        // Dispatch mousedown, mouseup, and (for primary button only) click.
-        // DOM spec: click fires only for the primary button (button 0).
-        // TODO(Phase 3): dispatch auxclick for non-primary buttons.
-        let event_types: &[&str] = if button_num == 0 {
-            &["mousedown", "mouseup", "click"]
-        } else {
-            &["mousedown", "mouseup"]
-        };
-        let mut click_prevented = false;
-        for event_type in event_types {
-            let mut event = DispatchEvent::new(*event_type, hit.entity);
-            event.payload = EventPayload::Mouse(mouse_init.clone());
-            let prevented = pipeline.runtime.dispatch_event(
-                &mut event,
-                &mut pipeline.session,
-                &mut pipeline.dom,
-                pipeline.document,
-            );
-            if *event_type == "click" {
-                click_prevented = prevented;
-            }
-        }
-
-        // Re-render after event handling.
-        crate::re_render(pipeline);
-        self.display_list = pipeline.display_list.clone();
-
-        // Check for pending JS navigation (location.assign, etc.).
-        if let Some(nav_req) = pipeline.runtime.take_pending_navigation() {
-            let resolved = resolve_nav_url(pipeline.url.as_ref(), &nav_req.url);
-            if let Some(target_url) = resolved {
-                self.navigate(&target_url, nav_req.replace);
+        // Dispatch events and re-render. Capture values needed after the
+        // mutable borrow of `self.interactive` is released.
+        let (button_num, click_prevented, hit_entity) = {
+            let Some(interactive) = &mut self.interactive else {
                 return;
+            };
+            let Some((cx, cy)) = interactive.cursor_pos else {
+                return;
+            };
+            #[allow(clippy::cast_possible_truncation)]
+            let x = cx as f32;
+            // Offset Y by chrome bar height so hit testing is relative to content.
+            #[allow(clippy::cast_possible_truncation)]
+            let y = (cy as f32) - crate::chrome::CHROME_HEIGHT;
+            if y < 0.0 {
+                return; // Click is within the chrome bar.
             }
-        }
 
-        // Check for pending JS history action.
-        if let Some(action) = pipeline.runtime.take_pending_history() {
-            self.handle_history_action(action);
+            let pipeline = &mut interactive.pipeline;
+            let Some(hit) = hit_test(&pipeline.dom, x, y) else {
+                return;
+            };
+            let hit_entity = hit.entity;
+
+            // Update focus target on any click.
+            interactive.focus_target = Some(hit_entity);
+
+            // DOM spec: 0=primary, 1=auxiliary, 2=secondary, 3=back, 4=forward.
+            let button_num = match button {
+                MouseButton::Middle => 1,
+                MouseButton::Right => 2,
+                MouseButton::Back => 3,
+                MouseButton::Forward => 4,
+                MouseButton::Left | MouseButton::Other(_) => 0,
+            };
+
+            let mods = interactive.modifiers.state();
+            let mouse_init = MouseEventInit {
+                client_x: cx,
+                client_y: cy,
+                button: button_num,
+                alt_key: mods.alt_key(),
+                ctrl_key: mods.control_key(),
+                meta_key: mods.super_key(),
+                shift_key: mods.shift_key(),
+                ..Default::default()
+            };
+
+            // Dispatch mousedown, mouseup, and (for primary button only) click.
+            // DOM spec: click fires only for the primary button (button 0).
+            // TODO(Phase 3): dispatch auxclick for non-primary buttons.
+            let event_types: &[&str] = if button_num == 0 {
+                &["mousedown", "mouseup", "click"]
+            } else {
+                &["mousedown", "mouseup"]
+            };
+            let mut click_prevented = false;
+            for event_type in event_types {
+                let mut event = DispatchEvent::new(*event_type, hit_entity);
+                event.payload = EventPayload::Mouse(mouse_init.clone());
+                let prevented = pipeline.runtime.dispatch_event(
+                    &mut event,
+                    &mut pipeline.session,
+                    &mut pipeline.dom,
+                    pipeline.document,
+                );
+                if *event_type == "click" {
+                    click_prevented = prevented;
+                }
+            }
+
+            // Re-render after event handling.
+            crate::re_render(pipeline);
+            self.display_list = pipeline.display_list.clone();
+
+            (button_num, click_prevented, hit_entity)
+        };
+
+        // Process any pending JS navigation or history action.
+        if self.process_pending_navigation() {
             return;
         }
 
         // Link navigation: if click was not prevented, check for <a href>.
-        let nav_target = if button_num == 0 && !click_prevented {
-            find_link_ancestor(&pipeline.dom, hit.entity).and_then(|href| {
-                if let Some(base_url) = &pipeline.url {
-                    base_url.join(&href).ok()
-                } else {
-                    url::Url::parse(&href).ok()
-                }
-            })
-        } else {
-            None
-        };
-
-        if let Some(target_url) = nav_target {
-            self.navigate(&target_url, false);
+        if button_num == 0 && !click_prevented {
+            let nav_target = {
+                let Some(interactive) = &self.interactive else {
+                    return;
+                };
+                let pipeline = &interactive.pipeline;
+                find_link_ancestor(&pipeline.dom, hit_entity).and_then(|href| {
+                    if let Some(base_url) = &pipeline.url {
+                        base_url.join(&href).ok()
+                    } else {
+                        url::Url::parse(&href).ok()
+                    }
+                })
+            };
+            if let Some(target_url) = nav_target {
+                self.navigate(&target_url, false);
+            }
         }
     }
 
@@ -242,17 +242,39 @@ impl App {
         crate::re_render(pipeline);
         self.display_list = pipeline.display_list.clone();
 
-        // Check for pending JS navigation or history action.
+        // Process any pending JS navigation or history action.
+        self.process_pending_navigation();
+    }
+
+    /// Check for and process any pending JS navigation or history action.
+    ///
+    /// Called after event dispatch + re-render. Returns `true` if a navigation
+    /// or history action was processed, so the caller can skip further default
+    /// actions (e.g. link navigation).
+    fn process_pending_navigation(&mut self) -> bool {
+        let Some(interactive) = &mut self.interactive else {
+            return false;
+        };
+        let pipeline = &mut interactive.pipeline;
+
         if let Some(nav_req) = pipeline.runtime.take_pending_navigation() {
             let resolved = resolve_nav_url(pipeline.url.as_ref(), &nav_req.url);
             if let Some(target_url) = resolved {
                 self.navigate(&target_url, nav_req.replace);
-                return;
+                return true;
             }
         }
-        if let Some(action) = pipeline.runtime.take_pending_history() {
-            self.handle_history_action(action);
+
+        // Re-borrow interactive since self.navigate may have consumed it above.
+        let Some(interactive) = &mut self.interactive else {
+            return false;
+        };
+        if let Some(action) = interactive.pipeline.runtime.take_pending_history() {
+            self.handle_history_action(&action);
+            return true;
         }
+
+        false
     }
 
     /// Navigate to a new URL, replacing the current pipeline.
@@ -322,43 +344,34 @@ impl App {
     }
 
     /// Handle a pending history action from JS.
-    fn handle_history_action(&mut self, action: elidex_navigation::HistoryAction) {
+    fn handle_history_action(&mut self, action: &elidex_navigation::HistoryAction) {
         let Some(interactive) = &mut self.interactive else {
             return;
         };
 
         match action {
-            elidex_navigation::HistoryAction::Back => {
-                if let Some(url) = interactive.nav_controller.go_back().cloned() {
-                    self.navigate_to_history_url(&url);
-                }
-            }
-            elidex_navigation::HistoryAction::Forward => {
-                if let Some(url) = interactive.nav_controller.go_forward().cloned() {
+            elidex_navigation::HistoryAction::Back | elidex_navigation::HistoryAction::Forward => {
+                let url = if matches!(action, elidex_navigation::HistoryAction::Back) {
+                    interactive.nav_controller.go_back().cloned()
+                } else {
+                    interactive.nav_controller.go_forward().cloned()
+                };
+                if let Some(url) = url {
                     self.navigate_to_history_url(&url);
                 }
             }
             elidex_navigation::HistoryAction::Go(delta) => {
-                if let Some(url) = interactive.nav_controller.go(delta).cloned() {
+                if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
                     self.navigate_to_history_url(&url);
                 }
             }
-            elidex_navigation::HistoryAction::PushState { url, .. } => {
+            elidex_navigation::HistoryAction::PushState { url, .. }
+            | elidex_navigation::HistoryAction::ReplaceState { url, .. } => {
+                let replace = matches!(action, elidex_navigation::HistoryAction::ReplaceState { .. });
                 if let Some(resolved_url) =
                     resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
                 {
-                    apply_state_change(interactive, &resolved_url, false);
-                    interactive.window_title = format!("elidex \u{2014} {resolved_url}");
-                    if let Some(state) = &self.render_state {
-                        state.window.set_title(&interactive.window_title);
-                    }
-                }
-            }
-            elidex_navigation::HistoryAction::ReplaceState { url, .. } => {
-                if let Some(resolved_url) =
-                    resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
-                {
-                    apply_state_change(interactive, &resolved_url, true);
+                    apply_state_change(interactive, &resolved_url, replace);
                     interactive.window_title = format!("elidex \u{2014} {resolved_url}");
                     if let Some(state) = &self.render_state {
                         state.window.set_title(&interactive.window_title);
@@ -424,13 +437,13 @@ fn resolve_nav_url(base: Option<&url::Url>, url_str: &str) -> Option<url::Url> {
 
 /// Find the nearest `<a href="...">` ancestor of an entity (including itself).
 ///
-/// Depth-limited to 10,000 to guard against cycles (consistent with
+/// Depth-limited to [`MAX_ANCESTOR_DEPTH`] to guard against cycles (consistent with
 /// `build_propagation_path` and other tree walkers in the codebase).
 fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<String> {
     let mut current = Some(entity);
     let mut depth = 0;
     while let Some(e) = current {
-        if depth > 10_000 {
+        if depth > MAX_ANCESTOR_DEPTH {
             break;
         }
         if let Ok(tag) = dom.world().get::<&TagType>(e) {
@@ -705,20 +718,15 @@ impl App {
                     Err(e) => eprintln!("Invalid URL: {e}"),
                 }
             }
-            crate::chrome::ChromeAction::Back => {
-                let url = self
-                    .interactive
-                    .as_mut()
-                    .and_then(|i| i.nav_controller.go_back().cloned());
-                if let Some(url) = url {
-                    self.navigate_to_history_url(&url);
-                }
-            }
-            crate::chrome::ChromeAction::Forward => {
-                let url = self
-                    .interactive
-                    .as_mut()
-                    .and_then(|i| i.nav_controller.go_forward().cloned());
+            crate::chrome::ChromeAction::Back | crate::chrome::ChromeAction::Forward => {
+                let is_back = matches!(action, crate::chrome::ChromeAction::Back);
+                let url = self.interactive.as_mut().and_then(|i| {
+                    if is_back {
+                        i.nav_controller.go_back().cloned()
+                    } else {
+                        i.nav_controller.go_forward().cloned()
+                    }
+                });
                 if let Some(url) = url {
                     self.navigate_to_history_url(&url);
                 }

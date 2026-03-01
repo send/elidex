@@ -32,15 +32,7 @@ struct FetchCaptures {
 }
 
 // Trace/Finalize: FetchHandle contains only Rust types, no GC objects.
-#[allow(unsafe_code)]
-unsafe impl boa_gc::Trace for FetchCaptures {
-    boa_gc::custom_trace!(this, mark, {
-        let _ = this;
-    });
-}
-impl boa_gc::Finalize for FetchCaptures {
-    fn finalize(&self) {}
-}
+impl_empty_trace!(FetchCaptures);
 
 /// Register the `fetch()` global function on the boa context.
 ///

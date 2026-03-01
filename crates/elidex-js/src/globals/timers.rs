@@ -45,18 +45,51 @@ impl Default for TimerQueueHandle {
 }
 
 // Trace/Finalize for boa GC compatibility.
-#[allow(unsafe_code)]
-unsafe impl boa_gc::Trace for TimerQueueHandle {
-    boa_gc::custom_trace!(this, mark, {
-        let _ = this;
-    });
+impl_empty_trace!(TimerQueueHandle);
+
+/// Stringify the first argument as a callback source string.
+fn stringify_callback(args: &[JsValue], ctx: &mut Context) -> JsResult<String> {
+    args.first()
+        .map(|v| v.to_string(ctx))
+        .transpose()
+        .map(|opt| opt.map_or_else(String::new, |s| s.to_std_string_escaped()))
 }
-impl boa_gc::Finalize for TimerQueueHandle {
-    fn finalize(&self) {}
+
+/// Extract a timer ID (u64) from the first argument.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+fn extract_timer_id(args: &[JsValue], ctx: &mut Context) -> JsResult<u64> {
+    args.first()
+        .map(|v| v.to_number(ctx))
+        .transpose()
+        .map(|opt| opt.map_or(0, |n| n.max(0.0) as u64))
+}
+
+/// Extract a delay/interval (u64 ms) from the second argument.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+fn extract_delay(args: &[JsValue], ctx: &mut Context) -> JsResult<u64> {
+    args.get(1)
+        .map(|v| v.to_number(ctx))
+        .transpose()
+        .map(|opt| opt.map_or(0, |n| n.max(0.0) as u64))
+}
+
+/// Return a timer ID as a JS f64 value.
+fn timer_id_to_js(id: TimerId) -> JsValue {
+    JsValue::from(id.to_raw() as f64)
+}
+
+/// Closure body for `clearTimeout`, `clearInterval`, `cancelAnimationFrame`.
+fn clear_timer_impl(
+    args: &[JsValue],
+    timers: &TimerQueueHandle,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    let id = extract_timer_id(args, ctx)?;
+    timers.borrow_mut().clear_timer(TimerId::from_raw(id));
+    Ok(JsValue::undefined())
 }
 
 /// Register timer globals on the context.
-#[allow(clippy::too_many_lines)]
 pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
     // setTimeout(code, delay)
     let t = timers.clone();
@@ -65,20 +98,10 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         2,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                let code = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let delay = args
-                    .get(1)
-                    .map(|v| v.to_number(ctx))
-                    .transpose()?
-                    .map_or(0, |n| n.max(0.0) as u64);
+                let code = stringify_callback(args, ctx)?;
+                let delay = extract_delay(args, ctx)?;
                 let id = timers.borrow_mut().set_timeout(code, delay);
-                Ok(JsValue::from(id.to_raw() as f64))
+                Ok(timer_id_to_js(id))
             },
             t,
         ),
@@ -92,20 +115,10 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         2,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                let code = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let interval = args
-                    .get(1)
-                    .map(|v| v.to_number(ctx))
-                    .transpose()?
-                    .map_or(0, |n| n.max(0.0) as u64);
+                let code = stringify_callback(args, ctx)?;
+                let interval = extract_delay(args, ctx)?;
                 let id = timers.borrow_mut().set_interval(code, interval);
-                Ok(JsValue::from(id.to_raw() as f64))
+                Ok(timer_id_to_js(id))
             },
             t,
         ),
@@ -119,14 +132,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         1,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let id = args
-                    .first()
-                    .map(|v| v.to_number(ctx))
-                    .transpose()?
-                    .map_or(0, |n| n.max(0.0) as u64);
-                timers.borrow_mut().clear_timer(TimerId::from_raw(id));
-                Ok(JsValue::undefined())
+                clear_timer_impl(args, timers, ctx)
             },
             t,
         ),
@@ -140,14 +146,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         1,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let id = args
-                    .first()
-                    .map(|v| v.to_number(ctx))
-                    .transpose()?
-                    .map_or(0, |n| n.max(0.0) as u64);
-                timers.borrow_mut().clear_timer(TimerId::from_raw(id));
-                Ok(JsValue::undefined())
+                clear_timer_impl(args, timers, ctx)
             },
             t,
         ),
@@ -161,14 +160,9 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         1,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                let code = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
+                let code = stringify_callback(args, ctx)?;
                 let id = timers.borrow_mut().request_animation_frame(code);
-                Ok(JsValue::from(id.to_raw() as f64))
+                Ok(timer_id_to_js(id))
             },
             t,
         ),
@@ -182,14 +176,7 @@ pub fn register_timers(ctx: &mut Context, timers: &TimerQueueHandle) {
         1,
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, timers, ctx| -> JsResult<JsValue> {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let id = args
-                    .first()
-                    .map(|v| v.to_number(ctx))
-                    .transpose()?
-                    .map_or(0, |n| n.max(0.0) as u64);
-                timers.borrow_mut().clear_timer(TimerId::from_raw(id));
-                Ok(JsValue::undefined())
+                clear_timer_impl(args, timers, ctx)
             },
             t,
         ),

@@ -99,9 +99,8 @@ impl EventListeners {
     /// Return all listener IDs matching the given event type (both capture and bubble).
     #[must_use]
     pub fn matching_all_ids(&self, event_type: &str) -> Vec<ListenerId> {
-        self.entries
-            .iter()
-            .filter(|e| e.event_type == event_type)
+        self.matching_all(event_type)
+            .into_iter()
             .map(|e| e.id)
             .collect()
     }

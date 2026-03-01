@@ -165,33 +165,8 @@ fn format_dimension(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::parse_html;
-    use elidex_ecs::{InlineStyle, TagType, TextContent};
-
-    /// Walk children and find the first element with the given tag.
-    fn find_tag(dom: &EcsDom, parent: Entity, tag: &str) -> Option<Entity> {
-        for child in dom.children_iter(parent) {
-            if let Ok(t) = dom.world().get::<&TagType>(child) {
-                if t.0 == tag {
-                    return Some(child);
-                }
-                if let Some(found) = find_tag(dom, child, tag) {
-                    return Some(found);
-                }
-            }
-        }
-        None
-    }
-
-    /// Collect text content from direct children.
-    fn child_text(dom: &EcsDom, parent: Entity) -> String {
-        let mut result = String::new();
-        for child in dom.children_iter(parent) {
-            if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-                result.push_str(&tc.0);
-            }
-        }
-        result
-    }
+    use crate::test_helpers::{child_text, find_tag};
+    use elidex_ecs::{InlineStyle, TagType};
 
     #[test]
     fn basic_div_with_text() {

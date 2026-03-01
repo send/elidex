@@ -214,36 +214,35 @@ pub fn parse_color(input: &mut Parser) -> Result<CssColor, ()> {
 
 /// Parse a hex color string (without the `#` prefix, which cssparser strips).
 fn parse_hex_color(hex: &str) -> Result<CssColor, ()> {
-    let chars = hex.as_bytes();
-    match chars.len() {
-        3 => {
-            let r = hex_digit(chars[0])? * 17;
-            let g = hex_digit(chars[1])? * 17;
-            let b = hex_digit(chars[2])? * 17;
-            Ok(CssColor::rgb(r, g, b))
+    let bytes = hex.as_bytes();
+    // Extract RGB components: short form (3/4 digits) expands each nibble,
+    // long form (6/8 digits) uses byte pairs.
+    let (r, g, b, a) = match bytes.len() {
+        3 | 4 => {
+            let r = hex_digit(bytes[0])? * 17;
+            let g = hex_digit(bytes[1])? * 17;
+            let b = hex_digit(bytes[2])? * 17;
+            let a = if bytes.len() == 4 {
+                hex_digit(bytes[3])? * 17
+            } else {
+                255
+            };
+            (r, g, b, a)
         }
-        4 => {
-            let r = hex_digit(chars[0])? * 17;
-            let g = hex_digit(chars[1])? * 17;
-            let b = hex_digit(chars[2])? * 17;
-            let a = hex_digit(chars[3])? * 17;
-            Ok(CssColor::new(r, g, b, a))
+        6 | 8 => {
+            let r = hex_byte(bytes[0], bytes[1])?;
+            let g = hex_byte(bytes[2], bytes[3])?;
+            let b = hex_byte(bytes[4], bytes[5])?;
+            let a = if bytes.len() == 8 {
+                hex_byte(bytes[6], bytes[7])?
+            } else {
+                255
+            };
+            (r, g, b, a)
         }
-        6 => {
-            let r = hex_byte(chars[0], chars[1])?;
-            let g = hex_byte(chars[2], chars[3])?;
-            let b = hex_byte(chars[4], chars[5])?;
-            Ok(CssColor::rgb(r, g, b))
-        }
-        8 => {
-            let r = hex_byte(chars[0], chars[1])?;
-            let g = hex_byte(chars[2], chars[3])?;
-            let b = hex_byte(chars[4], chars[5])?;
-            let a = hex_byte(chars[6], chars[7])?;
-            Ok(CssColor::new(r, g, b, a))
-        }
-        _ => Err(()),
-    }
+        _ => return Err(()),
+    };
+    Ok(CssColor::new(r, g, b, a))
 }
 
 fn hex_digit(c: u8) -> Result<u8, ()> {

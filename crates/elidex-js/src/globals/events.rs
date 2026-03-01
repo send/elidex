@@ -22,17 +22,8 @@ use elidex_script_session::DispatchEvent;
 #[derive(Clone)]
 pub(crate) struct SharedFlag(pub Rc<Cell<bool>>);
 
-impl boa_gc::Finalize for SharedFlag {
-    fn finalize(&self) {}
-}
-
 // Safety: SharedFlag contains no GC-managed objects, trace is a no-op.
-#[allow(unsafe_code)]
-unsafe impl boa_gc::Trace for SharedFlag {
-    boa_gc::custom_trace!(this, mark, {
-        let _ = this;
-    });
-}
+impl_empty_trace!(SharedFlag);
 
 /// Read-only attribute for DOM Event properties (per DOM spec).
 const RO: Attribute = Attribute::READONLY;

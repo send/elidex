@@ -34,6 +34,7 @@ pub struct CssRule {
 /// Parse a CSS string into a [`Stylesheet`].
 ///
 /// Invalid rules are silently skipped per CSS error recovery rules.
+#[must_use]
 pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
     let mut pi = ParserInput::new(css);
     let mut input = Parser::new(&mut pi);

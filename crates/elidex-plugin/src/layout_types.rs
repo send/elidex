@@ -1,4 +1,4 @@
-//! Layout types used by [`LayoutModel`](crate::LayoutModel).
+//! Layout types for the box model and layout algorithms.
 
 /// An axis-aligned rectangle.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -74,7 +74,6 @@ impl Rect {
 
 /// A box in the layout tree.
 ///
-/// Input to [`LayoutModel::layout()`](crate::LayoutModel::layout).
 /// Represents the CSS box model with content, padding, border, and margin areas.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutBox {
@@ -111,8 +110,6 @@ impl LayoutBox {
 }
 
 /// Context available to a layout algorithm.
-///
-/// Passed to [`LayoutModel::layout()`](crate::LayoutModel::layout).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutContext {
     /// The viewport size.
@@ -122,8 +119,6 @@ pub struct LayoutContext {
 }
 
 /// The result of a layout pass.
-///
-/// Returned by [`LayoutModel::layout()`](crate::LayoutModel::layout).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutResult {
     /// The positioned bounding rectangle.

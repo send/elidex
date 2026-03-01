@@ -57,66 +57,11 @@ pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
 /// Useful for testing the parse → style → layout → display list chain.
 /// Includes script execution phase: `<script>` tags are evaluated after
 /// initial style resolution, followed by re-resolution and layout.
+///
+/// Delegates to [`build_pipeline_interactive`] and returns only the display list.
 #[must_use]
 pub fn build_pipeline(html: &str, css: &str) -> elidex_render::DisplayList {
-    let parse_result = parse_html(html);
-    for err in &parse_result.errors {
-        eprintln!("HTML parse warning: {err}");
-    }
-    let mut dom = parse_result.dom;
-    let document = parse_result.document;
-
-    let stylesheet = parse_stylesheet(css, Origin::Author);
-
-    // Initial style resolution.
-    resolve_styles(
-        &mut dom,
-        &[&stylesheet],
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    // Script execution phase.
-    let scripts = extract_scripts(&dom, document);
-    if !scripts.is_empty() {
-        let mut session = SessionCore::new();
-        let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-        let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
-
-        for script in &scripts {
-            runtime.eval(&script.source, &mut session, &mut dom, document);
-        }
-
-        // Drain any immediately-ready timers (delay=0).
-        // Note: only timers with fire_at <= now execute; deferred timers
-        // remain queued (no event loop in Phase 2).
-        runtime.drain_timers(&mut session, &mut dom, document);
-
-        // Flush any buffered mutations from the session to the DOM.
-        session.flush(&mut dom);
-
-        // Dispatch lifecycle events.
-        dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
-        session.flush(&mut dom);
-
-        // Re-resolve styles after DOM mutations from scripts.
-        resolve_styles(
-            &mut dom,
-            &[&stylesheet],
-            DEFAULT_VIEWPORT_WIDTH,
-            DEFAULT_VIEWPORT_HEIGHT,
-        );
-    }
-
-    let font_db = FontDatabase::new();
-    layout_tree(
-        &mut dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-        &font_db,
-    );
-
-    build_display_list(&dom, &font_db)
+    build_pipeline_interactive(html, css).display_list
 }
 
 /// Result of the interactive rendering pipeline.
@@ -158,46 +103,20 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let document = parse_result.document;
 
     let stylesheets = vec![parse_stylesheet(css, Origin::Author)];
-    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
-
-    // Initial style resolution.
-    resolve_styles(
-        &mut dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    // Script execution phase.
-    let scripts = extract_scripts(&dom, document);
-    let mut session = SessionCore::new();
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-    let mut runtime = JsRuntime::with_fetch(Some(Rc::clone(&fetch_handle)));
-
-    for script in &scripts {
-        runtime.eval(&script.source, &mut session, &mut dom, document);
-    }
-    runtime.drain_timers(&mut session, &mut dom, document);
-    session.flush(&mut dom);
-
-    // Dispatch lifecycle events.
-    dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
-    session.flush(&mut dom);
-
-    // Re-resolve styles after DOM mutations from scripts.
-    resolve_styles(
-        &mut dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
     let font_db = Rc::new(FontDatabase::new());
-    layout_tree(
+
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime) = run_scripts_and_finalize(
         &mut dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
+        document,
+        &stylesheets,
+        &script_sources,
+        Rc::clone(&fetch_handle),
         &font_db,
+        None,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -213,6 +132,70 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         url: None,
         fetch_handle,
     }
+}
+
+/// Common script execution and finalization phase shared by pipeline builders.
+///
+/// Performs:
+/// 1. Initial style resolution
+/// 2. Script execution (eval each source, drain timers, flush mutations)
+/// 3. Lifecycle event dispatch (`DOMContentLoaded`, `load`)
+/// 4. Post-script style re-resolution and layout
+///
+/// Returns the `(SessionCore, JsRuntime)` for the caller to include in `PipelineResult`.
+fn run_scripts_and_finalize(
+    dom: &mut EcsDom,
+    document: Entity,
+    stylesheets: &[Stylesheet],
+    script_sources: &[&str],
+    fetch_handle: Rc<FetchHandle>,
+    font_db: &Rc<FontDatabase>,
+    current_url: Option<url::Url>,
+) -> (SessionCore, JsRuntime) {
+    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
+
+    // Initial style resolution.
+    resolve_styles(
+        dom,
+        &stylesheet_refs,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    // Script execution phase.
+    let mut session = SessionCore::new();
+    let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
+
+    if let Some(url) = current_url {
+        runtime.set_current_url(Some(url));
+    }
+
+    for source in script_sources {
+        runtime.eval(source, &mut session, dom, document);
+    }
+    runtime.drain_timers(&mut session, dom, document);
+    session.flush(dom);
+
+    // Dispatch lifecycle events.
+    dispatch_lifecycle_events(&mut runtime, &mut session, dom, document);
+    session.flush(dom);
+
+    // Re-resolve styles after DOM mutations from scripts.
+    resolve_styles(
+        dom,
+        &stylesheet_refs,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+
+    layout_tree(
+        dom,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+        font_db,
+    );
+
+    (session, runtime)
 }
 
 /// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.
@@ -282,46 +265,16 @@ pub fn build_pipeline_from_loaded(
         url,
     } = loaded;
 
-    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    // Initial style resolution.
-    resolve_styles(
+    let (session, runtime) = run_scripts_and_finalize(
         &mut dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    // Script execution phase.
-    let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::with_fetch(Some(Rc::clone(&fetch_handle)));
-
-    // Set the current URL on the bridge so window.location works in scripts.
-    runtime.set_current_url(Some(url.clone()));
-
-    for script in &scripts {
-        runtime.eval(&script.source, &mut session, &mut dom, document);
-    }
-    runtime.drain_timers(&mut session, &mut dom, document);
-    session.flush(&mut dom);
-
-    // Dispatch lifecycle events.
-    dispatch_lifecycle_events(&mut runtime, &mut session, &mut dom, document);
-    session.flush(&mut dom);
-
-    // Re-resolve styles after DOM mutations from scripts.
-    resolve_styles(
-        &mut dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    layout_tree(
-        &mut dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
+        document,
+        &stylesheets,
+        &script_sources,
+        Rc::clone(&fetch_handle),
         &font_db,
+        Some(url.clone()),
     );
 
     let display_list = build_display_list(&dom, &font_db);

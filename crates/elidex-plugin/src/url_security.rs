@@ -6,6 +6,34 @@
 use crate::{NetworkError, NetworkErrorKind};
 use std::net::IpAddr;
 
+// --- IPv4 CGNAT range constants (100.64.0.0/10, RFC 6598) ---
+
+/// Bitmask for the CGNAT /10 prefix (second octet).
+const CGNAT_MASK: u8 = 0xC0;
+
+// --- IPv6 range constants ---
+
+/// Multicast prefix byte: `ff00::/8` — top 8 bits of segment 0.
+const IPV6_MULTICAST_PREFIX: u16 = 0xff;
+
+/// ULA (Unique Local Address) mask for segment 0: `fc00::/7`.
+const IPV6_ULA_MASK: u16 = 0xfe00;
+/// ULA base value after masking: `fc00`.
+const IPV6_ULA_BASE: u16 = 0xfc00;
+
+/// Link-local mask for segment 0: `fe80::/10`.
+const IPV6_LINK_LOCAL_MASK: u16 = 0xffc0;
+/// Link-local base value after masking: `fe80`.
+const IPV6_LINK_LOCAL_BASE: u16 = 0xfe80;
+
+/// Documentation prefix segment 0: `2001:db8::/32` (RFC 3849).
+const IPV6_DOC_SEG0: u16 = 0x2001;
+/// Documentation prefix segment 1: `2001:db8::/32` (RFC 3849).
+const IPV6_DOC_SEG1: u16 = 0x0db8;
+
+/// Benchmarking prefix segment 1: `2001:2::/48` (RFC 5180).
+const IPV6_BENCHMARKING_SEG1: u16 = 0x0002;
+
 /// Validate that a URL is safe to fetch (not targeting private/internal addresses).
 ///
 /// Checks the URL scheme (only `http`/`https` allowed) and hostname/IP against
@@ -64,6 +92,7 @@ pub fn validate_url(url: &url::Url) -> Result<(), NetworkError> {
 /// Covers: loopback, private (RFC 1918), link-local, broadcast, unspecified,
 /// CGNAT (100.64/10), documentation, IPv4-mapped IPv6, ULA (`fc00::/7`),
 /// multicast (`ff00::/8`), and IPv6 link-local (`fe80::/10`).
+#[must_use]
 pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
@@ -72,7 +101,7 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
                 || v4.is_link_local()  // 169.254/16
                 || v4.is_broadcast()   // 255.255.255.255
                 || v4.is_unspecified() // 0.0.0.0
-                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64/10 (CGNAT)
+                || v4.octets()[0] == 100 && (v4.octets()[1] & CGNAT_MASK) == 64 // 100.64/10 (CGNAT)
                 || v4.is_documentation() // 192.0.2/24, 198.51.100/24, 203.0.113/24
         }
         IpAddr::V6(v6) => {
@@ -83,15 +112,15 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
             v6.is_loopback()       // ::1
                 || v6.is_unspecified() // ::
                 // Multicast ff00::/8
-                || v6.segments()[0] >> 8 == 0xff
+                || v6.segments()[0] >> 8 == IPV6_MULTICAST_PREFIX
                 // ULA (Unique Local Address) fc00::/7
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || (v6.segments()[0] & IPV6_ULA_MASK) == IPV6_ULA_BASE
                 // Link-local fe80::/10
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || (v6.segments()[0] & IPV6_LINK_LOCAL_MASK) == IPV6_LINK_LOCAL_BASE
                 // Documentation 2001:db8::/32 (RFC 3849)
-                || (v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0db8)
+                || (v6.segments()[0] == IPV6_DOC_SEG0 && v6.segments()[1] == IPV6_DOC_SEG1)
                 // Benchmarking 2001:2::/48 (RFC 5180)
-                || (v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0002 && v6.segments()[2] == 0)
+                || (v6.segments()[0] == IPV6_DOC_SEG0 && v6.segments()[1] == IPV6_BENCHMARKING_SEG1 && v6.segments()[2] == 0)
         }
     }
 }

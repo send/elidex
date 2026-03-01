@@ -5,12 +5,10 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
-use elidex_script_session::{CssomApiHandler, DomApiHandler};
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
-use crate::globals::require_js_string_arg;
-use crate::value_conv;
+use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_string_arg};
 
 use super::element::{extract_entity, ENTITY_KEY};
 
@@ -60,12 +58,14 @@ fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Co
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let prop = require_js_string_arg(args, 0, "getPropertyValue", ctx)?;
+                // GetComputedStyle is a CssomApiHandler, not DomApiHandler.
+                // Invoke it directly via the bridge.
                 bridge.with(|session, dom| {
-                    let handler = elidex_dom_api::GetComputedStyle;
-                    let result = handler
+                    use elidex_script_session::CssomApiHandler;
+                    let result = elidex_dom_api::GetComputedStyle
                         .invoke(entity, &[ElidexJsValue::String(prop)], session, dom)
                         .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
+                    Ok(crate::value_conv::to_boa(&result))
                 })
             },
             b,
@@ -97,17 +97,12 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.setProperty", ctx)?;
                 let value = require_js_string_arg(args, 1, "style.setProperty", ctx)?;
-                bridge.with(|session, dom| {
-                    elidex_dom_api::StyleSetProperty
-                        .invoke(
-                            entity,
-                            &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
-                            session,
-                            dom,
-                        )
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(JsValue::undefined())
-                })
+                invoke_dom_handler_void(
+                    &elidex_dom_api::StyleSetProperty,
+                    entity,
+                    &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -122,12 +117,12 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.getPropertyValue", ctx)?;
-                bridge.with(|session, dom| {
-                    let result = elidex_dom_api::StyleGetPropertyValue
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
-                })
+                invoke_dom_handler(
+                    &elidex_dom_api::StyleGetPropertyValue,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -142,12 +137,12 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.removeProperty", ctx)?;
-                bridge.with(|session, dom| {
-                    let result = elidex_dom_api::StyleRemoveProperty
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
-                })
+                invoke_dom_handler(
+                    &elidex_dom_api::StyleRemoveProperty,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),

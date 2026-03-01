@@ -15,6 +15,68 @@ use elidex_navigation::NavigationRequest;
 
 use crate::bridge::HostBridge;
 
+/// Register a read-only URL accessor on the `ObjectInitializer`.
+///
+/// Captures a clone of `bridge` and calls `url_prop` with the given extractor.
+/// This eliminates boilerplate for the 9 URL component getters.
+fn register_url_getter(
+    init: &mut ObjectInitializer<'_>,
+    realm: &boa_engine::realm::Realm,
+    bridge: &HostBridge,
+    name: &str,
+    extractor: fn(&url::Url) -> String,
+) {
+    let b = bridge.clone();
+    init.accessor(
+        js_string!(name),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
+                    Ok(url_prop(bridge, extractor))
+                },
+                b,
+            )
+            .to_js_function(realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
+// --- URL component extractor functions ---
+
+fn url_href(u: &url::Url) -> String {
+    u.as_str().to_string()
+}
+fn url_protocol(u: &url::Url) -> String {
+    format!("{}:", u.scheme())
+}
+fn url_host(u: &url::Url) -> String {
+    if let Some(port) = u.port() {
+        format!("{}:{port}", u.host_str().unwrap_or(""))
+    } else {
+        u.host_str().unwrap_or("").to_string()
+    }
+}
+fn url_hostname(u: &url::Url) -> String {
+    u.host_str().unwrap_or("").to_string()
+}
+fn url_port(u: &url::Url) -> String {
+    u.port().map_or_else(String::new, |p| p.to_string())
+}
+fn url_pathname(u: &url::Url) -> String {
+    u.path().to_string()
+}
+fn url_search(u: &url::Url) -> String {
+    u.query().map_or_else(String::new, |q| format!("?{q}"))
+}
+fn url_hash(u: &url::Url) -> String {
+    u.fragment().map_or_else(String::new, |f| format!("#{f}"))
+}
+fn url_origin(u: &url::Url) -> String {
+    u.origin().unicode_serialization()
+}
+
 /// Register the `window.location` object.
 ///
 /// The object provides getters for URL components and navigation methods.
@@ -28,7 +90,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
 
     // --- Getters as computed properties ---
 
-    // href getter + setter
+    // href getter + setter (special case: has setter too)
     let b = bridge.clone();
     let b_set = bridge.clone();
     init.accessor(
@@ -36,7 +98,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         Some(
             NativeFunction::from_copy_closure_with_captures(
                 |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| u.as_str().to_string()))
+                    Ok(url_prop(bridge, url_href))
                 },
                 b,
             )
@@ -64,153 +126,15 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         Attribute::CONFIGURABLE,
     );
 
-    // protocol
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("protocol"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| format!("{}:", u.scheme())))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // host (hostname:port or just hostname)
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("host"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| {
-                        if let Some(port) = u.port() {
-                            format!("{}:{port}", u.host_str().unwrap_or(""))
-                        } else {
-                            u.host_str().unwrap_or("").to_string()
-                        }
-                    }))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // hostname
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("hostname"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| u.host_str().unwrap_or("").to_string()))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // port
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("port"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| {
-                        u.port().map_or_else(String::new, |p| p.to_string())
-                    }))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // pathname
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("pathname"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| u.path().to_string()))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // search
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("search"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| {
-                        u.query().map_or_else(String::new, |q| format!("?{q}"))
-                    }))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // hash
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("hash"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| {
-                        u.fragment().map_or_else(String::new, |f| format!("#{f}"))
-                    }))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // origin
-    let b = bridge.clone();
-    init.accessor(
-        js_string!("origin"),
-        Some(
-            NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                    Ok(url_prop(bridge, |u| u.origin().unicode_serialization()))
-                },
-                b,
-            )
-            .to_js_function(&realm),
-        ),
-        None,
-        Attribute::CONFIGURABLE,
-    );
+    // Read-only URL component getters.
+    register_url_getter(&mut init, &realm, bridge, "protocol", url_protocol);
+    register_url_getter(&mut init, &realm, bridge, "host", url_host);
+    register_url_getter(&mut init, &realm, bridge, "hostname", url_hostname);
+    register_url_getter(&mut init, &realm, bridge, "port", url_port);
+    register_url_getter(&mut init, &realm, bridge, "pathname", url_pathname);
+    register_url_getter(&mut init, &realm, bridge, "search", url_search);
+    register_url_getter(&mut init, &realm, bridge, "hash", url_hash);
+    register_url_getter(&mut init, &realm, bridge, "origin", url_origin);
 
     // --- Methods ---
 
@@ -283,7 +207,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, _args, bridge, _ctx| -> JsResult<JsValue> {
-                Ok(url_prop(bridge, |u| u.as_str().to_string()))
+                Ok(url_prop(bridge, url_href))
             },
             b,
         ),

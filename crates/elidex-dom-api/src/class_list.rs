@@ -9,7 +9,7 @@ use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
 
-use crate::util::require_string_arg;
+use crate::util::{not_found_error, require_string_arg};
 
 /// Validate a class token per the `DOMTokenList` spec.
 ///
@@ -39,10 +39,7 @@ fn get_class_string(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError>
     let attrs = dom
         .world()
         .get::<&Attributes>(entity)
-        .map_err(|_| DomApiError {
-            kind: DomApiErrorKind::NotFoundError,
-            message: "element not found".into(),
-        })?;
+        .map_err(|_| not_found_error("element not found"))?;
     Ok(attrs.get("class").unwrap_or("").to_string())
 }
 
@@ -50,11 +47,34 @@ fn set_class_string(entity: Entity, dom: &mut EcsDom, value: String) -> Result<(
     let mut attrs = dom
         .world_mut()
         .get::<&mut Attributes>(entity)
-        .map_err(|_| DomApiError {
-            kind: DomApiErrorKind::NotFoundError,
-            message: "element not found".into(),
-        })?;
+        .map_err(|_| not_found_error("element not found"))?;
     attrs.set("class", value);
+    Ok(())
+}
+
+/// Add a class name to the class string if not already present.
+fn add_class(entity: Entity, class_name: &str, dom: &mut EcsDom) -> Result<(), DomApiError> {
+    let current = get_class_string(entity, dom)?;
+    if !current.split_whitespace().any(|c| c == class_name) {
+        let normalized = normalize_class_string(&current);
+        let new_class = if normalized.is_empty() {
+            class_name.to_string()
+        } else {
+            format!("{normalized} {class_name}")
+        };
+        set_class_string(entity, dom, new_class)?;
+    }
+    Ok(())
+}
+
+/// Remove a class name from the class string.
+fn remove_class(entity: Entity, class_name: &str, dom: &mut EcsDom) -> Result<(), DomApiError> {
+    let current = get_class_string(entity, dom)?;
+    let new_class: Vec<&str> = current
+        .split_whitespace()
+        .filter(|c| *c != class_name)
+        .collect();
+    set_class_string(entity, dom, new_class.join(" "))?;
     Ok(())
 }
 
@@ -79,16 +99,7 @@ impl DomApiHandler for ClassListAdd {
     ) -> Result<JsValue, DomApiError> {
         let class_name = require_string_arg(args, 0)?;
         validate_token(&class_name)?;
-        let current = get_class_string(this, dom)?;
-        if !current.split_whitespace().any(|c| c == class_name) {
-            let normalized = normalize_class_string(&current);
-            let new_class = if normalized.is_empty() {
-                class_name
-            } else {
-                format!("{normalized} {class_name}")
-            };
-            set_class_string(this, dom, new_class)?;
-        }
+        add_class(this, &class_name, dom)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -114,12 +125,7 @@ impl DomApiHandler for ClassListRemove {
     ) -> Result<JsValue, DomApiError> {
         let class_name = require_string_arg(args, 0)?;
         validate_token(&class_name)?;
-        let current = get_class_string(this, dom)?;
-        let new_class: Vec<&str> = current
-            .split_whitespace()
-            .filter(|c| *c != class_name)
-            .collect();
-        set_class_string(this, dom, new_class.join(" "))?;
+        remove_class(this, &class_name, dom)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -146,22 +152,11 @@ impl DomApiHandler for ClassListToggle {
         let class_name = require_string_arg(args, 0)?;
         validate_token(&class_name)?;
         let current = get_class_string(this, dom)?;
-        let has_class = current.split_whitespace().any(|c| c == class_name);
-        if has_class {
-            let new_class: Vec<&str> = current
-                .split_whitespace()
-                .filter(|c| *c != class_name)
-                .collect();
-            set_class_string(this, dom, new_class.join(" "))?;
+        if current.split_whitespace().any(|c| c == class_name) {
+            remove_class(this, &class_name, dom)?;
             Ok(JsValue::Bool(false))
         } else {
-            let normalized = normalize_class_string(&current);
-            let new_class = if normalized.is_empty() {
-                class_name
-            } else {
-                format!("{normalized} {class_name}")
-            };
-            set_class_string(this, dom, new_class)?;
+            add_class(this, &class_name, dom)?;
             Ok(JsValue::Bool(true))
         }
     }

@@ -29,15 +29,7 @@ impl ConsoleOutput {
 }
 
 // Safety: ConsoleOutput only contains Rc (not GC-managed), so empty trace is correct.
-#[allow(unsafe_code)]
-unsafe impl boa_gc::Trace for ConsoleOutput {
-    boa_gc::custom_trace!(this, mark, {
-        let _ = this;
-    });
-}
-impl boa_gc::Finalize for ConsoleOutput {
-    fn finalize(&self) {}
-}
+impl_empty_trace!(ConsoleOutput);
 
 /// Register the `console` global object.
 pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {

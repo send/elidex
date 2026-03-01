@@ -110,7 +110,7 @@ pub(crate) fn collect_and_cascade<'a>(
     entries.sort_by(|a, b| a.priority.cmp(&b.priority));
 
     // Last-wins per property.
-    let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+    let mut winners: HashMap<&str, &CssValue> = HashMap::with_capacity(entries.len());
     for entry in &entries {
         winners.insert(entry.property, entry.value);
     }

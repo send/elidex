@@ -11,6 +11,23 @@ use crate::error_conv::dom_error_to_js_error;
 use crate::globals::element::resolve_object_ref;
 use crate::globals::require_js_string_arg;
 
+/// Common pattern for document methods that take a single string argument,
+/// invoke a `DomApiHandler` on the document entity, and return an element ref.
+fn invoke_doc_handler_returning_ref(
+    handler: &impl DomApiHandler,
+    arg: String,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    let doc = bridge.document_entity();
+    let result = bridge.with(|session, dom| {
+        handler
+            .invoke(doc, &[ElidexJsValue::String(arg)], session, dom)
+            .map_err(dom_error_to_js_error)
+    })?;
+    Ok(resolve_object_ref(&result, bridge, ctx))
+}
+
 /// Register the `document` global object.
 #[allow(clippy::too_many_lines)]
 pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
@@ -24,13 +41,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let selector = require_js_string_arg(args, 0, "querySelector", ctx)?;
-                let doc = bridge.document_entity();
-                let result = bridge.with(|session, dom| {
-                    elidex_dom_api::QuerySelector
-                        .invoke(doc, &[ElidexJsValue::String(selector)], session, dom)
-                        .map_err(dom_error_to_js_error)
-                })?;
-                Ok(resolve_object_ref(&result, bridge, ctx))
+                invoke_doc_handler_returning_ref(&elidex_dom_api::QuerySelector, selector, bridge, ctx)
             },
             b_qs,
         ),
@@ -75,13 +86,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let id = require_js_string_arg(args, 0, "getElementById", ctx)?;
-                let doc = bridge.document_entity();
-                let result = bridge.with(|session, dom| {
-                    elidex_dom_api::GetElementById
-                        .invoke(doc, &[ElidexJsValue::String(id)], session, dom)
-                        .map_err(dom_error_to_js_error)
-                })?;
-                Ok(resolve_object_ref(&result, bridge, ctx))
+                invoke_doc_handler_returning_ref(&elidex_dom_api::GetElementById, id, bridge, ctx)
             },
             b_id,
         ),
@@ -95,13 +100,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
-                let doc = bridge.document_entity();
-                let result = bridge.with(|session, dom| {
-                    elidex_dom_api::CreateElement
-                        .invoke(doc, &[ElidexJsValue::String(tag)], session, dom)
-                        .map_err(dom_error_to_js_error)
-                })?;
-                Ok(resolve_object_ref(&result, bridge, ctx))
+                invoke_doc_handler_returning_ref(&elidex_dom_api::CreateElement, tag, bridge, ctx)
             },
             b_ce,
         ),
@@ -115,13 +114,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let text = require_js_string_arg(args, 0, "createTextNode", ctx)?;
-                let doc = bridge.document_entity();
-                let result = bridge.with(|session, dom| {
-                    elidex_dom_api::CreateTextNode
-                        .invoke(doc, &[ElidexJsValue::String(text)], session, dom)
-                        .map_err(dom_error_to_js_error)
-                })?;
-                Ok(resolve_object_ref(&result, bridge, ctx))
+                invoke_doc_handler_returning_ref(&elidex_dom_api::CreateTextNode, text, bridge, ctx)
             },
             b_ctn,
         ),

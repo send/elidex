@@ -19,7 +19,7 @@ use crate::block::{layout_block, stack_block_children};
 ///
 /// `elidex_style::resolve_styles()` must have been called first so that
 /// every element has a [`ComputedStyle`] component.
-// TODO(Phase 2): use viewport_height for vh units and root percentage heights.
+// TODO: use viewport_height for vh units and root percentage heights.
 pub fn layout_tree(
     dom: &mut EcsDom,
     viewport_width: f32,

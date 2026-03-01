@@ -37,32 +37,30 @@ pub(super) fn expand_four_sides(
     }
 
     let (top, right, bottom, left) = match values.len() {
-        1 => {
-            let mut it = values.into_iter();
-            let v = it.next().unwrap();
-            (v.clone(), v.clone(), v.clone(), v)
-        }
-        2 => {
-            let mut it = values.into_iter();
-            let tb = it.next().unwrap();
-            let lr = it.next().unwrap();
-            (tb.clone(), lr.clone(), tb, lr)
-        }
-        3 => {
-            let mut it = values.into_iter();
-            let top = it.next().unwrap();
-            let right = it.next().unwrap();
-            let bottom = it.next().unwrap();
-            (top, right.clone(), bottom, right)
-        }
-        _ => {
-            let mut it = values.into_iter();
-            let top = it.next().unwrap();
-            let right = it.next().unwrap();
-            let bottom = it.next().unwrap();
-            let left = it.next().unwrap();
-            (top, right, bottom, left)
-        }
+        1 => (
+            values[0].clone(),
+            values[0].clone(),
+            values[0].clone(),
+            values[0].clone(),
+        ),
+        2 => (
+            values[0].clone(),
+            values[1].clone(),
+            values[0].clone(),
+            values[1].clone(),
+        ),
+        3 => (
+            values[0].clone(),
+            values[1].clone(),
+            values[2].clone(),
+            values[1].clone(),
+        ),
+        _ => (
+            values[0].clone(),
+            values[1].clone(),
+            values[2].clone(),
+            values[3].clone(),
+        ),
     };
 
     vec![
@@ -172,9 +170,8 @@ pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
     let s = style.unwrap_or(CssValue::Keyword("none".into())); // CSS default: none
     let c = color.unwrap_or(CssValue::Keyword("currentcolor".into()));
 
-    let sides = ["top", "right", "bottom", "left"];
     let mut decls = Vec::with_capacity(12);
-    for side in &sides {
+    for side in SIDES {
         decls.push(Declaration {
             property: format!("border-{side}-width"),
             value: w.clone(),

@@ -3,7 +3,7 @@
 //! Implements the core flexbox algorithm: item collection, line splitting,
 //! flexible length resolution, and cross/main axis alignment.
 //!
-//! Phase 2 simplifications:
+//! Current simplifications:
 //! - `flex-basis: content` treated as `auto`
 //! - `baseline` alignment treated as `flex-start`
 //! - `inline-flex` treated as block-level
@@ -17,7 +17,7 @@ use elidex_text::FontDatabase;
 
 use crate::block::{layout_block, resolve_margin};
 use crate::sanitize;
-use crate::{resolve_min_max, sanitize_edge_values, MAX_LAYOUT_DEPTH};
+use crate::{resolve_min_max, sanitize_border, sanitize_padding, MAX_LAYOUT_DEPTH};
 
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -88,16 +88,12 @@ fn resolve_flex_basis(
     let px = raw?;
     // Adjust for box-sizing: border-box — convert from border-box to content size.
     if style.box_sizing == BoxSizing::BorderBox {
+        let p = sanitize_padding(style);
+        let b = sanitize_border(style);
         let pb = if is_main_horizontal(direction) {
-            sanitize(style.padding_left)
-                + sanitize(style.padding_right)
-                + sanitize(style.border_left_width)
-                + sanitize(style.border_right_width)
+            crate::horizontal_pb(&p, &b)
         } else {
-            sanitize(style.padding_top)
-                + sanitize(style.padding_bottom)
-                + sanitize(style.border_top_width)
-                + sanitize(style.border_bottom_width)
+            crate::vertical_pb(&p, &b)
         };
         return Some((px - pb).max(0.0));
     }
@@ -107,7 +103,7 @@ fn resolve_flex_basis(
 /// Resolve the effective alignment for a flex item.
 ///
 /// `AlignSelf::Auto` inherits from the container's `align-items`.
-/// `Baseline` is treated as `FlexStart` in Phase 2.
+/// `Baseline` is treated as `FlexStart` (baseline alignment not yet implemented).
 fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignItems {
     let resolved = match item_align {
         AlignSelf::Auto => container_align,
@@ -117,7 +113,7 @@ fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignI
         AlignSelf::Center => AlignItems::Center,
         AlignSelf::Baseline => AlignItems::Baseline,
     };
-    // Phase 2: baseline → flex-start.
+    // Baseline not yet implemented — treat as flex-start.
     if resolved == AlignItems::Baseline {
         AlignItems::FlexStart
     } else {
@@ -246,7 +242,7 @@ pub(crate) fn layout_flex(
                 x: content_x,
                 y: content_y,
                 width: content_width,
-                height: resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
+                height: crate::resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
             },
             padding,
             border,
@@ -272,7 +268,7 @@ pub(crate) fn layout_flex(
     };
 
     // Container's own definite height for children's percentage height resolution.
-    let container_definite_height = resolve_explicit_height(&style, containing_height);
+    let container_definite_height = crate::resolve_explicit_height(&style, containing_height);
 
     let ctx = FlexContext {
         content_x,
@@ -354,24 +350,6 @@ pub(crate) fn layout_flex(
 // Helpers — box model
 // ---------------------------------------------------------------------------
 
-fn sanitize_padding(style: &ComputedStyle) -> EdgeSizes {
-    sanitize_edge_values(
-        style.padding_top,
-        style.padding_right,
-        style.padding_bottom,
-        style.padding_left,
-    )
-}
-
-fn sanitize_border(style: &ComputedStyle) -> EdgeSizes {
-    sanitize_edge_values(
-        style.border_top_width,
-        style.border_right_width,
-        style.border_bottom_width,
-        style.border_left_width,
-    )
-}
-
 fn resolve_content_width(
     style: &ComputedStyle,
     containing_width: f32,
@@ -380,8 +358,8 @@ fn resolve_content_width(
     margin_left: f32,
     margin_right: f32,
 ) -> f32 {
-    let used =
-        margin_left + margin_right + padding.left + padding.right + border.left + border.right;
+    let pb = crate::horizontal_pb(padding, border);
+    let used = margin_left + margin_right + pb;
     let auto_value = (containing_width - used).max(0.0);
     let mut w = sanitize(crate::resolve_dimension_value(
         style.width,
@@ -390,43 +368,10 @@ fn resolve_content_width(
     ));
     if style.box_sizing == BoxSizing::BorderBox {
         if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
-            let pb = padding.left + padding.right + border.left + border.right;
             w = (w - pb).max(0.0);
         }
     }
     w
-}
-
-pub(crate) fn resolve_explicit_height(
-    style: &ComputedStyle,
-    containing_height: Option<f32>,
-) -> Option<f32> {
-    match style.height {
-        Dimension::Length(px) if px.is_finite() => {
-            if style.box_sizing == BoxSizing::BorderBox {
-                let pb = sanitize(style.padding_top)
-                    + sanitize(style.padding_bottom)
-                    + sanitize(style.border_top_width)
-                    + sanitize(style.border_bottom_width);
-                Some((px - pb).max(0.0))
-            } else {
-                Some(px)
-            }
-        }
-        Dimension::Percentage(pct) => containing_height.map(|ch| {
-            let resolved = ch * pct / 100.0;
-            if style.box_sizing == BoxSizing::BorderBox {
-                let pb = sanitize(style.padding_top)
-                    + sanitize(style.padding_bottom)
-                    + sanitize(style.border_top_width)
-                    + sanitize(style.border_bottom_width);
-                (resolved - pb).max(0.0)
-            } else {
-                resolved
-            }
-        }),
-        _ => None,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -441,9 +386,8 @@ fn collect_flex_items(
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let child_style = match dom.world().get::<&ComputedStyle>(child) {
-            Ok(s) => (*s).clone(),
-            Err(_) => continue,
+        let Some(child_style) = crate::try_get_style(dom, child) else {
+            continue;
         };
         if child_style.display == Display::None {
             continue;
@@ -490,13 +434,10 @@ fn collect_flex_items(
             )
         };
         if child_style.box_sizing == BoxSizing::BorderBox {
-            min_main = (min_main - pb_main).max(0.0);
-            if max_main < f32::INFINITY {
-                max_main = (max_main - pb_main).max(0.0);
-            }
+            crate::adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
         }
         // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
-        let hypo_main = hypo_main.max(min_main).min(max_main).max(min_main);
+        let hypo_main = crate::clamp_min_max(hypo_main, min_main, max_main);
 
         items.push(FlexItem {
             entity: child,
@@ -521,28 +462,14 @@ fn collect_flex_items(
 }
 
 fn compute_pb(style: &ComputedStyle, horizontal: bool) -> (f32, f32) {
+    let p = sanitize_padding(style);
+    let b = sanitize_border(style);
+    let h = crate::horizontal_pb(&p, &b);
+    let v = crate::vertical_pb(&p, &b);
     if horizontal {
-        (
-            sanitize(style.padding_left)
-                + sanitize(style.padding_right)
-                + sanitize(style.border_left_width)
-                + sanitize(style.border_right_width),
-            sanitize(style.padding_top)
-                + sanitize(style.padding_bottom)
-                + sanitize(style.border_top_width)
-                + sanitize(style.border_bottom_width),
-        )
+        (h, v)
     } else {
-        (
-            sanitize(style.padding_top)
-                + sanitize(style.padding_bottom)
-                + sanitize(style.border_top_width)
-                + sanitize(style.border_bottom_width),
-            sanitize(style.padding_left)
-                + sanitize(style.padding_right)
-                + sanitize(style.border_left_width)
-                + sanitize(style.border_right_width),
-        )
+        (v, h)
     }
 }
 

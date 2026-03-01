@@ -50,6 +50,7 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
     ///
     /// If the same name is registered both statically and dynamically,
     /// it is counted once (static takes priority during resolution).
+    #[must_use]
     pub fn len(&self) -> usize {
         let dynamic_only = self
             .dynamic_lookup
@@ -60,6 +61,7 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
     }
 
     /// Returns true if no handlers are registered.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.static_lookup.is_empty() && self.dynamic_lookup.is_empty()
     }
@@ -83,127 +85,141 @@ impl<T: Send + Sync + ?Sized> Default for PluginRegistry<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ComputedValue, CssPropertyHandler, CssValue, ParseError, StyleContext};
+    use crate::{HttpRequest, HttpResponse, NetworkError, NetworkMiddleware};
 
-    struct TestHandler {
-        name: &'static str,
+    struct TestMiddleware {
+        mw_name: &'static str,
     }
 
-    impl CssPropertyHandler for TestHandler {
-        fn property_name(&self) -> &str {
-            self.name
+    impl NetworkMiddleware for TestMiddleware {
+        fn name(&self) -> &str {
+            self.mw_name
         }
 
-        fn parse(&self, _value: &str) -> Result<CssValue, ParseError> {
-            Ok(CssValue::Keyword("test".into()))
+        fn on_request(&self, _request: &mut HttpRequest) -> Result<(), NetworkError> {
+            Ok(())
         }
 
-        fn resolve(&self, _value: &CssValue, _context: &StyleContext) -> ComputedValue {
-            ComputedValue::Keyword("test".into())
+        fn on_response(&self, _response: &mut HttpResponse) -> Result<(), NetworkError> {
+            Ok(())
         }
     }
 
     #[test]
     fn empty_registry() {
-        let registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
+        let registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
         assert!(registry.is_empty());
         assert_eq!(registry.len(), 0);
-        assert!(registry.resolve("color").is_none());
+        assert!(registry.resolve("cors").is_none());
     }
 
     #[test]
     fn static_registration_and_resolve() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
-        registry.register_static("color", Box::new(TestHandler { name: "color" }));
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
+        registry.register_static("cors", Box::new(TestMiddleware { mw_name: "cors" }));
 
         assert_eq!(registry.len(), 1);
         assert!(!registry.is_empty());
 
-        let handler = registry.resolve("color").unwrap();
-        assert_eq!(handler.property_name(), "color");
+        let handler = registry.resolve("cors").unwrap();
+        assert_eq!(handler.name(), "cors");
     }
 
     #[test]
     fn dynamic_registration_and_resolve() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
         registry.register_dynamic(
-            "background".to_string(),
-            Box::new(TestHandler { name: "background" }),
+            "auth".to_string(),
+            Box::new(TestMiddleware { mw_name: "auth" }),
         );
 
-        let handler = registry.resolve("background").unwrap();
-        assert_eq!(handler.property_name(), "background");
+        let handler = registry.resolve("auth").unwrap();
+        assert_eq!(handler.name(), "auth");
     }
 
     #[test]
     fn static_takes_priority_over_dynamic() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
         registry.register_static(
-            "color",
-            Box::new(TestHandler {
-                name: "static-color",
+            "cors",
+            Box::new(TestMiddleware {
+                mw_name: "static-cors",
             }),
         );
         registry.register_dynamic(
-            "color".to_string(),
-            Box::new(TestHandler {
-                name: "dynamic-color",
+            "cors".to_string(),
+            Box::new(TestMiddleware {
+                mw_name: "dynamic-cors",
             }),
         );
 
-        let handler = registry.resolve("color").unwrap();
-        assert_eq!(handler.property_name(), "static-color");
+        let handler = registry.resolve("cors").unwrap();
+        assert_eq!(handler.name(), "static-cors");
     }
 
     #[test]
     fn unregistered_returns_none() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
-        registry.register_static("color", Box::new(TestHandler { name: "color" }));
-        assert!(registry.resolve("font-size").is_none());
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
+        registry.register_static("cors", Box::new(TestMiddleware { mw_name: "cors" }));
+        assert!(registry.resolve("auth").is_none());
     }
 
     #[test]
     fn reregister_static_overwrites_previous() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
-        registry.register_static("color", Box::new(TestHandler { name: "old-color" }));
-        registry.register_static("color", Box::new(TestHandler { name: "new-color" }));
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
+        registry.register_static(
+            "cors",
+            Box::new(TestMiddleware {
+                mw_name: "old-cors",
+            }),
+        );
+        registry.register_static(
+            "cors",
+            Box::new(TestMiddleware {
+                mw_name: "new-cors",
+            }),
+        );
 
         assert_eq!(registry.len(), 1);
-        let handler = registry.resolve("color").unwrap();
-        assert_eq!(handler.property_name(), "new-color");
+        let handler = registry.resolve("cors").unwrap();
+        assert_eq!(handler.name(), "new-cors");
     }
 
     #[test]
     fn reregister_dynamic_overwrites_previous() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
         registry.register_dynamic(
-            "color".to_string(),
-            Box::new(TestHandler { name: "old-color" }),
+            "cors".to_string(),
+            Box::new(TestMiddleware {
+                mw_name: "old-cors",
+            }),
         );
         registry.register_dynamic(
-            "color".to_string(),
-            Box::new(TestHandler { name: "new-color" }),
+            "cors".to_string(),
+            Box::new(TestMiddleware {
+                mw_name: "new-cors",
+            }),
         );
 
         assert_eq!(registry.len(), 1);
-        let handler = registry.resolve("color").unwrap();
-        assert_eq!(handler.property_name(), "new-color");
+        let handler = registry.resolve("cors").unwrap();
+        assert_eq!(handler.name(), "new-cors");
     }
 
     #[test]
     fn shadowed_dynamic_counted_once() {
-        let mut registry: PluginRegistry<dyn CssPropertyHandler> = PluginRegistry::new();
-        registry.register_static("color", Box::new(TestHandler { name: "static" }));
+        let mut registry: PluginRegistry<dyn NetworkMiddleware> = PluginRegistry::new();
+        registry.register_static("cors", Box::new(TestMiddleware { mw_name: "static" }));
         registry.register_dynamic(
-            "color".to_string(),
-            Box::new(TestHandler { name: "dynamic" }),
+            "cors".to_string(),
+            Box::new(TestMiddleware { mw_name: "dynamic" }),
         );
         registry.register_dynamic(
-            "background".to_string(),
-            Box::new(TestHandler { name: "background" }),
+            "auth".to_string(),
+            Box::new(TestMiddleware { mw_name: "auth" }),
         );
 
-        // Shadowed dynamic "color" should not be double-counted.
+        // Shadowed dynamic "cors" should not be double-counted.
         assert_eq!(registry.len(), 2);
     }
 }

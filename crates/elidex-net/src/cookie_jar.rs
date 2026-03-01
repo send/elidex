@@ -183,6 +183,24 @@ impl CookieJar {
         self.len() == 0
     }
 
+    /// Build a `Cookie` header value for the given URL.
+    ///
+    /// Returns `None` if no cookies match the URL.
+    /// Format: `"name1=value1; name2=value2"`.
+    pub fn cookie_header_for_url(&self, url: &url::Url) -> Option<String> {
+        let cookies = self.cookies_for_url(url);
+        if cookies.is_empty() {
+            return None;
+        }
+        Some(
+            cookies
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    }
+
     /// Check if storing a cookie from `cookie_domain` for a request to
     /// `request_domain` would be a third-party cookie.
     ///
@@ -347,19 +365,13 @@ fn path_matches(request_path: &str, cookie_path: &str) -> bool {
 
 /// Simplified same-site check (M2-1).
 ///
-/// The request domain must be the same as or a subdomain of the cookie domain
-/// (one-directional matching per RFC 6265 §5.3 step 6).
+/// Delegates to [`domain_matches`] — the matching logic is identical
+/// (request domain must be the same as or a subdomain of the cookie domain,
+/// per RFC 6265 §5.1.3 / §5.3 step 6).
 ///
 /// See [`CookieJar::is_third_party`] docs for known limitations.
 fn is_same_site(request_domain: &str, cookie_domain: &str) -> bool {
-    let req = request_domain.to_ascii_lowercase();
-    let cookie = cookie_domain.to_ascii_lowercase();
-    if req == cookie {
-        return true;
-    }
-    // Check if req ends with ".{cookie}" without allocating a format string
-    req.strip_suffix(cookie.as_str())
-        .is_some_and(|prefix| prefix.ends_with('.'))
+    domain_matches(request_domain, cookie_domain)
 }
 
 #[cfg(test)]

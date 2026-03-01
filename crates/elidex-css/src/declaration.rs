@@ -45,6 +45,7 @@ pub struct Declaration {
 /// Parse an inline style attribute string into declarations.
 ///
 /// Shorthand properties are expanded into their longhand equivalents.
+#[must_use]
 pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
     let mut pi = ParserInput::new(css);
     let mut input = Parser::new(&mut pi);
@@ -331,26 +332,17 @@ pub(crate) fn try_parse_keyword<'i>(
 
 fn parse_keyword_property(input: &mut Parser, name: &str, allowed: &[&str]) -> Vec<Declaration> {
     input
-        .try_parse(
-            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
-                let kw = try_parse_keyword(i, allowed)?;
-                Ok(single_decl(name, CssValue::Keyword(kw)))
-            },
-        )
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let kw = try_parse_keyword(i, allowed).map_err(|_| ())?;
+            Ok(single_decl(name, CssValue::Keyword(kw)))
+        })
         .unwrap_or_default()
 }
 
 fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `currentcolor` keyword first (case-insensitive).
-    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        if ident.eq_ignore_ascii_case("currentcolor") {
-            Ok(single_decl(name, CssValue::Keyword("currentcolor".into())))
-        } else {
-            Err(())
-        }
-    }) {
-        return decls;
+    if let Ok(val) = try_keyword_value(input, "currentcolor", &CssValue::Keyword("currentcolor".into())) {
+        return single_decl(name, val);
     }
 
     input
@@ -359,6 +351,21 @@ fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
             Ok(single_decl(name, CssValue::Color(color)))
         })
         .unwrap_or_default()
+}
+
+/// Try to match a single case-insensitive keyword, returning the given `CssValue` on match.
+///
+/// Used as an early-return before a fallback parser (e.g. `currentcolor` before color
+/// parsing, `none` before length parsing).
+fn try_keyword_value(input: &mut Parser, keyword: &str, value: &CssValue) -> Result<CssValue, ()> {
+    input.try_parse(|i| {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        if ident.eq_ignore_ascii_case(keyword) {
+            Ok(value.clone())
+        } else {
+            Err(())
+        }
+    })
 }
 
 /// Parse a single-value property using the given value parser function.
@@ -416,18 +423,8 @@ fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
 /// (color/style are Phase 3 scope-out).
 fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
     // Try "none" first.
-    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        if ident.eq_ignore_ascii_case("none") {
-            Ok(single_decl(
-                "text-decoration-line",
-                CssValue::Keyword("none".to_string()),
-            ))
-        } else {
-            Err(())
-        }
-    }) {
-        return decls;
+    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
+        return single_decl("text-decoration-line", val);
     }
 
     // Collect one or more of: underline, line-through.
@@ -460,7 +457,7 @@ fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
     }
 
     if values.len() == 1 {
-        return single_decl("text-decoration-line", values.into_iter().next().unwrap());
+        return single_decl("text-decoration-line", values.swap_remove(0));
     }
 
     single_decl("text-decoration-line", CssValue::List(values))
@@ -469,6 +466,7 @@ fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
 // --- var() function parsing ---
 
 /// Parse a `var(--name)` or `var(--name, fallback)` function call.
+#[must_use = "parsing result should be used"]
 #[allow(clippy::result_unit_err)]
 pub fn parse_var_function(input: &mut Parser) -> Result<CssValue, ()> {
     input.expect_function_matching("var").map_err(|_| ())?;
@@ -492,7 +490,7 @@ pub fn parse_var_function(input: &mut Parser) -> Result<CssValue, ()> {
                     if raw.is_empty() {
                         None
                     } else {
-                        Some(Box::new(parse_fallback_value(&raw)))
+                        Some(Box::new(crate::parse_raw_token_value(&raw)))
                     }
                 }
             } else {
@@ -504,14 +502,6 @@ pub fn parse_var_function(input: &mut Parser) -> Result<CssValue, ()> {
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
 }
 
-/// Try to parse a fallback value string as a typed CSS value.
-///
-/// Delegates to [`crate::parse_raw_token_value`] which handles `var()`, color,
-/// length/percentage/auto, and keyword parsing with `RawTokens` fallback.
-fn parse_fallback_value(raw: &str) -> CssValue {
-    crate::parse_raw_token_value(raw)
-}
-
 /// Collect all remaining tokens from a parser into a trimmed string.
 fn collect_remaining_tokens(input: &mut Parser) -> String {
     let start = input.position();
@@ -521,27 +511,44 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
     slice.trim().to_string()
 }
 
+// --- Mapped keyword parsing ---
+
+/// Parse a property whose input keywords map to (potentially different) output keywords.
+///
+/// Each entry in `mappings` is `(&[input_keywords], output_keyword)`. The first matching
+/// entry wins, and `output_keyword` is stored as the declaration value.
+fn parse_mapped_keyword(
+    input: &mut Parser,
+    name: &str,
+    mappings: &[(&[&str], &str)],
+) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let ident = i.expect_ident().map_err(|_| ())?.clone();
+            let lower = ident.to_ascii_lowercase();
+            for &(inputs, output) in mappings {
+                if inputs.contains(&lower.as_str()) {
+                    return Ok(single_decl(name, CssValue::Keyword(output.to_string())));
+                }
+            }
+            Err(())
+        })
+        .unwrap_or_default()
+}
+
 // --- Text-align ---
 
 /// Parse `text-align`. Maps `start` and `justify` to `left` (Phase 3 simplification).
 fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(
-            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
-                let ident = i.expect_ident()?.clone();
-                let mapped = match ident.to_ascii_lowercase().as_str() {
-                    "left" | "start" | "justify" => "left",
-                    "center" => "center",
-                    "right" | "end" => "right",
-                    _ => return Err(i.new_custom_error(())),
-                };
-                Ok(single_decl(
-                    "text-align",
-                    CssValue::Keyword(mapped.to_string()),
-                ))
-            },
-        )
-        .unwrap_or_default()
+    parse_mapped_keyword(
+        input,
+        "text-align",
+        &[
+            (&["left", "start", "justify"], "left"),
+            (&["center"], "center"),
+            (&["right", "end"], "right"),
+        ],
+    )
 }
 
 // --- Gap properties ---
@@ -549,23 +556,11 @@ fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
 /// Parse a gap value: `normal` (→ 0px for flex) or a non-negative length/percentage.
 fn parse_gap_value(input: &mut Parser) -> Result<CssValue, ()> {
     // `normal` keyword → 0px for flex containers (CSS Box Alignment §8).
-    if let Ok(val) = input.try_parse(|i| {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        if ident.eq_ignore_ascii_case("normal") {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        } else {
-            Err(())
-        }
-    }) {
+    if let Ok(val) = try_keyword_value(input, "normal", &CssValue::Length(0.0, LengthUnit::Px)) {
         return Ok(val);
     }
-    let val = parse_length_or_percentage(input)?;
     // Reject negative gap values (CSS Box Alignment §8).
-    match &val {
-        CssValue::Length(v, _) if *v < 0.0 => Err(()),
-        CssValue::Percentage(p) if *p < 0.0 => Err(()),
-        _ => Ok(val),
-    }
+    parse_non_negative_length_or_percentage(input)
 }
 
 /// Parse the `gap` shorthand: 1 value → both row-gap and column-gap,
@@ -593,24 +588,16 @@ fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Overflow parsing ---
 
-/// Parse `overflow`. Maps `scroll`/`auto` to `Hidden` (Phase 3 simplification).
+/// Parse `overflow`. Maps `scroll`/`auto` to `hidden` (Phase 3 simplification).
 fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(
-            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
-                let ident = i.expect_ident()?.clone();
-                let mapped = match ident.to_ascii_lowercase().as_str() {
-                    "visible" => "visible",
-                    "hidden" | "scroll" | "auto" => "hidden",
-                    _ => return Err(i.new_custom_error(())),
-                };
-                Ok(single_decl(
-                    "overflow",
-                    CssValue::Keyword(mapped.to_string()),
-                ))
-            },
-        )
-        .unwrap_or_default()
+    parse_mapped_keyword(
+        input,
+        "overflow",
+        &[
+            (&["visible"], "visible"),
+            (&["hidden", "scroll", "auto"], "hidden"),
+        ],
+    )
 }
 
 // --- Max dimension parsing ---
@@ -618,15 +605,8 @@ fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
 /// Parse `max-width`/`max-height`: `none` | `<length>` | `<percentage>`.
 fn parse_max_dimension(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `none` keyword first (→ Auto = unconstrained).
-    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        if ident.eq_ignore_ascii_case("none") {
-            Ok(single_decl(name, CssValue::Auto))
-        } else {
-            Err(())
-        }
-    }) {
-        return decls;
+    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Auto) {
+        return single_decl(name, val);
     }
     parse_value_property(input, name, parse_non_negative_length_or_percentage)
 }
@@ -640,27 +620,25 @@ fn parse_max_dimension(input: &mut Parser, name: &str) -> Vec<Declaration> {
 fn parse_list_style_shorthand(input: &mut Parser) -> Vec<Declaration> {
     let allowed = &["disc", "circle", "square", "decimal", "none"];
     input
-        .try_parse(
-            |i| -> Result<Vec<Declaration>, cssparser::ParseError<'_, ()>> {
-                let kw = try_parse_keyword(i, allowed)?;
-                // Reject trailing tokens that are not `!important`.
-                // Peek via try_parse (always rolls back on Err).
-                let has_extra = i
-                    .try_parse(|peek| {
-                        let tok = peek.next().map_err(|_| ())?;
-                        if matches!(tok, Token::Delim('!')) {
-                            Err(()) // Likely !important — roll back, allow
-                        } else {
-                            Ok(()) // Unknown extra token — signal rejection
-                        }
-                    })
-                    .is_ok();
-                if has_extra {
-                    return Err(i.new_custom_error(()));
-                }
-                Ok(single_decl("list-style-type", CssValue::Keyword(kw)))
-            },
-        )
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let kw = try_parse_keyword(i, allowed).map_err(|_| ())?;
+            // Reject trailing tokens that are not `!important`.
+            // Peek via try_parse (always rolls back on Err).
+            let has_extra = i
+                .try_parse(|peek| {
+                    let tok = peek.next().map_err(|_| ())?;
+                    if matches!(tok, Token::Delim('!')) {
+                        Err(()) // Likely !important — roll back, allow
+                    } else {
+                        Ok(()) // Unknown extra token — signal rejection
+                    }
+                })
+                .is_ok();
+            if has_extra {
+                return Err(());
+            }
+            Ok(single_decl("list-style-type", CssValue::Keyword(kw)))
+        })
         .unwrap_or_default()
 }
 

@@ -16,13 +16,13 @@ pub(crate) type FontBlob = (Arc<Vec<u8>>, u32);
 ///
 /// Each entry contains an `Arc<Vec<u8>>` of the font binary and the
 /// face index within the font collection.
-pub struct FontCache {
+pub(crate) struct FontCache {
     cache: HashMap<FontId, FontBlob>,
 }
 
 impl FontCache {
     /// Create a new, empty font cache.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cache: HashMap::new(),
         }
@@ -31,7 +31,7 @@ impl FontCache {
     /// Get the font data for `id`, loading and caching it if necessary.
     ///
     /// Returns `None` if the font ID is invalid.
-    pub fn get(&mut self, db: &FontDatabase, id: FontId) -> Option<FontBlob> {
+    pub(crate) fn get(&mut self, db: &FontDatabase, id: FontId) -> Option<FontBlob> {
         if let Some(entry) = self.cache.get(&id) {
             return Some(entry.clone());
         }

@@ -9,7 +9,7 @@ use elidex_script_session::{ComponentKind, DomApiHandler, JsObjectRef};
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
-use crate::globals::require_js_string_arg;
+use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_string_arg};
 use crate::value_conv;
 
 /// Hidden property key storing the entity bits on element wrapper objects.
@@ -160,17 +160,12 @@ fn build_element_object(
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "setAttribute", ctx)?;
                 let value = require_js_string_arg(args, 1, "setAttribute", ctx)?;
-                bridge.with(|session, dom| {
-                    elidex_dom_api::SetAttribute
-                        .invoke(
-                            entity,
-                            &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
-                            session,
-                            dom,
-                        )
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(JsValue::undefined())
-                })
+                invoke_dom_handler_void(
+                    &elidex_dom_api::SetAttribute,
+                    entity,
+                    &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -185,12 +180,12 @@ fn build_element_object(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "getAttribute", ctx)?;
-                bridge.with(|session, dom| {
-                    let result = elidex_dom_api::GetAttribute
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
-                })
+                invoke_dom_handler(
+                    &elidex_dom_api::GetAttribute,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -205,12 +200,12 @@ fn build_element_object(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "removeAttribute", ctx)?;
-                bridge.with(|session, dom| {
-                    elidex_dom_api::RemoveAttribute
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(JsValue::undefined())
-                })
+                invoke_dom_handler_void(
+                    &elidex_dom_api::RemoveAttribute,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -225,12 +220,7 @@ fn build_element_object(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            bridge.with(|session, dom| {
-                let result = elidex_dom_api::GetTextContent
-                    .invoke(entity, &[], session, dom)
-                    .map_err(dom_error_to_js_error)?;
-                Ok(value_conv::to_boa(&result))
-            })
+            invoke_dom_handler(&elidex_dom_api::GetTextContent, entity, &[], bridge)
         },
         b,
     )
@@ -247,12 +237,12 @@ fn build_element_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
-            bridge.with(|session, dom| {
-                elidex_dom_api::SetTextContent
-                    .invoke(entity, &[ElidexJsValue::String(text)], session, dom)
-                    .map_err(dom_error_to_js_error)?;
-                Ok(JsValue::undefined())
-            })
+            invoke_dom_handler_void(
+                &elidex_dom_api::SetTextContent,
+                entity,
+                &[ElidexJsValue::String(text)],
+                bridge,
+            )
         },
         b,
     )
@@ -270,12 +260,7 @@ fn build_element_object(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            bridge.with(|session, dom| {
-                let result = elidex_dom_api::GetInnerHtml
-                    .invoke(entity, &[], session, dom)
-                    .map_err(dom_error_to_js_error)?;
-                Ok(value_conv::to_boa(&result))
-            })
+            invoke_dom_handler(&elidex_dom_api::GetInnerHtml, entity, &[], bridge)
         },
         b,
     )
@@ -289,66 +274,23 @@ fn build_element_object(
     );
 
     // --- style property (cached on first access) ---
-    let b = bridge.clone();
-    let style_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let obj = this
-                .as_object()
-                .ok_or_else(|| JsNativeError::typ().with_message("expected an element object"))?;
-            // Return cached style object if available.
-            let cached = obj.get(js_string!(STYLE_CACHE_KEY), ctx)?;
-            if !cached.is_undefined() {
-                return Ok(cached);
-            }
-            let entity = extract_entity(this, ctx)?;
-            let style_val = crate::globals::window::create_style_object(entity, bridge, ctx);
-            // Cache on the element for identity preservation (el.style === el.style).
-            obj.set(js_string!(STYLE_CACHE_KEY), style_val.clone(), false, ctx)?;
-            Ok(style_val)
-        },
-        b,
-    )
-    .to_js_function(&realm);
-
-    init.accessor(
-        js_string!("style"),
-        Some(style_getter),
-        None,
-        Attribute::CONFIGURABLE,
+    register_cached_accessor(
+        &mut init,
+        &realm,
+        bridge,
+        "style",
+        STYLE_CACHE_KEY,
+        crate::globals::window::create_style_object,
     );
 
     // --- classList property (cached on first access) ---
-    let b = bridge.clone();
-    let classlist_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let obj = this
-                .as_object()
-                .ok_or_else(|| JsNativeError::typ().with_message("expected an element object"))?;
-            // Return cached classList object if available.
-            let cached = obj.get(js_string!(CLASSLIST_CACHE_KEY), ctx)?;
-            if !cached.is_undefined() {
-                return Ok(cached);
-            }
-            let entity = extract_entity(this, ctx)?;
-            let list_val = create_class_list_object(entity, bridge, ctx);
-            // Cache on the element for identity preservation (el.classList === el.classList).
-            obj.set(
-                js_string!(CLASSLIST_CACHE_KEY),
-                list_val.clone(),
-                false,
-                ctx,
-            )?;
-            Ok(list_val)
-        },
-        b,
-    )
-    .to_js_function(&realm);
-
-    init.accessor(
-        js_string!("classList"),
-        Some(classlist_getter),
-        None,
-        Attribute::CONFIGURABLE,
+    register_cached_accessor(
+        &mut init,
+        &realm,
+        bridge,
+        "classList",
+        CLASSLIST_CACHE_KEY,
+        create_class_list_object,
     );
 
     // --- Event listener methods ---
@@ -384,6 +326,48 @@ fn build_element_object(
     init.build()
 }
 
+/// Register a cached read-only accessor (style, classList) on an element object.
+///
+/// The accessor returns a cached sub-object on subsequent accesses (identity
+/// preservation: `el.style === el.style`). The `create_fn` builds the object
+/// on first access, and it's stored under `cache_key` on the element wrapper.
+fn register_cached_accessor(
+    init: &mut ObjectInitializer<'_>,
+    realm: &boa_engine::realm::Realm,
+    bridge: &HostBridge,
+    prop_name: &str,
+    cache_key: &'static str,
+    create_fn: fn(Entity, &HostBridge, &mut Context) -> JsValue,
+) {
+    let b = bridge.clone();
+    let getter = NativeFunction::from_copy_closure_with_captures(
+        move |this, _args, bridge, ctx| {
+            let obj = this
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("expected an element object"))?;
+            // Return cached object if available.
+            let cached = obj.get(js_string!(cache_key), ctx)?;
+            if !cached.is_undefined() {
+                return Ok(cached);
+            }
+            let entity = extract_entity(this, ctx)?;
+            let val = create_fn(entity, bridge, ctx);
+            // Cache on the element for identity preservation.
+            obj.set(js_string!(cache_key), val.clone(), false, ctx)?;
+            Ok(val)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!(prop_name),
+        Some(getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
 fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity.to_bits().get() as f64;
 
@@ -401,12 +385,12 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.add", ctx)?;
-                bridge.with(|session, dom| {
-                    elidex_dom_api::ClassListAdd
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(JsValue::undefined())
-                })
+                invoke_dom_handler_void(
+                    &elidex_dom_api::ClassListAdd,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -421,12 +405,12 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.remove", ctx)?;
-                bridge.with(|session, dom| {
-                    elidex_dom_api::ClassListRemove
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(JsValue::undefined())
-                })
+                invoke_dom_handler_void(
+                    &elidex_dom_api::ClassListRemove,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -441,12 +425,12 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.toggle", ctx)?;
-                bridge.with(|session, dom| {
-                    let result = elidex_dom_api::ClassListToggle
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
-                })
+                invoke_dom_handler(
+                    &elidex_dom_api::ClassListToggle,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -461,12 +445,12 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.contains", ctx)?;
-                bridge.with(|session, dom| {
-                    let result = elidex_dom_api::ClassListContains
-                        .invoke(entity, &[ElidexJsValue::String(name)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(value_conv::to_boa(&result))
-                })
+                invoke_dom_handler(
+                    &elidex_dom_api::ClassListContains,
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
             },
             b,
         ),
@@ -489,9 +473,8 @@ pub fn resolve_object_ref(
     match result {
         ElidexJsValue::ObjectRef(id) => {
             let obj_ref = JsObjectRef::from_raw(*id);
-            bridge.with(|session, dom| {
+            bridge.with(|session, _dom| {
                 if let Some((entity, _kind)) = session.identity_map().get(obj_ref) {
-                    let _ = dom; // dom is available but not needed here
                     create_element_wrapper(entity, bridge, obj_ref, ctx)
                 } else {
                     JsValue::null()

@@ -7,6 +7,27 @@ use crate::values::parse_length_or_percentage;
 
 use super::{parse_value_property, single_decl, Declaration};
 
+/// Build the three longhand declarations for the `flex` shorthand.
+fn flex_triple(grow: f32, shrink: f32, basis: CssValue) -> Vec<Declaration> {
+    vec![
+        Declaration {
+            property: "flex-grow".into(),
+            value: CssValue::Number(grow),
+            important: false,
+        },
+        Declaration {
+            property: "flex-shrink".into(),
+            value: CssValue::Number(shrink),
+            important: false,
+        },
+        Declaration {
+            property: "flex-basis".into(),
+            value: basis,
+            important: false,
+        },
+    ]
+}
+
 /// Parse a non-negative number property (flex-grow, flex-shrink).
 pub(super) fn parse_non_negative_number(input: &mut Parser, name: &str) -> Vec<Declaration> {
     input
@@ -72,40 +93,8 @@ pub(super) fn parse_flex_shorthand(input: &mut Parser) -> Vec<Declaration> {
         let ident = i.expect_ident().map_err(|_| ())?;
         let lower = ident.to_ascii_lowercase();
         match lower.as_str() {
-            "none" => Ok(vec![
-                Declaration {
-                    property: "flex-grow".into(),
-                    value: CssValue::Number(0.0),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-shrink".into(),
-                    value: CssValue::Number(0.0),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-basis".into(),
-                    value: CssValue::Auto,
-                    important: false,
-                },
-            ]),
-            "auto" => Ok(vec![
-                Declaration {
-                    property: "flex-grow".into(),
-                    value: CssValue::Number(1.0),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-shrink".into(),
-                    value: CssValue::Number(1.0),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-basis".into(),
-                    value: CssValue::Auto,
-                    important: false,
-                },
-            ]),
+            "none" => Ok(flex_triple(0.0, 0.0, CssValue::Auto)),
+            "auto" => Ok(flex_triple(1.0, 1.0, CssValue::Auto)),
             _ => Err(()),
         }
     }) {
@@ -155,23 +144,7 @@ pub(super) fn parse_flex_shorthand(input: &mut Parser) -> Vec<Declaration> {
                 }
             };
 
-            Ok(vec![
-                Declaration {
-                    property: "flex-grow".into(),
-                    value: CssValue::Number(grow),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-shrink".into(),
-                    value: CssValue::Number(shrink_val),
-                    important: false,
-                },
-                Declaration {
-                    property: "flex-basis".into(),
-                    value: basis_val,
-                    important: false,
-                },
-            ])
+            Ok(flex_triple(grow, shrink_val, basis_val))
         })
         .unwrap_or_default()
 }

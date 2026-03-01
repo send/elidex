@@ -1,11 +1,8 @@
-//! CSS value types used by [`CssPropertyHandler`](crate::CssPropertyHandler).
+//! CSS value types.
 
 use std::fmt;
 
 /// A parsed CSS value before resolution.
-///
-/// Produced by [`CssPropertyHandler::parse()`](crate::CssPropertyHandler::parse)
-/// and consumed by [`CssPropertyHandler::resolve()`](crate::CssPropertyHandler::resolve).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CssValue {
@@ -45,6 +42,7 @@ pub enum CssValue {
 
 impl CssValue {
     /// Extract the keyword string if this is a `Keyword` variant.
+    #[must_use]
     pub fn as_keyword(&self) -> Option<&str> {
         match self {
             Self::Keyword(s) => Some(s),
@@ -53,6 +51,7 @@ impl CssValue {
     }
 
     /// Extract the length and unit if this is a `Length` variant.
+    #[must_use]
     pub fn as_length(&self) -> Option<(f32, LengthUnit)> {
         match self {
             Self::Length(v, u) => Some((*v, *u)),
@@ -61,6 +60,7 @@ impl CssValue {
     }
 
     /// Extract the color if this is a `Color` variant.
+    #[must_use]
     pub fn as_color(&self) -> Option<&CssColor> {
         match self {
             Self::Color(c) => Some(c),
@@ -69,6 +69,7 @@ impl CssValue {
     }
 
     /// Extract the number if this is a `Number` variant.
+    #[must_use]
     pub fn as_number(&self) -> Option<f32> {
         match self {
             Self::Number(n) => Some(*n),
@@ -77,6 +78,7 @@ impl CssValue {
     }
 
     /// Extract the percentage if this is a `Percentage` variant.
+    #[must_use]
     pub fn as_percentage(&self) -> Option<f32> {
         match self {
             Self::Percentage(p) => Some(*p),
@@ -85,11 +87,13 @@ impl CssValue {
     }
 
     /// Returns `true` if this is the `Auto` variant.
+    #[must_use]
     pub fn is_auto(&self) -> bool {
         matches!(self, Self::Auto)
     }
 
     /// Returns `true` if this is a global keyword (`initial`, `inherit`, or `unset`).
+    #[must_use]
     pub fn is_global_keyword(&self) -> bool {
         matches!(self, Self::Initial | Self::Inherit | Self::Unset)
     }
@@ -172,29 +176,6 @@ impl fmt::Display for CssColor {
             )
         }
     }
-}
-
-/// A fully-resolved CSS value after cascade and inheritance.
-///
-/// All relative units have been resolved to absolute values.
-/// Produced by [`CssPropertyHandler::resolve()`](crate::CssPropertyHandler::resolve).
-#[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum ComputedValue {
-    /// A resolved length in pixels.
-    Length(f32),
-    /// A resolved RGBA color.
-    Color(CssColor),
-    /// A keyword value (e.g. `block`, `inline`).
-    Keyword(String),
-    /// A unitless number.
-    Number(f32),
-    /// A list of strings (e.g. `font-family`).
-    StringList(Vec<String>),
-    /// The resolved `auto` value.
-    Auto,
-    /// The resolved `none` value.
-    None,
 }
 
 #[cfg(test)]
@@ -299,17 +280,6 @@ mod tests {
             CssValue::List(items) => assert_eq!(items.len(), 2),
             _ => panic!("expected List"),
         }
-    }
-
-    #[test]
-    fn computed_value_variants() {
-        let _ = ComputedValue::Length(100.0);
-        let _ = ComputedValue::Color(CssColor::WHITE);
-        let _ = ComputedValue::Keyword("flex".into());
-        let _ = ComputedValue::Number(1.0);
-        let _ = ComputedValue::StringList(vec!["Arial".into(), "sans-serif".into()]);
-        let _ = ComputedValue::Auto;
-        let _ = ComputedValue::None;
     }
 
     #[test]

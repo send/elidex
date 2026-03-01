@@ -145,13 +145,7 @@ impl NetClient {
         self.middleware.process_request(&mut request)?;
 
         // Add cookies
-        let cookies = self.cookie_jar.cookies_for_url(&request.url);
-        if !cookies.is_empty() {
-            let cookie_header = cookies
-                .iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect::<Vec<_>>()
-                .join("; ");
+        if let Some(cookie_header) = self.cookie_jar.cookie_header_for_url(&request.url) {
             request.headers.push(("cookie".to_string(), cookie_header));
         }
 

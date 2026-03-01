@@ -64,8 +64,8 @@ pub fn resolve_styles(
 
 /// Find root entities to start the tree walk.
 ///
-/// Currently scans all entities — acceptable for Phase 1 tree sizes.
-/// Phase 2: track the document root entity directly in `EcsDom`.
+/// Currently scans all entities.
+/// TODO: track the document root entity directly in `EcsDom`.
 fn find_roots(dom: &EcsDom) -> Vec<Entity> {
     // Collect all entities that have no parent.
     let mut roots = Vec::new();
@@ -99,12 +99,7 @@ fn walk_tree(
         let winners = collect_and_cascade(entity, dom, stylesheets, &inline_decls);
 
         // Build resolve context with parent's font-size.
-        let element_ctx = ResolveContext {
-            viewport_width: ctx.viewport_width,
-            viewport_height: ctx.viewport_height,
-            em_base: parent_style.font_size,
-            root_font_size: ctx.root_font_size,
-        };
+        let element_ctx = ctx.with_em_base(parent_style.font_size);
 
         // Resolve values → ComputedStyle.
         let style = build_computed_style(&winners, parent_style, &element_ctx);

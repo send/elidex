@@ -24,6 +24,22 @@
 //! }
 //! ```
 
+/// Implement no-op `boa_gc::Trace` and `boa_gc::Finalize` for types that
+/// contain no GC-managed objects (e.g. `Rc`-wrapped Rust data).
+macro_rules! impl_empty_trace {
+    ($ty:ty) => {
+        #[allow(unsafe_code)]
+        unsafe impl boa_gc::Trace for $ty {
+            boa_gc::custom_trace!(this, mark, {
+                let _ = this;
+            });
+        }
+        impl boa_gc::Finalize for $ty {
+            fn finalize(&self) {}
+        }
+    };
+}
+
 mod bridge;
 mod error_conv;
 mod globals;

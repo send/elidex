@@ -15,7 +15,7 @@ use elidex_plugin::{
 use crate::inherit::{get_initial_value, is_inherited};
 
 /// Cascade winner map: property name → winning CSS value.
-type PropertyMap<'a> = std::collections::HashMap<&'a str, &'a CssValue>;
+type PropertyMap<'a> = HashMap<&'a str, &'a CssValue>;
 
 /// Context for resolving relative CSS values.
 pub(crate) struct ResolveContext {
@@ -58,18 +58,32 @@ pub(crate) fn resolve_length(value: f32, unit: LengthUnit, ctx: &ResolveContext)
     }
 }
 
+/// CSS absolute font-size keyword values in pixels (CSS Values Level 3).
+const FONT_SIZE_XX_SMALL: f32 = 9.0;
+const FONT_SIZE_X_SMALL: f32 = 10.0;
+const FONT_SIZE_SMALL: f32 = 13.0;
+const FONT_SIZE_MEDIUM: f32 = 16.0;
+const FONT_SIZE_LARGE: f32 = 18.0;
+const FONT_SIZE_X_LARGE: f32 = 24.0;
+const FONT_SIZE_XX_LARGE: f32 = 32.0;
+
+/// Scale factor for the `smaller` relative font-size keyword (~5/6).
+const FONT_SIZE_SMALLER_RATIO: f32 = 0.833;
+/// Scale factor for the `larger` relative font-size keyword (~6/5).
+const FONT_SIZE_LARGER_RATIO: f32 = 1.2;
+
 /// Resolve font-size keywords to pixel values.
 fn resolve_font_size_keyword(keyword: &str, parent_font_size: f32) -> Option<f32> {
     match keyword {
-        "xx-small" => Some(9.0),
-        "x-small" => Some(10.0),
-        "small" => Some(13.0),
-        "medium" => Some(16.0),
-        "large" => Some(18.0),
-        "x-large" => Some(24.0),
-        "xx-large" => Some(32.0),
-        "smaller" => Some(parent_font_size * 0.833),
-        "larger" => Some(parent_font_size * 1.2),
+        "xx-small" => Some(FONT_SIZE_XX_SMALL),
+        "x-small" => Some(FONT_SIZE_X_SMALL),
+        "small" => Some(FONT_SIZE_SMALL),
+        "medium" => Some(FONT_SIZE_MEDIUM),
+        "large" => Some(FONT_SIZE_LARGE),
+        "x-large" => Some(FONT_SIZE_X_LARGE),
+        "xx-large" => Some(FONT_SIZE_XX_LARGE),
+        "smaller" => Some(parent_font_size * FONT_SIZE_SMALLER_RATIO),
+        "larger" => Some(parent_font_size * FONT_SIZE_LARGER_RATIO),
         _ => None,
     }
 }
@@ -93,6 +107,15 @@ fn resolve_keyword(
         }
         _ => None,
     }
+}
+
+/// Wrap an `AsRef<str>` value in `CssValue::Keyword`.
+///
+/// Shorthand for `CssValue::Keyword(val.as_ref().to_string())`, used to
+/// convert keyword-enum fields back into CSS values for inheritance and
+/// `getComputedStyle()`.
+fn keyword_from<T: AsRef<str>>(val: &T) -> CssValue {
+    CssValue::Keyword(val.as_ref().to_string())
 }
 
 /// Extract a property's computed value back into a [`CssValue`] for inheritance.
@@ -124,10 +147,10 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
             LineHeight::Number(n) => CssValue::Number(n),
             LineHeight::Px(px) => CssValue::Length(px, LengthUnit::Px),
         },
-        "text-transform" => CssValue::Keyword(style.text_transform.as_ref().to_string()),
-        "text-align" => CssValue::Keyword(style.text_align.as_ref().to_string()),
-        "white-space" => CssValue::Keyword(style.white_space.as_ref().to_string()),
-        "list-style-type" => CssValue::Keyword(style.list_style_type.as_ref().to_string()),
+        "text-transform" => keyword_from(&style.text_transform),
+        "text-align" => keyword_from(&style.text_align),
+        "white-space" => keyword_from(&style.white_space),
+        "list-style-type" => keyword_from(&style.list_style_type),
         "text-decoration-line" => {
             let d = &style.text_decoration_line;
             if d.underline && d.line_through {
@@ -139,9 +162,9 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
                 CssValue::Keyword(d.to_string())
             }
         }
-        "display" => CssValue::Keyword(style.display.as_ref().to_string()),
-        "position" => CssValue::Keyword(style.position.as_ref().to_string()),
-        "overflow" => CssValue::Keyword(style.overflow.as_ref().to_string()),
+        "display" => keyword_from(&style.display),
+        "position" => keyword_from(&style.position),
+        "overflow" => keyword_from(&style.overflow),
         "background-color" => CssValue::Color(style.background_color),
         "width" => dimension_to_css_value(style.width),
         "height" => dimension_to_css_value(style.height),
@@ -173,20 +196,20 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "border-right-width" => CssValue::Length(style.border_right_width, LengthUnit::Px),
         "border-bottom-width" => CssValue::Length(style.border_bottom_width, LengthUnit::Px),
         "border-left-width" => CssValue::Length(style.border_left_width, LengthUnit::Px),
-        "border-top-style" => CssValue::Keyword(style.border_top_style.as_ref().to_string()),
-        "border-right-style" => CssValue::Keyword(style.border_right_style.as_ref().to_string()),
-        "border-bottom-style" => CssValue::Keyword(style.border_bottom_style.as_ref().to_string()),
-        "border-left-style" => CssValue::Keyword(style.border_left_style.as_ref().to_string()),
+        "border-top-style" => keyword_from(&style.border_top_style),
+        "border-right-style" => keyword_from(&style.border_right_style),
+        "border-bottom-style" => keyword_from(&style.border_bottom_style),
+        "border-left-style" => keyword_from(&style.border_left_style),
         "border-top-color" => CssValue::Color(style.border_top_color),
         "border-right-color" => CssValue::Color(style.border_right_color),
         "border-bottom-color" => CssValue::Color(style.border_bottom_color),
         "border-left-color" => CssValue::Color(style.border_left_color),
-        "flex-direction" => CssValue::Keyword(style.flex_direction.as_ref().to_string()),
-        "flex-wrap" => CssValue::Keyword(style.flex_wrap.as_ref().to_string()),
-        "justify-content" => CssValue::Keyword(style.justify_content.as_ref().to_string()),
-        "align-items" => CssValue::Keyword(style.align_items.as_ref().to_string()),
-        "align-content" => CssValue::Keyword(style.align_content.as_ref().to_string()),
-        "align-self" => CssValue::Keyword(style.align_self.as_ref().to_string()),
+        "flex-direction" => keyword_from(&style.flex_direction),
+        "flex-wrap" => keyword_from(&style.flex_wrap),
+        "justify-content" => keyword_from(&style.justify_content),
+        "align-items" => keyword_from(&style.align_items),
+        "align-content" => keyword_from(&style.align_content),
+        "align-self" => keyword_from(&style.align_self),
         "flex-grow" => CssValue::Number(style.flex_grow),
         "flex-shrink" => CssValue::Number(style.flex_shrink),
         "flex-basis" => dimension_to_css_value(style.flex_basis),
@@ -194,7 +217,7 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "order" => CssValue::Number(style.order as f32),
         "row-gap" => CssValue::Length(style.row_gap, LengthUnit::Px),
         "column-gap" => CssValue::Length(style.column_gap, LengthUnit::Px),
-        "box-sizing" => CssValue::Keyword(style.box_sizing.as_ref().to_string()),
+        "box-sizing" => keyword_from(&style.box_sizing),
         "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
         "opacity" => CssValue::Number(style.opacity),
         _ => get_initial_value(property),
@@ -213,103 +236,181 @@ pub fn dimension_to_css_value(d: Dimension) -> CssValue {
     }
 }
 
+/// Resolve a CSS keyword property to its corresponding enum variant.
+///
+/// Matches the keyword string from a `CssValue::Keyword` against a list of
+/// `(keyword_str, EnumVariant)` pairs via `$parser`, falling back to the
+/// enum's `Default` if no match. The result is assigned to `$field` only
+/// when the property is present in the cascade winners.
+///
+/// # Example
+///
+/// ```ignore
+/// resolve_keyword_enum_prop!(
+///     "display", winners, parent_style, style.display,
+///     |k| match k {
+///         "none" => Some(Display::None),
+///         "inline" => Some(Display::Inline),
+///         "flex" => Some(Display::Flex),
+///         _ => None,
+///     }
+/// );
+/// ```
+macro_rules! resolve_keyword_enum_prop {
+    ($prop:expr, $winners:expr, $parent:expr, $field:expr, $parser:expr) => {
+        if let Some(val) = resolve_keyword_enum($prop, $winners, $parent, $parser) {
+            $field = val;
+        }
+    };
+}
+
 /// Build a [`ComputedStyle`] from the cascade winner map.
 ///
 /// Resolution order: font-size first (dependencies), then color,
 /// then all remaining properties.
 // Sync: When adding a property, also update get_computed_as_css_value and get_initial_value.
-#[allow(clippy::too_many_lines)]
 pub(crate) fn build_computed_style(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> ComputedStyle {
-    let mut style = ComputedStyle::default();
+    // Phase 1: Build custom properties map (inherit from parent + override).
+    let mut style = ComputedStyle {
+        custom_properties: build_custom_properties(winners, parent_style),
+        ..ComputedStyle::default()
+    };
 
-    // --- Phase 1: Build custom properties map (inherit from parent + override) ---
-    let custom_props = build_custom_properties(winners, parent_style);
-    style.custom_properties = custom_props;
-
-    // --- Resolve var() references in winners ---
+    // Phase 2: Resolve var() references in winners.
     let resolved_winners = resolve_var_references(winners, &style.custom_properties);
     let winners = merge_winners(winners, &resolved_winners);
 
-    // --- Font properties (inherit by default) ---
-    // Font-size must be resolved first: em units in all other properties depend on it.
+    // Phase 3: Font-size first (em units in all other properties depend on it).
     let element_font_size = resolve_font_size(&winners, parent_style, ctx);
     style.font_size = element_font_size;
     let elem_ctx = ctx.with_em_base(element_font_size);
-    resolve_font_weight(&mut style, &winners, parent_style);
-    resolve_font_family(&mut style, &winners, parent_style);
-    resolve_line_height(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_text_transform(&mut style, &winners, parent_style);
-    resolve_text_align(&mut style, &winners, parent_style);
-    if let Some(val) = resolve_keyword_enum("white-space", &winners, parent_style, |k| match k {
-        "normal" => Some(WhiteSpace::Normal),
-        "pre" => Some(WhiteSpace::Pre),
-        "nowrap" => Some(WhiteSpace::NoWrap),
-        "pre-wrap" => Some(WhiteSpace::PreWrap),
-        "pre-line" => Some(WhiteSpace::PreLine),
-        _ => None,
-    }) {
-        style.white_space = val;
-    }
-    // white-space is inherited: apply parent if not declared.
-    if !winners.contains_key("white-space") {
-        style.white_space = parent_style.white_space;
-    }
-    if let Some(val) =
-        resolve_keyword_enum("list-style-type", &winners, parent_style, |k| match k {
+
+    // Phase 4: Font, text, and color properties.
+    resolve_font_and_text_properties(&mut style, &winners, parent_style, &elem_ctx);
+    style.color = resolve_color(&winners, parent_style);
+    resolve_background_color(&mut style, &winners, parent_style);
+
+    // Phase 5: Display, positioning, overflow.
+    resolve_display(&mut style, &winners, parent_style);
+    resolve_position(&mut style, &winners, parent_style);
+    resolve_keyword_enum_prop!(
+        "overflow",
+        &winners,
+        parent_style,
+        style.overflow,
+        |k| match k {
+            "visible" => Some(Overflow::Visible),
+            "hidden" => Some(Overflow::Hidden),
+            _ => None,
+        }
+    );
+
+    // Phase 6: Box model — dimensions, margin, padding, border, extras.
+    resolve_box_dimensions(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 7: Flex and gap properties.
+    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
+    resolve_flex_properties(&mut style, &winners, parent_style, dim);
+    resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    style
+}
+
+/// Resolve font, text, and inherited keyword-enum properties.
+fn resolve_font_and_text_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    resolve_font_weight(style, winners, parent_style);
+    resolve_font_family(style, winners, parent_style);
+    resolve_line_height(style, winners, parent_style, ctx);
+    style.text_transform = resolve_inherited_keyword_enum(
+        "text-transform",
+        winners,
+        parent_style,
+        parent_style.text_transform,
+        |k| match k {
+            "none" => Some(TextTransform::None),
+            "uppercase" => Some(TextTransform::Uppercase),
+            "lowercase" => Some(TextTransform::Lowercase),
+            "capitalize" => Some(TextTransform::Capitalize),
+            _ => None,
+        },
+    );
+    style.text_align = resolve_inherited_keyword_enum(
+        "text-align",
+        winners,
+        parent_style,
+        parent_style.text_align,
+        |k| match k {
+            "left" => Some(TextAlign::Left),
+            "center" => Some(TextAlign::Center),
+            "right" => Some(TextAlign::Right),
+            _ => None,
+        },
+    );
+    style.white_space = resolve_inherited_keyword_enum(
+        "white-space",
+        winners,
+        parent_style,
+        parent_style.white_space,
+        |k| match k {
+            "normal" => Some(WhiteSpace::Normal),
+            "pre" => Some(WhiteSpace::Pre),
+            "nowrap" => Some(WhiteSpace::NoWrap),
+            "pre-wrap" => Some(WhiteSpace::PreWrap),
+            "pre-line" => Some(WhiteSpace::PreLine),
+            _ => None,
+        },
+    );
+    style.list_style_type = resolve_inherited_keyword_enum(
+        "list-style-type",
+        winners,
+        parent_style,
+        parent_style.list_style_type,
+        |k| match k {
             "disc" => Some(ListStyleType::Disc),
             "circle" => Some(ListStyleType::Circle),
             "square" => Some(ListStyleType::Square),
             "decimal" => Some(ListStyleType::Decimal),
             "none" => Some(ListStyleType::None),
             _ => None,
-        })
-    {
-        style.list_style_type = val;
-    }
-    // list-style-type is inherited: apply parent if not declared.
-    if !winners.contains_key("list-style-type") {
-        style.list_style_type = parent_style.list_style_type;
-    }
+        },
+    );
+    // text-decoration-line is non-inherited.
+    resolve_text_decoration_line(style, winners, parent_style);
+}
 
-    // --- Text decoration (non-inherited) ---
-    resolve_text_decoration_line(&mut style, &winners, parent_style);
-
-    // --- Color properties ---
-    // Color must precede border-color (initial = currentcolor) and background-color.
-    style.color = resolve_color(&winners, parent_style);
-    resolve_background_color(&mut style, &winners, parent_style);
-
-    // --- Display & positioning ---
-    resolve_display(&mut style, &winners, parent_style);
-    resolve_position(&mut style, &winners, parent_style);
-    if let Some(val) = resolve_keyword_enum("overflow", &winners, parent_style, |k| match k {
-        "visible" => Some(Overflow::Visible),
-        "hidden" => Some(Overflow::Hidden),
-        _ => None,
-    }) {
-        style.overflow = val;
-    }
-
-    // --- Box model: dimensions, margin, padding ---
-    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
-    resolve_prop("width", &winners, parent_style, dim, |d| style.width = d);
-    resolve_prop("height", &winners, parent_style, dim, |d| {
+/// Resolve dimensions, margins, and padding.
+fn resolve_box_dimensions(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    let dim = |v: &CssValue| resolve_dimension(v, ctx);
+    resolve_prop("width", winners, parent_style, dim, |d| style.width = d);
+    resolve_prop("height", winners, parent_style, dim, |d| {
         style.height = d;
     });
-    resolve_prop("min-width", &winners, parent_style, dim, |d| {
+    resolve_prop("min-width", winners, parent_style, dim, |d| {
         style.min_width = d;
     });
-    resolve_prop("max-width", &winners, parent_style, dim, |d| {
+    resolve_prop("max-width", winners, parent_style, dim, |d| {
         style.max_width = d;
     });
-    resolve_prop("min-height", &winners, parent_style, dim, |d| {
+    resolve_prop("min-height", winners, parent_style, dim, |d| {
         style.min_height = d;
     });
-    resolve_prop("max-height", &winners, parent_style, dim, |d| {
+    resolve_prop("max-height", winners, parent_style, dim, |d| {
         style.max_height = d;
     });
     for (prop, setter) in [
@@ -321,9 +422,9 @@ pub(crate) fn build_computed_style(
         ("margin-bottom", |s, d| s.margin_bottom = d),
         ("margin-left", |s, d| s.margin_left = d),
     ] {
-        resolve_prop(prop, &winners, parent_style, dim, |d| setter(&mut style, d));
+        resolve_prop(prop, winners, parent_style, dim, |d| setter(style, d));
     }
-    let px = |v: &CssValue| resolve_to_px(v, &elem_ctx);
+    let px = |v: &CssValue| resolve_to_px(v, ctx);
     for (prop, setter) in [
         (
             "padding-top",
@@ -333,26 +434,35 @@ pub(crate) fn build_computed_style(
         ("padding-bottom", |s, v| s.padding_bottom = v),
         ("padding-left", |s, v| s.padding_left = v),
     ] {
-        resolve_prop(prop, &winners, parent_style, px, |v| setter(&mut style, v));
+        resolve_prop(prop, winners, parent_style, px, |v| setter(style, v));
     }
+}
 
-    // --- Border properties (style → width → color) ---
-    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
-
-    // --- Box model: box-sizing, border-radius, opacity ---
-    if let Some(val) = resolve_keyword_enum("box-sizing", &winners, parent_style, |k| match k {
-        "content-box" => Some(BoxSizing::ContentBox),
-        "border-box" => Some(BoxSizing::BorderBox),
-        _ => None,
-    }) {
-        style.box_sizing = val;
-    }
-    resolve_prop("border-radius", &winners, parent_style, px, |v| {
+/// Resolve box-sizing, border-radius, and opacity.
+fn resolve_box_model_extras(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    resolve_keyword_enum_prop!(
+        "box-sizing",
+        winners,
+        parent_style,
+        style.box_sizing,
+        |k| match k {
+            "content-box" => Some(BoxSizing::ContentBox),
+            "border-box" => Some(BoxSizing::BorderBox),
+            _ => None,
+        }
+    );
+    let px = |v: &CssValue| resolve_to_px(v, ctx);
+    resolve_prop("border-radius", winners, parent_style, px, |v| {
         style.border_radius = v.max(0.0);
     });
     resolve_prop(
         "opacity",
-        &winners,
+        winners,
         parent_style,
         |v| match v {
             CssValue::Number(n) => n.clamp(0.0, 1.0),
@@ -360,22 +470,26 @@ pub(crate) fn build_computed_style(
         },
         |v| style.opacity = v,
     );
+}
 
-    // --- Flex properties ---
-    resolve_flex_properties(&mut style, &winners, parent_style, dim);
-
-    // --- Gap properties ---
-    // NOTE: gap percentages resolve to 0 because resolve_to_px has no
-    // containing block width. Proper percentage gap requires layout-time
-    // resolution with Dimension storage (Phase 4).
-    resolve_prop("row-gap", &winners, parent_style, px, |v| {
+/// Resolve row-gap and column-gap.
+///
+/// NOTE: gap percentages resolve to 0 because `resolve_to_px` has no
+/// containing block width. Proper percentage gap requires layout-time
+/// resolution with Dimension storage (Phase 4).
+fn resolve_gap_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    let px = |v: &CssValue| resolve_to_px(v, ctx);
+    resolve_prop("row-gap", winners, parent_style, px, |v| {
         style.row_gap = v.max(0.0);
     });
-    resolve_prop("column-gap", &winners, parent_style, px, |v| {
+    resolve_prop("column-gap", winners, parent_style, px, |v| {
         style.column_gap = v.max(0.0);
     });
-
-    style
 }
 
 // --- Custom property resolution ---
@@ -524,34 +638,6 @@ fn merge_winners<'a>(
     merged
 }
 
-/// Resolve a CSS keyword property to its corresponding enum variant.
-///
-/// Matches the keyword string from a `CssValue::Keyword` against a list of
-/// `(keyword_str, EnumVariant)` pairs via `$parser`, falling back to the
-/// enum's `Default` if no match. The result is assigned to `$field` only
-/// when the property is present in the cascade winners.
-///
-/// # Example
-///
-/// ```ignore
-/// resolve_keyword_enum_prop!(
-///     "display", winners, parent_style, style.display,
-///     |k| match k {
-///         "none" => Some(Display::None),
-///         "inline" => Some(Display::Inline),
-///         "flex" => Some(Display::Flex),
-///         _ => None,
-///     }
-/// );
-/// ```
-macro_rules! resolve_keyword_enum_prop {
-    ($prop:expr, $winners:expr, $parent:expr, $field:expr, $parser:expr) => {
-        if let Some(val) = resolve_keyword_enum($prop, $winners, $parent, $parser) {
-            $field = val;
-        }
-    };
-}
-
 /// Resolve all flex-related properties.
 fn resolve_flex_properties(
     style: &mut ComputedStyle,
@@ -679,6 +765,20 @@ fn resolve_flex_keyword_enums(
     );
 }
 
+// --- Shared helpers ---
+
+/// Get the cascade winner for a property, resolving `inherit`/`initial`/`unset`
+/// keywords. Returns `None` if the property is not in the winners map (caller
+/// should apply inheritance or initial value as appropriate).
+fn get_resolved_winner(
+    property: &str,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) -> Option<CssValue> {
+    let value = winners.get(property)?;
+    Some(resolve_keyword_or_clone(property, value, parent_style))
+}
+
 // --- Individual property resolvers ---
 
 fn resolve_font_size(
@@ -686,12 +786,10 @@ fn resolve_font_size(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> f32 {
-    let Some(value) = winners.get("font-size") else {
-        // No declaration — inherit from parent.
-        return parent_style.font_size;
-    };
-    let value = resolve_keyword_or_clone("font-size", value, parent_style);
-    resolve_font_size_value(&value, parent_style, ctx)
+    match get_resolved_winner("font-size", winners, parent_style) {
+        Some(value) => resolve_font_size_value(&value, parent_style, ctx),
+        None => parent_style.font_size,
+    }
 }
 
 fn resolve_font_size_value(
@@ -713,13 +811,9 @@ fn resolve_font_size_value(
 }
 
 fn resolve_color(winners: &PropertyMap<'_>, parent_style: &ComputedStyle) -> CssColor {
-    let Some(value) = winners.get("color") else {
-        return parent_style.color;
-    };
-    let value = resolve_keyword_or_clone("color", value, parent_style);
-    match value {
-        CssValue::Color(c) => c,
-        _ => parent_style.color,
+    match get_resolved_winner("color", winners, parent_style) {
+        Some(CssValue::Color(c)) => c,
+        Some(_) | None => parent_style.color,
     }
 }
 
@@ -728,13 +822,8 @@ fn resolve_font_family(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("font-family") else {
-        style.font_family.clone_from(&parent_style.font_family);
-        return;
-    };
-    let value = resolve_keyword_or_clone("font-family", value, parent_style);
-    match value {
-        CssValue::List(items) => {
+    match get_resolved_winner("font-family", winners, parent_style) {
+        Some(CssValue::List(items)) => {
             style.font_family = items
                 .iter()
                 .filter_map(|v| match v {
@@ -755,15 +844,10 @@ fn resolve_font_weight(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("font-weight") else {
-        style.font_weight = parent_style.font_weight;
-        return;
-    };
-    let value = resolve_keyword_or_clone("font-weight", value, parent_style);
-    style.font_weight = match &value {
+    style.font_weight = match get_resolved_winner("font-weight", winners, parent_style) {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        CssValue::Number(n) => n.round().clamp(1.0, 1000.0) as u16,
-        CssValue::Keyword(k) => match k.as_str() {
+        Some(CssValue::Number(n)) => n.round().clamp(1.0, 1000.0) as u16,
+        Some(CssValue::Keyword(ref k)) => match k.as_str() {
             "normal" => 400,
             "bold" => 700,
             _ => parent_style.font_weight,
@@ -778,66 +862,34 @@ fn resolve_line_height(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
-    let Some(value) = winners.get("line-height") else {
-        style.line_height = parent_style.line_height;
-        return;
-    };
-    let value = resolve_keyword_or_clone("line-height", value, parent_style);
-    style.line_height = match &value {
-        CssValue::Keyword(k) if k == "normal" => LineHeight::Normal,
+    style.line_height = match get_resolved_winner("line-height", winners, parent_style) {
+        Some(CssValue::Keyword(ref k)) if k == "normal" => LineHeight::Normal,
         // Unitless number: inherited as-is, recomputed per element's font-size.
-        CssValue::Number(n) => LineHeight::Number(*n),
+        Some(CssValue::Number(n)) => LineHeight::Number(n),
         // Absolute length: resolve to px.
-        CssValue::Length(v, unit) => LineHeight::Px(resolve_length(*v, *unit, ctx)),
+        Some(CssValue::Length(v, unit)) => LineHeight::Px(resolve_length(v, unit, ctx)),
         // Percentage: resolve to px (relative to element's font-size).
-        CssValue::Percentage(p) => LineHeight::Px(style.font_size * p / 100.0),
+        Some(CssValue::Percentage(p)) => LineHeight::Px(style.font_size * p / 100.0),
         _ => parent_style.line_height,
     };
 }
 
-fn resolve_text_transform(
-    style: &mut ComputedStyle,
+/// Resolve an inherited keyword-enum property.
+///
+/// If present in the winners map, converts the keyword via `from_keyword`.
+/// If absent, inherits from `parent_value`. This unifies the common pattern
+/// used by text-transform, text-align, white-space, and list-style-type.
+fn resolve_inherited_keyword_enum<T: Copy>(
+    property: &str,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
-) {
-    let Some(value) = winners.get("text-transform") else {
-        // Inherited: use parent's value.
-        style.text_transform = parent_style.text_transform;
-        return;
-    };
-    let value = resolve_keyword_or_clone("text-transform", value, parent_style);
-    style.text_transform = match value {
-        CssValue::Keyword(ref k) => match k.as_str() {
-            "none" => TextTransform::None,
-            "uppercase" => TextTransform::Uppercase,
-            "lowercase" => TextTransform::Lowercase,
-            "capitalize" => TextTransform::Capitalize,
-            _ => parent_style.text_transform,
-        },
-        _ => parent_style.text_transform,
-    };
-}
-
-fn resolve_text_align(
-    style: &mut ComputedStyle,
-    winners: &PropertyMap<'_>,
-    parent_style: &ComputedStyle,
-) {
-    let Some(value) = winners.get("text-align") else {
-        // Inherited: use parent's value.
-        style.text_align = parent_style.text_align;
-        return;
-    };
-    let value = resolve_keyword_or_clone("text-align", value, parent_style);
-    style.text_align = match value {
-        CssValue::Keyword(ref k) => match k.as_str() {
-            "left" => TextAlign::Left,
-            "center" => TextAlign::Center,
-            "right" => TextAlign::Right,
-            _ => parent_style.text_align,
-        },
-        _ => parent_style.text_align,
-    };
+    parent_value: T,
+    from_keyword: impl Fn(&str) -> Option<T>,
+) -> T {
+    match get_resolved_winner(property, winners, parent_style) {
+        Some(CssValue::Keyword(ref k)) => from_keyword(k).unwrap_or(parent_value),
+        Some(_) | None => parent_value,
+    }
 }
 
 fn resolve_text_decoration_line(
@@ -845,11 +897,10 @@ fn resolve_text_decoration_line(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("text-decoration-line") else {
+    let Some(value) = get_resolved_winner("text-decoration-line", winners, parent_style) else {
         // Non-inherited: keep default (none). Don't inherit from parent.
         return;
     };
-    let value = resolve_keyword_or_clone("text-decoration-line", value, parent_style);
     style.text_decoration_line = match &value {
         CssValue::Keyword(k) => match k.as_str() {
             "underline" => TextDecorationLine {
@@ -880,15 +931,18 @@ fn resolve_text_decoration_line(
     };
 }
 
-/// Resolve a keyword enum property from the winners map.
+/// Resolve a non-inherited keyword enum property from the winners map.
+///
+/// Returns `None` if the property is absent from the winners (caller keeps
+/// the default). Returns `Some(T)` when a value is found, mapping the keyword
+/// through `from_keyword` or falling back to `T::default()`.
 fn resolve_keyword_enum<T: Default>(
     property: &str,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     from_keyword: impl Fn(&str) -> Option<T>,
 ) -> Option<T> {
-    let value = winners.get(property)?;
-    let value = resolve_keyword_or_clone(property, value, parent_style);
+    let value = get_resolved_winner(property, winners, parent_style)?;
     Some(match value {
         CssValue::Keyword(ref k) => from_keyword(k).unwrap_or_default(),
         _ => T::default(),
@@ -943,13 +997,9 @@ fn resolve_background_color(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
-    let Some(value) = winners.get("background-color") else {
-        return;
-    };
-    let value = resolve_keyword_or_clone("background-color", value, parent_style);
-    match value {
-        CssValue::Color(c) => style.background_color = c,
-        CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
+    match get_resolved_winner("background-color", winners, parent_style) {
+        Some(CssValue::Color(c)) => style.background_color = c,
+        Some(CssValue::Keyword(ref k)) if k.eq_ignore_ascii_case("currentcolor") => {
             style.background_color = style.color;
         }
         _ => {}
@@ -964,11 +1014,9 @@ fn resolve_prop<T>(
     convert: impl Fn(&CssValue) -> T,
     set: impl FnOnce(T),
 ) {
-    let Some(value) = winners.get(property) else {
-        return;
-    };
-    let value = resolve_keyword_or_clone(property, value, parent_style);
-    set(convert(&value));
+    if let Some(value) = get_resolved_winner(property, winners, parent_style) {
+        set(convert(&value));
+    }
 }
 
 fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
@@ -998,36 +1046,89 @@ fn resolve_border_style_value(value: &CssValue) -> BorderStyle {
     }
 }
 
-/// Get the border-style for the side corresponding to a border-width property.
-fn border_style_for_width(style: &ComputedStyle, width_prop: &str) -> BorderStyle {
-    match width_prop {
-        "border-top-width" => style.border_top_style,
-        "border-right-width" => style.border_right_style,
-        "border-bottom-width" => style.border_bottom_style,
-        "border-left-width" => style.border_left_style,
+/// Border property names for all four sides, indexed by side (0=top, 1=right, 2=bottom, 3=left).
+const BORDER_STYLE_PROPS: [&str; 4] = [
+    "border-top-style",
+    "border-right-style",
+    "border-bottom-style",
+    "border-left-style",
+];
+const BORDER_WIDTH_PROPS: [&str; 4] = [
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+];
+const BORDER_COLOR_PROPS: [&str; 4] = [
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+];
+
+/// Return mutable references to the border (style, width, color) fields for
+/// the given side index (0=top, 1=right, 2=bottom, 3=left).
+///
+/// # Panics
+///
+/// Panics if `side >= 4`.
+fn border_side_mut(
+    style: &mut ComputedStyle,
+    side: usize,
+) -> (&mut BorderStyle, &mut f32, &mut CssColor) {
+    match side {
+        0 => (
+            &mut style.border_top_style,
+            &mut style.border_top_width,
+            &mut style.border_top_color,
+        ),
+        1 => (
+            &mut style.border_right_style,
+            &mut style.border_right_width,
+            &mut style.border_right_color,
+        ),
+        2 => (
+            &mut style.border_bottom_style,
+            &mut style.border_bottom_width,
+            &mut style.border_bottom_color,
+        ),
+        3 => (
+            &mut style.border_left_style,
+            &mut style.border_left_width,
+            &mut style.border_left_color,
+        ),
+        _ => unreachable!("border side index must be 0..4"),
+    }
+}
+
+/// Get the border-style for a side by index (0=top, 1=right, 2=bottom, 3=left).
+fn border_style_by_side(style: &ComputedStyle, side: usize) -> BorderStyle {
+    match side {
+        0 => style.border_top_style,
+        1 => style.border_right_style,
+        2 => style.border_bottom_style,
+        3 => style.border_left_style,
         _ => BorderStyle::None,
     }
 }
 
-/// Set a border-width field by property name.
-fn set_border_width(style: &mut ComputedStyle, prop: &str, value: f32) {
-    match prop {
-        "border-top-width" => style.border_top_width = value,
-        "border-right-width" => style.border_right_width = value,
-        "border-bottom-width" => style.border_bottom_width = value,
-        "border-left-width" => style.border_left_width = value,
-        _ => {}
+/// Set border-style, border-width, and border-color for a side by index.
+fn set_border_side(
+    style: &mut ComputedStyle,
+    side: usize,
+    bs: Option<BorderStyle>,
+    bw: Option<f32>,
+    bc: Option<CssColor>,
+) {
+    let (s, w, c) = border_side_mut(style, side);
+    if let Some(v) = bs {
+        *s = v;
     }
-}
-
-/// Set a border-color field by property name.
-fn set_border_color(style: &mut ComputedStyle, prop: &str, color: CssColor) {
-    match prop {
-        "border-top-color" => style.border_top_color = color,
-        "border-right-color" => style.border_right_color = color,
-        "border-bottom-color" => style.border_bottom_color = color,
-        "border-left-color" => style.border_left_color = color,
-        _ => {}
+    if let Some(v) = bw {
+        *w = v;
+    }
+    if let Some(v) = bc {
+        *c = v;
     }
 }
 
@@ -1041,83 +1142,45 @@ fn resolve_border_properties(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
-    const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
-
     // Border styles must be resolved before border widths (width = 0 when style = none).
-    let bs = |v: &CssValue| resolve_border_style_value(v);
-    for side in &SIDES {
-        let prop = format!("border-{side}-style");
-        resolve_prop(&prop, winners, parent_style, bs, |v| {
-            set_border_style(style, side, v);
-        });
+    for (side, prop) in BORDER_STYLE_PROPS.iter().enumerate() {
+        if let Some(value) = get_resolved_winner(prop, winners, parent_style) {
+            set_border_side(
+                style,
+                side,
+                Some(resolve_border_style_value(&value)),
+                None,
+                None,
+            );
+        }
     }
 
     // Border widths (special: 0 when style = none).
-    for side in &SIDES {
-        let prop = format!("border-{side}-width");
-        resolve_border_width_prop(style, &prop, winners, parent_style, ctx);
+    for (side, prop) in BORDER_WIDTH_PROPS.iter().enumerate() {
+        // CSS spec: computed border-width is 0 when border-style is none.
+        let px = if border_style_by_side(style, side) == BorderStyle::None {
+            0.0
+        } else {
+            match get_resolved_winner(prop, winners, parent_style) {
+                Some(value) => resolve_to_px(&value, ctx),
+                None => 3.0, // medium
+            }
+        };
+        set_border_side(style, side, None, Some(px), None);
     }
 
     // Border colors (initial = currentcolor).
     let current_color = style.color;
-    for side in &SIDES {
-        let prop = format!("border-{side}-color");
-        resolve_border_color_prop(style, &prop, winners, parent_style, current_color);
-    }
-}
-
-/// Set a border-style field by side name.
-fn set_border_style(style: &mut ComputedStyle, side: &str, value: BorderStyle) {
-    match side {
-        "top" => style.border_top_style = value,
-        "right" => style.border_right_style = value,
-        "bottom" => style.border_bottom_style = value,
-        "left" => style.border_left_style = value,
-        _ => {}
-    }
-}
-
-fn resolve_border_width_prop(
-    style: &mut ComputedStyle,
-    property: &str,
-    winners: &PropertyMap<'_>,
-    parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-) {
-    // CSS spec: computed border-width is 0 when border-style is none.
-    let px = if border_style_for_width(style, property) == BorderStyle::None {
-        0.0
-    } else {
-        match winners.get(property) {
-            Some(value) => {
-                let value = resolve_keyword_or_clone(property, value, parent_style);
-                resolve_to_px(&value, ctx)
+    for (side, prop) in BORDER_COLOR_PROPS.iter().enumerate() {
+        let color = match get_resolved_winner(prop, winners, parent_style) {
+            Some(CssValue::Color(c)) => c,
+            Some(CssValue::Keyword(ref k)) if k.eq_ignore_ascii_case("currentcolor") => {
+                current_color
             }
-            None => 3.0, // medium
-        }
-    };
-    set_border_width(style, property, px);
-}
-
-fn resolve_border_color_prop(
-    style: &mut ComputedStyle,
-    property: &str,
-    winners: &PropertyMap<'_>,
-    parent_style: &ComputedStyle,
-    current_color: CssColor,
-) {
-    let color = match winners.get(property) {
-        Some(value) => {
-            let value = resolve_keyword_or_clone(property, value, parent_style);
-            match value {
-                CssValue::Color(c) => c,
-                CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => current_color,
-                _ => current_color,
-            }
-        }
-        None => current_color,
-    };
-    set_border_color(style, property, color);
+            _ => current_color,
+        };
+        set_border_side(style, side, None, None, Some(color));
+    }
 }
 
 /// Resolve a [`CssValue::Number`] to a non-negative `f32`.

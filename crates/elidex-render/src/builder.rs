@@ -20,6 +20,41 @@ use elidex_text::{shape_text, FontDatabase};
 use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
 use crate::font_cache::FontCache;
 
+// ---------------------------------------------------------------------------
+// Named constants for list marker layout (R4)
+// ---------------------------------------------------------------------------
+
+/// List marker size as a fraction of `font_size`.
+const MARKER_SIZE_FACTOR: f32 = 0.35;
+
+/// Horizontal offset of the list marker from the content box left edge,
+/// as a fraction of `font_size`.
+const MARKER_X_OFFSET_FACTOR: f32 = 0.75;
+
+/// Vertical center of the marker relative to the font ascent.
+const MARKER_Y_CENTER_FACTOR: f32 = 0.5;
+
+/// Gap between a decimal marker's trailing edge and the content box,
+/// as a fraction of `font_size`.
+const DECIMAL_MARKER_GAP_FACTOR: f32 = 0.3;
+
+// ---------------------------------------------------------------------------
+// Named constants for text metrics (R5)
+// ---------------------------------------------------------------------------
+
+/// Default descent as a fraction of `font_size` when font metrics are
+/// unavailable (negative direction).
+const DEFAULT_DESCENT_FACTOR: f32 = 0.25;
+
+/// Underline position as a fraction of the descent below the baseline.
+const UNDERLINE_POSITION_FACTOR: f32 = 0.5;
+
+/// Line-through position as a fraction of the ascent above the baseline.
+const LINE_THROUGH_POSITION_FACTOR: f32 = 0.4;
+
+/// Minimum text decoration thickness divisor: `font_size / DECORATION_THICKNESS_DIVISOR`.
+const DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
+
 /// Build a display list from a laid-out DOM tree.
 ///
 /// Each element with a [`LayoutBox`] component is visited in pre-order.
@@ -216,15 +251,13 @@ fn emit_inline_run(
         return;
     }
 
-    emit_styled_segments(
-        &segments,
-        &collapsed,
-        &lb,
-        &parent_style,
-        font_db,
-        font_cache,
-        dl,
-    );
+    let ctx = InlineRunContext {
+        segments: &segments,
+        collapsed: &collapsed,
+        lb: &lb,
+        parent_style: &parent_style,
+    };
+    emit_styled_segments(&ctx, font_db, font_cache, dl);
 }
 
 /// Maximum recursion depth for inline text collection.
@@ -281,39 +314,38 @@ fn collect_styled_inline_text(
     segments
 }
 
+/// Grouped parameters for [`emit_styled_segments`], reducing argument count.
+struct InlineRunContext<'a> {
+    segments: &'a [StyledTextSegment],
+    collapsed: &'a [(String, usize)],
+    lb: &'a LayoutBox,
+    parent_style: &'a ComputedStyle,
+}
+
 /// Emit styled text segments as display items.
 ///
 /// Each segment is independently shaped and rendered. Segments are placed
 /// sequentially along the x-axis. Text-align is applied to the total run width.
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn emit_styled_segments(
-    segments: &[StyledTextSegment],
-    collapsed: &[(String, usize)],
-    lb: &LayoutBox,
-    parent_style: &ComputedStyle,
+    ctx: &InlineRunContext<'_>,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
-    // For center/right alignment, measure total width first (extra shaping pass).
-    // For left alignment, skip measurement and shape directly during emit.
-    let align_offset = match parent_style.text_align {
-        TextAlign::Left => 0.0,
-        TextAlign::Center | TextAlign::Right => {
-            let total_width: f32 = collapsed
-                .iter()
-                .map(|(text, idx)| {
-                    let seg = &segments[*idx];
-                    measure_segment_width(text, seg, font_db)
-                })
-                .sum();
-            match parent_style.text_align {
-                TextAlign::Center => (lb.content.width - total_width).max(0.0) / 2.0,
-                TextAlign::Right => (lb.content.width - total_width).max(0.0),
-                TextAlign::Left => unreachable!(),
-            }
-        }
-    };
+    let InlineRunContext {
+        segments,
+        collapsed,
+        lb,
+        parent_style,
+    } = *ctx;
+    let align_offset = compute_text_align_offset(
+        parent_style.text_align,
+        lb.content.width,
+        collapsed,
+        segments,
+        font_db,
+    );
 
     // Emit display items (single shaping pass per segment).
     let mut cursor_x = lb.content.x + align_offset;
@@ -321,7 +353,7 @@ fn emit_styled_segments(
     for (text, idx) in collapsed {
         let seg = &segments[*idx];
         let transformed = apply_text_transform(text, seg.text_transform);
-        let families: Vec<&str> = seg.font_family.iter().map(String::as_str).collect();
+        let families = families_as_refs(&seg.font_family);
         let Some(font_id) = font_db.query(&families, seg.font_weight) else {
             continue;
         };
@@ -334,22 +366,11 @@ fn emit_styled_segments(
 
         let metrics = font_db.font_metrics(font_id, seg.font_size);
         let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
-        let descent = metrics.map_or(-seg.font_size * 0.25, |m| m.descent);
+        let descent = metrics.map_or(-seg.font_size * DEFAULT_DESCENT_FACTOR, |m| m.descent);
         let baseline_y = lb.content.y + ascent;
 
         let seg_start_x = cursor_x;
-        let mut glyphs = Vec::with_capacity(shaped.glyphs.len());
-        for glyph in &shaped.glyphs {
-            let x = cursor_x + glyph.x_offset;
-            let y = baseline_y - glyph.y_offset;
-            glyphs.push(GlyphEntry {
-                glyph_id: u32::from(glyph.glyph_id),
-                x,
-                y,
-            });
-            cursor_x += glyph.x_advance;
-        }
-
+        let glyphs = place_glyphs(&shaped.glyphs, &mut cursor_x, baseline_y);
         let seg_width = cursor_x - seg_start_x;
         let text_color = apply_opacity(seg.color, seg.opacity);
 
@@ -362,9 +383,9 @@ fn emit_styled_segments(
         });
 
         // Text decoration.
-        let decoration_thickness = (seg.font_size / 16.0).max(1.0);
+        let decoration_thickness = (seg.font_size / DECORATION_THICKNESS_DIVISOR).max(1.0);
         if seg.text_decoration_line.underline {
-            let y = baseline_y - descent * 0.5;
+            let y = baseline_y - descent * UNDERLINE_POSITION_FACTOR;
             dl.push(DisplayItem::SolidRect {
                 rect: elidex_plugin::Rect {
                     x: seg_start_x,
@@ -376,7 +397,7 @@ fn emit_styled_segments(
             });
         }
         if seg.text_decoration_line.line_through {
-            let y = baseline_y - ascent * 0.4;
+            let y = baseline_y - ascent * LINE_THROUGH_POSITION_FACTOR;
             dl.push(DisplayItem::SolidRect {
                 rect: elidex_plugin::Rect {
                     x: seg_start_x,
@@ -388,6 +409,13 @@ fn emit_styled_segments(
             });
         }
     }
+}
+
+/// Normalize line endings per CSS Text §4.1 Phase I.
+///
+/// Converts `\r\n` sequences to `\n` first, then any remaining bare `\r` to `\n`.
+fn normalize_line_endings(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// Collapse whitespace across segments according to `white-space` mode.
@@ -416,7 +444,7 @@ fn collapse_segments(
             .enumerate()
             .filter(|(_, seg)| !seg.text.is_empty())
             .map(|(idx, seg)| {
-                let text = seg.text.replace("\r\n", "\n").replace('\r', "\n");
+                let text = normalize_line_endings(&seg.text);
                 (text, idx)
             })
             .collect();
@@ -426,7 +454,7 @@ fn collapse_segments(
     let mut prev_was_space = true; // Leading whitespace is trimmed.
     for (idx, seg) in segments.iter().enumerate() {
         // CSS Text §4.1 Phase I: normalize \r\n → \n, bare \r → \n.
-        let normalized = seg.text.replace("\r\n", "\n").replace('\r', "\n");
+        let normalized = normalize_line_endings(&seg.text);
         let mut seg_text = String::new();
         for ch in normalized.chars() {
             let is_newline = ch == '\n';
@@ -488,10 +516,40 @@ fn collapse_segments(
     result
 }
 
+/// Compute the horizontal offset for `text-align` within a content box.
+///
+/// For `Left`, returns `0.0` immediately (no measurement needed).
+/// For `Center`/`Right`, measures the total width of all collapsed segments
+/// and returns the appropriate offset within `container_width`.
+fn compute_text_align_offset(
+    align: TextAlign,
+    container_width: f32,
+    collapsed: &[(String, usize)],
+    segments: &[StyledTextSegment],
+    font_db: &FontDatabase,
+) -> f32 {
+    match align {
+        TextAlign::Left => 0.0,
+        TextAlign::Center | TextAlign::Right => {
+            let total_width: f32 = collapsed
+                .iter()
+                .map(|(text, idx)| measure_segment_width(text, &segments[*idx], font_db))
+                .sum();
+            let free = (container_width - total_width).max(0.0);
+            match align {
+                TextAlign::Center => free / 2.0,
+                // TextAlign::Right and any future variants.
+                _ => free,
+            }
+        }
+    }
+}
+
 /// Measure a segment's text width after text-transform.
+#[must_use]
 fn measure_segment_width(text: &str, seg: &StyledTextSegment, font_db: &FontDatabase) -> f32 {
     let transformed = apply_text_transform(text, seg.text_transform);
-    let families: Vec<&str> = seg.font_family.iter().map(String::as_str).collect();
+    let families = families_as_refs(&seg.font_family);
     let Some(font_id) = font_db.query(&families, seg.font_weight) else {
         return 0.0;
     };
@@ -501,7 +559,37 @@ fn measure_segment_width(text: &str, seg: &StyledTextSegment, font_db: &FontData
     shaped.glyphs.iter().map(|g| g.x_advance).sum()
 }
 
+/// Place shaped glyphs into a `Vec<GlyphEntry>`, advancing `cursor_x`.
+///
+/// Returns the placed glyphs. `cursor_x` is updated to reflect the total advance.
+#[must_use]
+fn place_glyphs(
+    shaped_glyphs: &[elidex_text::ShapedGlyph],
+    cursor_x: &mut f32,
+    baseline_y: f32,
+) -> Vec<GlyphEntry> {
+    let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
+    for glyph in shaped_glyphs {
+        let x = *cursor_x + glyph.x_offset;
+        let y = baseline_y - glyph.y_offset;
+        glyphs.push(GlyphEntry {
+            glyph_id: u32::from(glyph.glyph_id),
+            x,
+            y,
+        });
+        *cursor_x += glyph.x_advance;
+    }
+    glyphs
+}
+
+/// Convert a `Vec<String>` of font family names to a `Vec<&str>` for font queries.
+#[must_use]
+fn families_as_refs(families: &[String]) -> Vec<&str> {
+    families.iter().map(String::as_str).collect()
+}
+
 /// Apply opacity to a color by multiplying its alpha channel.
+#[must_use]
 fn apply_opacity(color: CssColor, opacity: f32) -> CssColor {
     if opacity >= 1.0 {
         return color;
@@ -637,54 +725,47 @@ fn emit_list_marker_with_counter(
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
-    let marker_size = style.font_size * 0.35;
-    let marker_x = lb.content.x - style.font_size * 0.75;
+    let marker_size = style.font_size * MARKER_SIZE_FACTOR;
+    let marker_x = lb.content.x - style.font_size * MARKER_X_OFFSET_FACTOR;
 
-    let families: Vec<&str> = style.font_family.iter().map(String::as_str).collect();
+    let families = families_as_refs(&style.font_family);
     let ascent = font_db
         .query(&families, style.font_weight)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
-    let marker_y = lb.content.y + ascent * 0.5 - marker_size * 0.5;
+    let marker_y = lb.content.y + ascent * MARKER_Y_CENTER_FACTOR - marker_size * MARKER_Y_CENTER_FACTOR;
 
     let color = apply_opacity(style.color, style.opacity);
 
+    // Common marker rect for disc/circle/square (R2: hoisted before match).
+    let marker_rect = Rect {
+        x: marker_x,
+        y: marker_y,
+        width: marker_size,
+        height: marker_size,
+    };
+
     match style.list_style_type {
         ListStyleType::Disc => {
-            let rect = Rect {
-                x: marker_x,
-                y: marker_y,
-                width: marker_size,
-                height: marker_size,
-            };
             dl.push(DisplayItem::RoundedRect {
-                rect,
+                rect: marker_rect,
                 radius: marker_size / 2.0,
                 color,
             });
         }
         ListStyleType::Circle => {
-            let rect = Rect {
-                x: marker_x,
-                y: marker_y,
-                width: marker_size,
-                height: marker_size,
-            };
             dl.push(DisplayItem::StrokedRoundedRect {
-                rect,
+                rect: marker_rect,
                 radius: marker_size / 2.0,
                 stroke_width: 1.0,
                 color,
             });
         }
         ListStyleType::Square => {
-            let rect = Rect {
-                x: marker_x,
-                y: marker_y,
-                width: marker_size,
-                height: marker_size,
-            };
-            dl.push(DisplayItem::SolidRect { rect, color });
+            dl.push(DisplayItem::SolidRect {
+                rect: marker_rect,
+                color,
+            });
         }
         ListStyleType::Decimal => {
             let marker_text = format!("{counter}.");
@@ -699,22 +780,8 @@ fn emit_list_marker_with_counter(
             };
             let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
             let baseline_y = lb.content.y + ascent;
-            let text_x = lb.content.x - text_width - style.font_size * 0.3;
-
-            let glyphs: Vec<GlyphEntry> = shaped
-                .glyphs
-                .iter()
-                .scan(text_x, |cx, g| {
-                    let x = *cx + g.x_offset;
-                    let y = baseline_y - g.y_offset;
-                    *cx += g.x_advance;
-                    Some(GlyphEntry {
-                        glyph_id: u32::from(g.glyph_id),
-                        x,
-                        y,
-                    })
-                })
-                .collect();
+            let mut text_x = lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
+            let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y);
             dl.push(DisplayItem::Text {
                 glyphs,
                 font_blob,
@@ -727,13 +794,17 @@ fn emit_list_marker_with_counter(
     }
 }
 
+/// Maximum depth for ancestor walks to prevent infinite loops on corrupted trees.
+const MAX_ANCESTOR_DEPTH: u32 = 1000;
+
 /// Walk up the ancestor chain to find the nearest entity with a `LayoutBox`.
 ///
 /// Starts with `entity` itself, then checks its parent, grandparent, etc.
-/// Returns `None` if no ancestor has a `LayoutBox` (capped at 1000 depth).
+/// Returns `None` if no ancestor has a `LayoutBox` (capped at [`MAX_ANCESTOR_DEPTH`]).
+#[must_use]
 fn find_nearest_layout_box(dom: &EcsDom, entity: Entity) -> Option<LayoutBox> {
     let mut current = entity;
-    for _ in 0..1000 {
+    for _ in 0..MAX_ANCESTOR_DEPTH {
         if let Ok(lb) = dom.world().get::<&LayoutBox>(current) {
             return Some((*lb).clone());
         }
@@ -743,6 +814,7 @@ fn find_nearest_layout_box(dom: &EcsDom, entity: Entity) -> Option<LayoutBox> {
 }
 
 /// Apply CSS `text-transform` to a string before shaping.
+#[must_use]
 fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
     match transform {
         TextTransform::None => Cow::Borrowed(text),
@@ -753,6 +825,7 @@ fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
 }
 
 /// Capitalize the first letter of each word (whitespace-delimited).
+#[must_use]
 fn capitalize_words(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut prev_was_whitespace = true;
@@ -776,6 +849,45 @@ mod tests {
     use elidex_ecs::Attributes;
     use elidex_plugin::{EdgeSizes, Rect};
 
+    /// Font families used across tests. Covers common system fonts on
+    /// Linux, macOS, and Windows so that at least one is available on CI.
+    const TEST_FONT_FAMILIES: &[&str] = &[
+        "Arial",
+        "Helvetica",
+        "Liberation Sans",
+        "DejaVu Sans",
+        "Noto Sans",
+        "Hiragino Sans",
+    ];
+
+    /// Build a `Vec<String>` from [`TEST_FONT_FAMILIES`] for `ComputedStyle`.
+    fn test_font_family_strings() -> Vec<String> {
+        TEST_FONT_FAMILIES.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    /// Common test setup: creates a DOM with a root, one block element with a
+    /// [`ComputedStyle`] and [`LayoutBox`], and returns `(dom, element)`.
+    ///
+    /// `style_fn` receives a default `ComputedStyle` with `display: Block` and
+    /// `test_font_family_strings()` pre-filled; callers can override fields.
+    fn setup_block_element(
+        style: ComputedStyle,
+        layout: LayoutBox,
+    ) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let elem = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, elem);
+        let _ = dom.world_mut().insert_one(elem, style);
+        let _ = dom.world_mut().insert_one(elem, layout);
+        (dom, elem)
+    }
+
+    /// Return `true` if test fonts are available on this system.
+    fn fonts_available(font_db: &FontDatabase) -> bool {
+        font_db.query(TEST_FONT_FAMILIES, 400).is_some()
+    }
+
     #[test]
     fn empty_dom_empty_display_list() {
         let dom = EcsDom::new();
@@ -785,34 +897,18 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn background_color_emits_solid_rect() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 10.0,
-                    y: 10.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert_eq!(dl.0.len(), 1);
@@ -824,34 +920,18 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn transparent_background_no_item() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert!(dl.0.is_empty());
@@ -860,55 +940,22 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn text_node_emits_text_item() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(root, div);
-        dom.append_child(div, text);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            div,
+        let (mut dom, div) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
-                font_family: test_families,
+                font_family: test_font_family_strings(),
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
                 ..Default::default()
             },
         );
+        let text = dom.create_text("Hello");
+        dom.append_child(div, text);
 
         let font_db = FontDatabase::new();
-
-        // Early return if no font available (CI)
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -1067,46 +1114,20 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn background_uses_border_box() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::GREEN,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 20.0,
-                    y: 20.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                padding: EdgeSizes {
-                    top: 5.0,
-                    right: 5.0,
-                    bottom: 5.0,
-                    left: 5.0,
-                },
-                border: EdgeSizes {
-                    top: 2.0,
-                    right: 2.0,
-                    bottom: 2.0,
-                    left: 2.0,
-                },
+                content: Rect { x: 20.0, y: 20.0, width: 100.0, height: 50.0 },
+                padding: EdgeSizes { top: 5.0, right: 5.0, bottom: 5.0, left: 5.0 },
+                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert_eq!(dl.0.len(), 1);
@@ -1123,32 +1144,18 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn whitespace_only_text_node_skipped() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        let ws = dom.create_text("   \n   ");
-        dom.append_child(root, div);
-        dom.append_child(div, ws);
-
-        dom.world_mut().insert_one(
-            div,
+        let (mut dom, div) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
                 ..Default::default()
             },
         );
+        let ws = dom.create_text("   \n   ");
+        dom.append_child(div, ws);
 
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
@@ -1161,68 +1168,37 @@ mod tests {
     fn inline_elements_text_collected() {
         // <p>Hello <strong>world</strong>!</p>
         // Should produce a single "Hello world!" text item.
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", Attributes::default());
+        let (mut dom, p) = setup_block_element(
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_font_family_strings(),
+                ..Default::default()
+            },
+            LayoutBox {
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                ..Default::default()
+            },
+        );
         let t1 = dom.create_text("Hello ");
         let strong = dom.create_element("strong", Attributes::default());
         let t2 = dom.create_text("world");
         let t3 = dom.create_text("!");
-        dom.append_child(root, p);
         dom.append_child(p, t1);
         dom.append_child(p, strong);
         dom.append_child(strong, t2);
         dom.append_child(p, t3);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            p,
-            ComputedStyle {
-                display: Display::Block,
-                font_family: test_families.clone(),
-                ..Default::default()
-            },
-        );
-        dom.world_mut().insert_one(
-            p,
-            LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
-                ..Default::default()
-            },
-        );
         // strong is inline — no LayoutBox, but has ComputedStyle.
         dom.world_mut().insert_one(
             strong,
             ComputedStyle {
                 display: Display::Inline,
-                font_family: test_families,
+                font_family: test_font_family_strings(),
                 ..Default::default()
             },
         );
 
         let font_db = FontDatabase::new();
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -1251,44 +1227,22 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn text_align_center_offsets_text() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", Attributes::default());
-        dom.append_child(root, p);
-        let txt = dom.create_text("Hi");
-        dom.append_child(p, txt);
-        dom.world_mut().insert_one(
-            p,
+        let (mut dom, p) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 text_align: TextAlign::Center,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            p,
             LayoutBox {
-                content: elidex_plugin::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 400.0,
-                    height: 20.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 400.0, height: 20.0 },
                 ..Default::default()
             },
         );
+        let txt = dom.create_text("Hi");
+        dom.append_child(p, txt);
 
         let font_db = FontDatabase::new();
-        // Early return if no font available (CI).
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
         let dl = build_display_list(&dom, &font_db);
@@ -1311,44 +1265,22 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn text_align_right_offsets_text() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", Attributes::default());
-        dom.append_child(root, p);
-        let txt = dom.create_text("Hi");
-        dom.append_child(p, txt);
-        dom.world_mut().insert_one(
-            p,
+        let (mut dom, p) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 text_align: TextAlign::Right,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            p,
             LayoutBox {
-                content: elidex_plugin::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 400.0,
-                    height: 20.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 400.0, height: 20.0 },
                 ..Default::default()
             },
         );
+        let txt = dom.create_text("Hi");
+        dom.append_child(p, txt);
 
         let font_db = FontDatabase::new();
-        // Early return if no font available (CI).
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
         let dl = build_display_list(&dom, &font_db);
@@ -1377,15 +1309,8 @@ mod tests {
     // --- M3-2: border rendering tests ---
 
     #[test]
-    #[allow(unused_must_use)]
     fn emit_borders_four_sides() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
@@ -1399,26 +1324,12 @@ mod tests {
                 border_left_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 12.0,
-                    y: 12.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                border: EdgeSizes {
-                    top: 2.0,
-                    right: 2.0,
-                    bottom: 2.0,
-                    left: 2.0,
-                },
+                content: Rect { x: 12.0, y: 12.0, width: 100.0, height: 50.0 },
+                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         // 4 border SolidRects (no background since transparent).
@@ -1430,15 +1341,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn emit_borders_style_none_skipped() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
@@ -1447,26 +1351,12 @@ mod tests {
                 border_top_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 2.0,
-                    y: 2.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                border: EdgeSizes {
-                    top: 2.0,
-                    right: 2.0,
-                    bottom: 2.0,
-                    left: 2.0,
-                },
+                content: Rect { x: 2.0, y: 2.0, width: 100.0, height: 50.0 },
+                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         // Only 1 border (top), others skipped because style=none.
@@ -1474,15 +1364,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn emit_borders_zero_width_skipped() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
@@ -1490,59 +1373,31 @@ mod tests {
                 border_top_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                border: EdgeSizes {
-                    top: 0.0, // zero width, should be skipped
-                    ..Default::default()
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
+                border: EdgeSizes { top: 0.0, ..Default::default() }, // zero width, should be skipped
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert!(dl.0.is_empty());
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn background_with_border_radius_emits_rounded_rect() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::RED,
                 border_radius: 10.0,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert_eq!(dl.0.len(), 1);
@@ -1552,35 +1407,19 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn background_without_border_radius_emits_solid_rect() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::RED,
                 border_radius: 0.0,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         assert_eq!(dl.0.len(), 1);
@@ -1615,15 +1454,8 @@ mod tests {
     /// set, the background is a `RoundedRect` but borders are axis-aligned
     /// `SolidRect` items. Borders do not follow rounded corners.
     #[test]
-    #[allow(unused_must_use)]
     fn border_radius_with_border_known_limitation() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::RED,
@@ -1638,26 +1470,12 @@ mod tests {
                 border_left_color: CssColor::BLACK,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 2.0,
-                    y: 2.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                border: EdgeSizes {
-                    top: 2.0,
-                    right: 2.0,
-                    bottom: 2.0,
-                    left: 2.0,
-                },
+                content: Rect { x: 2.0, y: 2.0, width: 100.0, height: 50.0 },
+                border: EdgeSizes { top: 2.0, right: 2.0, bottom: 2.0, left: 2.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         // 1 RoundedRect (background) + 4 SolidRect (borders).
@@ -1674,16 +1492,9 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn border_corners_no_overlap() {
         // Verify that left/right borders are inset by top/bottom widths.
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
@@ -1697,26 +1508,12 @@ mod tests {
                 border_left_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 5.0,
-                    y: 5.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
-                border: EdgeSizes {
-                    top: 3.0,
-                    right: 2.0,
-                    bottom: 3.0,
-                    left: 2.0,
-                },
+                content: Rect { x: 5.0, y: 5.0, width: 100.0, height: 50.0 },
+                border: EdgeSizes { top: 3.0, right: 2.0, bottom: 3.0, left: 2.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         let rects: Vec<_> =
@@ -1784,37 +1581,22 @@ mod tests {
     // --- M3-4: image rendering tests ---
 
     #[test]
-    #[allow(unused_must_use)]
     fn image_data_emits_image_item() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let img = dom.create_element("img", Attributes::default());
-        dom.append_child(root, img);
-
-        dom.world_mut().insert_one(
-            img,
+        let (mut dom, img) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            img,
             LayoutBox {
-                content: Rect {
-                    x: 10.0,
-                    y: 10.0,
-                    width: 200.0,
-                    height: 100.0,
-                },
+                content: Rect { x: 10.0, y: 10.0, width: 200.0, height: 100.0 },
                 ..Default::default()
             },
         );
-        dom.world_mut().insert_one(
+        let _ = dom.world_mut().insert_one(
             img,
             elidex_ecs::ImageData {
-                pixels: Arc::new(vec![255u8; 4]), // 1×1 white pixel
+                pixels: Arc::new(vec![255u8; 4]), // 1x1 white pixel
                 width: 1,
                 height: 1,
             },
@@ -1844,34 +1626,18 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn no_image_data_no_image_item() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         let image_count =
@@ -1882,35 +1648,20 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn image_opacity_zero_skipped() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let img = dom.create_element("img", Attributes::default());
-        dom.append_child(root, img);
-
-        dom.world_mut().insert_one(
-            img,
+        let (mut dom, img) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 background_color: CssColor::TRANSPARENT,
                 opacity: 0.0,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            img,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-        dom.world_mut().insert_one(
+        let _ = dom.world_mut().insert_one(
             img,
             elidex_ecs::ImageData {
                 pixels: Arc::new(vec![255u8; 4]),
@@ -1931,57 +1682,26 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn text_decoration_underline_emits_solid_rect() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(root, div);
-        dom.append_child(div, text);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            div,
+        let (mut dom, div) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
-                font_family: test_families,
+                font_family: test_font_family_strings(),
                 text_decoration_line: TextDecorationLine {
                     underline: true,
                     line_through: false,
                 },
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
                 ..Default::default()
             },
         );
+        let text = dom.create_text("Hello");
+        dom.append_child(div, text);
 
         let font_db = FontDatabase::new();
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -2007,77 +1727,36 @@ mod tests {
     fn styled_span_color_preserved() {
         // <p><span style="color:red">red</span> normal</p>
         // The span text should have a different color from the parent text.
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", elidex_ecs::Attributes::default());
-        let span = dom.create_element("span", elidex_ecs::Attributes::default());
+        let (mut dom, p) = setup_block_element(
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_font_family_strings(),
+                color: CssColor { r: 0, g: 0, b: 0, a: 255 },
+                ..Default::default()
+            },
+            LayoutBox {
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                ..Default::default()
+            },
+        );
+        let span = dom.create_element("span", Attributes::default());
         let t_red = dom.create_text("red");
         let t_normal = dom.create_text(" normal");
-        dom.append_child(root, p);
         dom.append_child(p, span);
         dom.append_child(span, t_red);
         dom.append_child(p, t_normal);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            p,
-            ComputedStyle {
-                display: Display::Block,
-                font_family: test_families.clone(),
-                color: CssColor {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-                ..Default::default()
-            },
-        );
-        dom.world_mut().insert_one(
-            p,
-            LayoutBox {
-                content: elidex_plugin::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
-                ..Default::default()
-            },
-        );
         dom.world_mut().insert_one(
             span,
             ComputedStyle {
                 display: Display::Inline,
-                font_family: test_families.clone(),
-                color: CssColor {
-                    r: 255,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
+                font_family: test_font_family_strings(),
+                color: CssColor { r: 255, g: 0, b: 0, a: 255 },
                 ..Default::default()
             },
         );
 
         let font_db = FontDatabase::new();
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -2120,65 +1799,34 @@ mod tests {
     #[allow(unused_must_use)]
     fn display_none_inline_skipped() {
         // <p>visible <span style="display:none">hidden</span></p>
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", elidex_ecs::Attributes::default());
-        let span = dom.create_element("span", elidex_ecs::Attributes::default());
+        let (mut dom, p) = setup_block_element(
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_font_family_strings(),
+                ..Default::default()
+            },
+            LayoutBox {
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                ..Default::default()
+            },
+        );
+        let span = dom.create_element("span", Attributes::default());
         let t1 = dom.create_text("visible ");
         let t2 = dom.create_text("hidden");
-        dom.append_child(root, p);
         dom.append_child(p, t1);
         dom.append_child(p, span);
         dom.append_child(span, t2);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            p,
-            ComputedStyle {
-                display: Display::Block,
-                font_family: test_families.clone(),
-                ..Default::default()
-            },
-        );
-        dom.world_mut().insert_one(
-            p,
-            LayoutBox {
-                content: elidex_plugin::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
-                ..Default::default()
-            },
-        );
         dom.world_mut().insert_one(
             span,
             ComputedStyle {
                 display: Display::None,
-                font_family: test_families,
+                font_family: test_font_family_strings(),
                 ..Default::default()
             },
         );
 
         let font_db = FontDatabase::new();
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -2196,69 +1844,38 @@ mod tests {
     fn styled_segments_x_consecutive() {
         // <p><span>A</span><span>B</span></p>
         // Two segments: A and B should have consecutive x positions.
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let p = dom.create_element("p", elidex_ecs::Attributes::default());
-        let s1 = dom.create_element("span", elidex_ecs::Attributes::default());
-        let s2 = dom.create_element("span", elidex_ecs::Attributes::default());
+        let (mut dom, p) = setup_block_element(
+            ComputedStyle {
+                display: Display::Block,
+                font_family: test_font_family_strings(),
+                ..Default::default()
+            },
+            LayoutBox {
+                content: Rect { x: 0.0, y: 0.0, width: 800.0, height: 20.0 },
+                ..Default::default()
+            },
+        );
+        let s1 = dom.create_element("span", Attributes::default());
+        let s2 = dom.create_element("span", Attributes::default());
         let t1 = dom.create_text("A");
         let t2 = dom.create_text("B");
-        dom.append_child(root, p);
         dom.append_child(p, s1);
         dom.append_child(s1, t1);
         dom.append_child(p, s2);
         dom.append_child(s2, t2);
-
-        let test_families = vec![
-            "Arial".to_string(),
-            "Helvetica".to_string(),
-            "Liberation Sans".to_string(),
-            "DejaVu Sans".to_string(),
-            "Noto Sans".to_string(),
-            "Hiragino Sans".to_string(),
-        ];
-
-        dom.world_mut().insert_one(
-            p,
-            ComputedStyle {
-                display: Display::Block,
-                font_family: test_families.clone(),
-                ..Default::default()
-            },
-        );
-        dom.world_mut().insert_one(
-            p,
-            LayoutBox {
-                content: elidex_plugin::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 800.0,
-                    height: 20.0,
-                },
-                ..Default::default()
-            },
-        );
         for &span in &[s1, s2] {
             dom.world_mut().insert_one(
                 span,
                 ComputedStyle {
                     display: Display::Inline,
-                    font_family: test_families.clone(),
+                    font_family: test_font_family_strings(),
                     ..Default::default()
                 },
             );
         }
 
         let font_db = FontDatabase::new();
-        let families_ref: Vec<&str> = vec![
-            "Arial",
-            "Helvetica",
-            "Liberation Sans",
-            "DejaVu Sans",
-            "Noto Sans",
-            "Hiragino Sans",
-        ];
-        if font_db.query(&families_ref, 400).is_none() {
+        if !fonts_available(&font_db) {
             return;
         }
 
@@ -2286,35 +1903,19 @@ mod tests {
     // --- M3-6: overflow: hidden → PushClip/PopClip ---
 
     #[test]
-    #[allow(unused_must_use)]
     fn overflow_hidden_emits_clip() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 overflow: Overflow::Hidden,
                 background_color: CssColor::WHITE,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 10.0,
-                    y: 10.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         let has_push_clip =
@@ -2326,35 +1927,19 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_must_use)]
     fn overflow_visible_no_clip() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
-        dom.append_child(root, div);
-
-        dom.world_mut().insert_one(
-            div,
+        let (dom, _) = setup_block_element(
             ComputedStyle {
                 display: Display::Block,
                 overflow: Overflow::Visible,
                 background_color: CssColor::RED,
                 ..Default::default()
             },
-        );
-        dom.world_mut().insert_one(
-            div,
             LayoutBox {
-                content: Rect {
-                    x: 10.0,
-                    y: 10.0,
-                    width: 100.0,
-                    height: 50.0,
-                },
+                content: Rect { x: 10.0, y: 10.0, width: 100.0, height: 50.0 },
                 ..Default::default()
             },
         );
-
         let font_db = FontDatabase::new();
         let dl = build_display_list(&dom, &font_db);
         let has_push_clip =

@@ -4,7 +4,6 @@
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
 mod computed_style;
-mod context;
 mod error;
 mod event_types;
 mod js_value;
@@ -20,39 +19,14 @@ pub use computed_style::{
     FlexDirection, FlexWrap, JustifyContent, LineHeight, ListStyleType, Overflow, Position,
     TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
 };
-pub use context::StyleContext;
-pub use error::{HtmlErrorKind, HtmlParseError, ParseError};
+pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
-pub use traits::{CssPropertyHandler, HtmlElementHandler, LayoutModel, NetworkMiddleware};
-pub use values::{ComputedValue, CssColor, CssValue, LengthUnit};
-
-// ---------------------------------------------------------------------------
-// Opaque DOM node handle
-// ---------------------------------------------------------------------------
-
-/// Opaque DOM node handle. Wraps a `u64` entity ID.
-///
-/// `elidex-parser` converts `hecs::Entity` to `NodeHandle` via [`from_bits`](NodeHandle::from_bits).
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NodeHandle(u64);
-
-impl NodeHandle {
-    /// Create a `NodeHandle` from a raw `u64` entity ID.
-    #[must_use]
-    pub fn from_bits(bits: u64) -> Self {
-        Self(bits)
-    }
-
-    /// Extract the raw `u64` entity ID.
-    #[must_use]
-    pub fn to_bits(self) -> u64 {
-        self.0
-    }
-}
+pub use traits::NetworkMiddleware;
+pub use values::{CssColor, CssValue, LengthUnit};
 
 // ---------------------------------------------------------------------------
 // Network types

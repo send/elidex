@@ -106,6 +106,7 @@ impl Selector {
 }
 
 /// Parse a comma-separated list of selectors.
+#[must_use = "parsing result should be used"]
 #[allow(clippy::result_unit_err)]
 pub fn parse_selector_list(input: &mut Parser) -> Result<Vec<Selector>, ()> {
     let mut selectors = vec![parse_one_selector(input)?];
@@ -116,6 +117,30 @@ pub fn parse_selector_list(input: &mut Parser) -> Result<Vec<Selector>, ()> {
         selectors.push(parse_one_selector(input)?);
     }
     Ok(selectors)
+}
+
+/// Try to parse an explicit combinator delimiter (`>`, `+`, or `~`).
+///
+/// Returns `Some(combinator)` if one of the given `(char, SelectorComponent)` pairs
+/// matches the next delimiter token, or `None` if no combinator is found.
+fn try_parse_combinator(
+    input: &mut Parser,
+    combinators: &[(char, SelectorComponent)],
+) -> Option<SelectorComponent> {
+    for &(delim, ref component) in combinators {
+        if input
+            .try_parse(|i| -> Result<(), ()> {
+                match i.next() {
+                    Ok(&Token::Delim(c)) if c == delim => Ok(()),
+                    _ => Err(()),
+                }
+            })
+            .is_ok()
+        {
+            return Some(component.clone());
+        }
+    }
+    None
 }
 
 /// Parse a single selector from the token stream.
@@ -131,47 +156,14 @@ fn parse_one_selector(input: &mut Parser) -> Result<Selector, ()> {
     parse_compound_selector(input, &mut components, &mut specificity, false)?;
 
     loop {
-        // Try child combinator (>).
-        if input
-            .try_parse(|i| -> Result<(), ()> {
-                match i.next() {
-                    Ok(&Token::Delim('>')) => Ok(()),
-                    _ => Err(()),
-                }
-            })
-            .is_ok()
-        {
-            components.push(SelectorComponent::Child);
-            parse_compound_selector(input, &mut components, &mut specificity, false)?;
-            continue;
-        }
-
-        // Try adjacent sibling combinator (+).
-        if input
-            .try_parse(|i| -> Result<(), ()> {
-                match i.next() {
-                    Ok(&Token::Delim('+')) => Ok(()),
-                    _ => Err(()),
-                }
-            })
-            .is_ok()
-        {
-            components.push(SelectorComponent::AdjacentSibling);
-            parse_compound_selector(input, &mut components, &mut specificity, false)?;
-            continue;
-        }
-
-        // Try general sibling combinator (~).
-        if input
-            .try_parse(|i| -> Result<(), ()> {
-                match i.next() {
-                    Ok(&Token::Delim('~')) => Ok(()),
-                    _ => Err(()),
-                }
-            })
-            .is_ok()
-        {
-            components.push(SelectorComponent::GeneralSibling);
+        // Try explicit combinators: > (child), + (adjacent sibling), ~ (general sibling).
+        let explicit_combinators = [
+            ('>', SelectorComponent::Child),
+            ('+', SelectorComponent::AdjacentSibling),
+            ('~', SelectorComponent::GeneralSibling),
+        ];
+        if let Some(combinator) = try_parse_combinator(input, &explicit_combinators) {
+            components.push(combinator);
             parse_compound_selector(input, &mut components, &mut specificity, false)?;
             continue;
         }
@@ -597,6 +589,7 @@ fn is_root_element(entity: Entity, dom: &EcsDom) -> bool {
 /// Convenience wrapper around [`parse_selector_list`] that handles
 /// `ParserInput` / `Parser` creation internally, so callers don't need
 /// a `cssparser` dependency.
+#[must_use = "parsing result should be used"]
 #[allow(clippy::result_unit_err)]
 pub fn parse_selector_from_str(selector: &str) -> Result<Vec<Selector>, ()> {
     let mut input = ParserInput::new(selector);

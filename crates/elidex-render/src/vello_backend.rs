@@ -14,9 +14,20 @@ use vello::peniko::{
 use vello::{AaConfig, AaSupport, Glyph, RenderParams, Renderer, RendererOptions, Scene};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages};
 
-use elidex_plugin::CssColor;
+use elidex_plugin::{CssColor, Rect};
 
 use crate::display_list::{DisplayItem, DisplayList};
+
+/// Convert an elidex [`Rect`] to a Vello [`kurbo::Rect`].
+#[must_use]
+fn to_vello_rect(r: &Rect) -> VelloRect {
+    VelloRect::new(
+        f64::from(r.x),
+        f64::from(r.y),
+        f64::from(r.x + r.width),
+        f64::from(r.y + r.height),
+    )
+}
 
 /// GPU renderer backed by Vello.
 ///
@@ -112,6 +123,7 @@ impl VelloRenderer {
 }
 
 /// Convert a [`CssColor`] to a Vello [`Color`].
+#[must_use]
 fn convert_color(c: CssColor) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
@@ -147,12 +159,7 @@ pub(crate) fn build_scene(
     for item in display_list.iter() {
         match item {
             DisplayItem::SolidRect { rect, color } => {
-                let vello_rect = VelloRect::new(
-                    f64::from(rect.x),
-                    f64::from(rect.y),
-                    f64::from(rect.x + rect.width),
-                    f64::from(rect.y + rect.height),
-                );
+                let vello_rect = to_vello_rect(rect);
                 let vello_color = convert_color(*color);
                 scene.fill(
                     Fill::NonZero,
@@ -167,12 +174,7 @@ pub(crate) fn build_scene(
                 radius,
                 color,
             } => {
-                let vello_rect = VelloRect::new(
-                    f64::from(rect.x),
-                    f64::from(rect.y),
-                    f64::from(rect.x + rect.width),
-                    f64::from(rect.y + rect.height),
-                );
+                let vello_rect = to_vello_rect(rect);
                 let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
                 let vello_color = convert_color(*color);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
@@ -183,12 +185,7 @@ pub(crate) fn build_scene(
                 stroke_width,
                 color,
             } => {
-                let vello_rect = VelloRect::new(
-                    f64::from(rect.x),
-                    f64::from(rect.y),
-                    f64::from(rect.x + rect.width),
-                    f64::from(rect.y + rect.height),
-                );
+                let vello_rect = to_vello_rect(rect);
                 let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
                 let vello_color = convert_color(*color);
                 let stroke = Stroke::new(f64::from(*stroke_width));
@@ -204,12 +201,7 @@ pub(crate) fn build_scene(
                 if *image_width > 0 && *image_height > 0 {
                     let needs_layer = *opacity < 1.0;
                     if needs_layer {
-                        let clip = VelloRect::new(
-                            f64::from(rect.x),
-                            f64::from(rect.y),
-                            f64::from(rect.x + rect.width),
-                            f64::from(rect.y + rect.height),
-                        );
+                        let clip = to_vello_rect(rect);
                         scene.push_layer(
                             Fill::NonZero,
                             Mix::Normal,
@@ -237,12 +229,7 @@ pub(crate) fn build_scene(
                 }
             }
             DisplayItem::PushClip { rect } => {
-                let clip = VelloRect::new(
-                    f64::from(rect.x),
-                    f64::from(rect.y),
-                    f64::from(rect.x + rect.width),
-                    f64::from(rect.y + rect.height),
-                );
+                let clip = to_vello_rect(rect);
                 scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &clip);
             }
             DisplayItem::PopClip => {
@@ -287,7 +274,6 @@ pub(crate) fn build_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_plugin::{CssColor, Rect};
 
     #[test]
     fn empty_display_list_builds_empty_scene() {

@@ -9,7 +9,26 @@ use elidex_text::FontDatabase;
 
 use crate::sanitize;
 
-use super::{is_reversed, resolve_explicit_height, FlexContext, FlexItem};
+use super::{is_reversed, FlexContext, FlexItem};
+
+/// Epsilon for floating-point comparison in the flex freeze loop.
+///
+/// Values within this tolerance of their min/max-clamped result are
+/// considered "not violated" — the final clamp pass after the loop
+/// corrects any remaining sub-pixel differences.
+const FLEX_FREEZE_EPSILON: f32 = 0.001;
+
+/// Total gap space between `count` items at `gap` spacing.
+///
+/// Returns `0.0` when there are fewer than 2 items.
+#[allow(clippy::cast_precision_loss)]
+fn total_gap(count: usize, gap: f32) -> f32 {
+    if count > 1 {
+        gap * (count - 1) as f32
+    } else {
+        0.0
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Line splitting (§9.3)
@@ -76,17 +95,12 @@ fn split_into_lines(
 /// Uses a simplified freeze loop: after initial grow/shrink distribution,
 /// items that violate min/max constraints are frozen at their clamped size,
 /// and remaining free space is redistributed among unfrozen items.
-#[allow(clippy::cast_precision_loss)]
 pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32, gap_main: f32) {
     if items.is_empty() {
         return;
     }
     // Subtract total gap from available space.
-    let total_gap = if items.len() > 1 {
-        gap_main * (items.len() - 1) as f32
-    } else {
-        0.0
-    };
+    let total_gap = total_gap(items.len(), gap_main);
 
     let mut frozen = vec![false; items.len()];
 
@@ -144,15 +158,11 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
             if frozen[i] {
                 continue;
             }
-            let clamped = item
-                .final_main
-                .max(item.min_main)
-                .min(item.max_main)
-                .max(item.min_main);
+            let clamped = crate::clamp_min_max(item.final_main, item.min_main, item.max_main);
             // Epsilon accounts for floating-point rounding during grow/shrink
             // distribution. The final clamp pass (after the loop) corrects any
             // remaining sub-pixel violations.
-            if (clamped - item.final_main).abs() > 0.001 {
+            if (clamped - item.final_main).abs() > FLEX_FREEZE_EPSILON {
                 item.final_main = clamped;
                 frozen[i] = true;
                 any_frozen = true;
@@ -165,11 +175,7 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 
     // Final clamp for any remaining items.
     for item in items.iter_mut() {
-        item.final_main = item
-            .final_main
-            .max(item.min_main)
-            .min(item.max_main)
-            .max(item.min_main);
+        item.final_main = crate::clamp_min_max(item.final_main, item.min_main, item.max_main);
     }
 }
 
@@ -177,7 +183,7 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 // Cross-size resolution & stretching
 // ---------------------------------------------------------------------------
 
-// TODO(Phase 3): Each flex item is laid out up to 3 times (collect_flex_items
+// TODO: Each flex item is laid out up to 3 times (collect_flex_items
 // for content sizing, layout_items_cross for cross-size, position_items for
 // final placement). Consider caching intrinsic sizes to reduce redundant work
 // for items with deep subtrees.
@@ -255,7 +261,7 @@ pub(super) fn resolve_container_cross(
     total_line_cross: f32,
 ) -> f32 {
     let explicit = if ctx.horizontal {
-        resolve_explicit_height(style, ctx.containing_height)
+        crate::resolve_explicit_height(style, ctx.containing_height)
     } else {
         match style.width {
             Dimension::Length(px) => Some(sanitize(px)),
@@ -356,7 +362,6 @@ fn relayout_item_at_position(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::cast_precision_loss)]
 pub(super) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
@@ -384,11 +389,7 @@ pub(super) fn position_items(
             .map(|i| i.final_main + i.pb_main + i.margin_main)
             .sum();
         // Total gap between items on the main axis.
-        let total_gap = if line_items.len() > 1 {
-            ctx.gap_main * (line_items.len() - 1) as f32
-        } else {
-            0.0
-        };
+        let total_gap = total_gap(line_items.len(), ctx.gap_main);
         let free_space = (ctx.container_main - total_main_used - total_gap).max(0.0);
         let (mut main_cursor, justify_gap) =
             compute_justify_offsets(ctx.justify, free_space, line_items.len());
@@ -432,7 +433,6 @@ pub(super) fn position_items(
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
 pub(super) fn compute_container_height(
     style: &ComputedStyle,
     ctx: &FlexContext,
@@ -442,12 +442,8 @@ pub(super) fn compute_container_height(
 ) -> f32 {
     if ctx.horizontal {
         // Auto height: include cross-axis gaps between lines.
-        let cross_gaps = if line_ranges.len() > 1 {
-            ctx.gap_cross * (line_ranges.len() - 1) as f32
-        } else {
-            0.0
-        };
-        resolve_explicit_height(style, ctx.containing_height)
+        let cross_gaps = total_gap(line_ranges.len(), ctx.gap_cross);
+        crate::resolve_explicit_height(style, ctx.containing_height)
             .unwrap_or(total_line_cross + cross_gaps)
     } else {
         let max_line_main: f32 = line_ranges
@@ -458,16 +454,10 @@ pub(super) fn compute_container_height(
                     .map(|i| i.final_main + i.pb_main + i.margin_main)
                     .sum();
                 // Add main-axis gap between items within the line.
-                let count = e - s;
-                let gaps = if count > 1 {
-                    ctx.gap_main * (count - 1) as f32
-                } else {
-                    0.0
-                };
-                item_sum + gaps
+                item_sum + total_gap(e - s, ctx.gap_main)
             })
             .fold(0.0_f32, f32::max);
-        resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
+        crate::resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
     }
 }
 
@@ -539,11 +529,7 @@ pub(super) fn compute_align_content_offsets(
     }
 
     let total: f32 = line_cross_sizes.iter().sum();
-    let total_cross_gap = if n > 1 {
-        gap_cross * (n - 1) as f32
-    } else {
-        0.0
-    };
+    let total_cross_gap = total_gap(n, gap_cross);
     let free = (container_cross - total - total_cross_gap).max(0.0);
     let nf = n as f32;
 

@@ -10,7 +10,10 @@ use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
 use crate::sanitize;
-use crate::{resolve_dimension_value, resolve_min_max, sanitize_edge_values, MAX_LAYOUT_DEPTH};
+use crate::{
+    adjust_min_max_for_border_box, clamp_min_max, horizontal_pb, resolve_dimension_value,
+    resolve_min_max, sanitize_border, sanitize_padding, vertical_pb, MAX_LAYOUT_DEPTH,
+};
 
 /// Resolve a `Dimension` margin value to pixels.
 ///
@@ -78,8 +81,57 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
     }
 }
 
+/// Resolve the final height for a block element.
+///
+/// Handles CSS height property (Length/Percentage/Auto), border-box adjustment,
+/// and min-height/max-height constraints. `content_height` is used when the
+/// height is auto.
+fn resolve_block_height(
+    style: &ComputedStyle,
+    content_height: f32,
+    containing_height: Option<f32>,
+    padding: &EdgeSizes,
+    border: &EdgeSizes,
+    is_replaced: bool,
+) -> f32 {
+    let mut height = if is_replaced {
+        content_height
+    } else {
+        match style.height {
+            Dimension::Length(px) if px.is_finite() => {
+                if style.box_sizing == BoxSizing::BorderBox {
+                    (px - vertical_pb(padding, border)).max(0.0)
+                } else {
+                    px
+                }
+            }
+            Dimension::Percentage(pct) => {
+                containing_height.map_or(content_height, |ch| {
+                    let resolved = ch * pct / 100.0;
+                    if style.box_sizing == BoxSizing::BorderBox {
+                        (resolved - vertical_pb(padding, border)).max(0.0)
+                    } else {
+                        resolved
+                    }
+                })
+            }
+            _ => content_height,
+        }
+    };
+
+    // Apply min-height / max-height constraints.
+    let ch = containing_height.unwrap_or(0.0);
+    let mut min_h = resolve_min_max(style.min_height, ch, 0.0);
+    let mut max_h = resolve_min_max(style.max_height, ch, f32::INFINITY);
+    if style.box_sizing == BoxSizing::BorderBox && !is_replaced {
+        adjust_min_max_for_border_box(&mut min_h, &mut max_h, vertical_pb(padding, border));
+    }
+    height = clamp_min_max(height, min_h, max_h);
+    height
+}
+
 /// Returns `true` if the display value establishes a block-level box.
-// TODO(Phase 2): InlineBlock should participate in inline formatting
+// TODO: InlineBlock should participate in inline formatting
 // context (CSS 2.1 §9.2.2), not force block context.
 fn is_block_level(display: Display) -> bool {
     matches!(
@@ -96,14 +148,11 @@ fn is_block_level(display: Display) -> bool {
 ///
 /// When this returns `true` and inline children are also present, inline
 /// content is currently skipped. CSS 2.1 §9.2.1.1 requires wrapping
-/// consecutive inline runs in anonymous block boxes — this is deferred to
-/// Phase 2.
-// TODO(Phase 2): generate anonymous block boxes for mixed block/inline content.
+/// consecutive inline runs in anonymous block boxes.
+// TODO: generate anonymous block boxes for mixed block/inline content.
 fn children_are_block(dom: &EcsDom, children: &[Entity]) -> bool {
     children.iter().any(|&child| {
-        dom.world()
-            .get::<&ComputedStyle>(child)
-            .is_ok_and(|s| is_block_level(s.display))
+        crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display))
     })
 }
 
@@ -187,18 +236,8 @@ fn layout_block_inner(
     }
 
     // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
-    let padding = sanitize_edge_values(
-        style.padding_top,
-        style.padding_right,
-        style.padding_bottom,
-        style.padding_left,
-    );
-    let border = sanitize_edge_values(
-        style.border_top_width,
-        style.border_right_width,
-        style.border_bottom_width,
-        style.border_left_width,
-    );
+    let padding = sanitize_padding(&style);
+    let border = sanitize_border(&style);
 
     // --- Resolve margins ---
     let margin_top = resolve_margin(style.margin_top, containing_width);
@@ -214,12 +253,7 @@ fn layout_block_inner(
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
     let margin_right_raw = resolve_margin(style.margin_right, containing_width);
-    let horizontal_extra = margin_left_raw
-        + margin_right_raw
-        + padding.left
-        + padding.right
-        + border.left
-        + border.right;
+    let horizontal_extra = margin_left_raw + margin_right_raw + horizontal_pb(&padding, &border);
     let mut content_width = if let Some((iw, ih)) = intrinsic {
         resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border)
     } else {
@@ -233,8 +267,7 @@ fn layout_block_inner(
     // Only for non-replaced elements or replaced elements with explicit dimensions.
     if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
         if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
-            let pb_horizontal = padding.left + padding.right + border.left + border.right;
-            content_width = (content_width - pb_horizontal).max(0.0);
+            content_width = (content_width - horizontal_pb(&padding, &border)).max(0.0);
         }
     }
 
@@ -246,17 +279,13 @@ fn layout_block_inner(
         let mut min_w = resolve_min_max(style.min_width, containing_width, 0.0);
         let mut max_w = resolve_min_max(style.max_width, containing_width, f32::INFINITY);
         if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
-            let pb = padding.left + padding.right + border.left + border.right;
-            min_w = (min_w - pb).max(0.0);
-            if max_w < f32::INFINITY {
-                max_w = (max_w - pb).max(0.0);
-            }
+            adjust_min_max_for_border_box(&mut min_w, &mut max_w, horizontal_pb(&padding, &border));
         }
-        content_width = content_width.max(min_w).min(max_w).max(min_w);
+        content_width = clamp_min_max(content_width, min_w, max_w);
     }
 
     // --- Horizontal margin auto centering ---
-    let used_horizontal = content_width + padding.left + padding.right + border.left + border.right;
+    let used_horizontal = content_width + horizontal_pb(&padding, &border);
     let (margin_left, margin_right) =
         if matches!(style.width, Dimension::Auto) && intrinsic.is_none() {
             (margin_left_raw, margin_right_raw)
@@ -274,7 +303,7 @@ fn layout_block_inner(
     let mut collapsed_margin_bottom = margin_bottom;
 
     // Compute the definite height of this element (if any) for children's percentage heights.
-    let child_containing_height = crate::flex::resolve_explicit_height(&style, containing_height);
+    let child_containing_height = crate::resolve_explicit_height(&style, containing_height);
 
     let content_height = if let Some((iw, ih)) = intrinsic {
         // Replaced element: use intrinsic/CSS height, no child layout.
@@ -323,51 +352,14 @@ fn layout_block_inner(
         layout_inline_context(dom, &children, content_width, &style, font_db)
     };
 
-    let mut height = if intrinsic.is_some() {
-        // Replaced element height already resolved above.
-        content_height
-    } else {
-        match style.height {
-            Dimension::Length(px) if px.is_finite() => {
-                if style.box_sizing == BoxSizing::BorderBox {
-                    let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
-                    (px - pb_vertical).max(0.0)
-                } else {
-                    px
-                }
-            }
-            Dimension::Percentage(pct) => {
-                // Percentage heights resolve against the containing block's height.
-                // If the containing block has no definite height, treat as auto.
-                containing_height.map_or(content_height, |ch| {
-                    let resolved = ch * pct / 100.0;
-                    if style.box_sizing == BoxSizing::BorderBox {
-                        let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
-                        (resolved - pb_vertical).max(0.0)
-                    } else {
-                        resolved
-                    }
-                })
-            }
-            _ => content_height,
-        }
-    };
-
-    // --- Apply min-height / max-height constraints ---
-    // For box-sizing: border-box, subtract vertical padding+border.
-    {
-        let ch = containing_height.unwrap_or(0.0);
-        let mut min_h = resolve_min_max(style.min_height, ch, 0.0);
-        let mut max_h = resolve_min_max(style.max_height, ch, f32::INFINITY);
-        if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
-            let pb = padding.top + padding.bottom + border.top + border.bottom;
-            min_h = (min_h - pb).max(0.0);
-            if max_h < f32::INFINITY {
-                max_h = (max_h - pb).max(0.0);
-            }
-        }
-        height = height.max(min_h).min(max_h).max(min_h);
-    }
+    let height = resolve_block_height(
+        &style,
+        content_height,
+        containing_height,
+        &padding,
+        &border,
+        intrinsic.is_some(),
+    );
 
     let lb = LayoutBox {
         content: Rect {
@@ -405,15 +397,13 @@ fn resolve_replaced_width(
 ) -> f32 {
     let iw = intrinsic_w as f32;
     let ih = intrinsic_h as f32;
-    let pb_horizontal = padding.left + padding.right + border.left + border.right;
 
     if style.width == Dimension::Auto {
         match style.height {
             Dimension::Length(h) if h.is_finite() && ih > 0.0 => {
                 // height specified, width auto: compute from aspect ratio.
                 let css_h = if style.box_sizing == BoxSizing::BorderBox {
-                    let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
-                    (h - pb_vertical).max(0.0)
+                    (h - vertical_pb(padding, border)).max(0.0)
                 } else {
                     h
                 };
@@ -424,7 +414,7 @@ fn resolve_replaced_width(
     } else {
         let raw = sanitize(resolve_dimension_value(style.width, containing_width, iw));
         if style.box_sizing == BoxSizing::BorderBox {
-            (raw - pb_horizontal).max(0.0)
+            (raw - horizontal_pb(padding, border)).max(0.0)
         } else {
             raw
         }
@@ -458,8 +448,7 @@ fn resolve_replaced_height(
         }
         Dimension::Length(h) if h.is_finite() => {
             if style.box_sizing == BoxSizing::BorderBox {
-                let pb_vertical = padding.top + padding.bottom + border.top + border.bottom;
-                (h - pb_vertical).max(0.0)
+                (h - vertical_pb(padding, border)).max(0.0)
             } else {
                 h
             }
@@ -478,10 +467,8 @@ fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta: f32) {
         return;
     }
     for &child in children {
-        let is_block = dom
-            .world()
-            .get::<&ComputedStyle>(child)
-            .is_ok_and(|s| is_block_level(s.display));
+        let is_block =
+            crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !is_block {
             continue;
         }
@@ -528,10 +515,10 @@ pub(crate) fn stack_block_children(
     let mut last_child_margin_bottom: Option<f32> = None;
 
     for &child in children {
-        let (child_display, child_margin_top_dim) = match dom.world().get::<&ComputedStyle>(child) {
-            Ok(s) => (s.display, s.margin_top),
-            Err(_) => continue, // text node in block context: skip
+        let Some(child_style) = crate::try_get_style(dom, child) else {
+            continue; // text node in block context: skip
         };
+        let (child_display, child_margin_top_dim) = (child_style.display, child_style.margin_top);
 
         if !is_block_level(child_display) {
             continue;
@@ -548,29 +535,18 @@ pub(crate) fn stack_block_children(
             cursor_y -= prev_mb + child_margin_top - collapsed;
         }
 
-        let child_box = if matches!(child_display, Display::Flex | Display::InlineFlex) {
-            crate::flex::layout_flex(
-                dom,
-                child,
-                containing_width,
-                containing_height,
-                offset_x,
-                cursor_y,
-                font_db,
-                depth,
-            )
-        } else {
-            layout_block_inner(
-                dom,
-                child,
-                containing_width,
-                containing_height,
-                offset_x,
-                cursor_y,
-                font_db,
-                depth,
-            )
-        };
+        // layout_block_inner handles flex dispatch internally
+        // (Flex/InlineFlex containers are routed to layout_flex).
+        let child_box = layout_block_inner(
+            dom,
+            child,
+            containing_width,
+            containing_height,
+            offset_x,
+            cursor_y,
+            font_db,
+            depth,
+        );
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
         last_child_margin_bottom = Some(child_box.margin.bottom);
