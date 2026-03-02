@@ -14,11 +14,22 @@ use elidex_css::{parse_stylesheet, Origin, Stylesheet};
 const UA_CSS: &str = r"
 html, body, div, p, h1, h2, h3, h4, h5, h6,
 ul, ol, dl, dt, dd, blockquote, pre,
-form, fieldset, table, address, article, aside,
+form, fieldset, address, article, aside,
 details, figcaption, figure, footer, header,
 main, nav, section, summary, hr {
     display: block;
 }
+
+table { display: table; box-sizing: border-box; border-collapse: separate; border-spacing: 2px; }
+caption { display: table-caption; text-align: center; }
+thead { display: table-header-group; }
+tbody { display: table-row-group; }
+tfoot { display: table-footer-group; }
+tr { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+th { font-weight: bold; text-align: center; }
+colgroup { display: table-column-group; }
+col { display: table-column; }
 
 head, link, meta, script, style, title {
     display: none;
@@ -297,6 +308,73 @@ mod tests {
             color_decl.value,
             CssValue::Color(CssColor::new(85, 26, 139, 255))
         );
+    }
+
+    // --- M3.5-2: Table UA styles ---
+
+    #[test]
+    fn table_display_table() {
+        let ss = ua_stylesheet();
+        let table_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "table"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "display" && d.value == CssValue::Keyword("table".to_string())
+            })
+        });
+        assert!(table_rule.is_some(), "table display: table rule not found");
+    }
+
+    #[test]
+    fn tr_display_table_row() {
+        let ss = ua_stylesheet();
+        let tr_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "tr"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "display" && d.value == CssValue::Keyword("table-row".to_string())
+            })
+        });
+        assert!(tr_rule.is_some(), "tr display: table-row rule not found");
+    }
+
+    #[test]
+    fn td_th_display_table_cell() {
+        let ss = ua_stylesheet();
+        let td_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "td"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "display" && d.value == CssValue::Keyword("table-cell".to_string())
+            })
+        });
+        assert!(td_rule.is_some(), "td display: table-cell rule not found");
+    }
+
+    #[test]
+    fn th_font_weight_bold() {
+        let ss = ua_stylesheet();
+        let th_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "th"))
+            }) && r.declarations.iter().any(|d| d.property == "font-weight")
+        });
+        assert!(th_rule.is_some(), "th font-weight: bold rule not found");
+        let fw = th_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "font-weight")
+            .unwrap();
+        assert_eq!(fw.value, CssValue::Keyword("bold".to_string()));
     }
 
     #[test]

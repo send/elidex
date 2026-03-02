@@ -160,6 +160,16 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "list-item",
                 "grid",
                 "inline-grid",
+                "table",
+                "inline-table",
+                "table-caption",
+                "table-row",
+                "table-cell",
+                "table-row-group",
+                "table-header-group",
+                "table-footer-group",
+                "table-column",
+                "table-column-group",
             ],
         ),
         "position" => {
@@ -319,6 +329,12 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         // --- Grid shorthands ---
         "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
         "grid-area" => grid::parse_grid_area(input),
+
+        // --- Table properties ---
+        "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
+        "border-spacing" => parse_border_spacing(input),
+        "table-layout" => parse_keyword_property(input, name, &["auto", "fixed"]),
+        "caption-side" => parse_keyword_property(input, name, &["top", "bottom"]),
 
         // --- Content property ---
         "content" => parse_content(input),
@@ -731,6 +747,44 @@ fn parse_content(input: &mut Parser) -> Vec<Declaration> {
     single_decl("content", CssValue::List(items))
 }
 
+// --- Border-spacing parsing ---
+
+/// Parse `border-spacing`: 1 length → both h and v, 2 lengths → h then v.
+///
+/// CSS 2.1 §17.6.1: both values must be non-negative lengths (no percentages).
+fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let h = parse_non_negative_length_or_percentage(i)?;
+            // Reject percentages (CSS 2.1 border-spacing only accepts lengths).
+            if matches!(h, CssValue::Percentage(_)) {
+                return Err(());
+            }
+            let v = i
+                .try_parse(|i2| {
+                    let v = parse_non_negative_length_or_percentage(i2)?;
+                    if matches!(v, CssValue::Percentage(_)) {
+                        return Err(());
+                    }
+                    Ok(v)
+                })
+                .unwrap_or(h.clone());
+            Ok(vec![
+                Declaration {
+                    property: "border-spacing-h".to_string(),
+                    value: h,
+                    important: false,
+                },
+                Declaration {
+                    property: "border-spacing-v".to_string(),
+                    value: v,
+                    important: false,
+                },
+            ])
+        })
+        .unwrap_or_default()
+}
+
 // --- Background shorthand ---
 
 /// Parse the `background` shorthand, extracting only `background-color`.
@@ -781,6 +835,10 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
         "background" => vec!["background-color".to_string()],
+        "border-spacing" => vec![
+            "border-spacing-h".to_string(),
+            "border-spacing-v".to_string(),
+        ],
         "grid-column" => vec![
             "grid-column-start".to_string(),
             "grid-column-end".to_string(),

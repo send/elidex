@@ -141,6 +141,16 @@ pub fn is_block_level(display: Display) -> bool {
             | Display::Grid
             | Display::InlineGrid
             | Display::ListItem
+            | Display::Table
+            | Display::InlineTable
+            | Display::TableCaption
+            | Display::TableRowGroup
+            | Display::TableHeaderGroup
+            | Display::TableFooterGroup
+            | Display::TableRow
+            | Display::TableCell
+            | Display::TableColumn
+            | Display::TableColumnGroup
     )
 }
 

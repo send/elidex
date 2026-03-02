@@ -70,6 +70,40 @@ keyword_enum! {
         ListItem => "list-item",
         Grid => "grid",
         InlineGrid => "inline-grid",
+        Table => "table",
+        InlineTable => "inline-table",
+        TableCaption => "table-caption",
+        TableRow => "table-row",
+        TableCell => "table-cell",
+        TableRowGroup => "table-row-group",
+        TableHeaderGroup => "table-header-group",
+        TableFooterGroup => "table-footer-group",
+        TableColumn => "table-column",
+        TableColumnGroup => "table-column-group",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `border-collapse` property (CSS 2.1 §17.6).
+    BorderCollapse {
+        Separate => "separate",
+        Collapse => "collapse",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `table-layout` property (CSS 2.1 §17.5.2).
+    TableLayout {
+        Auto => "auto",
+        Fixed => "fixed",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `caption-side` property (CSS 2.1 §17.4.1).
+    CaptionSide {
+        Top => "top",
+        Bottom => "bottom",
     }
 }
 
@@ -531,6 +565,18 @@ pub struct ComputedStyle {
     /// Grid row end line. Initial: `Auto`.
     pub grid_row_end: GridLine,
 
+    // --- Table properties ---
+    /// Border collapse model. Initial: `Separate`. **Inherited.**
+    pub border_collapse: BorderCollapse,
+    /// Horizontal border spacing in pixels (separate model only). Initial: 0.0. **Inherited.**
+    pub border_spacing_h: f32,
+    /// Vertical border spacing in pixels (separate model only). Initial: 0.0. **Inherited.**
+    pub border_spacing_v: f32,
+    /// Table layout algorithm. Initial: `Auto`.
+    pub table_layout: TableLayout,
+    /// Caption placement. Initial: `Top`. **Inherited.**
+    pub caption_side: CaptionSide,
+
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
@@ -637,6 +683,13 @@ impl Default for ComputedStyle {
             grid_column_end: GridLine::Auto,
             grid_row_start: GridLine::Auto,
             grid_row_end: GridLine::Auto,
+
+            // Table
+            border_collapse: BorderCollapse::default(),
+            border_spacing_h: 0.0,
+            border_spacing_v: 0.0,
+            table_layout: TableLayout::default(),
+            caption_side: CaptionSide::default(),
 
             // Generated content
             content: ContentValue::Normal,
@@ -869,6 +922,53 @@ mod tests {
         assert_eq!(GridLine::default(), GridLine::Auto);
         assert_eq!(GridLine::Line(2), GridLine::Line(2));
         assert_eq!(GridLine::Span(3), GridLine::Span(3));
+    }
+
+    // --- M3.5-2: Table types ---
+
+    #[test]
+    fn display_table_as_ref() {
+        assert_eq!(Display::Table.as_ref(), "table");
+        assert_eq!(Display::InlineTable.as_ref(), "inline-table");
+        assert_eq!(Display::TableCaption.as_ref(), "table-caption");
+        assert_eq!(Display::TableRow.as_ref(), "table-row");
+        assert_eq!(Display::TableCell.as_ref(), "table-cell");
+        assert_eq!(Display::TableRowGroup.as_ref(), "table-row-group");
+        assert_eq!(Display::TableHeaderGroup.as_ref(), "table-header-group");
+        assert_eq!(Display::TableFooterGroup.as_ref(), "table-footer-group");
+        assert_eq!(Display::TableColumn.as_ref(), "table-column");
+        assert_eq!(Display::TableColumnGroup.as_ref(), "table-column-group");
+    }
+
+    #[test]
+    fn border_collapse_defaults_and_as_ref() {
+        assert_eq!(BorderCollapse::default(), BorderCollapse::Separate);
+        assert_eq!(BorderCollapse::Separate.as_ref(), "separate");
+        assert_eq!(BorderCollapse::Collapse.as_ref(), "collapse");
+    }
+
+    #[test]
+    fn table_layout_defaults_and_as_ref() {
+        assert_eq!(TableLayout::default(), TableLayout::Auto);
+        assert_eq!(TableLayout::Auto.as_ref(), "auto");
+        assert_eq!(TableLayout::Fixed.as_ref(), "fixed");
+    }
+
+    #[test]
+    fn caption_side_defaults_and_as_ref() {
+        assert_eq!(CaptionSide::default(), CaptionSide::Top);
+        assert_eq!(CaptionSide::Top.as_ref(), "top");
+        assert_eq!(CaptionSide::Bottom.as_ref(), "bottom");
+    }
+
+    #[test]
+    fn computed_style_table_defaults() {
+        let s = ComputedStyle::default();
+        assert_eq!(s.border_collapse, BorderCollapse::Separate);
+        assert!((s.border_spacing_h - 0.0).abs() < f32::EPSILON);
+        assert!((s.border_spacing_v - 0.0).abs() < f32::EPSILON);
+        assert_eq!(s.table_layout, TableLayout::Auto);
+        assert_eq!(s.caption_side, CaptionSide::Top);
     }
 
     #[test]

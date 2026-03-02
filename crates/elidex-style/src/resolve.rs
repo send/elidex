@@ -7,10 +7,11 @@
 use std::collections::{HashMap, HashSet};
 
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
-    ContentValue, CssColor, CssValue, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
-    GridLine, JustifyContent, LengthUnit, LineHeight, ListStyleType, Overflow, Position, TextAlign,
-    TextDecorationLine, TextTransform, TrackBreadth, TrackSize, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
+    ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Dimension, Display,
+    FlexDirection, FlexWrap, GridAutoFlow, GridLine, JustifyContent, LengthUnit, LineHeight,
+    ListStyleType, Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextTransform,
+    TrackBreadth, TrackSize, WhiteSpace,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -234,6 +235,23 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "grid-row-start" => grid_line_to_css_value(style.grid_row_start),
         "grid-row-end" => grid_line_to_css_value(style.grid_row_end),
 
+        // Table properties
+        "border-collapse" => keyword_from(&style.border_collapse),
+        "border-spacing" => {
+            if (style.border_spacing_h - style.border_spacing_v).abs() < f32::EPSILON {
+                CssValue::Length(style.border_spacing_h, LengthUnit::Px)
+            } else {
+                CssValue::List(vec![
+                    CssValue::Length(style.border_spacing_h, LengthUnit::Px),
+                    CssValue::Length(style.border_spacing_v, LengthUnit::Px),
+                ])
+            }
+        }
+        "border-spacing-h" => CssValue::Length(style.border_spacing_h, LengthUnit::Px),
+        "border-spacing-v" => CssValue::Length(style.border_spacing_v, LengthUnit::Px),
+        "table-layout" => keyword_from(&style.table_layout),
+        "caption-side" => keyword_from(&style.caption_side),
+
         "content" => match &style.content {
             ContentValue::Normal => CssValue::Keyword("normal".to_string()),
             ContentValue::None => CssValue::Keyword("none".to_string()),
@@ -407,6 +425,9 @@ pub(crate) fn build_computed_style(
 
     // Phase 8: Content property (non-inherited).
     resolve_content(&mut style, &winners, parent_style);
+
+    // Phase 9: Table properties.
+    resolve_table_properties(&mut style, &winners, parent_style, &elem_ctx);
 
     style
 }
@@ -625,6 +646,83 @@ fn resolve_content(
         }
         _ => ContentValue::Normal,
     };
+}
+
+// --- Table property resolution ---
+
+/// Resolve table-related CSS properties.
+///
+/// `border-collapse`, `border-spacing`, `caption-side` are inherited.
+/// `table-layout` is non-inherited.
+fn resolve_table_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    // border-collapse (inherited)
+    style.border_collapse = resolve_inherited_keyword_enum(
+        "border-collapse",
+        winners,
+        parent_style,
+        parent_style.border_collapse,
+        |k| match k {
+            "separate" => Some(BorderCollapse::Separate),
+            "collapse" => Some(BorderCollapse::Collapse),
+            _ => None,
+        },
+    );
+
+    // border-spacing (inherited, 2 longhands)
+    let has_h = winners.contains_key("border-spacing-h");
+    let has_v = winners.contains_key("border-spacing-v");
+    if has_h || has_v {
+        let px = |v: &CssValue| resolve_to_px(v, ctx).max(0.0);
+        if has_h {
+            resolve_prop("border-spacing-h", winners, parent_style, px, |v| {
+                style.border_spacing_h = v;
+            });
+        } else {
+            style.border_spacing_h = parent_style.border_spacing_h;
+        }
+        if has_v {
+            resolve_prop("border-spacing-v", winners, parent_style, px, |v| {
+                style.border_spacing_v = v;
+            });
+        } else {
+            style.border_spacing_v = parent_style.border_spacing_v;
+        }
+    } else {
+        // Inherited from parent.
+        style.border_spacing_h = parent_style.border_spacing_h;
+        style.border_spacing_v = parent_style.border_spacing_v;
+    }
+
+    // table-layout (non-inherited)
+    resolve_keyword_enum_prop!(
+        "table-layout",
+        winners,
+        parent_style,
+        style.table_layout,
+        |k| match k {
+            "auto" => Some(TableLayout::Auto),
+            "fixed" => Some(TableLayout::Fixed),
+            _ => None,
+        }
+    );
+
+    // caption-side (inherited)
+    style.caption_side = resolve_inherited_keyword_enum(
+        "caption-side",
+        winners,
+        parent_style,
+        parent_style.caption_side,
+        |k| match k {
+            "top" => Some(CaptionSide::Top),
+            "bottom" => Some(CaptionSide::Bottom),
+            _ => None,
+        },
+    );
 }
 
 // --- Custom property resolution ---
@@ -1360,6 +1458,18 @@ fn resolve_display(
             "flex" => Some(Display::Flex),
             "inline-flex" => Some(Display::InlineFlex),
             "list-item" => Some(Display::ListItem),
+            "grid" => Some(Display::Grid),
+            "inline-grid" => Some(Display::InlineGrid),
+            "table" => Some(Display::Table),
+            "inline-table" => Some(Display::InlineTable),
+            "table-caption" => Some(Display::TableCaption),
+            "table-row" => Some(Display::TableRow),
+            "table-cell" => Some(Display::TableCell),
+            "table-row-group" => Some(Display::TableRowGroup),
+            "table-header-group" => Some(Display::TableHeaderGroup),
+            "table-footer-group" => Some(Display::TableFooterGroup),
+            "table-column" => Some(Display::TableColumn),
+            "table-column-group" => Some(Display::TableColumnGroup),
             _ => None,
         }
     );
@@ -2663,6 +2773,169 @@ mod tests {
                 CssValue::Keyword("span".into()),
                 CssValue::Number(2.0),
             ])
+        );
+    }
+
+    // --- M3.5-2: Table property resolution ---
+
+    #[test]
+    fn resolve_display_grid_inline_grid() {
+        // Bug fix: Grid/InlineGrid were missing from resolve_display.
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val_grid = CssValue::Keyword("grid".to_string());
+        winners.insert("display", &val_grid);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.display, Display::Grid);
+
+        let mut winners2: PropertyMap<'_> = HashMap::new();
+        let val_ig = CssValue::Keyword("inline-grid".to_string());
+        winners2.insert("display", &val_ig);
+        let style2 = build_computed_style(&winners2, &parent, &ctx);
+        assert_eq!(style2.display, Display::InlineGrid);
+    }
+
+    #[test]
+    fn resolve_display_table_variants() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        for (keyword, expected) in &[
+            ("table", Display::Table),
+            ("inline-table", Display::InlineTable),
+            ("table-caption", Display::TableCaption),
+            ("table-row", Display::TableRow),
+            ("table-cell", Display::TableCell),
+            ("table-row-group", Display::TableRowGroup),
+            ("table-header-group", Display::TableHeaderGroup),
+            ("table-footer-group", Display::TableFooterGroup),
+            ("table-column", Display::TableColumn),
+            ("table-column-group", Display::TableColumnGroup),
+        ] {
+            let mut winners: PropertyMap<'_> = HashMap::new();
+            let val = CssValue::Keyword((*keyword).to_string());
+            winners.insert("display", &val);
+            let style = build_computed_style(&winners, &parent, &ctx);
+            assert_eq!(style.display, *expected, "failed for display:{keyword}");
+        }
+    }
+
+    #[test]
+    fn resolve_border_collapse() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("collapse".to_string());
+        winners.insert("border-collapse", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.border_collapse, BorderCollapse::Collapse);
+    }
+
+    #[test]
+    fn resolve_border_collapse_inherited() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            border_collapse: BorderCollapse::Collapse,
+            ..Default::default()
+        };
+        let winners: PropertyMap<'_> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.border_collapse, BorderCollapse::Collapse);
+    }
+
+    #[test]
+    fn resolve_border_spacing() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val_h = CssValue::Length(5.0, LengthUnit::Px);
+        let val_v = CssValue::Length(10.0, LengthUnit::Px);
+        winners.insert("border-spacing-h", &val_h);
+        winners.insert("border-spacing-v", &val_v);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.border_spacing_h - 5.0).abs() < f32::EPSILON);
+        assert!((style.border_spacing_v - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_border_spacing_inherited() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle {
+            border_spacing_h: 2.0,
+            border_spacing_v: 4.0,
+            ..Default::default()
+        };
+        let winners: PropertyMap<'_> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.border_spacing_h - 2.0).abs() < f32::EPSILON);
+        assert!((style.border_spacing_v - 4.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resolve_table_layout() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("fixed".to_string());
+        winners.insert("table-layout", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.table_layout, TableLayout::Fixed);
+    }
+
+    #[test]
+    fn resolve_caption_side() {
+        let ctx = default_ctx();
+        let parent = ComputedStyle::default();
+        let mut winners: PropertyMap<'_> = HashMap::new();
+        let val = CssValue::Keyword("bottom".to_string());
+        winners.insert("caption-side", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.caption_side, CaptionSide::Bottom);
+    }
+
+    #[test]
+    fn get_computed_border_spacing_single_value() {
+        // When h == v, border-spacing should serialize to a single Length.
+        let style = ComputedStyle {
+            border_spacing_h: 5.0,
+            border_spacing_v: 5.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("border-spacing", &style),
+            CssValue::Length(5.0, LengthUnit::Px)
+        );
+    }
+
+    #[test]
+    fn get_computed_table_properties() {
+        let style = ComputedStyle {
+            border_collapse: BorderCollapse::Collapse,
+            border_spacing_h: 5.0,
+            border_spacing_v: 10.0,
+            table_layout: TableLayout::Fixed,
+            caption_side: CaptionSide::Bottom,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            get_computed_as_css_value("border-collapse", &style),
+            CssValue::Keyword("collapse".into())
+        );
+        assert_eq!(
+            get_computed_as_css_value("border-spacing", &style),
+            CssValue::List(vec![
+                CssValue::Length(5.0, LengthUnit::Px),
+                CssValue::Length(10.0, LengthUnit::Px),
+            ])
+        );
+        assert_eq!(
+            get_computed_as_css_value("table-layout", &style),
+            CssValue::Keyword("fixed".into())
+        );
+        assert_eq!(
+            get_computed_as_css_value("caption-side", &style),
+            CssValue::Keyword("bottom".into())
         );
     }
 }

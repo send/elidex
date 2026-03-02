@@ -16,6 +16,10 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "text-align",
     "white-space",
     "list-style-type",
+    "border-collapse",
+    "border-spacing-h",
+    "border-spacing-v",
+    "caption-side",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -82,6 +86,14 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
             CssValue::Keyword("currentcolor".to_string())
         }
 
+        // Table
+        "border-collapse" => CssValue::Keyword("separate".to_string()),
+        "border-spacing" | "border-spacing-h" | "border-spacing-v" => {
+            CssValue::Length(0.0, LengthUnit::Px)
+        }
+        "table-layout" | "align-self" => CssValue::Keyword("auto".to_string()),
+        "caption-side" => CssValue::Keyword("top".to_string()),
+
         // Box model
         "box-sizing" => CssValue::Keyword("content-box".to_string()),
 
@@ -90,9 +102,6 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
         "justify-content" => CssValue::Keyword("flex-start".to_string()),
         "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
-
-        // Flex item
-        "align-self" => CssValue::Keyword("auto".to_string()),
         "flex-grow" | "order" => CssValue::Number(0.0),
         "flex-shrink" | "opacity" => CssValue::Number(1.0),
 
@@ -312,6 +321,57 @@ mod tests {
         assert!(!is_inherited("grid-column-end"));
         assert!(!is_inherited("grid-row-start"));
         assert!(!is_inherited("grid-row-end"));
+    }
+
+    // --- M3.5-2: Table property inheritance ---
+
+    #[test]
+    fn border_collapse_inherited() {
+        assert!(is_inherited("border-collapse"));
+    }
+
+    #[test]
+    fn border_spacing_inherited() {
+        assert!(is_inherited("border-spacing-h"));
+        assert!(is_inherited("border-spacing-v"));
+    }
+
+    #[test]
+    fn caption_side_inherited() {
+        assert!(is_inherited("caption-side"));
+    }
+
+    #[test]
+    fn table_layout_not_inherited() {
+        assert!(!is_inherited("table-layout"));
+    }
+
+    #[test]
+    fn initial_values_table() {
+        assert_eq!(
+            get_initial_value("border-collapse"),
+            CssValue::Keyword("separate".to_string())
+        );
+        assert_eq!(
+            get_initial_value("border-spacing"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("border-spacing-h"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("border-spacing-v"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("table-layout"),
+            CssValue::Keyword("auto".to_string())
+        );
+        assert_eq!(
+            get_initial_value("caption-side"),
+            CssValue::Keyword("top".to_string())
+        );
     }
 
     #[test]

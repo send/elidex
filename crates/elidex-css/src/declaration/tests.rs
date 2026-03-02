@@ -1398,3 +1398,98 @@ fn parse_grid_column_inherit() {
     assert_eq!(decls[1].property, "grid-column-end");
     assert_eq!(decls[1].value, CssValue::Inherit);
 }
+
+// --- M3.5-2: Table CSS parsing ---
+
+#[test]
+fn parse_display_table_variants() {
+    for kw in &[
+        "table",
+        "inline-table",
+        "table-caption",
+        "table-row",
+        "table-cell",
+        "table-row-group",
+        "table-header-group",
+        "table-footer-group",
+        "table-column",
+        "table-column-group",
+    ] {
+        let decls = parse_single("display", kw);
+        assert_eq!(decls.len(), 1, "failed for {kw}");
+        assert_eq!(decls[0].value, CssValue::Keyword((*kw).to_string()));
+    }
+}
+
+#[test]
+fn parse_border_collapse() {
+    let decls = parse_single("border-collapse", "separate");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("separate".into()));
+
+    let decls = parse_single("border-collapse", "collapse");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("collapse".into()));
+}
+
+#[test]
+fn parse_border_spacing_one_value() {
+    let decls = parse_single("border-spacing", "2px");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "border-spacing-h");
+    assert_eq!(decls[0].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "border-spacing-v");
+    assert_eq!(decls[1].value, CssValue::Length(2.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_border_spacing_two_values() {
+    let decls = parse_single("border-spacing", "2px 4px");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "border-spacing-h");
+    assert_eq!(decls[0].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "border-spacing-v");
+    assert_eq!(decls[1].value, CssValue::Length(4.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_table_layout() {
+    let decls = parse_single("table-layout", "auto");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("auto".into()));
+
+    let decls = parse_single("table-layout", "fixed");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("fixed".into()));
+}
+
+#[test]
+fn parse_caption_side() {
+    let decls = parse_single("caption-side", "top");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("top".into()));
+
+    let decls = parse_single("caption-side", "bottom");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("bottom".into()));
+}
+
+#[test]
+fn parse_border_spacing_percentage_rejected() {
+    // CSS 2.1 §17.6.1: border-spacing does not accept percentages.
+    let decls = parse_single("border-spacing", "10%");
+    assert!(
+        decls.is_empty(),
+        "border-spacing should reject percentage values"
+    );
+}
+
+#[test]
+fn parse_border_spacing_inherit() {
+    let decls = parse_single("border-spacing", "inherit");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "border-spacing-h");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "border-spacing-v");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+}

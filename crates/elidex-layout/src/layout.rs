@@ -49,6 +49,17 @@ pub fn dispatch_layout_child(
             depth,
             dispatch_layout_child,
         ),
+        Display::Table | Display::InlineTable => elidex_layout_table::layout_table(
+            dom,
+            entity,
+            containing_width,
+            containing_height,
+            offset_x,
+            offset_y,
+            font_db,
+            depth,
+            dispatch_layout_child,
+        ),
         _ => elidex_layout_block::block::layout_block_inner(
             dom,
             entity,
@@ -400,6 +411,186 @@ mod tests {
         assert!(approx_eq(flex_lb.content.width, 200.0));
         // Inner flex item: width 50px, height 30px.
         assert!(approx_eq(inner_lb.content.width, 50.0));
+        assert!(approx_eq(inner_lb.content.height, 30.0));
+    }
+
+    // --- M3.5-2: Table integration tests ---
+
+    #[test]
+    fn table_dispatches_to_table_layout() {
+        let mut dom = EcsDom::new();
+        let table = dom.create_element("table", Attributes::default());
+        dom.world_mut().insert_one(
+            table,
+            ComputedStyle {
+                display: Display::Table,
+                ..Default::default()
+            },
+        );
+
+        let tr = dom.create_element("tr", Attributes::default());
+        dom.world_mut().insert_one(
+            tr,
+            ComputedStyle {
+                display: Display::TableRow,
+                ..Default::default()
+            },
+        );
+        dom.append_child(table, tr);
+
+        let td = dom.create_element("td", Attributes::default());
+        dom.world_mut().insert_one(
+            td,
+            ComputedStyle {
+                display: Display::TableCell,
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        );
+        dom.append_child(tr, td);
+
+        let font_db = FontDatabase::new();
+        layout_tree(&mut dom, 600.0, 400.0, &font_db);
+
+        assert!(dom.world().get::<&LayoutBox>(table).is_ok());
+        assert!(dom.world().get::<&LayoutBox>(td).is_ok());
+        let table_lb = get_layout(&dom, table);
+        assert!(approx_eq(table_lb.content.width, 600.0));
+    }
+
+    #[test]
+    fn table_nested_in_block() {
+        let (mut dom, _root, _html, body) = build_styled_dom();
+        let table = dom.create_element("table", Attributes::default());
+        dom.append_child(body, table);
+        dom.world_mut().insert_one(
+            table,
+            ComputedStyle {
+                display: Display::Table,
+                ..Default::default()
+            },
+        );
+
+        let tr = dom.create_element("tr", Attributes::default());
+        dom.world_mut().insert_one(
+            tr,
+            ComputedStyle {
+                display: Display::TableRow,
+                ..Default::default()
+            },
+        );
+        dom.append_child(table, tr);
+
+        let td = dom.create_element("td", Attributes::default());
+        dom.world_mut().insert_one(
+            td,
+            ComputedStyle {
+                display: Display::TableCell,
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        );
+        dom.append_child(tr, td);
+
+        let font_db = FontDatabase::new();
+        layout_tree(&mut dom, 800.0, 600.0, &font_db);
+
+        let table_lb = get_layout(&dom, table);
+        // Table inside body (margin: 8px), so content starts at x=8.
+        assert!(approx_eq(table_lb.content.x, 8.0));
+        // Table content width = 800 - 16 = 784.
+        assert!(approx_eq(table_lb.content.width, 784.0));
+    }
+
+    #[test]
+    fn table_is_block_level() {
+        assert!(elidex_layout_block::block::is_block_level(Display::Table));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::InlineTable
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableCaption
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableRow
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableCell
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableRowGroup
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableHeaderGroup
+        ));
+        assert!(elidex_layout_block::block::is_block_level(
+            Display::TableFooterGroup
+        ));
+    }
+
+    #[test]
+    fn table_item_is_flex_container() {
+        // A table cell that contains a flex container.
+        let mut dom = EcsDom::new();
+        let table = dom.create_element("table", Attributes::default());
+        dom.world_mut().insert_one(
+            table,
+            ComputedStyle {
+                display: Display::Table,
+                ..Default::default()
+            },
+        );
+
+        let tr = dom.create_element("tr", Attributes::default());
+        dom.world_mut().insert_one(
+            tr,
+            ComputedStyle {
+                display: Display::TableRow,
+                ..Default::default()
+            },
+        );
+        dom.append_child(table, tr);
+
+        let td = dom.create_element("td", Attributes::default());
+        dom.world_mut().insert_one(
+            td,
+            ComputedStyle {
+                display: Display::TableCell,
+                ..Default::default()
+            },
+        );
+        dom.append_child(tr, td);
+
+        let flex = dom.create_element("div", Attributes::default());
+        dom.world_mut().insert_one(
+            flex,
+            ComputedStyle {
+                display: Display::Flex,
+                ..Default::default()
+            },
+        );
+        dom.append_child(td, flex);
+
+        let inner = dom.create_element("div", Attributes::default());
+        dom.world_mut().insert_one(
+            inner,
+            ComputedStyle {
+                display: Display::Block,
+                width: Dimension::Length(50.0),
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        );
+        dom.append_child(flex, inner);
+
+        let font_db = FontDatabase::new();
+        layout_tree(&mut dom, 600.0, 400.0, &font_db);
+
+        assert!(dom.world().get::<&LayoutBox>(table).is_ok());
+        assert!(dom.world().get::<&LayoutBox>(flex).is_ok());
+        assert!(dom.world().get::<&LayoutBox>(inner).is_ok());
+        let inner_lb = get_layout(&dom, inner);
+        // Flex item height should be preserved.
         assert!(approx_eq(inner_lb.content.height, 30.0));
     }
 
