@@ -8,6 +8,9 @@ members = [
     "crates/elidex-parser",
     "crates/elidex-css",
     "crates/elidex-style",
+    "crates/elidex-layout-block",
+    "crates/elidex-layout-flex",
+    "crates/elidex-layout-grid",
     "crates/elidex-layout",
     "crates/elidex-text",
     "crates/elidex-render",
@@ -67,6 +70,9 @@ elidex-css = { path = "crates/elidex-css" }
 elidex-text = { path = "crates/elidex-text" }
 elidex-style = { path = "crates/elidex-style" }
 elidex-parser = { path = "crates/elidex-parser" }
+elidex-layout-block = { path = "crates/elidex-layout-block" }
+elidex-layout-flex = { path = "crates/elidex-layout-flex" }
+elidex-layout-grid = { path = "crates/elidex-layout-grid" }
 elidex-layout = { path = "crates/elidex-layout" }
 elidex-render = { path = "crates/elidex-render" }
 elidex-shell = { path = "crates/elidex-shell" }

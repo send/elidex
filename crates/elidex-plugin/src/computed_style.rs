@@ -68,7 +68,64 @@ keyword_enum! {
         Flex => "flex",
         InlineFlex => "inline-flex",
         ListItem => "list-item",
+        Grid => "grid",
+        InlineGrid => "inline-grid",
     }
+}
+
+keyword_enum! {
+    /// The CSS `grid-auto-flow` property.
+    GridAutoFlow {
+        Row => "row",
+        Column => "column",
+        RowDense => "row dense",
+        ColumnDense => "column dense",
+    }
+}
+
+/// A single track sizing function for CSS Grid.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum TrackSize {
+    /// A fixed length in pixels.
+    Length(f32),
+    /// A percentage of the grid container's size.
+    Percentage(f32),
+    /// A flexible length (`fr` unit).
+    Fr(f32),
+    /// `auto` — sized by content.
+    #[default]
+    Auto,
+    /// `minmax(min, max)` function.
+    MinMax(Box<TrackBreadth>, Box<TrackBreadth>),
+}
+
+/// A track breadth value, used inside `minmax()`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TrackBreadth {
+    /// A fixed length in pixels.
+    Length(f32),
+    /// A percentage of the grid container's size.
+    Percentage(f32),
+    /// A flexible length (`fr` unit).
+    Fr(f32),
+    /// `auto` — sized by content.
+    Auto,
+    /// `min-content` intrinsic size.
+    MinContent,
+    /// `max-content` intrinsic size.
+    MaxContent,
+}
+
+/// A grid line placement value.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum GridLine {
+    /// `auto` — automatic placement.
+    #[default]
+    Auto,
+    /// An explicit line number (1-based, can be negative).
+    Line(i32),
+    /// `span N` — span across N tracks.
+    Span(u32),
 }
 
 keyword_enum! {
@@ -452,6 +509,28 @@ pub struct ComputedStyle {
     /// Align self. Initial: `Auto`.
     pub align_self: AlignSelf,
 
+    // --- Grid container properties (non-inherited) ---
+    /// Grid template column track sizes. Initial: empty (= `none`).
+    pub grid_template_columns: Vec<TrackSize>,
+    /// Grid template row track sizes. Initial: empty (= `none`).
+    pub grid_template_rows: Vec<TrackSize>,
+    /// Grid auto-flow direction. Initial: `Row`.
+    pub grid_auto_flow: GridAutoFlow,
+    /// Implicit column track size. Initial: `Auto`.
+    pub grid_auto_columns: TrackSize,
+    /// Implicit row track size. Initial: `Auto`.
+    pub grid_auto_rows: TrackSize,
+
+    // --- Grid item properties (non-inherited) ---
+    /// Grid column start line. Initial: `Auto`.
+    pub grid_column_start: GridLine,
+    /// Grid column end line. Initial: `Auto`.
+    pub grid_column_end: GridLine,
+    /// Grid row start line. Initial: `Auto`.
+    pub grid_row_start: GridLine,
+    /// Grid row end line. Initial: `Auto`.
+    pub grid_row_end: GridLine,
+
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
@@ -545,6 +624,19 @@ impl Default for ComputedStyle {
             flex_basis: Dimension::Auto,
             order: 0,
             align_self: AlignSelf::default(),
+
+            // Grid container
+            grid_template_columns: Vec::new(),
+            grid_template_rows: Vec::new(),
+            grid_auto_flow: GridAutoFlow::default(),
+            grid_auto_columns: TrackSize::Auto,
+            grid_auto_rows: TrackSize::Auto,
+
+            // Grid item
+            grid_column_start: GridLine::Auto,
+            grid_column_end: GridLine::Auto,
+            grid_row_start: GridLine::Auto,
+            grid_row_end: GridLine::Auto,
 
             // Generated content
             content: ContentValue::Normal,
@@ -736,5 +828,60 @@ mod tests {
         assert_eq!(s.max_width, Dimension::Auto);
         assert_eq!(s.min_height, Dimension::ZERO);
         assert_eq!(s.max_height, Dimension::Auto);
+    }
+
+    // --- M3.5-1: Grid types ---
+
+    #[test]
+    fn display_grid_as_ref() {
+        assert_eq!(Display::Grid.as_ref(), "grid");
+        assert_eq!(Display::InlineGrid.as_ref(), "inline-grid");
+    }
+
+    #[test]
+    fn grid_auto_flow_defaults_and_as_ref() {
+        assert_eq!(GridAutoFlow::default(), GridAutoFlow::Row);
+        assert_eq!(GridAutoFlow::Row.as_ref(), "row");
+        assert_eq!(GridAutoFlow::Column.as_ref(), "column");
+        assert_eq!(GridAutoFlow::RowDense.as_ref(), "row dense");
+        assert_eq!(GridAutoFlow::ColumnDense.as_ref(), "column dense");
+    }
+
+    #[test]
+    fn track_size_and_breadth_variants() {
+        assert_eq!(TrackSize::default(), TrackSize::Auto);
+        let ts = TrackSize::Fr(1.0);
+        assert_eq!(ts, TrackSize::Fr(1.0));
+        let ts_mm = TrackSize::MinMax(
+            Box::new(TrackBreadth::Length(100.0)),
+            Box::new(TrackBreadth::Fr(1.0)),
+        );
+        if let TrackSize::MinMax(min, max) = ts_mm {
+            assert_eq!(*min, TrackBreadth::Length(100.0));
+            assert_eq!(*max, TrackBreadth::Fr(1.0));
+        } else {
+            panic!("expected MinMax");
+        }
+    }
+
+    #[test]
+    fn grid_line_default() {
+        assert_eq!(GridLine::default(), GridLine::Auto);
+        assert_eq!(GridLine::Line(2), GridLine::Line(2));
+        assert_eq!(GridLine::Span(3), GridLine::Span(3));
+    }
+
+    #[test]
+    fn computed_style_grid_defaults() {
+        let s = ComputedStyle::default();
+        assert!(s.grid_template_columns.is_empty());
+        assert!(s.grid_template_rows.is_empty());
+        assert_eq!(s.grid_auto_flow, GridAutoFlow::Row);
+        assert_eq!(s.grid_auto_columns, TrackSize::Auto);
+        assert_eq!(s.grid_auto_rows, TrackSize::Auto);
+        assert_eq!(s.grid_column_start, GridLine::Auto);
+        assert_eq!(s.grid_column_end, GridLine::Auto);
+        assert_eq!(s.grid_row_start, GridLine::Auto);
+        assert_eq!(s.grid_row_end, GridLine::Auto);
     }
 }

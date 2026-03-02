@@ -46,7 +46,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         | "border-top-style"
         | "border-right-style"
         | "border-bottom-style"
-        | "border-left-style" => CssValue::Keyword("none".to_string()),
+        | "border-left-style"
+        | "grid-template-columns"
+        | "grid-template-rows" => CssValue::Keyword("none".to_string()),
         "text-align" => CssValue::Keyword("left".to_string()),
         "list-style-type" => CssValue::Keyword("disc".to_string()),
 
@@ -61,7 +63,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "overflow" => CssValue::Keyword("visible".to_string()),
 
         // Sizing (auto)
-        "width" | "height" | "flex-basis" | "max-width" | "max-height" => CssValue::Auto,
+        "width" | "height" | "flex-basis" | "max-width" | "max-height" | "grid-auto-columns"
+        | "grid-auto-rows" | "grid-column-start" | "grid-column-end" | "grid-row-start"
+        | "grid-row-end" => CssValue::Auto,
 
         // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
         "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
@@ -81,8 +85,8 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Box model
         "box-sizing" => CssValue::Keyword("content-box".to_string()),
 
-        // Flex container
-        "flex-direction" => CssValue::Keyword("row".to_string()),
+        // Flex/Grid container
+        "flex-direction" | "grid-auto-flow" => CssValue::Keyword("row".to_string()),
         "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
         "justify-content" => CssValue::Keyword("flex-start".to_string()),
         "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
@@ -293,5 +297,42 @@ mod tests {
             CssValue::Length(0.0, LengthUnit::Px)
         );
         assert_eq!(get_initial_value("max-height"), CssValue::Auto);
+    }
+
+    // --- M3.5-1: Grid property inheritance ---
+
+    #[test]
+    fn grid_properties_not_inherited() {
+        assert!(!is_inherited("grid-template-columns"));
+        assert!(!is_inherited("grid-template-rows"));
+        assert!(!is_inherited("grid-auto-flow"));
+        assert!(!is_inherited("grid-auto-columns"));
+        assert!(!is_inherited("grid-auto-rows"));
+        assert!(!is_inherited("grid-column-start"));
+        assert!(!is_inherited("grid-column-end"));
+        assert!(!is_inherited("grid-row-start"));
+        assert!(!is_inherited("grid-row-end"));
+    }
+
+    #[test]
+    fn initial_values_grid() {
+        assert_eq!(
+            get_initial_value("grid-template-columns"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("grid-template-rows"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("grid-auto-flow"),
+            CssValue::Keyword("row".to_string())
+        );
+        assert_eq!(get_initial_value("grid-auto-columns"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-auto-rows"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-column-start"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-column-end"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-row-start"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-row-end"), CssValue::Auto);
     }
 }

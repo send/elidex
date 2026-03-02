@@ -16,8 +16,9 @@ mod values;
 
 pub use computed_style::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
-    ContentValue, Dimension, Display, FlexDirection, FlexWrap, JustifyContent, LineHeight,
-    ListStyleType, Overflow, Position, TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    ContentValue, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow, GridLine,
+    JustifyContent, LineHeight, ListStyleType, Overflow, Position, TextAlign, TextDecorationLine,
+    TextTransform, TrackBreadth, TrackSize, WhiteSpace,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};

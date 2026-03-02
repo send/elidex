@@ -1097,6 +1097,38 @@ name = "elidex-layout"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-layout-block",
+ "elidex-layout-flex",
+ "elidex-layout-grid",
+ "elidex-plugin",
+ "elidex-text",
+]
+
+[[package]]
+name = "elidex-layout-block"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-plugin",
+ "elidex-text",
+]
+
+[[package]]
+name = "elidex-layout-flex"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-layout-block",
+ "elidex-plugin",
+ "elidex-text",
+]
+
+[[package]]
+name = "elidex-layout-grid"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-layout-block",
  "elidex-plugin",
  "elidex-text",
 ]

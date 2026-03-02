@@ -1,6 +1,6 @@
 [package]
-name = "elidex-layout"
-description = "Layout algorithms (block, inline, flexbox) for elidex"
+name = "elidex-layout-flex"
+description = "CSS Flexbox layout algorithm for elidex"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,6 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-readme = "README.md"
 keywords = ["browser-engine", "layout", "flexbox"]
 categories = ["web-programming"]
 
@@ -16,9 +15,7 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-text.workspace = true
-elidex-layout-block.workspace = true
-elidex-layout-flex.workspace = true
-elidex-layout-grid.workspace = true
+elidex-layout-block = { path = "../elidex-layout-block" }
 
 [lints]
 workspace = true

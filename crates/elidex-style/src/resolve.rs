@@ -8,9 +8,9 @@ use std::collections::{HashMap, HashSet};
 
 use elidex_plugin::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
-    ContentValue, CssColor, CssValue, Dimension, Display, FlexDirection, FlexWrap, JustifyContent,
-    LengthUnit, LineHeight, ListStyleType, Overflow, Position, TextAlign, TextDecorationLine,
-    TextTransform, WhiteSpace,
+    ContentValue, CssColor, CssValue, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
+    GridLine, JustifyContent, LengthUnit, LineHeight, ListStyleType, Overflow, Position, TextAlign,
+    TextDecorationLine, TextTransform, TrackBreadth, TrackSize, WhiteSpace,
 };
 
 use crate::inherit::{get_initial_value, is_inherited};
@@ -222,6 +222,18 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "box-sizing" => keyword_from(&style.box_sizing),
         "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
         "opacity" => CssValue::Number(style.opacity),
+        // Grid container
+        "grid-template-columns" => track_list_to_css_value(&style.grid_template_columns),
+        "grid-template-rows" => track_list_to_css_value(&style.grid_template_rows),
+        "grid-auto-flow" => keyword_from(&style.grid_auto_flow),
+        "grid-auto-columns" => track_size_to_css_value(&style.grid_auto_columns),
+        "grid-auto-rows" => track_size_to_css_value(&style.grid_auto_rows),
+        // Grid item
+        "grid-column-start" => grid_line_to_css_value(style.grid_column_start),
+        "grid-column-end" => grid_line_to_css_value(style.grid_column_end),
+        "grid-row-start" => grid_line_to_css_value(style.grid_row_start),
+        "grid-row-end" => grid_line_to_css_value(style.grid_row_end),
+
         "content" => match &style.content {
             ContentValue::Normal => CssValue::Keyword("normal".to_string()),
             ContentValue::None => CssValue::Keyword("none".to_string()),
@@ -257,6 +269,55 @@ pub fn dimension_to_css_value(d: Dimension) -> CssValue {
         Dimension::Length(v) => CssValue::Length(v, LengthUnit::Px),
         Dimension::Percentage(v) => CssValue::Percentage(v),
         Dimension::Auto => CssValue::Auto,
+    }
+}
+
+/// Convert a [`TrackSize`] to a [`CssValue`] for CSS serialization.
+fn track_size_to_css_value(ts: &TrackSize) -> CssValue {
+    match ts {
+        TrackSize::Length(v) => CssValue::Length(*v, LengthUnit::Px),
+        TrackSize::Percentage(v) => CssValue::Percentage(*v),
+        TrackSize::Fr(v) => CssValue::Length(*v, LengthUnit::Fr),
+        TrackSize::Auto => CssValue::Auto,
+        TrackSize::MinMax(min, max) => CssValue::List(vec![
+            CssValue::Keyword("minmax".into()),
+            track_breadth_to_css_value(min),
+            track_breadth_to_css_value(max),
+        ]),
+    }
+}
+
+/// Convert a [`TrackBreadth`] to a [`CssValue`] for CSS serialization.
+fn track_breadth_to_css_value(tb: &TrackBreadth) -> CssValue {
+    match tb {
+        TrackBreadth::Length(v) => CssValue::Length(*v, LengthUnit::Px),
+        TrackBreadth::Percentage(v) => CssValue::Percentage(*v),
+        TrackBreadth::Fr(v) => CssValue::Length(*v, LengthUnit::Fr),
+        TrackBreadth::Auto => CssValue::Auto,
+        TrackBreadth::MinContent => CssValue::Keyword("min-content".into()),
+        TrackBreadth::MaxContent => CssValue::Keyword("max-content".into()),
+    }
+}
+
+/// Convert a track list to a [`CssValue`] for CSS serialization.
+fn track_list_to_css_value(tracks: &[TrackSize]) -> CssValue {
+    if tracks.is_empty() {
+        return CssValue::Keyword("none".into());
+    }
+    CssValue::List(tracks.iter().map(track_size_to_css_value).collect())
+}
+
+/// Convert a [`GridLine`] to a [`CssValue`] for CSS serialization.
+fn grid_line_to_css_value(gl: GridLine) -> CssValue {
+    match gl {
+        GridLine::Auto => CssValue::Auto,
+        #[allow(clippy::cast_precision_loss)]
+        GridLine::Line(n) => CssValue::Number(n as f32),
+        #[allow(clippy::cast_precision_loss)]
+        GridLine::Span(n) => CssValue::List(vec![
+            CssValue::Keyword("span".into()),
+            CssValue::Number(n as f32),
+        ]),
     }
 }
 
@@ -338,9 +399,10 @@ pub(crate) fn build_computed_style(
     resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
 
-    // Phase 7: Flex and gap properties.
+    // Phase 7: Flex, grid, and gap properties.
     let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
     resolve_flex_properties(&mut style, &winners, parent_style, dim);
+    resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
 
     // Phase 8: Content property (non-inherited).
@@ -897,6 +959,169 @@ fn resolve_flex_keyword_enums(
             _ => None,
         }
     );
+}
+
+// --- Grid property resolution ---
+
+/// Resolve grid container and item properties.
+fn resolve_grid_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    // grid-auto-flow keyword enum
+    resolve_keyword_enum_prop!(
+        "grid-auto-flow",
+        winners,
+        parent_style,
+        style.grid_auto_flow,
+        |k| match k {
+            "row" => Some(GridAutoFlow::Row),
+            "column" => Some(GridAutoFlow::Column),
+            "row dense" => Some(GridAutoFlow::RowDense),
+            "column dense" => Some(GridAutoFlow::ColumnDense),
+            _ => None,
+        }
+    );
+
+    // grid-template-columns / grid-template-rows
+    resolve_prop(
+        "grid-template-columns",
+        winners,
+        parent_style,
+        |v| resolve_track_list(v, ctx),
+        |tracks| style.grid_template_columns = tracks,
+    );
+    resolve_prop(
+        "grid-template-rows",
+        winners,
+        parent_style,
+        |v| resolve_track_list(v, ctx),
+        |tracks| style.grid_template_rows = tracks,
+    );
+
+    // grid-auto-columns / grid-auto-rows
+    resolve_prop(
+        "grid-auto-columns",
+        winners,
+        parent_style,
+        |v| resolve_track_size(v, ctx),
+        |ts| style.grid_auto_columns = ts,
+    );
+    resolve_prop(
+        "grid-auto-rows",
+        winners,
+        parent_style,
+        |v| resolve_track_size(v, ctx),
+        |ts| style.grid_auto_rows = ts,
+    );
+
+    // Grid line placement properties
+    resolve_prop(
+        "grid-column-start",
+        winners,
+        parent_style,
+        resolve_grid_line,
+        |gl| style.grid_column_start = gl,
+    );
+    resolve_prop(
+        "grid-column-end",
+        winners,
+        parent_style,
+        resolve_grid_line,
+        |gl| style.grid_column_end = gl,
+    );
+    resolve_prop(
+        "grid-row-start",
+        winners,
+        parent_style,
+        resolve_grid_line,
+        |gl| style.grid_row_start = gl,
+    );
+    resolve_prop(
+        "grid-row-end",
+        winners,
+        parent_style,
+        resolve_grid_line,
+        |gl| style.grid_row_end = gl,
+    );
+}
+
+/// Resolve a `CssValue` track list to `Vec<TrackSize>`.
+fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> Vec<TrackSize> {
+    match value {
+        CssValue::List(items) => items
+            .iter()
+            .map(|item| resolve_track_size(item, ctx))
+            .collect(),
+        CssValue::Keyword(k) if k == "none" => Vec::new(),
+        _ => Vec::new(),
+    }
+}
+
+/// Resolve a single `CssValue` to a `TrackSize`.
+fn resolve_track_size(value: &CssValue, ctx: &ResolveContext) -> TrackSize {
+    match value {
+        CssValue::Length(v, LengthUnit::Fr) => TrackSize::Fr(*v),
+        CssValue::Length(v, unit) => TrackSize::Length(resolve_length(*v, *unit, ctx)),
+        CssValue::Percentage(v) => TrackSize::Percentage(*v),
+        CssValue::Keyword(k) if k == "min-content" => TrackSize::MinMax(
+            Box::new(TrackBreadth::MinContent),
+            Box::new(TrackBreadth::MinContent),
+        ),
+        CssValue::Keyword(k) if k == "max-content" => TrackSize::MinMax(
+            Box::new(TrackBreadth::MaxContent),
+            Box::new(TrackBreadth::MaxContent),
+        ),
+        CssValue::List(items) if items.len() == 3 && items[0].as_keyword() == Some("minmax") => {
+            TrackSize::MinMax(
+                Box::new(resolve_track_breadth(&items[1], ctx)),
+                Box::new(resolve_track_breadth(&items[2], ctx)),
+            )
+        }
+        _ => TrackSize::Auto,
+    }
+}
+
+/// Resolve a single `CssValue` to a `TrackBreadth`.
+fn resolve_track_breadth(value: &CssValue, ctx: &ResolveContext) -> TrackBreadth {
+    match value {
+        CssValue::Length(v, LengthUnit::Fr) => TrackBreadth::Fr(*v),
+        CssValue::Length(v, unit) => TrackBreadth::Length(resolve_length(*v, *unit, ctx)),
+        CssValue::Percentage(v) => TrackBreadth::Percentage(*v),
+        CssValue::Keyword(k) if k == "min-content" => TrackBreadth::MinContent,
+        CssValue::Keyword(k) if k == "max-content" => TrackBreadth::MaxContent,
+        _ => TrackBreadth::Auto,
+    }
+}
+
+/// Resolve a `CssValue` to a `GridLine`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // CSS grid line numbers are small
+fn resolve_grid_line(value: &CssValue) -> GridLine {
+    match value {
+        CssValue::Number(n) => {
+            let line = *n as i32;
+            if line == 0 {
+                GridLine::Auto
+            } else {
+                GridLine::Line(line)
+            }
+        }
+        CssValue::List(items) if items.len() == 2 && items[0].as_keyword() == Some("span") => {
+            if let Some(n) = items[1].as_number() {
+                let span = n as u32;
+                if span >= 1 {
+                    GridLine::Span(span)
+                } else {
+                    GridLine::Auto
+                }
+            } else {
+                GridLine::Auto
+            }
+        }
+        _ => GridLine::Auto,
+    }
 }
 
 // --- Shared helpers ---
@@ -2302,6 +2527,142 @@ mod tests {
         assert_eq!(
             style.border_bottom_color,
             CssColor::new(0x30, 0x36, 0x3d, 255)
+        );
+    }
+
+    // --- M3.5-1: Grid style resolution ---
+
+    #[test]
+    fn resolve_grid_auto_flow() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let kw = CssValue::Keyword("column dense".into());
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-auto-flow", &kw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.grid_auto_flow, GridAutoFlow::ColumnDense);
+    }
+
+    #[test]
+    fn resolve_grid_template_columns() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let tracks = CssValue::List(vec![
+            CssValue::Length(100.0, LengthUnit::Px),
+            CssValue::Length(1.0, LengthUnit::Fr),
+        ]);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-template-columns", &tracks);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.grid_template_columns.len(), 2);
+        assert_eq!(style.grid_template_columns[0], TrackSize::Length(100.0));
+        assert_eq!(style.grid_template_columns[1], TrackSize::Fr(1.0));
+    }
+
+    #[test]
+    fn resolve_grid_template_rows_minmax() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let tracks = CssValue::List(vec![CssValue::List(vec![
+            CssValue::Keyword("minmax".into()),
+            CssValue::Length(100.0, LengthUnit::Px),
+            CssValue::Length(1.0, LengthUnit::Fr),
+        ])]);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-template-rows", &tracks);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.grid_template_rows.len(), 1);
+        assert_eq!(
+            style.grid_template_rows[0],
+            TrackSize::MinMax(
+                Box::new(TrackBreadth::Length(100.0)),
+                Box::new(TrackBreadth::Fr(1.0)),
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_grid_line_properties() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let line2 = CssValue::Number(2.0);
+        let span3 = CssValue::List(vec![
+            CssValue::Keyword("span".into()),
+            CssValue::Number(3.0),
+        ]);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-column-start", &line2);
+        winners.insert("grid-column-end", &span3);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.grid_column_start, GridLine::Line(2));
+        assert_eq!(style.grid_column_end, GridLine::Span(3));
+    }
+
+    #[test]
+    fn resolve_grid_auto_columns() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Length(50.0, LengthUnit::Px);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-auto-columns", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.grid_auto_columns, TrackSize::Length(50.0));
+    }
+
+    #[test]
+    fn grid_defaults_without_winners() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let winners: HashMap<&str, &CssValue> = HashMap::new();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.grid_template_columns.is_empty());
+        assert!(style.grid_template_rows.is_empty());
+        assert_eq!(style.grid_auto_flow, GridAutoFlow::Row);
+        assert_eq!(style.grid_auto_columns, TrackSize::Auto);
+        assert_eq!(style.grid_auto_rows, TrackSize::Auto);
+        assert_eq!(style.grid_column_start, GridLine::Auto);
+        assert_eq!(style.grid_column_end, GridLine::Auto);
+        assert_eq!(style.grid_row_start, GridLine::Auto);
+        assert_eq!(style.grid_row_end, GridLine::Auto);
+    }
+
+    #[test]
+    fn grid_computed_value_roundtrip() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let tracks = CssValue::List(vec![
+            CssValue::Length(100.0, LengthUnit::Px),
+            CssValue::Length(2.0, LengthUnit::Fr),
+        ]);
+        let line_val = CssValue::Number(3.0);
+        let span_val = CssValue::List(vec![
+            CssValue::Keyword("span".into()),
+            CssValue::Number(2.0),
+        ]);
+        let mut winners: HashMap<&str, &CssValue> = HashMap::new();
+        winners.insert("grid-template-columns", &tracks);
+        winners.insert("grid-row-start", &line_val);
+        winners.insert("grid-row-end", &span_val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+
+        // Serialization round-trip
+        let cols = get_computed_as_css_value("grid-template-columns", &style);
+        assert_eq!(
+            cols,
+            CssValue::List(vec![
+                CssValue::Length(100.0, LengthUnit::Px),
+                CssValue::Length(2.0, LengthUnit::Fr),
+            ])
+        );
+        let rs = get_computed_as_css_value("grid-row-start", &style);
+        assert_eq!(rs, CssValue::Number(3.0));
+        let re = get_computed_as_css_value("grid-row-end", &style);
+        assert_eq!(
+            re,
+            CssValue::List(vec![
+                CssValue::Keyword("span".into()),
+                CssValue::Number(2.0),
+            ])
         );
     }
 }

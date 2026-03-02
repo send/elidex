@@ -2,12 +2,11 @@
 //! cross-size resolution, and positioning.
 
 use elidex_ecs::EcsDom;
+use elidex_layout_block::{clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn};
 use elidex_plugin::{
     AlignContent, AlignItems, ComputedStyle, Dimension, FlexWrap, JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
-
-use crate::sanitize;
 
 use super::{is_reversed, FlexContext, FlexItem};
 
@@ -35,7 +34,7 @@ fn total_gap(count: usize, gap: f32) -> f32 {
 // ---------------------------------------------------------------------------
 
 /// Build line ranges from items. Returns `Vec<(start, end)>`.
-pub(super) fn build_line_ranges(
+pub(crate) fn build_line_ranges(
     items: &[FlexItem],
     container_main: f32,
     wrap: FlexWrap,
@@ -95,7 +94,7 @@ fn split_into_lines(
 /// Uses a simplified freeze loop: after initial grow/shrink distribution,
 /// items that violate min/max constraints are frozen at their clamped size,
 /// and remaining free space is redistributed among unfrozen items.
-pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32, gap_main: f32) {
+pub(crate) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f32, gap_main: f32) {
     if items.is_empty() {
         return;
     }
@@ -158,7 +157,7 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
             if frozen[i] {
                 continue;
             }
-            let clamped = crate::clamp_min_max(item.final_main, item.min_main, item.max_main);
+            let clamped = clamp_min_max(item.final_main, item.min_main, item.max_main);
             // Epsilon accounts for floating-point rounding during grow/shrink
             // distribution. The final clamp pass (after the loop) corrects any
             // remaining sub-pixel violations.
@@ -175,7 +174,7 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 
     // Final clamp for any remaining items.
     for item in items.iter_mut() {
-        item.final_main = crate::clamp_min_max(item.final_main, item.min_main, item.max_main);
+        item.final_main = clamp_min_max(item.final_main, item.min_main, item.max_main);
     }
 }
 
@@ -187,11 +186,13 @@ pub(super) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 // for content sizing, layout_items_cross for cross-size, position_items for
 // final placement). Consider caching intrinsic sizes to reduce redundant work
 // for items with deep subtrees.
-pub(super) fn layout_items_cross(
+pub(crate) fn layout_items_cross(
     dom: &mut EcsDom,
     items: &mut [FlexItem],
     ctx: &FlexContext,
     font_db: &FontDatabase,
+    layout_child: ChildLayoutFn,
+    depth: u32,
 ) {
     for item in items.iter_mut() {
         let child_containing = if ctx.horizontal {
@@ -199,7 +200,7 @@ pub(super) fn layout_items_cross(
         } else {
             ctx.content_width
         };
-        let child_lb = crate::block::layout_block_with_height(
+        let child_lb = layout_child(
             dom,
             item.entity,
             child_containing,
@@ -207,6 +208,7 @@ pub(super) fn layout_items_cross(
             0.0,
             0.0,
             font_db,
+            depth + 1,
         );
         item.final_cross = if ctx.horizontal {
             child_lb.content.height + item.pb_cross
@@ -218,7 +220,7 @@ pub(super) fn layout_items_cross(
     }
 }
 
-pub(super) fn compute_line_cross_sizes(
+pub(crate) fn compute_line_cross_sizes(
     items: &[FlexItem],
     line_ranges: &[(usize, usize)],
 ) -> (Vec<f32>, f32) {
@@ -235,7 +237,7 @@ pub(super) fn compute_line_cross_sizes(
     (sizes, total)
 }
 
-pub(super) fn stretch_items(
+pub(crate) fn stretch_items(
     items: &mut [FlexItem],
     line_ranges: &[(usize, usize)],
     line_cross_sizes: &[f32],
@@ -254,14 +256,14 @@ pub(super) fn stretch_items(
     }
 }
 
-pub(super) fn resolve_container_cross(
+pub(crate) fn resolve_container_cross(
     style: &ComputedStyle,
     ctx: &FlexContext,
     containing_width: f32,
     total_line_cross: f32,
 ) -> f32 {
     let explicit = if ctx.horizontal {
-        crate::resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing_height)
     } else {
         match style.width {
             Dimension::Length(px) => Some(sanitize(px)),
@@ -298,8 +300,9 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
 ///
 /// This overwrites the item's `ComputedStyle` width/height to the flex-resolved
 /// values (NOT restored — re-layout requires re-resolving styles first), then
-/// runs `layout_block` to position descendants, and finally patches the
-/// `LayoutBox` with the correct flex content size.
+/// runs layout via `layout_child` to position descendants, and finally patches
+/// the `LayoutBox` with the correct flex content size.
+#[allow(clippy::too_many_arguments)]
 fn relayout_item_at_position(
     dom: &mut EcsDom,
     item: &FlexItem,
@@ -307,6 +310,8 @@ fn relayout_item_at_position(
     margin_box_x: f32,
     margin_box_y: f32,
     font_db: &FontDatabase,
+    layout_child: ChildLayoutFn,
+    depth: u32,
 ) {
     let item_content_width = if ctx.horizontal {
         item.final_main
@@ -321,7 +326,7 @@ fn relayout_item_at_position(
 
     // Overwrite the item's width/height to flex-resolved values.
     {
-        let mut style = crate::get_style(dom, item.entity);
+        let mut style = elidex_layout_block::get_style(dom, item.entity);
         if ctx.horizontal {
             style.width = Dimension::Length(item.final_main);
             style.height = Dimension::Length(item_content_height);
@@ -334,7 +339,7 @@ fn relayout_item_at_position(
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
-    let child_lb = crate::block::layout_block_with_height(
+    let child_lb = layout_child(
         dom,
         item.entity,
         ctx.containing_width,
@@ -342,6 +347,7 @@ fn relayout_item_at_position(
         margin_box_x,
         margin_box_y,
         font_db,
+        depth + 1,
     );
 
     // Overwrite the item's LayoutBox with flex-resolved dimensions.
@@ -362,7 +368,7 @@ fn relayout_item_at_position(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn position_items(
+pub(crate) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
     line_ranges: &[(usize, usize)],
@@ -371,6 +377,8 @@ pub(super) fn position_items(
     ctx: &FlexContext,
     container_cross: f32,
     font_db: &FontDatabase,
+    layout_child: ChildLayoutFn,
+    depth: u32,
 ) {
     let reversed_main = is_reversed(ctx.direction);
     let reversed_cross = matches!(ctx.wrap, FlexWrap::WrapReverse);
@@ -409,7 +417,7 @@ pub(super) fn position_items(
 
             let align_offset = cross_align_offset(item, line_cross);
 
-            // Margin-box position: layout_block adds margins internally.
+            // Margin-box position: layout adds margins internally.
             let (margin_box_x, margin_box_y) = if ctx.horizontal {
                 (
                     ctx.content_x + main_cursor,
@@ -422,7 +430,16 @@ pub(super) fn position_items(
                 )
             };
 
-            relayout_item_at_position(dom, item, ctx, margin_box_x, margin_box_y, font_db);
+            relayout_item_at_position(
+                dom,
+                item,
+                ctx,
+                margin_box_x,
+                margin_box_y,
+                font_db,
+                layout_child,
+                depth,
+            );
 
             if reversed_main {
                 main_cursor -= gap;
@@ -433,7 +450,7 @@ pub(super) fn position_items(
     }
 }
 
-pub(super) fn compute_container_height(
+pub(crate) fn compute_container_height(
     style: &ComputedStyle,
     ctx: &FlexContext,
     items: &[FlexItem],
@@ -443,7 +460,7 @@ pub(super) fn compute_container_height(
     if ctx.horizontal {
         // Auto height: include cross-axis gaps between lines.
         let cross_gaps = total_gap(line_ranges.len(), ctx.gap_cross);
-        crate::resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing_height)
             .unwrap_or(total_line_cross + cross_gaps)
     } else {
         let max_line_main: f32 = line_ranges
@@ -457,7 +474,7 @@ pub(super) fn compute_container_height(
                 item_sum + total_gap(e - s, ctx.gap_main)
             })
             .fold(0.0_f32, f32::max);
-        crate::resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
+        resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
     }
 }
 
@@ -499,15 +516,15 @@ fn compute_justify_offsets(justify: JustifyContent, free_space: f32, count: usiz
 // ---------------------------------------------------------------------------
 
 /// Result of align-content distribution.
-pub(super) struct AlignContentResult {
+pub(crate) struct AlignContentResult {
     /// Starting cross offset for each line.
-    pub(super) offsets: Vec<f32>,
+    pub(crate) offsets: Vec<f32>,
     /// Effective cross sizes for each line (may be increased by stretch).
-    pub(super) effective_line_sizes: Vec<f32>,
+    pub(crate) effective_line_sizes: Vec<f32>,
 }
 
 #[allow(clippy::cast_precision_loss)] // line counts are small
-pub(super) fn compute_align_content_offsets(
+pub(crate) fn compute_align_content_offsets(
     line_cross_sizes: &[f32],
     container_cross: f32,
     align_content: AlignContent,

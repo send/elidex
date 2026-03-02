@@ -9,15 +9,16 @@
 //! - `inline-flex` treated as block-level
 
 use elidex_ecs::{EcsDom, Entity};
+use elidex_layout_block::{
+    adjust_min_max_for_border_box, block::resolve_margin, clamp_min_max, effective_align,
+    horizontal_pb, resolve_dimension_value, resolve_explicit_height, resolve_min_max, sanitize,
+    sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+};
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes,
+    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes,
     FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
-
-use crate::block::{layout_block, resolve_margin};
-use crate::sanitize;
-use crate::{resolve_min_max, sanitize_border, sanitize_padding, MAX_LAYOUT_DEPTH};
 
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -41,7 +42,7 @@ fn is_main_horizontal(dir: FlexDirection) -> bool {
 }
 
 /// Returns `true` if the main axis direction is reversed.
-pub(super) fn is_reversed(dir: FlexDirection) -> bool {
+pub(crate) fn is_reversed(dir: FlexDirection) -> bool {
     matches!(
         dir,
         FlexDirection::RowReverse | FlexDirection::ColumnReverse
@@ -91,34 +92,13 @@ fn resolve_flex_basis(
         let p = sanitize_padding(style);
         let b = sanitize_border(style);
         let pb = if is_main_horizontal(direction) {
-            crate::horizontal_pb(&p, &b)
+            horizontal_pb(&p, &b)
         } else {
-            crate::vertical_pb(&p, &b)
+            vertical_pb(&p, &b)
         };
         return Some((px - pb).max(0.0));
     }
     Some(px)
-}
-
-/// Resolve the effective alignment for a flex item.
-///
-/// `AlignSelf::Auto` inherits from the container's `align-items`.
-/// `Baseline` is treated as `FlexStart` (baseline alignment not yet implemented).
-fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignItems {
-    let resolved = match item_align {
-        AlignSelf::Auto => container_align,
-        AlignSelf::Stretch => AlignItems::Stretch,
-        AlignSelf::FlexStart => AlignItems::FlexStart,
-        AlignSelf::FlexEnd => AlignItems::FlexEnd,
-        AlignSelf::Center => AlignItems::Center,
-        AlignSelf::Baseline => AlignItems::Baseline,
-    };
-    // Baseline not yet implemented — treat as flex-start.
-    if resolved == AlignItems::Baseline {
-        AlignItems::FlexStart
-    } else {
-        resolved
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,53 +106,53 @@ fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignI
 // ---------------------------------------------------------------------------
 
 /// A flex item with resolved metrics.
-pub(super) struct FlexItem {
-    pub(super) entity: Entity,
-    pub(super) source_order: usize,
-    pub(super) order: i32,
-    pub(super) hypo_main: f32,
-    pub(super) grow: f32,
-    pub(super) shrink: f32,
+pub(crate) struct FlexItem {
+    pub(crate) entity: Entity,
+    pub(crate) source_order: usize,
+    pub(crate) order: i32,
+    pub(crate) hypo_main: f32,
+    pub(crate) grow: f32,
+    pub(crate) shrink: f32,
     /// Total margin on the main axis (start + end).
-    pub(super) margin_main: f32,
+    pub(crate) margin_main: f32,
     /// Total margin on the cross axis (start + end).
-    pub(super) margin_cross: f32,
-    pub(super) pb_main: f32,
-    pub(super) pb_cross: f32,
-    pub(super) final_main: f32,
-    pub(super) final_cross: f32,
-    pub(super) align: AlignItems,
+    pub(crate) margin_cross: f32,
+    pub(crate) pb_main: f32,
+    pub(crate) pb_cross: f32,
+    pub(crate) final_main: f32,
+    pub(crate) final_cross: f32,
+    pub(crate) align: AlignItems,
     /// Whether the item's cross-size dimension is `auto` (stretch only applies when true).
-    pub(super) cross_size_auto: bool,
+    pub(crate) cross_size_auto: bool,
     /// Minimum content size on the main axis (from min-width/min-height).
-    pub(super) min_main: f32,
+    pub(crate) min_main: f32,
     /// Maximum content size on the main axis (from max-width/max-height).
-    pub(super) max_main: f32,
+    pub(crate) max_main: f32,
 }
 
 // ---------------------------------------------------------------------------
 // Container context — shared state for the layout pass
 // ---------------------------------------------------------------------------
 
-pub(super) struct FlexContext {
-    pub(super) content_x: f32,
-    pub(super) content_y: f32,
-    pub(super) content_width: f32,
-    pub(super) horizontal: bool,
-    pub(super) container_main: f32,
-    pub(super) direction: FlexDirection,
-    pub(super) wrap: FlexWrap,
-    pub(super) justify: JustifyContent,
-    pub(super) align_items: AlignItems,
-    pub(super) align_content: AlignContent,
-    pub(super) containing_width: f32,
-    pub(super) containing_height: Option<f32>,
+pub(crate) struct FlexContext {
+    pub(crate) content_x: f32,
+    pub(crate) content_y: f32,
+    pub(crate) content_width: f32,
+    pub(crate) horizontal: bool,
+    pub(crate) container_main: f32,
+    pub(crate) direction: FlexDirection,
+    pub(crate) wrap: FlexWrap,
+    pub(crate) justify: JustifyContent,
+    pub(crate) align_items: AlignItems,
+    pub(crate) align_content: AlignContent,
+    pub(crate) containing_width: f32,
+    pub(crate) containing_height: Option<f32>,
     /// The container's own definite height (for children's percentage height resolution).
-    pub(super) container_definite_height: Option<f32>,
+    pub(crate) container_definite_height: Option<f32>,
     /// Gap between items on the main axis.
-    pub(super) gap_main: f32,
+    pub(crate) gap_main: f32,
     /// Gap between lines on the cross axis.
-    pub(super) gap_cross: f32,
+    pub(crate) gap_cross: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +181,7 @@ fn resolve_container_main(
 
 /// Layout a flex container and return its `LayoutBox`.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-pub(crate) fn layout_flex(
+pub fn layout_flex(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
@@ -210,8 +190,9 @@ pub(crate) fn layout_flex(
     offset_y: f32,
     font_db: &FontDatabase,
     depth: u32,
+    layout_child: ChildLayoutFn,
 ) -> LayoutBox {
-    let style = crate::get_style(dom, entity);
+    let style = elidex_layout_block::get_style(dom, entity);
 
     let padding = sanitize_padding(&style);
     let border = sanitize_border(&style);
@@ -242,7 +223,7 @@ pub(crate) fn layout_flex(
                 x: content_x,
                 y: content_y,
                 width: content_width,
-                height: crate::resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
+                height: resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
             },
             padding,
             border,
@@ -268,7 +249,7 @@ pub(crate) fn layout_flex(
     };
 
     // Container's own definite height for children's percentage height resolution.
-    let container_definite_height = crate::resolve_explicit_height(&style, containing_height);
+    let container_definite_height = resolve_explicit_height(&style, containing_height);
 
     let ctx = FlexContext {
         content_x,
@@ -289,7 +270,7 @@ pub(crate) fn layout_flex(
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---
-    let mut items = collect_flex_items(dom, &children, &ctx, font_db);
+    let mut items = collect_flex_items(dom, &children, &ctx, font_db, layout_child, depth);
     items.sort_by(|a, b| {
         a.order
             .cmp(&b.order)
@@ -301,7 +282,7 @@ pub(crate) fn layout_flex(
         algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main, ctx.gap_main);
     }
 
-    algo::layout_items_cross(dom, &mut items, &ctx, font_db);
+    algo::layout_items_cross(dom, &mut items, &ctx, font_db, layout_child, depth);
     let (line_cross_sizes, total_line_cross) = algo::compute_line_cross_sizes(&items, &line_ranges);
 
     let container_cross =
@@ -326,6 +307,8 @@ pub(crate) fn layout_flex(
         &ctx,
         container_cross,
         font_db,
+        layout_child,
+        depth,
     );
 
     // --- Container LayoutBox ---
@@ -358,10 +341,10 @@ fn resolve_content_width(
     margin_left: f32,
     margin_right: f32,
 ) -> f32 {
-    let pb = crate::horizontal_pb(padding, border);
+    let pb = horizontal_pb(padding, border);
     let used = margin_left + margin_right + pb;
     let auto_value = (containing_width - used).max(0.0);
-    let mut w = sanitize(crate::resolve_dimension_value(
+    let mut w = sanitize(resolve_dimension_value(
         style.width,
         containing_width,
         auto_value,
@@ -383,10 +366,12 @@ fn collect_flex_items(
     children: &[Entity],
     ctx: &FlexContext,
     font_db: &FontDatabase,
+    layout_child: ChildLayoutFn,
+    depth: u32,
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let Some(child_style) = crate::try_get_style(dom, child) else {
+        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue;
         };
         if child_style.display == Display::None {
@@ -408,7 +393,16 @@ fn collect_flex_items(
         let hypo_main = if let Some(px) = basis {
             sanitize(px).max(0.0)
         } else {
-            let child_lb = layout_block(dom, child, ctx.content_width, 0.0, 0.0, font_db);
+            let child_lb = layout_child(
+                dom,
+                child,
+                ctx.content_width,
+                None,
+                0.0,
+                0.0,
+                font_db,
+                depth + 1,
+            );
             if ctx.horizontal {
                 child_lb.content.width
             } else {
@@ -434,10 +428,10 @@ fn collect_flex_items(
             )
         };
         if child_style.box_sizing == BoxSizing::BorderBox {
-            crate::adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
+            adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
         }
         // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
-        let hypo_main = crate::clamp_min_max(hypo_main, min_main, max_main);
+        let hypo_main = clamp_min_max(hypo_main, min_main, max_main);
 
         items.push(FlexItem {
             entity: child,
@@ -464,8 +458,8 @@ fn collect_flex_items(
 fn compute_pb(style: &ComputedStyle, horizontal: bool) -> (f32, f32) {
     let p = sanitize_padding(style);
     let b = sanitize_border(style);
-    let h = crate::horizontal_pb(&p, &b);
-    let v = crate::vertical_pb(&p, &b);
+    let h = horizontal_pb(&p, &b);
+    let v = vertical_pb(&p, &b);
     if horizontal {
         (h, v)
     } else {

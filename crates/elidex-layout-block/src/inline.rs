@@ -79,7 +79,7 @@ fn measure_segment_widths(
 /// Text is measured using the parent element's font properties.
 // TODO: use caller-provided offsets to position line boxes and assign
 // LayoutBox components to inline elements and text nodes.
-pub(crate) fn layout_inline_context(
+pub fn layout_inline_context(
     dom: &EcsDom,
     children: &[Entity],
     containing_width: f32,

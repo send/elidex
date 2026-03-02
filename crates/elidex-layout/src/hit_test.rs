@@ -45,7 +45,7 @@ fn hit_test_subtree(
     result: &mut Option<HitTestResult>,
     depth: u32,
 ) {
-    if depth > crate::MAX_LAYOUT_DEPTH {
+    if depth > elidex_layout_block::MAX_LAYOUT_DEPTH {
         return;
     }
 

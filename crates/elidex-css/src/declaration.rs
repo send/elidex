@@ -16,6 +16,7 @@ use crate::values::{
 mod box_model;
 mod flex;
 mod font;
+mod grid;
 
 #[cfg(test)]
 mod tests;
@@ -157,6 +158,8 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "flex",
                 "inline-flex",
                 "list-item",
+                "grid",
+                "inline-grid",
             ],
         ),
         "position" => {
@@ -302,6 +305,20 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         // --- Flex shorthands ---
         "flex" => flex::parse_flex_shorthand(input),
         "flex-flow" => flex::parse_flex_flow_shorthand(input),
+
+        // --- Grid container properties ---
+        "grid-template-columns" | "grid-template-rows" => grid::parse_grid_template(input, name),
+        "grid-auto-flow" => grid::parse_grid_auto_flow(input),
+        "grid-auto-columns" | "grid-auto-rows" => grid::parse_grid_auto_track(input, name),
+
+        // --- Grid item properties ---
+        "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
+            grid::parse_grid_line(input, name)
+        }
+
+        // --- Grid shorthands ---
+        "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
+        "grid-area" => grid::parse_grid_area(input),
 
         // --- Content property ---
         "content" => parse_content(input),
@@ -764,6 +781,17 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
         "background" => vec!["background-color".to_string()],
+        "grid-column" => vec![
+            "grid-column-start".to_string(),
+            "grid-column-end".to_string(),
+        ],
+        "grid-row" => vec!["grid-row-start".to_string(), "grid-row-end".to_string()],
+        "grid-area" => vec![
+            "grid-row-start".to_string(),
+            "grid-column-start".to_string(),
+            "grid-row-end".to_string(),
+            "grid-column-end".to_string(),
+        ],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

@@ -1250,3 +1250,151 @@ fn parse_content_attr() {
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].value, CssValue::Keyword("attr:title".to_string()));
 }
+
+// --- M3.5-1: Grid property parsing ---
+
+#[test]
+fn parse_display_grid() {
+    let decls = parse_single("display", "grid");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("grid".into()));
+
+    let decls = parse_single("display", "inline-grid");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("inline-grid".into()));
+}
+
+#[test]
+fn parse_grid_template_columns_px_fr() {
+    let decls = parse_single("grid-template-columns", "100px 200px 1fr");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "grid-template-columns");
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::Length(100.0, LengthUnit::Px),
+            CssValue::Length(200.0, LengthUnit::Px),
+            CssValue::Length(1.0, LengthUnit::Fr),
+        ])
+    );
+}
+
+#[test]
+fn parse_grid_template_columns_none() {
+    let decls = parse_single("grid-template-columns", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+}
+
+#[test]
+fn parse_grid_template_rows_minmax_auto() {
+    let decls = parse_single("grid-template-rows", "minmax(100px, 1fr) auto");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::List(vec![
+                CssValue::Keyword("minmax".into()),
+                CssValue::Length(100.0, LengthUnit::Px),
+                CssValue::Length(1.0, LengthUnit::Fr),
+            ]),
+            CssValue::Auto,
+        ])
+    );
+}
+
+#[test]
+fn parse_grid_template_columns_repeat() {
+    let decls = parse_single("grid-template-columns", "repeat(3, 1fr)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::Length(1.0, LengthUnit::Fr),
+            CssValue::Length(1.0, LengthUnit::Fr),
+            CssValue::Length(1.0, LengthUnit::Fr),
+        ])
+    );
+}
+
+#[test]
+fn parse_grid_auto_flow_row_dense() {
+    let decls = parse_single("grid-auto-flow", "row dense");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("row dense".into()));
+
+    let decls = parse_single("grid-auto-flow", "column");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Keyword("column".into()));
+}
+
+#[test]
+fn parse_grid_auto_columns() {
+    let decls = parse_single("grid-auto-columns", "50px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Length(50.0, LengthUnit::Px));
+}
+
+#[test]
+fn parse_grid_column_start_span() {
+    let decls = parse_single("grid-column-start", "span 2");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::Keyword("span".into()),
+            CssValue::Number(2.0),
+        ])
+    );
+
+    let decls = parse_single("grid-column-start", "2");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::Number(2.0));
+}
+
+#[test]
+fn parse_grid_column_shorthand() {
+    let decls = parse_single("grid-column", "1 / 3");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "grid-column-start");
+    assert_eq!(decls[0].value, CssValue::Number(1.0));
+    assert_eq!(decls[1].property, "grid-column-end");
+    assert_eq!(decls[1].value, CssValue::Number(3.0));
+}
+
+#[test]
+fn parse_grid_area_shorthand() {
+    let decls = parse_single("grid-area", "1 / 2 / 3 / 4");
+    assert_eq!(decls.len(), 4);
+    assert_eq!(decls[0].property, "grid-row-start");
+    assert_eq!(decls[0].value, CssValue::Number(1.0));
+    assert_eq!(decls[1].property, "grid-column-start");
+    assert_eq!(decls[1].value, CssValue::Number(2.0));
+    assert_eq!(decls[2].property, "grid-row-end");
+    assert_eq!(decls[2].value, CssValue::Number(3.0));
+    assert_eq!(decls[3].property, "grid-column-end");
+    assert_eq!(decls[3].value, CssValue::Number(4.0));
+}
+
+#[test]
+fn parse_grid_template_columns_fr_units() {
+    let decls = parse_single("grid-template-columns", "1fr 2fr");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::List(vec![
+            CssValue::Length(1.0, LengthUnit::Fr),
+            CssValue::Length(2.0, LengthUnit::Fr),
+        ])
+    );
+}
+
+#[test]
+fn parse_grid_column_inherit() {
+    let decls = parse_single("grid-column", "inherit");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "grid-column-start");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "grid-column-end");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+}

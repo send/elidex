@@ -20,7 +20,7 @@ use crate::{
 /// `Auto` returns 0.0 here; horizontal auto centering is handled separately.
 /// Non-finite results are replaced with 0.0. Margins may be negative (unlike
 /// padding/border), so `sanitize()` is used instead of clamping to non-negative.
-pub(crate) fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
+pub fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
     sanitize(resolve_dimension_value(dim, containing_width, 0.0))
 }
 
@@ -71,7 +71,7 @@ fn apply_margin_auto_centering(
 /// - Both positive: the larger wins.
 /// - Both negative: the more negative (smaller) wins.
 /// - Mixed: they are summed.
-pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
+pub fn collapse_margins(a: f32, b: f32) -> f32 {
     if a >= 0.0 && b >= 0.0 {
         a.max(b)
     } else if a < 0.0 && b < 0.0 {
@@ -131,13 +131,15 @@ fn resolve_block_height(
 /// Returns `true` if the display value establishes a block-level box.
 // TODO: InlineBlock should participate in inline formatting
 // context (CSS 2.1 §9.2.2), not force block context.
-fn is_block_level(display: Display) -> bool {
+pub fn is_block_level(display: Display) -> bool {
     matches!(
         display,
         Display::Block
             | Display::InlineBlock
             | Display::Flex
             | Display::InlineFlex
+            | Display::Grid
+            | Display::InlineGrid
             | Display::ListItem
     )
 }
@@ -155,7 +157,7 @@ fn children_are_block(dom: &EcsDom, children: &[Entity]) -> bool {
 }
 
 /// Layout a block-level element, inserting `LayoutBox` on it and all descendants.
-pub(crate) fn layout_block(
+pub fn layout_block(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
@@ -172,6 +174,7 @@ pub(crate) fn layout_block(
         offset_y,
         font_db,
         0,
+        crate::layout_block_only,
     )
 }
 
@@ -179,7 +182,7 @@ pub(crate) fn layout_block(
 ///
 /// Used when the parent has a definite height (e.g. `height: 500px`) so that
 /// children with `height: 50%` can be resolved.
-pub(crate) fn layout_block_with_height(
+pub fn layout_block_with_height(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
@@ -197,16 +200,17 @@ pub(crate) fn layout_block_with_height(
         offset_y,
         font_db,
         0,
+        crate::layout_block_only,
     )
 }
 
 /// Inner recursive implementation with depth tracking.
 ///
-/// If the entity is a flex container (`display: Flex/InlineFlex`), delegates
-/// to [`crate::flex::layout_flex`] so that its children are laid out as flex
-/// items rather than block children.
+/// Uses the provided `layout_child` callback to dispatch child layout,
+/// which allows the orchestrator to route flex/grid containers to
+/// their respective layout algorithms.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
-fn layout_block_inner(
+pub fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
@@ -215,23 +219,9 @@ fn layout_block_inner(
     offset_y: f32,
     font_db: &FontDatabase,
     depth: u32,
+    layout_child: crate::ChildLayoutFn,
 ) -> LayoutBox {
     let style = crate::get_style(dom, entity);
-
-    // A flex container reached via layout_block (e.g. a flex item that is itself
-    // a flex container) must use the flex algorithm for its own children.
-    if matches!(style.display, Display::Flex | Display::InlineFlex) {
-        return crate::flex::layout_flex(
-            dom,
-            entity,
-            containing_width,
-            containing_height,
-            offset_x,
-            offset_y,
-            font_db,
-            depth,
-        );
-    }
 
     // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
     let padding = sanitize_padding(&style);
@@ -318,6 +308,7 @@ fn layout_block_inner(
             content_y,
             font_db,
             depth + 1,
+            layout_child,
         );
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
@@ -481,7 +472,7 @@ fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta: f32) {
 }
 
 /// Result of stacking block children, including margin info for parent-child collapse.
-pub(crate) struct StackResult {
+pub struct StackResult {
     /// Total content height consumed by stacked children.
     pub height: f32,
     /// Top margin of the first block child (for parent-child collapse).
@@ -496,7 +487,7 @@ pub(crate) struct StackResult {
 /// the total height consumed and first/last child margin info for
 /// parent-child collapse (CSS 2.1 §8.3.1).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn stack_block_children(
+pub fn stack_block_children(
     dom: &mut EcsDom,
     children: &[Entity],
     containing_width: f32,
@@ -505,6 +496,7 @@ pub(crate) fn stack_block_children(
     offset_y: f32,
     font_db: &FontDatabase,
     depth: u32,
+    layout_child: crate::ChildLayoutFn,
 ) -> StackResult {
     let mut cursor_y = offset_y;
     let mut prev_margin_bottom: Option<f32> = None;
@@ -532,9 +524,9 @@ pub(crate) fn stack_block_children(
             cursor_y -= prev_mb + child_margin_top - collapsed;
         }
 
-        // layout_block_inner handles flex dispatch internally
-        // (Flex/InlineFlex containers are routed to layout_flex).
-        let child_box = layout_block_inner(
+        // Dispatch child layout via callback (routes to block/flex/grid
+        // based on the child's display type).
+        let child_box = layout_child(
             dom,
             child,
             containing_width,

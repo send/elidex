@@ -1,5 +1,6 @@
 use super::*;
 use elidex_ecs::Attributes;
+use elidex_layout_block::layout_block_only;
 
 fn flex_container() -> ComputedStyle {
     ComputedStyle {
@@ -49,7 +50,17 @@ fn row_basic_layout() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     assert!((lb.content.width - 800.0).abs() < f32::EPSILON);
     assert!((lb.content.height - 50.0).abs() < f32::EPSILON);
@@ -71,7 +82,17 @@ fn column_layout() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 70.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     assert!((lb.content.height - 120.0).abs() < f32::EPSILON);
 
@@ -100,7 +121,17 @@ fn flex_grow_distributes_space() {
     ];
     let (mut dom, container, items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 600.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -135,7 +166,17 @@ fn flex_shrink_reduces_items() {
         &items_styles,
     );
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 400.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -154,7 +195,17 @@ fn wrap_splits_lines() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 300.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        300.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
 
@@ -172,7 +223,17 @@ fn justify_content_center() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     assert!((lb0.content.x - 350.0).abs() < 1.0);
@@ -188,7 +249,17 @@ fn justify_content_space_between() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -206,7 +277,17 @@ fn justify_content_space_around() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -224,7 +305,17 @@ fn justify_content_space_evenly() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -241,7 +332,17 @@ fn justify_content_flex_end() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     assert!((lb0.content.x - 700.0).abs() < 1.0);
@@ -257,7 +358,17 @@ fn align_items_center() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -275,7 +386,17 @@ fn align_items_flex_start() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     assert!(lb0.content.y.abs() < 1.0);
@@ -291,7 +412,17 @@ fn align_items_flex_end() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     assert!((lb0.content.y - 30.0).abs() < 1.0);
@@ -317,7 +448,17 @@ fn order_sorting() {
     ];
     let (mut dom, container, items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]); // order=2
     let lb1 = get_lb(&dom, items[1]); // order=1
@@ -339,7 +480,17 @@ fn display_none_skipped() {
     ];
     let (mut dom, container, _items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     assert!((lb.content.height - 50.0).abs() < f32::EPSILON);
 }
@@ -348,7 +499,17 @@ fn display_none_skipped() {
 fn empty_flex_container() {
     let (mut dom, container, _) = make_flex_dom(flex_container(), &[]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     assert!((lb.content.width - 800.0).abs() < f32::EPSILON);
     assert!((lb.content.height).abs() < f32::EPSILON);
@@ -376,7 +537,17 @@ fn nested_flex_containers() {
     dom.append_child(inner, child);
 
     let font_db = FontDatabase::new();
-    let outer_lb = layout_flex(&mut dom, outer, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let outer_lb = layout_flex(
+        &mut dom,
+        outer,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
     assert!((outer_lb.content.width - 800.0).abs() < f32::EPSILON);
 
     let inner_lb = get_lb(&dom, inner);
@@ -400,7 +571,17 @@ fn align_items_stretch() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[auto_height_item, flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     // Auto-height item should stretch to line cross size (60).
     let lb0 = get_lb(&dom, items[0]);
@@ -446,7 +627,17 @@ fn grown_item_child_uses_flex_resolved_width() {
     dom.append_child(item, child);
 
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 600.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let item_lb = get_lb(&dom, item);
     let child_lb = get_lb(&dom, child);
@@ -496,7 +687,17 @@ fn margin_item_child_not_double_offset() {
     dom.append_child(item, grandchild);
 
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let item_lb = get_lb(&dom, item);
     let grandchild_lb = get_lb(&dom, grandchild);
@@ -530,7 +731,15 @@ fn descendant_positioned_at_container_offset() {
     let offset_x = 100.0_f32;
     let offset_y = 200.0_f32;
     let outer_lb = layout_flex(
-        &mut dom, outer, 800.0, None, offset_x, offset_y, &font_db, 0,
+        &mut dom,
+        outer,
+        800.0,
+        None,
+        offset_x,
+        offset_y,
+        &font_db,
+        0,
+        layout_block_only,
     );
 
     // Container starts at (100, 200).
@@ -554,7 +763,17 @@ fn stretch_skips_explicit_cross_size() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     // 30px item should NOT stretch to 60px because height is explicit.
@@ -579,7 +798,17 @@ fn flex_item_border_box_width() {
     };
     let (mut dom, cont, items) = make_flex_dom(container, &[item]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, cont, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        cont,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb = get_lb(&dom, items[0]);
     // border-box: content = 200 - 10 - 10 - 2 - 2 = 176
@@ -604,7 +833,17 @@ fn flex_container_border_box_height() {
     let item = flex_item(100.0, 50.0);
     let (mut dom, cont, _) = make_flex_dom(container, &[item]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, cont, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        cont,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     // content height = 200 - 15 - 15 - 5 - 5 = 160
     assert!((lb.content.height - 160.0).abs() < f32::EPSILON);
@@ -622,7 +861,17 @@ fn column_gap_row_direction() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -642,7 +891,17 @@ fn row_gap_column_direction() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 40.0), flex_item(100.0, 40.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -678,7 +937,17 @@ fn gap_affects_flex_grow() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 600.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -695,7 +964,17 @@ fn gap_zero_default_unchanged() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -717,7 +996,17 @@ fn gap_with_wrap_cross_axis() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(&mut dom, container, 300.0, None, 0.0, 0.0, &font_db, 0);
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        300.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -747,7 +1036,17 @@ fn flex_child_percentage_height() {
     };
     let (mut dom, cont, items) = make_flex_dom(container, &[child_style]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, cont, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        cont,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb = get_lb(&dom, items[0]);
     // height: 50% of 200 = 100.
@@ -764,7 +1063,17 @@ fn gap_single_item_no_effect() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb = get_lb(&dom, items[0]);
     assert!((lb.content.x).abs() < f32::EPSILON);
@@ -783,7 +1092,17 @@ fn gap_with_justify_space_between() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -806,7 +1125,17 @@ fn gap_with_row_reverse() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -830,7 +1159,17 @@ fn gap_with_flex_shrink() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 400.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -858,7 +1197,17 @@ fn flex_item_min_width_prevents_shrink() {
     let (mut dom, container, items) =
         make_flex_dom(flex_container(), &[item0, flex_item(300.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 400.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
@@ -894,7 +1243,17 @@ fn flex_item_max_width_prevents_grow() {
     };
     let (mut dom, container, items) = make_flex_dom(flex_container(), &[item0, item1]);
     let font_db = FontDatabase::new();
-    layout_flex(&mut dom, container, 800.0, None, 0.0, 0.0, &font_db, 0);
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
