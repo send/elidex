@@ -8,6 +8,7 @@ mod error;
 mod event_types;
 mod js_value;
 mod layout_types;
+mod logical;
 mod registry;
 mod spec_level;
 mod traits;
@@ -16,15 +17,16 @@ mod values;
 
 pub use computed_style::{
     AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
-    ComputedStyle, ContentItem, ContentValue, Dimension, Display, FlexDirection, FlexWrap,
-    FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType, Overflow,
-    Position, TableLayout, TextAlign, TextDecorationLine, TextTransform, TrackBreadth, TrackSize,
-    WhiteSpace,
+    ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
+    FlexWrap, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
+    Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextOrientation, TextTransform,
+    TrackBreadth, TrackSize, UnicodeBidi, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
+pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::NetworkMiddleware;

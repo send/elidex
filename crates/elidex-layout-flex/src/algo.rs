@@ -4,7 +4,8 @@
 use elidex_ecs::EcsDom;
 use elidex_layout_block::{clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn};
 use elidex_plugin::{
-    AlignContent, AlignItems, ComputedStyle, Dimension, FlexWrap, JustifyContent, LayoutBox, Rect,
+    AlignContent, AlignItems, ComputedStyle, Dimension, Direction, FlexWrap, JustifyContent,
+    LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
 
@@ -381,7 +382,13 @@ pub(crate) fn position_items(
     layout_child: ChildLayoutFn,
     depth: u32,
 ) {
-    let reversed_main = is_reversed(ctx.direction);
+    // CSS Flexbox §4.2: RTL flips the main-axis direction for row layouts.
+    // Row + RTL → reversed, RowReverse + RTL → not reversed (double reversal).
+    let reversed_main = if ctx.horizontal && ctx.css_direction == Direction::Rtl {
+        !is_reversed(ctx.direction)
+    } else {
+        is_reversed(ctx.direction)
+    };
     let reversed_cross = matches!(ctx.wrap, FlexWrap::WrapReverse);
 
     for (line_idx, &(start, end)) in line_ranges.iter().enumerate() {

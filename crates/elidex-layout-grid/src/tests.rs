@@ -1366,3 +1366,52 @@ fn grid_negative_track_size_clamped() {
     // The second column (200px) should still work correctly.
     assert!(approx_eq(lb2.content.width, 200.0));
 }
+
+// ---------------------------------------------------------------------------
+// M3.5-4: RTL direction support
+// ---------------------------------------------------------------------------
+
+#[test]
+fn grid_rtl_reverses_column_order() {
+    // direction: rtl → columns placed right-to-left
+    let mut dom = EcsDom::new();
+    let grid = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            grid,
+            ComputedStyle {
+                display: Display::Grid,
+                direction: elidex_plugin::Direction::Rtl,
+                grid_template_columns: vec![TrackSize::Length(100.0), TrackSize::Length(200.0)],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let c0 = make_grid_child(&mut dom, grid, 30.0);
+    let c1 = make_grid_child(&mut dom, grid, 30.0);
+
+    let font_db = FontDatabase::new();
+    layout_grid(
+        &mut dom,
+        grid,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb0 = get_layout(&dom, c0);
+    let lb1 = get_layout(&dom, c1);
+
+    // RTL: first column (100px) should be on the right, second (200px) on the left.
+    assert!(
+        lb0.content.x > lb1.content.x,
+        "RTL grid: col 0 (x={}) should be right of col 1 (x={})",
+        lb0.content.x,
+        lb1.content.x,
+    );
+}

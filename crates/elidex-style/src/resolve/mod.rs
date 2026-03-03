@@ -12,7 +12,8 @@ pub(crate) mod helpers;
 mod var_resolution;
 
 use elidex_plugin::{
-    ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, LengthUnit, LineHeight,
+    ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, LengthUnit,
+    LineHeight, TextOrientation, UnicodeBidi, WritingMode,
 };
 
 pub(crate) use helpers::PropertyMap;
@@ -100,6 +101,10 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "text-align" => keyword_from(&style.text_align),
         "white-space" => keyword_from(&style.white_space),
         "list-style-type" => keyword_from(&style.list_style_type),
+        "direction" => keyword_from(&style.direction),
+        "unicode-bidi" => keyword_from(&style.unicode_bidi),
+        "writing-mode" => keyword_from(&style.writing_mode),
+        "text-orientation" => keyword_from(&style.text_orientation),
         "text-decoration-line" => {
             let d = &style.text_decoration_line;
             if d.underline && d.line_through {
@@ -288,7 +293,51 @@ pub(crate) fn build_computed_style(
     // Phase 9: Table properties.
     resolve_table_properties(&mut style, &winners, parent_style, &elem_ctx);
 
+    // Phase 10: Writing mode / BiDi properties.
+    resolve_writing_mode_properties(&mut style, &winners, parent_style);
+
     style
+}
+
+/// Resolve writing mode and bidi properties.
+fn resolve_writing_mode_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    // direction — inherited
+    if let Some(CssValue::Keyword(kw)) = winners.get("direction") {
+        if let Some(d) = Direction::from_keyword(kw) {
+            style.direction = d;
+        }
+    } else {
+        style.direction = parent_style.direction;
+    }
+
+    // unicode-bidi — non-inherited
+    if let Some(CssValue::Keyword(kw)) = winners.get("unicode-bidi") {
+        if let Some(u) = UnicodeBidi::from_keyword(kw) {
+            style.unicode_bidi = u;
+        }
+    }
+
+    // writing-mode — inherited
+    if let Some(CssValue::Keyword(kw)) = winners.get("writing-mode") {
+        if let Some(w) = WritingMode::from_keyword(kw) {
+            style.writing_mode = w;
+        }
+    } else {
+        style.writing_mode = parent_style.writing_mode;
+    }
+
+    // text-orientation — inherited
+    if let Some(CssValue::Keyword(kw)) = winners.get("text-orientation") {
+        if let Some(t) = TextOrientation::from_keyword(kw) {
+            style.text_orientation = t;
+        }
+    } else {
+        style.text_orientation = parent_style.text_orientation;
+    }
 }
 
 #[cfg(test)]

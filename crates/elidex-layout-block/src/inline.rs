@@ -5,7 +5,7 @@
 //! greedily packed into lines that fit the containing block width.
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
-use elidex_plugin::{ComputedStyle, Display};
+use elidex_plugin::{ComputedStyle, Display, WritingMode};
 use elidex_text::{find_break_opportunities, measure_text, BreakOpportunity, FontDatabase};
 
 use crate::MAX_LAYOUT_DEPTH;
@@ -75,14 +75,18 @@ fn measure_segment_widths(
 
 /// Layout inline content (text nodes and inline elements) within a line box.
 ///
-/// Returns the total height consumed by all line boxes.
-/// Text is measured using the parent element's font properties.
+/// Returns the total block-axis dimension consumed by all line boxes.
+/// For `horizontal-tb` this is the total height; for vertical writing
+/// modes (`vertical-rl`/`vertical-lr`) this is the total width.
+///
+/// `containing_inline_size` is the available inline-axis space
+/// (width for horizontal, height for vertical).
 // TODO: use caller-provided offsets to position line boxes and assign
 // LayoutBox components to inline elements and text nodes.
 pub fn layout_inline_context(
     dom: &EcsDom,
     children: &[Entity],
-    containing_width: f32,
+    containing_inline_size: f32,
     parent_style: &ComputedStyle,
     font_db: &FontDatabase,
 ) -> f32 {
@@ -124,9 +128,17 @@ pub fn layout_inline_context(
         segments.push((prev_pos, text.len(), None));
     }
 
-    // Greedy line packing: accumulate segment widths until overflow or mandatory break.
-    let mut total_height = 0.0_f32;
-    let mut current_line_width = 0.0_f32;
+    let is_vertical = !matches!(parent_style.writing_mode, WritingMode::HorizontalTb);
+
+    // For vertical writing: each "line" stacks along the block axis (X),
+    // and the line advance is the font-size (column width), not line-height.
+    // For horizontal: "line" stacks along Y, line advance = line-height.
+    let line_advance = if is_vertical { font_size } else { line_height };
+
+    // Greedy line packing: accumulate segment inline sizes until overflow
+    // or mandatory break.
+    let mut total_block = 0.0_f32;
+    let mut current_inline = 0.0_f32;
     let mut on_line = false;
 
     for &(start, end, break_kind) in &segments {
@@ -135,32 +147,33 @@ pub fn layout_inline_context(
             continue;
         }
 
+        // TODO(Phase 4): use vertical shaping metrics for vertical modes.
         let (seg_width, trimmed_width) =
             measure_segment_widths(font_db, &families, font_size, font_weight, segment);
 
-        if current_line_width + trimmed_width > containing_width && on_line {
+        if current_inline + trimmed_width > containing_inline_size && on_line {
             // Current line overflows — wrap to next line.
-            total_height += line_height;
-            current_line_width = seg_width;
+            total_block += line_advance;
+            current_inline = seg_width;
         } else {
-            current_line_width += seg_width;
+            current_inline += seg_width;
         }
         on_line = true;
 
         // Mandatory break: force a new line after this segment.
         if break_kind == Some(BreakOpportunity::Mandatory) {
-            total_height += line_height;
-            current_line_width = 0.0;
+            total_block += line_advance;
+            current_inline = 0.0;
             on_line = false;
         }
     }
 
     // Account for the last line (if not already ended by mandatory break).
     if on_line {
-        total_height += line_height;
+        total_block += line_advance;
     }
 
-    total_height
+    total_block
 }
 
 #[cfg(test)]
@@ -273,5 +286,92 @@ mod tests {
         let children = dom.children(parent);
         let h = layout_inline_context(&dom, &children, 1.0, &style, &font_db);
         assert!(h > css_line_height);
+    }
+
+    // --- M3.5-4: Vertical writing mode ---
+
+    #[test]
+    fn vertical_mode_uses_font_size_line_advance() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(parent, text);
+
+        let style = ComputedStyle {
+            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+            writing_mode: WritingMode::VerticalRl,
+            ..Default::default()
+        };
+        let font_db = FontDatabase::new();
+
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+            return;
+        }
+
+        // In vertical mode, the block-axis advance per line is font_size, not line-height.
+        let children = dom.children(parent);
+        let block_dim = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
+        // Single line: block dimension should be font_size.
+        assert!(
+            (block_dim - style.font_size).abs() < f32::EPSILON,
+            "vertical single line should be font_size ({}), got {}",
+            style.font_size,
+            block_dim,
+        );
+    }
+
+    #[test]
+    fn vertical_lr_same_as_vertical_rl_for_height() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(parent, text);
+
+        let style = ComputedStyle {
+            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+            writing_mode: WritingMode::VerticalLr,
+            ..Default::default()
+        };
+        let font_db = FontDatabase::new();
+
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+            return;
+        }
+
+        let children = dom.children(parent);
+        let block_dim = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
+        assert!(
+            (block_dim - style.font_size).abs() < f32::EPSILON,
+            "vertical-lr single line should be font_size ({}), got {}",
+            style.font_size,
+            block_dim,
+        );
+    }
+
+    #[test]
+    fn horizontal_tb_uses_line_height() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("p", Attributes::default());
+        let text = dom.create_text("Hello");
+        dom.append_child(parent, text);
+
+        let style = ComputedStyle {
+            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+            writing_mode: WritingMode::HorizontalTb,
+            ..Default::default()
+        };
+        let font_db = FontDatabase::new();
+
+        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+            return;
+        }
+
+        let css_line_height = style.line_height.resolve_px(style.font_size);
+        let children = dom.children(parent);
+        let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
+        assert!(
+            (h - css_line_height).abs() < f32::EPSILON,
+            "horizontal-tb single line should be line-height ({css_line_height}), got {h}",
+        );
     }
 }

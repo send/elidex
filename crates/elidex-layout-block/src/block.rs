@@ -5,7 +5,10 @@
 //! centering, and vertical stacking of child blocks.
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
-use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect};
+use elidex_plugin::{
+    BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes, LayoutBox, Rect,
+    WritingMode,
+};
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
@@ -27,13 +30,14 @@ pub fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
 /// Apply horizontal `margin: auto` centering (CSS 2.1 §10.3.3).
 ///
 /// `used_horizontal` = `content_width` + padding + border (already sanitized).
-/// When the box is overconstrained (used width + padding + border > containing
-/// width), LTR direction sets `margin-left` to the specified value (or 0 for
-/// auto) and `margin-right` absorbs the negative remainder.
+/// When the box is overconstrained:
+/// - LTR: `margin-right` is recalculated to satisfy the constraint.
+/// - RTL: `margin-left` is recalculated to satisfy the constraint.
 fn apply_margin_auto_centering(
     style: &ComputedStyle,
     containing_width: f32,
     used_horizontal: f32,
+    direction: Direction,
 ) -> (f32, f32) {
     let remaining = containing_width - used_horizontal;
     let left_auto = matches!(style.margin_left, Dimension::Auto);
@@ -44,8 +48,12 @@ fn apply_margin_auto_centering(
             if remaining >= 0.0 {
                 (remaining / 2.0, remaining / 2.0)
             } else {
-                // Overconstrained (LTR): margin-left = 0, margin-right absorbs overflow.
-                (0.0, remaining)
+                // Both auto, overconstrained: start-side margin = 0,
+                // end-side margin absorbs overflow.
+                match direction {
+                    Direction::Ltr => (0.0, remaining),
+                    Direction::Rtl => (remaining, 0.0),
+                }
             }
         }
         (true, false) => {
@@ -57,11 +65,18 @@ fn apply_margin_auto_centering(
             (ml, remaining - ml)
         }
         (false, false) => {
-            let ml = resolve_margin(style.margin_left, containing_width);
-            // CSS 2.1 §10.3.3: When no margins are auto, the system is
-            // over-constrained. In LTR, margin-right is recalculated to
-            // satisfy the constraint equation.
-            (ml, containing_width - used_horizontal - ml)
+            // CSS 2.1 §10.3.3: no margins auto, over-constrained.
+            // LTR: margin-right recalculated. RTL: margin-left recalculated.
+            match direction {
+                Direction::Ltr => {
+                    let ml = resolve_margin(style.margin_left, containing_width);
+                    (ml, containing_width - used_horizontal - ml)
+                }
+                Direction::Rtl => {
+                    let mr = resolve_margin(style.margin_right, containing_width);
+                    (containing_width - used_horizontal - mr, mr)
+                }
+            }
         }
     }
 }
@@ -288,7 +303,7 @@ pub fn layout_block_inner(
         if matches!(style.width, Dimension::Auto) && intrinsic.is_none() {
             (margin_left_raw, margin_right_raw)
         } else {
-            apply_margin_auto_centering(&style, containing_width, used_horizontal)
+            apply_margin_auto_centering(&style, containing_width, used_horizontal, style.direction)
         };
 
     // --- Content rect position ---
@@ -348,7 +363,19 @@ pub fn layout_block_inner(
 
         result.height
     } else {
-        layout_inline_context(dom, &children, content_width, &style, font_db)
+        // Inline context: the first argument is the available inline-axis space.
+        // Horizontal: inline axis = X (width). Vertical: inline axis = Y (height).
+        // TODO(Phase 4): full axis swap for vertical writing modes.
+        let inline_size = if matches!(
+            style.writing_mode,
+            WritingMode::VerticalRl | WritingMode::VerticalLr
+        ) {
+            // Use containing height if known; otherwise use content_width as fallback.
+            containing_height.unwrap_or(content_width)
+        } else {
+            content_width
+        };
+        layout_inline_context(dom, &children, inline_size, &style, font_db)
     };
 
     let height = resolve_block_height(
@@ -1660,5 +1687,85 @@ mod tests {
             "border-box max-width should subtract padding, got {}",
             lb.content.width
         );
+    }
+
+    // --- M3.5-4: RTL direction margin auto centering ---
+
+    #[test]
+    fn rtl_margin_auto_centering_centers() {
+        // Both margins auto in RTL should center the element (same as LTR).
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(400.0),
+            margin_left: Dimension::Auto,
+            margin_right: Dimension::Auto,
+            direction: Direction::Rtl,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
+        assert!((lb.margin.left - 200.0).abs() < f32::EPSILON);
+        assert!((lb.margin.right - 200.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rtl_overconstrained_both_auto_negative() {
+        // Both margins auto, overconstrained (box wider than container).
+        // RTL: margin-right = 0, margin-left absorbs negative overflow.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(900.0),
+            margin_left: Dimension::Auto,
+            margin_right: Dimension::Auto,
+            direction: Direction::Rtl,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        assert!((lb.margin.right - 0.0).abs() < f32::EPSILON);
+        assert!((lb.margin.left - (-100.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rtl_overconstrained_no_auto() {
+        // No auto margins, overconstrained. RTL: margin-left is recalculated.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(600.0),
+            margin_left: Dimension::Length(50.0),
+            margin_right: Dimension::Length(50.0),
+            direction: Direction::Rtl,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // RTL: margin-right is preserved (50), margin-left is recalculated.
+        // margin-left = 800 - 600 - 50 = 150.
+        assert!((lb.margin.right - 50.0).abs() < f32::EPSILON);
+        assert!((lb.margin.left - 150.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ltr_overconstrained_no_auto() {
+        // Verify LTR behavior: margin-right is recalculated when overconstrained.
+        let style = ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(600.0),
+            margin_left: Dimension::Length(50.0),
+            margin_right: Dimension::Length(50.0),
+            direction: Direction::Ltr,
+            ..Default::default()
+        };
+        let (mut dom, div) = make_dom_with_block_div(style);
+        let font_db = FontDatabase::new();
+        let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+        // LTR: margin-left is preserved (50), margin-right is recalculated.
+        // margin-right = 800 - 600 - 50 = 150.
+        assert!((lb.margin.left - 50.0).abs() < f32::EPSILON);
+        assert!((lb.margin.right - 150.0).abs() < f32::EPSILON);
     }
 }

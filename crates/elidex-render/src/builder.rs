@@ -12,10 +12,10 @@ use std::sync::Arc;
 
 use elidex_ecs::{EcsDom, Entity, ImageData, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    BorderStyle, ComputedStyle, CssColor, Display, LayoutBox, ListStyleType, Overflow, Rect,
-    TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    BorderStyle, ComputedStyle, CssColor, Direction, Display, LayoutBox, ListStyleType, Overflow,
+    Rect, TextAlign, TextDecorationLine, TextTransform, WhiteSpace, WritingMode,
 };
-use elidex_text::{shape_text, FontDatabase};
+use elidex_text::{analyze_bidi, shape_text, shape_text_vertical, FontDatabase, ParagraphLevel};
 
 use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
 use crate::font_cache::FontCache;
@@ -342,8 +342,9 @@ struct InlineRunContext<'a> {
 
 /// Emit styled text segments as display items.
 ///
-/// Each segment is independently shaped and rendered. Segments are placed
-/// sequentially along the x-axis. Text-align is applied to the total run width.
+/// Each segment is independently shaped and rendered. For horizontal writing
+/// modes, segments are placed left-to-right; for vertical modes, top-to-bottom.
+/// Text-align is applied to the total run width (horizontal) or height (vertical).
 #[allow(clippy::too_many_lines)]
 fn emit_styled_segments(
     ctx: &InlineRunContext<'_>,
@@ -357,19 +358,35 @@ fn emit_styled_segments(
         lb,
         parent_style,
     } = *ctx;
+
+    let is_vertical = matches!(
+        parent_style.writing_mode,
+        WritingMode::VerticalRl | WritingMode::VerticalLr
+    );
+
+    if is_vertical {
+        emit_styled_segments_vertical(ctx, font_db, font_cache, dl);
+        return;
+    }
+
     let align_offset = compute_text_align_offset(
         parent_style.text_align,
+        parent_style.direction,
         lb.content.width,
         collapsed,
         segments,
         font_db,
     );
 
+    // Reorder segments for visual display (bidi algorithm).
+    let visual_order = bidi_visual_order(collapsed, parent_style.direction);
+
     // Emit display items (single shaping pass per segment).
     let mut cursor_x = lb.content.x + align_offset;
 
-    for (text, idx) in collapsed {
-        let seg = &segments[*idx];
+    for &vi in &visual_order {
+        let (ref text, idx) = collapsed[vi];
+        let seg = &segments[idx];
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
         // TODO(Phase 4): pass font_style to font_db.query() for italic/oblique selection.
@@ -427,6 +444,79 @@ fn emit_styled_segments(
                 color: text_color,
             });
         }
+    }
+}
+
+/// Emit styled text segments vertically (top-to-bottom).
+///
+/// Vertical writing mode: glyphs advance downward, each segment is shaped
+/// with `shape_text_vertical` and placed using `y_advance`.
+fn emit_styled_segments_vertical(
+    ctx: &InlineRunContext<'_>,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let InlineRunContext {
+        segments,
+        collapsed,
+        lb,
+        ..
+    } = *ctx;
+
+    // Vertical: cursor_y advances downward, center_x is the column center.
+    let center_x = lb.content.x + lb.content.width / 2.0;
+    let mut cursor_y = lb.content.y;
+
+    for (text, idx) in collapsed {
+        let seg = &segments[*idx];
+        let transformed = apply_text_transform(text, seg.text_transform);
+        let families = families_as_refs(&seg.font_family);
+        let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+            continue;
+        };
+        let Some(shaped) = shape_text_vertical(font_db, font_id, seg.font_size, &transformed)
+        else {
+            // Fallback to horizontal shaping if vertical shaping fails.
+            let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+                continue;
+            };
+            let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+                continue;
+            };
+            let text_color = apply_opacity(seg.color, seg.opacity);
+            // Place horizontally-shaped glyphs vertically (one per line).
+            for glyph in &shaped.glyphs {
+                let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
+                let y = cursor_y + glyph.y_offset;
+                dl.push(DisplayItem::Text {
+                    glyphs: vec![GlyphEntry {
+                        glyph_id: u32::from(glyph.glyph_id),
+                        x,
+                        y,
+                    }],
+                    font_blob: font_blob.clone(),
+                    font_index,
+                    font_size: seg.font_size,
+                    color: text_color,
+                });
+                cursor_y += seg.font_size;
+            }
+            continue;
+        };
+        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+            continue;
+        };
+        let text_color = apply_opacity(seg.color, seg.opacity);
+        let glyphs = place_glyphs_vertical(&shaped.glyphs, center_x, &mut cursor_y);
+
+        dl.push(DisplayItem::Text {
+            glyphs,
+            font_blob,
+            font_index,
+            font_size: seg.font_size,
+            color: text_color,
+        });
     }
 }
 
@@ -542,22 +632,34 @@ fn collapse_segments(
 /// and returns the appropriate offset within `container_width`.
 fn compute_text_align_offset(
     align: TextAlign,
+    direction: Direction,
     container_width: f32,
     collapsed: &[(String, usize)],
     segments: &[StyledTextSegment],
     font_db: &FontDatabase,
 ) -> f32 {
-    match align {
-        TextAlign::Left => 0.0,
-        TextAlign::Center | TextAlign::Right => {
+    // Resolve start/end to physical left/right based on direction.
+    let resolved = match align {
+        TextAlign::Start => match direction {
+            Direction::Ltr => TextAlign::Left,
+            Direction::Rtl => TextAlign::Right,
+        },
+        TextAlign::End => match direction {
+            Direction::Ltr => TextAlign::Right,
+            Direction::Rtl => TextAlign::Left,
+        },
+        other => other,
+    };
+    match resolved {
+        TextAlign::Left | TextAlign::Start => 0.0,
+        TextAlign::Center | TextAlign::Right | TextAlign::End => {
             let total_width: f32 = collapsed
                 .iter()
                 .map(|(text, idx)| measure_segment_width(text, &segments[*idx], font_db))
                 .sum();
             let free = (container_width - total_width).max(0.0);
-            match align {
+            match resolved {
                 TextAlign::Center => free / 2.0,
-                // TextAlign::Right and any future variants.
                 _ => free,
             }
         }
@@ -599,6 +701,116 @@ fn place_glyphs(
         *cursor_x += glyph.x_advance;
     }
     glyphs
+}
+
+/// Place shaped glyphs vertically (top-to-bottom), advancing `cursor_y`.
+///
+/// Each glyph is positioned at `(center_x + x_offset, cursor_y + y_offset)` and
+/// the cursor advances by `y_advance`. Used for vertical writing modes.
+#[must_use]
+fn place_glyphs_vertical(
+    shaped_glyphs: &[elidex_text::ShapedGlyph],
+    center_x: f32,
+    cursor_y: &mut f32,
+) -> Vec<GlyphEntry> {
+    let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
+    for glyph in shaped_glyphs {
+        let x = center_x + glyph.x_offset;
+        let y = *cursor_y + glyph.y_offset;
+        glyphs.push(GlyphEntry {
+            glyph_id: u32::from(glyph.glyph_id),
+            x,
+            y,
+        });
+        *cursor_y += glyph.y_advance;
+    }
+    glyphs
+}
+
+/// Compute visual order of collapsed segments using the Unicode bidi algorithm.
+///
+/// Returns indices into `collapsed` in the order they should be rendered
+/// left-to-right. For pure LTR text with LTR direction, returns identity
+/// order. For mixed-direction text, segments are reordered per UAX #9 L2.
+fn bidi_visual_order(collapsed: &[(String, usize)], direction: Direction) -> Vec<usize> {
+    if collapsed.is_empty() {
+        return Vec::new();
+    }
+
+    // Concatenate all segment text for bidi analysis.
+    let full_text: String = collapsed.iter().map(|(t, _)| t.as_str()).collect();
+    if full_text.is_empty() {
+        return (0..collapsed.len()).collect();
+    }
+
+    let para_level = match direction {
+        Direction::Ltr => ParagraphLevel::Ltr,
+        Direction::Rtl => ParagraphLevel::Rtl,
+    };
+    let bidi_runs = analyze_bidi(&full_text, para_level);
+
+    // Fast path: single LTR run = no reordering needed.
+    if bidi_runs.len() <= 1 && !bidi_runs.iter().any(elidex_text::BidiRun::is_rtl) {
+        return (0..collapsed.len()).collect();
+    }
+
+    // Map each collapsed segment to its byte offset in the concatenated text.
+    let mut seg_starts = Vec::with_capacity(collapsed.len());
+    let mut pos = 0;
+    for (text, _) in collapsed {
+        seg_starts.push(pos);
+        pos += text.len();
+    }
+
+    // Assign each segment the bidi level of the run covering its start byte.
+    let seg_levels: Vec<u8> = seg_starts
+        .iter()
+        .map(|&start| {
+            bidi_runs
+                .iter()
+                .find(|r| r.start <= start && r.end > start)
+                .map_or(0, |r| r.level.number())
+        })
+        .collect();
+
+    // UAX #9 L2: reverse contiguous runs at each level from max down to min odd.
+    bidi_reorder_indices(&seg_levels)
+}
+
+/// Reorder indices by bidi embedding levels (UAX #9 rule L2).
+///
+/// For each level from `max_level` down to the minimum odd level, reverses
+/// contiguous subsequences of indices whose level is >= that threshold.
+fn bidi_reorder_indices(levels: &[u8]) -> Vec<usize> {
+    if levels.is_empty() {
+        return Vec::new();
+    }
+    let max_level = *levels.iter().max().unwrap_or(&0);
+    let min_odd = levels
+        .iter()
+        .copied()
+        .filter(|&l| l % 2 == 1)
+        .min()
+        .unwrap_or(max_level + 1);
+
+    let mut result: Vec<usize> = (0..levels.len()).collect();
+
+    for level in (min_odd..=max_level).rev() {
+        let mut i = 0;
+        while i < result.len() {
+            if levels[result[i]] >= level {
+                let start = i;
+                while i < result.len() && levels[result[i]] >= level {
+                    i += 1;
+                }
+                result[start..i].reverse();
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    result
 }
 
 /// Convert a `Vec<String>` of font family names to a `Vec<&str>` for font queries.
@@ -2691,5 +2903,58 @@ mod tests {
                 .filter(|i| matches!(i, DisplayItem::RoundedRect { .. }))
                 .count();
         assert_eq!(marker_count, 2, "two disc markers for two list items");
+    }
+
+    // --- M3.5-4: BiDi visual reorder ---
+
+    #[test]
+    fn bidi_reorder_pure_ltr() {
+        let collapsed = vec![("Hello ".to_string(), 0), ("world".to_string(), 1)];
+        let order = super::bidi_visual_order(&collapsed, Direction::Ltr);
+        assert_eq!(order, vec![0, 1]);
+    }
+
+    #[test]
+    fn bidi_reorder_indices_all_ltr() {
+        let levels = vec![0, 0, 0];
+        let order = super::bidi_reorder_indices(&levels);
+        assert_eq!(order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn bidi_reorder_indices_embedded_rtl() {
+        // LTR paragraph with one RTL segment in the middle.
+        let levels = vec![0, 1, 0];
+        let order = super::bidi_reorder_indices(&levels);
+        // Level 1 is odd, so the single RTL segment is "reversed" (no change since 1 element).
+        assert_eq!(order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn bidi_reorder_indices_rtl_paragraph() {
+        // RTL paragraph: all segments at level 1.
+        let levels = vec![1, 1, 1];
+        let order = super::bidi_reorder_indices(&levels);
+        // All reversed: visual order is right-to-left.
+        assert_eq!(order, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn bidi_reorder_indices_rtl_with_embedded_ltr() {
+        // RTL paragraph with embedded LTR (level 2).
+        // Segments: [RTL, LTR, RTL]
+        let levels = vec![1, 2, 1];
+        let order = super::bidi_reorder_indices(&levels);
+        // Level 2: reverse contiguous level >= 2: only index 1 → no change.
+        // Level 1: reverse contiguous level >= 1: all three → reversed.
+        // Result: [2, 1, 0].
+        assert_eq!(order, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn bidi_reorder_empty() {
+        let collapsed: Vec<(String, usize)> = Vec::new();
+        let order = super::bidi_visual_order(&collapsed, Direction::Ltr);
+        assert!(order.is_empty());
     }
 }

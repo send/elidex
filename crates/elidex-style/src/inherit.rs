@@ -21,6 +21,9 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "border-spacing-h",
     "border-spacing-v",
     "caption-side",
+    "direction",
+    "writing-mode",
+    "text-orientation",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -56,8 +59,14 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         | "border-left-style"
         | "grid-template-columns"
         | "grid-template-rows" => CssValue::Keyword("none".to_string()),
-        "text-align" => CssValue::Keyword("left".to_string()),
+        "text-align" => CssValue::Keyword("start".to_string()),
         "list-style-type" => CssValue::Keyword("disc".to_string()),
+
+        // Writing mode / BiDi
+        "direction" => CssValue::Keyword("ltr".to_string()),
+        "unicode-bidi" => CssValue::Keyword("normal".to_string()),
+        "writing-mode" => CssValue::Keyword("horizontal-tb".to_string()),
+        "text-orientation" => CssValue::Keyword("mixed".to_string()),
 
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
@@ -260,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             get_initial_value("text-align"),
-            CssValue::Keyword("left".to_string())
+            CssValue::Keyword("start".to_string())
         );
     }
 
@@ -374,6 +383,48 @@ mod tests {
         assert_eq!(
             get_initial_value("caption-side"),
             CssValue::Keyword("top".to_string())
+        );
+    }
+
+    // --- M3.5-4: Writing mode / BiDi property inheritance ---
+
+    #[test]
+    fn direction_inherited() {
+        assert!(is_inherited("direction"));
+    }
+
+    #[test]
+    fn writing_mode_inherited() {
+        assert!(is_inherited("writing-mode"));
+    }
+
+    #[test]
+    fn text_orientation_inherited() {
+        assert!(is_inherited("text-orientation"));
+    }
+
+    #[test]
+    fn unicode_bidi_not_inherited() {
+        assert!(!is_inherited("unicode-bidi"));
+    }
+
+    #[test]
+    fn initial_values_i18n() {
+        assert_eq!(
+            get_initial_value("direction"),
+            CssValue::Keyword("ltr".to_string())
+        );
+        assert_eq!(
+            get_initial_value("unicode-bidi"),
+            CssValue::Keyword("normal".to_string())
+        );
+        assert_eq!(
+            get_initial_value("writing-mode"),
+            CssValue::Keyword("horizontal-tb".to_string())
+        );
+        assert_eq!(
+            get_initial_value("text-orientation"),
+            CssValue::Keyword("mixed".to_string())
         );
     }
 

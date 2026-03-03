@@ -1,4 +1,4 @@
-//! Simplified UAX #14 line breaking for Phase 1.
+//! Simplified UAX #14 line breaking for elidex.
 //!
 //! Supports break opportunities at:
 //! - ASCII space (0x20) — break after

@@ -355,6 +355,29 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
         "grid-area" => grid::parse_grid_area(input),
 
+        // --- Writing mode / BiDi properties ---
+        "direction" => parse_keyword_property(input, name, &["ltr", "rtl"]),
+        "unicode-bidi" => parse_keyword_property(
+            input,
+            name,
+            &[
+                "normal",
+                "embed",
+                "bidi-override",
+                "isolate",
+                "isolate-override",
+                "plaintext",
+            ],
+        ),
+        "writing-mode" => parse_keyword_property(
+            input,
+            name,
+            &["horizontal-tb", "vertical-rl", "vertical-lr"],
+        ),
+        "text-orientation" => {
+            parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
+        }
+
         // --- Table properties ---
         "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
         "border-spacing" => parse_border_spacing(input),
@@ -612,15 +635,20 @@ fn parse_mapped_keyword(
 
 // --- Text-align ---
 
-/// Parse `text-align`. Maps `start` and `justify` to `left` (Phase 3 simplification).
+/// Parse `text-align` (CSS Text Level 3 §7.1).
+///
+/// `justify` is mapped to `start` (full justification is deferred).
 fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
     parse_mapped_keyword(
         input,
         "text-align",
         &[
-            (&["left", "start", "justify"], "left"),
+            (&["start"], "start"),
+            (&["end"], "end"),
+            (&["left"], "left"),
             (&["center"], "center"),
-            (&["right", "end"], "right"),
+            (&["right"], "right"),
+            (&["justify"], "start"),
         ],
     )
 }

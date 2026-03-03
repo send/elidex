@@ -15,7 +15,7 @@ use elidex_layout_block::{
     sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes,
+    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
     FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
@@ -156,6 +156,8 @@ pub(crate) struct FlexContext {
     pub(crate) gap_main: f32,
     /// Gap between lines on the cross axis.
     pub(crate) gap_cross: f32,
+    /// CSS `direction` property (LTR/RTL) — affects main-axis order for row layouts.
+    pub(crate) css_direction: Direction,
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +272,7 @@ pub fn layout_flex(
         container_definite_height,
         gap_main,
         gap_cross,
+        css_direction: style.direction,
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---

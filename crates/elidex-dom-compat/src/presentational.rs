@@ -50,7 +50,17 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
     };
     let tag = tag_type.0.as_str();
 
-    // Fast path: skip tags that never have presentational hints.
+    let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
+        return Vec::new();
+    };
+
+    let mut decls = Vec::new();
+
+    // dir attribute → direction CSS property (WHATWG §15.3.6).
+    // Applies to all HTML elements, not just specific tags.
+    push_dir_attr(&attrs, &mut decls);
+
+    // Fast path: skip tags that never have other presentational hints.
     if !matches!(
         tag,
         "img"
@@ -79,14 +89,8 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
             | "caption"
             | "font"
     ) {
-        return Vec::new();
+        return decls;
     }
-
-    let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
-        return Vec::new();
-    };
-
-    let mut decls = Vec::new();
 
     // width/height on replaced and table elements.
     // WHATWG: table/td/th width and td/th height use "ignoring zero" semantics.
@@ -310,6 +314,27 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
             Some(CssColor::new(r, g, b, 255))
         }
         _ => None,
+    }
+}
+
+/// Push dir attribute → direction CSS declaration (WHATWG §15.3.6).
+///
+/// `dir="ltr"` → `direction: ltr`, `dir="rtl"` → `direction: rtl`.
+/// `dir="auto"` is not yet supported (requires first-strong-character algorithm).
+fn push_dir_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
+    if let Some(val) = attrs.get("dir") {
+        match val.trim().to_ascii_lowercase().as_str() {
+            "ltr" => decls.push(Declaration::new(
+                "direction",
+                CssValue::Keyword("ltr".to_string()),
+            )),
+            "rtl" => decls.push(Declaration::new(
+                "direction",
+                CssValue::Keyword("rtl".to_string()),
+            )),
+            // dir="auto": Phase 4 TODO (requires first-strong-character analysis)
+            _ => {}
+        }
     }
 }
 

@@ -265,8 +265,12 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `text-align` property.
+    /// The CSS `text-align` property (CSS Text Level 3 §7.1).
+    ///
+    /// Per spec, initial value is `start` (direction-dependent).
     TextAlign {
+        Start => "start",
+        End => "end",
         Left => "left",
         Center => "center",
         Right => "right",
@@ -385,6 +389,52 @@ keyword_enum! {
 }
 
 keyword_enum! {
+    /// The CSS `direction` property (CSS Writing Modes Level 3 §2.1).
+    ///
+    /// Inherited. Sets the inline base direction of an element.
+    Direction {
+        Ltr => "ltr",
+        Rtl => "rtl",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `unicode-bidi` property (CSS Writing Modes Level 3 §2.2).
+    ///
+    /// Non-inherited. Controls how bidi embedding levels are applied.
+    UnicodeBidi {
+        Normal => "normal",
+        Embed => "embed",
+        BidiOverride => "bidi-override",
+        Isolate => "isolate",
+        IsolateOverride => "isolate-override",
+        Plaintext => "plaintext",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `writing-mode` property (CSS Writing Modes Level 3 §3.1).
+    ///
+    /// Inherited. Determines the block flow direction and inline base direction.
+    WritingMode {
+        HorizontalTb => "horizontal-tb",
+        VerticalRl => "vertical-rl",
+        VerticalLr => "vertical-lr",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `text-orientation` property (CSS Writing Modes Level 3 §5.1).
+    ///
+    /// Inherited. Controls glyph orientation in vertical writing modes.
+    TextOrientation {
+        Mixed => "mixed",
+        Upright => "upright",
+        Sideways => "sideways",
+    }
+}
+
+keyword_enum! {
     /// The CSS `border-*-style` property (CSS Backgrounds and Borders Level 3 §4.1).
     BorderStyle {
         None => "none",
@@ -463,12 +513,20 @@ pub struct ComputedStyle {
     pub white_space: WhiteSpace,
     /// List style type. Initial: `Disc`.
     pub list_style_type: ListStyleType,
+    /// Writing mode. Initial: `HorizontalTb`. **Inherited.**
+    pub writing_mode: WritingMode,
+    /// Text orientation. Initial: `Mixed`. **Inherited.**
+    pub text_orientation: TextOrientation,
+    /// Inline base direction. Initial: `Ltr`. **Inherited.**
+    pub direction: Direction,
 
     // --- Non-inherited properties ---
     /// Display type. Initial: Inline.
     pub display: Display,
     /// Positioning scheme. Initial: Static.
     pub position: Position,
+    /// Bidi embedding control. Initial: `Normal`.
+    pub unicode_bidi: UnicodeBidi,
     /// Background color. Initial: transparent.
     pub background_color: CssColor,
 
@@ -638,10 +696,14 @@ impl Default for ComputedStyle {
             text_align: TextAlign::default(),
             white_space: WhiteSpace::default(),
             list_style_type: ListStyleType::default(),
+            writing_mode: WritingMode::default(),
+            text_orientation: TextOrientation::default(),
+            direction: Direction::default(),
 
             // Non-inherited
             display: Display::default(),
             position: Position::default(),
+            unicode_bidi: UnicodeBidi::default(),
             background_color: CssColor::TRANSPARENT,
             overflow: Overflow::default(),
 
@@ -751,13 +813,17 @@ mod tests {
         assert_eq!(s.font_family, vec!["serif".to_string()]);
         assert_eq!(s.line_height, LineHeight::Normal);
         assert_eq!(s.text_transform, TextTransform::None);
-        assert_eq!(s.text_align, TextAlign::Left);
+        assert_eq!(s.text_align, TextAlign::Start);
         assert_eq!(s.white_space, WhiteSpace::Normal);
         assert_eq!(s.list_style_type, ListStyleType::Disc);
+        assert_eq!(s.writing_mode, WritingMode::HorizontalTb);
+        assert_eq!(s.text_orientation, TextOrientation::Mixed);
+        assert_eq!(s.direction, Direction::Ltr);
 
         // --- Non-inherited: display, position, background ---
         assert_eq!(s.display, Display::Inline);
         assert_eq!(s.position, Position::Static);
+        assert_eq!(s.unicode_bidi, UnicodeBidi::Normal);
         assert_eq!(s.background_color, CssColor::TRANSPARENT);
         assert_eq!(s.overflow, Overflow::Visible);
 
@@ -862,7 +928,11 @@ mod tests {
         assert_eq!(AlignSelf::default().as_ref(), "auto");
         assert_eq!(AlignContent::default().as_ref(), "stretch");
         assert_eq!(FontStyle::default().as_ref(), "normal");
-        assert_eq!(TextAlign::default().as_ref(), "left");
+        assert_eq!(TextAlign::default().as_ref(), "start");
+        assert_eq!(Direction::default().as_ref(), "ltr");
+        assert_eq!(UnicodeBidi::default().as_ref(), "normal");
+        assert_eq!(WritingMode::default().as_ref(), "horizontal-tb");
+        assert_eq!(TextOrientation::default().as_ref(), "mixed");
         assert_eq!(TextTransform::default().as_ref(), "none");
         assert_eq!(BoxSizing::default().as_ref(), "content-box");
         assert_eq!(WhiteSpace::default().as_ref(), "normal");
@@ -921,8 +991,20 @@ mod tests {
             (CaptionSide::Bottom.as_ref(), "bottom"),
             (FontStyle::Italic.as_ref(), "italic"),
             (FontStyle::Oblique.as_ref(), "oblique"),
+            (TextAlign::End.as_ref(), "end"),
+            (TextAlign::Left.as_ref(), "left"),
             (TextAlign::Center.as_ref(), "center"),
             (TextAlign::Right.as_ref(), "right"),
+            (Direction::Rtl.as_ref(), "rtl"),
+            (UnicodeBidi::Embed.as_ref(), "embed"),
+            (UnicodeBidi::BidiOverride.as_ref(), "bidi-override"),
+            (UnicodeBidi::Isolate.as_ref(), "isolate"),
+            (UnicodeBidi::IsolateOverride.as_ref(), "isolate-override"),
+            (UnicodeBidi::Plaintext.as_ref(), "plaintext"),
+            (WritingMode::VerticalRl.as_ref(), "vertical-rl"),
+            (WritingMode::VerticalLr.as_ref(), "vertical-lr"),
+            (TextOrientation::Upright.as_ref(), "upright"),
+            (TextOrientation::Sideways.as_ref(), "sideways"),
         ] {
             assert_eq!(variant_ref, expected, "as_ref mismatch for {expected}");
         }
@@ -1175,8 +1257,42 @@ mod tests {
             AlignSelf::from_keyword,
         );
         assert_roundtrips(
-            &[TextAlign::Left, TextAlign::Center, TextAlign::Right],
+            &[
+                TextAlign::Start,
+                TextAlign::End,
+                TextAlign::Left,
+                TextAlign::Center,
+                TextAlign::Right,
+            ],
             TextAlign::from_keyword,
+        );
+        assert_roundtrips(&[Direction::Ltr, Direction::Rtl], Direction::from_keyword);
+        assert_roundtrips(
+            &[
+                UnicodeBidi::Normal,
+                UnicodeBidi::Embed,
+                UnicodeBidi::BidiOverride,
+                UnicodeBidi::Isolate,
+                UnicodeBidi::IsolateOverride,
+                UnicodeBidi::Plaintext,
+            ],
+            UnicodeBidi::from_keyword,
+        );
+        assert_roundtrips(
+            &[
+                WritingMode::HorizontalTb,
+                WritingMode::VerticalRl,
+                WritingMode::VerticalLr,
+            ],
+            WritingMode::from_keyword,
+        );
+        assert_roundtrips(
+            &[
+                TextOrientation::Mixed,
+                TextOrientation::Upright,
+                TextOrientation::Sideways,
+            ],
+            TextOrientation::from_keyword,
         );
         assert_roundtrips(
             &[

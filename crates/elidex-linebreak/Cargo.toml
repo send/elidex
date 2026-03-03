@@ -1,0 +1,18 @@
+[package]
+name = "elidex-linebreak"
+description = "UAX #14 line breaking for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "text", "linebreak"]
+categories = ["web-programming"]
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -95,6 +95,10 @@ a:visited {
     color: #551a8b;
     text-decoration-line: underline;
 }
+
+bdo { unicode-bidi: bidi-override; }
+bdo[dir='ltr'] { direction: ltr; }
+bdo[dir='rtl'] { direction: rtl; }
 ";
 
 /// Returns the parsed UA stylesheet (lazily initialized, cached).
@@ -340,6 +344,58 @@ mod tests {
             .find(|d| d.property == "font-weight")
             .unwrap();
         assert_eq!(fw.value, CssValue::Keyword("bold".to_string()));
+    }
+
+    // --- M3.5-4: BiDi UA styles ---
+
+    #[test]
+    fn bdo_unicode_bidi_override() {
+        let ss = ua_stylesheet();
+        let bdo_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
+            }) && r.declarations.iter().any(|d| d.property == "unicode-bidi")
+        });
+        assert!(bdo_rule.is_some(), "bdo unicode-bidi rule not found");
+        let ub = bdo_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "unicode-bidi")
+            .unwrap();
+        assert_eq!(ub.value, CssValue::Keyword("bidi-override".to_string()));
+    }
+
+    #[test]
+    fn bdo_dir_ltr_rule() {
+        let ss = ua_stylesheet();
+        let rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "direction" && d.value == CssValue::Keyword("ltr".to_string())
+            })
+        });
+        assert!(rule.is_some(), "bdo[dir=ltr] direction rule not found");
+    }
+
+    #[test]
+    fn bdo_dir_rtl_rule() {
+        let ss = ua_stylesheet();
+        let rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
+            }) && r.declarations.iter().any(|d| {
+                d.property == "direction" && d.value == CssValue::Keyword("rtl".to_string())
+            })
+        });
+        assert!(rule.is_some(), "bdo[dir=rtl] direction rule not found");
     }
 
     #[test]

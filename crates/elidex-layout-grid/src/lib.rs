@@ -30,8 +30,8 @@ use elidex_layout_block::{
     sanitize_border, sanitize_padding, ChildLayoutFn, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Display, EdgeSizes, GridAutoFlow, GridLine, LayoutBox,
-    Rect, TrackSize,
+    AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
+    LayoutBox, Rect, TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -226,6 +226,8 @@ pub fn layout_grid(
         &row_positions,
         content_x,
         content_y,
+        content_width,
+        style.direction,
         containing_height,
         font_db,
         depth,
@@ -456,15 +458,24 @@ fn position_items(
     row_positions: &[f32],
     content_x: f32,
     content_y: f32,
+    content_width: f32,
+    direction: Direction,
     containing_height: Option<f32>,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: ChildLayoutFn,
 ) {
+    let is_rtl = direction == Direction::Rtl;
     for item in items {
         // Compute the grid area rectangle.
-        let area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
+        let ltr_area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
         let area_width = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
+        // RTL: mirror column position so columns flow right-to-left.
+        let area_x = if is_rtl {
+            (content_width - ltr_area_x - area_width).max(0.0)
+        } else {
+            ltr_area_x
+        };
         let area_y = row_positions.get(item.row_start).copied().unwrap_or(0.0);
         let area_height = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
 

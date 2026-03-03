@@ -62,10 +62,10 @@ fn parse_keyword_properties() {
         ("text-align", "left", "text-align", "left"),
         ("text-align", "center", "text-align", "center"),
         ("text-align", "right", "text-align", "right"),
-        // text-align mappings
-        ("text-align", "start", "text-align", "left"),
-        ("text-align", "end", "text-align", "right"),
-        ("text-align", "justify", "text-align", "left"),
+        ("text-align", "start", "text-align", "start"),
+        ("text-align", "end", "text-align", "end"),
+        // text-align: justify → start (full justification deferred)
+        ("text-align", "justify", "text-align", "start"),
         // white-space
         ("white-space", "normal", "white-space", "normal"),
         ("white-space", "pre", "white-space", "pre"),

@@ -2041,3 +2041,49 @@ fn table_display_none_cell_skipped() {
         "display:none cell should not have a LayoutBox"
     );
 }
+
+// ---------------------------------------------------------------------------
+// M3.5-4: RTL direction support
+// ---------------------------------------------------------------------------
+
+#[test]
+fn table_rtl_reverses_column_order() {
+    // direction: rtl → columns placed right-to-left
+    let table_style = ComputedStyle {
+        display: Display::Table,
+        direction: elidex_plugin::Direction::Rtl,
+        ..Default::default()
+    };
+    let (mut dom, table, cells) = create_simple_table(1, 3, table_style);
+
+    let font_db = FontDatabase::new();
+    layout_table(
+        &mut dom,
+        table,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        test_layout_child,
+    );
+
+    let lb0 = get_layout(&dom, cells[0]);
+    let lb1 = get_layout(&dom, cells[1]);
+    let lb2 = get_layout(&dom, cells[2]);
+
+    // RTL: first column should be rightmost, last column leftmost.
+    assert!(
+        lb0.content.x > lb1.content.x,
+        "RTL table: col 0 (x={}) should be right of col 1 (x={})",
+        lb0.content.x,
+        lb1.content.x,
+    );
+    assert!(
+        lb1.content.x > lb2.content.x,
+        "RTL table: col 1 (x={}) should be right of col 2 (x={})",
+        lb1.content.x,
+        lb2.content.x,
+    );
+}

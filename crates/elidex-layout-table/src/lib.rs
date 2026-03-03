@@ -33,8 +33,8 @@ use elidex_layout_block::{
     horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    BorderCollapse, CaptionSide, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect,
-    TableLayout,
+    BorderCollapse, CaptionSide, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
+    LayoutBox, Rect, TableLayout,
 };
 use elidex_text::FontDatabase;
 
@@ -148,6 +148,7 @@ pub fn layout_table(
     }
 
     let style = elidex_layout_block::get_style(dom, entity);
+    let is_rtl = style.direction == Direction::Rtl;
     let is_collapse = style.border_collapse == BorderCollapse::Collapse;
     // CSS 2.1 §17.6.2: in the collapsing border model, the table has no padding.
     let padding = if is_collapse {
@@ -374,10 +375,18 @@ pub fn layout_table(
 
     // Position cells.
     // Compute column x offsets.
+    // RTL: columns flow right-to-left, so we mirror the LTR offsets.
+    let total_table_width: f32 =
+        col_widths.iter().sum::<f32>() + spacing_h * (num_cols as f32 + 1.0);
     let mut col_x_offsets = vec![0.0_f32; num_cols];
     let mut x = spacing_h;
     for c in 0..num_cols {
-        col_x_offsets[c] = x;
+        if is_rtl {
+            // Mirror: place rightmost column first.
+            col_x_offsets[c] = total_table_width - x - col_widths[c];
+        } else {
+            col_x_offsets[c] = x;
+        }
         x += col_widths[c] + spacing_h;
     }
 

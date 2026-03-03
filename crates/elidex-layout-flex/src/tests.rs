@@ -1243,3 +1243,77 @@ fn flex_item_max_width_prevents_grow() {
         lb1.content.width
     );
 }
+
+// ---------------------------------------------------------------------------
+// M3.5-4: RTL direction support
+// ---------------------------------------------------------------------------
+
+#[test]
+fn row_rtl_reverses_item_order() {
+    // direction: rtl + flex-direction: row → items placed right-to-left
+    let (mut dom, container, items) = make_flex_dom(
+        ComputedStyle {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Row,
+            direction: Direction::Rtl,
+            ..Default::default()
+        },
+        &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
+    );
+    let font_db = FontDatabase::new();
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    // RTL: first item should be to the right of the second item.
+    assert!(
+        lb0.content.x > lb1.content.x,
+        "RTL row: item 0 (x={}) should be right of item 1 (x={})",
+        lb0.content.x,
+        lb1.content.x,
+    );
+}
+
+#[test]
+fn row_reverse_rtl_restores_ltr_order() {
+    // direction: rtl + flex-direction: row-reverse → double reversal = LTR order
+    let (mut dom, container, items) = make_flex_dom(
+        ComputedStyle {
+            display: Display::Flex,
+            flex_direction: FlexDirection::RowReverse,
+            direction: Direction::Rtl,
+            ..Default::default()
+        },
+        &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
+    );
+    let font_db = FontDatabase::new();
+    layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    // Double reversal: item 0 should be left of item 1 (same as normal LTR row).
+    assert!(
+        lb0.content.x < lb1.content.x,
+        "RTL row-reverse: item 0 (x={}) should be left of item 1 (x={})",
+        lb0.content.x,
+        lb1.content.x,
+    );
+}

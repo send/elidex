@@ -1029,6 +1029,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "elidex-bidi"
+version = "0.1.0"
+dependencies = [
+ "unicode-bidi",
+]
+
+[[package]]
 name = "elidex-crawler"
 version = "0.1.0"
 dependencies = [
@@ -1154,6 +1161,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-linebreak"
+version = "0.1.0"
+
+[[package]]
 name = "elidex-navigation"
 version = "0.1.0"
 dependencies = [
@@ -1235,6 +1246,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-shaping"
+version = "0.1.0"
+dependencies = [
+ "fontdb",
+ "rustybuzz",
+]
+
+[[package]]
 name = "elidex-shell"
 version = "0.1.0"
 dependencies = [
@@ -1273,8 +1292,9 @@ dependencies = [
 name = "elidex-text"
 version = "0.1.0"
 dependencies = [
- "fontdb",
- "rustybuzz",
+ "elidex-bidi",
+ "elidex-linebreak",
+ "elidex-shaping",
 ]
 
 [[package]]
@@ -4496,6 +4516,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash 2.1.1",
 ]
+
+[[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
 
 [[package]]
 name = "unicode-bidi-mirroring"
