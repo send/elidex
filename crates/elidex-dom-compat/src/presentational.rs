@@ -317,24 +317,27 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
     }
 }
 
-/// Push dir attribute → direction CSS declaration (WHATWG §15.3.6).
+/// Push dir attribute → direction + unicode-bidi CSS declarations (WHATWG §15.3.6).
 ///
-/// `dir="ltr"` → `direction: ltr`, `dir="rtl"` → `direction: rtl`.
-/// `dir="auto"` is not yet supported (requires first-strong-character algorithm).
+/// `dir="ltr"` → `direction: ltr; unicode-bidi: isolate`,
+/// `dir="rtl"` → `direction: rtl; unicode-bidi: isolate`.
 fn push_dir_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
     if let Some(val) = attrs.get("dir") {
-        match val.trim().to_ascii_lowercase().as_str() {
-            "ltr" => decls.push(Declaration::new(
-                "direction",
-                CssValue::Keyword("ltr".to_string()),
-            )),
-            "rtl" => decls.push(Declaration::new(
-                "direction",
-                CssValue::Keyword("rtl".to_string()),
-            )),
-            // dir="auto": Phase 4 TODO (requires first-strong-character analysis)
-            _ => {}
-        }
+        let dir = match val.trim().to_ascii_lowercase().as_str() {
+            "ltr" => "ltr",
+            "rtl" => "rtl",
+            // TODO(Phase 4): `dir="auto"` requires the first-strong-character
+            // algorithm (HTML §15.3.6) to determine direction from content.
+            _ => return,
+        };
+        decls.push(Declaration::new(
+            "direction",
+            CssValue::Keyword(dir.to_string()),
+        ));
+        decls.push(Declaration::new(
+            "unicode-bidi",
+            CssValue::Keyword("isolate".to_string()),
+        ));
     }
 }
 

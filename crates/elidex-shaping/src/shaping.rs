@@ -42,11 +42,50 @@ pub fn shape_text(
     font_size: f32,
     text: &str,
 ) -> Option<ShapedText> {
+    shape_with_options(db, font_id, font_size, text, false)
+}
+
+/// Shapes `text` for vertical (top-to-bottom) layout.
+///
+/// Enables the OpenType `vert` feature for vertical glyph substitution.
+/// `total_advance` represents the total vertical advance (sum of `y_advance`).
+///
+/// Returns `None` if the font data cannot be accessed or the face cannot be parsed.
+///
+// TODO(Phase 4): Apply CSS `text-orientation` (mixed/upright/sideways).
+// Currently all glyphs are shaped with TTB direction + `vert` feature,
+// but `text-orientation: mixed` requires per-character classification
+// (UTR #50 vo=R/Tr/Tu) to decide rotation vs. upright rendering.
+#[must_use]
+pub fn shape_text_vertical(
+    db: &FontDatabase,
+    font_id: fontdb::ID,
+    font_size: f32,
+    text: &str,
+) -> Option<ShapedText> {
+    shape_with_options(db, font_id, font_size, text, true)
+}
+
+/// Internal shaping implementation shared by horizontal and vertical paths.
+///
+/// When `vertical` is true, sets the buffer direction to top-to-bottom,
+/// enables the `vert` OpenType feature, and accumulates `y_advance` for
+/// `total_advance`. Otherwise uses left-to-right with `x_advance`.
+fn shape_with_options(
+    db: &FontDatabase,
+    font_id: fontdb::ID,
+    font_size: f32,
+    text: &str,
+    vertical: bool,
+) -> Option<ShapedText> {
     db.with_face_data(font_id, |data, face_index| {
         let mut face = rustybuzz::Face::from_slice(data, face_index)?;
         let scale = pixel_scale(&face, font_size)?;
 
-        // Set ppem for hinting. font_size is always non-negative and small.
+        // Set ppem for hinting.
+        // TODO(Phase 4): Add `debug_assert!(font_size >= 0.0)` or clamp
+        // negative values. Callers currently always pass non-negative sizes,
+        // but the cast_sign_loss allow relies on this undocumented invariant.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let ppem = font_size.round() as u16;
         face.set_pixels_per_em(Some((ppem, ppem)));
@@ -54,7 +93,17 @@ pub fn shape_text(
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
 
-        let output = rustybuzz::shape(&face, &[], buffer);
+        let features;
+        let feature_slice: &[rustybuzz::Feature] = if vertical {
+            buffer.set_direction(rustybuzz::Direction::TopToBottom);
+            features =
+                rustybuzz::Feature::new(rustybuzz::ttf_parser::Tag::from_bytes(b"vert"), 1, ..);
+            std::slice::from_ref(&features)
+        } else {
+            &[]
+        };
+
+        let output = rustybuzz::shape(&face, feature_slice, buffer);
 
         let infos = output.glyph_infos();
         let positions = output.glyph_positions();
@@ -65,9 +114,21 @@ pub fn shape_text(
         #[allow(clippy::cast_precision_loss)]
         for (info, pos) in infos.iter().zip(positions.iter()) {
             let x_advance = (pos.x_advance as f32) * scale;
-            let y_advance = (pos.y_advance as f32) * scale;
             let x_offset = (pos.x_offset as f32) * scale;
-            let y_offset = (pos.y_offset as f32) * scale;
+
+            // rustybuzz uses font coordinate space where y-axis points upward.
+            // In TTB mode, downward advance produces negative y_advance/y_offset.
+            // Negate to convert to screen coordinates (y-axis points downward).
+            let y_advance = if vertical {
+                -((pos.y_advance as f32) * scale)
+            } else {
+                (pos.y_advance as f32) * scale
+            };
+            let y_offset = if vertical {
+                -((pos.y_offset as f32) * scale)
+            } else {
+                (pos.y_offset as f32) * scale
+            };
 
             // rustybuzz guarantees glyph_id <= u16::MAX.
             debug_assert!(u16::try_from(info.glyph_id).is_ok());
@@ -83,72 +144,7 @@ pub fn shape_text(
                 cluster: info.cluster,
             });
 
-            total_advance += x_advance;
-        }
-
-        Some(ShapedText {
-            glyphs,
-            total_advance,
-        })
-    })?
-}
-
-/// Shapes `text` for vertical (top-to-bottom) layout.
-///
-/// Enables the OpenType `vert` feature for vertical glyph substitution.
-/// `total_advance` represents the total vertical advance (sum of `y_advance`).
-///
-/// Returns `None` if the font data cannot be accessed or the face cannot be parsed.
-#[must_use]
-pub fn shape_text_vertical(
-    db: &FontDatabase,
-    font_id: fontdb::ID,
-    font_size: f32,
-    text: &str,
-) -> Option<ShapedText> {
-    db.with_face_data(font_id, |data, face_index| {
-        let mut face = rustybuzz::Face::from_slice(data, face_index)?;
-        let scale = pixel_scale(&face, font_size)?;
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let ppem = font_size.round() as u16;
-        face.set_pixels_per_em(Some((ppem, ppem)));
-
-        let mut buffer = rustybuzz::UnicodeBuffer::new();
-        buffer.push_str(text);
-        buffer.set_direction(rustybuzz::Direction::TopToBottom);
-
-        let vert_feature =
-            rustybuzz::Feature::new(rustybuzz::ttf_parser::Tag::from_bytes(b"vert"), 1, ..);
-        let output = rustybuzz::shape(&face, &[vert_feature], buffer);
-
-        let infos = output.glyph_infos();
-        let positions = output.glyph_positions();
-
-        let mut glyphs = Vec::with_capacity(infos.len());
-        let mut total_advance = 0.0;
-
-        #[allow(clippy::cast_precision_loss)]
-        for (info, pos) in infos.iter().zip(positions.iter()) {
-            let x_advance = (pos.x_advance as f32) * scale;
-            let y_advance = (pos.y_advance as f32) * scale;
-            let x_offset = (pos.x_offset as f32) * scale;
-            let y_offset = (pos.y_offset as f32) * scale;
-
-            debug_assert!(u16::try_from(info.glyph_id).is_ok());
-            #[allow(clippy::cast_possible_truncation)]
-            let glyph_id = info.glyph_id as u16;
-
-            glyphs.push(ShapedGlyph {
-                glyph_id,
-                x_advance,
-                y_advance,
-                x_offset,
-                y_offset,
-                cluster: info.cluster,
-            });
-
-            total_advance += y_advance;
+            total_advance += if vertical { y_advance } else { x_advance };
         }
 
         Some(ShapedText {
@@ -253,11 +249,11 @@ mod tests {
             return;
         };
         let shaped = shape_text_vertical(&db, id, 16.0, "Hello").unwrap();
-        // Total advance (vertical) should be non-zero.
+        // Total advance (vertical) should be positive (screen-coordinate downward).
         // Note: total_advance for vertical shaping is the sum of y_advances.
         assert!(
-            shaped.total_advance.abs() > f32::EPSILON,
-            "vertical total_advance should be non-zero, got {}",
+            shaped.total_advance > f32::EPSILON,
+            "vertical total_advance should be positive, got {}",
             shaped.total_advance
         );
     }

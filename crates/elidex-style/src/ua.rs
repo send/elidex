@@ -96,6 +96,10 @@ a:visited {
     text-decoration-line: underline;
 }
 
+/* TODO(Phase 4): WHATWG 15.3.6 specifies `bdi { direction: ltr; }` as
+   the initial direction for the bidi-isolation context. Currently omitted
+   because elidex defaults to LTR, but should be explicit for correctness. */
+bdi { unicode-bidi: isolate; }
 bdo { unicode-bidi: bidi-override; }
 bdo[dir='ltr'] { direction: ltr; }
 bdo[dir='rtl'] { direction: rtl; }
@@ -347,6 +351,26 @@ mod tests {
     }
 
     // --- M3.5-4: BiDi UA styles ---
+
+    #[test]
+    fn bdi_unicode_bidi_isolate() {
+        let ss = ua_stylesheet();
+        let bdi_rule = ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdi"))
+            }) && r.declarations.iter().any(|d| d.property == "unicode-bidi")
+        });
+        assert!(bdi_rule.is_some(), "bdi unicode-bidi rule not found");
+        let ub = bdi_rule
+            .unwrap()
+            .declarations
+            .iter()
+            .find(|d| d.property == "unicode-bidi")
+            .unwrap();
+        assert_eq!(ub.value, CssValue::Keyword("isolate".to_string()));
+    }
 
     #[test]
     fn bdo_unicode_bidi_override() {

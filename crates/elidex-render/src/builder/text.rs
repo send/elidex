@@ -1,0 +1,113 @@
+//! Text measurement, alignment, and transformation.
+
+use std::borrow::Cow;
+
+use elidex_plugin::{Direction, TextAlign, TextTransform};
+use elidex_text::{shape_text, FontDatabase};
+
+use super::{families_as_refs, StyledTextSegment};
+
+/// Resolve `text-align: start/end` to physical `left/right` based on direction.
+///
+/// `Start` → `Left` (LTR) or `Right` (RTL).
+/// `End` → `Right` (LTR) or `Left` (RTL).
+/// Other values pass through unchanged.
+pub(crate) fn resolve_text_align(align: TextAlign, direction: Direction) -> TextAlign {
+    match align {
+        TextAlign::Start => match direction {
+            Direction::Ltr => TextAlign::Left,
+            Direction::Rtl => TextAlign::Right,
+        },
+        TextAlign::End => match direction {
+            Direction::Ltr => TextAlign::Right,
+            Direction::Rtl => TextAlign::Left,
+        },
+        other => other,
+    }
+}
+
+/// Compute the alignment offset for a given resolved text-align and free space.
+///
+/// `Left` → 0, `Center` → half, `Right` → full free space.
+fn align_offset(resolved: TextAlign, free_space: f32) -> f32 {
+    match resolved {
+        TextAlign::Left | TextAlign::Start => 0.0,
+        TextAlign::Center => free_space / 2.0,
+        _ => free_space,
+    }
+}
+
+/// Compute the horizontal offset for `text-align` within a content box.
+///
+/// For `Left`, returns `0.0` immediately (no measurement needed).
+/// For `Center`/`Right`, measures the total width of all collapsed segments
+/// and returns the appropriate offset within `container_width`.
+pub(crate) fn compute_text_align_offset(
+    align: TextAlign,
+    direction: Direction,
+    container_width: f32,
+    collapsed: &[(String, usize)],
+    segments: &[StyledTextSegment],
+    font_db: &FontDatabase,
+) -> f32 {
+    let resolved = resolve_text_align(align, direction);
+    match resolved {
+        TextAlign::Left | TextAlign::Start => 0.0,
+        _ => {
+            let total_width: f32 = collapsed
+                .iter()
+                .map(|(text, idx)| measure_segment_width(text, &segments[*idx], font_db))
+                .sum();
+            let free = (container_width - total_width).max(0.0);
+            align_offset(resolved, free)
+        }
+    }
+}
+
+/// Measure a segment's text width after text-transform.
+#[must_use]
+pub(crate) fn measure_segment_width(
+    text: &str,
+    seg: &StyledTextSegment,
+    font_db: &FontDatabase,
+) -> f32 {
+    let transformed = apply_text_transform(text, seg.text_transform);
+    let families = families_as_refs(&seg.font_family);
+    let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+        return 0.0;
+    };
+    let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+        return 0.0;
+    };
+    shaped.glyphs.iter().map(|g| g.x_advance).sum()
+}
+
+/// Apply CSS `text-transform` to a string before shaping.
+#[must_use]
+pub(crate) fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
+    match transform {
+        TextTransform::None => Cow::Borrowed(text),
+        TextTransform::Uppercase => Cow::Owned(text.to_uppercase()),
+        TextTransform::Lowercase => Cow::Owned(text.to_lowercase()),
+        TextTransform::Capitalize => Cow::Owned(capitalize_words(text)),
+    }
+}
+
+/// Capitalize the first letter of each word (whitespace-delimited).
+#[must_use]
+fn capitalize_words(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut prev_was_whitespace = true;
+    for ch in text.chars() {
+        if prev_was_whitespace && ch.is_alphabetic() {
+            for upper in ch.to_uppercase() {
+                result.push(upper);
+            }
+            prev_was_whitespace = false;
+        } else {
+            result.push(ch);
+            prev_was_whitespace = ch.is_whitespace();
+        }
+    }
+    result
+}

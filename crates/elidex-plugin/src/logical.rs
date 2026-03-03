@@ -101,6 +101,12 @@ pub struct LogicalRect {
 
 impl LogicalRect {
     /// Convert a physical `Rect` to logical coordinates.
+    ///
+    // TODO(Phase 4): For RTL direction, `inline_start` should be computed as
+    // `rect.x + rect.width` (the right edge) in horizontal mode, or
+    // `rect.y + rect.height` (the bottom edge) in vertical mode, so that
+    // `inline_start` truly represents the inline-start position.
+    // Currently this only swaps axes but does not flip for RTL.
     #[must_use]
     pub fn from_physical(rect: Rect, ctx: WritingModeContext) -> Self {
         if ctx.is_horizontal() {
@@ -177,6 +183,11 @@ impl LogicalEdges {
             }
         } else {
             // vertical: inline = top/bottom, block = left/right
+            // TODO(Phase 4): For vertical + RTL, inline_start should be
+            // edges.bottom (bottom-to-top inline direction). Currently
+            // inline_start is always edges.top regardless of direction.
+            // The roundtrip test passes because from_physical/to_physical
+            // have matching bugs that cancel out.
             let (block_start, block_end) = if ctx.is_block_reversed() {
                 (edges.right, edges.left) // vertical-rl: block starts at right
             } else {

@@ -39,6 +39,10 @@ pub enum ParagraphLevel {
 /// Each run is a contiguous range of text at the same embedding level.
 /// The `paragraph_level` parameter should correspond to the CSS
 /// `direction` property of the containing block.
+///
+// TODO(Phase 4): Respect `unicode-bidi: isolate / isolate-override / plaintext`
+// from CSS. Currently only the paragraph-level direction hint is used;
+// explicit embedding/isolation overrides (UAX #9 X1-X8) are not enforced.
 #[must_use]
 pub fn analyze_bidi(text: &str, paragraph_level: ParagraphLevel) -> Vec<BidiRun> {
     if text.is_empty() {
@@ -97,28 +101,40 @@ pub fn analyze_bidi(text: &str, paragraph_level: ParagraphLevel) -> Vec<BidiRun>
 /// have their glyphs rendered right-to-left.
 #[must_use]
 pub fn reorder_line(runs: &[BidiRun]) -> Vec<BidiRun> {
-    if runs.is_empty() {
+    let levels: Vec<u8> = runs.iter().map(|r| r.level.number()).collect();
+    let indices = reorder_by_levels(&levels);
+    indices.iter().map(|&i| runs[i]).collect()
+}
+
+/// Reorder indices by bidi embedding levels (UAX #9 rule L2).
+///
+/// For each level from `max_level` down to the minimum odd level, reverses
+/// contiguous subsequences of indices whose level is >= that threshold.
+///
+/// Returns indices in visual order. Works with any `u8` level slice —
+/// used both for `BidiRun` reordering and segment-level reordering.
+#[must_use]
+pub fn reorder_by_levels(levels: &[u8]) -> Vec<usize> {
+    if levels.is_empty() {
         return Vec::new();
     }
-
-    // Find the maximum and minimum levels
-    let max_level = runs.iter().map(|r| r.level.number()).max().unwrap_or(0);
-    let min_odd = runs
+    let max_level = *levels.iter().max().unwrap_or(&0);
+    let min_odd = levels
         .iter()
-        .map(|r| r.level.number())
+        .copied()
         .filter(|&l| l % 2 == 1)
         .min()
         .unwrap_or(max_level + 1);
 
-    let mut result: Vec<BidiRun> = runs.to_vec();
+    let mut result: Vec<usize> = (0..levels.len()).collect();
 
-    // UAX #9 L2: reverse runs at each level from max_level down to min_odd
+    // UAX #9 L2: reverse contiguous runs at each level from max down to min odd.
     for level in (min_odd..=max_level).rev() {
         let mut i = 0;
         while i < result.len() {
-            if result[i].level.number() >= level {
+            if levels[result[i]] >= level {
                 let start = i;
-                while i < result.len() && result[i].level.number() >= level {
+                while i < result.len() && levels[result[i]] >= level {
                     i += 1;
                 }
                 result[start..i].reverse();

@@ -49,6 +49,11 @@ impl FontDatabase {
     /// `weight` is the CSS font-weight value (100-900). Pass `400` for normal.
     ///
     /// Returns the first match found, or `None` if no font matches.
+    ///
+    // TODO(Phase 4): Implement per-glyph font fallback. Currently a single
+    // font is selected for the entire text run; glyphs missing from that font
+    // render as `.notdef`. A proper fallback chain should try each family in
+    // order per glyph (CSS Fonts Level 4 §4.7).
     #[must_use]
     pub fn query(&self, families: &[&str], weight: u16) -> Option<fontdb::ID> {
         let family_list: Vec<fontdb::Family<'_>> = families

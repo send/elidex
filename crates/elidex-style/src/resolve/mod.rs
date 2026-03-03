@@ -300,44 +300,53 @@ pub(crate) fn build_computed_style(
 }
 
 /// Resolve writing mode and bidi properties.
+///
+/// Uses `resolve_inherited_keyword_enum` / `resolve_keyword_enum` to
+/// correctly handle `initial`, `unset`, and `inherit` global keywords
+/// via `get_resolved_winner`.
 fn resolve_writing_mode_properties(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
+    use helpers::{resolve_inherited_keyword_enum, resolve_keyword_enum};
+
     // direction — inherited
-    if let Some(CssValue::Keyword(kw)) = winners.get("direction") {
-        if let Some(d) = Direction::from_keyword(kw) {
-            style.direction = d;
-        }
-    } else {
-        style.direction = parent_style.direction;
-    }
+    style.direction = resolve_inherited_keyword_enum(
+        "direction",
+        winners,
+        parent_style,
+        parent_style.direction,
+        Direction::from_keyword,
+    );
 
     // unicode-bidi — non-inherited
-    if let Some(CssValue::Keyword(kw)) = winners.get("unicode-bidi") {
-        if let Some(u) = UnicodeBidi::from_keyword(kw) {
-            style.unicode_bidi = u;
-        }
+    if let Some(u) = resolve_keyword_enum(
+        "unicode-bidi",
+        winners,
+        parent_style,
+        UnicodeBidi::from_keyword,
+    ) {
+        style.unicode_bidi = u;
     }
 
     // writing-mode — inherited
-    if let Some(CssValue::Keyword(kw)) = winners.get("writing-mode") {
-        if let Some(w) = WritingMode::from_keyword(kw) {
-            style.writing_mode = w;
-        }
-    } else {
-        style.writing_mode = parent_style.writing_mode;
-    }
+    style.writing_mode = resolve_inherited_keyword_enum(
+        "writing-mode",
+        winners,
+        parent_style,
+        parent_style.writing_mode,
+        WritingMode::from_keyword,
+    );
 
     // text-orientation — inherited
-    if let Some(CssValue::Keyword(kw)) = winners.get("text-orientation") {
-        if let Some(t) = TextOrientation::from_keyword(kw) {
-            style.text_orientation = t;
-        }
-    } else {
-        style.text_orientation = parent_style.text_orientation;
-    }
+    style.text_orientation = resolve_inherited_keyword_enum(
+        "text-orientation",
+        winners,
+        parent_style,
+        parent_style.text_orientation,
+        TextOrientation::from_keyword,
+    );
 }
 
 #[cfg(test)]

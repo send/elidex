@@ -3,7 +3,7 @@
 //! This is a facade crate that re-exports from [`elidex_shaping`],
 //! [`elidex_linebreak`], and [`elidex_bidi`].
 
-pub use elidex_bidi::{analyze_bidi, reorder_line, BidiRun, ParagraphLevel};
+pub use elidex_bidi::{analyze_bidi, reorder_by_levels, reorder_line, BidiRun, ParagraphLevel};
 pub use elidex_linebreak::{find_break_opportunities, BreakOpportunity};
 pub use elidex_shaping::{
     measure_text, shape_text, shape_text_vertical, FontDatabase, FontId, FontMetrics, ShapedGlyph,

@@ -637,7 +637,8 @@ fn parse_mapped_keyword(
 
 /// Parse `text-align` (CSS Text Level 3 §7.1).
 ///
-/// `justify` is mapped to `start` (full justification is deferred).
+// TODO(Phase 4): `justify` is mapped to `start` because full inter-word
+// justification (CSS Text 3 §7.1) is not yet implemented.
 fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
     parse_mapped_keyword(
         input,
