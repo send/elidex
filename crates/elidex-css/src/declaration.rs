@@ -43,6 +43,18 @@ pub struct Declaration {
     pub important: bool,
 }
 
+impl Declaration {
+    /// Create a normal (non-important) declaration.
+    #[must_use]
+    pub fn new(property: impl Into<String>, value: CssValue) -> Self {
+        Self {
+            property: property.into(),
+            value,
+            important: false,
+        }
+    }
+}
+
 /// Parse an inline style attribute string into declarations.
 ///
 /// Shorthand properties are expanded into their longhand equivalents.
@@ -172,11 +184,20 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "table-column-group",
             ],
         ),
-        "position" => {
-            parse_keyword_property(input, name, &["static", "relative", "absolute", "fixed"])
-        }
+        "position" => parse_keyword_property(
+            input,
+            name,
+            &["static", "relative", "absolute", "fixed", "sticky"],
+        ),
         "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
-            parse_keyword_property(input, name, &["none", "solid", "dashed", "dotted"])
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge",
+                    "inset", "outset",
+                ],
+            )
         }
 
         // --- Color properties ---
@@ -202,9 +223,12 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             box_model::parse_border_width_property(input, name)
         }
 
+        // TODO(Phase 4): `font` shorthand property (CSS Fonts Level 3 §4).
+
         // --- Font properties ---
         "font-size" => font::parse_font_size(input),
         "font-weight" => font::parse_font_weight(input),
+        "font-style" => parse_keyword_property(input, name, &["normal", "italic", "oblique"]),
         "font-family" => font::parse_font_family(input),
 
         // --- Line height ---
@@ -302,6 +326,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "center",
                 "space-between",
                 "space-around",
+                "space-evenly",
             ],
         ),
 
@@ -346,11 +371,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
 /// Create a single-declaration `Vec`.
 fn single_decl(name: &str, value: CssValue) -> Vec<Declaration> {
-    vec![Declaration {
-        property: name.to_string(),
-        value,
-        important: false,
-    }]
+    vec![Declaration::new(name, value)]
 }
 
 // --- Property-specific parsers ---
@@ -431,9 +452,10 @@ fn parse_value_property(
 
 /// Parse `border-radius` as a non-negative `<length>`.
 ///
-/// Percentages are rejected (Phase 3 limitation — percentage border-radius
-/// requires box dimensions which are unavailable at style resolution time).
-/// Negative values are rejected per CSS Backgrounds and Borders Level 3 §5.3.
+/// TODO(Phase 4): Support multi-value shorthand (per-corner radii) and
+/// percentage values (CSS Backgrounds and Borders Level 3 §5.3).
+/// Percentages require box dimensions for resolution.
+/// Negative values are rejected per spec.
 fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
@@ -449,12 +471,19 @@ fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Opacity parsing ---
 
-/// Parse `opacity` as a number (0.0–1.0), clamping out-of-range values.
+/// Parse `opacity` as a number (0.0–1.0) or percentage, clamping out-of-range values.
+///
+/// Per CSS Color Level 4 §11.2: `<alpha-value> = <number> | <percentage>`.
 fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let n = i.expect_number().map_err(|_| ())?;
-            Ok(single_decl("opacity", CssValue::Number(n.clamp(0.0, 1.0))))
+            let token = i.next().map_err(|_| ())?;
+            let val = match *token {
+                cssparser::Token::Number { value, .. } => value.clamp(0.0, 1.0),
+                cssparser::Token::Percentage { unit_value, .. } => unit_value.clamp(0.0, 1.0),
+                _ => return Err(()),
+            };
+            Ok(single_decl("opacity", CssValue::Number(val)))
         })
         .unwrap_or_default()
 }
@@ -480,7 +509,7 @@ fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
                 let ident = i.expect_ident().map_err(|_| ())?;
                 let lower = ident.to_ascii_lowercase();
                 match lower.as_str() {
-                    "underline" | "line-through" => {
+                    "underline" | "overline" | "line-through" => {
                         // Avoid duplicates.
                         let kw = CssValue::Keyword(lower);
                         if !values.contains(&kw) {
@@ -616,16 +645,8 @@ fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
             let row = parse_gap_value(i)?;
             let col = i.try_parse(parse_gap_value).unwrap_or(row.clone());
             Ok(vec![
-                Declaration {
-                    property: "row-gap".to_string(),
-                    value: row,
-                    important: false,
-                },
-                Declaration {
-                    property: "column-gap".to_string(),
-                    value: col,
-                    important: false,
-                },
+                Declaration::new("row-gap", row),
+                Declaration::new("column-gap", col),
             ])
         })
         .unwrap_or_default()
@@ -770,16 +791,8 @@ fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
                 })
                 .unwrap_or(h.clone());
             Ok(vec![
-                Declaration {
-                    property: "border-spacing-h".to_string(),
-                    value: h,
-                    important: false,
-                },
-                Declaration {
-                    property: "border-spacing-v".to_string(),
-                    value: v,
-                    important: false,
-                },
+                Declaration::new("border-spacing-h", h),
+                Declaration::new("border-spacing-v", v),
             ])
         })
         .unwrap_or_default()
@@ -789,8 +802,9 @@ fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 
 /// Parse the `background` shorthand, extracting only `background-color`.
 ///
-/// Phase 4 will handle background-image, background-position, background-size,
-/// background-repeat, background-origin, background-clip, and background-attachment.
+/// TODO(Phase 4): Support full `background` shorthand (CSS Backgrounds Level 3 §3.10):
+/// background-image, background-position, background-size, background-repeat,
+/// background-origin, background-clip, background-attachment, and multi-layer values.
 /// For now, try to parse the value as a color and emit `background-color`.
 fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
     parse_color_property(input, "background-color")
@@ -855,10 +869,6 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
     };
     longhands
         .iter()
-        .map(|p| Declaration {
-            property: p.clone(),
-            value: val.clone(),
-            important: false,
-        })
+        .map(|p| Declaration::new(p.clone(), val.clone()))
         .collect()
 }

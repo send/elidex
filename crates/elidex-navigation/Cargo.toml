@@ -15,6 +15,7 @@ categories = ["web-programming"]
 elidex-ecs.workspace = true
 elidex-parser.workspace = true
 elidex-css.workspace = true
+elidex-dom-compat.workspace = true
 elidex-net.workspace = true
 bytes.workspace = true
 image.workspace = true

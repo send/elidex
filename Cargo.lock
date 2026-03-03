@@ -1069,6 +1069,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-dom-compat"
+version = "0.1.0"
+dependencies = [
+ "elidex-css",
+ "elidex-ecs",
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-ecs"
 version = "0.1.0"
 dependencies = [
@@ -1150,6 +1159,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "elidex-css",
+ "elidex-dom-compat",
  "elidex-ecs",
  "elidex-net",
  "elidex-parser",
@@ -1232,6 +1242,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "elidex-css",
+ "elidex-dom-compat",
  "elidex-ecs",
  "elidex-js",
  "elidex-layout",

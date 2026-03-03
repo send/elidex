@@ -794,4 +794,42 @@ mod tests {
             "Expected dcl-fired in console output, got: {output:?}"
         );
     }
+
+    // --- M3.5-3: Legacy DOM API stubs ---
+
+    #[test]
+    fn document_all_is_undefined() {
+        let (mut runtime, mut session, mut dom, doc) = setup();
+        runtime.eval(
+            r"console.log(typeof document.all);",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        let output = runtime.console_output().messages();
+        assert!(
+            output.iter().any(|m| m.1.contains("undefined")),
+            "Expected document.all to be undefined, got: {output:?}"
+        );
+    }
+
+    #[test]
+    fn document_write_does_not_throw() {
+        let (mut runtime, mut session, mut dom, doc) = setup();
+        runtime.eval(
+            r"
+            document.write('<p>test</p>');
+            document.writeln('test');
+            console.log('survived');
+            ",
+            &mut session,
+            &mut dom,
+            doc,
+        );
+        let output = runtime.console_output().messages();
+        assert!(
+            output.iter().any(|m| m.1.contains("survived")),
+            "Expected document.write to not throw, got: {output:?}"
+        );
+    }
 }

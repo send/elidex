@@ -134,16 +134,17 @@ pub(crate) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
                 }
             }
         } else if free_space < 0.0 {
+            // CSS Flexbox §9.7: scaled flex shrink factor uses flex base size.
             let total_shrink_scaled: f32 = items
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| !frozen[*i])
-                .map(|(_, it)| it.shrink * it.hypo_main)
+                .map(|(_, it)| it.shrink * it.flex_base_size)
                 .sum();
             if total_shrink_scaled > 0.0 {
                 for (i, item) in items.iter_mut().enumerate() {
                     if !frozen[i] && item.shrink > 0.0 {
-                        let scaled = item.shrink * item.hypo_main;
+                        let scaled = item.shrink * item.flex_base_size;
                         let portion = free_space.abs() * (scaled / total_shrink_scaled);
                         item.final_main = (item.hypo_main - portion).max(0.0);
                     }
@@ -554,6 +555,7 @@ pub(crate) fn compute_align_content_offsets(
         AlignContent::FlexEnd => free,
         AlignContent::Center => free / 2.0,
         AlignContent::SpaceAround => free / (2.0 * nf),
+        AlignContent::SpaceEvenly => free / (nf + 1.0),
         AlignContent::FlexStart | AlignContent::SpaceBetween | AlignContent::Stretch => 0.0,
     };
 
@@ -566,6 +568,7 @@ pub(crate) fn compute_align_content_offsets(
             }
         }
         AlignContent::SpaceAround => free / nf,
+        AlignContent::SpaceEvenly => free / (nf + 1.0),
         _ => 0.0,
     };
 

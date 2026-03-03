@@ -39,86 +39,51 @@ body {
     margin: 8px;
 }
 
-h1 {
-    font-size: 32px;
-    margin-top: 21px;
-    margin-bottom: 21px;
-}
+h1, h2, h3, h4, h5, h6 { font-weight: bold; }
 
-h2 {
-    font-size: 24px;
-    margin-top: 19px;
-    margin-bottom: 19px;
-}
+h1 { font-size: 2em; margin-top: 0.67em; margin-bottom: 0.67em; }
+h2 { font-size: 1.5em; margin-top: 0.83em; margin-bottom: 0.83em; }
+h3 { font-size: 1.17em; margin-top: 1em; margin-bottom: 1em; }
+h4 { font-size: 1em; margin-top: 1.33em; margin-bottom: 1.33em; }
+h5 { font-size: 0.83em; margin-top: 1.67em; margin-bottom: 1.67em; }
+h6 { font-size: 0.67em; margin-top: 2.33em; margin-bottom: 2.33em; }
 
-h3 {
-    font-size: 19px;
-    margin-top: 18px;
-    margin-bottom: 18px;
-}
-
-h4 {
-    font-size: 16px;
-    margin-top: 21px;
-    margin-bottom: 21px;
-}
-
-h5 {
-    font-size: 13px;
-    margin-top: 22px;
-    margin-bottom: 22px;
-}
-
-h6 {
-    font-size: 11px;
-    margin-top: 24px;
-    margin-bottom: 24px;
-}
-
-p {
-    margin-top: 16px;
-    margin-bottom: 16px;
-}
+p { margin-top: 1em; margin-bottom: 1em; }
 
 ul, ol {
-    margin-top: 16px;
-    margin-bottom: 16px;
+    margin-top: 1em;
+    margin-bottom: 1em;
     padding-left: 40px;
 }
 
-li {
-    display: list-item;
-}
+li { display: list-item; }
 
-ol > li {
-    list-style-type: decimal;
-}
+ol { list-style-type: decimal; }
 
-pre {
-    white-space: pre;
-}
+dl { margin-top: 1em; margin-bottom: 1em; }
+dd { margin-left: 40px; }
 
-code, kbd, samp, tt {
-    font-family: monospace;
-}
+pre { white-space: pre; }
+
+pre, code, kbd, samp, tt { font-family: monospace; }
 
 blockquote {
-    margin-top: 16px;
-    margin-bottom: 16px;
+    margin-top: 1em;
+    margin-bottom: 1em;
     margin-left: 40px;
     margin-right: 40px;
 }
 
-pre {
-    margin-top: 16px;
-    margin-bottom: 16px;
-}
+pre { margin-top: 1em; margin-bottom: 1em; }
 
 hr {
+    color: gray;
     border-top-style: solid;
     border-top-width: 1px;
-    margin-top: 8px;
-    margin-bottom: 8px;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 a:link {

@@ -16,7 +16,7 @@ pub mod inherit;
 pub mod resolve;
 pub mod ua;
 
-use elidex_css::{PseudoElement, Stylesheet};
+use elidex_css::{Declaration, PseudoElement, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity, PseudoElementMarker, TagType};
 use elidex_plugin::{ComputedStyle, ContentItem, ContentValue, Display};
 
@@ -24,6 +24,11 @@ pub use resolve::{dimension_to_css_value, get_computed_as_css_value};
 
 use cascade::{collect_and_cascade, collect_and_cascade_pseudo, get_inline_declarations};
 use resolve::{build_computed_style, ResolveContext};
+
+/// No-op hint generator: produces no extra declarations.
+fn no_hints(_entity: Entity, _dom: &EcsDom) -> Vec<Declaration> {
+    Vec::new()
+}
 
 /// Resolve styles for all elements in the DOM tree.
 ///
@@ -37,11 +42,38 @@ pub fn resolve_styles(
     viewport_width: f32,
     viewport_height: f32,
 ) {
+    resolve_styles_with_compat(
+        dom,
+        author_stylesheets,
+        &[],
+        &no_hints,
+        viewport_width,
+        viewport_height,
+    );
+}
+
+/// Extended style resolution accepting compat layer data.
+///
+/// - `extra_ua_sheets`: additional UA-origin stylesheets (e.g. legacy tag rules).
+/// - `hint_generator`: per-entity function producing presentational hint declarations
+///   (e.g. HTML `bgcolor`, `width` attributes → CSS declarations). These participate
+///   in the cascade at author-origin, specificity (0,0,0), ordered before all author
+///   rules.
+pub fn resolve_styles_with_compat(
+    dom: &mut EcsDom,
+    author_stylesheets: &[&Stylesheet],
+    extra_ua_sheets: &[&Stylesheet],
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    viewport_width: f32,
+    viewport_height: f32,
+) {
     let ua = ua::ua_stylesheet();
 
-    // Build the full stylesheet list: UA first, then author.
-    let mut all_sheets: Vec<&Stylesheet> = Vec::with_capacity(1 + author_stylesheets.len());
+    // Build the full stylesheet list: UA first, then extra UA, then author.
+    let mut all_sheets: Vec<&Stylesheet> =
+        Vec::with_capacity(1 + extra_ua_sheets.len() + author_stylesheets.len());
     all_sheets.push(ua);
+    all_sheets.extend_from_slice(extra_ua_sheets);
     all_sheets.extend_from_slice(author_stylesheets);
 
     let ctx = ResolveContext {
@@ -58,7 +90,14 @@ pub fn resolve_styles(
     let default_parent = ComputedStyle::default();
 
     for root in roots {
-        walk_tree(dom, root, &all_sheets, &default_parent, &ctx);
+        walk_tree(
+            dom,
+            root,
+            &all_sheets,
+            &default_parent,
+            &ctx,
+            hint_generator,
+        );
     }
 }
 
@@ -84,6 +123,7 @@ fn walk_tree(
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
 ) {
     // Only resolve styles for element nodes (those with TagType).
     let is_element = dom.world().get::<&TagType>(entity).is_ok();
@@ -97,7 +137,9 @@ fn walk_tree(
                 .get::<&ElementState>(entity)
                 .ok()
                 .map_or(ElementState::default(), |s| *s);
+            // :link and :visited are mutually exclusive (Selectors §3.2).
             state.insert(ElementState::LINK);
+            state.remove(ElementState::VISITED);
             let _ = dom.world_mut().insert_one(entity, state);
         }
 
@@ -109,8 +151,11 @@ fn walk_tree(
         // Collect inline style declarations.
         let inline_decls = get_inline_declarations(entity, dom);
 
+        // Generate presentational hints for this entity.
+        let extra_decls = hint_generator(entity, dom);
+
         // Cascade: collect matching declarations and determine winners.
-        let winners = collect_and_cascade(entity, dom, stylesheets, &inline_decls);
+        let winners = collect_and_cascade(entity, dom, stylesheets, &inline_decls, &extra_decls);
 
         // Build resolve context with parent's font-size.
         let element_ctx = ctx.with_em_base(parent_style.font_size);
@@ -163,20 +208,29 @@ fn walk_tree(
         if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
             continue;
         }
-        walk_tree(dom, child, stylesheets, &entity_style, &child_ctx);
+        walk_tree(
+            dom,
+            child,
+            stylesheets,
+            &entity_style,
+            &child_ctx,
+            hint_generator,
+        );
     }
 }
 
 use elidex_ecs::ElementState;
 
-/// Check if an entity is a link element (`<a>` with `href` attribute).
+/// Check if an entity is a link element per Selectors §3.2.
+///
+/// Matches `<a>`, `<area>`, and `<link>` elements that have an `href` attribute.
 fn is_link_element(dom: &EcsDom, entity: Entity) -> bool {
-    let is_a = dom
+    let is_link_tag = dom
         .world()
         .get::<&TagType>(entity)
         .ok()
-        .is_some_and(|t| t.0 == "a");
-    if !is_a {
+        .is_some_and(|t| matches!(t.0.as_str(), "a" | "area" | "link"));
+    if !is_link_tag {
         return false;
     }
     dom.world()
@@ -218,19 +272,13 @@ fn generate_pseudo_entity(
     // Build computed style for the pseudo-element (inherits from originating element).
     let pe_style = build_computed_style(&winners, parent_style, ctx);
 
-    // Only generate if content produces actual text.
-    // TODO: per CSS spec, `content: ""` should still generate a pseudo-element
-    // box (used for clearfix, decorative elements, etc.).  We currently skip
-    // empty content because the layout pipeline requires TextContent for
-    // pseudo-element sizing.  Fix when box-model-only pseudo-elements are needed.
+    // CSS Generated Content §2: on pseudo-elements, `content: normal` computes
+    // to `none`.  Both `normal` and `none` suppress generation.
     let text = match &pe_style.content {
-        ContentValue::Items(items) => resolve_content_text(items, entity, dom),
-        _ => return, // Normal or None → no generation
+        ContentValue::Items(ref items) => resolve_content_text(items, entity, dom),
+        // Normal or None → no generation.
+        _ => return,
     };
-
-    if text.is_empty() {
-        return;
-    }
 
     // Create the pseudo-element entity with inline display.
     let mut style = pe_style;
@@ -296,9 +344,9 @@ fn is_root_element(dom: &EcsDom, entity: Entity) -> bool {
 #[allow(unused_must_use)]
 mod tests {
     use super::*;
-    use elidex_css::{parse_stylesheet, Origin};
+    use elidex_css::{parse_stylesheet, Declaration, Origin};
     use elidex_ecs::{Attributes, TextContent};
-    use elidex_plugin::{BorderStyle, CssColor, Dimension, Display, Position};
+    use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Position};
 
     fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
         let mut dom = EcsDom::new();
@@ -1425,5 +1473,76 @@ mod tests {
         assert_eq!(tc.0, ">>");
         let pe_style = get_style(&dom, *pe_children[0]);
         assert_eq!(pe_style.color, CssColor::new(0, 128, 0, 255));
+    }
+
+    // --- resolve_styles_with_compat integration tests ---
+
+    #[test]
+    fn compat_extra_ua_and_hints_combined() {
+        // Verify that resolve_styles_with_compat applies both extra UA sheets
+        // and presentational hints from the hint_generator.
+        let (mut dom, _root, _html, body) = build_simple_dom();
+
+        // Create a <b> element (needs legacy UA for font-weight: bolder)
+        let b = dom.create_element("b", Attributes::default());
+        dom.append_child(body, b);
+
+        // Create an img with bgcolor (needs hint_generator for background-color)
+        let mut attrs = Attributes::default();
+        attrs.set("bgcolor", "red");
+        let div = dom.create_element("body", attrs);
+        dom.append_child(body, div);
+
+        // Extra UA sheet with b { font-weight: bolder; }
+        let extra_ua = parse_stylesheet("b { font-weight: bolder; }", Origin::UserAgent);
+
+        // Hint generator: emit background-color for bgcolor attribute
+        let hint_gen = |entity: Entity, dom: &EcsDom| -> Vec<Declaration> {
+            let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
+                return Vec::new();
+            };
+            if let Some(val) = attrs.get("bgcolor") {
+                if val == "red" {
+                    return vec![Declaration::new(
+                        "background-color",
+                        CssValue::Color(CssColor::RED),
+                    )];
+                }
+            }
+            Vec::new()
+        };
+
+        resolve_styles_with_compat(&mut dom, &[], &[&extra_ua], &hint_gen, 1920.0, 1080.0);
+
+        // <b> should pick up font-weight: bolder from extra UA sheet.
+        let b_style = get_style(&dom, b);
+        // bolder from 400 (default) → 700
+        assert_eq!(b_style.font_weight, 700);
+
+        // div with bgcolor="red" should have background-color from hint.
+        let div_style = get_style(&dom, div);
+        assert_eq!(div_style.background_color, CssColor::RED);
+    }
+
+    #[test]
+    fn compat_hint_loses_to_author_selector() {
+        // Hint (author origin, specificity (0,0,0)) should lose to author rule.
+        let (mut dom, _root, _html, body) = build_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let author = parse_stylesheet("div { background-color: blue; }", Origin::Author);
+
+        let hint_gen = |_entity: Entity, _dom: &EcsDom| -> Vec<Declaration> {
+            vec![Declaration::new(
+                "background-color",
+                CssValue::Color(CssColor::RED),
+            )]
+        };
+
+        resolve_styles_with_compat(&mut dom, &[&author], &[], &hint_gen, 1920.0, 1080.0);
+
+        let style = get_style(&dom, div);
+        assert_eq!(style.background_color, CssColor::BLUE);
     }
 }

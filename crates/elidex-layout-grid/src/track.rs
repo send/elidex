@@ -129,6 +129,11 @@ fn resolve_single_track(def: &TrackSize, available: f32, content_size: f32) -> R
 }
 
 /// Resolve a `TrackBreadth` as a minimum value.
+///
+/// TODO(Phase 4): `MinContent` and `MaxContent` currently use the same
+/// `content_size` (which is max-content). A proper implementation should
+/// compute min-content sizes separately (CSS Grid §12.3) so that
+/// `minmax(min-content, ...)` uses the actual min-content contribution.
 fn resolve_breadth_as_min(
     breadth: &elidex_plugin::TrackBreadth,
     available: f32,
@@ -139,7 +144,9 @@ fn resolve_breadth_as_min(
         TrackBreadth::Length(px) => *px,
         TrackBreadth::Percentage(pct) => available * pct / 100.0,
         TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent => content_size,
-        TrackBreadth::Fr(_) => 0.0, // fr as min is treated as 0.
+        // TODO(Phase 4): Per CSS Grid §7.2.1, `<flex>` values in the min position
+        // of `minmax()` should be treated as `auto` (i.e., min-content), not 0.
+        TrackBreadth::Fr(_) => 0.0,
     }
 }
 
@@ -201,33 +208,42 @@ fn distribute_fr(tracks: &mut [ResolvedTrack], available: f32, gap: f32) {
     // This prevents fractional fr values from consuming all available space.
     let effective_fr = total_fr.max(1.0);
 
-    // Simple fr distribution with one freeze pass.
+    // CSS Grid §12.7.1: iterative freeze loop.
+    // Tracks whose hypothetical size would be less than their base size are
+    // frozen at their base; remaining space is redistributed among unfrozen
+    // tracks until no more tracks need freezing.
     let mut frozen = vec![false; tracks.len()];
     let mut remaining_space = remaining;
     let mut remaining_fr = effective_fr;
 
-    // First pass: check if any fr tracks would be smaller than their base.
-    for (i, track) in tracks.iter().enumerate() {
-        if track.fr > 0.0 {
-            let hypothetical = remaining * track.fr / effective_fr;
+    loop {
+        let mut newly_frozen = false;
+        for (i, track) in tracks.iter().enumerate() {
+            if frozen[i] || track.fr <= 0.0 {
+                continue;
+            }
+            let hypothetical = remaining_space * track.fr / remaining_fr;
             if hypothetical < track.base {
                 frozen[i] = true;
                 remaining_space -= track.base;
                 remaining_fr -= track.fr;
+                newly_frozen = true;
             }
+        }
+        if !newly_frozen {
+            break;
         }
     }
 
     remaining_space = remaining_space.max(0.0);
 
-    // Second pass: distribute.
+    // Distribute remaining space among unfrozen tracks.
     for (i, track) in tracks.iter_mut().enumerate() {
         if track.fr > 0.0 {
             if frozen[i] {
                 track.size = track.base;
             } else if remaining_fr > 0.0 {
                 track.size = remaining_space * track.fr / remaining_fr;
-                // Ensure at least the base size.
                 track.size = track.size.max(track.base);
             } else {
                 track.size = track.base;

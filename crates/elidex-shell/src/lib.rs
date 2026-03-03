@@ -16,7 +16,8 @@ pub(crate) mod key_map;
 
 use std::rc::Rc;
 
-use elidex_css::{parse_stylesheet, Origin, Stylesheet};
+use elidex_css::Stylesheet;
+use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_js::{extract_scripts, JsRuntime};
@@ -25,7 +26,7 @@ use elidex_net::FetchHandle;
 use elidex_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::{DispatchEvent, SessionCore};
-use elidex_style::resolve_styles;
+use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
 
@@ -35,6 +36,19 @@ use app::App;
 const DEFAULT_VIEWPORT_WIDTH: f32 = 1024.0;
 /// Default viewport height for the initial layout pass.
 const DEFAULT_VIEWPORT_HEIGHT: f32 = 768.0;
+
+/// Resolve styles with the compat layer (legacy UA + presentational hints).
+fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
+    let legacy_ua = legacy_ua_stylesheet();
+    resolve_styles_with_compat(
+        dom,
+        author_stylesheets,
+        &[legacy_ua],
+        &get_presentational_hints,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+}
 
 /// Run the full browser pipeline and display the result in a window.
 ///
@@ -102,7 +116,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let mut dom = parse_result.dom;
     let document = parse_result.document;
 
-    let stylesheets = vec![parse_stylesheet(css, Origin::Author)];
+    let stylesheets = vec![parse_compat_stylesheet(css, elidex_css::Origin::Author)];
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let font_db = Rc::new(FontDatabase::new());
 
@@ -154,13 +168,8 @@ fn run_scripts_and_finalize(
 ) -> (SessionCore, JsRuntime) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
-    // Initial style resolution.
-    resolve_styles(
-        dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    // Initial style resolution (with compat layer).
+    resolve_with_compat(dom, &stylesheet_refs);
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -180,13 +189,8 @@ fn run_scripts_and_finalize(
     dispatch_lifecycle_events(&mut runtime, &mut session, dom, document);
     session.flush(dom);
 
-    // Re-resolve styles after DOM mutations from scripts.
-    resolve_styles(
-        dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    // Re-resolve styles after DOM mutations from scripts (with compat layer).
+    resolve_with_compat(dom, &stylesheet_refs);
 
     layout_tree(
         dom,
@@ -231,12 +235,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    resolve_styles(
-        &mut result.dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    resolve_with_compat(&mut result.dom, &stylesheet_refs);
 
     layout_tree(
         &mut result.dom,

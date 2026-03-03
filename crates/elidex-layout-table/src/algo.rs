@@ -58,13 +58,16 @@ pub fn auto_column_widths(
             min_widths[cell.col] = min_widths[cell.col].max(min_w);
             max_widths[cell.col] = max_widths[cell.col].max(max_w);
         } else {
-            // Spanning cells: distribute evenly across spanned columns.
-            let span = cell.colspan as usize;
-            let per_col_min = min_w / span as f32;
-            let per_col_max = max_w / span as f32;
-            for c in cell.col..span_end_col(cell, num_cols) {
-                min_widths[c] = min_widths[c].max(per_col_min);
-                max_widths[c] = max_widths[c].max(per_col_max);
+            // Spanning cells: distribute proportionally across spanned columns
+            // based on existing column widths (CSS 2.1 §17.5.2.2).
+            let col_end = span_end_col(cell, num_cols);
+            let existing_sum: f32 = (cell.col..col_end)
+                .map(|c| max_widths[c].max(min_widths[c]).max(1.0))
+                .sum();
+            for c in cell.col..col_end {
+                let weight = max_widths[c].max(min_widths[c]).max(1.0) / existing_sum;
+                min_widths[c] = min_widths[c].max(min_w * weight);
+                max_widths[c] = max_widths[c].max(max_w * weight);
             }
         }
     }
@@ -124,6 +127,8 @@ pub fn fixed_column_widths(
     let available = sanitize_f32(available);
     let mut widths = vec![None::<f32>; num_cols];
 
+    // TODO(Phase 4): Per CSS 2.1 §17.5.2.1, <col>/<colgroup> element widths
+    // should be applied first with higher priority than first-row cell widths.
     // Assign explicit widths from first row cells.
     for (cell, explicit) in first_row_cells.iter().zip(first_row_explicit_widths.iter()) {
         if let Some(w) = explicit {
@@ -191,24 +196,51 @@ struct BorderCandidate {
 impl BorderCandidate {
     /// Returns true if this border beats `other` in CSS 2.1 §17.6.2.1 conflict resolution.
     ///
-    /// Phase 4 TODO:
-    /// - `BorderStyle::Hidden` always wins (currently not in enum).
-    /// - Equal-width same-origin: style priority (double > solid > dashed > dotted > …)
-    ///   is not yet implemented; currently falls through to origin comparison.
+    /// Priority: hidden always wins → none always loses → wider wins →
+    /// style priority (double > solid > dashed > dotted > ridge > outset > groove > inset)
+    /// → higher origin wins (cell > row > row-group > table).
     fn beats(&self, other: &Self) -> bool {
-        // `none` always loses (CSS 2.1 §17.6.2.1: lowest priority).
+        // 1. `hidden` always wins.
+        if self.style == BorderStyle::Hidden && other.style != BorderStyle::Hidden {
+            return true;
+        }
+        if other.style == BorderStyle::Hidden && self.style != BorderStyle::Hidden {
+            return false;
+        }
+        // 2. `none` always loses.
         if self.style == BorderStyle::None && other.style != BorderStyle::None {
             return false;
         }
         if other.style == BorderStyle::None && self.style != BorderStyle::None {
             return true;
         }
-        // wider wins
+        // 3. Wider wins.
         if (self.width - other.width).abs() > f32::EPSILON {
             return self.width > other.width;
         }
-        // same width: higher origin wins (cell > row > row-group > table)
+        // 4. Equal width: style priority (CSS 2.1 §17.6.2.1).
+        let sp_self = style_priority(self.style);
+        let sp_other = style_priority(other.style);
+        if sp_self != sp_other {
+            return sp_self > sp_other;
+        }
+        // 5. Same style: higher origin wins (cell > row > row-group > table).
         self.origin > other.origin
+    }
+}
+
+/// Border style priority for collapse resolution (CSS 2.1 §17.6.2.1).
+fn style_priority(style: BorderStyle) -> u8 {
+    match style {
+        BorderStyle::Double => 8,
+        BorderStyle::Solid => 7,
+        BorderStyle::Dashed => 6,
+        BorderStyle::Dotted => 5,
+        BorderStyle::Ridge => 4,
+        BorderStyle::Outset => 3,
+        BorderStyle::Groove => 2,
+        BorderStyle::Inset => 1,
+        BorderStyle::Hidden | BorderStyle::None => 0,
     }
 }
 

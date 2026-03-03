@@ -8,7 +8,16 @@ use crate::values::parse_length_or_percentage;
 use super::{parse_value_property, single_decl, try_parse_keyword, Declaration};
 
 const FONT_SIZE_KEYWORDS: &[&str] = &[
-    "xx-small", "xx-large", "x-small", "x-large", "small", "medium", "large", "smaller", "larger",
+    "xx-small",
+    "xx-large",
+    "xxx-large",
+    "x-small",
+    "x-large",
+    "small",
+    "medium",
+    "large",
+    "smaller",
+    "larger",
 ];
 
 pub(super) fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
@@ -21,8 +30,10 @@ pub(super) fn parse_font_size(input: &mut Parser) -> Vec<Declaration> {
 }
 
 pub(super) fn parse_font_weight(input: &mut Parser) -> Vec<Declaration> {
-    // Try keyword first: normal (400), bold (700).
-    if let Ok(kw) = input.try_parse(|i| try_parse_keyword(i, &["normal", "bold"]).map_err(|_| ())) {
+    // Try keyword first: normal (400), bold (700), bolder/lighter (relative).
+    if let Ok(kw) = input.try_parse(|i| {
+        try_parse_keyword(i, &["normal", "bold", "bolder", "lighter"]).map_err(|_| ())
+    }) {
         return single_decl("font-weight", CssValue::Keyword(kw));
     }
     // Try numeric weight (100-900).
@@ -109,9 +120,5 @@ pub(super) fn parse_font_family(input: &mut Parser) -> Vec<Declaration> {
         return Vec::new();
     }
 
-    vec![Declaration {
-        property: "font-family".to_string(),
-        value: CssValue::List(families),
-        important: false,
-    }]
+    vec![Declaration::new("font-family", CssValue::List(families))]
 }

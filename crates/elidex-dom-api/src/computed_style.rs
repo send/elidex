@@ -12,6 +12,10 @@ use crate::util::require_string_arg;
 /// In our implementation, this is called with `this` = element entity
 /// and `args[0]` = property name. The boa bridge decomposes the full
 /// `getComputedStyle(el).propertyName` pattern into this single call.
+/// TODO(Phase 4): Per CSS Color Level 4 §5.3 :visited privacy restrictions,
+/// `getComputedStyle()` should return the :link style (not :visited) for
+/// properties like color, background-color, border-*-color, column-rule-color,
+/// outline-color, and text-decoration-color, to prevent history sniffing.
 pub struct GetComputedStyle;
 
 impl CssomApiHandler for GetComputedStyle {

@@ -18,6 +18,7 @@ elidex-plugin.workspace = true
 elidex-render.workspace = true
 elidex-parser.workspace = true
 elidex-css.workspace = true
+elidex-dom-compat.workspace = true
 elidex-style.workspace = true
 elidex-layout.workspace = true
 elidex-text.workspace = true

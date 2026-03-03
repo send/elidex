@@ -274,6 +274,9 @@ pub(crate) fn place_items(
     let grid_rows = grid.rows;
 
     // Phase 3: Auto-place remaining items.
+    // TODO(Phase 4): Per CSS Grid §8.5, the auto-placement cursor should
+    // advance past semi-definite items placed in Phase 2, so that auto-placed
+    // items don't unnecessarily backfill occupied positions.
     let mut cursor_row: usize = 0;
     let mut cursor_col: usize = 0;
 

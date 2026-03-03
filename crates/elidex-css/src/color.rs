@@ -259,13 +259,33 @@ fn hex_byte(hi: u8, lo: u8) -> Result<u8, ()> {
 }
 
 /// Parse the contents of `rgb(r, g, b)` or `rgba(r, g, b, a)`.
+///
+/// Supports both comma-separated and space-separated syntax (CSS Color Level 4):
+/// - `rgb(255, 0, 0)` / `rgba(255, 0, 0, 0.5)` (legacy comma syntax)
+/// - `rgb(255 0 0)` / `rgb(255 0 0 / 0.5)` (modern space syntax)
 fn parse_rgb_function(input: &mut Parser) -> Result<CssColor, ()> {
     let r = parse_color_component(input)?;
-    input.expect_comma().map_err(|_| ())?;
+
+    // Detect separator: comma or space.
+    let is_comma = input.try_parse(Parser::expect_comma).is_ok();
+
     let g = parse_color_component(input)?;
-    input.expect_comma().map_err(|_| ())?;
+    if is_comma {
+        input.expect_comma().map_err(|_| ())?;
+    }
     let b = parse_color_component(input)?;
-    let a = if input.try_parse(Parser::expect_comma).is_ok() {
+
+    // Optional alpha.
+    let a = if is_comma {
+        if input.try_parse(Parser::expect_comma).is_ok() {
+            parse_alpha_component(input)?
+        } else {
+            255
+        }
+    } else if input
+        .try_parse(|i| i.expect_delim('/').map_err(|_| ()))
+        .is_ok()
+    {
         parse_alpha_component(input)?
     } else {
         255
@@ -490,6 +510,28 @@ mod tests {
         assert_eq!(c.a, 255); // clamped to 1.0
         let c2 = parse("rgba(255, 0, 0, -0.5)").unwrap();
         assert_eq!(c2.a, 0); // clamped to 0.0
+    }
+
+    #[test]
+    fn rgb_space_syntax() {
+        let c = parse("rgb(255 0 0)").unwrap();
+        assert_eq!(c, CssColor::RED);
+    }
+
+    #[test]
+    fn rgb_space_with_slash_alpha() {
+        let c = parse("rgb(255 0 0 / 0.5)").unwrap();
+        assert_eq!(c.r, 255);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+        assert_eq!(c.a, 128);
+    }
+
+    #[test]
+    fn rgb_space_with_percentage_alpha() {
+        let c = parse("rgb(255 0 0 / 50%)").unwrap();
+        assert_eq!(c.r, 255);
+        assert_eq!(c.a, 128);
     }
 
     #[test]

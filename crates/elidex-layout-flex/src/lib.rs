@@ -110,6 +110,9 @@ pub(crate) struct FlexItem {
     pub(crate) entity: Entity,
     pub(crate) source_order: usize,
     pub(crate) order: i32,
+    /// Flex base size before min/max clamping (CSS Flexbox §9.2 step 3).
+    pub(crate) flex_base_size: f32,
+    /// Hypothetical main size: flex base size clamped by min/max (§9.5 step 5).
     pub(crate) hypo_main: f32,
     pub(crate) grow: f32,
     pub(crate) shrink: f32,
@@ -430,6 +433,8 @@ fn collect_flex_items(
         if child_style.box_sizing == BoxSizing::BorderBox {
             adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
         }
+        // Flex base size is pre-clamp (CSS Flexbox §9.2 step 3).
+        let flex_base_size = hypo_main;
         // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
         let hypo_main = clamp_min_max(hypo_main, min_main, max_main);
 
@@ -437,6 +442,7 @@ fn collect_flex_items(
             entity: child,
             source_order,
             order: child_style.order,
+            flex_base_size,
             hypo_main,
             grow: child_style.flex_grow,
             shrink: child_style.flex_shrink,

@@ -49,13 +49,34 @@ fn importance_layer(origin: Origin, important: bool) -> u8 {
 /// Collect matching declarations and cascade to determine winners.
 ///
 /// Returns a map from property name to the winning `CssValue` reference.
+///
+/// `extra_declarations` are presentational hints (e.g. HTML attributes mapped to CSS).
+/// They participate at author-origin, specificity (0,0,0), ordered before all author
+/// rules so that any selector-based rule or inline style overrides them.
 pub(crate) fn collect_and_cascade<'a>(
     entity: Entity,
     dom: &EcsDom,
     stylesheets: &'a [&'a Stylesheet],
     inline_declarations: &'a [Declaration],
+    extra_declarations: &'a [Declaration],
 ) -> HashMap<&'a str, &'a CssValue> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
+
+    // Collect presentational hints first — author origin, lowest specificity and
+    // source_order=0 so any author stylesheet rule overrides them.
+    for decl in extra_declarations {
+        entries.push(CascadeEntry {
+            property: &decl.property,
+            value: &decl.value,
+            priority: CascadePriority {
+                importance_layer: importance_layer(Origin::Author, decl.important),
+                is_inline: false,
+                specificity: Specificity::default(),
+                stylesheet_index: 0,
+                source_order: 0,
+            },
+        });
+    }
 
     // Collect from stylesheets (only selectors without pseudo-elements).
     collect_matching_rules(&mut entries, entity, dom, stylesheets, None);
@@ -202,7 +223,7 @@ mod tests {
         let (dom, _, div) = setup_with_element("div");
         let ss = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 
@@ -219,7 +240,7 @@ mod tests {
         let css = "div { color: red; } .highlight { color: blue; }";
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert_eq!(
             winners.get("color"),
             Some(&&CssValue::Color(CssColor::BLUE))
@@ -237,7 +258,7 @@ mod tests {
         let css = "div { color: red; } div { color: blue; }";
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert_eq!(
             winners.get("color"),
             Some(&&CssValue::Color(CssColor::BLUE))
@@ -255,7 +276,7 @@ mod tests {
         let css = "div { color: red !important; } div { color: blue; }";
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 
@@ -270,7 +291,7 @@ mod tests {
         let ua = parse_stylesheet("div { color: green !important; }", Origin::UserAgent);
         let author = parse_stylesheet("div { color: red !important; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ua, &author];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert_eq!(
             winners.get("color"),
             Some(&&CssValue::Color(CssColor::GREEN))
@@ -290,7 +311,7 @@ mod tests {
         let ss = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let inline = get_inline_declarations(div, &dom);
-        let winners = collect_and_cascade(div, &dom, &sheets, &inline);
+        let winners = collect_and_cascade(div, &dom, &sheets, &inline, &[]);
         assert_eq!(
             winners.get("color"),
             Some(&&CssValue::Color(CssColor::BLUE))
@@ -313,7 +334,7 @@ mod tests {
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
         let inline = get_inline_declarations(div, &dom);
-        let winners = collect_and_cascade(div, &dom, &sheets, &inline);
+        let winners = collect_and_cascade(div, &dom, &sheets, &inline, &[]);
         assert_eq!(
             winners.get("color"),
             Some(&&CssValue::Color(CssColor::BLUE))
@@ -336,7 +357,7 @@ mod tests {
         ";
         let ss = parse_stylesheet(css, Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         // color: .highlight (class specificity) beats div (tag specificity)
         assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
         // display: only .highlight declares it
@@ -356,7 +377,7 @@ mod tests {
 
         let ss = parse_stylesheet("p { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ss];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
         assert!(winners.is_empty());
     }
 
@@ -371,7 +392,62 @@ mod tests {
         let ua = parse_stylesheet("div { color: green; }", Origin::UserAgent);
         let author = parse_stylesheet("div { color: red; }", Origin::Author);
         let sheets: Vec<&Stylesheet> = vec![&ua, &author];
-        let winners = collect_and_cascade(div, &dom, &sheets, &[]);
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &[]);
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    }
+
+    // --- Presentational hint (extra_declarations) cascade priority tests ---
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn extra_decl_beats_ua_rule() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = elem(&mut dom, "div");
+        dom.append_child(root, div);
+
+        let ua = parse_stylesheet("div { color: green; }", Origin::UserAgent);
+        let sheets: Vec<&Stylesheet> = vec![&ua];
+        let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &hints);
+        // Hint (author origin) beats UA normal.
+        assert_eq!(
+            winners.get("color"),
+            Some(&&CssValue::Color(CssColor::BLUE))
+        );
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn extra_decl_loses_to_author_selector() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = elem(&mut dom, "div");
+        dom.append_child(root, div);
+
+        let author = parse_stylesheet("div { color: red; }", Origin::Author);
+        let sheets: Vec<&Stylesheet> = vec![&author];
+        let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
+        let winners = collect_and_cascade(div, &dom, &sheets, &[], &hints);
+        // Author selector rule beats hint (same origin, higher source_order).
+        assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn extra_decl_loses_to_inline_style() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let mut attrs = Attributes::default();
+        attrs.set("style", "color: red");
+        let div = elem_with_attrs(&mut dom, "div", attrs);
+        dom.append_child(root, div);
+
+        let sheets: Vec<&Stylesheet> = vec![];
+        let inline = get_inline_declarations(div, &dom);
+        let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
+        let winners = collect_and_cascade(div, &dom, &sheets, &inline, &hints);
+        // Inline style beats hint.
         assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
     }
 }

@@ -3,7 +3,8 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_layout_block::layout_block_only;
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, LayoutBox, TrackSize,
+    AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, LayoutBox, TrackBreadth,
+    TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -44,6 +45,14 @@ fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.5
 }
 
+// (description, tracks, container_width, expected (x, width) per child)
+type TrackSizingCase = (
+    &'static str,
+    &'static [TrackSize],
+    f32,
+    &'static [(f32, f32)],
+);
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -82,140 +91,105 @@ fn grid_empty_container() {
 }
 
 #[test]
-fn grid_basic_two_columns() {
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(200.0), TrackSize::Length(300.0)],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 50.0);
-    let c2 = make_grid_child(&mut dom, container, 80.0);
-
+fn column_track_sizing() {
     let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
+    let cases: &[TrackSizingCase] = &[
+        (
+            "two fixed-px columns (200+300)",
+            &[TrackSize::Length(200.0), TrackSize::Length(300.0)],
+            800.0,
+            &[(0.0, 200.0), (200.0, 300.0)],
+        ),
+        (
+            "three equal 1fr columns in 900px",
+            &[TrackSize::Fr(1.0), TrackSize::Fr(1.0), TrackSize::Fr(1.0)],
+            900.0,
+            &[(0.0, 300.0), (300.0, 300.0), (600.0, 300.0)],
+        ),
+        (
+            "100px + 1fr + 200px in 600px",
+            &[
+                TrackSize::Length(100.0),
+                TrackSize::Fr(1.0),
+                TrackSize::Length(200.0),
+            ],
+            600.0,
+            &[(0.0, 100.0), (100.0, 300.0), (400.0, 200.0)],
+        ),
+        (
+            "1fr + 2fr in 900px",
+            &[TrackSize::Fr(1.0), TrackSize::Fr(2.0)],
+            900.0,
+            &[(0.0, 300.0), (300.0, 600.0)],
+        ),
+        (
+            "100px + 1fr + 1fr in 800px",
+            &[
+                TrackSize::Length(100.0),
+                TrackSize::Fr(1.0),
+                TrackSize::Fr(1.0),
+            ],
+            800.0,
+            &[(0.0, 100.0), (100.0, 350.0), (450.0, 350.0)],
+        ),
+        (
+            "50% + 50% in 600px",
+            &[TrackSize::Percentage(50.0), TrackSize::Percentage(50.0)],
+            600.0,
+            &[(0.0, 300.0), (300.0, 300.0)],
+        ),
+        (
+            "0.25fr + 0.25fr (sum < 1) in 400px",
+            &[TrackSize::Fr(0.25), TrackSize::Fr(0.25)],
+            400.0,
+            &[(0.0, 100.0), (100.0, 100.0)],
+        ),
+    ];
 
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
+    for (desc, tracks, container_w, expected) in cases {
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        dom.world_mut()
+            .insert_one(
+                container,
+                ComputedStyle {
+                    display: Display::Grid,
+                    grid_template_columns: tracks.to_vec(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
 
-    // First item in column 0 (200px wide), second in column 1 (300px wide).
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb2.content.x, 200.0));
-    assert!(approx_eq(lb1.content.width, 200.0));
-    assert!(approx_eq(lb2.content.width, 300.0));
-}
+        let children: Vec<_> = (0..expected.len())
+            .map(|_| make_grid_child(&mut dom, container, 50.0))
+            .collect();
 
-#[test]
-fn grid_three_column_fr() {
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
+        layout_grid(
+            &mut dom,
             container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![
-                    TrackSize::Fr(1.0),
-                    TrackSize::Fr(1.0),
-                    TrackSize::Fr(1.0),
-                ],
-                ..Default::default()
-            },
-        )
-        .unwrap();
+            *container_w,
+            None,
+            0.0,
+            0.0,
+            &font_db,
+            0,
+            layout_block_only,
+        );
 
-    let c1 = make_grid_child(&mut dom, container, 40.0);
-    let c2 = make_grid_child(&mut dom, container, 40.0);
-    let c3 = make_grid_child(&mut dom, container, 40.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        900.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-    let lb3 = get_layout(&dom, c3);
-
-    // Each column should be 300px (900 / 3).
-    assert!(approx_eq(lb1.content.width, 300.0));
-    assert!(approx_eq(lb2.content.width, 300.0));
-    assert!(approx_eq(lb3.content.width, 300.0));
-    // Positions: 0, 300, 600.
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb2.content.x, 300.0));
-    assert!(approx_eq(lb3.content.x, 600.0));
-}
-
-#[test]
-fn grid_mixed_px_fr() {
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![
-                    TrackSize::Length(100.0),
-                    TrackSize::Fr(1.0),
-                    TrackSize::Length(200.0),
-                ],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 30.0);
-    let c2 = make_grid_child(&mut dom, container, 30.0);
-    let c3 = make_grid_child(&mut dom, container, 30.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        600.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-    let lb3 = get_layout(&dom, c3);
-
-    // 100 + fr + 200 = 600, fr = 300
-    assert!(approx_eq(lb1.content.width, 100.0));
-    assert!(approx_eq(lb2.content.width, 300.0));
-    assert!(approx_eq(lb3.content.width, 200.0));
+        for (i, &(expected_x, expected_w)) in expected.iter().enumerate() {
+            let child_lb = get_layout(&dom, children[i]);
+            assert!(
+                approx_eq(child_lb.content.x, expected_x),
+                "{desc}: child[{i}] x={} expected {expected_x}",
+                child_lb.content.x,
+            );
+            assert!(
+                approx_eq(child_lb.content.width, expected_w),
+                "{desc}: child[{i}] width={} expected {expected_w}",
+                child_lb.content.width,
+            );
+        }
+    }
 }
 
 #[test]
@@ -346,133 +320,6 @@ fn grid_auto_track_size() {
 }
 
 #[test]
-fn grid_percentage_track() {
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![
-                    TrackSize::Percentage(50.0),
-                    TrackSize::Percentage(50.0),
-                ],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 30.0);
-    let c2 = make_grid_child(&mut dom, container, 30.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        600.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-
-    assert!(approx_eq(lb1.content.width, 300.0));
-    assert!(approx_eq(lb2.content.width, 300.0));
-    assert!(approx_eq(lb2.content.x, 300.0));
-}
-
-#[test]
-fn grid_fr_distribution() {
-    // 1fr 2fr → 1/3 and 2/3.
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0), TrackSize::Fr(2.0)],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 30.0);
-    let c2 = make_grid_child(&mut dom, container, 30.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        900.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-
-    assert!(approx_eq(lb1.content.width, 300.0));
-    assert!(approx_eq(lb2.content.width, 600.0));
-}
-
-#[test]
-fn grid_fr_with_fixed() {
-    // 100px 1fr 1fr → 100 + 350 + 350 = 800.
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![
-                    TrackSize::Length(100.0),
-                    TrackSize::Fr(1.0),
-                    TrackSize::Fr(1.0),
-                ],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 30.0);
-    let c2 = make_grid_child(&mut dom, container, 30.0);
-    let c3 = make_grid_child(&mut dom, container, 30.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-    let lb3 = get_layout(&dom, c3);
-
-    assert!(approx_eq(lb1.content.width, 100.0));
-    assert!(approx_eq(lb2.content.width, 350.0));
-    assert!(approx_eq(lb3.content.width, 350.0));
-}
-
-#[test]
 fn grid_explicit_placement() {
     // grid-column: 2 / 4 places item in columns 1-2 (0-based).
     let mut dom = EcsDom::new();
@@ -597,7 +444,6 @@ fn grid_auto_placement_row() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: vec![TrackSize::Length(100.0), TrackSize::Length(100.0)],
-                grid_auto_flow: GridAutoFlow::Row,
                 ..Default::default()
             },
         )
@@ -814,8 +660,8 @@ fn grid_minmax_track() {
                 display: Display::Grid,
                 grid_template_columns: vec![
                     TrackSize::MinMax(
-                        Box::new(elidex_plugin::TrackBreadth::Length(100.0)),
-                        Box::new(elidex_plugin::TrackBreadth::Fr(1.0)),
+                        Box::new(TrackBreadth::Length(100.0)),
+                        Box::new(TrackBreadth::Fr(1.0)),
                     ),
                     TrackSize::Length(200.0),
                 ],
@@ -1325,50 +1171,6 @@ fn grid_align_self_stretch_with_center_container() {
 }
 
 #[test]
-fn grid_fr_sum_less_than_one() {
-    // CSS Grid §12.7.1: when flex factor sum < 1, clamp to 1.
-    // 0.25fr + 0.25fr with 400px → each gets 100px (not 200px).
-    let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
-    dom.world_mut()
-        .insert_one(
-            container,
-            ComputedStyle {
-                display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(0.25), TrackSize::Fr(0.25)],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-    let c1 = make_grid_child(&mut dom, container, 30.0);
-    let c2 = make_grid_child(&mut dom, container, 30.0);
-
-    let font_db = FontDatabase::new();
-    layout_grid(
-        &mut dom,
-        container,
-        400.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb1 = get_layout(&dom, c1);
-    let lb2 = get_layout(&dom, c2);
-
-    // 0.25fr each with sum clamped to 1.0: 400 * 0.25 / 1.0 = 100px each.
-    assert!(approx_eq(lb1.content.width, 100.0));
-    assert!(approx_eq(lb2.content.width, 100.0));
-    // Positions: 0 and 100.
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb2.content.x, 100.0));
-}
-
-#[test]
 fn grid_percentage_row_indefinite_height() {
     // CSS Grid §7.2.1: percentage row tracks with indefinite container height
     // should behave like auto (use content size).
@@ -1454,9 +1256,17 @@ fn grid_extreme_line_number_capped() {
         layout_block_only,
     );
 
-    // Container should still produce a valid LayoutBox (height > 0).
-    assert!(lb.content.height >= 0.0);
-    assert!(lb.content.width >= 0.0);
+    // Container should still produce a valid LayoutBox with finite dimensions.
+    assert!(
+        lb.content.height.is_finite() && lb.content.height >= 0.0,
+        "extreme line: height={} should be finite non-negative",
+        lb.content.height
+    );
+    assert!(
+        approx_eq(lb.content.width, 400.0),
+        "extreme line: width={} should match container width 400",
+        lb.content.width
+    );
 }
 
 #[test]
@@ -1503,8 +1313,16 @@ fn grid_extreme_span_capped() {
         layout_block_only,
     );
 
-    assert!(lb.content.height >= 0.0);
-    assert!(lb.content.width >= 0.0);
+    assert!(
+        lb.content.height.is_finite() && lb.content.height >= 0.0,
+        "extreme span: height={} should be finite non-negative",
+        lb.content.height
+    );
+    assert!(
+        approx_eq(lb.content.width, 400.0),
+        "extreme span: width={} should match container width 400",
+        lb.content.width
+    );
 }
 
 #[test]

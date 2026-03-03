@@ -372,6 +372,7 @@ fn emit_styled_segments(
         let seg = &segments[*idx];
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
+        // TODO(Phase 4): pass font_style to font_db.query() for italic/oblique selection.
         let Some(font_id) = font_db.query(&families, seg.font_weight) else {
             continue;
         };

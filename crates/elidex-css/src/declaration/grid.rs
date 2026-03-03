@@ -146,6 +146,9 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
     single_decl(name, CssValue::List(tracks))
 }
 
+/// Maximum repeat count to prevent OOM from malicious CSS (e.g. `repeat(999999999, 1fr)`).
+const MAX_REPEAT_COUNT: u32 = 10_000;
+
 /// Parse `repeat(N, <track-size>+)`.
 #[allow(clippy::cast_sign_loss)] // CSS repeat count is always >= 1
 ///
@@ -176,6 +179,8 @@ fn parse_repeat(input: &mut Parser) -> Result<Vec<CssValue>, ()> {
                         return Err(args.new_custom_error(()));
                     }
                 };
+
+                let count = count.min(MAX_REPEAT_COUNT);
 
                 args.expect_comma().map_err(cssparser::ParseError::from)?;
 
@@ -341,16 +346,8 @@ pub(super) fn parse_grid_line_shorthand(input: &mut Parser, name: &str) -> Vec<D
                 .unwrap_or(CssValue::Auto);
 
             Ok(vec![
-                Declaration {
-                    property: start_prop.into(),
-                    value: start,
-                    important: false,
-                },
-                Declaration {
-                    property: end_prop.into(),
-                    value: end,
-                    important: false,
-                },
+                Declaration::new(start_prop, start),
+                Declaration::new(end_prop, end),
             ])
         })
         .unwrap_or_default()
@@ -386,27 +383,46 @@ pub(super) fn parse_grid_area(input: &mut Parser) -> Vec<Declaration> {
                 .unwrap_or(CssValue::Auto);
 
             Ok(vec![
-                Declaration {
-                    property: "grid-row-start".into(),
-                    value: row_start,
-                    important: false,
-                },
-                Declaration {
-                    property: "grid-column-start".into(),
-                    value: col_start,
-                    important: false,
-                },
-                Declaration {
-                    property: "grid-row-end".into(),
-                    value: row_end,
-                    important: false,
-                },
-                Declaration {
-                    property: "grid-column-end".into(),
-                    value: col_end,
-                    important: false,
-                },
+                Declaration::new("grid-row-start", row_start),
+                Declaration::new("grid-column-start", col_start),
+                Declaration::new("grid-row-end", row_end),
+                Declaration::new("grid-column-end", col_end),
             ])
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cssparser::ParserInput;
+
+    fn parse_template(css: &str) -> Vec<Declaration> {
+        let mut input = ParserInput::new(css);
+        let mut parser = Parser::new(&mut input);
+        parse_grid_template(&mut parser, "grid-template-columns")
+    }
+
+    #[test]
+    fn repeat_count_capped_at_max() {
+        // A huge repeat count should be capped at MAX_REPEAT_COUNT.
+        let decls = parse_template("repeat(99999, 1fr)");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(tracks) = &decls[0].value {
+            assert_eq!(tracks.len(), MAX_REPEAT_COUNT as usize);
+        } else {
+            panic!("expected List");
+        }
+    }
+
+    #[test]
+    fn repeat_small_count_works() {
+        let decls = parse_template("repeat(3, 100px)");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(tracks) = &decls[0].value {
+            assert_eq!(tracks.len(), 3);
+        } else {
+            panic!("expected List");
+        }
+    }
 }

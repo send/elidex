@@ -180,6 +180,25 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         2,
     );
 
+    // --- Legacy compat stubs ---
+
+    // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)
+    init.property(js_string!("all"), JsValue::undefined(), Attribute::READONLY);
+
+    // document.write(...) → no-op (compat stub, Phase 4 TODO: full re-entrant parser)
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("write"),
+        1,
+    );
+
+    // document.writeln(...) → no-op (compat stub)
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("writeln"),
+        1,
+    );
+
     let document = init.build();
     ctx.register_global_property(js_string!("document"), document, Attribute::all())
         .expect("failed to register document");

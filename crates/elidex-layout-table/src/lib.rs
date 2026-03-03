@@ -15,7 +15,6 @@
 //!
 //! Current simplifications (Phase 4 deferred):
 //! - `vertical-align` treated as `top`
-//! - `caption-side` only `top`
 //! - `InlineTable` treated as block-level
 //! - `TableColumn`/`TableColumnGroup` recognized but width propagation skipped
 //! - `empty-cells` always `show`
@@ -34,7 +33,8 @@ use elidex_layout_block::{
     horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    BorderCollapse, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect, TableLayout,
+    BorderCollapse, CaptionSide, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect,
+    TableLayout,
 };
 use elidex_text::FontDatabase;
 
@@ -206,9 +206,16 @@ pub fn layout_table(
         }
     }
 
-    // Layout caption (top only).
-    let mut caption_height = 0.0;
-    for &cap in &captions {
+    // Partition captions by caption-side.
+    let (captions_top, captions_bottom): (Vec<Entity>, Vec<Entity>) =
+        captions.into_iter().partition(|&cap| {
+            let cs = elidex_layout_block::get_style(dom, cap);
+            cs.caption_side != CaptionSide::Bottom
+        });
+
+    // Layout top captions.
+    let mut caption_top_height = 0.0;
+    for &cap in &captions_top {
         let cap_lb = layout_child(
             dom,
             cap,
@@ -219,10 +226,10 @@ pub fn layout_table(
             font_db,
             depth + 1,
         );
-        caption_height += box_total_height(&cap_lb);
+        caption_top_height += box_total_height(&cap_lb);
         let _ = dom.world_mut().insert_one(cap, cap_lb);
     }
-    cursor_y += caption_height;
+    cursor_y += caption_top_height;
 
     // Wrap direct cells in an anonymous row (CSS 2.1 §17.2.1).
     if !direct_cells.is_empty() {
@@ -254,7 +261,8 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let content_height = resolve_table_height(&style, containing_height, v_pb, caption_height);
+        let content_height =
+            resolve_table_height(&style, containing_height, v_pb, caption_top_height);
         let lb = build_table_layout_box(
             &padding,
             &border,
@@ -345,7 +353,8 @@ pub fn layout_table(
         cell_layout_boxes.push(cell_lb);
     }
 
-    // Handle rowspan: if spanning rows don't have enough combined height, extend the last row.
+    // Handle rowspan: if spanning rows don't have enough combined height,
+    // distribute the deficit evenly across all spanned rows (CSS 2.1 §17.5.3).
     for (i, cell) in cells.iter().enumerate() {
         if cell.rowspan > 1 {
             let cell_total_height = box_total_height(&cell_layout_boxes[i]);
@@ -353,9 +362,12 @@ pub fn layout_table(
             let spanned_height: f32 = row_heights[cell.row..span_end].iter().sum::<f32>()
                 + spacing_v * (cell.rowspan as f32 - 1.0);
             if cell_total_height > spanned_height {
-                // Extend the last spanned row.
                 let deficit = cell_total_height - spanned_height;
-                row_heights[span_end - 1] += deficit;
+                let span_count = (span_end - cell.row) as f32;
+                let per_row = deficit / span_count;
+                for h in &mut row_heights[cell.row..span_end] {
+                    *h += per_row;
+                }
             }
         }
     }
@@ -407,8 +419,30 @@ pub fn layout_table(
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
     }
 
+    // Advance cursor past the table rows.
+    cursor_y += table_content_height_from_rows;
+
+    // Layout bottom captions after table rows.
+    let mut caption_bottom_height = 0.0;
+    for &cap in &captions_bottom {
+        let cap_lb = layout_child(
+            dom,
+            cap,
+            content_width,
+            None,
+            content_x,
+            cursor_y,
+            font_db,
+            depth + 1,
+        );
+        caption_bottom_height += box_total_height(&cap_lb);
+        cursor_y += box_total_height(&cap_lb);
+        let _ = dom.world_mut().insert_one(cap, cap_lb);
+    }
+
     // Determine final table height.
-    let min_content_height = caption_height + table_content_height_from_rows;
+    let total_caption_height = caption_top_height + caption_bottom_height;
+    let min_content_height = total_caption_height + table_content_height_from_rows;
     let content_height = resolve_table_height(&style, containing_height, v_pb, min_content_height)
         .max(min_content_height);
 

@@ -115,9 +115,19 @@ fn table_basic_two_columns() {
     );
     let lb = get_layout(&dom, table);
     assert!(approx_eq(lb.content.width, 400.0));
-    // Both cells should exist.
-    assert!(dom.world().get::<&LayoutBox>(cells[0]).is_ok());
-    assert!(dom.world().get::<&LayoutBox>(cells[1]).is_ok());
+    // Both cells should exist and share the width equally.
+    let lb0 = get_layout(&dom, cells[0]);
+    let lb1 = get_layout(&dom, cells[1]);
+    assert!(
+        approx_eq(lb0.content.width, 200.0),
+        "cell 0 width: {} expected 200",
+        lb0.content.width
+    );
+    assert!(
+        approx_eq(lb1.content.width, 200.0),
+        "cell 1 width: {} expected 200",
+        lb1.content.width
+    );
 }
 
 #[test]
@@ -617,6 +627,71 @@ fn table_caption_top() {
     let td_lb = get_layout(&dom, td);
     // Caption should be above the table rows.
     assert!(caption_lb.content.y < td_lb.content.y);
+}
+
+#[test]
+fn table_caption_bottom() {
+    use elidex_plugin::CaptionSide;
+
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    dom.world_mut().insert_one(table, default_table_style());
+
+    let caption = dom.create_element("caption", Attributes::default());
+    dom.world_mut().insert_one(
+        caption,
+        ComputedStyle {
+            display: Display::TableCaption,
+            caption_side: CaptionSide::Bottom,
+            height: Dimension::Length(30.0),
+            ..Default::default()
+        },
+    );
+    dom.append_child(table, caption);
+
+    let tr = dom.create_element("tr", Attributes::default());
+    dom.world_mut().insert_one(
+        tr,
+        ComputedStyle {
+            display: Display::TableRow,
+            ..Default::default()
+        },
+    );
+    dom.append_child(table, tr);
+
+    let td = dom.create_element("td", Attributes::default());
+    dom.world_mut().insert_one(
+        td,
+        ComputedStyle {
+            display: Display::TableCell,
+            height: Dimension::Length(20.0),
+            ..Default::default()
+        },
+    );
+    dom.append_child(tr, td);
+
+    let font_db = FontDatabase::new();
+    layout_table(
+        &mut dom,
+        table,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        test_layout_child,
+    );
+
+    let caption_lb = get_layout(&dom, caption);
+    let td_lb = get_layout(&dom, td);
+    // Caption with caption-side: bottom should be below the table rows.
+    assert!(
+        caption_lb.content.y > td_lb.content.y,
+        "caption y={} should be below td y={}",
+        caption_lb.content.y,
+        td_lb.content.y
+    );
 }
 
 #[test]
@@ -1157,10 +1232,9 @@ fn table_rowspan_height_extension() {
     );
     dom.append_child(table, tr1);
 
-    let td1 = dom.create_element("td", Attributes::default());
     let mut td1_attrs = Attributes::default();
     td1_attrs.set("rowspan", "2");
-    dom.world_mut().insert_one(td1, td1_attrs);
+    let td1 = dom.create_element("td", td1_attrs);
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -1573,37 +1647,43 @@ fn make_cell(col: usize, row: usize) -> CellInfo {
 }
 
 #[test]
-fn auto_col_widths_min_overflow() {
-    // total_min (60+80=140) >= available (100) → return min widths.
-    let cells = vec![make_cell(0, 0), make_cell(1, 0)];
-    let content_widths = vec![(60.0, 200.0), (80.0, 300.0)];
-    let widths = algo::auto_column_widths(2, &cells, &content_widths, 100.0);
-    assert!(approx_eq(widths[0], 60.0));
-    assert!(approx_eq(widths[1], 80.0));
-}
-
-#[test]
-fn auto_col_widths_max_with_remainder() {
-    // total_max (100+100=200) <= available (400) → max widths + remainder distributed equally.
-    let cells = vec![make_cell(0, 0), make_cell(1, 0)];
-    let content_widths = vec![(50.0, 100.0), (50.0, 100.0)];
-    let widths = algo::auto_column_widths(2, &cells, &content_widths, 400.0);
-    // Each gets 100 + (400-200)/2 = 200.
-    assert!(approx_eq(widths[0], 200.0));
-    assert!(approx_eq(widths[1], 200.0));
-}
-
-#[test]
-fn auto_col_widths_proportional() {
-    // total_min < available < total_max → proportional.
-    // min: 20+40=60, max: 100+200=300, available: 180.
-    // fraction = (180-60)/(300-60) = 120/240 = 0.5
-    // col0: 20 + (100-20)*0.5 = 60, col1: 40 + (200-40)*0.5 = 120
-    let cells = vec![make_cell(0, 0), make_cell(1, 0)];
-    let content_widths = vec![(20.0, 100.0), (40.0, 200.0)];
-    let widths = algo::auto_column_widths(2, &cells, &content_widths, 180.0);
-    assert!(approx_eq(widths[0], 60.0));
-    assert!(approx_eq(widths[1], 120.0));
+fn auto_col_widths_branches() {
+    // Each case: (description, content_widths_per_col, available_width, expected_widths)
+    for (desc, content_widths, available, expected) in [
+        (
+            "min overflow: total_min (60+80=140) >= available (100) returns min widths",
+            vec![(60.0, 200.0), (80.0, 300.0)],
+            100.0,
+            vec![60.0, 80.0],
+        ),
+        (
+            "max with remainder: total_max (200) <= available (400), each gets 100 + (400-200)/2 = 200",
+            vec![(50.0, 100.0), (50.0, 100.0)],
+            400.0,
+            vec![200.0, 200.0],
+        ),
+        (
+            "proportional: total_min=60 < available=180 < total_max=300, fraction=0.5",
+            vec![(20.0, 100.0), (40.0, 200.0)],
+            180.0,
+            vec![60.0, 120.0],
+        ),
+    ] {
+        let num_cols = content_widths.len();
+        let cells: Vec<_> = (0..num_cols).map(|c| make_cell(c, 0)).collect();
+        let widths = algo::auto_column_widths(num_cols, &cells, &content_widths, available);
+        assert_eq!(
+            widths.len(),
+            expected.len(),
+            "{desc}: column count mismatch"
+        );
+        for (col, (got, want)) in widths.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                approx_eq(*got, *want),
+                "{desc}: col {col} width: got {got}, expected {want}"
+            );
+        }
+    }
 }
 
 #[test]

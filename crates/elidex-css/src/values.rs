@@ -6,6 +6,8 @@
 use cssparser::Parser;
 use elidex_plugin::{CssValue, LengthUnit};
 
+// TODO(Phase 4): Support calc() expressions (CSS Values Level 3 §8).
+
 /// Try to parse a Dimension token or bare zero into a `CssValue`.
 ///
 /// Shared logic for `parse_length` and `parse_length_or_percentage`.
@@ -13,7 +15,7 @@ fn try_dimension_or_zero(token: &cssparser::Token) -> Option<CssValue> {
     match *token {
         cssparser::Token::Dimension {
             value, ref unit, ..
-        } => parse_length_unit(unit)
+        } if value.is_finite() => parse_length_unit(unit)
             .ok()
             .map(|u| CssValue::Length(value, u)),
         cssparser::Token::Number { value: 0.0, .. } => Some(CssValue::Length(0.0, LengthUnit::Px)),
@@ -39,7 +41,7 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
         return Ok(val);
     }
     match *token {
-        cssparser::Token::Percentage { unit_value, .. } => {
+        cssparser::Token::Percentage { unit_value, .. } if unit_value.is_finite() => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
         _ => Err(()),

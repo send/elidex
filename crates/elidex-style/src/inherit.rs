@@ -10,6 +10,7 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "color",
     "font-size",
     "font-weight",
+    "font-style",
     "font-family",
     "line-height",
     "text-transform",
@@ -43,7 +44,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Inherited text
         "font-weight" => CssValue::Number(400.0),
-        "line-height" | "white-space" | "content" => CssValue::Keyword("normal".to_string()),
+        "font-style" | "line-height" | "white-space" | "content" => {
+            CssValue::Keyword("normal".to_string())
+        }
         // Keyword "none" initial values
         "text-transform"
         | "text-decoration-line"

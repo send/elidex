@@ -215,217 +215,121 @@ fn wrap_splits_lines() {
 }
 
 #[test]
-fn justify_content_center() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        justify_content: JustifyContent::Center,
-        ..Default::default()
-    };
-    let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
+#[allow(clippy::type_complexity)]
+fn justify_content_variants() {
+    // (JustifyContent, item_sizes, container_width, expected_x_positions)
+    let cases: &[(JustifyContent, &[(f32, f32)], f32, &[f32])] = &[
+        // FlexStart: 2 items at x=0, x=100
+        (
+            JustifyContent::FlexStart,
+            &[(100.0, 50.0), (100.0, 50.0)],
+            800.0,
+            &[0.0, 100.0],
+        ),
+        // Center: 1 item 100px in 800px -> x=350
+        (JustifyContent::Center, &[(100.0, 50.0)], 800.0, &[350.0]),
+        // FlexEnd: 1 item 100px in 800px -> x=700
+        (JustifyContent::FlexEnd, &[(100.0, 50.0)], 800.0, &[700.0]),
+        // SpaceBetween: 2 items 100px in 800px -> x=0, x=700
+        (
+            JustifyContent::SpaceBetween,
+            &[(100.0, 50.0), (100.0, 50.0)],
+            800.0,
+            &[0.0, 700.0],
+        ),
+        // SpaceAround: 2 items 100px in 800px -> x=150, x=550
+        (
+            JustifyContent::SpaceAround,
+            &[(100.0, 50.0), (100.0, 50.0)],
+            800.0,
+            &[150.0, 550.0],
+        ),
+        // SpaceEvenly: 2 items 100px in 800px -> x=200, x=500
+        (
+            JustifyContent::SpaceEvenly,
+            &[(100.0, 50.0), (100.0, 50.0)],
+            800.0,
+            &[200.0, 500.0],
+        ),
+    ];
 
-    let lb0 = get_lb(&dom, items[0]);
-    assert!((lb0.content.x - 350.0).abs() < 1.0);
+    for (jc, item_sizes, container_width, expected_positions) in cases {
+        let style = ComputedStyle {
+            display: Display::Flex,
+            justify_content: *jc,
+            ..Default::default()
+        };
+        let items: Vec<ComputedStyle> = item_sizes.iter().map(|(w, h)| flex_item(*w, *h)).collect();
+        let (mut dom, container, item_entities) = make_flex_dom(style, &items);
+        let font_db = FontDatabase::new();
+        layout_flex(
+            &mut dom,
+            container,
+            *container_width,
+            None,
+            0.0,
+            0.0,
+            &font_db,
+            0,
+            layout_block_only,
+        );
+
+        for (i, expected_x) in expected_positions.iter().enumerate() {
+            let lb = get_lb(&dom, item_entities[i]);
+            assert!(
+                (lb.content.x - expected_x).abs() < 1.0,
+                "justify-content:{jc:?} item[{i}] x={} expected {expected_x}",
+                lb.content.x,
+            );
+        }
+    }
 }
 
 #[test]
-fn justify_content_space_between() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        justify_content: JustifyContent::SpaceBetween,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
+fn align_items_non_stretch() {
+    // (AlignItems, expected_y_of_shorter_item, expected_y_of_taller_item)
+    // Two items: 100x30 and 100x60. Line cross size = 60.
+    // Center: shorter y = (60-30)/2 = 15, taller y = 0
+    // FlexStart: shorter y = 0, taller y = 0
+    // FlexEnd: shorter y = 60-30 = 30, taller y = 0
+    for (ai, expected_short_y, expected_tall_y) in [
+        (AlignItems::Center, 15.0, 0.0),
+        (AlignItems::FlexStart, 0.0, 0.0),
+        (AlignItems::FlexEnd, 30.0, 0.0),
+    ] {
+        let style = ComputedStyle {
+            display: Display::Flex,
+            align_items: ai,
+            ..Default::default()
+        };
+        let (mut dom, container, items) =
+            make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
+        let font_db = FontDatabase::new();
+        layout_flex(
+            &mut dom,
+            container,
+            800.0,
+            None,
+            0.0,
+            0.0,
+            &font_db,
+            0,
+            layout_block_only,
+        );
 
-    let lb0 = get_lb(&dom, items[0]);
-    let lb1 = get_lb(&dom, items[1]);
-    assert!(lb0.content.x < 1.0);
-    assert!((lb1.content.x + lb1.content.width - 800.0).abs() < 1.0);
-}
-
-#[test]
-fn justify_content_space_around() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        justify_content: JustifyContent::SpaceAround,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.x - 150.0).abs() < 1.0);
-    assert!((lb1.content.x - 550.0).abs() < 1.0);
-}
-
-#[test]
-fn justify_content_space_evenly() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        justify_content: JustifyContent::SpaceEvenly,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.x - 200.0).abs() < 1.0);
-    assert!((lb1.content.x - 500.0).abs() < 1.0);
-}
-
-#[test]
-fn justify_content_flex_end() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        justify_content: JustifyContent::FlexEnd,
-        ..Default::default()
-    };
-    let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    assert!((lb0.content.x - 700.0).abs() < 1.0);
-}
-
-#[test]
-fn align_items_center() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        align_items: AlignItems::Center,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.y - 15.0).abs() < 1.0);
-    assert!(lb1.content.y.abs() < 1.0);
-}
-
-#[test]
-fn align_items_flex_start() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        align_items: AlignItems::FlexStart,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    assert!(lb0.content.y.abs() < 1.0);
-}
-
-#[test]
-fn align_items_flex_end() {
-    let style = ComputedStyle {
-        display: Display::Flex,
-        align_items: AlignItems::FlexEnd,
-        ..Default::default()
-    };
-    let (mut dom, container, items) =
-        make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
-    let font_db = FontDatabase::new();
-    layout_flex(
-        &mut dom,
-        container,
-        800.0,
-        None,
-        0.0,
-        0.0,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let lb0 = get_lb(&dom, items[0]);
-    assert!((lb0.content.y - 30.0).abs() < 1.0);
+        let lb0 = get_lb(&dom, items[0]);
+        assert!(
+            (lb0.content.y - expected_short_y).abs() < 1.0,
+            "align-items:{ai:?} shorter item y={} expected {expected_short_y}",
+            lb0.content.y,
+        );
+        let lb1 = get_lb(&dom, items[1]);
+        assert!(
+            (lb1.content.y - expected_tall_y).abs() < 1.0,
+            "align-items:{ai:?} taller item y={} expected {expected_tall_y}",
+            lb1.content.y,
+        );
+    }
 }
 
 #[test]
@@ -750,6 +654,77 @@ fn descendant_positioned_at_container_offset() {
     let child_lb = get_lb(&dom, child);
     assert!(child_lb.content.x >= offset_x);
     assert!(child_lb.content.y >= offset_y);
+}
+
+#[test]
+fn column_reverse_layout() {
+    // Column-reverse needs explicit height to define the main-axis size.
+    let style = ComputedStyle {
+        display: Display::Flex,
+        flex_direction: FlexDirection::ColumnReverse,
+        height: Dimension::Length(200.0),
+        ..Default::default()
+    };
+    let (mut dom, container, items) =
+        make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 70.0)]);
+    let font_db = FontDatabase::new();
+    let _lb = layout_flex(
+        &mut dom,
+        container,
+        800.0,
+        Some(200.0),
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    // In column-reverse, first item appears below the second.
+    assert!(
+        lb0.content.y > lb1.content.y,
+        "column-reverse: item[0] y={} should be below item[1] y={}",
+        lb0.content.y,
+        lb1.content.y,
+    );
+}
+
+#[test]
+fn wrap_reverse_layout() {
+    let style = ComputedStyle {
+        display: Display::Flex,
+        flex_wrap: FlexWrap::WrapReverse,
+        width: Dimension::Length(300.0),
+        ..Default::default()
+    };
+    let (mut dom, container, items) =
+        make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
+    let font_db = FontDatabase::new();
+    let lb = layout_flex(
+        &mut dom,
+        container,
+        300.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+
+    let lb0 = get_lb(&dom, items[0]);
+    let lb1 = get_lb(&dom, items[1]);
+    // In wrap-reverse, later line appears above earlier line.
+    assert!(
+        lb0.content.y > lb1.content.y,
+        "wrap-reverse: line 1 y={} should be above line 0 y={}",
+        lb1.content.y,
+        lb0.content.y,
+    );
 }
 
 #[test]
