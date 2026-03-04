@@ -198,7 +198,9 @@ pub fn layout_block_inner(
     let mut content_y = offset_y + margin_top + border.top + padding.top;
 
     // --- Layout children (stop recursion at depth limit) ---
-    let children = dom.children(entity);
+    // Flatten display:contents children — they don't generate boxes,
+    // their children participate in this element's formatting context.
+    let children = crate::composed_children_flat(dom, entity);
     let mut collapsed_margin_top = margin_top;
     let mut collapsed_margin_bottom = margin_bottom;
 

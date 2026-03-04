@@ -75,6 +75,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **Internal helpers**: `update_rel()`, `read_rel()`, `clear_rel()` for TreeRelation access. `is_child_of()` for parent validation. `all_exist()` for entity checks.
 - **API**: `append_child`, `insert_before`, `replace_child` (validates before detach), `detach`, `destroy_entity`. Helpers: `get_parent`, `get_first_child`, `get_last_child`, `get_next_sibling`, `get_prev_sibling`, `contains`.
 - **Attributes**: `get/set/remove/contains` accessors on `Attributes` struct.
+- **Shadow DOM**: `ShadowRoot` (mode + host), `ShadowHost` (shadow_root), `ShadowRootMode` (Open/Closed), `SlotAssignment` (assigned_nodes), `SlottedMarker`, `TemplateContent` (marker) components. `attach_shadow(host, mode)` with WHATWG element whitelist (18 tags). `get_shadow_root(host)`. `composed_children(entity)` — shadow hosts return shadow tree children, slots return assigned nodes (or fallback), others return normal children.
 
 ### elidex-plugin
 
@@ -101,6 +102,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **apply_mutation()**: Delegates tree ops to `EcsDom`, attribute/style ops via `world_mut()`. `SetInlineStyle` auto-inserts `InlineStyle` component if missing. Returns `Option<MutationRecord>`.
 - **DomApiHandler / CssomApiHandler traits**: `Send + Sync`, `method_name()`, `spec_level()` (default Living/Standard), `invoke(this, args, session, dom) -> Result<JsValue, DomApiError>`.
 - **Types**: `JsObjectRef(u64)`, `ComponentKind` enum (Element/Style/ClassList/Attributes/Dataset/ChildNodes), `DomApiError` + `DomApiErrorKind` (NotFoundError/HierarchyRequestError/InvalidStateError/SyntaxError/TypeError/Other).
+- **Event dispatch**: `DispatchEvent` with `composed: bool` (default true) and `original_target: Option<Entity>`. `build_propagation_path(dom, target, composed)` — non-composed events stop at `ShadowRoot`. Event retargeting: shadow-internal targets → shadow host for outside listeners (slotted elements exempt).
 
 ### elidex-dom-api
 
@@ -117,7 +119,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **JsRuntime**: Owns boa `Context`, `HostBridge`, `ConsoleOutput`, `TimerQueueHandle`. `eval()` binds bridge, evaluates source, unbinds. `drain_timers()` runs ready timer callbacks.
 - **HostBridge**: `Rc<RefCell<HostBridgeInner>>` with raw pointers to `SessionCore`/`EcsDom`. `bind()`/`unbind()` bracket eval. `with(|session, dom| ...)` for native function access. `!Send` via `Rc`. JsObject cache for entity identity (`HashMap<JsObjectRef, JsObject>`).
 - **globals/document.rs**: `register_document()` — querySelector, querySelectorAll (JsArray), getElementById, createElement, createTextNode, body accessor.
-- **globals/element.rs**: `build_element_object()` — appendChild, removeChild, setAttribute, getAttribute, removeAttribute, textContent (accessor), innerHTML (getter), style (accessor → `create_style_object`), classList (accessor → `create_class_list_object`). Entity stored as f64 in hidden `__elidex_entity__` property.
+- **globals/element.rs**: `build_element_object()` — appendChild, removeChild, setAttribute, getAttribute, removeAttribute, textContent (accessor), innerHTML (getter), style (accessor → `create_style_object`), classList (accessor → `create_class_list_object`), attachShadow({mode}) (creates shadow root via EcsDom), shadowRoot (accessor: open→root, closed/none→null). Entity stored as f64 in hidden `__elidex_entity__` property.
 - **globals/window.rs**: `register_window()` — `getComputedStyle(element)` returning computed style proxy. `create_style_object()` — setProperty/getPropertyValue/removeProperty.
 - **globals/console.rs**: `register_console()` — log/error/warn. `ConsoleOutput` captures messages for testing.
 - **globals/timers.rs**: `register_timers()` — setTimeout/setInterval/clearTimeout/clearInterval/requestAnimationFrame/cancelAnimationFrame. `TimerQueueHandle` wraps `Rc<RefCell<TimerQueue>>`.

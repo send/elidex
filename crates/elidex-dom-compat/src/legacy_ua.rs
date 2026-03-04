@@ -33,6 +33,7 @@ sup { font-size: smaller; }
 mark { background-color: yellow; color: black; }
 center { display: block; text-align: center; }
 input, textarea, select, button { display: inline-block; }
+slot { display: contents; }
 ";
 
 /// Returns the legacy UA stylesheet (lazily initialized, cached).

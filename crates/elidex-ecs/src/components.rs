@@ -133,6 +133,65 @@ impl ElementState {
     }
 }
 
+/// Shadow root mode (WHATWG DOM §4.8).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShadowRootMode {
+    /// Shadow root is accessible via `element.shadowRoot`.
+    Open,
+    /// Shadow root is not accessible via `element.shadowRoot`.
+    Closed,
+}
+
+/// Marker: this entity is a shadow root.
+///
+/// A shadow root is a document fragment attached to a host element.
+/// It provides style encapsulation and DOM isolation.
+///
+// TODO(L2): WHATWG DOM §4.8 specifies additional fields:
+// - `delegatesFocus: bool` (focus delegation to first focusable element)
+// - `slotAssignment: "manual" | "named"` (slot assignment mode)
+// Currently omitted because no consumer exists.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowRoot {
+    /// Open or closed mode.
+    pub mode: ShadowRootMode,
+    /// The host element that owns this shadow root.
+    pub host: Entity,
+}
+
+/// Marker: this element hosts a shadow root.
+///
+/// Attached to elements that have had `attachShadow()` called on them.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowHost {
+    /// The shadow root entity.
+    pub shadow_root: Entity,
+}
+
+/// Slot assignment for distributed nodes.
+///
+/// Attached to `<slot>` entities in the shadow tree.
+/// Contains the list of light DOM nodes distributed to this slot.
+#[derive(Debug, Default)]
+pub struct SlotAssignment {
+    /// Light DOM nodes assigned to this slot, in order.
+    pub assigned_nodes: Vec<Entity>,
+}
+
+/// Marker attached to light DOM nodes that have been distributed to a slot.
+///
+/// Added by `distribute_slots()` for O(1) slotted-element checks in
+/// selector matching and event retargeting.
+#[derive(Clone, Copy, Debug)]
+pub struct SlottedMarker;
+
+/// Marker for `<template>` elements (inert — not rendered/styled).
+///
+/// Template content is not part of the rendered document. Elements
+/// with this marker are excluded from style resolution and rendering.
+#[derive(Clone, Copy, Debug)]
+pub struct TemplateContent;
+
 /// Decoded image pixel data for `<img>` elements.
 ///
 /// Stored as a component on image entities after the image has been

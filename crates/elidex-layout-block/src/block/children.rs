@@ -104,7 +104,7 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
             lb.content.y += delta;
         }
         // Recurse into descendants so nested layout positions stay consistent.
-        let grandchildren = dom.children(child);
+        let grandchildren = dom.composed_children(child);
         if !grandchildren.is_empty() {
             shift_block_children(dom, &grandchildren, delta);
         }

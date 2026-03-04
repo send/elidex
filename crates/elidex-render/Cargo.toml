@@ -16,6 +16,7 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-text.workspace = true
 elidex-ecs.workspace = true
+elidex-layout-block.workspace = true
 vello.workspace = true
 wgpu.workspace = true
 

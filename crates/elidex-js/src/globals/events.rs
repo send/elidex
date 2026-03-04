@@ -25,8 +25,35 @@ pub(crate) struct SharedFlag(pub Rc<Cell<bool>>);
 // Safety: SharedFlag contains no GC-managed objects, trace is a no-op.
 impl_empty_trace!(SharedFlag);
 
+/// Wrapper around `Rc<JsValue>` for `composedPath()` captures.
+///
+/// The wrapped `JsValue` is a `JsArray`. Since we store it via `Rc` (not GC-managed),
+/// trace is a no-op.
+#[derive(Clone)]
+struct SharedPathValue(Rc<JsValue>);
+
+impl_empty_trace!(SharedPathValue);
+
 /// Read-only attribute for DOM Event properties (per DOM spec).
 const RO: Attribute = Attribute::READONLY;
+
+/// Register a flag-setting method on an event object (e.g. `preventDefault`).
+///
+/// The method sets the shared `Rc<Cell<bool>>` flag to `true` when called.
+fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<Cell<bool>>) {
+    let shared = SharedFlag(Rc::clone(flag));
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, f, _ctx| {
+                f.0.set(true);
+                Ok(JsValue::undefined())
+            },
+            shared,
+        ),
+        js_string!(name),
+        0,
+    );
+}
 
 /// Create a JS event object for the given dispatch event.
 ///
@@ -38,9 +65,14 @@ const RO: Attribute = Attribute::READONLY;
 /// - Keyboard props: `key`, `code`
 /// - Modifier props: `altKey`, `ctrlKey`, `metaKey`, `shiftKey`
 /// - `preventDefault()`, `stopPropagation()`, `stopImmediatePropagation()`
+/// - `composedPath()` — returns the event propagation path
 ///
 /// The `Rc<Cell<bool>>` flags are shared with the dispatch loop so that
 /// calling `event.stopPropagation()` in JS immediately affects the loop.
+///
+/// `composed_path_array` is a pre-built JS array of element wrappers for
+/// `composedPath()`. If `None`, `composedPath()` returns an empty array.
+#[allow(clippy::too_many_arguments)]
 pub fn create_event_object(
     event: &DispatchEvent,
     target_wrapper: &JsValue,
@@ -48,8 +80,13 @@ pub fn create_event_object(
     prevent_default_flag: &Rc<Cell<bool>>,
     stop_propagation_flag: &Rc<Cell<bool>>,
     stop_immediate_flag: &Rc<Cell<bool>>,
+    composed_path_array: Option<JsValue>,
     ctx: &mut Context,
 ) -> JsValue {
+    // Build composedPath value before borrowing ctx for ObjectInitializer.
+    let path_val = composed_path_array
+        .unwrap_or_else(|| boa_engine::object::builtins::JsArray::new(ctx).into());
+
     let mut init = ObjectInitializer::new(ctx);
 
     // Core event properties (read-only per DOM spec).
@@ -74,7 +111,7 @@ pub fn create_event_object(
     // state even within the same listener that called `preventDefault()`.
     init.property(
         js_string!("defaultPrevented"),
-        JsValue::from(event.default_prevented),
+        JsValue::from(event.flags.default_prevented),
         RO,
     );
     init.property(js_string!("target"), target_wrapper.clone(), RO);
@@ -84,39 +121,15 @@ pub fn create_event_object(
         RO,
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
+    init.property(js_string!("composed"), JsValue::from(event.composed), RO);
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload);
 
-    // preventDefault()
-    let flag = SharedFlag(Rc::clone(prevent_default_flag));
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, flag, _ctx| {
-                flag.0.set(true);
-                Ok(JsValue::undefined())
-            },
-            flag,
-        ),
-        js_string!("preventDefault"),
-        0,
-    );
+    register_flag_method(&mut init, "preventDefault", prevent_default_flag);
+    register_flag_method(&mut init, "stopPropagation", stop_propagation_flag);
 
-    // stopPropagation()
-    let flag = SharedFlag(Rc::clone(stop_propagation_flag));
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, flag, _ctx| {
-                flag.0.set(true);
-                Ok(JsValue::undefined())
-            },
-            flag,
-        ),
-        js_string!("stopPropagation"),
-        0,
-    );
-
-    // stopImmediatePropagation()
+    // stopImmediatePropagation() sets both propagation + immediate flags.
     let stop_prop = SharedFlag(Rc::clone(stop_propagation_flag));
     let stop_imm = SharedFlag(Rc::clone(stop_immediate_flag));
     init.function(
@@ -129,6 +142,21 @@ pub fn create_event_object(
             (stop_prop, stop_imm),
         ),
         js_string!("stopImmediatePropagation"),
+        0,
+    );
+
+    // composedPath() — returns the pre-built propagation path array.
+    // Wrap in SharedPathValue for GC tracing.
+    let shared_path = SharedPathValue(Rc::new(path_val));
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, path, _ctx| {
+                // Clone the array reference so each call returns the same array.
+                Ok((*path.0).clone())
+            },
+            shared_path,
+        ),
+        js_string!("composedPath"),
         0,
     );
 

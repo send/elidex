@@ -89,7 +89,7 @@ impl App {
             };
             let mut click_prevented = false;
             for event_type in event_types {
-                let mut event = DispatchEvent::new(*event_type, hit_entity);
+                let mut event = DispatchEvent::new_composed(*event_type, hit_entity);
                 event.payload = EventPayload::Mouse(mouse_init.clone());
                 let prevented = pipeline.runtime.dispatch_event(
                     &mut event,
@@ -150,7 +150,7 @@ impl App {
             return;
         }
 
-        let mut event = DispatchEvent::new(event_type, target);
+        let mut event = DispatchEvent::new_composed(event_type, target);
         event.payload = EventPayload::Keyboard(init);
 
         // TODO(Phase 3): Check default_prevented to suppress default keyboard actions.

@@ -9,7 +9,7 @@ pub mod inline;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
-    AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, EdgeSizes, LayoutBox,
+    AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox,
 };
 use elidex_text::FontDatabase;
 
@@ -167,6 +167,31 @@ pub fn clamp_min_max(value: f32, min: f32, max: f32) -> f32 {
     value.max(min).min(max).max(min)
 }
 
+/// Resolve the content-box width for a container (flex, grid, table).
+///
+/// Handles `auto` (filling available space), percentage, and length values,
+/// with `box-sizing: border-box` adjustment.
+#[must_use]
+pub fn resolve_content_width(
+    style: &ComputedStyle,
+    containing_width: f32,
+    h_pb: f32,
+    h_margin: f32,
+) -> f32 {
+    let auto_value = (containing_width - h_margin - h_pb).max(0.0);
+    let mut w = sanitize(resolve_dimension_value(
+        style.width,
+        containing_width,
+        auto_value,
+    ));
+    if style.box_sizing == BoxSizing::BorderBox {
+        if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
+            w = (w - h_pb).max(0.0);
+        }
+    }
+    w
+}
+
 /// Adjust min/max constraint values for `box-sizing: border-box`.
 ///
 /// Subtracts `pb` (padding + border sum on the relevant axis) from both
@@ -233,6 +258,77 @@ pub fn resolve_explicit_height(
         }),
         _ => None,
     }
+}
+
+/// Build a layout box for an empty or depth-limited container.
+///
+/// Used when a container has no children or maximum layout depth is reached.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn empty_container_box(
+    dom: &mut EcsDom,
+    entity: Entity,
+    style: &ComputedStyle,
+    content_x: f32,
+    content_y: f32,
+    content_width: f32,
+    containing_height: Option<f32>,
+    padding: EdgeSizes,
+    border: EdgeSizes,
+    margin: EdgeSizes,
+) -> LayoutBox {
+    let lb = LayoutBox {
+        content: elidex_plugin::Rect {
+            x: content_x,
+            y: content_y,
+            width: content_width,
+            height: resolve_explicit_height(style, containing_height).unwrap_or(0.0),
+        },
+        padding,
+        border,
+        margin,
+    };
+    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    lb
+}
+
+/// Get composed children with `display: contents` flattened.
+///
+/// Combines `EcsDom::composed_children()` and `flatten_contents()` into a single call.
+#[must_use]
+pub fn composed_children_flat(dom: &EcsDom, entity: Entity) -> Vec<Entity> {
+    let raw = dom.composed_children(entity);
+    flatten_contents(dom, &raw)
+}
+
+/// Flatten `display: contents` entities in a child list.
+///
+/// CSS Display Level 3 §2.8: `display: contents` elements do not generate
+/// a box — their children participate in the parent's formatting context
+/// as if the element did not exist.
+///
+/// This function replaces each `display: contents` child with its own
+/// `composed_children`, recursively expanding nested `display: contents`.
+/// Recursion is capped at `MAX_LAYOUT_DEPTH` to prevent stack overflow.
+#[must_use]
+pub fn flatten_contents(dom: &EcsDom, children: &[Entity]) -> Vec<Entity> {
+    flatten_contents_impl(dom, children, 0)
+}
+
+fn flatten_contents_impl(dom: &EcsDom, children: &[Entity], depth: u32) -> Vec<Entity> {
+    let mut result = Vec::with_capacity(children.len());
+    if depth >= MAX_LAYOUT_DEPTH {
+        return result;
+    }
+    for &child in children {
+        if try_get_style(dom, child).is_some_and(|s| s.display == Display::Contents) {
+            let grandchildren = dom.composed_children(child);
+            result.extend(flatten_contents_impl(dom, &grandchildren, depth + 1));
+        } else {
+            result.push(child);
+        }
+    }
+    result
 }
 
 /// Get the computed style for an entity, or a default if none is attached.

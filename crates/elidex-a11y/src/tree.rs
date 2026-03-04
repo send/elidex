@@ -5,7 +5,7 @@
 
 use accesskit::{Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use elidex_ecs::Entity;
-use elidex_ecs::{Attributes, EcsDom, TextContent};
+use elidex_ecs::{Attributes, EcsDom, TextContent, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::LayoutBox;
 
 use crate::names::compute_accessible_name;
@@ -25,8 +25,8 @@ pub fn entity_to_node_id(entity: Entity) -> NodeId {
 /// can produce `NodeId(0)`.
 const TREE_ROOT_ID: u64 = 0;
 
-/// Maximum recursion depth for DOM tree walks, matching `elidex-ecs` ancestor limit.
-const MAX_WALK_DEPTH: usize = 10_000;
+/// Maximum recursion depth for DOM tree walks (imported from `elidex-ecs`).
+const MAX_WALK_DEPTH: usize = MAX_ANCESTOR_DEPTH;
 
 /// Build a complete `TreeUpdate` from the ECS DOM.
 ///
@@ -44,15 +44,13 @@ pub fn build_tree_update(
     let root_node_id = NodeId(TREE_ROOT_ID);
     let mut nodes: Vec<(NodeId, Node)> = Vec::new();
 
-    // Collect top-level children of the document.
+    // Collect top-level children of the document (composed for shadow DOM).
     let mut top_children = Vec::new();
-    let mut child = dom.get_first_child(document);
-    while let Some(c) = child {
+    for c in dom.composed_children(document) {
         if !is_hidden(dom, c) {
-            walk_dom(dom, c, &mut nodes, 0);
+            walk_dom(dom, c, &mut nodes, 0, false);
             top_children.push(entity_to_node_id(c));
         }
-        child = dom.get_next_sibling(c);
     }
 
     // Create the root document node.
@@ -72,8 +70,21 @@ pub fn build_tree_update(
 }
 
 /// Recursively walk the DOM and build AccessKit nodes.
-fn walk_dom(dom: &EcsDom, entity: Entity, nodes: &mut Vec<(NodeId, Node)>, depth: usize) {
+///
+/// `ancestor_hidden` is `true` if any ancestor (including across shadow
+/// boundaries) has `aria-hidden="true"`. This ensures shadow trees of
+/// hidden hosts are excluded from the accessibility tree.
+fn walk_dom(
+    dom: &EcsDom,
+    entity: Entity,
+    nodes: &mut Vec<(NodeId, Node)>,
+    depth: usize,
+    ancestor_hidden: bool,
+) {
     if depth > MAX_WALK_DEPTH {
+        return;
+    }
+    if ancestor_hidden {
         return;
     }
     let node_id = entity_to_node_id(entity);
@@ -118,15 +129,16 @@ fn walk_dom(dom: &EcsDom, entity: Entity, nodes: &mut Vec<(NodeId, Node)>, depth
         });
     }
 
-    // Collect children.
+    // Collect children (composed for shadow DOM support).
+    // Propagate hidden state: if this entity is hidden, all descendants
+    // (including shadow tree children) are excluded from the a11y tree.
+    let self_hidden = is_hidden(dom, entity);
     let mut children = Vec::new();
-    let mut child = dom.get_first_child(entity);
-    while let Some(c) = child {
+    for c in dom.composed_children(entity) {
         if !is_hidden(dom, c) {
-            walk_dom(dom, c, nodes, depth + 1);
+            walk_dom(dom, c, nodes, depth + 1, self_hidden);
             children.push(entity_to_node_id(c));
         }
-        child = dom.get_next_sibling(c);
     }
     if !children.is_empty() {
         node.set_children(children);
@@ -207,6 +219,10 @@ fn determine_role(dom: &EcsDom, entity: Entity, tag: &str) -> Role {
 
 /// Check if any ancestor is a sectioning content element (article, aside, main, nav, section).
 ///
+/// L9: Crosses shadow boundaries by following `ShadowRoot.host` when the
+/// parent walk reaches a shadow root, ensuring correct context detection
+/// for elements inside shadow trees.
+///
 /// Depth-limited to [`MAX_WALK_DEPTH`] to guard against tree corruption,
 /// matching other ancestor walks in the codebase.
 fn is_sectioning_content_descendant(dom: &EcsDom, entity: Entity) -> bool {
@@ -215,6 +231,12 @@ fn is_sectioning_content_descendant(dom: &EcsDom, entity: Entity) -> bool {
     while let Some(p) = parent {
         if depth > MAX_WALK_DEPTH {
             break;
+        }
+        // L9: If we hit a ShadowRoot, continue via its host element.
+        if let Ok(sr) = dom.world().get::<&elidex_ecs::ShadowRoot>(p) {
+            parent = Some(sr.host);
+            depth += 1;
+            continue;
         }
         let tag = dom.world().get::<&elidex_ecs::TagType>(p).ok();
         let tag_str = tag.as_ref().map_or("", |t| t.0.as_str());
@@ -527,5 +549,51 @@ mod tests {
             let node = find_node(&update, el);
             assert_eq!(node.1.role(), expected, "case: {desc}");
         }
+    }
+
+    // --- L9: Composed tree walk for sectioning content detection ---
+
+    #[test]
+    fn header_in_shadow_under_section_is_generic() {
+        // <section> host → shadow tree → <header> should see <section> ancestor
+        // via composed tree walk, making header GenericContainer.
+        let (mut dom, root) = setup_simple_dom();
+        let section = dom.create_element("section", Attributes::default());
+        dom.append_child(root, section);
+        let sr = dom
+            .attach_shadow(section, elidex_ecs::ShadowRootMode::Open)
+            .unwrap();
+        let header = dom.create_element("header", Attributes::default());
+        dom.append_child(sr, header);
+
+        let update = build_tree_update(&dom, root, None);
+        let node = find_node(&update, header);
+        assert_eq!(
+            node.1.role(),
+            Role::GenericContainer,
+            "header in shadow under section should be GenericContainer"
+        );
+    }
+
+    #[test]
+    fn header_in_shadow_under_div_is_banner() {
+        // <div> host → shadow tree → <header> — no sectioning ancestor,
+        // so header should be Banner.
+        let (mut dom, root) = setup_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+        let sr = dom
+            .attach_shadow(div, elidex_ecs::ShadowRootMode::Open)
+            .unwrap();
+        let header = dom.create_element("header", Attributes::default());
+        dom.append_child(sr, header);
+
+        let update = build_tree_update(&dom, root, None);
+        let node = find_node(&update, header);
+        assert_eq!(
+            node.1.role(),
+            Role::Banner,
+            "header in shadow under div should be Banner"
+        );
     }
 }

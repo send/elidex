@@ -1,6 +1,6 @@
 //! Pre-order tree walk for display list building.
 
-use elidex_ecs::{EcsDom, Entity, ImageData};
+use elidex_ecs::{EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow};
 use elidex_text::FontDatabase;
 
@@ -17,13 +17,24 @@ use super::{
 /// and "block children" (those with a `LayoutBox`). Inline runs have their
 /// text collected and rendered as a single item; block children are
 /// recursed into normally.
+///
+/// Recursion is capped at `MAX_ANCESTOR_DEPTH` to prevent stack overflow.
 pub(crate) fn walk(
     dom: &EcsDom,
     entity: Entity,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
+    depth: usize,
 ) {
+    if depth > MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    // Skip <template> elements — their content is inert.
+    if dom.world().get::<&TemplateContent>(entity).is_ok() {
+        return;
+    }
+
     // Check for display: none — skip this subtree entirely.
     // This check is independent of LayoutBox: an element without a LayoutBox
     // but with display:none should still be skipped.
@@ -66,7 +77,9 @@ pub(crate) fn walk(
     }
 
     // Process children in inline runs vs block children.
-    let children: Vec<Entity> = dom.children_iter(entity).collect();
+    // Flatten display:contents children — they generate no box, their
+    // children are promoted to this formatting context.
+    let children = elidex_layout_block::composed_children_flat(dom, entity);
     let mut inline_run = Vec::new();
     let mut list_counter = 0_usize;
 
@@ -100,7 +113,7 @@ pub(crate) fn walk(
             }
 
             // Recurse into block child.
-            walk(dom, child, font_db, font_cache, dl);
+            walk(dom, child, font_db, font_cache, dl, depth + 1);
         } else {
             // Text node or inline element — add to current run.
             inline_run.push(child);

@@ -33,6 +33,7 @@ impl DomApiHandler for QuerySelector {
             kind: DomApiErrorKind::SyntaxError,
             message: format!("Invalid selector: {selector_str}"),
         })?;
+        reject_shadow_pseudos(&selectors)?;
         match find_first_match(this, &selectors, dom) {
             Some(entity) => {
                 let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
@@ -61,6 +62,7 @@ pub fn query_selector_all(
         kind: DomApiErrorKind::SyntaxError,
         message: format!("Invalid selector: {selector_str}"),
     })?;
+    reject_shadow_pseudos(&selectors)?;
     Ok(find_all_matches(root, &selectors, dom))
 }
 
@@ -185,6 +187,19 @@ fn traverse_pre_order(dom: &EcsDom, root: Entity, mut visitor: impl FnMut(Entity
             stack.push(child);
         }
     }
+}
+
+/// Check that no selector uses shadow-scoped pseudos (`:host`, `::slotted()`).
+///
+/// These are invalid in `querySelector`/`querySelectorAll` per CSS Scoping §3.
+fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApiError> {
+    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+        return Err(DomApiError {
+            kind: DomApiErrorKind::SyntaxError,
+            message: ":host and ::slotted() are not valid in querySelector".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Find the first element matching any selector under `root` (pre-order DFS).
@@ -401,5 +416,30 @@ mod tests {
         let handler = QuerySelector;
         let result = handler.invoke(doc, &[], &mut session, &mut dom);
         assert!(result.is_err());
+    }
+
+    // --- M2: Shadow pseudo rejection in querySelector ---
+
+    #[test]
+    fn query_selector_host_rejected() {
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let handler = QuerySelector;
+        let result = handler.invoke(
+            doc,
+            &[JsValue::String(":host".into())],
+            &mut session,
+            &mut dom,
+        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, DomApiErrorKind::SyntaxError);
+    }
+
+    #[test]
+    fn query_selector_slotted_rejected() {
+        let (dom, doc) = setup_dom();
+        let result = query_selector_all(doc, "::slotted(div)", &dom);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, DomApiErrorKind::SyntaxError);
     }
 }

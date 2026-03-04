@@ -130,7 +130,7 @@ fn collect_styled_inline_text(
                 continue;
             }
             // Inline element: use this element's style for its children.
-            let children: Vec<Entity> = dom.children_iter(entity).collect();
+            let children: Vec<Entity> = dom.composed_children(entity);
             segments.extend(collect_styled_inline_text(
                 dom,
                 &children,
@@ -195,8 +195,12 @@ fn emit_styled_segments(
     let mut cursor_x = lb.content.x + align_offset;
 
     for &vi in &visual_order {
-        let (ref text, idx) = collapsed[vi];
-        let seg = &segments[idx];
+        let Some((ref text, idx)) = collapsed.get(vi) else {
+            continue;
+        };
+        let Some(seg) = segments.get(*idx) else {
+            continue;
+        };
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
         // TODO(Phase 4): pass font_style to font_db.query() for italic/oblique selection.
@@ -299,8 +303,12 @@ fn emit_styled_segments_vertical(
     let mut cursor_y = lb.content.y + align_offset;
 
     for &vi in &visual_order {
-        let (ref text, idx) = collapsed[vi];
-        let seg = &segments[idx];
+        let Some((ref text, idx)) = collapsed.get(vi) else {
+            continue;
+        };
+        let Some(seg) = segments.get(*idx) else {
+            continue;
+        };
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
         let Some(font_id) = font_db.query(&families, seg.font_weight) else {

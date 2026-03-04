@@ -21,7 +21,9 @@ mod types;
 
 pub use cssom_api::CssomApiHandler;
 pub use dom_api::DomApiHandler;
-pub use event_dispatch::{build_propagation_path, dispatch_event, DispatchEvent};
+pub use event_dispatch::{
+    build_propagation_path, composed_path_for_js, dispatch_event, DispatchEvent, DispatchFlags,
+};
 pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
 pub use identity_map::IdentityMap;
 pub use mutation::{apply_mutation, Mutation, MutationKind, MutationRecord};

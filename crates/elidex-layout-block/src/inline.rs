@@ -39,7 +39,7 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
                 continue;
             }
             // Inline element: collect text from its children.
-            let grandchildren = dom.children(child);
+            let grandchildren = dom.composed_children(child);
             text.push_str(&collect_text_inner(dom, &grandchildren, depth + 1));
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             text.push_str(&tc.0);
@@ -142,7 +142,9 @@ pub fn layout_inline_context(
     let mut on_line = false;
 
     for &(start, end, break_kind) in &segments {
-        let segment = &text[start..end];
+        let Some(segment) = text.get(start..end) else {
+            continue;
+        };
         if segment.is_empty() {
             continue;
         }
@@ -191,6 +193,25 @@ mod tests {
         "Hiragino Sans",
     ];
 
+    /// Setup a DOM with a `<p>` parent and a text child, a default `ComputedStyle`
+    /// with test font families, and a `FontDatabase`. Returns `None` if no font is available.
+    fn setup_inline_test(
+        text_content: &str,
+    ) -> Option<(EcsDom, Entity, ComputedStyle, FontDatabase)> {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("p", Attributes::default());
+        let text = dom.create_text(text_content);
+        dom.append_child(parent, text);
+
+        let style = ComputedStyle {
+            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let font_db = FontDatabase::new();
+        measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x")?;
+        Some((dom, parent, style, font_db))
+    }
+
     #[test]
     fn empty_text_zero_height() {
         let mut dom = EcsDom::new();
@@ -200,7 +221,7 @@ mod tests {
 
         let style = ComputedStyle::default();
         let font_db = FontDatabase::new();
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
 
         let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!(h.abs() < f32::EPSILON);
@@ -218,72 +239,39 @@ mod tests {
 
     #[test]
     fn single_line_text() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        // Early return if no font available
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, style, font_db)) = setup_inline_test("Hello") else {
             return;
-        }
+        };
 
         let css_line_height = style.line_height.resolve_px(style.font_size);
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!((h - css_line_height).abs() < f32::EPSILON);
     }
 
     #[test]
     fn mandatory_newline_break() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("line1\nline2");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, style, font_db)) = setup_inline_test("line1\nline2") else {
             return;
-        }
+        };
 
         let css_line_height = style.line_height.resolve_px(style.font_size);
         // Wide container: should still produce 2 lines due to \n
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let h = layout_inline_context(&dom, &children, 8000.0, &style, &font_db);
         assert!((h - css_line_height * 2.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn text_wrapping_increases_height() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("hello world foo bar baz");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, style, font_db)) = setup_inline_test("hello world foo bar baz")
+        else {
             return;
-        }
+        };
 
         let css_line_height = style.line_height.resolve_px(style.font_size);
         // Use a very narrow width to force wrapping
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let h = layout_inline_context(&dom, &children, 1.0, &style, &font_db);
         assert!(h > css_line_height);
     }
@@ -292,24 +280,13 @@ mod tests {
 
     #[test]
     fn vertical_mode_uses_font_size_line_advance() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            writing_mode: WritingMode::VerticalRl,
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, mut style, font_db)) = setup_inline_test("Hello") else {
             return;
-        }
+        };
+        style.writing_mode = WritingMode::VerticalRl;
 
         // In vertical mode, the block-axis advance per line is font_size, not line-height.
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let block_dim = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         // Single line: block dimension should be font_size.
         assert!(
@@ -322,23 +299,12 @@ mod tests {
 
     #[test]
     fn vertical_lr_same_as_vertical_rl_for_height() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            writing_mode: WritingMode::VerticalLr,
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, mut style, font_db)) = setup_inline_test("Hello") else {
             return;
-        }
+        };
+        style.writing_mode = WritingMode::VerticalLr;
 
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let block_dim = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!(
             (block_dim - style.font_size).abs() < f32::EPSILON,
@@ -350,24 +316,13 @@ mod tests {
 
     #[test]
     fn horizontal_tb_uses_line_height() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("Hello");
-        dom.append_child(parent, text);
-
-        let style = ComputedStyle {
-            font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
-            writing_mode: WritingMode::HorizontalTb,
-            ..Default::default()
-        };
-        let font_db = FontDatabase::new();
-
-        if measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x").is_none() {
+        let Some((dom, parent, style, font_db)) = setup_inline_test("Hello") else {
             return;
-        }
+        };
+        // Default writing_mode is HorizontalTb, no modification needed.
 
         let css_line_height = style.line_height.resolve_px(style.font_size);
-        let children = dom.children(parent);
+        let children = dom.composed_children(parent);
         let h = layout_inline_context(&dom, &children, 800.0, &style, &font_db);
         assert!(
             (h - css_line_height).abs() < f32::EPSILON,

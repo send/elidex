@@ -1523,6 +1523,7 @@ name = "elidex-render"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-layout-block",
  "elidex-plugin",
  "elidex-text",
  "vello",

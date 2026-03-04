@@ -15,6 +15,7 @@ pub mod cascade;
 pub mod inherit;
 mod pseudo;
 pub mod resolve;
+pub mod slot;
 pub mod ua;
 mod walk;
 
@@ -94,6 +95,7 @@ pub fn resolve_styles_with_compat(
 
     let default_parent = ComputedStyle::default();
 
+    let mut total_shadow_css = 0;
     for root in roots {
         walk_tree(
             dom,
@@ -102,6 +104,8 @@ pub fn resolve_styles_with_compat(
             &default_parent,
             &ctx,
             hint_generator,
+            0,
+            &mut total_shadow_css,
         );
     }
 }

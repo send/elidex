@@ -94,7 +94,7 @@ pub fn build_display_list(dom: &EcsDom, font_db: &FontDatabase) -> DisplayList {
 
     let roots = find_roots(dom);
     for root in roots {
-        walk(dom, root, font_db, &mut font_cache, &mut dl);
+        walk(dom, root, font_db, &mut font_cache, &mut dl, 0);
     }
 
     dl

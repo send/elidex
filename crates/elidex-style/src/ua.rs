@@ -31,7 +31,7 @@ th { font-weight: bold; text-align: center; }
 colgroup { display: table-column-group; }
 col { display: table-column; }
 
-head, link, meta, script, style, title {
+head, link, meta, script, style, title, template {
     display: none;
 }
 
@@ -103,6 +103,8 @@ bdi { unicode-bidi: isolate; }
 bdo { unicode-bidi: bidi-override; }
 bdo[dir='ltr'] { direction: ltr; }
 bdo[dir='rtl'] { direction: rtl; }
+
+slot { display: contents; }
 ";
 
 /// Returns the parsed UA stylesheet (lazily initialized, cached).
@@ -115,7 +117,37 @@ pub fn ua_stylesheet() -> &'static Stylesheet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_css::{CssRule, SelectorComponent};
     use elidex_plugin::{CssColor, CssValue, LengthUnit};
+
+    /// Find a rule that matches a tag and has a declaration for the given property.
+    fn find_tag_rule<'a>(ss: &'a Stylesheet, tag: &str, property: &str) -> Option<&'a CssRule> {
+        ss.rules.iter().find(|r| {
+            r.selectors.iter().any(|sel| {
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, SelectorComponent::Tag(t) if t == tag))
+            }) && r.declarations.iter().any(|d| d.property == property)
+        })
+    }
+
+    /// Assert a UA rule exists for `tag` with `property: expected_value`.
+    fn assert_ua_rule(tag: &str, property: &str, expected: &CssValue) {
+        let ss = ua_stylesheet();
+        let rule = find_tag_rule(ss, tag, property)
+            .unwrap_or_else(|| panic!("{tag} {property} rule not found"));
+        let decl = rule
+            .declarations
+            .iter()
+            .find(|d| d.property == property)
+            .unwrap();
+        assert_eq!(&decl.value, expected, "{tag} {property}");
+    }
+
+    /// Assert a UA rule exists for `tag` with `property: keyword_value`.
+    fn assert_ua_keyword(tag: &str, property: &str, keyword: &str) {
+        assert_ua_rule(tag, property, &CssValue::Keyword(keyword.to_string()));
+    }
 
     #[test]
     fn ua_parses_without_error() {
@@ -126,285 +158,129 @@ mod tests {
 
     #[test]
     fn body_has_margin_8px() {
-        let ss = ua_stylesheet();
-        // Find the body rule that has margin declarations (not the display:block rule).
-        let body_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "body"))
-            }) && r.declarations.iter().any(|d| d.property == "margin-top")
-        });
-        assert!(body_rule.is_some(), "body margin rule not found");
-        let body_rule = body_rule.unwrap();
-        let margin_top = body_rule
-            .declarations
-            .iter()
-            .find(|d| d.property == "margin-top")
-            .unwrap();
-        assert_eq!(margin_top.value, CssValue::Length(8.0, LengthUnit::Px));
+        assert_ua_rule("body", "margin-top", &CssValue::Length(8.0, LengthUnit::Px));
     }
 
     #[test]
     fn head_display_none() {
-        let ss = ua_stylesheet();
-        let head_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "head"))
-            })
-        });
-        assert!(head_rule.is_some(), "head rule not found");
-        let head_rule = head_rule.unwrap();
-        let display = head_rule
-            .declarations
-            .iter()
-            .find(|d| d.property == "display");
-        assert!(display.is_some());
-        assert_eq!(
-            display.unwrap().value,
-            CssValue::Keyword("none".to_string())
-        );
+        assert_ua_keyword("head", "display", "none");
     }
 
     #[test]
     fn li_display_list_item() {
+        // Find the dedicated `li` rule (not the group rule with display:block).
         let ss = ua_stylesheet();
-        // Find the dedicated `li` rule (not the group rule).
-        // The group rule (html, body, div, ..., li, ...) has display:block;
-        // the dedicated `li` rule has display:list-item.
-        let li_rule = ss.rules.iter().find(|r| {
+        let rule = ss.rules.iter().find(|r| {
             r.selectors.iter().any(|sel| {
                 sel.components
                     .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "li"))
+                    .any(|c| matches!(c, SelectorComponent::Tag(t) if t == "li"))
             }) && r.declarations.iter().any(|d| {
                 d.property == "display" && d.value == CssValue::Keyword("list-item".to_string())
             })
         });
-        assert!(li_rule.is_some(), "li display: list-item rule not found");
+        assert!(rule.is_some(), "li display: list-item rule not found");
     }
 
     #[test]
     fn pre_white_space_pre() {
-        let ss = ua_stylesheet();
-        let pre_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "pre"))
-            }) && r.declarations.iter().any(|d| d.property == "white-space")
-        });
-        assert!(pre_rule.is_some(), "pre white-space rule not found");
-        let ws = pre_rule
-            .unwrap()
-            .declarations
-            .iter()
-            .find(|d| d.property == "white-space")
-            .unwrap();
-        assert_eq!(ws.value, CssValue::Keyword("pre".to_string()));
+        assert_ua_keyword("pre", "white-space", "pre");
     }
 
     #[test]
     fn code_has_font_family_monospace() {
-        let ss = ua_stylesheet();
-        let code_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "code"))
-            }) && r.declarations.iter().any(|d| d.property == "font-family")
-        });
-        assert!(code_rule.is_some(), "code font-family rule not found");
-        let ff = code_rule
-            .unwrap()
-            .declarations
-            .iter()
-            .find(|d| d.property == "font-family")
-            .unwrap();
-        assert_eq!(
-            ff.value,
-            CssValue::List(vec![CssValue::Keyword("monospace".to_string())])
+        assert_ua_rule(
+            "code",
+            "font-family",
+            &CssValue::List(vec![CssValue::Keyword("monospace".to_string())]),
         );
     }
 
     #[test]
     fn a_link_has_blue_color_and_underline() {
         let ss = ua_stylesheet();
-        let link_rule = ss.rules.iter().find(|r| {
+        let rule = ss.rules.iter().find(|r| {
             r.selectors.iter().any(|sel| {
-                sel.components.iter().any(
-                    |c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "a"),
-                ) && sel.components.iter().any(
-                    |c| matches!(c, elidex_css::SelectorComponent::PseudoClass(p) if p == "link"),
-                )
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, SelectorComponent::Tag(t) if t == "a"))
+                    && sel
+                        .components
+                        .iter()
+                        .any(|c| matches!(c, SelectorComponent::PseudoClass(p) if p == "link"))
             }) && r.declarations.iter().any(|d| d.property == "color")
         });
-        assert!(link_rule.is_some(), "a:link color rule not found");
-        let color_decl = link_rule
+        assert!(rule.is_some(), "a:link color rule not found");
+        let decl = rule
             .unwrap()
             .declarations
             .iter()
             .find(|d| d.property == "color")
             .unwrap();
-        // #0000ee = rgb(0, 0, 238)
-        assert_eq!(
-            color_decl.value,
-            CssValue::Color(CssColor::new(0, 0, 238, 255))
-        );
+        assert_eq!(decl.value, CssValue::Color(CssColor::new(0, 0, 238, 255)));
     }
 
     #[test]
     fn a_visited_has_purple_color() {
         let ss = ua_stylesheet();
-        let visited_rule = ss.rules.iter().find(|r| {
+        let rule = ss.rules.iter().find(|r| {
             r.selectors.iter().any(|sel| {
-                sel.components.iter().any(
-                    |c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "a"),
-                ) && sel.components.iter().any(
-                    |c| {
-                        matches!(c, elidex_css::SelectorComponent::PseudoClass(p) if p == "visited")
-                    },
-                )
+                sel.components
+                    .iter()
+                    .any(|c| matches!(c, SelectorComponent::Tag(t) if t == "a"))
+                    && sel
+                        .components
+                        .iter()
+                        .any(|c| matches!(c, SelectorComponent::PseudoClass(p) if p == "visited"))
             }) && r.declarations.iter().any(|d| d.property == "color")
         });
-        assert!(visited_rule.is_some(), "a:visited color rule not found");
-        let color_decl = visited_rule
+        assert!(rule.is_some(), "a:visited color rule not found");
+        let decl = rule
             .unwrap()
             .declarations
             .iter()
             .find(|d| d.property == "color")
             .unwrap();
-        // #551a8b = rgb(85, 26, 139)
-        assert_eq!(
-            color_decl.value,
-            CssValue::Color(CssColor::new(85, 26, 139, 255))
-        );
+        assert_eq!(decl.value, CssValue::Color(CssColor::new(85, 26, 139, 255)));
     }
 
-    // --- M3.5-2: Table UA styles ---
+    // --- Table UA styles ---
 
     #[test]
     fn table_display_table() {
-        let ss = ua_stylesheet();
-        let table_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "table"))
-            }) && r.declarations.iter().any(|d| {
-                d.property == "display" && d.value == CssValue::Keyword("table".to_string())
-            })
-        });
-        assert!(table_rule.is_some(), "table display: table rule not found");
+        assert_ua_keyword("table", "display", "table");
     }
 
     #[test]
     fn tr_display_table_row() {
-        let ss = ua_stylesheet();
-        let tr_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "tr"))
-            }) && r.declarations.iter().any(|d| {
-                d.property == "display" && d.value == CssValue::Keyword("table-row".to_string())
-            })
-        });
-        assert!(tr_rule.is_some(), "tr display: table-row rule not found");
+        assert_ua_keyword("tr", "display", "table-row");
     }
 
     #[test]
     fn td_th_display_table_cell() {
-        let ss = ua_stylesheet();
-        let td_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "td"))
-            }) && r.declarations.iter().any(|d| {
-                d.property == "display" && d.value == CssValue::Keyword("table-cell".to_string())
-            })
-        });
-        assert!(td_rule.is_some(), "td display: table-cell rule not found");
+        assert_ua_keyword("td", "display", "table-cell");
     }
 
     #[test]
     fn th_font_weight_bold() {
-        let ss = ua_stylesheet();
-        let th_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "th"))
-            }) && r.declarations.iter().any(|d| d.property == "font-weight")
-        });
-        assert!(th_rule.is_some(), "th font-weight: bold rule not found");
-        let fw = th_rule
-            .unwrap()
-            .declarations
-            .iter()
-            .find(|d| d.property == "font-weight")
-            .unwrap();
-        assert_eq!(fw.value, CssValue::Keyword("bold".to_string()));
+        assert_ua_keyword("th", "font-weight", "bold");
     }
 
-    // --- M3.5-4: BiDi UA styles ---
+    // --- BiDi UA styles ---
 
     #[test]
     fn bdi_unicode_bidi_isolate() {
-        let ss = ua_stylesheet();
-        let bdi_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdi"))
-            }) && r.declarations.iter().any(|d| d.property == "unicode-bidi")
-        });
-        assert!(bdi_rule.is_some(), "bdi unicode-bidi rule not found");
-        let ub = bdi_rule
-            .unwrap()
-            .declarations
-            .iter()
-            .find(|d| d.property == "unicode-bidi")
-            .unwrap();
-        assert_eq!(ub.value, CssValue::Keyword("isolate".to_string()));
+        assert_ua_keyword("bdi", "unicode-bidi", "isolate");
     }
 
     #[test]
     fn bdo_unicode_bidi_override() {
-        let ss = ua_stylesheet();
-        let bdo_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
-            }) && r.declarations.iter().any(|d| d.property == "unicode-bidi")
-        });
-        assert!(bdo_rule.is_some(), "bdo unicode-bidi rule not found");
-        let ub = bdo_rule
-            .unwrap()
-            .declarations
-            .iter()
-            .find(|d| d.property == "unicode-bidi")
-            .unwrap();
-        assert_eq!(ub.value, CssValue::Keyword("bidi-override".to_string()));
+        assert_ua_keyword("bdo", "unicode-bidi", "bidi-override");
     }
 
     #[test]
     fn bdo_dir_ltr_rule() {
-        let ss = ua_stylesheet();
-        let rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
-            }) && r.declarations.iter().any(|d| {
-                d.property == "direction" && d.value == CssValue::Keyword("ltr".to_string())
-            })
-        });
-        assert!(rule.is_some(), "bdo[dir=ltr] direction rule not found");
+        assert_ua_keyword("bdo", "direction", "ltr");
     }
 
     #[test]
@@ -414,27 +290,29 @@ mod tests {
             r.selectors.iter().any(|sel| {
                 sel.components
                     .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "bdo"))
+                    .any(|c| matches!(c, SelectorComponent::Tag(t) if t == "bdo"))
             }) && r.declarations.iter().any(|d| {
                 d.property == "direction" && d.value == CssValue::Keyword("rtl".to_string())
             })
         });
-        assert!(rule.is_some(), "bdo[dir=rtl] direction rule not found");
+        assert!(rule.is_some(), "bdo direction: rtl rule not found");
+    }
+
+    #[test]
+    fn template_display_none() {
+        assert_ua_keyword("template", "display", "none");
+    }
+
+    #[test]
+    fn slot_display_contents() {
+        assert_ua_keyword("slot", "display", "contents");
     }
 
     #[test]
     fn code_does_not_have_white_space_pre() {
         let ss = ua_stylesheet();
-        // code should NOT have white-space: pre (only pre does).
-        let code_ws_rule = ss.rules.iter().find(|r| {
-            r.selectors.iter().any(|sel| {
-                sel.components
-                    .iter()
-                    .any(|c| matches!(c, elidex_css::SelectorComponent::Tag(t) if t == "code"))
-            }) && r.declarations.iter().any(|d| d.property == "white-space")
-        });
         assert!(
-            code_ws_rule.is_none(),
+            find_tag_rule(ss, "code", "white-space").is_none(),
             "code should not have white-space in UA stylesheet"
         );
     }

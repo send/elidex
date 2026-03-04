@@ -24,6 +24,7 @@ keyword_enum! {
         TableFooterGroup => "table-footer-group",
         TableColumn => "table-column",
         TableColumnGroup => "table-column-group",
+        Contents => "contents",
     }
 }
 

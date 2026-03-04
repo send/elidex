@@ -61,13 +61,19 @@ pub(crate) fn compute_accessible_name(dom: &EcsDom, entity: Entity) -> Option<St
     None
 }
 
+/// Maximum number of ID references processed in `aria-labelledby`.
+const MAX_LABELLEDBY_IDS: usize = 16;
+
+/// Maximum number of entities scanned during ID lookup.
+const MAX_ID_SCAN: usize = 50_000;
+
 /// Resolve an `aria-labelledby` value to text content.
 ///
 /// The value is a space-separated list of element IDs. For each ID,
 /// find the element and collect its text content.
 pub(crate) fn resolve_labelledby(dom: &EcsDom, ids: &str) -> Option<String> {
     let mut parts = Vec::new();
-    for id in ids.split_whitespace() {
+    for id in ids.split_whitespace().take(MAX_LABELLEDBY_IDS) {
         if let Some(entity) = find_element_by_id(dom, id) {
             let text = collect_text_content(dom, entity);
             if !text.is_empty() {
@@ -83,10 +89,13 @@ pub(crate) fn resolve_labelledby(dom: &EcsDom, ids: &str) -> Option<String> {
 }
 
 /// Find an element by its `id` attribute.
+///
+/// Scans up to `MAX_ID_SCAN` entities to bound work on very large DOMs.
 fn find_element_by_id(dom: &EcsDom, id: &str) -> Option<Entity> {
     dom.world()
         .query::<&Attributes>()
         .iter()
+        .take(MAX_ID_SCAN)
         .find(|(_, attrs)| attrs.get("id") == Some(id))
         .map(|(entity, _)| entity)
 }
@@ -114,14 +123,14 @@ fn collect_text_recursive(dom: &EcsDom, entity: Entity, out: &mut String, depth:
     }
 
     // Recurse into children, separating contributions with spaces (ACCNAME 1.2 §2F).
-    let mut child = dom.get_first_child(entity);
-    while let Some(c) = child {
+    let composed = dom.composed_children(entity);
+    for (i, c) in composed.iter().enumerate() {
         let len_before = out.len();
-        collect_text_recursive(dom, c, out, depth + 1);
+        collect_text_recursive(dom, *c, out, depth + 1);
         let contributed = out.len() > len_before;
-        child = dom.get_next_sibling(c);
+        let has_more = i + 1 < composed.len();
         // Insert separator space between non-empty child contributions.
-        if contributed && child.is_some() && !out.ends_with(char::is_whitespace) {
+        if contributed && has_more && !out.ends_with(char::is_whitespace) {
             out.push(' ');
         }
     }

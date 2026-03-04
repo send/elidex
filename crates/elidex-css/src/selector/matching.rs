@@ -1,6 +1,8 @@
 //! Selector matching: right-to-left component matching against the DOM.
 
-use elidex_ecs::{Attributes, EcsDom, ElementState, Entity, TagType};
+use elidex_ecs::{
+    Attributes, EcsDom, ElementState, Entity, ShadowHost, ShadowRoot, SlottedMarker, TagType,
+};
 
 use super::traverse::{
     first_element_child, is_root_element, last_element_child, prev_element_sibling,
@@ -29,6 +31,10 @@ pub(super) fn match_components(
                 if depth > MAX_ANCESTOR_DEPTH {
                     return false;
                 }
+                // Stop at shadow boundary — selectors don't cross into shadow trees.
+                if dom.world().get::<&ShadowRoot>(ancestor).is_ok() {
+                    return false;
+                }
                 if match_components(components, idx + 1, ancestor, dom) {
                     return true;
                 }
@@ -36,9 +42,16 @@ pub(super) fn match_components(
             }
             false
         }
-        SelectorComponent::Child => dom
-            .get_parent(entity)
-            .is_some_and(|parent| match_components(components, idx + 1, parent, dom)),
+        SelectorComponent::Child => {
+            let Some(parent) = dom.get_parent(entity) else {
+                return false;
+            };
+            // Stop at shadow boundary.
+            if dom.world().get::<&ShadowRoot>(parent).is_ok() {
+                return false;
+            }
+            match_components(components, idx + 1, parent, dom)
+        }
         SelectorComponent::AdjacentSibling => prev_element_sibling(dom, entity)
             .is_some_and(|prev| match_components(components, idx + 1, prev, dom)),
         SelectorComponent::GeneralSibling => {
@@ -54,6 +67,17 @@ pub(super) fn match_components(
         SelectorComponent::Not(ref inner) => {
             let inner_matched = match_compound_forward(inner, entity, dom);
             !inner_matched && match_components(components, idx + 1, entity, dom)
+        }
+        // :host / :host(selector) — delegate to match_simple() (single source of truth).
+        SelectorComponent::Host | SelectorComponent::HostFunction(_) => {
+            match_simple(&components[idx], entity, dom)
+                && match_components(components, idx + 1, entity, dom)
+        }
+        // ::slotted(selector) — matches slotted light DOM elements that match inner selector.
+        SelectorComponent::Slotted(ref inner) => {
+            is_slotted(entity, dom)
+                && match_compound_forward(inner, entity, dom)
+                && match_components(components, idx + 1, entity, dom)
         }
         // Simple selectors -- delegate to shared helper.
         other => {
@@ -90,6 +114,11 @@ fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> 
         SelectorComponent::Attribute { name, matcher } => {
             match_attr(name, matcher.as_ref(), entity, dom)
         }
+        SelectorComponent::Host => dom.world().get::<&ShadowHost>(entity).is_ok(),
+        SelectorComponent::HostFunction(ref inner) => {
+            dom.world().get::<&ShadowHost>(entity).is_ok()
+                && match_compound_forward(inner, entity, dom)
+        }
         // Combinators and :not() handled in match_components.
         _ => false,
     }
@@ -116,14 +145,7 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                 .get::<&ElementState>(entity)
                 .ok()
                 .map_or(ElementState::default(), |s| *s);
-            match name {
-                "hover" => state.contains(ElementState::HOVER),
-                "focus" => state.contains(ElementState::FOCUS),
-                "active" => state.contains(ElementState::ACTIVE),
-                "link" => state.contains(ElementState::LINK),
-                "visited" => state.contains(ElementState::VISITED),
-                _ => unreachable!(),
-            }
+            state_flag_for_pseudo(name).is_some_and(|flag| state.contains(flag))
         }
         _ => false,
     }
@@ -156,6 +178,26 @@ fn match_attr(
 /// (no combinators) stored in parse order.
 fn match_compound_forward(components: &[SelectorComponent], entity: Entity, dom: &EcsDom) -> bool {
     components.iter().all(|c| match_simple(c, entity, dom))
+}
+
+/// Map a dynamic pseudo-class name to its `ElementState` flag bit.
+fn state_flag_for_pseudo(name: &str) -> Option<u8> {
+    match name {
+        "hover" => Some(ElementState::HOVER),
+        "focus" => Some(ElementState::FOCUS),
+        "active" => Some(ElementState::ACTIVE),
+        "link" => Some(ElementState::LINK),
+        "visited" => Some(ElementState::VISITED),
+        _ => None,
+    }
+}
+
+/// Check if an entity is a slotted element (assigned to a slot).
+///
+/// O(1) lookup via `SlottedMarker` component, which is attached to
+/// assigned nodes by `distribute_slots()`.
+fn is_slotted(entity: Entity, dom: &EcsDom) -> bool {
+    dom.world().get::<&SlottedMarker>(entity).is_ok()
 }
 
 /// Check if an attribute value matches the given matcher.

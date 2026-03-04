@@ -44,6 +44,19 @@ pub enum SelectorComponent {
     /// Contains a single compound selector (CSS Selectors Level 3).
     /// Components are stored in parse order (left-to-right), not reversed.
     Not(Vec<SelectorComponent>),
+    /// `:host` pseudo-class — matches the shadow host from within a shadow tree.
+    ///
+    /// Specificity: (0, 1, 0).
+    Host,
+    /// `:host(selector)` functional pseudo-class — matches the shadow host
+    /// only if it also matches the inner selector.
+    ///
+    /// Specificity: (0, 1, 0) + inner selector specificity.
+    HostFunction(Vec<SelectorComponent>),
+    /// `::slotted(selector)` pseudo-element — matches slotted light DOM elements.
+    ///
+    /// Specificity: (0, 0, 1) + inner selector specificity.
+    Slotted(Vec<SelectorComponent>),
 }
 
 /// Attribute value matching operator.

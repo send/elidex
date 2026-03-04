@@ -48,6 +48,42 @@ impl Selector {
         }
         match_components(&self.components, 0, entity, dom)
     }
+
+    /// Check if this selector contains `:host` or `:host()`.
+    #[must_use]
+    pub fn has_host(&self) -> bool {
+        self.components.iter().any(|c| {
+            matches!(
+                c,
+                SelectorComponent::Host | SelectorComponent::HostFunction(_)
+            )
+        })
+    }
+
+    /// Check if this selector contains `::slotted()`.
+    #[must_use]
+    pub fn has_slotted(&self) -> bool {
+        self.components
+            .iter()
+            .any(|c| matches!(c, SelectorComponent::Slotted(_)))
+    }
+
+    /// Check if this selector contains any shadow-tree-scoped pseudo
+    /// (`:host`, `:host()`, or `::slotted()`).
+    ///
+    /// Such selectors are invalid in `querySelector`/`querySelectorAll`
+    /// (CSS Scoping §3: they must only match within shadow tree context).
+    #[must_use]
+    pub fn has_shadow_pseudo(&self) -> bool {
+        self.components.iter().any(|c| {
+            matches!(
+                c,
+                SelectorComponent::Host
+                    | SelectorComponent::HostFunction(_)
+                    | SelectorComponent::Slotted(_)
+            )
+        })
+    }
 }
 
 /// Parse a comma-separated list of selectors.

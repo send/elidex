@@ -26,8 +26,8 @@ mod tests;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    effective_align, horizontal_pb, resolve_dimension_value, resolve_explicit_height, sanitize,
-    sanitize_border, sanitize_padding, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+    effective_align, horizontal_pb, resolve_explicit_height, sanitize, sanitize_border,
+    sanitize_padding, ChildLayoutFn, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
@@ -103,8 +103,12 @@ pub fn layout_grid(
     let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
 
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width =
-        resolve_grid_content_width(&style, containing_width, h_pb, margin_left, margin_right);
+    let content_width = elidex_layout_block::resolve_content_width(
+        &style,
+        containing_width,
+        h_pb,
+        margin_left + margin_right,
+    );
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
 
@@ -112,21 +116,20 @@ pub fn layout_grid(
     let gap_row = sanitize(style.row_gap).max(0.0);
 
     // --- Early return for empty containers ---
-    let children = dom.children(entity);
+    let children = elidex_layout_block::composed_children_flat(dom, entity);
     if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
-        let lb = LayoutBox {
-            content: Rect {
-                x: content_x,
-                y: content_y,
-                width: content_width,
-                height: resolve_explicit_height(&style, containing_height).unwrap_or(0.0),
-            },
+        return elidex_layout_block::empty_container_box(
+            dom,
+            entity,
+            &style,
+            content_x,
+            content_y,
+            content_width,
+            containing_height,
             padding,
             border,
             margin,
-        };
-        let _ = dom.world_mut().insert_one(entity, lb.clone());
-        return lb;
+        );
     }
 
     // --- 2. Collect child items (skip display:none) ---
@@ -252,32 +255,6 @@ pub fn layout_grid(
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
-}
-
-// ---------------------------------------------------------------------------
-// Helper: content width
-// ---------------------------------------------------------------------------
-
-/// Resolve the grid container's content width.
-fn resolve_grid_content_width(
-    style: &ComputedStyle,
-    containing_width: f32,
-    h_pb: f32,
-    margin_left: f32,
-    margin_right: f32,
-) -> f32 {
-    let auto_value = (containing_width - margin_left - margin_right - h_pb).max(0.0);
-    let mut w = sanitize(resolve_dimension_value(
-        style.width,
-        containing_width,
-        auto_value,
-    ));
-    if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-        if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
-            w = (w - h_pb).max(0.0);
-        }
-    }
-    w
 }
 
 // ---------------------------------------------------------------------------

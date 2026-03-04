@@ -3,6 +3,45 @@ use elidex_plugin::{EventPayload, MouseEventInit};
 use elidex_render::DisplayItem;
 use elidex_script_session::DispatchEvent;
 
+fn find_by_id(result: &PipelineResult, tag: &str, id: &str) -> Option<Entity> {
+    let entities = result.dom.query_by_tag(tag);
+    entities.into_iter().find(|&e| {
+        result
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .ok()
+            .is_some_and(|a| a.get("id") == Some(id))
+    })
+}
+
+fn simulate_click(result: &mut PipelineResult, entity: Entity) {
+    let mut event = DispatchEvent::new_composed("click", entity);
+    event.payload = EventPayload::Mouse(MouseEventInit {
+        client_x: 100.0,
+        client_y: 50.0,
+        ..Default::default()
+    });
+    result.runtime.dispatch_event(
+        &mut event,
+        &mut result.session,
+        &mut result.dom,
+        result.document,
+    );
+    re_render(result);
+}
+
+fn get_text_content(dom: &EcsDom, entity: Entity) -> String {
+    dom.get_first_child(entity)
+        .and_then(|tc| {
+            dom.world()
+                .get::<&elidex_ecs::TextContent>(tc)
+                .ok()
+                .map(|t| t.0.clone())
+        })
+        .unwrap_or_default()
+}
+
 #[test]
 fn build_pipeline_interactive_returns_all_fields() {
     let result = build_pipeline_interactive(
@@ -68,29 +107,8 @@ fn event_listener_with_pipeline_interactive() {
     assert!(result.dom.contains(result.document));
 
     // Simulate a click dispatch and re-render.
-    let btn_entities = result.dom.query_by_tag("div");
-    let btn = btn_entities.iter().find(|&&e| {
-        result
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some("btn"))
-    });
-    if let Some(&btn_entity) = btn {
-        let mut event = DispatchEvent::new("click", btn_entity);
-        event.payload = EventPayload::Mouse(MouseEventInit {
-            client_x: 100.0,
-            client_y: 50.0,
-            ..Default::default()
-        });
-        result.runtime.dispatch_event(
-            &mut event,
-            &mut result.session,
-            &mut result.dom,
-            result.document,
-        );
-        re_render(&mut result);
+    if let Some(btn_entity) = find_by_id(&result, "div", "btn") {
+        simulate_click(&mut result, btn_entity);
     }
 }
 
@@ -318,29 +336,8 @@ fn pipeline_interactive_event_with_promise() {
     assert!(!result.display_list.is_empty());
 
     // Simulate click dispatch.
-    let btn_entities = result.dom.query_by_tag("div");
-    let btn = btn_entities.iter().find(|&&e| {
-        result
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some("btn"))
-    });
-    if let Some(&btn_entity) = btn {
-        let mut event = DispatchEvent::new("click", btn_entity);
-        event.payload = EventPayload::Mouse(MouseEventInit {
-            client_x: 100.0,
-            client_y: 50.0,
-            ..Default::default()
-        });
-        result.runtime.dispatch_event(
-            &mut event,
-            &mut result.session,
-            &mut result.dom,
-            result.document,
-        );
-        re_render(&mut result);
+    if let Some(btn_entity) = find_by_id(&result, "div", "btn") {
+        simulate_click(&mut result, btn_entity);
     }
 }
 
@@ -359,30 +356,10 @@ fn domcontentloaded_fires() {
         "",
     );
     // The listener should have been invoked during build.
-    let messages = result.runtime.console_output().messages();
     // Check the DOM — textContent should have been changed.
-    let divs = result.dom.query_by_tag("div");
-    let target = divs.iter().find(|&&e| {
-        result
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some("target"))
-    });
-    if let Some(&target_entity) = target {
-        let text_child = result.dom.get_first_child(target_entity);
-        if let Some(tc) = text_child {
-            let text = result
-                .dom
-                .world()
-                .get::<&elidex_ecs::TextContent>(tc)
-                .map(|t| t.0.clone())
-                .unwrap_or_default();
-            assert_eq!(text, "DCL fired");
-        }
+    if let Some(target_entity) = find_by_id(&result, "div", "target") {
+        assert_eq!(get_text_content(&result.dom, target_entity), "DCL fired");
     }
-    let _ = messages;
 }
 
 #[test]
@@ -397,26 +374,8 @@ fn load_event_fires() {
          </script>",
         "",
     );
-    let divs = result.dom.query_by_tag("div");
-    let target = divs.iter().find(|&&e| {
-        result
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some("target"))
-    });
-    if let Some(&target_entity) = target {
-        let text_child = result.dom.get_first_child(target_entity);
-        if let Some(tc) = text_child {
-            let text = result
-                .dom
-                .world()
-                .get::<&elidex_ecs::TextContent>(tc)
-                .map(|t| t.0.clone())
-                .unwrap_or_default();
-            assert_eq!(text, "loaded");
-        }
+    if let Some(target_entity) = find_by_id(&result, "div", "target") {
+        assert_eq!(get_text_content(&result.dom, target_entity), "loaded");
     }
 }
 

@@ -27,6 +27,20 @@ pub fn dispatch_layout_child(
 ) -> LayoutBox {
     let style = elidex_layout_block::get_style(dom, entity);
     match style.display {
+        // display: contents — element generates no box (CSS Display Level 3 §2.8).
+        // Children are promoted to the parent's formatting context via
+        // flatten_contents(). Return a zero-size box at the given position.
+        Display::Contents => LayoutBox {
+            content: elidex_plugin::Rect {
+                x: offset_x,
+                y: offset_y,
+                width: 0.0,
+                height: 0.0,
+            },
+            padding: elidex_plugin::EdgeSizes::default(),
+            border: elidex_plugin::EdgeSizes::default(),
+            margin: elidex_plugin::EdgeSizes::default(),
+        },
         Display::Flex | Display::InlineFlex => elidex_layout_flex::layout_flex(
             dom,
             entity,
@@ -122,12 +136,28 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
         if display == Display::None {
             return;
         }
+        if display == Display::Contents {
+            // display: contents at root — skip box, layout children directly.
+            let children = elidex_layout_block::composed_children_flat(dom, root);
+            let _ = stack_block_children(
+                dom,
+                &children,
+                viewport_width,
+                None,
+                0.0,
+                0.0,
+                font_db,
+                0,
+                dispatch_layout_child,
+            );
+            return;
+        }
         dispatch_layout_child(dom, root, viewport_width, None, 0.0, 0.0, font_db, 0);
         return;
     }
 
     // Document root: layout children as top-level blocks with margin collapse.
-    let children = dom.children(root);
+    let children = elidex_layout_block::composed_children_flat(dom, root);
     let _ = stack_block_children(
         dom,
         &children,
