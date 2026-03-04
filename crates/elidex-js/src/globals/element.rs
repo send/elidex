@@ -21,6 +21,9 @@ const STYLE_CACHE_KEY: &str = "__elidex_style__";
 /// Hidden property key for caching the `classList` object on an element wrapper.
 const CLASSLIST_CACHE_KEY: &str = "__elidex_classList__";
 
+/// Hidden property key for caching the context2d object on a canvas element.
+const CONTEXT2D_CACHE_KEY: &str = "__elidex_ctx2d__";
+
 /// Extract the entity from a JS value that has an `__elidex_entity__` property.
 ///
 /// Used for both `this` (element methods) and argument values (e.g., child nodes).
@@ -321,6 +324,78 @@ fn build_element_object(
         ),
         js_string!("removeEventListener"),
         2,
+    );
+
+    // getContext(contextType) — returns a CanvasRenderingContext2D for "2d", null otherwise
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+
+                // getContext is only valid on <canvas> elements.
+                let is_canvas = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::TagType>(entity)
+                        .is_ok_and(|t| t.0.as_str() == "canvas")
+                });
+                if !is_canvas {
+                    return Ok(JsValue::null());
+                }
+
+                let context_type = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+
+                if context_type != "2d" {
+                    return Ok(JsValue::null());
+                }
+
+                // Check for cached context2d object.
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("expected an element object")
+                })?;
+                let cached = obj.get(js_string!(CONTEXT2D_CACHE_KEY), ctx)?;
+                if !cached.is_undefined() {
+                    return Ok(cached);
+                }
+
+                // Determine canvas dimensions from width/height attributes.
+                let (width, height) = bridge.with(|_session, dom| {
+                    let w = dom
+                        .world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| a.get("width").and_then(|v| v.parse::<u32>().ok()))
+                        .unwrap_or(elidex_api_canvas::DEFAULT_WIDTH);
+                    let h = dom
+                        .world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| a.get("height").and_then(|v| v.parse::<u32>().ok()))
+                        .unwrap_or(elidex_api_canvas::DEFAULT_HEIGHT);
+                    (w, h)
+                });
+
+                let bits = entity.to_bits().get();
+                if !bridge.ensure_canvas_context(bits, width, height) {
+                    // Pixmap allocation failed (dimensions too large).
+                    return Ok(JsValue::null());
+                }
+
+                let ctx2d =
+                    crate::globals::canvas::create_context2d_object(bits, this, bridge, ctx);
+                // Cache on the element for identity preservation.
+                obj.set(js_string!(CONTEXT2D_CACHE_KEY), ctx2d.clone(), false, ctx)?;
+                Ok(ctx2d)
+            },
+            b,
+        ),
+        js_string!("getContext"),
+        1,
     );
 
     init.build()

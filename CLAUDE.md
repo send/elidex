@@ -23,6 +23,8 @@ crates/
   elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
   elidex-dom-api/       — DOM API handler implementations (engine-independent)
   elidex-js/            — JavaScript engine integration (boa_engine 0.20)
+  elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
+  elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
 ```
 
 ### Common Commands
@@ -126,7 +128,10 @@ cargo doc --workspace --no-deps  # Build docs
 - **boa 0.20 notes**: `ObjectInitializer` methods return `&mut Self`, accessors need `JsFunction` (via `to_js_function(&realm)`), `custom_trace!(this, mark, {body})` with 3 args, `from_copy_closure_with_captures` for safe closure registration.
 - **globals/fetch.rs**: `register_fetch()` — `fetch(url, options?)` global. Blocking HTTP via `FetchHandle::send_blocking()`. Returns `JsPromise::resolve(Response)` or `JsPromise::reject(TypeError)`. Response object: ok/status/statusText/url/type/redirected/headers properties + `text()`/`json()`/`clone()` methods. `json()` uses boa `JSON.parse()` via global object. Headers object: `get()` (combines duplicates per Fetch spec), `has()`, `forEach()`. `set()`/`delete()` omitted (Response headers immutable).
 - **run_jobs() integration**: `eval()` calls `ctx.run_jobs()` after evaluation (bridge still bound) to drain microtask queue. `dispatch_event()` similarly calls `ctx.run_jobs()` after dispatch loop. Enables `fetch().then(r => r.text())` chains.
-- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, url, bytes.
+- **globals/canvas.rs**: `create_context2d_object()` — CanvasRenderingContext2D JS object with drawing methods delegating to `Canvas2dContext` in `HostBridge`. `sync_canvas_to_image_data()` syncs pixels to ECS `ImageData` after each draw. `extract_entity_bits()` reads entity from hidden property.
+- **HostBridge canvas support**: `canvas_contexts: HashMap<u64, Canvas2dContext>` in `HostBridgeInner`. `ensure_canvas_context(entity_bits, width, height)` creates context, `with_canvas(entity_bits, f)` accesses it.
+- **globals/element.rs**: `getContext("2d")` on `<canvas>` elements — reads width/height attributes (defaults 300×150), creates Canvas2dContext via bridge, returns cached context2d JS object.
+- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, elidex-api-canvas, url, bytes.
 
 ### elidex-net
 
@@ -152,7 +157,25 @@ cargo doc --workspace --no-deps  # Build docs
 - **Event routing**: egui-first — `on_window_event()` passes events to `egui_state` first; if consumed, content handlers are skipped. Address bar focus (`address_focused`) suppresses content keyboard events.
 - **Chrome actions**: `handle_chrome_action()` — Navigate (URL parse with `https://` fallback), Back/Forward (via `NavigationController`), Reload (re-navigate current URL).
 - **URL sync**: `chrome.set_url()` called in `navigate()`, `navigate_to_history_url()`, and `handle_history_action()` (PushState/ReplaceState).
-- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible).
+- **Accessibility**: `RenderState.a11y_adapter` — `accesskit_winit::Adapter` initialized via `with_direct_handlers()` with stub handlers (NoopActivation/Action/Deactivation). Window created `with_visible(false)` for AccessKit init safety, then shown. `process_event()` called before event handling, `update_if_active()` after rendering with `elidex_a11y::build_tree_update()`.
+- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible), accesskit 0.24, accesskit_winit 0.32, elidex-a11y.
+
+### elidex-api-canvas
+
+- **Canvas2dContext**: Wraps `tiny_skia::Pixmap` with `DrawingState` stack (fill/stroke color, line_width, global_alpha, transform). Default 300×150 pixels.
+- **Drawing methods**: `fillRect`, `strokeRect`, `clearRect` (rectangle methods), `beginPath`/`moveTo`/`lineTo`/`closePath`/`rect`/`arc`/`fill`/`stroke` (path methods), `save`/`restore` (state), `translate`/`rotate`/`scale` (transform).
+- **Image data**: `getImageData`/`putImageData`/`createImageData` with premultiplied↔straight alpha conversion. `to_rgba8_straight()` for ECS `ImageData` sync.
+- **Arc approximation**: `arc_to_beziers()` converts Canvas 2D `arc()` to cubic Bezier curves — splits into ≤90° segments, k = (4/3)*tan(half_angle).
+- **Style parsing**: `parse_color_string()` delegates to `elidex_css::parse_color` for CSS color string support.
+- **Dependencies**: elidex-plugin (CssColor), elidex-css (parse_color), tiny-skia 0.11.
+
+### elidex-a11y
+
+- **build_tree_update()**: Walks ECS DOM pre-order → AccessKit `TreeUpdate`. `TREE_ROOT_ID = 0` sentinel for document root (safe because hecs entities are `NonZeroU64`). Skips `aria-hidden="true"` elements.
+- **Role mapping**: `tag_to_role()` maps ~30 HTML tags, `aria_role_from_str()` maps ~60 ARIA role strings. Special cases: `img` with empty `alt` → GenericContainer, `a` without `href` → GenericContainer.
+- **ACCNAME algorithm**: `compute_accessible_name()` — priority: `aria-labelledby` (id reference resolution) → `aria-label` → `alt` (img) → text content → `title`.
+- **entity_to_node_id()**: `Entity.to_bits().get()` → `NodeId(u64)`.
+- **Dependencies**: elidex-ecs, elidex-plugin (LayoutBox), accesskit 0.24.
 
 ### CI
 

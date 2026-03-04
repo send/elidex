@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use boa_engine::JsObject;
+use elidex_api_canvas::Canvas2dContext;
 use elidex_ecs::{EcsDom, Entity};
 use elidex_navigation::{HistoryAction, NavigationRequest};
 use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
@@ -36,8 +37,8 @@ struct HostBridgeInner {
     js_object_cache: HashMap<JsObjectRef, JsObject>,
     /// Event listener JS function storage: `ListenerId` → boa `JsObject`.
     ///
-    /// TODO(Phase 3): entries are not cleaned up when entities are destroyed.
-    /// In Phase 2 entities are rarely destroyed at runtime so this is acceptable,
+    /// TODO(Phase 4): entries are not cleaned up when entities are destroyed.
+    /// In Phase 3.5 entities are rarely destroyed at runtime so this is acceptable,
     /// but long-running applications with dynamic DOM updates may accumulate
     /// orphaned entries. Consider adding an entity-destruction hook that
     /// bulk-removes listeners for the destroyed entity.
@@ -50,6 +51,13 @@ struct HostBridgeInner {
     pending_history: Option<HistoryAction>,
     /// The number of entries in the session history.
     history_length: usize,
+    /// Canvas 2D rendering contexts, keyed by entity bits.
+    ///
+    /// TODO(Phase 4): like `listener_store`, entries are not cleaned up when
+    /// canvas elements are destroyed. Each `Canvas2dContext` owns a `Pixmap`
+    /// (potentially megabytes), so this leak is more significant than listener
+    /// entries. Add entity-destruction hooks to release canvas contexts.
+    canvas_contexts: HashMap<u64, Canvas2dContext>,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -69,6 +77,7 @@ impl HostBridge {
                 pending_navigation: None,
                 pending_history: None,
                 history_length: 0,
+                canvas_contexts: HashMap::new(),
             })),
         }
     }
@@ -83,6 +92,10 @@ impl HostBridge {
     #[allow(unsafe_code)]
     pub fn bind(&self, session: &mut SessionCore, dom: &mut EcsDom, document_entity: Entity) {
         let mut inner = self.inner.borrow_mut();
+        debug_assert!(
+            inner.session_ptr.is_null(),
+            "HostBridge::bind() called while already bound — missing unbind()?"
+        );
         inner.session_ptr = std::ptr::from_mut(session);
         inner.dom_ptr = std::ptr::from_mut(dom);
         inner.document_entity = Some(document_entity);
@@ -227,6 +240,36 @@ impl HostBridge {
     pub fn history_length(&self) -> usize {
         self.inner.borrow().history_length
     }
+
+    // --- Canvas 2D context ---
+
+    /// Get or create a Canvas 2D context for an entity.
+    ///
+    /// Returns `true` if a new context was created (first call for this entity).
+    pub fn ensure_canvas_context(&self, entity_bits: u64, width: u32, height: u32) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        if inner.canvas_contexts.contains_key(&entity_bits) {
+            return false;
+        }
+        if let Some(ctx) = Canvas2dContext::new(width, height) {
+            inner.canvas_contexts.insert(entity_bits, ctx);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Access a canvas context for the duration of a closure.
+    ///
+    /// Returns `None` if no context exists for the entity.
+    pub fn with_canvas<R>(
+        &self,
+        entity_bits: u64,
+        f: impl FnOnce(&mut Canvas2dContext) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.canvas_contexts.get_mut(&entity_bits).map(f)
+    }
 }
 
 impl Default for HostBridge {
@@ -252,6 +295,9 @@ unsafe impl boa_gc::Trace for HostBridge {
         for obj in inner.listener_store.values() {
             mark(obj);
         }
+        // canvas_contexts intentionally not traced: Canvas2dContext contains only
+        // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever
+        // stores JsObjects, this Trace implementation must be updated.
     });
 }
 

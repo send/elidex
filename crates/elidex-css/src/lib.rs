@@ -9,6 +9,7 @@ mod parser;
 mod selector;
 mod values;
 
+pub use color::parse_color;
 pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
 pub use parser::{parse_stylesheet, CssRule, Stylesheet};
 pub use selector::{

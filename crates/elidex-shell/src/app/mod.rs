@@ -44,6 +44,7 @@ pub(super) struct RenderState {
     pub(super) egui_ctx: egui::Context,
     pub(super) egui_state: egui_winit::State,
     pub(super) egui_renderer: egui_wgpu::Renderer,
+    pub(super) a11y_adapter: accesskit_winit::Adapter,
 }
 
 /// Interactive state holding all data needed for event handling and re-rendering.
@@ -69,6 +70,13 @@ pub struct App {
 }
 
 impl App {
+    /// Synchronize the top-level display list from the interactive pipeline.
+    fn sync_display_list(&mut self) {
+        if let Some(interactive) = &self.interactive {
+            self.display_list = interactive.pipeline.display_list.clone();
+        }
+    }
+
     /// Create a new interactive application from a pipeline result.
     pub fn new_interactive(pipeline: PipelineResult) -> Self {
         let display_list = pipeline.display_list.clone();
@@ -151,6 +159,11 @@ impl ApplicationHandler for App {
             return;
         }
 
+        // Process AccessKit events first.
+        if let Some(state) = &mut self.render_state {
+            state.a11y_adapter.process_event(&state.window, &event);
+        }
+
         // Handle events that always need processing regardless of egui.
         match &event {
             WindowEvent::CloseRequested => {
@@ -158,7 +171,9 @@ impl ApplicationHandler for App {
                 return;
             }
             WindowEvent::Resized(new_size) => {
-                let state = self.render_state.as_mut().unwrap();
+                let Some(state) = self.render_state.as_mut() else {
+                    return;
+                };
                 state
                     .gpu
                     .resize(&state.surface, new_size.width, new_size.height);
@@ -184,9 +199,10 @@ impl ApplicationHandler for App {
 
                     // Update hover state: hit-test and compare with previous hover chain.
                     #[allow(clippy::cast_possible_truncation)]
-                    let x = position.x as f32;
-                    #[allow(clippy::cast_possible_truncation)]
-                    let y = (position.y as f32) - crate::chrome::CHROME_HEIGHT;
+                    let (x, y) = (
+                        position.x as f32,
+                        (position.y as f32) - crate::chrome::CHROME_HEIGHT,
+                    );
                     let new_chain = if y >= 0.0 {
                         hit_test(&interactive.pipeline.dom, x, y)
                             .map(|hit| collect_hover_chain(&interactive.pipeline.dom, hit.entity))
@@ -198,8 +214,7 @@ impl ApplicationHandler for App {
                     if new_chain == interactive.hovered_entities {
                         false
                     } else {
-                        let old_chain =
-                            std::mem::replace(&mut interactive.hovered_entities, new_chain.clone());
+                        let old_chain = std::mem::take(&mut interactive.hovered_entities);
                         let new_set: HashSet<Entity> = new_chain.iter().copied().collect();
                         let old_set: HashSet<Entity> = old_chain.iter().copied().collect();
                         // Remove HOVER from entities no longer hovered.
@@ -218,6 +233,7 @@ impl ApplicationHandler for App {
                                 });
                             }
                         }
+                        interactive.hovered_entities = new_chain;
                         // Re-render to apply :hover style changes.
                         crate::re_render(&mut interactive.pipeline);
                         true
@@ -226,9 +242,7 @@ impl ApplicationHandler for App {
                     false
                 };
                 if hover_changed {
-                    if let Some(interactive) = &self.interactive {
-                        self.display_list = interactive.pipeline.display_list.clone();
-                    }
+                    self.sync_display_list();
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -253,24 +267,22 @@ impl ApplicationHandler for App {
                         crate::re_render(&mut interactive.pipeline);
                     }
                 }
-                if let Some(interactive) = &self.interactive {
-                    self.display_list = interactive.pipeline.display_list.clone();
-                }
+                self.sync_display_list();
             }
             _ => {}
         }
 
         // Pass events to egui first (interactive mode only).
-        let egui_consumed = if self.interactive.is_some() {
-            let state = self.render_state.as_mut().unwrap();
-            let response = state.egui_state.on_window_event(&state.window, &event);
-            if response.repaint {
-                state.window.request_redraw();
-            }
-            response.consumed
-        } else {
-            false
-        };
+        let egui_consumed =
+            if let (Some(_), Some(state)) = (&self.interactive, self.render_state.as_mut()) {
+                let response = state.egui_state.on_window_event(&state.window, &event);
+                if response.repaint {
+                    state.window.request_redraw();
+                }
+                response.consumed
+            } else {
+                false
+            };
 
         // Check if the address bar has focus (suppress content keyboard events).
         let address_focused = self
@@ -305,6 +317,19 @@ impl ApplicationHandler for App {
                         handle_redraw(state, display_list, None, false, false)
                     }
                 };
+                // Update accessibility tree after rendering.
+                if let (Some(state), Some(interactive)) =
+                    (&mut self.render_state, &self.interactive)
+                {
+                    let dom = &interactive.pipeline.dom;
+                    let document = interactive.pipeline.document;
+                    // Filter out stale focus entities that no longer exist in the DOM.
+                    let focus = interactive.focus_target.filter(|e| dom.contains(*e));
+                    state
+                        .a11y_adapter
+                        .update_if_active(|| elidex_a11y::build_tree_update(dom, document, focus));
+                }
+
                 if let Some(action) = chrome_action {
                     self.handle_chrome_action(action);
                     if let Some(s) = &self.render_state {
@@ -350,9 +375,7 @@ impl ApplicationHandler for App {
                     }
                     crate::re_render(&mut interactive.pipeline);
                 }
-                if let Some(interactive) = &self.interactive {
-                    self.display_list = interactive.pipeline.display_list.clone();
-                }
+                self.sync_display_list();
                 if let Some(s) = &self.render_state {
                     s.window.request_redraw();
                 }

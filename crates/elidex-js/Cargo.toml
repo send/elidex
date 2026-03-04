@@ -18,6 +18,7 @@ elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
 elidex-net.workspace = true
 elidex-navigation.workspace = true
+elidex-api-canvas.workspace = true
 boa_engine.workspace = true
 boa_gc.workspace = true
 tracing.workspace = true

@@ -1,5 +1,6 @@
 //! Global object registration for the boa JS context.
 
+pub mod canvas;
 pub mod console;
 pub mod document;
 pub mod element;

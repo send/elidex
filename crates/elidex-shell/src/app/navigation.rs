@@ -44,7 +44,9 @@ impl App {
         if !self.load_url_into_pipeline(url) {
             return;
         }
-        let interactive = self.interactive.as_mut().unwrap();
+        let Some(interactive) = self.interactive.as_mut() else {
+            return;
+        };
         if replace {
             interactive.nav_controller.replace(url.clone());
         } else {
@@ -64,7 +66,9 @@ impl App {
         if !self.load_url_into_pipeline(url) {
             return;
         }
-        let interactive = self.interactive.as_mut().unwrap();
+        let Some(interactive) = self.interactive.as_mut() else {
+            return;
+        };
         interactive
             .pipeline
             .runtime

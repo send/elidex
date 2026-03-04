@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use accesskit::ActionRequest;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowAttributes;
 
@@ -14,10 +15,12 @@ use super::RenderState;
 ///
 /// Returns `None` (with a message printed to stderr) if any step fails.
 pub(super) fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<RenderState> {
+    // Window must be initially invisible for AccessKit adapter initialization.
     let window = event_loop
         .create_window(
             WindowAttributes::default()
                 .with_title("elidex")
+                .with_visible(false)
                 .with_inner_size(winit::dpi::LogicalSize::new(
                     crate::DEFAULT_VIEWPORT_WIDTH,
                     crate::DEFAULT_VIEWPORT_HEIGHT,
@@ -26,6 +29,18 @@ pub(super) fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<Rend
         .inspect_err(|e| eprintln!("Failed to create window: {e}"))
         .ok()
         .map(Arc::new)?;
+
+    // Initialize AccessKit adapter before showing the window.
+    let a11y_adapter = accesskit_winit::Adapter::with_direct_handlers(
+        event_loop,
+        &window,
+        NoopActivationHandler,
+        NoopActionHandler,
+        NoopDeactivationHandler,
+    );
+
+    // Now show the window.
+    window.set_visible(true);
 
     let instance = Instance::new(&InstanceDescriptor::default());
     let surface = instance
@@ -78,7 +93,38 @@ pub(super) fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<Rend
         egui_ctx,
         egui_state,
         egui_renderer,
+        a11y_adapter,
     })
+}
+
+/// Stub activation handler — returns `None` so the platform adapter
+/// uses a placeholder tree until we send the first real update.
+struct NoopActivationHandler;
+
+impl accesskit::ActivationHandler for NoopActivationHandler {
+    fn request_initial_tree(&mut self) -> Option<accesskit::TreeUpdate> {
+        None
+    }
+}
+
+/// Stub action handler — logs requests but doesn't act on them (MVP).
+///
+/// TODO(Phase 4): Handle Focus and other action requests from ATs.
+struct NoopActionHandler;
+
+impl accesskit::ActionHandler for NoopActionHandler {
+    fn do_action(&mut self, _request: ActionRequest) {
+        // MVP: ignore AT action requests.
+    }
+}
+
+/// Stub deactivation handler — nothing to clean up.
+struct NoopDeactivationHandler;
+
+impl accesskit::DeactivationHandler for NoopDeactivationHandler {
+    fn deactivate_accessibility(&mut self) {
+        // No-op.
+    }
 }
 
 /// Build and render the egui chrome overlay on top of existing surface content.
