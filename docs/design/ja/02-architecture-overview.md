@@ -61,9 +61,9 @@ elidex/
 │   ├── elidex-compat-css/       # ベンダープレフィクス解決
 │   ├── elidex-compat-charset/   # Shift_JIS/EUC-JP → UTF-8
 │   └── elidex-compat-dom/       # レガシーJS APIシム（document.all等）
-├── elidex-llm-repair/         # LLM支援エラー回復
-│   ├── elidex-llm-runtime/   # ローカル推論（candle/llama.cpp）
-│   └── elidex-llm-diag/      # 開発モード診断メッセージ生成
+├── elidex-llm-repair/         # LLM支援エラー回復（現在は一時停止）
+│   ├── elidex-llm-runtime/   # ローカル推論（candle/llama.cpp、停止中）
+│   └── elidex-llm-diag/      # 開発モード診断メッセージ生成（停止中）
 ├── elidex-net/                # ネットワーキング
 │   ├── elidex-http/          # HTTP/1.1, HTTP/2, HTTP/3（hyper + h3）
 │   ├── elidex-tls/           # TLS（rustls）

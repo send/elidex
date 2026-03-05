@@ -61,9 +61,9 @@ elidex/
 │   ├── elidex-compat-css/       # Vendor prefix resolution
 │   ├── elidex-compat-charset/   # Shift_JIS/EUC-JP → UTF-8
 │   └── elidex-compat-dom/       # Legacy JS API shims (document.all, etc.)
-├── elidex-llm-repair/         # LLM-assisted error recovery
-│   ├── elidex-llm-runtime/   # Local inference (candle/llama.cpp)
-│   └── elidex-llm-diag/      # Dev-mode diagnostic message generation
+├── elidex-llm-repair/         # LLM-assisted error recovery (currently paused)
+│   ├── elidex-llm-runtime/   # Local inference (candle/llama.cpp, paused)
+│   └── elidex-llm-diag/      # Dev-mode diagnostic message generation (paused)
 ├── elidex-net/                # Networking
 │   ├── elidex-http/          # HTTP/1.1, HTTP/2, HTTP/3 (hyper + h3)
 │   ├── elidex-tls/           # TLS (rustls)
@@ -106,4 +106,3 @@ elidex/
 ├── elidex-app/                # App runtime (core + selected plugins only)
 └── elidex-crawler/            # Web compatibility survey tool
 ```
-
