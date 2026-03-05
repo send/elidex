@@ -1,6 +1,9 @@
 [advisories]
-unmaintained = "none"
+unmaintained = "workspace"
 yanked = "warn"
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "paste is pulled transitively via boa/wgpu stack; track separately until upstream replacement is feasible" },
+]
 
 [licenses]
 allow = [
@@ -24,7 +27,7 @@ allow = [
 ]
 
 [bans]
-multiple-versions = "allow"
+multiple-versions = "warn"
 wildcards = "allow"
 
 [sources]
