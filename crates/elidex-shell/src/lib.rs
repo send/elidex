@@ -331,6 +331,12 @@ mod tests {
     use elidex_plugin::{EventPayload, MouseEventInit};
     use elidex_render::DisplayItem;
 
+    const TEST_FONT_FAMILIES: &[&str] = &["Arial", "DejaVu Sans", "Noto Sans", "Hiragino Sans"];
+
+    fn fonts_available(font_db: &FontDatabase) -> bool {
+        font_db.query(TEST_FONT_FAMILIES, 400).is_some()
+    }
+
     #[test]
     fn build_pipeline_interactive_returns_all_fields() {
         let result = build_pipeline_interactive(
@@ -516,12 +522,15 @@ mod tests {
     #[test]
     fn pipeline_without_scripts_still_works() {
         // Ensure the script integration path doesn't break pipelines without scripts.
-        let dl = build_pipeline(
+        let result = build_pipeline_interactive(
             "<h1>No Scripts</h1><p>Just content</p>",
             "h1 { display: block; color: red; }",
         );
-        let has_items = !dl.is_empty();
-        assert!(has_items, "Expected display items for content");
+        // The no-script pipeline should produce a valid DOM/document state
+        // regardless of font availability.
+        assert!(result.dom.contains(result.document));
+        assert!(!result.dom.query_by_tag("h1").is_empty());
+        assert!(!result.dom.query_by_tag("p").is_empty());
     }
 
     // --- DOM JS round-trip integration tests ---
@@ -809,8 +818,13 @@ mod tests {
     fn inline_run_produces_single_text_item() {
         // Verifies that inline text is collected and rendered correctly.
         let html = r"<p>Hello <strong>world</strong>!</p>";
-        let css = "p { display: block; }";
-        let dl = build_pipeline(html, css);
+        let css = "p, strong { display: inline; font-family: Arial, \"DejaVu Sans\", \"Noto Sans\", \"Hiragino Sans\"; } p { display: block; }";
+        let result = build_pipeline_interactive(html, css);
+        if !fonts_available(&result.font_db) {
+            // This test validates text item segmentation, which requires available fonts.
+            return;
+        }
+        let dl = &result.display_list;
         let text_count = dl
             .iter()
             .filter(|i| matches!(i, DisplayItem::Text { .. }))

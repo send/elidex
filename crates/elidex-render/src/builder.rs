@@ -1273,6 +1273,7 @@ mod tests {
             ComputedStyle {
                 display: Display::Block,
                 text_align: TextAlign::Center,
+                font_family: test_font_family_strings(),
                 ..Default::default()
             },
             LayoutBox {
@@ -1316,6 +1317,7 @@ mod tests {
             ComputedStyle {
                 display: Display::Block,
                 text_align: TextAlign::Right,
+                font_family: test_font_family_strings(),
                 ..Default::default()
             },
             LayoutBox {
