@@ -233,7 +233,7 @@ mod tests {
     struct WidthHandler;
 
     impl CssPropertyHandler for WidthHandler {
-        fn property_name(&self) -> &str {
+        fn property_name(&self) -> &'static str {
             "width"
         }
 
@@ -260,7 +260,7 @@ mod tests {
     struct DivHandler;
 
     impl HtmlElementHandler for DivHandler {
-        fn tag_name(&self) -> &str {
+        fn tag_name(&self) -> &'static str {
             "div"
         }
 
@@ -275,7 +275,7 @@ mod tests {
     struct BlockLayout;
 
     impl LayoutModel for BlockLayout {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "block"
         }
 
@@ -286,7 +286,8 @@ mod tests {
             constraints: &Constraints,
             _ctx: &LayoutContext,
         ) -> LayoutResult {
-            let h = children.len() as f32 * 10.0;
+            let child_count = u16::try_from(children.len()).unwrap_or(u16::MAX);
+            let h = f32::from(child_count) * 10.0;
             LayoutResult {
                 bounds: Rect {
                     x: 0.0,
