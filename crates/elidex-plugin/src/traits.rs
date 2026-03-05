@@ -155,21 +155,12 @@ pub trait HtmlElementHandler: Send + Sync {
 }
 
 /// A layout tree node passed to `LayoutModel`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutNode {
     /// Stable node id for diagnostics and caching.
     pub node_id: u64,
     /// Resolved style attached to this node.
     pub style: ComputedStyle,
-}
-
-impl Default for LayoutNode {
-    fn default() -> Self {
-        Self {
-            node_id: 0,
-            style: ComputedStyle::default(),
-        }
-    }
 }
 
 /// Constraints passed to layout algorithms.
