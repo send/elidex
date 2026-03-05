@@ -65,7 +65,7 @@ fn style_resolution_1000_nodes(b: &mut Bencher) {
 | 対象 | ファザー | コーパス |
 | --- | --- | --- |
 | HTMLパーサー | cargo-fuzz (libFuzzer) | クロールWebページ、WPTフィクスチャ |
-| CSSパーサー | cargo-fuzz | トップ1万サイトのCSS |
+| CSSパーサー | cargo-fuzz | トップ10kサイトのCSS |
 | SVGパーサー | cargo-fuzz | Web由来SVG + エッジケース |
 | 画像デコーダー | cargo-fuzz | 不正画像（PNG, JPEG, WebP, AVIF） |
 | メディアデマクサー | cargo-fuzz | 切断/破損メディアファイル |
