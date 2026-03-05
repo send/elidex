@@ -58,7 +58,7 @@ Add JavaScript execution, Flexbox layout, and networking. The engine becomes cap
 | wasmtime integration (elidex-wasm-runtime) | 4 weeks | ECS DOM |
 | DOM API plugin layer (elidex-dom-api, Living Standard) | 5 weeks | ECS DOM |
 | Shared DOM host functions (elidex-dom-host, JS + Wasm) | 3 weeks | DOM API, wasmtime |
-| SpiderMonkey integration (elidex-js-spidermonkey, Phase 1-3 JS) | 5 weeks | DOM host functions |
+| Boa integration (elidex-js, Phase 1-3 JS) | 5 weeks | DOM host functions |
 | Event system (click, input, keyboard) | 3 weeks | DOM bindings |
 | Flexbox layout plugin | 4 weeks | Block layout |
 | Networking stack (hyper + rustls) | 3 weeks | — |
@@ -121,9 +121,9 @@ Harden for daily use. Security audit, cross-platform support, WebWorkers, Servic
 
 ## Phase 5: Long-Term (Month 30+)
 
-**elidex-js baseline JIT (Stage 4): ** Cranelift-based JIT compiler for the elidex-js bytecode. Bridges the performance gap with SpiderMonkey for compute-heavy JS.
+**elidex-js baseline JIT (Stage 4): ** Cranelift-based JIT compiler for the elidex-js bytecode. Bridges the performance gap with Boa for compute-heavy JS.
 
-**SpiderMonkey removal: ** Once elidex-js achieves acceptable real-world performance (validated via benchmarks), remove SpiderMonkey. Achieves the pure-Rust stack goal.
+**Boa removal: ** Once elidex-js achieves acceptable real-world performance (validated via benchmarks), remove Boa. Achieves the pure-Rust stack goal.
 
 **elidex-js optimizing JIT (Stage 5): ** If needed, add speculative optimization passes. Only pursued if Stage 4 baseline JIT proves insufficient for target workloads.
 

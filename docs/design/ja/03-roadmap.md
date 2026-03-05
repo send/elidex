@@ -58,7 +58,7 @@ JavaScript実行、Flexboxレイアウト、ネットワーキングを追加。
 | wasmtime統合（elidex-wasm-runtime） | 4週間 | ECS DOM |
 | DOM APIプラグイン層（elidex-dom-api、Living Standard） | 5週間 | ECS DOM |
 | 共有DOMホスト関数（elidex-dom-host、JS + Wasm） | 3週間 | DOM API、wasmtime |
-| SpiderMonkey統合（elidex-js-spidermonkey、Phase 1-3 JS） | 5週間 | DOMホスト関数 |
+| Boa統合（elidex-js、Phase 1-3 JS） | 5週間 | DOMホスト関数 |
 | イベントシステム（click, input, keyboard） | 3週間 | DOMバインディング |
 | Flexboxレイアウトプラグイン | 4週間 | ブロックレイアウト |
 | ネットワーキングスタック（hyper + rustls） | 3週間 | — |
@@ -121,9 +121,9 @@ CSS Grid、互換レイヤー、アクセシビリティ、アプリランタイ
 
 ## Phase 5：長期（30ヶ月目以降）
 
-**elidex-jsベースラインJIT（Stage 4）：** elidex-jsバイトコード用のCraneliftベースJITコンパイラ。計算集約的JSにおけるSpiderMonkeyとのパフォーマンスギャップを橋渡し。
+**elidex-jsベースラインJIT（Stage 4）：** elidex-jsバイトコード用のCraneliftベースJITコンパイラ。計算集約的JSにおけるBoaとのパフォーマンスギャップを橋渡し。
 
-**SpiderMonkey撤去：** elidex-jsが許容可能な実世界パフォーマンス（ベンチマークで検証）を達成したら、SpiderMonkeyを削除。純粋Rustスタックの目標を達成。
+**Boa撤去：** elidex-jsが許容可能な実世界パフォーマンス（ベンチマークで検証）を達成したら、Boaを削除。純粋Rustスタックの目標を達成。
 
 **elidex-js最適化JIT（Stage 5）：** 必要に応じて投機的最適化パスを追加。Stage 4ベースラインJITがターゲットワークロードに不十分な場合のみ追求。
 

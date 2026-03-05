@@ -8,7 +8,7 @@ Elidex uses a multi-process architecture inspired by Chromium’s security model
 | Process | Responsibilities | Key Dependencies |
 | --- | --- | --- |
 | Browser Process | Chrome UI (tabs, address bar, settings), Navigation & session management, Profile & cookie storage, Permission brokering (Ch. 8) | iced or egui (Rust native GUI), ipc-channel |
-| Renderer Process | HTML/CSS parsing, DOM management (ECS), Style resolution (parallel), Layout computation (parallel), Display list generation, JavaScript execution | elidex-core + plugins, SpiderMonkey (Phase 1–3) → elidex-js, wasmtime (Wasm runtime), rayon (parallelism) |
+| Renderer Process | HTML/CSS parsing, DOM management (ECS), Style resolution (parallel), Layout computation (parallel), Display list generation, JavaScript execution | elidex-core + plugins, Boa (Phase 1–3) → elidex-js, wasmtime (Wasm runtime), rayon (parallelism) |
 | Network Process | HTTP/HTTPS stack, DNS resolution, connection pooling, cookie jar, TLS, WebSocket | hyper + rustls, h3 |
 | GPU Process | GPU rasterization, Layer compositing, Compositor-driven scroll & animation | wgpu, Vello |
 | Utility Process | Media decoding, audio processing. Spawned on demand, terminated when idle | dav1d, platform codecs |
@@ -48,7 +48,7 @@ elidex/
 │   │                          #   Identity Map, Mutation Buffer, GC coordination
 │   ├── elidex-js/            # Self-built JS engine (ES2020+ core, Rust)
 │   ├── elidex-js-compat/     # ES legacy semantics (Annex B, var quirks)
-│   ├── elidex-js-spidermonkey/ # SpiderMonkey bridge (Phase 1-3 fallback)
+│   ├── elidex-js/ # Boa bridge (Phase 1-3 fallback)
 │   ├── elidex-wasm-runtime/  # wasmtime integration
 │   └── elidex-dom-host/      # Shared DOM host functions (JS + Wasm)
 ├── elidex-text/               # Text pipeline
