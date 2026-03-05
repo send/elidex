@@ -119,7 +119,7 @@
 
 **解決先**: 第26章（エンベディングAPI）
 
-**概要**: elidex-app向けRustネイティブエンベディングAPI。ビルダーパターンのEngine構造体、EngineConfig（ProcessMode SingleProcess/MultiProcess、FeatureFlags、CodecConfig）。ViewConfig付きView構造体（ViewContent: URL/HTML/File/Blank、SurfaceConfig: raw-window-handle経由のCreateWindow/AttachToWindow/Headless、PermissionConfig、NavigationPolicy）。ネイティブ↔Webブリッジ：expose_function（serde経由のRust→JS、JSからの非同期呼び出し）、双方向メッセージチャネル、window.__elidex名前空間。リソースリクエストインターセプト用カスタムResourceLoaderトレイト（app://スキーム、埋め込みアセット）。マルチビューサポート（Engineを共有する独立View群）。SSR/テスト/スクリーンショット用VelloのCPUバックエンドによるヘッドレスモード。CDPサーバーによるDevTools。非RustエンベッダーvのためのCbindgen経由C API。セマンティックバージョニング付きAPI安定性階層（安定/準安定/不安定）。
+**概要**: elidex-app向けRustネイティブエンベディングAPI。ビルダーパターンのEngine構造体、EngineConfig（ProcessMode SingleProcess/MultiProcess、FeatureFlags、CodecConfig）。ViewConfig付きView構造体（ViewContent: URL/HTML/File/Blank、SurfaceConfig: raw-window-handle経由のCreateWindow/AttachToWindow/Headless、PermissionConfig、NavigationPolicy）。ネイティブ↔Webブリッジ：expose_function（serde経由のRust→JS、JSからの非同期呼び出し）、双方向メッセージチャネル、window.__elidex名前空間。リソースリクエストインターセプト用カスタムResourceLoaderトレイト（app://スキーム、埋め込みアセット）。マルチビューサポート（Engineを共有する独立View群）。SSR/テスト/スクリーンショット用VelloのCPUバックエンドによるヘッドレスモード。CDPサーバーによるDevTools。非Rustエンベッダー向けのcbindgen経由C API。セマンティックバージョニング付きAPI安定性階層（安定/準安定/不安定）。
 
 ---
 
@@ -151,7 +151,7 @@
 | クラッシュレポート | OPEN-001拡張 | プロセスクラッシュキャプチャ、ミニダンプ生成、オプショナルアップロード。特にRendererクラッシュ回復に重要。 |
 | エンジンテレメトリ/ロギング | Ch27（テスト）拡張 | 構造化ロギング（tracingクレート）、パフォーマンスカウンター、エラーテレメトリパイプライン。Ch5でパーサーパターンのテレメトリに言及があるが汎用フレームワークなし。 |
 | Server-Sent Events (EventSource) | Ch12拡張 | WebSocketより単純。HTTPベースのストリーミング。OPEN-011（非同期ランタイム）に依存。 |
-| ブラウザ自動化プロトコル（WebDriver / CDP） | Ch24（DevTools）拡張 | Selenium、Playwright、PuppeteerがWebDriverまたはChrome DevTools Protocolに依存。WebDriver BiDiが両方を統合する新興標準。DevTools（第24章4節）とインフラを共有。elidex自体のCIテスト（第27章）にも最低1つの自動化プロトコルが必要。 |
+| ブラウザ自動化プロトコル（WebDriver / CDP） | Ch24（DevTools）拡張 | Selenium、Playwright、PuppeteerがWebDriverまたはChrome DevTools Protocolに依存。WebDriver BiDiが両方を統合する新興標準。DevTools（第24章 §24.4）とインフラを共有。elidex自体のCIテスト（第27章）にも最低1つの自動化プロトコルが必要。 |
 | 自動更新メカニズム | 後回し | 本番デプロイに不可欠だがエンジンアーキテクチャの問題ではない。別プロセスのアップデーター、差分更新、ロールバック。プロダクトレベルのインフラ。 |
 | Spectre/Meltdown＆サイドチャネル緩和 | OPEN-001拡張 | Site Isolation（サイト単位プロセス）、高精度タイマー制限、COOP/COEP背後のSharedArrayBufferゲーティング。プロセスモデル設計時に自然に対処。 |
 | Performance Observer / Reporting API | Ch12拡張 | PerformanceObserver、Long Tasks API、Reporting API（CSP違反レポート、deprecationレポート）。エンジン全体の計測ポイント。 |

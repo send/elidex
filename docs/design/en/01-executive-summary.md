@@ -68,7 +68,7 @@ HTML → Parser → ECS DOM → Style → Layout → Paint (DisplayList) → Com
 
 ## 1.5 Document Structure
 
-This design document is organized into eight parts spanning 28 chapters:
+This design document is organized into eight parts spanning 29 chapters:
 
 **Part I — Overview** (Ch. 1–4): Executive summary, architecture overview, roadmap, and risk analysis.
 
@@ -84,4 +84,4 @@ This design document is organized into eight parts spanning 28 chapters:
 
 **Part VII — elidex-app** (Ch. 26): Embedding API and dual-use design (browser vs. app runtime).
 
-**Part VIII — Quality & Appendix** (Ch. 27–28): Testing strategy, architecture decision records (35 ADRs).
+**Part VIII — Quality & Appendix** (Ch. 27–29): Testing strategy, architecture decision records (35 ADRs), and survey analysis.
