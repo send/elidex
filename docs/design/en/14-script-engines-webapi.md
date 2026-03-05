@@ -35,19 +35,19 @@ pub enum EsSpecLevel {
 
 ### 14.1.2 Implementation Strategy
 
-Building a JS engine is the largest single component in elidex. The implementation proceeds in stages, with SpiderMonkey providing a working browser throughout:
+Building a JS engine is the largest single component in elidex. The implementation proceeds in stages, with Boa providing a working browser throughout:
 
 | Stage | Deliverable | elidex-browser uses | elidex-app uses |
 | --- | --- | --- | --- |
-| 1 | Parser + AST (ES2020+ syntax) | SpiderMonkey | SpiderMonkey or Wasm |
-| 2 | Bytecode compiler + interpreter | SpiderMonkey | elidex-js (self-built) |
-| 3 | Inline caches + hidden classes | Switchable: SpiderMonkey or elidex-js | elidex-js |
+| 1 | Parser + AST (ES2020+ syntax) | Boa | Boa or Wasm |
+| 2 | Bytecode compiler + interpreter | Boa | elidex-js (self-built) |
+| 3 | Inline caches + hidden classes | Switchable: Boa or elidex-js | elidex-js |
 | 4 | Baseline JIT (Cranelift backend) | elidex-js | elidex-js |
 | 5 | Optimizing JIT (if needed) | elidex-js | elidex-js |
 
 The Boa project (a Rust JS engine) provides a reference point but is not production-ready for browser use. The elidex-js engine can study Boa's architecture while making different trade-offs—particularly, elidex-js can omit Annex B and sloppy mode from its core, simplifying the implementation substantially.
 
-The ScriptEngine trait abstraction ensures SpiderMonkey and elidex-js are interchangeable at any point. Note that the engine receives a ScriptSession rather than direct ECS access:
+The ScriptEngine trait abstraction ensures Boa and elidex-js are interchangeable at any point. Note that the engine receives a ScriptSession rather than direct ECS access:
 
 ```rust
 pub trait ScriptEngine: Send + Sync {
@@ -59,7 +59,7 @@ pub trait ScriptEngine: Send + Sync {
 }
 
 enum ScriptBackend {
-    SpiderMonkey(MozJsEngine),    // Phase 1-3: mature, full compat
+    Boa(BoaEngine),      // Phase 1-3: mature, full compat
     ElidexJs(ElidexJsEngine),     // Phase 2+: self-built, growing
 }
 ```
@@ -70,7 +70,7 @@ WebAssembly support is provided via wasmtime, a mature Rust-native Wasm runtime.
 
 | Context | JS Engine | Wasm Runtime |
 | --- | --- | --- |
-| elidex-browser | SpiderMonkey → elidex-js (phase migration). Handles <script> tags. | wasmtime. Handles WebAssembly.instantiate() from JS, and native .wasm modules. |
+| elidex-browser | Boa → elidex-js (phase migration). Handles <script> tags. | wasmtime. Handles WebAssembly.instantiate() from JS, and native .wasm modules. |
 | elidex-app | elidex-js (ES2020+ only, no compat). For apps using JS/TS. | wasmtime. Primary runtime for non-JS languages (Rust, Go, C++, Zig, etc.). |
 
 Wasm modules interact with the DOM and CSSOM via the same ScriptSession used by the JS engine, ensuring consistent behavior regardless of the calling language:

@@ -25,10 +25,10 @@ Elidex is an experimental browser engine written in Rust that eliminates legacy 
 | --- | --- | --- |
 | 9 | [Navigation & Page Lifecycle](09-navigation-lifecycle.md) | URL → rendered page flow, history, bfcache, preload scanner |
 | 10 | [Network Architecture](10-network-architecture.md) | HTTP stack, fetch, caching, service workers |
-| 11 | [HTML Parser](11-parser-design.md) | Strict core parser, compat error recovery, LLM repair |
+| 11 | [HTML Parser](11-parser-design.md) | Strict core parser, compat error recovery (LLM scope paused) |
 | 12 | [DOM & CSSOM](12-dom-cssom.md) | ECS DOM, CSS cascade, selector matching, computed styles |
 | 13 | [ScriptSession](13-script-session.md) | Script ↔ ECS boundary, identity mapping, mutation buffering |
-| 14 | [Script Engines & Web API](14-script-engines-webapi.md) | SpiderMonkey, elidex-js, wasmtime, Web API bindings |
+| 14 | [Script Engines & Web API](14-script-engines-webapi.md) | Boa, elidex-js, wasmtime, Web API bindings |
 
 ### Part IV — Rendering
 | Ch. | Title | Description |

@@ -49,7 +49,7 @@ Within each Renderer Process:
 HTML → Parser → ECS DOM → Style → Layout → Paint (DisplayList) → Compositor → GPU (Vello/wgpu)
                   ↑                                                     ↑
             ScriptSession                                        Animation/Scroll
-           (SpiderMonkey /                                      (compositor thread,
+           (Boa /                                      (compositor thread,
             elidex-js)                                           off-main-thread)
 ```
 
@@ -60,7 +60,7 @@ HTML → Parser → ECS DOM → Style → Layout → Paint (DisplayList) → Com
 | Language | Rust | Memory safety, fearless concurrency, ownership enables parallel layout |
 | DOM storage | ECS (hecs) | Cache-line friendly, natural parallelism, ~40% less memory than tree-of-objects |
 | GPU rendering | Vello + wgpu | Modern 2D vector GPU renderer. Trait-abstracted — no upstream Vello dependency |
-| JS engine | SpiderMonkey (Phase 1–3), self-built elidex-js (Phase 4+) | Proven engine for bootstrap; Rust-native engine long-term |
+| JS engine | Boa (Phase 1–3), self-built elidex-js (Phase 4+) | Proven engine for bootstrap; Rust-native engine long-term |
 | CSS parsing | cssparser + lightningcss | Proven Mozilla crates, extended with plugin property registry |
 | Font shaping | rustybuzz | Pure-Rust HarfBuzz port; first-class CJK and BiDi |
 | Accessibility | AccessKit | Cross-platform a11y (NSAccessibility, UI Automation, AT-SPI2) |

@@ -8,7 +8,7 @@
 | Web compatibility too low for practical browser use | High | Compat layer (Ch. 7) is the escape hatch. Crawler data drives prioritization. Bar is "works well enough for modern sites," not "passes all WPT." |
 
 > **Phase 0 Survey Result (Ch. 29 §29.5):** Concrete compat priorities established — P0: width/height 60%+, -webkit- ~40% EN; P1: appearance, font-smoothing; P2: deprecated tags < 5%.
-| Self-built JS engine maturity | High | Staged approach (parser → interpreter → IC → JIT). SpiderMonkey remains as fallback throughout Phase 1–3. elidex-app can adopt elidex-js earlier (lighter workloads). ES2020+-only core omits Annex B, simplifying substantially. |
+| Self-built JS engine maturity | High | Staged approach (parser → interpreter → IC → JIT). Boa remains as fallback throughout Phase 1–3. elidex-app can adopt elidex-js earlier (lighter workloads). ES2020+-only core omits Annex B, simplifying substantially. |
 | DOM API completeness for real-world sites | Medium | Modern frameworks (React, Vue, Svelte) use a smaller DOM API surface than raw JS. Legacy APIs implemented on-demand based on breakage data from crawler. |
 
 > **Phase 0 Survey Result (Ch. 29 §29.4):** document.all 0% (validates deprioritization), document.write JA 12.4% / EN 5.3% (primarily ads/analytics — supports strict-only approach).
@@ -22,7 +22,7 @@
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
 | Scope creep from web platform complexity | High | Plugin architecture forces each feature to be a discrete, removable unit. Strict phase gates prevent adding features before foundations are solid. |
-| Single-developer bottleneck | High | Modular crate structure enables parallel development if contributors join. Focus on unique value (core engine) and leverage existing crates (rustybuzz, cssparser, html5ever, mozjs). |
+| Single-developer bottleneck | High | Modular crate structure enables parallel development if contributors join. Focus on unique value (core engine) and leverage existing crates (rustybuzz, cssparser, html5ever, boa_engine). |
 | WebRTC complexity | Medium | WebRTC full implementation deferred (Ch. 20 §20.11). Interface defined for future integration. Can use existing Rust WebRTC libraries (webrtc-rs) when ready. |
 | DRM/Widevine licensing | Medium | EME API defined with CDM plugin slot (Ch. 20 §20.8). v1 ships without CDM. Architectural readiness ensures no redesign when licensing is obtained. |
 

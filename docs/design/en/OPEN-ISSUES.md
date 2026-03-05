@@ -15,7 +15,7 @@ This document tracks architectural areas that are identified as gaps or insuffic
 
 **Resolved in**: Ch. 5 (Process Architecture & Async Runtime)
 
-**Summary**: Staged relaxation model — site-based process isolation in Phase 1–3 (SpiderMonkey era), relaxable to crash-isolation-only after full Rust migration. ProcessModel enum (SiteIsolation / PerTab / Shared / SingleProcess) configurable at build/startup. IPC abstracted behind trait (ProcessChannel / LocalChannel) enabling zero-cost process merging. elidex-app defaults to SingleProcess.
+**Summary**: Staged relaxation model — site-based process isolation in Phase 1–3 (Boa era), relaxable to crash-isolation-only after full Rust migration. ProcessModel enum (SiteIsolation / PerTab / Shared / SingleProcess) configurable at build/startup. IPC abstracted behind trait (ProcessChannel / LocalChannel) enabling zero-cost process merging. elidex-app defaults to SingleProcess.
 
 ---
 

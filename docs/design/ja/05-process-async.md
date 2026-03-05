@@ -9,8 +9,8 @@ elidexのエンジン層で使われるcore/compatパターンがプロセスモ
 
 | 側面 | コア（長期目標） | 互換（Phase 1–3の現実） | 互換の理由 |
 | --- | --- | --- | --- |
-| Renderer分離 | クラッシュ隔離のみ。単一または少数のRendererプロセス。 | サイト単位プロセス分離。 | SpiderMonkeyはC++。JSエンジンのメモリ破壊がクロスサイトデータを漏洩しうる。 |
-| Network Process | Browserプロセス内スレッドに統合可能。 | 別プロセス。 | RendererにC++コードが存在する間の多層防御。 |
+| Renderer分離 | クラッシュ隔離のみ。単一または少数のRendererプロセス。 | サイト単位プロセス分離。 | Boaはブラウザ埋め込みとしてのハードニングが進行中の外部JSランタイム。分離でエンジン/埋め込みバグの影響半径を限定する。 |
+| Network Process | Browserプロセス内スレッドに統合可能。 | 別プロセス。 | ランタイム統合とホストバインディングが安定するまでの多層防御。 |
 | GPU Process | Rendererスレッドに統合可能。 | 別プロセスまたはスレッド。 | GPUドライバクラッシュはOSレベル。分離の価値は残るが形態は柔軟。 |
 | 非同期ランタイム | 完全自前イベントループ（Rendererで実証済み、拡張）。 | Network/Browserにtokio、Rendererは自前。 | tokioがエコシステム速度を提供。Rendererは初日からカスタム制御が必要。 |
 
@@ -55,7 +55,7 @@ elidexのエンジン層で使われるcore/compatパターンがプロセスモ
 | プロセス | 数 | サンドボックス | 責務 | 長期展望 |
 | --- | --- | --- | --- | --- |
 | Browser | 1 | なし（特権） | シェル状態（第24章）、永続化（OPEN-012）、パーミッション仲介（第8章）、ダウンロード管理、拡張機能ライフサイクル、プロセスライフサイクル管理。フルOSアクセスを持つ唯一のプロセス。 | 常に分離 — 特権ブローカー役割は恒久的。 |
-| Renderer | サイトごとに1（Phase 1–3） | 厳格（seccomp-bpf / App Sandbox / Restricted token） | DOM/ECS、ScriptSession（第13章）、スタイル/レイアウト/ペイント、スクリプトエンジン、Wasmランタイム。直接のネットワーク/ファイルシステムアクセスなし。 | C++（SpiderMonkey）除去後にプロセス数を緩和可能。クラッシュ隔離の価値は残る。 |
+| Renderer | サイトごとに1（Phase 1–3） | 厳格（seccomp-bpf / App Sandbox / Restricted token） | DOM/ECS、ScriptSession（第13章）、スタイル/レイアウト/ペイント、スクリプトエンジン、Wasmランタイム。直接のネットワーク/ファイルシステムアクセスなし。 | elidex-js移行とセキュリティハードニングの検証後にプロセス数を緩和可能。クラッシュ隔離の価値は残る。 |
 | Network | 1 | 中程度（ネットワークのみ） | HTTP/HTTPSスタック（hyper + rustls + h3）、DNS解決、接続プール、cookie jar、TLS、WebSocket。 | Browserプロセス内スレッドに統合可能。タブ間の接続プール共有は集中化の実用的理由。 |
 | GPU | 1 | 中程度 | wgpuサーフェス管理、Velloラスタライゼーション、レイヤー合成、コンポジター駆動スクロール/アニメーション。 | Renderer内スレッドに統合可能。GPUドライバクラッシュ隔離の価値はあるがRenderer分離ほど重要ではない。 |
 | Utility | 0–N | 厳格 | メディアデコード（OPEN-002）、音声処理。オンデマンドで起動、アイドル時に終了。 | C/C++ライブラリ分離のために維持。純粋Rustデコーダには不要。 |
@@ -366,19 +366,19 @@ pub struct BackpressureChannel<T> {
 ## 5.6 段階的移行パス
 
 ```
-Phase 1–3（SpiderMonkey時代）
+Phase 1–3（Boa時代）
 ├── ProcessModel::SiteIsolation（ブラウザのデフォルト）
 ├── Browser/Network: tokioマルチスレッド
 ├── Renderer: elidexイベントループ + tokio reactor
 ├── IPC: ProcessChannel（クロスプロセス、シリアライズ）
-└── セキュリティ: プロセス分離がC++リスクを補償
+└── セキュリティ: プロセス分離が移行初期のハードニングリスクを補償
 
 Phase 4–5（elidex-js移行）
 ├── ProcessModel::PerTabまたはShared（緩和、設定可能）
 ├── Network: Browserスレッドへの統合を検討
 ├── GPU: Rendererスレッドへの統合を検討
 ├── Rendererイベントループが成熟、最適化を蓄積
-└── セキュリティ: Rustメモリ安全性によりサイト分離はオプショナル
+└── セキュリティ: Rust-firstスタックの成熟後は脅威モデルに応じてサイト分離をオプショナル化
 
 長期（全Rust）
 ├── ProcessModel::SharedまたはSingleProcess（信頼コンテンツ向け）

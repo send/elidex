@@ -168,7 +168,7 @@ pub trait CssPropertyHandler: Send + Sync {
 | ネットワーク | HTTPローダー、キャッシュ、file://ローダー | 広告ブロッカー、DevToolsロガー、プライバシーフィルター、APIモック |
 | DOM API | Living Standardメソッド（querySelector、MutationObserver、...） | レガシーDOMシム（ライブコレクション、document.write、attachEvent） |
 | ECMAScript | ES2020+コア（let/const、class、async/await、modules） | Annex Bセマンティクス、var quirks、sloppy eval |
-| パーサー修復 | ルールベースのエラー回復パターン | LLMフォールバック（有効時） |
+| パーサー修復 | ルールベースのエラー回復パターン | LLMフォールバック（設計上は拡張点、現在は停止中） |
 
 この統一性は、どのレイヤーで作業しているかに関係なく、すべてのコントリビューターと拡張作者にとって単一のelidex-pluginクレート、単一のprocマクロ、単一のメンタルモデルを意味する。
 

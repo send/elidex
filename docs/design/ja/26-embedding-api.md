@@ -33,7 +33,7 @@ fn main() {
 |  | Electron | Tauri | elidex-app |
 | --- | --- | --- | --- |
 | エンジン | Chromium（フル） | OS WebView | elidex-core（スリム） |
-| スクリプトランタイム | V8（JSのみ） | OS JSエンジン | SpiderMonkey → elidex-js (Rust) + wasmtime（Ch. 14 §14.1.2参照） |
+| スクリプトランタイム | V8（JSのみ） | OS JSエンジン | Boa → elidex-js (Rust) + wasmtime（Ch. 14 §14.1.2参照） |
 | バイナリサイズ | ~150 MB | ~3-8 MB | 目標: ~5-15 MB |
 | レンダリング一貫性 | 同一（バンドル） | OSにより異なる | 同一（バンドル） |
 | レガシーオーバーヘッド | フル後方互換 | フル（OS依存） | ゼロ（HTML5のみ） |
