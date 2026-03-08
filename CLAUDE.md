@@ -86,6 +86,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **Error types**: `define_error_type!` macro for DRY error boilerplate (`ParseError`, `HtmlParseError`, `NetworkError`).
 - **JsValue**: `#[non_exhaustive]` enum (Undefined/Null/Bool/Number/String/ObjectRef) — cross-engine JS value type.
 - **Network types**: `HttpRequest` (method/url/headers), `HttpResponse` (status/headers), `NetworkError` (kind/message), `NetworkErrorKind` enum.
+- **ProcessModel**: `SiteIsolation`/`PerTab`/`Shared{max_renderers}`/`SingleProcess` — `#[non_exhaustive]`, Phase 3.5 implements `SingleProcess` only.
 
 ### elidex-layout
 
@@ -161,7 +162,10 @@ cargo doc --workspace --no-deps  # Build docs
 - **Chrome actions**: `handle_chrome_action()` — Navigate (URL parse with `https://` fallback), Back/Forward (via `NavigationController`), Reload (re-navigate current URL).
 - **URL sync**: `chrome.set_url()` called in `navigate()`, `navigate_to_history_url()`, and `handle_history_action()` (PushState/ReplaceState).
 - **Accessibility**: `RenderState.a11y_adapter` — `accesskit_winit::Adapter` initialized via `with_direct_handlers()` with stub handlers (NoopActivation/Action/Deactivation). Window created `with_visible(false)` for AccessKit init safety, then shown. `process_event()` called before event handling, `update_if_active()` after rendering with `elidex_a11y::build_tree_update()`.
-- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible), accesskit 0.24, accesskit_winit 0.32, elidex-a11y.
+- **Thread isolation (M3.5-9)**: Content processing (DOM, JS, style, layout) runs on a dedicated thread. Browser thread (winit event loop, GPU rendering) communicates via `LocalChannel` (crossbeam-channel). `App` supports two modes: `ContentHandle` (threaded, used by `run()`/`run_url()`) and `InteractiveState` (legacy inline, used by `build_pipeline()` tests). Content thread owns `PipelineResult`, runs event loop with `recv_timeout` for JS timer integration. `DisplayList` (all `Send` types) transferred between threads.
+- **IPC module** (`ipc.rs`): `BrowserToContent` (Navigate/MouseClick/MouseMove/CursorLeft/KeyDown/KeyUp/SetViewport/Shutdown), `ContentToBrowser` (DisplayListReady/TitleChanged/NavigationRequest), `ModifierState`, `LocalChannel<S,R>`, `channel_pair()`.
+- **Content thread** (`content.rs`): `spawn_content_thread()`/`spawn_content_thread_url()`, `content_thread_main()` event loop, hover/focus/active management, link navigation detection, JS timer drain via `recv_timeout`, history action handling.
+- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible), accesskit 0.24, accesskit_winit 0.32, elidex-a11y, crossbeam-channel 0.5.
 
 ### elidex-api-canvas
 

@@ -11,7 +11,9 @@
 
 mod app;
 pub(crate) mod chrome;
+mod content;
 mod gpu;
+pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
 
@@ -59,12 +61,13 @@ fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
 /// Parses HTML, applies CSS, computes layout, builds a display list,
 /// and opens a window rendering the result via Vello + wgpu.
 ///
+/// Content processing (DOM, JS, style, layout) runs on a dedicated thread,
+/// communicating with the browser thread via message passing.
+///
 /// This function blocks until the window is closed.
 pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let pipeline_result = build_pipeline_interactive(html, css);
-
     let event_loop = EventLoop::new()?;
-    let mut app = App::new_interactive(pipeline_result);
+    let mut app = App::new_threaded(html.to_string(), css.to_string());
     event_loop.run_app(&mut app)?;
 
     Ok(())
@@ -230,17 +233,15 @@ pub fn build_pipeline_from_url(
 /// Parses the URL, fetches the page and its resources, executes scripts,
 /// renders the result, and runs the event loop.
 ///
+/// Content processing runs on a dedicated thread.
+///
 /// This function blocks until the window is closed.
 pub fn run_url(url_str: &str) -> Result<(), Box<dyn std::error::Error>> {
     let url = url::Url::parse(url_str)
         .map_err(|e| elidex_navigation::LoadError::InvalidUrl(format!("{url_str}: {e}")))?;
-    let pipeline_result = build_pipeline_from_url(&url)?;
-
-    // Set the window title to the URL.
-    let title = format!("elidex \u{2014} {url}");
 
     let event_loop = EventLoop::new()?;
-    let mut app = App::new_interactive_with_url(pipeline_result, title);
+    let mut app = App::new_threaded_url(url);
     event_loop.run_app(&mut app)?;
 
     Ok(())

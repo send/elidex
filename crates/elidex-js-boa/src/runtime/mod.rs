@@ -273,6 +273,11 @@ impl JsRuntime {
     pub fn set_history_length(&self, len: usize) {
         self.bridge.set_history_length(len);
     }
+
+    /// Returns the deadline of the next pending timer, if any.
+    pub fn next_timer_deadline(&self) -> Option<std::time::Instant> {
+        self.timer_queue.borrow().next_deadline()
+    }
 }
 
 impl ScriptEngine for JsRuntime {

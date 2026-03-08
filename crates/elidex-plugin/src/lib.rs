@@ -37,6 +37,30 @@ pub use traits::{
 pub use values::{CssColor, CssValue, LengthUnit};
 
 // ---------------------------------------------------------------------------
+// Process model
+// ---------------------------------------------------------------------------
+
+/// Describes how renderer (content) threads are allocated.
+///
+/// Phase 3.5 implements `SingleProcess` only (all content in one thread).
+/// Other variants are defined for future multi-process support.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProcessModel {
+    /// Each site (origin) gets its own renderer.
+    SiteIsolation,
+    /// Each tab gets its own renderer.
+    PerTab,
+    /// Renderers are shared across tabs up to a maximum count.
+    Shared {
+        /// Maximum number of concurrent renderer threads.
+        max_renderers: usize,
+    },
+    /// Everything runs in a single process (current default).
+    SingleProcess,
+}
+
+// ---------------------------------------------------------------------------
 // Network types
 // ---------------------------------------------------------------------------
 

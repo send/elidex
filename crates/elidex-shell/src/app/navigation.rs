@@ -92,10 +92,11 @@ impl App {
             Ok(loaded) => {
                 let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
                 interactive.pipeline = new_pipeline;
+                interactive.pipeline.runtime.set_current_url(Some(url.clone()));
                 interactive.window_title = format!("elidex \u{2014} {url}");
                 interactive.focus_target = None;
-                interactive.hovered_entities.clear();
-                interactive.active_entities.clear();
+                interactive.hover_chain.clear();
+                interactive.active_chain.clear();
                 interactive.chrome.set_url(url);
                 self.display_list = interactive.pipeline.display_list.clone();
                 true
@@ -231,11 +232,25 @@ fn apply_state_change(interactive: &mut InteractiveState, url: &url::Url, replac
         .set_history_length(interactive.nav_controller.len());
 }
 
+/// URL schemes that must not be navigated to.
+///
+/// `javascript:` and `vbscript:` URLs execute code in the current context
+/// rather than navigating. Allowing them would bypass security boundaries.
+const BLOCKED_NAV_SCHEMES: &[&str] = &["javascript", "vbscript"];
+
 /// Resolve a navigation URL string against the current page URL.
-fn resolve_nav_url(base: Option<&url::Url>, url_str: &str) -> Option<url::Url> {
-    if let Some(base_url) = base {
-        base_url.join(url_str).ok()
+///
+/// Returns `None` if the URL cannot be parsed or has a blocked scheme
+/// (e.g. `javascript:`, `vbscript:`).
+pub(crate) fn resolve_nav_url(base: Option<&url::Url>, url_str: &str) -> Option<url::Url> {
+    let url = if let Some(base_url) = base {
+        base_url.join(url_str).ok()?
     } else {
-        url::Url::parse(url_str).ok()
+        url::Url::parse(url_str).ok()?
+    };
+    if BLOCKED_NAV_SCHEMES.contains(&url.scheme()) {
+        eprintln!("Blocked navigation to {}: scheme not allowed", url.scheme());
+        return None;
     }
+    Some(url)
 }

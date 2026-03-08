@@ -5,10 +5,9 @@ use elidex_ecs::{
 };
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
 use elidex_script_session::DispatchEvent;
-use winit::event::MouseButton;
 
 use super::hover::update_element_state;
-use super::App;
+use super::{winit_button_to_dom, App};
 
 impl App {
     /// Handle a mouse click event.
@@ -20,7 +19,7 @@ impl App {
     /// press and release hit the same element.
     // TODO(Phase 3): split into handle_mouse_down / handle_mouse_up,
     // track press target per button, and dispatch mouseup on release.
-    pub(super) fn handle_click(&mut self, button: MouseButton) {
+    pub(super) fn handle_click(&mut self, button: winit::event::MouseButton) {
         // Dispatch events and re-render. Capture values needed after the
         // mutable borrow of `self.interactive` is released.
         let (button_num, click_prevented, hit_entity) = {
@@ -58,20 +57,13 @@ impl App {
                 interactive.focus_target = Some(hit_entity);
             }
 
-            // DOM spec: 0=primary, 1=auxiliary, 2=secondary, 3=back, 4=forward.
-            let button_num = match button {
-                MouseButton::Middle => 1,
-                MouseButton::Right => 2,
-                MouseButton::Back => 3,
-                MouseButton::Forward => 4,
-                MouseButton::Left | MouseButton::Other(_) => 0,
-            };
+            let button_num = winit_button_to_dom(button);
 
             let mods = interactive.modifiers.state();
             let mouse_init = MouseEventInit {
                 client_x: cx,
                 client_y: cy,
-                button: button_num,
+                button: i16::from(button_num),
                 alt_key: mods.alt_key(),
                 ctrl_key: mods.control_key(),
                 meta_key: mods.super_key(),
@@ -122,11 +114,7 @@ impl App {
                 };
                 let pipeline = &interactive.pipeline;
                 find_link_ancestor(&pipeline.dom, hit_entity).and_then(|href| {
-                    if let Some(base_url) = &pipeline.url {
-                        base_url.join(&href).ok()
-                    } else {
-                        url::Url::parse(&href).ok()
-                    }
+                    super::navigation::resolve_nav_url(pipeline.url.as_ref(), &href)
                 })
             };
             if let Some(target_url) = nav_target {
@@ -173,7 +161,7 @@ impl App {
 ///
 /// Depth-limited to [`MAX_ANCESTOR_DEPTH`] to guard against cycles (consistent with
 /// `build_propagation_path` and other tree walkers in the codebase).
-pub(super) fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<String> {
+pub(crate) fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<String> {
     let mut current = Some(entity);
     let mut depth = 0;
     while let Some(e) = current {
