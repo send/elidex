@@ -9,6 +9,7 @@ pub mod fetch;
 pub mod history;
 pub mod location;
 pub mod timers;
+pub mod wasm;
 pub mod window;
 
 use std::rc::Rc;
@@ -208,6 +209,7 @@ pub fn register_all_globals(
     window::register_window(ctx, bridge);
     timers::register_timers(ctx, timer_queue);
     fetch::register_fetch(ctx, fetch_handle);
+    wasm::register_wasm(ctx, bridge);
 
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);

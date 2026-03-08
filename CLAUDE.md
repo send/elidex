@@ -25,6 +25,7 @@ crates/
   elidex-js/            — JavaScript engine integration (boa_engine 0.20)
   elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
   elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
+  elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
 ```
 
 ### Common Commands
@@ -178,6 +179,25 @@ cargo doc --workspace --no-deps  # Build docs
 - **ACCNAME algorithm**: `compute_accessible_name()` — priority: `aria-labelledby` (id reference resolution) → `aria-label` → `alt` (img) → text content → `title`.
 - **entity_to_node_id()**: `Entity.to_bits().get()` → `NodeId(u64)`.
 - **Dependencies**: elidex-ecs, elidex-plugin (LayoutBox), accesskit 0.24.
+
+### elidex-wasm-runtime
+
+- **WasmRuntime**: Owns wasmtime `Engine` + `Linker<HostState>` + `Arc<DomHandlerRegistry>` / `Arc<CssomHandlerRegistry>`. `compile(bytes)` → `WasmModule`, `instantiate(module)` → `WasmInstance`.
+- **WasmInstance**: Owns `Store<HostState>` + `Instance`. `call_export(name, args, session, dom, doc)` with bind/unbind bracket + `UnbindGuard`. `export_names()` / `get_func()` for introspection.
+- **HostState**: Raw pointers to `SessionCore`/`EcsDom` (bind/unbind pattern from `HostBridge`). `Arc<Registry>` for `Send` compatibility. `unsafe impl Send` (single-threaded usage).
+- **Host functions** ("elidex" namespace): 12 functions registered via `Linker`. Entity handles as `i64` (0 = null). Strings via `(ptr, len)` pairs in Wasm linear memory. Returns: packed `i64` `(ptr << 32) | len`, allocated via guest's `__alloc(len) -> ptr`.
+- **Identity map bridge**: `objref_to_entity_i64()` / `entity_i64_to_objref()` translate between Wasm entity handles and `JsObjectRef` for handler dispatch.
+- **Dependencies**: wasmtime 29, elidex-plugin, elidex-ecs, elidex-script-session, elidex-dom-api. Dev: wat 1.
+
+### elidex-script-session (additions)
+
+- **ScriptEngine trait**: `eval()`, `dispatch_event()`, `drain_timers()` — engine-agnostic interface. Navigation state methods intentionally excluded (engine-specific).
+- **EvalResult**: Moved from `elidex-js-boa` to `elidex-script-session` (canonical location). Re-exported from `elidex-js-boa` for compatibility.
+
+### elidex-js-boa (additions)
+
+- **globals/wasm.rs**: `register_wasm()` — `WebAssembly.instantiate(bufferSource)` / `WebAssembly.compile(bufferSource)`. `WasmRuntime` + `WasmInstance` stored in `Rc<RefCell>` closures. Export functions wrapped as JS callables via `ExportCaptures`. `extract_wasm_bytes()` reads array-like objects.
+- **impl ScriptEngine for JsRuntime**: Delegates to concrete methods.
 
 ### CI
 

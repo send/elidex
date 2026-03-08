@@ -558,12 +558,8 @@ impl Parser<'_> {
         if matches!(self.at(), TokenKind::LParen) {
             let is_ctor = *method_kind == MethodKind::Constructor;
             // V11: super() only allowed in constructors of classes with extends
-            let func = self.parse_method_function(
-                is_async,
-                is_generator,
-                is_ctor,
-                is_ctor && has_super,
-            );
+            let func =
+                self.parse_method_function(is_async, is_generator, is_ctor, is_ctor && has_super);
             self.validate_accessor_params(*method_kind, &func.params);
             let end = func.span;
             return ClassMember {

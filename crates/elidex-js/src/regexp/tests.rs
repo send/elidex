@@ -848,7 +848,10 @@ mod v_flag {
     fn non_negated_sequence_property_ok() {
         // \p{Basic_Emoji} is fine
         let result = parse_v(r"\p{Basic_Emoji}");
-        assert!(result.is_ok(), "\\p{{Basic_Emoji}} should be accepted: {result:?}");
+        assert!(
+            result.is_ok(),
+            "\\p{{Basic_Emoji}} should be accepted: {result:?}"
+        );
     }
 
     // ── E2: Old_Sogdian alias fix ──
@@ -860,6 +863,9 @@ mod v_flag {
             ..Default::default()
         };
         let result = parse_pattern_with_flags(r"\p{sc=Sogo}", &flags);
-        assert!(result.is_ok(), "Old_Sogdian alias Sogo should be accepted: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Old_Sogdian alias Sogo should be accepted: {result:?}"
+        );
     }
 }

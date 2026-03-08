@@ -567,3 +567,51 @@ fn document_write_does_not_throw() {
         "Expected document.write to not throw, got: {output:?}"
     );
 }
+
+// --- M3.5-8: WebAssembly API ---
+
+#[test]
+fn webassembly_instantiate_and_call_export() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // Minimal Wasm module that exports an `add` function: (i32, i32) -> i32.
+    // Pre-compiled WAT: (module (func (export "add") (param i32 i32) (result i32)
+    //                      (i32.add (local.get 0) (local.get 1))))
+    let wasm_bytes = wat::parse_str(
+        r#"(module
+            (func (export "add") (param i32 i32) (result i32)
+                (i32.add (local.get 0) (local.get 1))
+            )
+        )"#,
+    )
+    .unwrap();
+
+    // Build a JS array of the Wasm bytes.
+    let bytes_array_str = format!(
+        "[{}]",
+        wasm_bytes
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+
+    let js = format!(
+        r#"
+        var wasmBytes = {bytes_array_str};
+        var result = null;
+        WebAssembly.instantiate(wasmBytes).then(function(mod) {{
+            result = mod.instance.exports.add(3, 4);
+            console.log('wasm_result=' + result);
+        }});
+        "#
+    );
+
+    runtime.eval(&js, &mut session, &mut dom, doc);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("wasm_result=7")),
+        "Expected wasm_result=7, got: {output:?}"
+    );
+}

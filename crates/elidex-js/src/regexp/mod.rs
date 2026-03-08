@@ -127,7 +127,12 @@ impl EscapeKind {
             Self::FormFeed => Some('\x0C'),
             Self::VerticalTab => Some('\x0B'),
             Self::Null => Some('\0'),
-            Self::Digit | Self::NonDigit | Self::Word | Self::NonWord | Self::Whitespace | Self::NonWhitespace => None,
+            Self::Digit
+            | Self::NonDigit
+            | Self::Word
+            | Self::NonWord
+            | Self::Whitespace
+            | Self::NonWhitespace => None,
         }
     }
 }

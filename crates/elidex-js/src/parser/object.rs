@@ -82,7 +82,8 @@ impl Parser<'_> {
                 let val = self.parse_assignment_expression();
                 let val_span = self.exprs.get(val).span;
                 // P6: duplicate __proto__ is a syntax error (§13.2.5.1)
-                if !computed && matches!(method_kind, MethodKind::Method | MethodKind::Constructor) {
+                if !computed && matches!(method_kind, MethodKind::Method | MethodKind::Constructor)
+                {
                     let is_proto = match &key {
                         PropertyKey::Identifier(name) => *name == self.atoms.proto,
                         PropertyKey::Literal(Literal::String(s)) => *s == self.atoms.proto,

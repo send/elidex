@@ -12,6 +12,7 @@
 mod macros;
 mod cssom_api;
 mod dom_api;
+mod engine;
 pub mod event_dispatch;
 pub mod event_listener;
 mod identity_map;
@@ -21,6 +22,7 @@ mod types;
 
 pub use cssom_api::CssomApiHandler;
 pub use dom_api::DomApiHandler;
+pub use engine::{EvalResult, ScriptEngine};
 pub use event_dispatch::{
     build_propagation_path, composed_path_for_js, dispatch_event, DispatchEvent, DispatchFlags,
 };

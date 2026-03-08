@@ -39,10 +39,7 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
         "style.getPropertyValue",
         Box::new(super::StyleGetPropertyValue),
     );
-    r.register_static(
-        "style.removeProperty",
-        Box::new(super::StyleRemoveProperty),
-    );
+    r.register_static("style.removeProperty", Box::new(super::StyleRemoveProperty));
     // ClassList
     r.register_static("classList.add", Box::new(super::ClassListAdd));
     r.register_static("classList.remove", Box::new(super::ClassListRemove));

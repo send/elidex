@@ -28,6 +28,7 @@ members = [
     "crates/elidex-navigation",
     "crates/elidex-api-canvas",
     "crates/elidex-a11y",
+    "crates/elidex-wasm-runtime",
 ]
 
 [workspace.package]
@@ -93,6 +94,7 @@ elidex-js = { path = "crates/elidex-js" }
 elidex-navigation = { path = "crates/elidex-navigation" }
 elidex-api-canvas = { path = "crates/elidex-api-canvas" }
 elidex-a11y = { path = "crates/elidex-a11y" }
+elidex-wasm-runtime = { path = "crates/elidex-wasm-runtime" }
 boa_engine = { version = "0.20", features = ["annex-b"] }
 boa_gc = "0.20"
 egui = "0.33"
@@ -105,6 +107,8 @@ pollster = "0.4"
 tiny-skia = "0.11"
 accesskit = "0.24"
 accesskit_winit = "0.32"
+wasmtime = "29"
+wat = "1"
 
 [profile.release]
 lto = true

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use boa_engine::{Context, JsValue, Source};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{ComponentKind, DispatchEvent, SessionCore};
+use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
 
 use elidex_net::FetchHandle;
 
@@ -32,14 +32,8 @@ pub struct JsRuntime {
     timer_queue: TimerQueueHandle,
 }
 
-/// Result of evaluating a script.
-#[derive(Debug)]
-pub struct EvalResult {
-    /// `true` if the script completed without error.
-    pub success: bool,
-    /// Error message if the script failed, `None` if success.
-    pub error: Option<String>,
-}
+/// Re-export `EvalResult` from the engine-agnostic script session crate.
+pub use elidex_script_session::EvalResult;
 
 impl JsRuntime {
     /// Create a new JS runtime with elidex globals registered (no fetch support).
@@ -278,6 +272,37 @@ impl JsRuntime {
     /// Set the session history length on the bridge.
     pub fn set_history_length(&self, len: usize) {
         self.bridge.set_history_length(len);
+    }
+}
+
+impl ScriptEngine for JsRuntime {
+    fn eval(
+        &mut self,
+        source: &str,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document: Entity,
+    ) -> EvalResult {
+        self.eval(source, session, dom, document)
+    }
+
+    fn dispatch_event(
+        &mut self,
+        event: &mut DispatchEvent,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document: Entity,
+    ) -> bool {
+        self.dispatch_event(event, session, dom, document)
+    }
+
+    fn drain_timers(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document: Entity,
+    ) -> Vec<EvalResult> {
+        self.drain_timers(session, dom, document)
     }
 }
 

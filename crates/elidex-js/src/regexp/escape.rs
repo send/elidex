@@ -93,9 +93,7 @@ impl RegExpParser<'_> {
                     && self.flags.unicode_sets
                     && super::unicode_property::is_sequence_property_name(&name)
                 {
-                    return Err(
-                        self.err("\\P{...} cannot be used with sequence properties"),
-                    );
+                    return Err(self.err("\\P{...} cannot be used with sequence properties"));
                 }
                 Ok(RegExpNode::UnicodeProperty {
                     name,
@@ -255,11 +253,9 @@ impl RegExpParser<'_> {
                     };
                     // R4: validate against Unicode property tables
                     let is_v = self.flags.unicode_sets;
-                    if let Err(msg) = super::unicode_property::validate(
-                        &name,
-                        parsed_value.as_deref(),
-                        is_v,
-                    ) {
+                    if let Err(msg) =
+                        super::unicode_property::validate(&name, parsed_value.as_deref(), is_v)
+                    {
                         return Err(self.err(msg));
                     }
                     return Ok((name, parsed_value));

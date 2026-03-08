@@ -196,12 +196,7 @@ pub(super) fn visit_stmt(prog: &Program, state: &mut ScopeState, stmt_id: NodeId
 }
 
 /// Visit an export declaration.
-fn visit_export(
-    prog: &Program,
-    state: &mut ScopeState,
-    decl: &ExportDecl,
-    span: Span,
-) {
+fn visit_export(prog: &Program, state: &mut ScopeState, decl: &ExportDecl, span: Span) {
     match &decl.kind {
         ExportKind::Declaration(s) => {
             register_export_declaration_names(prog, state, *s);
@@ -249,8 +244,7 @@ pub(super) fn visit_expr(prog: &Program, state: &mut ScopeState, expr_id: NodeId
                             state.errors.push(crate::error::JsParseError {
                                 kind: crate::error::JsParseErrorKind::UnexpectedToken,
                                 span: expr.span,
-                                message: "'arguments' is not allowed in class static blocks"
-                                    .into(),
+                                message: "'arguments' is not allowed in class static blocks".into(),
                             });
                             break;
                         }

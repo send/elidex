@@ -1,6 +1,6 @@
 [package]
-name = "elidex-js-boa"
-description = "JavaScript engine integration (boa) and DOM bindings for elidex"
+name = "elidex-wasm-runtime"
+description = "WebAssembly runtime for elidex browser engine (wasmtime-based)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-keywords = ["browser-engine", "javascript", "dom"]
+keywords = ["browser-engine", "webassembly", "wasm"]
 categories = ["web-programming"]
 
 [dependencies]
@@ -16,16 +16,7 @@ elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
-elidex-net.workspace = true
-elidex-navigation.workspace = true
-elidex-api-canvas.workspace = true
-elidex-wasm-runtime.workspace = true
 wasmtime.workspace = true
-boa_engine.workspace = true
-boa_gc.workspace = true
-tracing.workspace = true
-url.workspace = true
-bytes.workspace = true
 
 [dev-dependencies]
 wat.workspace = true

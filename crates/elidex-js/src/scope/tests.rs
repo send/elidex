@@ -746,7 +746,11 @@ fn function_eval_name_error() {
     // Error may come from parser (check_reserved_binding) or scope analysis
     let has_error = sa.errors.iter().any(|e| e.message.contains("eval"))
         || out.errors.iter().any(|e| e.message.contains("eval"));
-    assert!(has_error, "Expected eval binding error: parser={:?}, scope={:?}", out.errors, sa.errors);
+    assert!(
+        has_error,
+        "Expected eval binding error: parser={:?}, scope={:?}",
+        out.errors, sa.errors
+    );
 }
 
 #[test]
@@ -756,5 +760,9 @@ fn function_arguments_name_error() {
     let sa = analyze(&out.program);
     let has_error = sa.errors.iter().any(|e| e.message.contains("arguments"))
         || out.errors.iter().any(|e| e.message.contains("arguments"));
-    assert!(has_error, "Expected arguments binding error: parser={:?}, scope={:?}", out.errors, sa.errors);
+    assert!(
+        has_error,
+        "Expected arguments binding error: parser={:?}, scope={:?}",
+        out.errors, sa.errors
+    );
 }

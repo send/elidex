@@ -123,9 +123,7 @@ fn register_child_mutation_methods(init: &mut ObjectInitializer<'_>, bridge: &Ho
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                dom_child_operation(this, args, bridge, ctx, "appendChild")
-            },
+            |this, args, bridge, ctx| dom_child_operation(this, args, bridge, ctx, "appendChild"),
             b,
         ),
         js_string!("appendChild"),
@@ -136,9 +134,7 @@ fn register_child_mutation_methods(init: &mut ObjectInitializer<'_>, bridge: &Ho
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                dom_child_operation(this, args, bridge, ctx, "removeChild")
-            },
+            |this, args, bridge, ctx| dom_child_operation(this, args, bridge, ctx, "removeChild"),
             b,
         ),
         js_string!("removeChild"),

@@ -60,8 +60,10 @@ fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Co
                 let prop = require_js_string_arg(args, 0, "getPropertyValue", ctx)?;
                 // GetComputedStyle is a CssomApiHandler, not DomApiHandler.
                 // Look up from the CSSOM registry.
-                let handler =
-                    bridge.cssom_registry().resolve("getComputedStyle").ok_or_else(|| {
+                let handler = bridge
+                    .cssom_registry()
+                    .resolve("getComputedStyle")
+                    .ok_or_else(|| {
                         boa_engine::JsNativeError::typ()
                             .with_message("Unknown CSSOM method: getComputedStyle")
                     })?;

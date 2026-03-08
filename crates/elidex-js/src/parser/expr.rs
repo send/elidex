@@ -386,11 +386,7 @@ impl Parser<'_> {
             // Assignment
             TokenKind::Eq => {
                 // A10/V9: validate assignment target (= allows destructuring cover grammar)
-                self.validate_assign_target(
-                    lhs,
-                    true,
-                    "Invalid left-hand side in assignment",
-                );
+                self.validate_assign_target(lhs, true, "Invalid left-hand side in assignment");
                 // T2: object used as destructuring target — clear CoverInitializedName
                 if matches!(self.exprs.get(lhs).kind, ExprKind::Object(_)) {
                     self.cover_init_span = None;
@@ -423,11 +419,7 @@ impl Parser<'_> {
             | TokenKind::OrEq
             | TokenKind::NullCoalEq) => {
                 // A10/V9: compound assignment requires simple target (no destructuring)
-                self.validate_assign_target(
-                    lhs,
-                    false,
-                    "Invalid left-hand side in assignment",
-                );
+                self.validate_assign_target(lhs, false, "Invalid left-hand side in assignment");
                 let op = assign_op_from_token(&tok);
                 self.advance();
                 let rhs = self.parse_expr_bp(next_bp);

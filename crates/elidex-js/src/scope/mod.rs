@@ -210,12 +210,7 @@ impl ScopeState {
     }
 
     /// M3: Check for duplicate exported name and emit error if found.
-    pub(super) fn check_duplicate_export(
-        &mut self,
-        prog: &Program,
-        name: Atom,
-        span: Span,
-    ) {
+    pub(super) fn check_duplicate_export(&mut self, prog: &Program, name: Atom, span: Span) {
         if self.at_error_limit() {
             return;
         }
