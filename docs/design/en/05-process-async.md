@@ -9,8 +9,8 @@ The same core/compat pattern used in elidex's engine layer applies to the proces
 
 | Aspect | Core (long-term goal) | Compat (Phase 1–3 reality) | Reason for compat |
 | --- | --- | --- | --- |
-| Renderer isolation | Crash isolation only. Single or few Renderer Processes. | Site-based process isolation. | SpiderMonkey is C++. Memory corruption in JS engine could leak cross-site data. |
-| Network Process | Mergeable into Browser Process thread. | Separate process. | Defense in depth while C++ code exists in Renderer. |
+| Renderer isolation | Crash isolation only. Single or few Renderer Processes. | Site-based process isolation. | Boa is a third-party JS runtime still being hardened for browser embedding. Isolation limits blast radius of engine/embedder bugs. |
+| Network Process | Mergeable into Browser Process thread. | Separate process. | Defense in depth while runtime integration and host bindings are still stabilizing. |
 | GPU Process | Mergeable into Renderer thread. | Separate process or thread. | GPU driver crashes are OS-level; isolation value persists but form is flexible. |
 | Async runtime | Fully self-built event loop (Renderer-proven, expanded). | tokio for Network/Browser; self-built for Renderer. | tokio provides ecosystem velocity; Renderer needs custom control from day one. |
 
@@ -55,7 +55,7 @@ The key design constraint: **the Phase 1–3 architecture must not preclude the 
 | Process | Count | Sandbox | Responsibilities | Long-term Outlook |
 | --- | --- | --- | --- | --- |
 | Browser | 1 | None (privileged) | Shell state (Ch. 24), persistence (OPEN-012), permission brokering (Ch. 8), download management, extension lifecycle, process lifecycle management. The only process with full OS access. | Always separate — privileged broker role is permanent. |
-| Renderer | 1 per site (Phase 1–3) | Strict (seccomp-bpf / App Sandbox / Restricted token) | DOM/ECS, ScriptSession (Ch. 13), style/layout/paint, script engine, Wasm runtime. No direct network or filesystem access. | Relaxable to fewer processes once C++ (SpiderMonkey) is removed. Crash isolation remains valuable. |
+| Renderer | 1 per site (Phase 1–3) | Strict (seccomp-bpf / App Sandbox / Restricted token) | DOM/ECS, ScriptSession (Ch. 13), style/layout/paint, script engine, Wasm runtime. No direct network or filesystem access. | Relaxable to fewer processes once elidex-js migration and security hardening are validated. Crash isolation remains valuable. |
 | Network | 1 | Moderate (network-only) | HTTP/HTTPS stack (hyper + rustls + h3), DNS resolution, connection pooling, cookie jar, TLS, WebSocket. | Mergeable into Browser Process as a thread. Connection pool sharing across tabs is a practical reason to keep centralized. |
 | GPU | 1 | Moderate | wgpu surface management, Vello rasterization, layer compositing, compositor-driven scroll/animation. | Mergeable into Renderer as a thread. GPU driver crash isolation has value but is less critical than Renderer isolation. |
 | Utility | 0–N | Strict | Media decoding (OPEN-002), audio processing. Spawned on demand, terminated when idle. | Retained for C/C++ library isolation (FFmpeg, etc.). Unnecessary for pure-Rust decoders. |
@@ -366,19 +366,19 @@ pub struct BackpressureChannel<T> {
 ## 5.6 Staged Migration Path
 
 ```
-Phase 1–3 (SpiderMonkey era)
+Phase 1–3 (Boa era)
 ├── ProcessModel::SiteIsolation (default for browser)
 ├── Browser/Network: tokio multi-thread
 ├── Renderer: elidex event loop + tokio reactor
 ├── IPC: ProcessChannel (cross-process, serialized)
-└── Security: process isolation compensates for C++ risk
+└── Security: process isolation compensates for bootstrap hardening risk
 
 Phase 4–5 (elidex-js migration)
 ├── ProcessModel::PerTab or Shared (relaxed, configurable)
 ├── Network: consider merging into Browser thread
 ├── GPU: consider merging into Renderer thread
 ├── Renderer event loop matures, accumulates optimization
-└── Security: Rust memory safety makes site isolation optional
+└── Security: hardened Rust-first stack makes site isolation optional by threat model
 
 Long-term (all Rust)
 ├── ProcessModel::Shared or SingleProcess for trusted content

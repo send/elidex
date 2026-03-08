@@ -6,7 +6,7 @@
 | # | 決定事項 | 選択 | 根拠 |
 | --- | --- | --- | --- |
 | 1 | 実装言語 | Rust | メモリ安全性、fearless concurrency、所有権モデルが並列レイアウトを実現 |
-| 2 | スクリプティング戦略 | 三層設計：DOM API（プラガブル、Living Standard + 互換）、ECMAScript（SpiderMonkey → 自前Rustエンジン、ES2020+コア / Annex B互換）、Wasm（多言語elidex-app向けwasmtime） | HTML/DOM/JSにわたる一貫したコア+互換パターン。自前エンジンが長期的にC++依存を排除。Wasmが多言語アプリを実現。 |
+| 2 | スクリプティング戦略 | 三層設計：DOM API（プラガブル、Living Standard + 互換）、ECMAScript（Boa → 自前Rustエンジン、ES2020+コア / Annex B互換）、Wasm（多言語elidex-app向けwasmtime） | HTML/DOM/JSにわたる一貫したコア+互換パターン。自前エンジンが長期的なサードパーティJSランタイム依存を解消。Wasmが多言語アプリを実現。 |
 | 3 | DOMストレージモデル | ECS（Entity Component System） | キャッシュ効率、自然な並列性、ゲームエンジン（Bevy）に着想 |
 | 4 | レガシー処理戦略 | コア前正規化（トランスパイラパターン） | コアをクリーンに保ち、quirksモードのコードパスがエンジンに感染するのを防止 |
 | 5 | 機能拡張性 | デュアルディスパッチ：静的enumディスパッチ（コンパイル時、ゼロコスト）+ 動的トレイトオブジェクト（ランタイム拡張）、同一トレイト下で統一 | 組み込み機能はオーバーヘッドなし、拡張は同じAPIを使用。非推奨化されたコア機能はコミュニティ動的プラグインとして存続可能 |
@@ -15,8 +15,8 @@
 | 8 | Writing mode | 初日から抽象インライン/ブロック座標 | CJK縦書きに必要、後付け不可 |
 | 9 | デュアルユースアーキテクチャ | 共有コアからelidex-browser + elidex-app | アプリランタイム（Electron/Tauri代替）が主要な価値提案 |
 | 10 | 非推奨化メカニズム | 定期的クローラーサーベイによるデータ駆動 | 機能削除の客観的・定量的根拠、主観的議論を回避 |
-| 11 | エラー回復戦略 | 段階的デグラデーション：strict → ルールベース → LLM → エラー。ローカル小型LLMをラストリゾートフォールバック＋オフラインルール生成器として。 | 正確さ＝速度。壊れたHTMLに比例するレイテンシコスト。LLMが新規エラーを処理、strictパーサーが出力を検証、オフラインパイプラインが一般的パターンを高速パスに昇格。**Phase 0 結果:** ルールベース回復で十分であることをサーベイが実証（[第29章](29-survey-analysis.md)）。 |
-| 12 | LLMフォールバック採用 | Phase 0.5サーベイに条件付き（≧2%回復不能エラー率） | 壊れたHTMLが稀なら不必要な複雑性を回避。アプリモードLLM診断は独立して進行。**Phase 0 結果:** 回復不能エラー 0%（900サイト）— No-Go 確定（[第29章](29-survey-analysis.md)）。 |
+| 11 | エラー回復戦略 | 段階的デグラデーション：strict → ルールベース → エラー（LLMレイヤーは停止中）。 | 正確さ＝速度。壊れたHTMLに比例するレイテンシコスト。**Phase 0 結果:** ルールベース回復で十分であることをサーベイが実証（[第29章](29-survey-analysis.md)）。**プロジェクト判断（2026-03-05）:** LLM関連は一旦停止。 |
+| 12 | LLMフォールバック採用 | Phase 0.5サーベイに条件付き（≧2%回復不能エラー率）だが現在は一時停止 | 壊れたHTMLが稀なら不必要な複雑性を回避。**Phase 0 結果:** 回復不能エラー 0%（900サイト）— No-Go 確定（[第29章](29-survey-analysis.md)）。**プロジェクト判断（2026-03-05）:** 開発者診断を含むLLM関連は停止。 |
 | 13 | ネットワーク層設計 | プラガブルResourceLoader + ミドルウェアパイプライン、コンテンツブロッキングはエンジン中立 | アプリモード向けカスタムURLスキーム、DevTools、広告ブロック、将来のプロトコル進化をコア変更なしで実現。 |
 | 14 | DOM APIアーキテクチャ | DomApiHandlerプラグイントレイト（DomSpecLevel: Living/Legacy/Deprecated）。各メソッド個別にトグル可能。コンポーネント操作経由のECS統合。 | HTML/CSSと同じ非推奨化モデル。elidex-appはコンパイル時にレガシーDOMを除外。MutationObserverがECS変更検出に自然にマッピング。 |
 | 15 | CSS仕様レベル分類 | CssSpecLevel enum（Standard/Aliased/NonStandard/Deprecated）。用途レベルではなくプロパティ＋値レベル。 | CSSをHTML/DOM/ESの三層パターンに整合。用途レベル検出（例：floatのレイアウト用途）は非現実的。プロパティ非推奨化はクローラーデータで駆動。 |
@@ -24,9 +24,9 @@
 | 17 | ScriptSessionレイヤー | すべてのScript ↔ ECSインタラクションを仲介する統一セッション。全Object Model API（DOM、CSSOM、将来のOM）に対してIdentity Map、Mutation Buffer、GC協調、ライブクエリ管理を提供。 | OMレイヤーごとのアドホックなインピーダンスミスマッチ解決を排除。ORM Unit of Workパターンに類似。変更のアトミックフラッシュ、一貫したMutationObserverレコード、すべてのOM APIにわたるオブジェクト同一性保証を単一メカニズムで実現。 |
 | 18 | 三層プラガビリティモデル | エンジン層：仕様駆動（レガシーを削る）。プラットフォーム層：OS API＋トレイト契約（実装を差し替える）。ブラウザシェル：トレイト契約のみ（UIを拡張/差し替える）。 | Web標準がエンジンに明確なcore/compat境界を提供するが、ブラウザシェルには権威ある仕様がない。プラットフォーム層とシェル層ではトレイト契約がSpecLevelに代わるプラグイン根拠となる。 |
 | 19 | ブラウザchrome戦略 | 段階的アプローチ：Phase 1-2はネイティブchrome（egui/iced）、Phase 3+でセルフホストオプション（HTML/CSS）。長期的に両方共存、ビルド時に選択可能。 | セルフホスティングの前にエンジンが機能的でなければならない。ネイティブchromeが初期開発中の高速イテレーションを提供。セルフホストchromeがドッグフーディングと最大限のカスタマイズを実現。 |
-| 20 | プロセスモデル：段階的緩和 | Phase 1–3（SpiderMonkey時代）はサイト単位分離、全Rust移行後にクラッシュ隔離のみに緩和可能。ProcessModel enumがビルド時/起動時に設定可能。IPCはトレイト抽象化（ProcessChannel / LocalChannel）。 | SpiderMonkeyはC++ — メモリ破壊リスクがプロセス分離を正当化。elidex-js（Rust）移行後はメモリ安全性によりサイト分離はオプショナル。トレイト抽象化により緩和が設定変更で完了、書き直し不要。エンジン層と同じcore/compatパターン。 |
-| 21 | 非同期ランタイム：ハイブリッドアプローチ | Renderer: カスタムelidexイベントループ + tokio reactorをI/Oバックエンドとして。Network/Browser: tokioマルチスレッド。将来の置換用AsyncRuntimeトレイト。 | ブラウザイベントループはtokioのスケジューラが提供しない精密な制御（vsync、rAF、フレーム予算）が必要。tokioはI/O集約プロセス（Network）に最適。トレイト抽象化で長期的にtokioを自前ランタイムに置換するオプションを保持、SpiderMonkey → elidex-jsの移行パスに対応。 |
-| 22 | ストレージバックエンド：トレイト背後のSQLite | SQLite（rusqlite）をStorageBackend初期実装とし、StorageBackend/StorageConnectionトレイトで抽象化。トレイト境界では生SQLではなくStorageOp enum。 | SQLiteはすべての主要ブラウザ（Chrome、Firefox、Safari）で実証済み。IndexedDBはKVストアでは効率的に提供できないリレーショナル操作（インデックス、カーソル、範囲クエリ）を要求。SpiderMonkeyが既にCを必要とするためC依存は許容。トレイト抽象化でドメイントレイト（CookiePersistence、HistoryStore等）に影響なく将来の置換が可能。 |
+| 20 | プロセスモデル：段階的緩和 | Phase 1–3（Boa時代）はサイト単位分離、全Rust移行後にクラッシュ隔離のみに緩和可能。ProcessModel enumがビルド時/起動時に設定可能。IPCはトレイト抽象化（ProcessChannel / LocalChannel）。 | ブートストラップ期はBoa統合とホストバインディングのブラウザ脅威モデル向けハードニングが進行中のため、厳格な分離で影響半径を限定する。elidex-js移行とハードニング完了後は方針に応じてサイト分離をオプショナル化可能。トレイト抽象化により緩和が設定変更で完了し、書き直し不要。エンジン層と同じcore/compatパターン。 |
+| 21 | 非同期ランタイム：ハイブリッドアプローチ | Renderer: カスタムelidexイベントループ + tokio reactorをI/Oバックエンドとして。Network/Browser: tokioマルチスレッド。将来の置換用AsyncRuntimeトレイト。 | ブラウザイベントループはtokioのスケジューラが提供しない精密な制御（vsync、rAF、フレーム予算）が必要。tokioはI/O集約プロセス（Network）に最適。トレイト抽象化で長期的にtokioを自前ランタイムに置換するオプションを保持、Boa → elidex-jsの移行パスに対応。 |
+| 22 | ストレージバックエンド：トレイト背後のSQLite | SQLite（rusqlite）をStorageBackend初期実装とし、StorageBackend/StorageConnectionトレイトで抽象化。トレイト境界では生SQLではなくStorageOp enum。 | SQLiteはすべての主要ブラウザ（Chrome、Firefox、Safari）で実証済み。IndexedDBはKVストアでは効率的に提供できないリレーショナル操作（インデックス、カーソル、範囲クエリ）を要求。ストレージ用途としてネイティブ依存のフットプリントは許容範囲。トレイト抽象化でドメイントレイト（CookiePersistence、HistoryStore等）に影響なく将来の置換が可能。 |
 | 23 | オリジン隔離：オリジン単位DBファイル | Webコンテンツストレージはオリジンごとに物理的に別のSQLiteデータベースを使用。ブラウザ所有データは集中管理のbrowser.sqliteを使用。 | クロスオリジンデータ漏洩に対する構造的保証 — データが別ファイルに存在するためクエリバグでクロスオリジンデータは公開されない。Chrome/FirefoxのIndexedDB、localStorage、Cache APIのアプローチに準拠。OriginStorageManagerがアクセスを仲介；Rendererはファイルに直接触れない（オリジン検証付きBrowser ProcessへのIPC）。 |
 | 24 | コンポジタスレッド：アプローチBとB→C移行パス | Phase 1–3: Servo式メッセージパッシング（DisplayList所有権をコンポジタに移転）。Phase 4+: 共有ECS読み取り（アプローチC）へのオプショナル移行。FrameSourceトレイトが境界を抽象化。 | アプローチB（メッセージパッシング）はRustの所有権モデルと整合し、Servoの実績があり、プロセス境界を越えて動作（GPU Process分離）。アプローチC（共有ECS）はシリアライゼーションコストを排除するが同一プロセスが必要 — プロセス分離緩和と自然に連動。FrameSourceトレイトによりB→Cは設定変更であり書き直しではない。IpcChannel（ProcessChannel/LocalChannel）と同パターン。 |
 | 25 | Web Workers: 1:1 OSスレッドマッピング | 各Dedicated/Shared/Service Workerが独自のOSスレッドに独自のScriptEngineとScriptSessionを持つ。プールではない。 | Workerは無期限に実行可能（ゲームループ、リアルタイム処理）。スレッドプールでは全スロットが長寿命Workerで占有されるとデッドロック。SharedArrayBufferはAtomics.wait/notify（futexセマンティクス）に真のOSスレッドが必要。1:1マッピングはすべての既存ブラウザが使用するモデル。 |

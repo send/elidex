@@ -29,9 +29,10 @@ Conditional phase triggered if Phase 0 results indicate significant HTML error p
 | Build broken-HTML corpus for LLM training/evaluation | Skipped (trigger condition not met) | Error classification |
 | Decision gate: LLM fallback go/no-go based on unrecoverable error rate | **No-Go confirmed** — unrecoverable error rate 0% ([Ch. 29](29-survey-analysis.md)) | Analysis complete |
 
-**Decision gate: ** If the unrecoverable error rate is below approximately 2%, the LLM runtime fallback is deferred and rule-based recovery alone is implemented. LLM developer diagnostics for elidex-app proceed regardless.
+**Decision gate: ** If the unrecoverable error rate is below approximately 2%, the LLM runtime fallback is deferred and rule-based recovery alone is implemented.
 
-> **Phase 0 Survey Result (Ch. 29):** The 900-site survey found an unrecoverable error rate of 0% (< 2% threshold). **No-Go confirmed** — LLM runtime fallback is deferred; rule-based recovery only. LLM developer diagnostics for elidex-app (elidex-llm-diag) proceed as planned in Phase 3.
+> **Phase 0 Survey Result (Ch. 29):** The 900-site survey found an unrecoverable error rate of 0% (< 2% threshold). **No-Go confirmed** — LLM runtime fallback is deferred; rule-based recovery only.  
+> **Project decision (2026-03-05):** All LLM-related tracks (runtime fallback, developer diagnostics, offline rule generation) are paused for now.
 
 ## Phase 1: Minimal Rendering (Months 4-8)
 
@@ -58,7 +59,7 @@ Add JavaScript execution, Flexbox layout, and networking. The engine becomes cap
 | wasmtime integration (elidex-wasm-runtime) | 4 weeks | ECS DOM |
 | DOM API plugin layer (elidex-dom-api, Living Standard) | 5 weeks | ECS DOM |
 | Shared DOM host functions (elidex-dom-host, JS + Wasm) | 3 weeks | DOM API, wasmtime |
-| SpiderMonkey integration (elidex-js-spidermonkey, Phase 1-3 JS) | 5 weeks | DOM host functions |
+| Boa integration (elidex-js, Phase 1-3 JS) | 5 weeks | DOM host functions |
 | Event system (click, input, keyboard) | 3 weeks | DOM bindings |
 | Flexbox layout plugin | 4 weeks | Block layout |
 | Networking stack (hyper + rustls) | 3 weeks | — |
@@ -89,8 +90,8 @@ Add CSS Grid, compatibility layer, accessibility, and the app runtime. Elidex be
 | elidex-js parser + AST (ES2020+ Stage 1) | 6 weeks | — |
 | Browser chrome (tabs, address bar, history) | 4 weeks | Navigation, UI framework |
 | Performance benchmarks vs Chromium/Firefox | 2 weeks | Rendering pipeline |
-| LLM-powered dev diagnostics for elidex-app (elidex-llm-diag) | 3 weeks | Strict parser, candle/llama.cpp |
-| Broken HTML corpus collection + LLM fine-tuning dataset | 2 weeks | Crawler results |
+| LLM-powered dev diagnostics for elidex-app (elidex-llm-diag) | **Paused (2026-03-05)** | Strict parser, candle/llama.cpp |
+| Broken HTML corpus collection + LLM fine-tuning dataset | **Paused (2026-03-05)** | Crawler results |
 
 **Milestone: ** Browse claude.ai, major news sites, and GitHub. Build a sample desktop app with elidex-app using Rust or any Wasm-targeting language.
 
@@ -112,18 +113,19 @@ Harden for daily use. Security audit, cross-platform support, WebWorkers, Servic
 | elidex-js bytecode compiler + interpreter (Stage 2) | 8 weeks | elidex-js parser |
 | elidex-js inline caches + hidden classes (Stage 3) | 6 weeks | Bytecode interpreter |
 | ES legacy compat layer (elidex-js-compat: Annex B, var quirks) | 4 weeks | elidex-js core |
-| LLM runtime fallback (elidex-llm-runtime) integration | 4 weeks | Fine-tuned model, tolerant parser |
-| Offline rule generation pipeline (LLM → rule-based parser) | 3 weeks | LLM runtime, crawler corpus |
+| LLM runtime fallback (elidex-llm-runtime) integration | **Paused (2026-03-05)** | Fine-tuned model, tolerant parser |
+| Offline rule generation pipeline (LLM → rule-based parser) | **Paused (2026-03-05)** | LLM runtime, crawler corpus |
 
-> **Phase 0 Survey Result (Ch. 29 §29.6):** The two items above (LLM runtime fallback, offline rule generation pipeline) are **provisionally deferred** due to the Phase 0 No-Go decision. Can be revisited if future crawl data reveals significant unrecoverable errors.
+> **Phase 0 Survey Result (Ch. 29 §29.6):** The two items above (LLM runtime fallback, offline rule generation pipeline) are **provisionally deferred** due to the Phase 0 No-Go decision. Can be revisited if future crawl data reveals significant unrecoverable errors.  
+> **Project decision (2026-03-05):** Revisit is currently on hold; all LLM-related scope is paused.
 
 **Milestone: ** Elidex as a daily-driver browser for modern sites. elidex-app 1.0 release.
 
 ## Phase 5: Long-Term (Month 30+)
 
-**elidex-js baseline JIT (Stage 4): ** Cranelift-based JIT compiler for the elidex-js bytecode. Bridges the performance gap with SpiderMonkey for compute-heavy JS.
+**elidex-js baseline JIT (Stage 4): ** Cranelift-based JIT compiler for the elidex-js bytecode. Bridges the performance gap with Boa for compute-heavy JS.
 
-**SpiderMonkey removal: ** Once elidex-js achieves acceptable real-world performance (validated via benchmarks), remove SpiderMonkey. Achieves the pure-Rust stack goal.
+**Boa removal: ** Once elidex-js achieves acceptable real-world performance (validated via benchmarks), remove Boa. Achieves the pure-Rust stack goal.
 
 **elidex-js optimizing JIT (Stage 5): ** If needed, add speculative optimization passes. Only pursued if Stage 4 baseline JIT proves insufficient for target workloads.
 
@@ -134,4 +136,3 @@ Harden for daily use. Security audit, cross-platform support, WebWorkers, Servic
 **Extension system: ** Lightweight extension API, scoped to elidex’s dual-dispatch plugin model.
 
 **Periodic deprecation: ** Ongoing crawler surveys inform feature removal decisions across all three layers (HTML, DOM API, ECMAScript) on a regular cadence.
-

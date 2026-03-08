@@ -8,7 +8,7 @@ Elidex uses a multi-process architecture inspired by Chromium’s security model
 | Process | Responsibilities | Key Dependencies |
 | --- | --- | --- |
 | Browser Process | Chrome UI (tabs, address bar, settings), Navigation & session management, Profile & cookie storage, Permission brokering (Ch. 8) | iced or egui (Rust native GUI), ipc-channel |
-| Renderer Process | HTML/CSS parsing, DOM management (ECS), Style resolution (parallel), Layout computation (parallel), Display list generation, JavaScript execution | elidex-core + plugins, SpiderMonkey (Phase 1–3) → elidex-js, wasmtime (Wasm runtime), rayon (parallelism) |
+| Renderer Process | HTML/CSS parsing, DOM management (ECS), Style resolution (parallel), Layout computation (parallel), Display list generation, JavaScript execution | elidex-core + plugins, Boa (Phase 1–3) → elidex-js, wasmtime (Wasm runtime), rayon (parallelism) |
 | Network Process | HTTP/HTTPS stack, DNS resolution, connection pooling, cookie jar, TLS, WebSocket | hyper + rustls, h3 |
 | GPU Process | GPU rasterization, Layer compositing, Compositor-driven scroll & animation | wgpu, Vello |
 | Utility Process | Media decoding, audio processing. Spawned on demand, terminated when idle | dav1d, platform codecs |
@@ -48,7 +48,7 @@ elidex/
 │   │                          #   Identity Map, Mutation Buffer, GC coordination
 │   ├── elidex-js/            # Self-built JS engine (ES2020+ core, Rust)
 │   ├── elidex-js-compat/     # ES legacy semantics (Annex B, var quirks)
-│   ├── elidex-js-spidermonkey/ # SpiderMonkey bridge (Phase 1-3 fallback)
+│   ├── elidex-js/ # Boa bridge (Phase 1-3 fallback)
 │   ├── elidex-wasm-runtime/  # wasmtime integration
 │   └── elidex-dom-host/      # Shared DOM host functions (JS + Wasm)
 ├── elidex-text/               # Text pipeline
@@ -61,9 +61,9 @@ elidex/
 │   ├── elidex-compat-css/       # Vendor prefix resolution
 │   ├── elidex-compat-charset/   # Shift_JIS/EUC-JP → UTF-8
 │   └── elidex-compat-dom/       # Legacy JS API shims (document.all, etc.)
-├── elidex-llm-repair/         # LLM-assisted error recovery
-│   ├── elidex-llm-runtime/   # Local inference (candle/llama.cpp)
-│   └── elidex-llm-diag/      # Dev-mode diagnostic message generation
+├── elidex-llm-repair/         # LLM-assisted error recovery (currently paused)
+│   ├── elidex-llm-runtime/   # Local inference (candle/llama.cpp, paused)
+│   └── elidex-llm-diag/      # Dev-mode diagnostic message generation (paused)
 ├── elidex-net/                # Networking
 │   ├── elidex-http/          # HTTP/1.1, HTTP/2, HTTP/3 (hyper + h3)
 │   ├── elidex-tls/           # TLS (rustls)
@@ -106,4 +106,3 @@ elidex/
 ├── elidex-app/                # App runtime (core + selected plugins only)
 └── elidex-crawler/            # Web compatibility survey tool
 ```
-

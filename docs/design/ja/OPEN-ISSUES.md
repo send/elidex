@@ -15,7 +15,7 @@
 
 **解決先**: 第5章（プロセスアーキテクチャ & 非同期ランタイム）
 
-**概要**: 段階的緩和モデル — Phase 1–3（SpiderMonkey時代）はサイト単位プロセス分離、全Rust移行後にクラッシュ隔離のみに緩和可能。ProcessModel enum（SiteIsolation / PerTab / Shared / SingleProcess）がビルド時/起動時に設定可能。IPCはトレイト抽象化（ProcessChannel / LocalChannel）で、ゼロコストのプロセス統合を実現。elidex-appのデフォルトはSingleProcess。
+**概要**: 段階的緩和モデル — Phase 1–3（Boa時代）はサイト単位プロセス分離、全Rust移行後にクラッシュ隔離のみに緩和可能。ProcessModel enum（SiteIsolation / PerTab / Shared / SingleProcess）がビルド時/起動時に設定可能。IPCはトレイト抽象化（ProcessChannel / LocalChannel）で、ゼロコストのプロセス統合を実現。elidex-appのデフォルトはSingleProcess。
 
 ---
 

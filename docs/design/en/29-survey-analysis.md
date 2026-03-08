@@ -203,7 +203,7 @@ Rationale:
 2. html5ever's automatic recovery is sufficient for practical use
 3. The cost of LLM runtime fallback (latency, memory, complexity) does not justify the return
 
-However, LLM developer diagnostics for elidex-app (elidex-llm-diag) will proceed as planned in Phase 3. This is for improving developer code quality, not for repairing broken HTML.
+**Project decision (2026-03-05):** All LLM-related scope, including elidex-llm-diag, is paused for now. This applies to both broken-HTML recovery and developer diagnostics.
 
 ## 29.7 Implications for Phase 1
 

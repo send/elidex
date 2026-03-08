@@ -33,7 +33,7 @@ fn main() {
 |  | Electron | Tauri | elidex-app |
 | --- | --- | --- | --- |
 | Engine | Chromium (full) | OS WebView | elidex-core (slim) |
-| Script runtime | V8 (JS only) | OS JS engine | SpiderMonkey → elidex-js (Rust) + wasmtime (see Ch. 14 §14.1.2) |
+| Script runtime | V8 (JS only) | OS JS engine | Boa → elidex-js (Rust) + wasmtime (see Ch. 14 §14.1.2) |
 | Binary size | ~150 MB | ~3-8 MB | Target: ~5-15 MB |
 | Rendering consistency | Identical (bundled) | Varies by OS | Identical (bundled) |
 | Legacy overhead | Full backward compat | Full (OS dependent) | Zero (HTML5 only) |

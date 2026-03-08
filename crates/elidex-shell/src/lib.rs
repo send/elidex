@@ -245,3 +245,4 @@ pub fn run_url(url_str: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

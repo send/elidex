@@ -426,7 +426,7 @@ Several performance-critical caches live entirely in memory within the Renderer 
 | **Image decode cache** | Renderer | Memory budget (default 128MB) | LRU by decoded size | Stores decoded bitmaps to avoid re-decoding on scroll/repaint. Key: (URL, decoded size, scale factor) — see Ch. 18 §18.7. |
 | **Style sharing cache** | Renderer | Per-frame, ~1000 entries | Cleared on style recalc | Servo-inspired: siblings with identical style inputs share computed style. Avoids redundant property resolution. |
 | **Font glyph cache** | Renderer | Per font face, LRU | LRU by glyph age | Rasterized glyph bitmaps at specific sizes. Fed to GPU atlas texture. |
-| **Bytecode cache** | Renderer → disk | Per-origin directory | LRU by script age | SpiderMonkey bytecode cache. Avoids reparse/recompile of unchanged scripts. Persisted to origin's storage directory for cross-session benefit. |
+| **Bytecode cache** | Renderer → disk | Per-origin directory | LRU by script age | Boa bytecode cache. Avoids reparse/recompile of unchanged scripts. Persisted to origin's storage directory for cross-session benefit. |
 | **DNS cache** | Network Process | In-memory, TTL-based | TTL expiry | Defined in Ch. 10 (DnsCache). Respects DNS TTL. Negative caching with shorter TTL. |
 | **CORS preflight cache** | Network Process | In-memory, per (origin, method, headers) | Access-Control-Max-Age expiry | Defined in Ch. 10. Avoids redundant OPTIONS requests. |
 | **Connection pool** | Network Process | 256 connections max | Idle timeout (90s) | Defined in Ch. 10 (ConnectionPool). Keep-alive connections for reuse. |

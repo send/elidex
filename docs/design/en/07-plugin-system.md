@@ -168,7 +168,7 @@ The dual-dispatch pattern applies uniformly to every extensible layer in elidex:
 | Network | HTTP loader, cache, file:// loader | Ad blockers, DevTools logger, privacy filters, API mocking |
 | DOM API | Living Standard methods (querySelector, MutationObserver, ...) | Legacy DOM shims (live collections, document.write, attachEvent) |
 | ECMAScript | ES2020+ core (let/const, class, async/await, modules) | Annex B semantics, var quirks, sloppy eval |
-| Parser Recovery | Rule-based error recovery patterns | LLM fallback (if enabled) |
+| Parser Recovery | Rule-based error recovery patterns | LLM fallback (extension point in design, currently paused) |
 
 This uniformity means a single elidex-plugin crate, a single proc macro, and a single mental model for all contributors and extension authors, regardless of which layer they are working on.
 
@@ -262,4 +262,3 @@ The elidex-crawler tool is run periodically against the survey site list to prod
 > - `<blink>`: EN 0.2% (Deprecated — below threshold)
 
 Note that removed static plugins can survive as community-maintained dynamic extensions. The dual dispatch model means deprecation from the core does not mean the feature becomes impossible to use—it just moves from the zero-cost static path to the dynamic extension path, which is an appropriate trade-off for rarely-used features.
-

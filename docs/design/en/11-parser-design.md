@@ -26,14 +26,16 @@ A fundamental design philosophy of elidex is that broken HTML should have a cost
 | --- | --- | --- | --- |
 | Valid HTML5 | μs | elidex-core (direct) | Parsed directly by the strict parser. Maximum performance. This is the happy path. |
 | Minor errors | < 1ms | Rule-based recovery | Common patterns (unclosed tags, simple nesting mistakes) handled by deterministic rules. Nearly imperceptible overhead. |
-| Severely broken | 100ms–500ms+ | LLM fallback | Rule-based parser cannot recover. A small local LLM attempts intelligent repair. Page loads noticeably slower. User sees a performance warning. |
-| Unrecoverable | — | Error display | Even LLM repair failed. Show an honest error page with diagnostics rather than a garbled layout. |
+| Severely broken | — | Error display (current) | If rule-based recovery cannot handle the input, show a diagnostic error page. LLM fallback remains a future extension point in design but is currently paused. |
+| Unrecoverable | — | Error display | Show an honest error page with diagnostics rather than a garbled layout. |
 
 > **Phase 0 Survey Result (Ch. 29 §29.6):** The 900-site survey found zero cases requiring Tier 3 (LLM fallback) or Tier 4 (unrecoverable). All parser errors were handled at Tier 2 (rule-based recovery) or below.
 
 This gradient creates a positive feedback loop for the web ecosystem. Site authors who test in elidex will naturally write cleaner HTML to get faster load times, similar to how TypeScript’s type system nudges developers toward correctness without forbidding JavaScript’s flexibility.
 
-## 11.4 LLM-Assisted Error Recovery
+## 11.4 LLM-Assisted Error Recovery (Design Record, Currently Paused)
+
+> **Project decision (2026-03-05):** LLM-related features in this section (runtime fallback, offline rule generation, and developer diagnostics) are out of active implementation scope for now. The content below is retained as design record for possible future revisit.
 
 The LLM fallback layer is a novel approach to HTML error recovery that replaces the hundreds of hand-written error recovery rules in traditional browser parsers with a small language model that can reason about broken markup.
 
@@ -157,5 +159,4 @@ Phase 0.5 is triggered only after Phase 0 results are analyzed. If the initial s
 
 > **Phase 0 Survey Result (Ch. 29 §29.6):** The survey confirmed that "the modern web is overwhelmingly well-formed HTML5." The LLM runtime fallback layer is deemed unnecessary.
 
-Regardless of the runtime decision, the LLM-powered developer diagnostics for elidex-app mode (Section 11.4.4) are valuable independently and should proceed without waiting for survey data.
-
+An earlier plan treated elidex-app LLM diagnostics (Section 11.4.4) as independently valuable, but this track is also paused by the 2026-03-05 project decision.

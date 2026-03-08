@@ -29,7 +29,11 @@ pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, 
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
-pub use traits::NetworkMiddleware;
+pub use traits::{
+    AccessibilityRole, Attributes, ComputedValue, Constraints, CssPropertyHandler, CssRule,
+    DeprecationInfo, ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware,
+    ParseBehavior, StyleContext,
+};
 pub use values::{CssColor, CssValue, LengthUnit};
 
 // ---------------------------------------------------------------------------

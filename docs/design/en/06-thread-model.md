@@ -59,7 +59,7 @@ The main thread is the single owner of the ECS DOM. All DOM mutations, script ex
 | Responsibility | Details |
 | --- | --- |
 | ECS DOM ownership | Sole writer. All component mutations go through ScriptSession flush. |
-| Script execution | SpiderMonkey (Phase 1–3) or elidex-js (Phase 4+). Single-threaded JS semantics. |
+| Script execution | Boa (Phase 1–3) or elidex-js (Phase 4+). Single-threaded JS semantics. |
 | Event loop | 5-phase loop: collect → JS → render → idle → wait (Ch. 5). |
 | Style initiation | Kicks off parallel style resolution on rayon pool, waits for completion. |
 | Layout initiation | Kicks off parallel layout on rayon pool, waits for completion. |
