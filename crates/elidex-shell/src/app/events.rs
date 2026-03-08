@@ -96,7 +96,6 @@ impl App {
 
             // Re-render after event handling.
             crate::re_render(pipeline);
-            self.display_list = pipeline.display_list.clone();
 
             (button_num, click_prevented, hit_entity)
         };
@@ -150,7 +149,6 @@ impl App {
         );
 
         crate::re_render(pipeline);
-        self.display_list = pipeline.display_list.clone();
 
         // Process any pending JS navigation or history action.
         self.process_pending_navigation();

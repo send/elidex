@@ -1,10 +1,31 @@
-//! Browser chrome UI (address bar, navigation buttons).
+//! Browser chrome UI (address bar, navigation buttons, tab bar).
 //!
 //! Renders an egui overlay at the top of the window containing
-//! back/forward buttons, a reload button, and an address bar.
+//! back/forward buttons, a reload button, an address bar, and a tab bar.
+
+use crate::app::tab::TabId;
 
 /// Height of the chrome bar in logical pixels.
 pub const CHROME_HEIGHT: f32 = 36.0;
+
+/// Height of the tab bar in logical pixels (horizontal mode).
+pub const TAB_BAR_HEIGHT: f32 = 28.0;
+
+/// Width of the tab sidebar in logical pixels (vertical mode).
+pub const TAB_SIDEBAR_WIDTH: f32 = 200.0;
+
+/// Tab bar position relative to the content area.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum TabBarPosition {
+    /// Horizontal tab bar above the address bar.
+    #[default]
+    Top,
+    /// Vertical tab sidebar on the left.
+    Left,
+    /// Vertical tab sidebar on the right.
+    Right,
+}
 
 /// Chrome UI state.
 pub struct ChromeState {
@@ -12,6 +33,8 @@ pub struct ChromeState {
     pub address_text: String,
     /// Whether the address bar is focused (suppresses content key events).
     pub address_focused: bool,
+    /// Tab bar position.
+    pub tab_bar_position: TabBarPosition,
 }
 
 /// Action requested by the chrome UI.
@@ -24,6 +47,22 @@ pub enum ChromeAction {
     Forward,
     /// Reload the current page.
     Reload,
+    /// Open a new tab.
+    NewTab,
+    /// Close a specific tab.
+    CloseTab(TabId),
+    /// Switch to a specific tab.
+    SwitchTab(TabId),
+}
+
+/// Info about a tab, passed to the tab bar builder.
+pub struct TabBarInfo {
+    /// Tab identifier.
+    pub id: TabId,
+    /// Tab title text (owned for borrow-free passing).
+    pub title: String,
+    /// Whether this is the currently active tab.
+    pub is_active: bool,
 }
 
 impl ChromeState {
@@ -32,6 +71,7 @@ impl ChromeState {
         Self {
             address_text: url.map_or_else(String::new, ToString::to_string),
             address_focused: false,
+            tab_bar_position: TabBarPosition::default(),
         }
     }
 
@@ -91,6 +131,125 @@ impl ChromeState {
     }
 }
 
+/// Build the tab bar UI and return any action requested.
+///
+/// Renders either a horizontal top panel or a side panel depending on `position`.
+pub fn build_tab_bar(
+    ctx: &egui::Context,
+    tabs: &[TabBarInfo],
+    position: TabBarPosition,
+) -> Option<ChromeAction> {
+    match position {
+        TabBarPosition::Top => build_tab_bar_top(ctx, tabs),
+        TabBarPosition::Left => build_tab_bar_side(ctx, tabs, "tab_sidebar_left", true),
+        TabBarPosition::Right => build_tab_bar_side(ctx, tabs, "tab_sidebar_right", false),
+    }
+}
+
+/// Render a single tab button (label + close [x]) and return any action.
+fn render_tab_button(
+    ui: &mut egui::Ui,
+    tab: &TabBarInfo,
+    max_title_len: usize,
+) -> Option<ChromeAction> {
+    let label = truncate_title(&tab.title, max_title_len);
+    let btn = if tab.is_active {
+        ui.add(egui::Button::new(egui::RichText::new(&label).strong()))
+    } else {
+        ui.button(&label)
+    };
+    if btn.clicked() && !tab.is_active {
+        return Some(ChromeAction::SwitchTab(tab.id));
+    }
+    if ui.small_button("x").clicked() {
+        return Some(ChromeAction::CloseTab(tab.id));
+    }
+    None
+}
+
+fn build_tab_bar_top(ctx: &egui::Context, tabs: &[TabBarInfo]) -> Option<ChromeAction> {
+    let mut action = None;
+
+    egui::TopBottomPanel::top("tab_bar")
+        .exact_height(TAB_BAR_HEIGHT)
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                for tab in tabs {
+                    if let Some(a) = render_tab_button(ui, tab, 20) {
+                        action = Some(a);
+                    }
+                    ui.separator();
+                }
+
+                // New tab button.
+                if ui.button("+").clicked() {
+                    action = Some(ChromeAction::NewTab);
+                }
+            });
+        });
+
+    action
+}
+
+fn build_tab_bar_side(
+    ctx: &egui::Context,
+    tabs: &[TabBarInfo],
+    panel_id: &str,
+    is_left: bool,
+) -> Option<ChromeAction> {
+    let mut action = None;
+
+    let id = egui::Id::new(panel_id);
+    let panel = if is_left {
+        egui::SidePanel::left(id)
+    } else {
+        egui::SidePanel::right(id)
+    };
+
+    panel.exact_width(TAB_SIDEBAR_WIDTH).show(ctx, |ui| {
+        for tab in tabs {
+            ui.horizontal(|ui| {
+                if let Some(a) = render_tab_button(ui, tab, 25) {
+                    action = Some(a);
+                }
+            });
+        }
+
+        // New tab button.
+        if ui.button("+").clicked() {
+            action = Some(ChromeAction::NewTab);
+        }
+    });
+
+    action
+}
+
+/// Truncate a title to at most `max_len` characters, appending "..." if needed.
+fn truncate_title(title: &str, max_len: usize) -> String {
+    let char_count = title.chars().count();
+    if char_count <= max_len {
+        title.to_string()
+    } else if max_len < 3 {
+        title.chars().take(max_len).collect()
+    } else {
+        let truncated: String = title.chars().take(max_len - 3).collect();
+        format!("{truncated}...")
+    }
+}
+
+/// Compute the content area offset (x, y) based on tab bar position.
+///
+/// Returns the `(x_offset, y_offset)` that should be subtracted from mouse
+/// coordinates to get content-relative positions.
+#[must_use]
+pub fn chrome_content_offset(position: TabBarPosition) -> (f32, f32) {
+    match position {
+        TabBarPosition::Top => (0.0, TAB_BAR_HEIGHT + CHROME_HEIGHT),
+        TabBarPosition::Left => (TAB_SIDEBAR_WIDTH, CHROME_HEIGHT),
+        TabBarPosition::Right => (0.0, CHROME_HEIGHT),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,6 +259,7 @@ mod tests {
         let state = ChromeState::new(None);
         assert_eq!(state.address_text, "");
         assert!(!state.address_focused);
+        assert_eq!(state.tab_bar_position, TabBarPosition::Top);
     }
 
     #[test]
@@ -117,5 +277,44 @@ mod tests {
         let url = url::Url::parse("https://example.com/new").unwrap();
         state.set_url(&url);
         assert_eq!(state.address_text, "https://example.com/new");
+    }
+
+    #[test]
+    fn content_offset_top() {
+        let (x, y) = chrome_content_offset(TabBarPosition::Top);
+        assert_eq!(x, 0.0);
+        assert_eq!(y, TAB_BAR_HEIGHT + CHROME_HEIGHT);
+    }
+
+    #[test]
+    fn content_offset_left() {
+        let (x, y) = chrome_content_offset(TabBarPosition::Left);
+        assert_eq!(x, TAB_SIDEBAR_WIDTH);
+        assert_eq!(y, CHROME_HEIGHT);
+    }
+
+    #[test]
+    fn content_offset_right() {
+        let (x, y) = chrome_content_offset(TabBarPosition::Right);
+        assert_eq!(x, 0.0);
+        assert_eq!(y, CHROME_HEIGHT);
+    }
+
+    #[test]
+    fn truncate_title_short() {
+        assert_eq!(truncate_title("Hello", 20), "Hello");
+    }
+
+    #[test]
+    fn truncate_title_long() {
+        let long = "This is a very long tab title that should be truncated";
+        let result = truncate_title(long, 20);
+        assert!(result.chars().count() <= 20);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn tab_bar_position_default() {
+        assert_eq!(TabBarPosition::default(), TabBarPosition::Top);
     }
 }

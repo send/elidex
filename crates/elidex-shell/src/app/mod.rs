@@ -5,7 +5,7 @@
 //! event dispatch to the DOM.
 //!
 //! Supports two modes:
-//! - **Threaded** (`ContentHandle`): content runs on a dedicated thread,
+//! - **Threaded** (`TabManager`): each tab runs on a dedicated content thread,
 //!   communicating via message passing.
 //! - **Legacy inline** (`InteractiveState`): all processing on the main
 //!   thread (used by `build_pipeline` test API).
@@ -14,9 +14,9 @@ pub(crate) mod events;
 pub(crate) mod hover;
 pub(crate) mod navigation;
 mod render;
+pub(crate) mod tab;
 
 use std::sync::Arc;
-use std::thread::JoinHandle;
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, Modifiers, WindowEvent};
@@ -29,9 +29,11 @@ use elidex_render::DisplayList;
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
 
-use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel, ModifierState};
+use crate::chrome::{self, ChromeAction, TabBarInfo};
+use crate::ipc::{BrowserToContent, ContentToBrowser, ModifierState};
 
 use render::{handle_redraw, try_init_render_state};
+use tab::TabManager;
 
 /// Convert a winit mouse button to the DOM spec button number.
 ///
@@ -63,42 +65,6 @@ pub(super) struct RenderState {
     pub(super) a11y_adapter: accesskit_winit::Adapter,
 }
 
-/// Handle to a content thread, used by the browser thread for message passing.
-///
-/// Navigation state is owned by the content thread. The browser thread
-/// mirrors `can_go_back`/`can_go_forward` for chrome UI via
-/// [`ContentToBrowser::NavigationState`] messages.
-pub(super) struct ContentHandle {
-    pub(super) channel: LocalChannel<BrowserToContent, ContentToBrowser>,
-    pub(super) thread: JoinHandle<()>,
-    pub(super) can_go_back: bool,
-    pub(super) can_go_forward: bool,
-    pub(super) chrome: crate::chrome::ChromeState,
-    pub(super) cursor_pos: Option<(f64, f64)>,
-    pub(super) modifiers: Modifiers,
-    pub(super) window_title: String,
-}
-
-impl ContentHandle {
-    fn new(
-        channel: LocalChannel<BrowserToContent, ContentToBrowser>,
-        thread: JoinHandle<()>,
-        chrome: crate::chrome::ChromeState,
-        window_title: String,
-    ) -> Self {
-        Self {
-            channel,
-            thread,
-            can_go_back: false,
-            can_go_forward: false,
-            chrome,
-            cursor_pos: None,
-            modifiers: Modifiers::default(),
-            window_title,
-        }
-    }
-}
-
 /// Legacy inline interactive state (all processing on the main thread).
 ///
 /// Kept for backward compatibility with `build_pipeline()` test API.
@@ -116,19 +82,30 @@ pub(super) struct InteractiveState {
 
 /// winit application that renders a display list to a window.
 pub struct App {
-    pub(super) display_list: DisplayList,
     pub(super) render_state: Option<RenderState>,
-    /// Threaded content handle (new architecture).
-    pub(super) content_handle: Option<ContentHandle>,
+    /// Multi-tab manager (threaded mode).
+    tab_manager: Option<TabManager>,
+    /// Window-level cursor position (shared across tabs).
+    pub(super) cursor_pos: Option<(f64, f64)>,
+    /// Window-level modifier state (shared across tabs).
+    pub(super) modifiers: Modifiers,
+    /// Whether the cursor was in the content area on the last move event.
+    /// Used to send exactly one `CursorLeft` when the cursor moves into the chrome area.
+    cursor_in_content: bool,
     /// Legacy inline interactive state.
     pub(super) interactive: Option<InteractiveState>,
 }
 
 impl App {
-    /// Synchronize the top-level display list from the interactive pipeline (legacy mode).
-    fn sync_display_list(&mut self) {
-        if let Some(interactive) = &self.interactive {
-            self.display_list = interactive.pipeline.display_list.clone();
+    /// Create a threaded-mode `App` from a pre-initialized `TabManager`.
+    fn from_tab_manager(mgr: TabManager) -> Self {
+        Self {
+            render_state: None,
+            tab_manager: Some(mgr),
+            cursor_pos: None,
+            modifiers: Modifiers::default(),
+            cursor_in_content: false,
+            interactive: None,
         }
     }
 
@@ -138,17 +115,15 @@ impl App {
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let thread = crate::content::spawn_content_thread(content_ch, html, css);
 
-        Self {
-            display_list: DisplayList::default(),
-            render_state: None,
-            content_handle: Some(ContentHandle::new(
-                browser_ch,
-                thread,
-                crate::chrome::ChromeState::new(None),
-                "elidex".to_string(),
-            )),
-            interactive: None,
-        }
+        let mut mgr = TabManager::new();
+        mgr.create_tab(
+            browser_ch,
+            thread,
+            crate::chrome::ChromeState::new(None),
+            "elidex".to_string(),
+        );
+
+        Self::from_tab_manager(mgr)
     }
 
     /// Create a new threaded application from a URL.
@@ -159,22 +134,21 @@ impl App {
         let chrome = crate::chrome::ChromeState::new(Some(&url));
         let thread = crate::content::spawn_content_thread_url(content_ch, url);
 
-        Self {
-            display_list: DisplayList::default(),
-            render_state: None,
-            content_handle: Some(ContentHandle::new(browser_ch, thread, chrome, title)),
-            interactive: None,
-        }
+        let mut mgr = TabManager::new();
+        mgr.create_tab(browser_ch, thread, chrome, title);
+
+        Self::from_tab_manager(mgr)
     }
 
     /// Create a new legacy (inline) interactive application from a pipeline result.
     #[allow(dead_code)]
     pub fn new_interactive(pipeline: crate::PipelineResult) -> Self {
-        let display_list = pipeline.display_list.clone();
         Self {
-            display_list,
             render_state: None,
-            content_handle: None,
+            tab_manager: None,
+            cursor_pos: None,
+            modifiers: Modifiers::default(),
+            cursor_in_content: false,
             interactive: Some(InteractiveState {
                 chrome: crate::chrome::ChromeState::new(None),
                 pipeline,
@@ -192,16 +166,17 @@ impl App {
     /// Create a new legacy (inline) interactive application from a URL-loaded pipeline result.
     #[allow(dead_code)]
     pub fn new_interactive_with_url(pipeline: crate::PipelineResult, title: String) -> Self {
-        let display_list = pipeline.display_list.clone();
         let chrome = crate::chrome::ChromeState::new(pipeline.url.as_ref());
         let mut nav_controller = NavigationController::new();
         if let Some(url) = &pipeline.url {
             nav_controller.push(url.clone());
         }
         Self {
-            display_list,
             render_state: None,
-            content_handle: None,
+            tab_manager: None,
+            cursor_pos: None,
+            modifiers: Modifiers::default(),
+            cursor_in_content: false,
             interactive: Some(InteractiveState {
                 chrome,
                 pipeline,
@@ -216,34 +191,53 @@ impl App {
         }
     }
 
-    /// Drain all pending messages from the content thread.
+    /// Maximum messages to drain per tab per frame.
+    ///
+    /// Prevents a runaway content thread from monopolizing the browser thread's
+    /// event loop. Any remaining messages will be drained on the next frame.
+    const MAX_DRAIN_PER_TAB: usize = 1000;
+
+    /// Drain all pending messages from all tabs.
     fn drain_content_messages(&mut self) {
-        let Some(ch) = &mut self.content_handle else {
+        let Some(mgr) = &mut self.tab_manager else {
             return;
         };
-        while let Ok(msg) = ch.channel.try_recv() {
-            match msg {
-                ContentToBrowser::DisplayListReady(dl) => {
-                    self.display_list = dl;
-                }
-                ContentToBrowser::TitleChanged(title) => {
-                    ch.window_title = title;
-                    if let Some(state) = &self.render_state {
-                        state.window.set_title(&ch.window_title);
+        for tab in mgr.tabs_mut() {
+            let mut drained = 0;
+            while drained < Self::MAX_DRAIN_PER_TAB {
+                let Ok(msg) = tab.channel.try_recv() else {
+                    break;
+                };
+                drained += 1;
+                match msg {
+                    ContentToBrowser::DisplayListReady(dl) => {
+                        tab.display_list = dl;
+                    }
+                    ContentToBrowser::TitleChanged(title) => {
+                        tab.window_title = title;
+                    }
+                    ContentToBrowser::NavigationState {
+                        can_go_back,
+                        can_go_forward,
+                    } => {
+                        tab.can_go_back = can_go_back;
+                        tab.can_go_forward = can_go_forward;
+                    }
+                    ContentToBrowser::UrlChanged(url) => {
+                        tab.chrome.set_url(&url);
+                    }
+                    ContentToBrowser::NavigationFailed { url, error } => {
+                        eprintln!("Navigation to {url} failed: {error}");
                     }
                 }
-                ContentToBrowser::NavigationState {
-                    can_go_back,
-                    can_go_forward,
-                } => {
-                    ch.can_go_back = can_go_back;
-                    ch.can_go_forward = can_go_forward;
-                }
-                ContentToBrowser::UrlChanged(url) => {
-                    ch.chrome.set_url(&url);
-                }
-                ContentToBrowser::NavigationFailed { url, error } => {
-                    eprintln!("Navigation to {url} failed: {error}");
+            }
+        }
+
+        // Update window title only when the active tab's title changed.
+        if let Some(tab) = mgr.active_tab() {
+            if let Some(state) = &self.render_state {
+                if state.window.title() != tab.window_title {
+                    state.window.set_title(&tab.window_title);
                 }
             }
         }
@@ -259,23 +253,48 @@ impl App {
         }
     }
 
-    /// Send a message to the content thread (if in threaded mode).
+    /// Send a message to the active tab's content thread.
     fn send_to_content(&self, msg: BrowserToContent) {
-        if let Some(ch) = &self.content_handle {
-            if let Err(e) = ch.channel.send(msg) {
-                eprintln!("Failed to send to content thread (disconnected): {e}");
+        if let Some(mgr) = &self.tab_manager {
+            if let Some(tab) = mgr.active_tab() {
+                if let Err(e) = tab.channel.send(msg) {
+                    eprintln!("Failed to send to content thread (disconnected): {e}");
+                }
             }
         }
+    }
+
+    /// Get the tab bar position from the active tab's chrome state.
+    fn tab_bar_position(&self) -> chrome::TabBarPosition {
+        self.tab_manager
+            .as_ref()
+            .and_then(|mgr| mgr.active_tab())
+            .map_or(chrome::TabBarPosition::Top, |tab| {
+                tab.chrome.tab_bar_position
+            })
+    }
+
+    /// Build tab bar info for all tabs.
+    fn tab_bar_infos(&self) -> Vec<TabBarInfo> {
+        let Some(mgr) = &self.tab_manager else {
+            return Vec::new();
+        };
+        let active_id = mgr.active_id();
+        mgr.tabs()
+            .iter()
+            .map(|tab| TabBarInfo {
+                id: tab.id,
+                title: tab.window_title.clone(),
+                is_active: Some(tab.id) == active_id,
+            })
+            .collect()
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
-        if let Some(ch) = self.content_handle.take() {
-            let _ = ch.channel.send(BrowserToContent::Shutdown);
-            if let Err(e) = ch.thread.join() {
-                eprintln!("Content thread panicked: {e:?}");
-            }
+        if let Some(mgr) = &mut self.tab_manager {
+            mgr.shutdown_all();
         }
     }
 }
@@ -292,8 +311,10 @@ impl ApplicationHandler for App {
         };
 
         // Set initial window title.
-        if let Some(ch) = &self.content_handle {
-            state.window.set_title(&ch.window_title);
+        if let Some(mgr) = &self.tab_manager {
+            if let Some(tab) = mgr.active_tab() {
+                state.window.set_title(&tab.window_title);
+            }
         } else if let Some(interactive) = &self.interactive {
             state.window.set_title(&interactive.window_title);
         }
@@ -344,7 +365,7 @@ impl ApplicationHandler for App {
         }
 
         // ---- Threaded mode ----
-        if self.content_handle.is_some() {
+        if self.tab_manager.is_some() {
             self.handle_window_event_threaded(event_loop, event);
             return;
         }
@@ -357,19 +378,19 @@ impl ApplicationHandler for App {
 // --- Threaded mode event handling ---
 impl App {
     #[allow(clippy::too_many_lines)]
-    fn handle_window_event_threaded(&mut self, _event_loop: &ActiveEventLoop, event: WindowEvent) {
+    fn handle_window_event_threaded(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent,
+    ) {
         // Track modifier state on browser side.
         if let WindowEvent::ModifiersChanged(new_modifiers) = &event {
-            if let Some(ch) = &mut self.content_handle {
-                ch.modifiers = *new_modifiers;
-            }
+            self.modifiers = *new_modifiers;
         }
 
-        // Track cursor position for click offset calculation.
+        // Track cursor position.
         if let WindowEvent::CursorMoved { position, .. } = &event {
-            if let Some(ch) = &mut self.content_handle {
-                ch.cursor_pos = Some((position.x, position.y));
-            }
+            self.cursor_pos = Some((position.x, position.y));
         }
 
         // Pass to egui first.
@@ -384,9 +405,13 @@ impl App {
         };
 
         let address_focused = self
-            .content_handle
+            .tab_manager
             .as_ref()
-            .is_some_and(|ch| ch.chrome.address_focused);
+            .and_then(|mgr| mgr.active_tab())
+            .is_some_and(|tab| tab.chrome.address_focused);
+
+        let position = self.tab_bar_position();
+        let (x_offset, y_offset) = chrome::chrome_content_offset(position);
 
         // Most event arms need a redraw; track exceptions explicitly.
         let mut needs_redraw = true;
@@ -396,35 +421,43 @@ impl App {
                 needs_redraw = false;
                 self.drain_content_messages();
 
-                let chrome_action = {
+                let tab_infos = self.tab_bar_infos();
+
+                let chrome_actions = {
                     let Self {
-                        display_list,
                         render_state,
-                        content_handle,
+                        tab_manager,
                         ..
                     } = &mut *self;
                     let Some(state) = render_state.as_mut() else {
                         return;
                     };
-                    if let Some(ch) = content_handle.as_mut() {
-                        handle_redraw(
+                    // tab_manager is always Some in threaded mode.
+                    let mgr = tab_manager.as_mut().expect("threaded mode requires tab_manager");
+                    if let Some(tab) = mgr.active_tab_mut() {
+                        render::handle_redraw_with_tabs(
                             state,
-                            display_list,
-                            Some(&mut ch.chrome),
-                            ch.can_go_back,
-                            ch.can_go_forward,
+                            &tab.display_list,
+                            &mut tab.chrome,
+                            tab.can_go_back,
+                            tab.can_go_forward,
+                            &tab_infos,
+                            position,
                         )
                     } else {
-                        handle_redraw(state, display_list, None, false, false)
+                        let empty = DisplayList::default();
+                        handle_redraw(state, &empty, None, false, false);
+                        Vec::new()
                     }
                 };
 
-                // TODO(Phase 4): Update AccessKit tree in threaded mode.
-                // Currently a11y tree is only updated in legacy inline mode
-                // because it requires DOM access (which lives on the content thread).
+                // TODO(Phase 4): Update accessibility tree in threaded mode.
+                // The DOM lives on the content thread, so we can't call
+                // `a11y_adapter.update_if_active()` here (unlike legacy mode).
+                // Requires a new IPC message (e.g. ContentToBrowser::A11yTreeReady).
 
-                if let Some(action) = chrome_action {
-                    self.handle_chrome_action_threaded(action);
+                for action in chrome_actions {
+                    self.handle_chrome_action_threaded(event_loop, action);
                     needs_redraw = true;
                 }
             }
@@ -433,17 +466,27 @@ impl App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
-                let y = (position.y as f32) - crate::chrome::CHROME_HEIGHT;
+                let x = (position.x as f32) - x_offset;
                 #[allow(clippy::cast_possible_truncation)]
-                let x = position.x as f32;
-                self.send_to_content(BrowserToContent::MouseMove {
-                    x,
-                    y,
-                    client_x: position.x,
-                    client_y: position.y,
-                });
+                let y = (position.y as f32) - y_offset;
+                // Only send to content thread when cursor is in the content area.
+                // When cursor first moves into chrome/tab bar, send CursorLeft
+                // to clear hover state (otherwise :hover stays stuck).
+                if x >= 0.0 && y >= 0.0 {
+                    self.cursor_in_content = true;
+                    self.send_to_content(BrowserToContent::MouseMove {
+                        x,
+                        y,
+                        client_x: position.x,
+                        client_y: position.y,
+                    });
+                } else if self.cursor_in_content {
+                    self.cursor_in_content = false;
+                    self.send_to_content(BrowserToContent::CursorLeft);
+                }
             }
             WindowEvent::CursorLeft { .. } => {
+                self.cursor_in_content = false;
                 self.send_to_content(BrowserToContent::CursorLeft);
             }
             WindowEvent::MouseInput {
@@ -451,23 +494,21 @@ impl App {
                 button,
                 ..
             } => {
-                if let Some(ch) = self.content_handle.as_ref() {
-                    if let Some((cx, cy)) = ch.cursor_pos {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let x = cx as f32;
-                        #[allow(clippy::cast_possible_truncation)]
-                        let y = (cy as f32) - crate::chrome::CHROME_HEIGHT;
-                        if y >= 0.0 {
-                            let mods = Self::to_modifier_state(ch.modifiers.state());
-                            self.send_to_content(BrowserToContent::MouseClick {
-                                x,
-                                y,
-                                client_x: cx,
-                                client_y: cy,
-                                button: winit_button_to_dom(button),
-                                mods,
-                            });
-                        }
+                if let Some((cx, cy)) = self.cursor_pos {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let x = (cx as f32) - x_offset;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let y = (cy as f32) - y_offset;
+                    if y >= 0.0 && x >= 0.0 {
+                        let mods = Self::to_modifier_state(self.modifiers.state());
+                        self.send_to_content(BrowserToContent::MouseClick {
+                            x,
+                            y,
+                            client_x: cx,
+                            client_y: cy,
+                            button: winit_button_to_dom(button),
+                            mods,
+                        });
                     }
                 }
             }
@@ -483,15 +524,18 @@ impl App {
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                // Alt+Left/Right: back/forward navigation.
                 let mut handled = false;
                 if key_event.state == ElementState::Pressed {
-                    let mods = self
-                        .content_handle
-                        .as_ref()
-                        .map(|ch| ch.modifiers.state())
-                        .unwrap_or_default();
-                    if mods.alt_key() {
+                    let mods = self.modifiers.state();
+
+                    // Tab keyboard shortcuts (Cmd/Ctrl+T/W, Ctrl+Tab, Ctrl+1-9).
+                    if let Some(action) = self.check_tab_shortcut(&key_event, mods) {
+                        self.handle_chrome_action_threaded(event_loop, action);
+                        handled = true;
+                    }
+
+                    // Alt+Left/Right: back/forward navigation.
+                    if !handled && mods.alt_key() {
                         let nav_msg = match &key_event.logical_key {
                             winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
                                 Some(BrowserToContent::GoBack)
@@ -522,12 +566,7 @@ impl App {
                         &key_event.logical_key,
                         key_event.physical_key,
                     );
-                    let mods = self
-                        .content_handle
-                        .as_ref()
-                        .map(|ch| ch.modifiers.state())
-                        .unwrap_or_default();
-                    let ipc_mods = Self::to_modifier_state(mods);
+                    let ipc_mods = Self::to_modifier_state(self.modifiers.state());
 
                     let msg = if event_type == "keydown" {
                         BrowserToContent::KeyDown {
@@ -559,14 +598,78 @@ impl App {
         }
     }
 
+    /// Check for tab-related keyboard shortcuts.
+    fn check_tab_shortcut(
+        &self,
+        key_event: &winit::event::KeyEvent,
+        mods: winit::keyboard::ModifiersState,
+    ) -> Option<ChromeAction> {
+        // Cmd (macOS) or Ctrl (other) as the primary modifier.
+        let cmd_or_ctrl = if cfg!(target_os = "macos") {
+            mods.super_key()
+        } else {
+            mods.control_key()
+        };
+
+        if cmd_or_ctrl {
+            match &key_event.logical_key {
+                winit::keyboard::Key::Character(c) if c.as_str() == "t" => {
+                    return Some(ChromeAction::NewTab);
+                }
+                winit::keyboard::Key::Character(c) if c.as_str() == "w" => {
+                    let mgr = self.tab_manager.as_ref()?;
+                    let id = mgr.active_id()?;
+                    return Some(ChromeAction::CloseTab(id));
+                }
+                // Ctrl/Cmd+1-8: switch to nth tab. Ctrl/Cmd+9: last tab
+                // (Chrome/Firefox convention).
+                winit::keyboard::Key::Character(c) => {
+                    if let Some(digit) = c.as_str().chars().next().and_then(|ch| ch.to_digit(10)) {
+                        if (1..=9).contains(&digit) {
+                            let mgr = self.tab_manager.as_ref()?;
+                            let id = if digit == 9 {
+                                // Cmd/Ctrl+9 always selects the last tab.
+                                let count = mgr.tabs().len();
+                                mgr.nth_tab_id(count.saturating_sub(1))?
+                            } else {
+                                mgr.nth_tab_id((digit - 1) as usize)?
+                            };
+                            return Some(ChromeAction::SwitchTab(id));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs.
+        // NOTE: macOS HIG uses Cmd+Shift+]/[ for tab cycling, but Chrome/Firefox
+        // use Ctrl+Tab on all platforms. We follow the Chrome/Firefox convention.
+        if mods.control_key() {
+            if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) =
+                &key_event.logical_key
+            {
+                let mgr = self.tab_manager.as_ref()?;
+                let id = if mods.shift_key() {
+                    mgr.prev_tab_id()?
+                } else {
+                    mgr.next_tab_id()?
+                };
+                return Some(ChromeAction::SwitchTab(id));
+            }
+        }
+
+        None
+    }
+
     /// Handle chrome actions in threaded mode.
-    ///
-    /// Navigation state is managed by the content thread. The browser sends
-    /// `Navigate`/`GoBack`/`GoForward` messages; the content thread responds
-    /// with `UrlChanged` + `NavigationState` after completing navigation.
-    fn handle_chrome_action_threaded(&mut self, action: crate::chrome::ChromeAction) {
+    fn handle_chrome_action_threaded(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        action: ChromeAction,
+    ) {
         match action {
-            crate::chrome::ChromeAction::Navigate(url_str) => {
+            ChromeAction::Navigate(url_str) => {
                 let parsed = url::Url::parse(&url_str)
                     .or_else(|_| url::Url::parse(&format!("https://{url_str}")));
                 match parsed {
@@ -576,16 +679,48 @@ impl App {
                     Err(e) => eprintln!("Invalid URL: {e}"),
                 }
             }
-            crate::chrome::ChromeAction::Back => {
+            ChromeAction::Back => {
                 self.send_to_content(BrowserToContent::GoBack);
             }
-            crate::chrome::ChromeAction::Forward => {
+            ChromeAction::Forward => {
                 self.send_to_content(BrowserToContent::GoForward);
             }
-            crate::chrome::ChromeAction::Reload => {
+            ChromeAction::Reload => {
                 self.send_to_content(BrowserToContent::Reload);
             }
+            ChromeAction::NewTab => {
+                self.open_new_tab();
+            }
+            ChromeAction::CloseTab(id) => {
+                if let Some(mgr) = &mut self.tab_manager {
+                    let has_tabs = mgr.close_tab(id);
+                    if !has_tabs {
+                        event_loop.exit();
+                    }
+                }
+            }
+            ChromeAction::SwitchTab(id) => {
+                if let Some(mgr) = &mut self.tab_manager {
+                    mgr.set_active(id);
+                }
+            }
         }
+    }
+
+    /// Open a new blank tab.
+    fn open_new_tab(&mut self) {
+        let Some(mgr) = &mut self.tab_manager else {
+            return;
+        };
+        let (browser_ch, content_ch) =
+            crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+        let thread = crate::content::spawn_content_thread_blank(content_ch);
+        mgr.create_tab(
+            browser_ch,
+            thread,
+            crate::chrome::ChromeState::new(None),
+            "New Tab".to_string(),
+        );
     }
 }
 
@@ -636,7 +771,9 @@ impl App {
                     false
                 };
                 if hover_changed {
-                    self.sync_display_list();
+                    if let Some(s) = &self.render_state {
+                        s.window.request_redraw();
+                    }
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -656,9 +793,11 @@ impl App {
                     }
                     if had_hover || had_active {
                         crate::re_render(&mut interactive.pipeline);
+                        if let Some(s) = &self.render_state {
+                            s.window.request_redraw();
+                        }
                     }
                 }
-                self.sync_display_list();
             }
             _ => {}
         }
@@ -684,7 +823,6 @@ impl App {
             WindowEvent::RedrawRequested => {
                 let chrome_action = {
                     let Self {
-                        display_list,
                         render_state,
                         interactive,
                         ..
@@ -697,13 +835,13 @@ impl App {
                         let can_fwd = interactive.nav_controller.can_go_forward();
                         handle_redraw(
                             state,
-                            display_list,
+                            &interactive.pipeline.display_list,
                             Some(&mut interactive.chrome),
                             can_back,
                             can_fwd,
                         )
                     } else {
-                        handle_redraw(state, display_list, None, false, false)
+                        handle_redraw(state, &DisplayList::default(), None, false, false)
                     }
                 };
                 // Update accessibility tree after rendering.
@@ -732,8 +870,7 @@ impl App {
                 ..
             } => {
                 if let Some(interactive) = &mut self.interactive {
-                    // Clear stale ACTIVE from a previous press (e.g. MouseRelease
-                    // lost due to window focus change).
+                    // Clear stale ACTIVE from a previous press.
                     for &e in &interactive.active_chain {
                         hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
                             s.remove(DomElementState::ACTIVE);
@@ -764,7 +901,7 @@ impl App {
                     }
                     crate::re_render(&mut interactive.pipeline);
                 }
-                self.sync_display_list();
+
                 if let Some(s) = &self.render_state {
                     s.window.request_redraw();
                 }

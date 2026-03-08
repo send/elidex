@@ -43,6 +43,11 @@ const DEFAULT_VIEWPORT_WIDTH: f32 = 1024.0;
 /// Default viewport height for the initial layout pass.
 const DEFAULT_VIEWPORT_HEIGHT: f32 = 768.0;
 
+/// HTML content for a blank new-tab page.
+const BLANK_TAB_HTML: &str = "<html><body><h1>New Tab</h1></body></html>";
+/// CSS for the blank new-tab page.
+const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; font-family: sans-serif; } h1 { text-align: center; margin-top: 200px; }";
+
 /// Resolve styles with the compat layer (legacy UA + presentational hints).
 fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
     let legacy_ua = legacy_ua_stylesheet();

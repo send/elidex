@@ -127,25 +127,15 @@ impl accesskit::DeactivationHandler for NoopDeactivationHandler {
     }
 }
 
-/// Build and render the egui chrome overlay on top of existing surface content.
-///
-/// Runs the chrome UI, tessellates, uploads textures, and draws via a
-/// `LoadOp::Load` render pass to preserve the Vello blit underneath.
-pub(super) fn render_egui_overlay(
+/// Render egui output (tessellation, texture upload, render pass).
+fn render_egui_output(
     state: &mut RenderState,
     encoder: &mut wgpu::CommandEncoder,
     frame_view: &wgpu::TextureView,
-    chrome: &mut crate::chrome::ChromeState,
-    can_go_back: bool,
-    can_go_forward: bool,
-) -> Option<crate::chrome::ChromeAction> {
+    full_output: egui::FullOutput,
+) {
     let width = state.gpu.surface_config.width;
     let height = state.gpu.surface_config.height;
-    let mut chrome_action = None;
-    let raw_input = state.egui_state.take_egui_input(&state.window);
-    let full_output = state.egui_ctx.run(raw_input, |ctx| {
-        chrome_action = chrome.build(ctx, can_go_back, can_go_forward);
-    });
 
     state
         .egui_state
@@ -177,8 +167,6 @@ pub(super) fn render_egui_overlay(
         state.gpu.queue.submit(user_cmd_bufs);
     }
 
-    // `forget_lifetime()` erases the render pass lifetime (safe since
-    // wgpu 22+ render passes don't actually borrow the encoder).
     {
         let mut render_pass = encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -205,8 +193,115 @@ pub(super) fn render_egui_overlay(
     for id in &full_output.textures_delta.free {
         state.egui_renderer.free_texture(id);
     }
+}
 
-    chrome_action
+/// Render the Vello display list, blit to surface, run an egui callback, and present.
+///
+/// Shared by both `handle_redraw` and `handle_redraw_with_tabs`. The `egui_fn`
+/// closure receives the egui context and should build any UI panels; its return
+/// value is forwarded to the caller.
+fn with_frame<T: Default>(
+    state: &mut RenderState,
+    display_list: &DisplayList,
+    egui_fn: impl FnOnce(&egui::Context) -> T,
+) -> T {
+    let width = state.gpu.surface_config.width;
+    let height = state.gpu.surface_config.height;
+
+    if width == 0 || height == 0 {
+        return T::default();
+    }
+
+    // Render the display list to an intermediate texture.
+    let texture = match state.renderer.render(
+        &state.gpu.device,
+        &state.gpu.queue,
+        display_list,
+        width,
+        height,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Vello render error: {e}");
+            return T::default();
+        }
+    };
+
+    // Get the surface frame.
+    let frame = match state.surface.get_current_texture() {
+        Ok(f) => f,
+        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+            state.gpu.reconfigure(&state.surface);
+            state.window.request_redraw();
+            return T::default();
+        }
+        Err(wgpu::SurfaceError::Timeout) => {
+            state.window.request_redraw();
+            return T::default();
+        }
+        Err(e) => {
+            eprintln!("Surface error: {e}");
+            return T::default();
+        }
+    };
+
+    let frame_view = frame
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let source_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder = state
+        .gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("blit_encoder"),
+        });
+    state
+        .blitter
+        .copy(&state.gpu.device, &mut encoder, &source_view, &frame_view);
+
+    // Run egui UI callback.
+    let raw_input = state.egui_state.take_egui_input(&state.window);
+    let mut result = T::default();
+    let mut egui_fn = Some(egui_fn);
+    let full_output = state.egui_ctx.run(raw_input, |ctx| {
+        if let Some(f) = egui_fn.take() {
+            result = f(ctx);
+        }
+    });
+
+    render_egui_output(state, &mut encoder, &frame_view, full_output);
+
+    state.gpu.queue.submit(std::iter::once(encoder.finish()));
+    frame.present();
+
+    result
+}
+
+/// Render with tab bar + chrome bar, returning all chrome actions.
+///
+/// Used in threaded (multi-tab) mode.
+pub(super) fn handle_redraw_with_tabs(
+    state: &mut RenderState,
+    display_list: &DisplayList,
+    chrome: &mut crate::chrome::ChromeState,
+    can_go_back: bool,
+    can_go_forward: bool,
+    tab_infos: &[crate::chrome::TabBarInfo],
+    tab_position: crate::chrome::TabBarPosition,
+) -> Vec<crate::chrome::ChromeAction> {
+    with_frame(state, display_list, |ctx| {
+        let mut actions = Vec::new();
+        // Tab bar (must be added before chrome bar for correct Top layout).
+        if let Some(action) = crate::chrome::build_tab_bar(ctx, tab_infos, tab_position) {
+            actions.push(action);
+        }
+        // Chrome bar (address + nav buttons).
+        if let Some(action) = chrome.build(ctx, can_go_back, can_go_forward) {
+            actions.push(action);
+        }
+        actions
+    })
 }
 
 /// Render the display list to the window surface, optionally with an egui chrome overlay.
@@ -221,78 +316,7 @@ pub(super) fn handle_redraw(
     can_go_back: bool,
     can_go_forward: bool,
 ) -> Option<crate::chrome::ChromeAction> {
-    let width = state.gpu.surface_config.width;
-    let height = state.gpu.surface_config.height;
-
-    if width == 0 || height == 0 {
-        return None;
-    }
-
-    // Render the display list to an intermediate texture.
-    let texture = match state.renderer.render(
-        &state.gpu.device,
-        &state.gpu.queue,
-        display_list,
-        width,
-        height,
-    ) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Vello render error: {e}");
-            return None;
-        }
-    };
-
-    // Get the surface frame.
-    let frame = match state.surface.get_current_texture() {
-        Ok(f) => f,
-        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-            state.gpu.reconfigure(&state.surface);
-            state.window.request_redraw();
-            return None;
-        }
-        Err(wgpu::SurfaceError::Timeout) => {
-            state.window.request_redraw();
-            return None;
-        }
-        Err(e) => {
-            eprintln!("Surface error: {e}");
-            return None;
-        }
-    };
-
-    let frame_view = frame
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
-    let source_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-    // Blit the Vello output to the surface.
-    let mut encoder = state
-        .gpu
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("blit_encoder"),
-        });
-    state
-        .blitter
-        .copy(&state.gpu.device, &mut encoder, &source_view, &frame_view);
-
-    // Render egui chrome overlay if present.
-    let chrome_action = if let Some(chrome) = chrome {
-        render_egui_overlay(
-            state,
-            &mut encoder,
-            &frame_view,
-            chrome,
-            can_go_back,
-            can_go_forward,
-        )
-    } else {
-        None
-    };
-
-    state.gpu.queue.submit(std::iter::once(encoder.finish()));
-    frame.present();
-
-    chrome_action
+    with_frame(state, display_list, |ctx| {
+        chrome.and_then(|chrome| chrome.build(ctx, can_go_back, can_go_forward))
+    })
 }

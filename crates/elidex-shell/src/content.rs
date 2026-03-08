@@ -121,6 +121,17 @@ pub(crate) fn spawn_content_thread_url(
     })
 }
 
+/// Spawn a blank new-tab content thread.
+///
+/// Renders a minimal "New Tab" page.
+pub(crate) fn spawn_content_thread_blank(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        content_thread_main(channel, crate::BLANK_TAB_HTML, crate::BLANK_TAB_CSS);
+    })
+}
+
 fn content_thread_main(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     html: &str,
@@ -421,7 +432,7 @@ fn handle_mouse_release(state: &mut ContentState) {
 }
 
 fn handle_mouse_move(state: &mut ContentState, x: f32, y: f32) {
-    let new_chain = if y >= 0.0 {
+    let new_chain = if x >= 0.0 && y >= 0.0 {
         hit_test(&state.pipeline.dom, x, y)
             .map(|hit| collect_hover_chain(&state.pipeline.dom, hit.entity))
             .unwrap_or_default()
@@ -578,10 +589,7 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
         }
         state.pipeline.url = Some(resolved_url.clone());
         state.push_or_replace(resolved_url.clone(), replace);
-        state
-            .pipeline
-            .runtime
-            .set_current_url(Some(resolved_url.clone()));
+        state.pipeline.runtime.set_current_url(state.pipeline.url.clone());
         state
             .pipeline
             .runtime

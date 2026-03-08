@@ -12,6 +12,7 @@ mod logical;
 mod registry;
 mod spec_level;
 mod traits;
+pub mod sandbox;
 pub mod url_security;
 mod values;
 

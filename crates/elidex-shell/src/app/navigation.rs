@@ -98,7 +98,6 @@ impl App {
                 interactive.hover_chain.clear();
                 interactive.active_chain.clear();
                 interactive.chrome.set_url(url);
-                self.display_list = interactive.pipeline.display_list.clone();
                 true
             }
             Err(e) => {
@@ -184,6 +183,10 @@ impl App {
                     self.navigate(&url, true);
                 }
             }
+            // Tab actions are only handled in threaded mode.
+            crate::chrome::ChromeAction::NewTab
+            | crate::chrome::ChromeAction::CloseTab(_)
+            | crate::chrome::ChromeAction::SwitchTab(_) => {}
         }
     }
 }
