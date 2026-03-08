@@ -5,7 +5,7 @@ use std::rc::Rc;
 use elidex_css::Stylesheet;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js::JsRuntime;
+use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_script_session::{DispatchEvent, SessionCore};

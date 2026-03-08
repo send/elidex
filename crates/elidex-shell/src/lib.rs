@@ -24,7 +24,7 @@ use elidex_css::Stylesheet;
 use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js::{extract_scripts, JsRuntime};
+use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_parser::parse_html;

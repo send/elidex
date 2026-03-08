@@ -128,6 +128,7 @@ pub(super) fn parse_one_selector(input: &mut Parser) -> Result<Selector, ()> {
 /// is a `.` (class), `#` (ID hash), `:` (pseudo), or `[` (attribute) --
 /// these can directly follow a tag without whitespace in CSS. An `Ident`
 /// token after whitespace starts a new compound (descendant combinator).
+#[allow(clippy::too_many_lines)]
 fn parse_compound_selector(
     input: &mut Parser,
     components: &mut Vec<SelectorComponent>,
@@ -260,6 +261,7 @@ fn parse_compound_selector(
 ///
 /// Pseudo-elements use `::` syntax (CSS3) or legacy single-colon (CSS2) for
 /// `before` and `after`. They are stored in `pseudo_element`, not in `components`.
+#[allow(clippy::too_many_lines)]
 fn parse_pseudo(
     input: &mut Parser,
     components: &mut Vec<SelectorComponent>,

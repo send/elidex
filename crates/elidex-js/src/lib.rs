@@ -1,52 +1,60 @@
-// JS numbers are f64; entity IDs and timer IDs are u64. Casting between
-// them is inherent to the bridge and safe for the small values used in Phase 2.
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss
-)]
+//! JavaScript parser for elidex (ES2020+ strict mode, pure Rust).
+//!
+//! Stage 1 of the elidex JS engine: a full-fidelity parser producing an
+//! Arena-allocated AST with byte-offset spans on every node.
+//!
+//! # Features
+//! - Byte-oriented lexer + recursive descent + Pratt expression parser
+//! - ES2020+ strict mode baseline
+//! - Error recovery: partial AST returned even on syntax errors
+//! - Arena allocation with typed `NodeId` references
+//! - Post-parse scope analysis
+//!
+//! # Design Policy: No Annex B
+//!
+//! elidex intentionally does NOT implement ECMA-262 Annex B ("Additional ECMAScript
+//! Features for Web Browsers"). This includes: legacy octal escapes in strings/regexps,
+//! `\0` followed by digits in non-unicode regexps, legacy octal integer literals,
+//! sloppy mode `with` statements, `__proto__` semantics, HTML-like comments, relaxed
+//! `RegExp` identity escapes/control escapes/backreferences in non-unicode mode, and
+//! block-scoped function declarations in sloppy mode. See `docs/design` for rationale.
 
-//! JavaScript engine integration (boa) and DOM bindings for elidex.
-//!
-//! This crate wraps `boa_engine` to provide JavaScript execution within the
-//! elidex browser engine. It registers DOM globals (`document`, `window`,
-//! `console`, timers) and bridges JS calls to the ECS DOM via `HostBridge`.
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use elidex_js::{JsRuntime, extract_scripts};
-//!
-//! let scripts = extract_scripts(&dom, document);
-//! let mut runtime = JsRuntime::new(document);
-//! for script in &scripts {
-//!     runtime.eval(&script.source, &mut session, &mut dom, document);
-//! }
-//! ```
+// Source positions are always < 4GB in a JS parser.
+#![allow(clippy::cast_possible_truncation)]
 
-/// Implement no-op `boa_gc::Trace` and `boa_gc::Finalize` for types that
-/// contain no GC-managed objects (e.g. `Rc`-wrapped Rust data).
-macro_rules! impl_empty_trace {
-    ($ty:ty) => {
-        #[allow(unsafe_code)]
-        unsafe impl boa_gc::Trace for $ty {
-            boa_gc::custom_trace!(this, mark, {
-                let _ = this;
-            });
-        }
-        impl boa_gc::Finalize for $ty {
-            fn finalize(&self) {}
-        }
-    };
+pub mod arena;
+pub mod ast;
+pub mod atom;
+pub mod error;
+pub mod regexp;
+pub mod span;
+pub mod token;
+
+mod lexer;
+mod parser;
+mod scope;
+
+pub use arena::{Arena, NodeId};
+pub use ast::{Program, ProgramKind};
+pub use atom::{Atom, StringInterner};
+pub use error::{JsParseError, JsParseErrorKind, ParseOutput};
+pub use scope::{Binding, BindingKind, Scope, ScopeAnalysis, ScopeKind};
+pub use span::Span;
+
+/// Parse source as a Script. Always returns a `Program` (possibly with Error nodes).
+pub fn parse_script(source: &str) -> ParseOutput {
+    let p = parser::Parser::new(source, ProgramKind::Script);
+    p.parse()
 }
 
-mod bridge;
-mod error_conv;
-mod globals;
-pub mod runtime;
-pub mod script_extract;
-mod timer_queue;
-mod value_conv;
+/// Parse source as a Module. Always returns a `Program` (possibly with Error nodes).
+pub fn parse_module(source: &str) -> ParseOutput {
+    let p = parser::Parser::new(source, ProgramKind::Module);
+    p.parse()
+}
 
-pub use runtime::{EvalResult, JsRuntime};
-pub use script_extract::{extract_scripts, ScriptEntry};
+/// Post-parse scope analysis. Skips Error nodes gracefully.
+#[must_use]
+pub fn analyze_scopes(program: &Program) -> ScopeAnalysis {
+    scope::analyze(program)
+}

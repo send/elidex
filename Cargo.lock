@@ -1387,6 +1387,14 @@ dependencies = [
 name = "elidex-js"
 version = "0.1.0"
 dependencies = [
+ "hashbrown 0.15.5",
+ "unicode-ident",
+]
+
+[[package]]
+name = "elidex-js-boa"
+version = "0.1.0"
+dependencies = [
  "boa_engine",
  "boa_gc",
  "bytes",
@@ -1560,7 +1568,7 @@ dependencies = [
  "elidex-css",
  "elidex-dom-compat",
  "elidex-ecs",
- "elidex-js",
+ "elidex-js-boa",
  "elidex-layout",
  "elidex-navigation",
  "elidex-net",

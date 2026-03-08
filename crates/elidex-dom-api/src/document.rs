@@ -193,7 +193,7 @@ fn traverse_pre_order(dom: &EcsDom, root: Entity, mut visitor: impl FnMut(Entity
 ///
 /// These are invalid in `querySelector`/`querySelectorAll` per CSS Scoping §3.
 fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApiError> {
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+    if selectors.iter().any(Selector::has_shadow_pseudo) {
         return Err(DomApiError {
             kind: DomApiErrorKind::SyntaxError,
             message: ":host and ::slotted() are not valid in querySelector".to_string(),

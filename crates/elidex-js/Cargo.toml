@@ -1,6 +1,6 @@
 [package]
 name = "elidex-js"
-description = "JavaScript engine integration (boa) and DOM bindings for elidex"
+description = "JavaScript parser (ES2020+ strict mode, pure Rust)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,22 +8,12 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-keywords = ["browser-engine", "javascript", "dom"]
-categories = ["web-programming"]
+keywords = ["browser-engine", "javascript", "parser"]
+categories = ["web-programming", "parsing"]
 
 [dependencies]
-elidex-plugin.workspace = true
-elidex-ecs.workspace = true
-elidex-script-session.workspace = true
-elidex-dom-api.workspace = true
-elidex-net.workspace = true
-elidex-navigation.workspace = true
-elidex-api-canvas.workspace = true
-boa_engine.workspace = true
-boa_gc.workspace = true
-tracing.workspace = true
-url.workspace = true
-bytes.workspace = true
+hashbrown = "0.15"
+unicode-ident = "1.0"
 
 [lints]
 workspace = true
