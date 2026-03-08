@@ -17,7 +17,7 @@ use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue};
 use elidex_ecs::Entity;
 use elidex_net::FetchHandle;
 use elidex_plugin::JsValue as ElidexJsValue;
-use elidex_script_session::{DomApiHandler, EventListeners};
+use elidex_script_session::EventListeners;
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
@@ -43,17 +43,18 @@ pub(crate) fn require_js_string_arg(
     }
 }
 
-/// Invoke a `DomApiHandler` via the bridge and return the converted boa `JsValue`.
-///
-/// This is the common pattern for DOM methods that take string arguments,
-/// invoke a handler, and return the result as a boa value.
+/// Invoke a DOM API handler by name via the registry and return the converted boa `JsValue`.
 #[must_use = "DOM handler result must be returned to the JS caller"]
 pub(crate) fn invoke_dom_handler(
-    handler: &impl DomApiHandler,
+    name: &str,
     entity: Entity,
     args: &[ElidexJsValue],
     bridge: &HostBridge,
 ) -> JsResult<JsValue> {
+    let handler = bridge
+        .dom_registry()
+        .resolve(name)
+        .ok_or_else(|| JsNativeError::typ().with_message(format!("Unknown DOM method: {name}")))?;
     bridge.with(|session, dom| {
         let result = handler
             .invoke(entity, args, session, dom)
@@ -62,14 +63,18 @@ pub(crate) fn invoke_dom_handler(
     })
 }
 
-/// Invoke a `DomApiHandler` via the bridge, ignoring the return value (returns `undefined`).
+/// Invoke a DOM API handler by name via the registry, ignoring the return value.
 #[must_use = "DOM handler result must be returned to the JS caller"]
 pub(crate) fn invoke_dom_handler_void(
-    handler: &impl DomApiHandler,
+    name: &str,
     entity: Entity,
     args: &[ElidexJsValue],
     bridge: &HostBridge,
 ) -> JsResult<JsValue> {
+    let handler = bridge
+        .dom_registry()
+        .resolve(name)
+        .ok_or_else(|| JsNativeError::typ().with_message(format!("Unknown DOM method: {name}")))?;
     bridge.with(|session, dom| {
         handler
             .invoke(entity, args, session, dom)

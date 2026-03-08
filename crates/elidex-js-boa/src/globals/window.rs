@@ -59,10 +59,14 @@ fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Co
                 let entity = extract_entity(this, ctx)?;
                 let prop = require_js_string_arg(args, 0, "getPropertyValue", ctx)?;
                 // GetComputedStyle is a CssomApiHandler, not DomApiHandler.
-                // Invoke it directly via the bridge.
+                // Look up from the CSSOM registry.
+                let handler =
+                    bridge.cssom_registry().resolve("getComputedStyle").ok_or_else(|| {
+                        boa_engine::JsNativeError::typ()
+                            .with_message("Unknown CSSOM method: getComputedStyle")
+                    })?;
                 bridge.with(|session, dom| {
-                    use elidex_script_session::CssomApiHandler;
-                    let result = elidex_dom_api::GetComputedStyle
+                    let result = handler
                         .invoke(entity, &[ElidexJsValue::String(prop)], session, dom)
                         .map_err(dom_error_to_js_error)?;
                     Ok(crate::value_conv::to_boa(&result))
@@ -78,7 +82,6 @@ fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Co
 }
 
 /// Create a CSSStyleDeclaration-like object for `element.style`.
-#[allow(clippy::too_many_lines)]
 pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity.to_bits().get() as f64;
 
@@ -98,7 +101,7 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 let name = require_js_string_arg(args, 0, "style.setProperty", ctx)?;
                 let value = require_js_string_arg(args, 1, "style.setProperty", ctx)?;
                 invoke_dom_handler_void(
-                    &elidex_dom_api::StyleSetProperty,
+                    "style.setProperty",
                     entity,
                     &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
                     bridge,
@@ -118,7 +121,7 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.getPropertyValue", ctx)?;
                 invoke_dom_handler(
-                    &elidex_dom_api::StyleGetPropertyValue,
+                    "style.getPropertyValue",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -138,7 +141,7 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.removeProperty", ctx)?;
                 invoke_dom_handler(
-                    &elidex_dom_api::StyleRemoveProperty,
+                    "style.removeProperty",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,

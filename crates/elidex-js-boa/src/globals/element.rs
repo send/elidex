@@ -5,7 +5,7 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
-use elidex_script_session::{ComponentKind, DomApiHandler, JsObjectRef};
+use elidex_script_session::{ComponentKind, JsObjectRef};
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
@@ -124,14 +124,7 @@ fn register_child_mutation_methods(init: &mut ObjectInitializer<'_>, bridge: &Ho
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, bridge, ctx| {
-                dom_child_operation(
-                    this,
-                    args,
-                    bridge,
-                    ctx,
-                    &elidex_dom_api::AppendChild,
-                    "appendChild requires a node argument",
-                )
+                dom_child_operation(this, args, bridge, ctx, "appendChild")
             },
             b,
         ),
@@ -144,14 +137,7 @@ fn register_child_mutation_methods(init: &mut ObjectInitializer<'_>, bridge: &Ho
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, bridge, ctx| {
-                dom_child_operation(
-                    this,
-                    args,
-                    bridge,
-                    ctx,
-                    &elidex_dom_api::RemoveChild,
-                    "removeChild requires a node argument",
-                )
+                dom_child_operation(this, args, bridge, ctx, "removeChild")
             },
             b,
         ),
@@ -162,21 +148,23 @@ fn register_child_mutation_methods(init: &mut ObjectInitializer<'_>, bridge: &Ho
 
 /// Shared implementation for child mutation methods (appendChild, removeChild).
 ///
-/// Extracts parent from `this`, child from first arg, invokes the handler via
-/// bridge, and returns the child JS value.
+/// Extracts parent from `this`, child from first arg, invokes the handler by
+/// name via the registry, and returns the child JS value.
 fn dom_child_operation(
     this: &JsValue,
     args: &[JsValue],
     bridge: &HostBridge,
     ctx: &mut Context,
-    handler: &dyn DomApiHandler,
-    missing_arg_msg: &'static str,
+    handler_name: &str,
 ) -> JsResult<JsValue> {
     let parent = extract_entity(this, ctx)?;
-    let child_val = args
-        .first()
-        .ok_or_else(|| JsNativeError::typ().with_message(missing_arg_msg))?;
+    let child_val = args.first().ok_or_else(|| {
+        JsNativeError::typ().with_message(format!("{handler_name} requires a node argument"))
+    })?;
     let child_entity = extract_entity(child_val, ctx)?;
+    let handler = bridge.dom_registry().resolve(handler_name).ok_or_else(|| {
+        JsNativeError::typ().with_message(format!("Unknown DOM method: {handler_name}"))
+    })?;
     bridge.with(|session, dom| {
         let child_ref = session.get_or_create_wrapper(child_entity, ComponentKind::Element);
         handler
@@ -202,7 +190,7 @@ fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBri
                 let name = require_js_string_arg(args, 0, "setAttribute", ctx)?;
                 let value = require_js_string_arg(args, 1, "setAttribute", ctx)?;
                 invoke_dom_handler_void(
-                    &elidex_dom_api::SetAttribute,
+                    "setAttribute",
                     entity,
                     &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
                     bridge,
@@ -222,7 +210,7 @@ fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBri
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "getAttribute", ctx)?;
                 invoke_dom_handler(
-                    &elidex_dom_api::GetAttribute,
+                    "getAttribute",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -242,7 +230,7 @@ fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBri
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "removeAttribute", ctx)?;
                 invoke_dom_handler_void(
-                    &elidex_dom_api::RemoveAttribute,
+                    "removeAttribute",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -266,7 +254,7 @@ fn register_content_accessors(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            invoke_dom_handler(&elidex_dom_api::GetTextContent, entity, &[], bridge)
+            invoke_dom_handler("textContent.get", entity, &[], bridge)
         },
         b,
     )
@@ -285,7 +273,7 @@ fn register_content_accessors(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             invoke_dom_handler_void(
-                &elidex_dom_api::SetTextContent,
+                "textContent.set",
                 entity,
                 &[ElidexJsValue::String(text)],
                 bridge,
@@ -307,7 +295,7 @@ fn register_content_accessors(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            invoke_dom_handler(&elidex_dom_api::GetInnerHtml, entity, &[], bridge)
+            invoke_dom_handler("innerHTML.get", entity, &[], bridge)
         },
         b,
     )
@@ -608,7 +596,7 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.add", ctx)?;
                 invoke_dom_handler_void(
-                    &elidex_dom_api::ClassListAdd,
+                    "classList.add",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -628,7 +616,7 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.remove", ctx)?;
                 invoke_dom_handler_void(
-                    &elidex_dom_api::ClassListRemove,
+                    "classList.remove",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -648,7 +636,7 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.toggle", ctx)?;
                 invoke_dom_handler(
-                    &elidex_dom_api::ClassListToggle,
+                    "classList.toggle",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,
@@ -668,7 +656,7 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "classList.contains", ctx)?;
                 invoke_dom_handler(
-                    &elidex_dom_api::ClassListContains,
+                    "classList.contains",
                     entity,
                     &[ElidexJsValue::String(name)],
                     bridge,

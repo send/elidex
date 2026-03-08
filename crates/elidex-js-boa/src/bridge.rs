@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 use boa_engine::JsObject;
 use elidex_api_canvas::Canvas2dContext;
+use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_navigation::{HistoryAction, NavigationRequest};
 use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
@@ -27,6 +28,8 @@ use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
 #[derive(Clone)]
 pub struct HostBridge {
     inner: Rc<RefCell<HostBridgeInner>>,
+    dom_registry: Rc<DomHandlerRegistry>,
+    cssom_registry: Rc<CssomHandlerRegistry>,
 }
 
 struct HostBridgeInner {
@@ -79,6 +82,8 @@ impl HostBridge {
                 history_length: 0,
                 canvas_contexts: HashMap::new(),
             })),
+            dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
+            cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
         }
     }
 
@@ -239,6 +244,20 @@ impl HostBridge {
     /// Get the session history length.
     pub fn history_length(&self) -> usize {
         self.inner.borrow().history_length
+    }
+
+    // --- Registry access ---
+
+    /// Access the DOM API handler registry.
+    #[must_use]
+    pub fn dom_registry(&self) -> &DomHandlerRegistry {
+        &self.dom_registry
+    }
+
+    /// Access the CSSOM API handler registry.
+    #[must_use]
+    pub fn cssom_registry(&self) -> &CssomHandlerRegistry {
+        &self.cssom_registry
     }
 
     // --- Canvas 2D context ---
