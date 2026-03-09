@@ -88,6 +88,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **Network types**: `HttpRequest` (method/url/headers), `HttpResponse` (status/headers), `NetworkError` (kind/message), `NetworkErrorKind` enum.
 - **ProcessModel**: `SiteIsolation`/`PerTab`/`Shared{max_renderers}`/`SingleProcess` — `#[non_exhaustive]`, Phase 3.5 implements `SingleProcess` only.
 - **Sandbox types** (`sandbox.rs`): `FilesystemAccess` (None/ReadOnly/ReadWrite), `NetworkAccess` (None/SameOrigin/Full), `SandboxPolicy` (filesystem/network/ipc/gpu) with `strict()`/`permissive()`/`web_content()` constructors, `PlatformSandbox` (LinuxSeccomp/MacOSAppSandbox/WindowsRestricted/Unsandboxed). Type-only — enforcement deferred to OS process isolation phase.
+- **Built-in handlers** (`handlers/`): Concrete trait implementations demonstrating the plugin pattern. `create_css_property_registry()` (display/color/width/opacity/overflow), `create_html_element_registry()` (div/a/img/script/button), `create_layout_registry()` (block/flex/grid/table). CSS handlers include parse + resolve logic; layout models use stub layout (actual dispatch remains in elidex-layout).
 
 ### elidex-layout
 

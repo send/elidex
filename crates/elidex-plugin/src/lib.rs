@@ -6,6 +6,7 @@
 mod computed_style;
 mod error;
 mod event_types;
+pub mod handlers;
 mod js_value;
 mod layout_types;
 mod logical;
