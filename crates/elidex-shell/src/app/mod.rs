@@ -378,11 +378,7 @@ impl ApplicationHandler for App {
 // --- Threaded mode event handling ---
 impl App {
     #[allow(clippy::too_many_lines)]
-    fn handle_window_event_threaded(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        event: WindowEvent,
-    ) {
+    fn handle_window_event_threaded(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         // Track modifier state on browser side.
         if let WindowEvent::ModifiersChanged(new_modifiers) = &event {
             self.modifiers = *new_modifiers;
@@ -433,7 +429,9 @@ impl App {
                         return;
                     };
                     // tab_manager is always Some in threaded mode.
-                    let mgr = tab_manager.as_mut().expect("threaded mode requires tab_manager");
+                    let mgr = tab_manager
+                        .as_mut()
+                        .expect("threaded mode requires tab_manager");
                     if let Some(tab) = mgr.active_tab_mut() {
                         render::handle_redraw_with_tabs(
                             state,

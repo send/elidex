@@ -92,7 +92,10 @@ impl App {
             Ok(loaded) => {
                 let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
                 interactive.pipeline = new_pipeline;
-                interactive.pipeline.runtime.set_current_url(Some(url.clone()));
+                interactive
+                    .pipeline
+                    .runtime
+                    .set_current_url(Some(url.clone()));
                 interactive.window_title = format!("elidex \u{2014} {url}");
                 interactive.focus_target = None;
                 interactive.hover_chain.clear();

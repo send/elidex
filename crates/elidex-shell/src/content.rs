@@ -589,7 +589,10 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
         }
         state.pipeline.url = Some(resolved_url.clone());
         state.push_or_replace(resolved_url.clone(), replace);
-        state.pipeline.runtime.set_current_url(state.pipeline.url.clone());
+        state
+            .pipeline
+            .runtime
+            .set_current_url(state.pipeline.url.clone());
         state
             .pipeline
             .runtime

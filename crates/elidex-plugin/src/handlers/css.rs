@@ -217,7 +217,11 @@ impl CssPropertyHandler for WidthHandler {
                 return Ok(CssValue::Length(n, LengthUnit::Em));
             }
         }
-        Err(css_parse_error("width", value, "expected auto, length, or percentage"))
+        Err(css_parse_error(
+            "width",
+            value,
+            "expected auto, length, or percentage",
+        ))
     }
 
     fn resolve(&self, value: &CssValue, ctx: &StyleContext) -> CssValue {
@@ -227,10 +231,9 @@ impl CssPropertyHandler for WidthHandler {
             }
             // CSS Box Sizing Level 3: width % resolves against containing block width.
             // StyleContext lacks containing_block_width; viewport_width used as fallback.
-            CssValue::Percentage(pct) => CssValue::Length(
-                pct / 100.0 * ctx.viewport_width_px,
-                LengthUnit::Px,
-            ),
+            CssValue::Percentage(pct) => {
+                CssValue::Length(pct / 100.0 * ctx.viewport_width_px, LengthUnit::Px)
+            }
             other => other.clone(),
         }
     }

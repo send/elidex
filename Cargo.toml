@@ -29,6 +29,7 @@ members = [
     "crates/elidex-api-canvas",
     "crates/elidex-a11y",
     "crates/elidex-wasm-runtime",
+    "crates/elidex-wpt",
 ]
 
 [workspace.package]
@@ -110,6 +111,9 @@ accesskit = "0.24"
 accesskit_winit = "0.32"
 wasmtime = "29"
 wat = "1"
+rayon = "1"
+criterion = { version = "0.5", default-features = false }
+elidex-wpt = { path = "crates/elidex-wpt" }
 
 [profile.release]
 lto = true

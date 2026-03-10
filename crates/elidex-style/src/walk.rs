@@ -15,6 +15,19 @@ use crate::slot::distribute_slots;
 /// Maximum recursion depth for style tree walks.
 const MAX_WALK_DEPTH: usize = MAX_ANCESTOR_DEPTH;
 
+/// Build a child `ResolveContext` from a resolved entity style.
+///
+/// Updates `em_base` from the entity's font-size and `root_font_size`
+/// if the entity is the `<html>` root element.
+fn child_context(dom: &EcsDom, entity: Entity, style: &ComputedStyle, ctx: &ResolveContext) -> ResolveContext {
+    let root_fs = if dom.has_tag(entity, "html") {
+        style.font_size
+    } else {
+        ctx.root_font_size
+    };
+    ctx.with_em_and_root(style.font_size, root_fs)
+}
+
 /// Whether an entity should be skipped during tree walking.
 ///
 /// Returns `true` for pseudo-element entities (already styled) and
@@ -27,6 +40,11 @@ fn should_skip_child(dom: &EcsDom, entity: Entity) -> bool {
 /// Walk children of `parent`, resolving styles with `walk_tree`.
 ///
 /// Filters out pseudo-element and template entities.
+///
+/// When the `parallel` feature is enabled, the cascade phase runs
+/// sequentially (requires `&EcsDom`), then `build_computed_style` runs
+/// in parallel across siblings via rayon, and finally the results are
+/// applied and children recursed sequentially.
 #[allow(clippy::too_many_arguments)]
 fn walk_children(
     dom: &mut EcsDom,
@@ -38,17 +56,169 @@ fn walk_children(
     depth: usize,
     total_shadow_css: &mut usize,
 ) {
-    let children = dom.children(parent);
-    for child in children {
-        if should_skip_child(dom, child) {
-            continue;
-        }
-        walk_tree(
+    #[cfg(feature = "parallel")]
+    {
+        walk_children_parallel(
             dom,
-            child,
+            parent,
             stylesheets,
             parent_style,
             ctx,
+            hint_generator,
+            depth,
+            total_shadow_css,
+        );
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    {
+        let children = dom.children(parent);
+        for child in children {
+            if should_skip_child(dom, child) {
+                continue;
+            }
+            walk_tree(
+                dom,
+                child,
+                stylesheets,
+                parent_style,
+                ctx,
+                hint_generator,
+                depth + 1,
+                total_shadow_css,
+            );
+        }
+    }
+}
+
+/// Parallel sibling resolution: cascade sequentially, resolve in parallel,
+/// then apply and recurse sequentially.
+#[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn walk_children_parallel(
+    dom: &mut EcsDom,
+    parent: Entity,
+    stylesheets: &[&Stylesheet],
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    depth: usize,
+    total_shadow_css: &mut usize,
+) {
+    use crate::parallel::{par_resolve_siblings, to_owned_map, OwnedPropertyMap};
+
+    if depth > MAX_WALK_DEPTH {
+        return;
+    }
+
+    let children = dom.children(parent);
+    let walkable: Vec<Entity> = children
+        .into_iter()
+        .filter(|&c| !should_skip_child(dom, c))
+        .collect();
+
+    if walkable.is_empty() {
+        return;
+    }
+
+    // Check for shadow hosts — they need special handling, fall back to sequential.
+    let has_shadow_hosts = walkable
+        .iter()
+        .any(|&c| dom.world().get::<&ShadowHost>(c).is_ok());
+
+    if has_shadow_hosts {
+        // Fall back to sequential walk_tree for shadow DOM subtrees.
+        for child in walkable {
+            walk_tree(
+                dom,
+                child,
+                stylesheets,
+                parent_style,
+                ctx,
+                hint_generator,
+                depth + 1,
+                total_shadow_css,
+            );
+        }
+        return;
+    }
+
+    // Separate elements from non-elements. Non-elements get parent_style.clone()
+    // (matching the sequential path in resolve_and_attach_style).
+    // Elements go through cascade + parallel build_computed_style.
+    let mut child_entries: Vec<(Entity, Option<usize>)> = Vec::with_capacity(walkable.len());
+    let mut cascade_inputs: Vec<OwnedPropertyMap> = Vec::new();
+
+    // Phase 1: Sequential cascade (requires &EcsDom).
+    for &child in &walkable {
+        let is_element = dom.world().get::<&TagType>(child).is_ok();
+        if !is_element {
+            child_entries.push((child, None));
+            continue;
+        }
+
+        set_link_state(dom, child);
+
+        remove_pseudo_entities(dom, child);
+
+        let inline_decls = get_inline_declarations(child, dom);
+        let extra_decls = hint_generator(child, dom);
+        let winners = collect_and_cascade(
+            child,
+            dom,
+            stylesheets,
+            &inline_decls,
+            &extra_decls,
+            &ShadowCascade::Outer,
+        );
+        let idx = cascade_inputs.len();
+        cascade_inputs.push(to_owned_map(&winners));
+        child_entries.push((child, Some(idx)));
+    }
+
+    // Phase 2: Parallel build_computed_style (elements only).
+    let element_ctx = ctx.with_em_base(parent_style.font_size);
+    let styles = par_resolve_siblings(&cascade_inputs, parent_style, &element_ctx);
+
+    // Phase 3: Sequential apply + pseudo + recurse.
+    for &(child, cascade_idx) in &child_entries {
+        let style: &ComputedStyle = if let Some(idx) = cascade_idx {
+            // Element: attach parallel-resolved style (single clone).
+            let _ = dom.world_mut().insert_one(child, styles[idx].clone());
+
+            if styles[idx].display != Display::None {
+                generate_pseudo_entity(
+                    dom,
+                    child,
+                    stylesheets,
+                    &styles[idx],
+                    &element_ctx,
+                    PseudoElement::Before,
+                );
+                generate_pseudo_entity(
+                    dom,
+                    child,
+                    stylesheets,
+                    &styles[idx],
+                    &element_ctx,
+                    PseudoElement::After,
+                );
+            }
+            &styles[idx]
+        } else {
+            // Non-element: inherit parent style without attaching ComputedStyle
+            // (matches resolve_and_attach_style, which returns early for non-elements
+            // without inserting a component — CSSOM getComputedStyle is element-only).
+            parent_style
+        };
+
+        let child_ctx = child_context(dom, child, style, ctx);
+        walk_children(
+            dom,
+            child,
+            stylesheets,
+            style,
+            &child_ctx,
             hint_generator,
             depth + 1,
             total_shadow_css,
@@ -95,17 +265,7 @@ fn resolve_and_attach_style(
 
     // Set LINK state for `<a href>` elements BEFORE cascade,
     // so :link pseudo-class matching can see the state.
-    if is_link_element(dom, entity) {
-        let mut state = dom
-            .world()
-            .get::<&ElementState>(entity)
-            .ok()
-            .map_or(ElementState::default(), |s| *s);
-        // :link and :visited are mutually exclusive (Selectors §3.2).
-        state.insert(ElementState::LINK);
-        state.remove(ElementState::VISITED);
-        let _ = dom.world_mut().insert_one(entity, state);
-    }
+    set_link_state(dom, entity);
 
     // Remove stale pseudo-element entities from previous resolution
     // BEFORE cascade, so :empty and other structural pseudo-classes
@@ -214,14 +374,7 @@ pub(crate) fn walk_tree(
         )
     };
 
-    // Update root_font_size for children: if this is the root element (html),
-    // its font-size becomes the root font-size for rem resolution.
-    let root_fs = if dom.has_tag(entity, "html") {
-        entity_style.font_size
-    } else {
-        ctx.root_font_size
-    };
-    let child_ctx = ctx.with_em_and_root(entity_style.font_size, root_fs);
+    let child_ctx = child_context(dom, entity, &entity_style, ctx);
 
     // Shadow DOM: if this entity is a shadow host, distribute slots and
     // walk the shadow tree with shadow-internal stylesheets.
@@ -495,6 +648,24 @@ fn collect_shadow_styles_recursive(
             collect_shadow_styles_recursive(dom, child, css, total_css, depth + 1);
         }
     }
+}
+
+/// Set `:link` state on an element if it is a link element per Selectors §3.2.
+///
+/// `:link` and `:visited` are mutually exclusive; we always set `:link`
+/// and clear `:visited` (privacy-preserving — all links treated as unvisited).
+fn set_link_state(dom: &mut EcsDom, entity: Entity) {
+    if !is_link_element(dom, entity) {
+        return;
+    }
+    let mut state = dom
+        .world()
+        .get::<&ElementState>(entity)
+        .ok()
+        .map_or(ElementState::default(), |s| *s);
+    state.insert(ElementState::LINK);
+    state.remove(ElementState::VISITED);
+    let _ = dom.world_mut().insert_one(entity, state);
 }
 
 /// Check if an entity is a link element per Selectors §3.2.

@@ -11,9 +11,9 @@ mod js_value;
 mod layout_types;
 mod logical;
 mod registry;
+pub mod sandbox;
 mod spec_level;
 mod traits;
-pub mod sandbox;
 pub mod url_security;
 mod values;
 

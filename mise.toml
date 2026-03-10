@@ -34,6 +34,10 @@ run = "cargo deny check"
 description = "Run all CI checks locally"
 depends = ["check", "lint", "test", "deny"]
 
+[tasks.bench]
+description = "Run all benchmarks"
+run = "cargo bench -p elidex-css -p elidex-style -p elidex-layout"
+
 [tasks.crawl]
 description = "Run the web compatibility survey"
 run = "cargo run -p elidex-crawler -- crawl --sites crates/elidex-crawler/data/sites-en.csv --sites crates/elidex-crawler/data/sites-ja.csv --output output/"

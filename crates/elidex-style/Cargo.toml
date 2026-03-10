@@ -16,6 +16,17 @@ categories = ["web-programming"]
 elidex-ecs.workspace = true
 elidex-css.workspace = true
 elidex-plugin.workspace = true
+rayon = { workspace = true, optional = true }
+
+[features]
+parallel = ["rayon"]
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "style_resolve"
+harness = false
 
 [lints]
 workspace = true

@@ -26,6 +26,7 @@ crates/
   elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
   elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
   elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
+  elidex-wpt/           — WPT-style CSS conformance test harness
 ```
 
 ### Common Commands
@@ -36,6 +37,7 @@ mise run test        # cargo test --workspace
 mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 cargo doc --workspace --no-deps  # Build docs
+mise run bench                   # Run all benchmarks (CSS, style, layout)
 ```
 
 ### Key Files
@@ -196,6 +198,30 @@ cargo doc --workspace --no-deps  # Build docs
 - **Host functions** ("elidex" namespace): 12 functions registered via `Linker`. Entity handles as `i64` (0 = null). Strings via `(ptr, len)` pairs in Wasm linear memory. Returns: packed `i64` `(ptr << 32) | len`, allocated via guest's `__alloc(len) -> ptr`.
 - **Identity map bridge**: `objref_to_entity_i64()` / `entity_i64_to_objref()` translate between Wasm entity handles and `JsObjectRef` for handler dispatch.
 - **Dependencies**: wasmtime 29, elidex-plugin, elidex-ecs, elidex-script-session, elidex-dom-api. Dev: wat 1.
+
+### elidex-style (parallel)
+
+- **Feature flag**: `parallel` enables rayon-based sibling parallel style resolution.
+- **Strategy**: Cascade (`collect_and_cascade`) runs sequentially (requires `&EcsDom`), then `build_computed_style` runs in parallel across siblings via rayon, then results applied and children recursed sequentially.
+- **parallel.rs**: `OwnedPropertyMap`, `to_owned_map()`, `par_resolve_siblings()` (threshold 8), `build_computed_style_owned()`.
+- **walk.rs**: `walk_children_parallel()` — 3-phase approach (cascade → parallel resolve → apply+recurse). Falls back to sequential for shadow hosts.
+- **Dependencies**: rayon 1 (optional).
+
+### elidex-wpt
+
+- **WPT-style test harness**: JSON-based test case format for CSS conformance testing.
+- **WptTestCase**: name, html, css, expected (selector → property → value string).
+- **run_test_case()**: parse_html → parse_stylesheet → resolve_styles → find element by selector → compare computed values.
+- **run_test_suite()**: batch runner returning `Vec<WptTestResult>`.
+- **Built-in suites**: `suites::cascade::cascade_suite()` — 10 cascade/specificity/inheritance test cases.
+- **Dependencies**: elidex-parser, elidex-css, elidex-ecs, elidex-style, elidex-plugin, serde, serde_json.
+
+### Benchmarks (criterion)
+
+- **elidex-css** (`benches/css_parse.rs`): `css_parse_10/100/1000_rules`.
+- **elidex-style** (`benches/style_resolve.rs`): `resolve_100/1000_flat`, `resolve_deep_100`.
+- **elidex-layout** (`benches/layout_bench.rs`): `block_100`, `flex_20`.
+- **Run**: `mise run bench` or `cargo bench -p <crate>`.
 
 ### elidex-script-session (additions)
 
