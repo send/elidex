@@ -196,6 +196,8 @@ mod tests {
         // is tested below in redirect_ssrf_validation_unit_test.
         let transport = HttpTransport::with_config(TransportConfig {
             allow_private_ips: true,
+            connect_timeout: std::time::Duration::from_secs(1),
+            request_timeout: std::time::Duration::from_secs(2),
             ..Default::default()
         });
 
