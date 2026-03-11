@@ -8,25 +8,43 @@ elidex is an experimental browser engine written in Rust. Phase 0 (foundation) i
 
 ```
 crates/
-  elidex-plugin/        — Plugin traits, SpecLevel enums, PluginRegistry
-  elidex-plugin-macros/ — Procedural macros (#[derive(SpecLevel)] etc.)
-  elidex-ecs/           — ECS (hecs) based DOM prototype
-  elidex-crawler/       — Web compatibility survey tool (binary crate)
-  elidex-parser/        — HTML/XML parser (html5ever wrapper, charset detection)
-  elidex-css/           — CSS parser, value types, selector engine
-  elidex-style/         — Cascade, inheritance, style resolution
-  elidex-layout/        — Block, inline, flexbox layout
-  elidex-text/          — Text shaping, measurement, line breaking
-  elidex-render/        — Rendering backend abstraction
-  elidex-shell/         — Window management, event loop shell, browser chrome (egui)
-  elidex-script-session/ — Script session abstraction (JS ↔ ECS DOM bridge)
-  elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
-  elidex-dom-api/       — DOM API handler implementations (engine-independent)
-  elidex-js/            — JavaScript engine integration (boa_engine 0.20)
-  elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
-  elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
-  elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
-  elidex-wpt/           — WPT-style CSS conformance test harness
+  core/
+    elidex-plugin/        — Plugin traits, SpecLevel enums, PluginRegistry
+    elidex-plugin-macros/ — Procedural macros (#[derive(SpecLevel)] etc.)
+    elidex-ecs/           — ECS (hecs) based DOM prototype
+    elidex-render/        — Rendering backend abstraction
+  web/
+    elidex-parser/        — HTML/XML parser (html5ever wrapper, charset detection)
+    elidex-css/           — CSS parser, value types, selector engine
+    elidex-style/         — Cascade, inheritance, style resolution
+    elidex-navigation/    — Navigation controller (history, load pipeline)
+    elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
+  layout/
+    elidex-layout/        — Layout orchestrator (block, inline, dispatch)
+    elidex-layout-block/  — Block layout
+    elidex-layout-flex/   — Flexbox layout
+    elidex-layout-grid/   — Grid layout
+    elidex-layout-table/  — Table layout
+  text/
+    elidex-shaping/       — Text shaping (rustybuzz)
+    elidex-linebreak/     — Line breaking (UAX #14)
+    elidex-bidi/          — BiDi algorithm (UAX #9)
+    elidex-text/          — Text facade (shaping + linebreak + bidi)
+  script/
+    elidex-script-session/ — Script session abstraction (JS ↔ ECS DOM bridge)
+    elidex-js/            — JavaScript parser (custom ES2020+ parser)
+    elidex-js-boa/        — Boa JS engine integration (boa_engine 0.21)
+    elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
+  api/
+    elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
+    elidex-dom-api/       — DOM API handler implementations (engine-independent)
+    elidex-dom-compat/    — Legacy/compat DOM layer
+  shell/
+    elidex-shell/         — Window management, event loop shell, browser chrome (egui)
+    elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
+  tools/
+    elidex-crawler/       — Web compatibility survey tool (binary crate)
+    elidex-wpt/           — WPT-style CSS conformance test harness
 ```
 
 ### Common Commands
