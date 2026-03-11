@@ -597,14 +597,14 @@ fn webassembly_instantiate_and_call_export() {
     );
 
     let js = format!(
-        r#"
+        r"
         var wasmBytes = {bytes_array_str};
         var result = null;
         WebAssembly.instantiate(wasmBytes).then(function(mod) {{
             result = mod.instance.exports.add(3, 4);
             console.log('wasm_result=' + result);
         }});
-        "#
+        "
     );
 
     runtime.eval(&js, &mut session, &mut dom, doc);
