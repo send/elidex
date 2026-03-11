@@ -105,6 +105,11 @@ fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
 
 // --- calc() expression parser (CSS Values Level 3 §8) ---
 
+/// Maximum nesting depth for `calc()` parenthesized sub-expressions.
+///
+/// Prevents stack overflow from deeply nested input like `calc(((((...)))))`.
+const MAX_CALC_DEPTH: u32 = 32;
+
 /// Parse a `calc()` function into a `CssValue::Calc`.
 ///
 /// After parsing the expression tree, validates type correctness per
@@ -113,7 +118,8 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
     input.expect_function_matching("calc").map_err(|_| ())?;
     let expr = input
         .parse_nested_block(|block| {
-            parse_calc_sum(block).map_err(|()| block.current_source_location().new_custom_error(()))
+            parse_calc_sum(block, 0)
+                .map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
     // Validate type correctness before accepting.
@@ -129,8 +135,8 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
 /// tokens. In practice, cssparser treats `+20px` as a positive dimension
 /// (not `Delim('+')` followed by dimension), which rejects the no-space
 /// form at the token level.
-fn parse_calc_sum(input: &mut Parser) -> Result<CalcExpr, ()> {
-    let mut left = parse_calc_product(input)?;
+fn parse_calc_sum(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_product(input, depth)?;
     loop {
         let op = input.try_parse(|i| {
             let tok = i.next().map_err(|_| ())?;
@@ -142,11 +148,11 @@ fn parse_calc_sum(input: &mut Parser) -> Result<CalcExpr, ()> {
         });
         match op {
             Ok('+') => {
-                let right = parse_calc_product(input)?;
+                let right = parse_calc_product(input, depth)?;
                 left = CalcExpr::Add(Box::new(left), Box::new(right));
             }
             Ok('-') => {
-                let right = parse_calc_product(input)?;
+                let right = parse_calc_product(input, depth)?;
                 left = CalcExpr::Sub(Box::new(left), Box::new(right));
             }
             _ => break,
@@ -156,8 +162,8 @@ fn parse_calc_sum(input: &mut Parser) -> Result<CalcExpr, ()> {
 }
 
 /// Parse a calc product: `<value> [ ['*' | '/'] <value> ]*`.
-fn parse_calc_product(input: &mut Parser) -> Result<CalcExpr, ()> {
-    let mut left = parse_calc_value(input)?;
+fn parse_calc_product(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_value(input, depth)?;
     loop {
         let op = input.try_parse(|i| {
             let tok = i.next().map_err(|_| ())?;
@@ -169,11 +175,11 @@ fn parse_calc_product(input: &mut Parser) -> Result<CalcExpr, ()> {
         });
         match op {
             Ok('*') => {
-                let right = parse_calc_value(input)?;
+                let right = parse_calc_value(input, depth)?;
                 left = CalcExpr::Mul(Box::new(left), Box::new(right));
             }
             Ok('/') => {
-                let right = parse_calc_value(input)?;
+                let right = parse_calc_value(input, depth)?;
                 left = CalcExpr::Div(Box::new(left), Box::new(right));
             }
             _ => break,
@@ -183,12 +189,16 @@ fn parse_calc_product(input: &mut Parser) -> Result<CalcExpr, ()> {
 }
 
 /// Parse a calc leaf value: `<number>` | `<dimension>` | `<percentage>` | `( <sum> )`.
-fn parse_calc_value(input: &mut Parser) -> Result<CalcExpr, ()> {
-    // Try parenthesized sub-expression.
+fn parse_calc_value(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
+    // Try parenthesized sub-expression (with depth limit).
     if let Ok(expr) = input.try_parse(|i| {
         i.expect_parenthesis_block().map_err(|_| ())?;
+        if depth >= MAX_CALC_DEPTH {
+            return Err(());
+        }
         i.parse_nested_block(|block| {
-            parse_calc_sum(block).map_err(|()| block.current_source_location().new_custom_error(()))
+            parse_calc_sum(block, depth + 1)
+                .map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
     }) {
@@ -464,5 +474,12 @@ mod tests {
     fn calc_allows_length_plus_percentage() {
         // Both are dimensional — allowed in length-percentage contexts.
         assert!(length_or_pct("calc(10px + 50%)").is_ok());
+    }
+
+    #[test]
+    fn calc_rejects_deeply_nested() {
+        // Deeply nested parentheses must be rejected to prevent stack overflow.
+        let deep = format!("calc({}1px{})", "(".repeat(40), ")".repeat(40));
+        assert!(length_or_pct(&deep).is_err());
     }
 }
