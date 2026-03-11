@@ -221,7 +221,7 @@ mod tests {
                 )"#;
 
     /// Unpack a host-returned packed string `(ptr << 32) | len`.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn unpack_wasm_string(packed: i64) -> (usize, usize) {
         let ptr = ((packed >> 32) & 0xFFFF_FFFF) as usize;
         let len = (packed & 0xFFFF_FFFF) as usize;
