@@ -376,12 +376,23 @@ fn resolve_float_visibility_properties(
 /// equivalents when the element is floated (or absolutely positioned).
 fn blockify_display(display: Display) -> Display {
     match display {
-        Display::Inline | Display::InlineBlock | Display::Contents => Display::Block,
+        // CSS 2.1 §9.7: inline-level and table-internal values become block.
+        Display::Inline
+        | Display::InlineBlock
+        | Display::Contents
+        | Display::TableRow
+        | Display::TableCell
+        | Display::TableRowGroup
+        | Display::TableHeaderGroup
+        | Display::TableFooterGroup
+        | Display::TableColumn
+        | Display::TableColumnGroup
+        | Display::TableCaption => Display::Block,
         Display::InlineFlex => Display::Flex,
         Display::InlineGrid => Display::Grid,
         Display::InlineTable => Display::Table,
-        // All other values (Block, Flex, Grid, Table, ListItem, etc.)
-        // are already block-level — unchanged.
+        // Block, Flex, Grid, Table, ListItem, None — already block-level
+        // or special, unchanged.
         other => other,
     }
 }

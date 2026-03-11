@@ -34,6 +34,7 @@ pub fn stack_block_children(
     children: &[Entity],
     input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
+    is_bfc: bool,
 ) -> StackResult {
     let mut cursor_y = input.offset_y;
     let mut prev_margin_bottom: Option<f32> = None;
@@ -56,9 +57,14 @@ pub fn stack_block_children(
 
         // --- Clear: advance past floats (CSS 2.1 §9.5.2) ---
         // Applied to both floated and non-floated children.
-        if child_clear != Clear::None {
-            cursor_y = float_ctx.clear_y(child_clear, cursor_y);
-        }
+        let has_clearance = if child_clear == Clear::None {
+            false
+        } else {
+            let new_y = float_ctx.clear_y(child_clear, cursor_y);
+            let cleared = new_y > cursor_y;
+            cursor_y = new_y;
+            cleared
+        };
 
         // --- Floated children: out of normal flow (CSS 2.1 §9.5) ---
         if child_float != Float::None {
@@ -76,13 +82,17 @@ pub fn stack_block_children(
 
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
         // Both positive -> max, both negative -> min, mixed -> sum.
+        // Clearance breaks margin adjacency — margins do not collapse when
+        // the element has clearance (CSS 2.1 §8.3.1).
         let child_margin_top = resolve_margin(child_margin_top_dim, input.containing_width);
         if first_child_margin_top.is_none() {
             first_child_margin_top = Some(child_margin_top);
         }
         if let Some(prev_mb) = prev_margin_bottom {
-            let collapsed = collapse_margins(prev_mb, child_margin_top);
-            cursor_y -= prev_mb + child_margin_top - collapsed;
+            if !has_clearance {
+                let collapsed = collapse_margins(prev_mb, child_margin_top);
+                cursor_y -= prev_mb + child_margin_top - collapsed;
+            }
         }
 
         // Dispatch child layout via callback (routes to block/flex/grid
@@ -97,16 +107,20 @@ pub fn stack_block_children(
         last_child_margin_bottom = Some(child_box.margin.bottom);
     }
 
-    // Float bottom may extend beyond the last normal-flow child.
-    // For block formatting contexts, floats are contained.
+    // CSS 2.1 §10.6.7: Only elements that establish a BFC have their
+    // height increased to contain floats. Non-BFC blocks let floats overflow.
     let normal_height = cursor_y - input.offset_y;
-    let float_bottom = float_ctx.float_bottom();
-    let float_extend = if float_bottom > 0.0 {
-        (float_bottom - input.offset_y).max(0.0)
+    let height = if is_bfc {
+        let float_bottom = float_ctx.float_bottom();
+        let float_extend = if float_bottom > 0.0 {
+            (float_bottom - input.offset_y).max(0.0)
+        } else {
+            0.0
+        };
+        normal_height.max(float_extend)
     } else {
-        0.0
+        normal_height
     };
-    let height = normal_height.max(float_extend);
 
     StackResult {
         height,

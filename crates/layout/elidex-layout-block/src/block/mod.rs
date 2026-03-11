@@ -225,13 +225,13 @@ pub fn layout_block_inner(
             font_db,
             depth: depth + 1,
         };
-        let result = stack_block_children(dom, &children, &child_input, layout_child);
+        let is_bfc = establishes_bfc(&style);
+        let result = stack_block_children(dom, &children, &child_input, layout_child, is_bfc);
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's top margin collapses with parent's top margin
         // when parent has no border-top, no padding-top, and the parent
         // does not establish a new block formatting context.
-        let is_bfc = establishes_bfc(&style);
         if border.top == 0.0 && padding.top == 0.0 && !is_bfc {
             if let Some(first_mt) = result.first_child_margin_top {
                 let new_margin_top = collapse_margins(margin_top, first_mt);

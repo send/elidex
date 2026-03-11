@@ -87,7 +87,30 @@ fn clear_left_advances_past_float() {
 }
 
 #[test]
-fn float_extends_parent_height() {
+fn float_extends_bfc_parent_height() {
+    // CSS 2.1 §10.6.7: BFC roots expand to contain floats.
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        parent,
+        ComputedStyle {
+            display: Display::Block,
+            overflow: elidex_plugin::Overflow::Hidden, // establishes BFC
+            ..Default::default()
+        },
+    );
+    let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 150.0);
+
+    let font_db = FontDatabase::new();
+    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+    // BFC parent height should extend to contain the float.
+    assert!((parent_box.content.height - 150.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn float_overflows_non_bfc_parent() {
+    // CSS 2.1 §10.6.7: Non-BFC blocks do NOT expand to contain floats.
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
@@ -96,8 +119,8 @@ fn float_extends_parent_height() {
     let font_db = FontDatabase::new();
     let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
 
-    // Parent height should extend to contain the float.
-    assert!((parent_box.content.height - 150.0).abs() < f32::EPSILON);
+    // Non-BFC parent height is 0 (float overflows).
+    assert!((parent_box.content.height - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
