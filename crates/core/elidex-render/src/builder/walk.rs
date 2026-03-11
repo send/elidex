@@ -58,7 +58,7 @@ pub(crate) fn walk(
         .as_ref()
         .is_none_or(|s| s.visibility == Visibility::Visible);
 
-    // Emit background + borders for elements with a LayoutBox.
+    // Emit background + borders + images for elements with a LayoutBox.
     let mut has_clip = false;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
         if let Some(ref style) = style_ref {
@@ -71,10 +71,8 @@ pub(crate) fn walk(
                     dl,
                 );
                 emit_borders(&lb, style, dl);
-            }
 
-            // Emit image for replaced elements with decoded pixel data.
-            if is_visible {
+                // Emit image for replaced elements with decoded pixel data.
                 if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
                     if style.opacity > 0.0 {
                         emit_image(&lb, &image_data, style.opacity, dl);

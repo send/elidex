@@ -308,16 +308,13 @@ pub fn layout_block_inner(
 ///
 /// Elements that establish a BFC prevent margin collapse with children.
 fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
-    // Float elements
     style.float != Float::None
-        // Absolutely/fixedly positioned elements
         || matches!(style.position, Position::Absolute | Position::Fixed)
-        // overflow other than 'visible'
         || style.overflow != Overflow::Visible
-        // Flex/grid/table containers
         || matches!(
             style.display,
-            Display::Flex
+            Display::InlineBlock
+                | Display::Flex
                 | Display::InlineFlex
                 | Display::Grid
                 | Display::InlineGrid
@@ -325,6 +322,4 @@ fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
                 | Display::InlineTable
                 | Display::TableCell
         )
-        // Inline-block
-        || style.display == Display::InlineBlock
 }

@@ -242,23 +242,35 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
     if delta.abs() < f32::EPSILON {
         return;
     }
-    let mut stack: Vec<Entity> = children.to_vec();
-    while let Some(child) = stack.pop() {
-        let is_block = crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
-        if !is_block {
-            continue;
-        }
-        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
-            lb.content.y += delta;
-        }
-        stack.extend(dom.composed_children(child));
-    }
+    shift_descendants_inner(dom, children, 0.0, delta, true);
 }
 
 /// Shift descendants by (dx, dy), used to reposition float contents after placement.
 fn shift_descendants(dom: &mut EcsDom, children: &[Entity], dx: f32, dy: f32) {
+    shift_descendants_inner(dom, children, dx, dy, false);
+}
+
+/// Iterative tree walk that shifts `LayoutBox` positions by `(dx, dy)`.
+///
+/// When `block_only` is true, only block-level entities (with a `ComputedStyle`)
+/// are shifted; non-block children are skipped (but their descendants are still
+/// walked).
+fn shift_descendants_inner(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    dx: f32,
+    dy: f32,
+    block_only: bool,
+) {
     let mut stack: Vec<Entity> = children.to_vec();
     while let Some(child) = stack.pop() {
+        if block_only {
+            let is_block =
+                crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
+            if !is_block {
+                continue;
+            }
+        }
         if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
             lb.content.x += dx;
             lb.content.y += dy;
