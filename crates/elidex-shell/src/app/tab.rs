@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn close_selects_neighbor() {
         let mut mgr = TabManager::new();
-        let id1 = create_test_tab(&mut mgr);
+        let _id1 = create_test_tab(&mut mgr);
         let id2 = create_test_tab(&mut mgr);
         let _id3 = create_test_tab(&mut mgr);
 

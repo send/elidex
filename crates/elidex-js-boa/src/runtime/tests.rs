@@ -591,7 +591,7 @@ fn webassembly_instantiate_and_call_export() {
         "[{}]",
         wasm_bytes
             .iter()
-            .map(|b| b.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
             .join(",")
     );

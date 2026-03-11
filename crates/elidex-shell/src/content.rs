@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn content_thread_disconnect() {
         let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let handle = spawn_content_thread(content, "<div>Hello</div>".to_string(), "".to_string());
+        let handle = spawn_content_thread(content, "<div>Hello</div>".to_string(), String::new());
 
         // Drain initial display list.
         let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
