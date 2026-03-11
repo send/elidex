@@ -59,7 +59,6 @@ pub fn create_cssom_registry() -> CssomHandlerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_script_session::{CssomApiHandler, DomApiHandler};
 
     const EXPECTED_DOM_HANDLERS: [&str; 20] = [
         "querySelector",
