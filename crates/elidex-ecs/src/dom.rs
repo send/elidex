@@ -535,7 +535,7 @@ impl EcsDom {
     #[must_use]
     pub fn query_by_tag(&self, tag: &str) -> Vec<Entity> {
         self.world
-            .query::<&TagType>()
+            .query::<(Entity, &TagType)>()
             .iter()
             .filter(|(_, t)| t.0 == tag)
             .map(|(entity, _)| entity)
@@ -549,9 +549,8 @@ impl EcsDom {
     pub fn root_entities(&self) -> Vec<Entity> {
         let mut roots: Vec<Entity> = self
             .world
-            .query::<()>()
+            .query::<Entity>()
             .iter()
-            .map(|(entity, ())| entity)
             .filter(|&entity| self.get_parent(entity).is_none())
             .collect();
         roots.sort_by_key(|e| e.to_bits());

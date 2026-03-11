@@ -220,7 +220,7 @@ fn walk_children_parallel(
 pub(crate) fn find_roots(dom: &EcsDom) -> Vec<Entity> {
     // Collect all entities that have no parent.
     let mut roots = Vec::new();
-    for (entity, ()) in &mut dom.world().query::<()>() {
+    for entity in &mut dom.world().query::<Entity>() {
         if dom.get_parent(entity).is_none() {
             roots.push(entity);
         }

@@ -93,7 +93,7 @@ pub(crate) fn resolve_labelledby(dom: &EcsDom, ids: &str) -> Option<String> {
 /// Scans up to `MAX_ID_SCAN` entities to bound work on very large DOMs.
 fn find_element_by_id(dom: &EcsDom, id: &str) -> Option<Entity> {
     dom.world()
-        .query::<&Attributes>()
+        .query::<(Entity, &Attributes)>()
         .iter()
         .take(MAX_ID_SCAN)
         .find(|(_, attrs)| attrs.get("id") == Some(id))
