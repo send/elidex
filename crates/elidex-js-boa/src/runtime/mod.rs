@@ -93,16 +93,12 @@ impl JsRuntime {
         let result = self.ctx.eval(Source::from_bytes(source));
 
         // Run microtask queue (Promise .then() callbacks) while bridge is bound.
-        self.ctx.run_jobs();
+        let jobs_result = self.ctx.run_jobs();
 
         drop(guard);
 
-        match result {
-            Ok(_) => EvalResult {
-                success: true,
-                error: None,
-            },
-            Err(err) => {
+        match (result, jobs_result) {
+            (Err(err), _) => {
                 let msg = err.to_string();
                 eprintln!("[JS Error] {msg}");
                 EvalResult {
@@ -110,6 +106,18 @@ impl JsRuntime {
                     error: Some(msg),
                 }
             }
+            (Ok(_), Err(err)) => {
+                let msg = format!("Microtask error: {err}");
+                eprintln!("[JS Microtask Error] {err}");
+                EvalResult {
+                    success: false,
+                    error: Some(msg),
+                }
+            }
+            (Ok(_), Ok(())) => EvalResult {
+                success: true,
+                error: None,
+            },
         }
     }
 
@@ -229,7 +237,9 @@ impl JsRuntime {
         });
 
         // Run microtask queue (Promise .then() callbacks) while bridge is bound.
-        ctx.run_jobs();
+        if let Err(err) = ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
 
         // Sync flags after microtask queue processing — microtasks may have
         // called preventDefault() via the shared Rc<Cell> flags.

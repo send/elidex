@@ -110,12 +110,9 @@ pub(crate) fn add_event_listener_for(
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
     let event_type = require_js_string_arg(args, 0, "addEventListener", ctx)?;
-    let listener_fn = args
-        .get(1)
-        .and_then(|v| v.as_object().cloned())
-        .ok_or_else(|| {
-            JsNativeError::typ().with_message("addEventListener: argument 1 must be a function")
-        })?;
+    let listener_fn = args.get(1).and_then(JsValue::as_callable).ok_or_else(|| {
+        JsNativeError::typ().with_message("addEventListener: argument 1 must be a function")
+    })?;
     let capture = extract_capture(args, ctx)?;
 
     bridge.with(|_session, dom| {
@@ -162,12 +159,9 @@ pub(crate) fn remove_event_listener_for(
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
     let event_type = require_js_string_arg(args, 0, "removeEventListener", ctx)?;
-    let listener_fn = args
-        .get(1)
-        .and_then(|v| v.as_object().cloned())
-        .ok_or_else(|| {
-            JsNativeError::typ().with_message("removeEventListener: argument 1 must be a function")
-        })?;
+    let listener_fn = args.get(1).and_then(JsValue::as_callable).ok_or_else(|| {
+        JsNativeError::typ().with_message("removeEventListener: argument 1 must be a function")
+    })?;
     let capture = extract_capture(args, ctx)?;
 
     bridge.with(|_session, dom| {

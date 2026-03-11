@@ -42,14 +42,14 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
-cssparser = "0.34"
+cssparser = "0.36"
 encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
-hecs = "0.10"
+hecs = "0.11"
 html5ever = "0.38"
 markup5ever_rcdom = "0.38"
-reqwest = { version = "0.12", features = ["gzip", "brotli"] }
+reqwest = { version = "0.13", features = ["gzip", "brotli", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
@@ -72,7 +72,7 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 rustls-pki-types = "1"
 tokio-rustls = "0.26"
 url = "2"
-webpki-roots = "0.26"
+webpki-roots = "1"
 elidex-net = { path = "crates/elidex-net" }
 elidex-plugin = { path = "crates/elidex-plugin" }
 elidex-ecs = { path = "crates/elidex-ecs" }
@@ -96,8 +96,8 @@ elidex-navigation = { path = "crates/elidex-navigation" }
 elidex-api-canvas = { path = "crates/elidex-api-canvas" }
 elidex-a11y = { path = "crates/elidex-a11y" }
 elidex-wasm-runtime = { path = "crates/elidex-wasm-runtime" }
-boa_engine = { version = "0.20", features = ["annex-b"] }
-boa_gc = "0.20"
+boa_engine = { version = "0.21", features = ["annex-b"] }
+boa_gc = "0.21"
 egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"
@@ -105,13 +105,13 @@ vello = "0.7"
 wgpu = "27"
 winit = "0.30"
 pollster = "0.4"
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.32"
-wasmtime = "29"
+wasmtime = "42"
 wat = "1"
 rayon = "1"
-criterion = { version = "0.5", default-features = false }
+criterion = { version = "0.8", default-features = false }
 elidex-wpt = { path = "crates/elidex-wpt" }
 
 [profile.release]

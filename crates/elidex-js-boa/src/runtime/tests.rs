@@ -615,3 +615,57 @@ fn webassembly_instantiate_and_call_export() {
         "Expected wasm_result=7, got: {output:?}"
     );
 }
+
+#[test]
+fn eval_microtask_pipeline_succeeds() {
+    // Verify that the eval+microtask pipeline works end-to-end:
+    // a Promise .then() callback sets a flag, and both eval and
+    // microtask processing succeed.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let result = runtime.eval(
+        "var microtaskRan = false; \
+         Promise.resolve().then(function() { microtaskRan = true; });",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "Expected eval to succeed");
+
+    // Verify microtask actually ran.
+    let log_result = runtime.eval(
+        "console.log('microtask=' + microtaskRan);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(log_result.success, "Expected logging eval to succeed");
+    let messages = runtime.console_output().messages();
+    assert!(
+        messages.iter().any(|m| m.1.contains("microtask=true")),
+        "Expected microtask to have run, got: {messages:?}"
+    );
+}
+
+#[test]
+fn eval_top_level_error_takes_priority() {
+    // When eval itself fails, the error should be reported regardless of
+    // microtask queue status.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let result = runtime.eval(
+        "throw new Error('top-level-boom');",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(!result.success, "Expected eval to fail");
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("top-level-boom")),
+        "Expected top-level error message, got: {:?}",
+        result.error
+    );
+}

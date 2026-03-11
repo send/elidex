@@ -111,6 +111,7 @@ impl<'i> DeclarationParser<'i> for DeclarationListParser {
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        _start: &cssparser::ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, ()>> {
         let lower_name = name.to_ascii_lowercase();
         let decls = parse_property_value(&lower_name, input);
