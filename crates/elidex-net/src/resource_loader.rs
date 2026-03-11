@@ -139,7 +139,7 @@ impl SchemeDispatcher {
     }
 
     /// Load a `data:` URL.
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self)] // Method on ResourceLoader for API consistency with load_http/load_file.
     fn load_data(&self, url: &url::Url) -> Result<ResourceResponse, NetError> {
         let parsed = data_url::parse_data_url(url)?;
         Ok(ResourceResponse {

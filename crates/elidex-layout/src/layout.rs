@@ -6,6 +6,7 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::block::stack_block_children;
+use elidex_layout_block::LayoutInput;
 use elidex_plugin::{ComputedStyle, Display, LayoutBox};
 use elidex_text::FontDatabase;
 
@@ -14,16 +15,10 @@ use elidex_text::FontDatabase;
 /// This is the [`ChildLayoutFn`](elidex_layout_block::ChildLayoutFn) provided
 /// to all layout algorithms, routing flex/grid containers to their respective
 /// crates and everything else to block layout.
-#[allow(clippy::too_many_arguments)]
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
 ) -> LayoutBox {
     let style = elidex_layout_block::get_style(dom, entity);
     match style.display {
@@ -32,8 +27,8 @@ pub fn dispatch_layout_child(
         // flatten_contents(). Return a zero-size box at the given position.
         Display::Contents => LayoutBox {
             content: elidex_plugin::Rect {
-                x: offset_x,
-                y: offset_y,
+                x: input.offset_x,
+                y: input.offset_y,
                 width: 0.0,
                 height: 0.0,
             },
@@ -41,48 +36,19 @@ pub fn dispatch_layout_child(
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),
         },
-        Display::Flex | Display::InlineFlex => elidex_layout_flex::layout_flex(
-            dom,
-            entity,
-            containing_width,
-            containing_height,
-            offset_x,
-            offset_y,
-            font_db,
-            depth,
-            dispatch_layout_child,
-        ),
-        Display::Grid | Display::InlineGrid => elidex_layout_grid::layout_grid(
-            dom,
-            entity,
-            containing_width,
-            containing_height,
-            offset_x,
-            offset_y,
-            font_db,
-            depth,
-            dispatch_layout_child,
-        ),
-        Display::Table | Display::InlineTable => elidex_layout_table::layout_table(
-            dom,
-            entity,
-            containing_width,
-            containing_height,
-            offset_x,
-            offset_y,
-            font_db,
-            depth,
-            dispatch_layout_child,
-        ),
+        Display::Flex | Display::InlineFlex => {
+            elidex_layout_flex::layout_flex(dom, entity, input, dispatch_layout_child)
+        }
+        Display::Grid | Display::InlineGrid => {
+            elidex_layout_grid::layout_grid(dom, entity, input, dispatch_layout_child)
+        }
+        Display::Table | Display::InlineTable => {
+            elidex_layout_table::layout_table(dom, entity, input, dispatch_layout_child)
+        }
         _ => elidex_layout_block::block::layout_block_inner(
             dom,
             entity,
-            containing_width,
-            containing_height,
-            offset_x,
-            offset_y,
-            font_db,
-            depth,
+            input,
             dispatch_layout_child,
         ),
     }
@@ -132,6 +98,15 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
         .map(|s| s.display)
         .ok();
 
+    let root_input = LayoutInput {
+        containing_width: viewport_width,
+        containing_height: None,
+        offset_x: 0.0,
+        offset_y: 0.0,
+        font_db,
+        depth: 0,
+    };
+
     if let Some(display) = root_display {
         if display == Display::None {
             return;
@@ -139,36 +114,16 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
         if display == Display::Contents {
             // display: contents at root — skip box, layout children directly.
             let children = elidex_layout_block::composed_children_flat(dom, root);
-            let _ = stack_block_children(
-                dom,
-                &children,
-                viewport_width,
-                None,
-                0.0,
-                0.0,
-                font_db,
-                0,
-                dispatch_layout_child,
-            );
+            let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child);
             return;
         }
-        dispatch_layout_child(dom, root, viewport_width, None, 0.0, 0.0, font_db, 0);
+        dispatch_layout_child(dom, root, &root_input);
         return;
     }
 
     // Document root: layout children as top-level blocks with margin collapse.
     let children = elidex_layout_block::composed_children_flat(dom, root);
-    let _ = stack_block_children(
-        dom,
-        &children,
-        viewport_width,
-        None,
-        0.0,
-        0.0,
-        font_db,
-        0,
-        dispatch_layout_child,
-    );
+    let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child);
 }
 
 #[cfg(test)]

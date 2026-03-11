@@ -68,7 +68,7 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
         .expect("failed to register console");
 }
 
-#[allow(clippy::unnecessary_wraps)]
+#[allow(clippy::unnecessary_wraps)] // Must return JsResult for boa NativeFunction closure registration.
 fn console_impl(
     level: &str,
     args: &[JsValue],

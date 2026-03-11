@@ -214,15 +214,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             handle_navigate(state, &url, false);
         }
 
-        BrowserToContent::MouseClick {
-            x,
-            y,
-            client_x,
-            client_y,
-            button,
-            mods,
-        } => {
-            handle_click(state, x, y, client_x, client_y, button, mods);
+        BrowserToContent::MouseClick(ref click) => {
+            handle_click(state, click);
         }
 
         BrowserToContent::MouseRelease { button: _ } => {
@@ -316,17 +309,8 @@ fn handle_navigate(state: &mut ContentState, url: &url::Url, is_history_nav: boo
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn handle_click(
-    state: &mut ContentState,
-    x: f32,
-    y: f32,
-    client_x: f64,
-    client_y: f64,
-    button: u8,
-    mods: ModifierState,
-) {
-    let Some(hit) = hit_test(&state.pipeline.dom, x, y) else {
+fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
+    let Some(hit) = hit_test(&state.pipeline.dom, click.x, click.y) else {
         return;
     };
     let hit_entity = hit.entity;
@@ -362,17 +346,17 @@ fn handle_click(
 
     // Use viewport-relative coordinates for DOM event properties (clientX/clientY).
     let mouse_init = MouseEventInit {
-        client_x,
-        client_y,
-        button: i16::from(button),
-        alt_key: mods.alt,
-        ctrl_key: mods.ctrl,
-        meta_key: mods.meta,
-        shift_key: mods.shift,
+        client_x: click.client_x,
+        client_y: click.client_y,
+        button: i16::from(click.button),
+        alt_key: click.mods.alt,
+        ctrl_key: click.mods.ctrl,
+        meta_key: click.mods.meta,
+        shift_key: click.mods.shift,
         ..Default::default()
     };
 
-    let event_types: &[&str] = if button == 0 {
+    let event_types: &[&str] = if click.button == 0 {
         &["mousedown", "mouseup", "click"]
     } else {
         &["mousedown", "mouseup"]
@@ -400,7 +384,7 @@ fn handle_click(
     }
 
     // Link navigation: if click was not prevented, check for <a href>.
-    if button == 0 && !click_prevented {
+    if click.button == 0 && !click_prevented {
         if let Some(href) = find_link_ancestor(&state.pipeline.dom, hit_entity) {
             let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &href);
             if let Some(target_url) = resolved {
@@ -686,14 +670,14 @@ mod tests {
 
         // Send click.
         browser
-            .send(BrowserToContent::MouseClick {
+            .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                 x: 50.0,
                 y: 50.0,
                 client_x: 50.0,
                 client_y: 86.0,
                 button: 0,
                 mods: ModifierState::default(),
-            })
+            }))
             .unwrap();
 
         // Should get a DisplayListReady.
@@ -730,14 +714,14 @@ mod tests {
 
         // Click (sets ACTIVE).
         browser
-            .send(BrowserToContent::MouseClick {
+            .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                 x: 50.0,
                 y: 50.0,
                 client_x: 50.0,
                 client_y: 86.0,
                 button: 0,
                 mods: ModifierState::default(),
-            })
+            }))
             .unwrap();
         let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
 
@@ -784,14 +768,14 @@ mod tests {
 
         // Click on the element.
         browser
-            .send(BrowserToContent::MouseClick {
+            .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                 x: 50.0,
                 y: 50.0,
                 client_x: 50.0,
                 client_y: 86.0,
                 button: 0,
                 mods: ModifierState::default(),
-            })
+            }))
             .unwrap();
 
         // Should get updated display list.
@@ -822,14 +806,14 @@ mod tests {
 
         // Click first to set focus.
         browser
-            .send(BrowserToContent::MouseClick {
+            .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                 x: 50.0,
                 y: 50.0,
                 client_x: 50.0,
                 client_y: 86.0,
                 button: 0,
                 mods: ModifierState::default(),
-            })
+            }))
             .unwrap();
         let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
 

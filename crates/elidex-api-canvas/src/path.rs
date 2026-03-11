@@ -87,7 +87,7 @@ pub(crate) fn arc_to_beziers(
 }
 
 /// Draw a single arc segment (≤ 90 degrees) as a cubic Bezier.
-#[allow(clippy::similar_names)]
+#[allow(clippy::similar_names)] // a1/a2 are standard math notation for start/end angles.
 fn arc_segment(pb: &mut PathBuilder, cx: f32, cy: f32, radius: f32, a1: f32, a2: f32, first: bool) {
     let half = (a2 - a1) / 2.0;
     // Control point distance: (4/3) * tan(half_angle).
@@ -129,8 +129,8 @@ mod tests {
     #[test]
     fn arc_to_beziers_variants() {
         // (cx, cy, radius, start, end, anticlockwise, should_produce_path, description)
-        #[allow(clippy::type_complexity)]
-        let cases: &[(f32, f32, f32, f32, f32, bool, bool, &str)] = &[
+        type ArcTestCase = (f32, f32, f32, f32, f32, bool, bool, &'static str);
+        let cases: &[ArcTestCase] = &[
             (50.0, 50.0, 25.0, 0.0, TAU, false, true, "full circle"),
             (
                 0.0,

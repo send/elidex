@@ -1,10 +1,35 @@
 use super::*;
 use elidex_ecs::Attributes;
-use elidex_layout_block::layout_block_only;
+use elidex_layout_block::{layout_block_only, LayoutInput};
+use elidex_text::FontDatabase;
 
 mod alignment_gap;
 mod direction;
 mod grow_shrink;
+
+/// Helper to call `layout_flex` with the old positional-argument pattern used by tests.
+#[allow(clippy::too_many_arguments)]
+fn do_layout_flex(
+    dom: &mut EcsDom,
+    entity: Entity,
+    containing_width: f32,
+    containing_height: Option<f32>,
+    offset_x: f32,
+    offset_y: f32,
+    font_db: &FontDatabase,
+    depth: u32,
+    layout_child: elidex_layout_block::ChildLayoutFn,
+) -> LayoutBox {
+    let input = LayoutInput {
+        containing_width,
+        containing_height,
+        offset_x,
+        offset_y,
+        font_db,
+        depth,
+    };
+    layout_flex(dom, entity, &input, layout_child)
+}
 
 fn flex_container() -> ComputedStyle {
     ComputedStyle {

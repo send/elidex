@@ -1,6 +1,7 @@
 //! Tests for the CSS table layout algorithm.
 
 use elidex_ecs::{Attributes, EcsDom};
+use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
     BorderCollapse, BorderStyle, ComputedStyle, Dimension, Display, LayoutBox, TableLayout,
     TextAlign,
@@ -26,8 +27,17 @@ fn get_layout(dom: &EcsDom, entity: elidex_ecs::Entity) -> LayoutBox {
 }
 
 /// A standalone child layout function for tests (block-only, no flex/grid dispatch).
-#[allow(clippy::too_many_arguments)]
 fn test_layout_child(
+    dom: &mut EcsDom,
+    entity: elidex_ecs::Entity,
+    input: &LayoutInput<'_>,
+) -> LayoutBox {
+    elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child)
+}
+
+/// Helper to call `layout_table` with the old positional-argument pattern used by tests.
+#[allow(clippy::too_many_arguments)]
+fn do_layout_table(
     dom: &mut EcsDom,
     entity: elidex_ecs::Entity,
     containing_width: f32,
@@ -36,18 +46,17 @@ fn test_layout_child(
     offset_y: f32,
     font_db: &FontDatabase,
     depth: u32,
+    layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
-    elidex_layout_block::block::layout_block_inner(
-        dom,
-        entity,
+    let input = LayoutInput {
         containing_width,
         containing_height,
         offset_x,
         offset_y,
         font_db,
         depth,
-        test_layout_child,
-    )
+    };
+    layout_table(dom, entity, &input, layout_child)
 }
 
 /// Helper: create a simple table with N rows and M cols.

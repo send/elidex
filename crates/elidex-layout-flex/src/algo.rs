@@ -2,7 +2,9 @@
 //! cross-size resolution, and positioning.
 
 use elidex_ecs::EcsDom;
-use elidex_layout_block::{clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn};
+use elidex_layout_block::{
+    clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn, LayoutInput,
+};
 use elidex_plugin::{
     AlignContent, AlignItems, ComputedStyle, Dimension, Direction, FlexWrap, JustifyContent,
     LayoutBox, Rect,
@@ -10,6 +12,21 @@ use elidex_plugin::{
 use elidex_text::FontDatabase;
 
 use super::{is_reversed, FlexContext, FlexItem};
+
+/// Layout dispatch environment shared across flex algorithm functions.
+pub(crate) struct LayoutEnv<'a> {
+    pub(crate) font_db: &'a FontDatabase,
+    pub(crate) layout_child: ChildLayoutFn,
+    pub(crate) depth: u32,
+}
+
+/// Line geometry for positioning items.
+pub(crate) struct LineGeometry<'a> {
+    pub(crate) line_ranges: &'a [(usize, usize)],
+    pub(crate) line_cross_sizes: &'a [f32],
+    pub(crate) line_offsets: &'a [f32],
+    pub(crate) container_cross: f32,
+}
 
 /// Epsilon for floating-point comparison in the flex freeze loop.
 ///
@@ -192,9 +209,7 @@ pub(crate) fn layout_items_cross(
     dom: &mut EcsDom,
     items: &mut [FlexItem],
     ctx: &FlexContext,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) {
     for item in items.iter_mut() {
         let child_containing = if ctx.horizontal {
@@ -202,16 +217,15 @@ pub(crate) fn layout_items_cross(
         } else {
             ctx.content_width
         };
-        let child_lb = layout_child(
-            dom,
-            item.entity,
-            child_containing,
-            ctx.container_definite_height,
-            0.0,
-            0.0,
-            font_db,
-            depth + 1,
-        );
+        let child_input = LayoutInput {
+            containing_width: child_containing,
+            containing_height: ctx.container_definite_height,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            font_db: env.font_db,
+            depth: env.depth + 1,
+        };
+        let child_lb = (env.layout_child)(dom, item.entity, &child_input);
         item.final_cross = if ctx.horizontal {
             child_lb.content.height + item.pb_cross
         } else {
@@ -304,16 +318,13 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
 /// values (NOT restored — re-layout requires re-resolving styles first), then
 /// runs layout via `layout_child` to position descendants, and finally patches
 /// the `LayoutBox` with the correct flex content size.
-#[allow(clippy::too_many_arguments)]
 fn relayout_item_at_position(
     dom: &mut EcsDom,
     item: &FlexItem,
     ctx: &FlexContext,
     margin_box_x: f32,
     margin_box_y: f32,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) {
     let item_content_width = if ctx.horizontal {
         item.final_main
@@ -341,16 +352,15 @@ fn relayout_item_at_position(
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
-    let child_lb = layout_child(
-        dom,
-        item.entity,
-        ctx.containing_width,
-        ctx.container_definite_height,
-        margin_box_x,
-        margin_box_y,
-        font_db,
-        depth + 1,
-    );
+    let child_input = LayoutInput {
+        containing_width: ctx.containing_width,
+        containing_height: ctx.container_definite_height,
+        offset_x: margin_box_x,
+        offset_y: margin_box_y,
+        font_db: env.font_db,
+        depth: env.depth + 1,
+    };
+    let child_lb = (env.layout_child)(dom, item.entity, &child_input);
 
     // Overwrite the item's LayoutBox with flex-resolved dimensions.
     // child_lb.content.x/y already include margin + border + padding
@@ -369,19 +379,17 @@ fn relayout_item_at_position(
     let _ = dom.world_mut().insert_one(item.entity, lb);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
-    line_ranges: &[(usize, usize)],
-    line_cross_sizes: &[f32],
-    line_offsets: &[f32],
+    lines: &LineGeometry<'_>,
     ctx: &FlexContext,
-    container_cross: f32,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) {
+    let line_ranges = lines.line_ranges;
+    let line_cross_sizes = lines.line_cross_sizes;
+    let line_offsets = lines.line_offsets;
+    let container_cross = lines.container_cross;
     // CSS Flexbox §4.2: RTL flips the main-axis direction for row layouts.
     // Row + RTL → reversed, RowReverse + RTL → not reversed (double reversal).
     let reversed_main = if ctx.horizontal && ctx.css_direction == Direction::Rtl {
@@ -438,16 +446,7 @@ pub(crate) fn position_items(
                 )
             };
 
-            relayout_item_at_position(
-                dom,
-                item,
-                ctx,
-                margin_box_x,
-                margin_box_y,
-                font_db,
-                layout_child,
-                depth,
-            );
+            relayout_item_at_position(dom, item, ctx, margin_box_x, margin_box_y, env);
 
             if reversed_main {
                 main_cursor -= gap;

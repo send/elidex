@@ -38,6 +38,7 @@ use grid::{
 };
 
 /// Context for resolving relative CSS values.
+#[derive(Clone, Copy)]
 pub(crate) struct ResolveContext {
     pub viewport_width: f32,
     pub viewport_height: f32,

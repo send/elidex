@@ -15,6 +15,21 @@ use crate::slot::distribute_slots;
 /// Maximum recursion depth for style tree walks.
 const MAX_WALK_DEPTH: usize = MAX_ANCESTOR_DEPTH;
 
+/// Mutable state carried through the style tree walk.
+///
+/// Bundles the shared parameters that are threaded through every walk function,
+/// reducing argument counts and making recursive calls cleaner.
+///
+/// `ctx` is owned (not borrowed) because each recursive level computes a new
+/// `ResolveContext` with an updated `em_base`/`root_font_size`. The struct is
+/// only 16 bytes (4× f32) so copies are cheap.
+pub(crate) struct WalkState<'a> {
+    pub ctx: ResolveContext,
+    pub hint_generator: &'a dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    pub depth: usize,
+    pub total_shadow_css: &'a mut usize,
+}
+
 /// Build a child `ResolveContext` from a resolved entity style.
 ///
 /// Updates `em_base` from the entity's font-size and `root_font_size`
@@ -50,29 +65,16 @@ fn should_skip_child(dom: &EcsDom, entity: Entity) -> bool {
 /// sequentially (requires `&EcsDom`), then `build_computed_style` runs
 /// in parallel across siblings via rayon, and finally the results are
 /// applied and children recursed sequentially.
-#[allow(clippy::too_many_arguments)]
 fn walk_children(
     dom: &mut EcsDom,
     parent: Entity,
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    depth: usize,
-    total_shadow_css: &mut usize,
+    state: &mut WalkState<'_>,
 ) {
     #[cfg(feature = "parallel")]
     {
-        walk_children_parallel(
-            dom,
-            parent,
-            stylesheets,
-            parent_style,
-            ctx,
-            hint_generator,
-            depth,
-            total_shadow_css,
-        );
+        walk_children_parallel(dom, parent, stylesheets, parent_style, state);
     }
 
     #[cfg(not(feature = "parallel"))]
@@ -82,16 +84,9 @@ fn walk_children(
             if should_skip_child(dom, child) {
                 continue;
             }
-            walk_tree(
-                dom,
-                child,
-                stylesheets,
-                parent_style,
-                ctx,
-                hint_generator,
-                depth + 1,
-                total_shadow_css,
-            );
+            state.depth += 1;
+            walk_tree(dom, child, stylesheets, parent_style, state);
+            state.depth -= 1;
         }
     }
 }
@@ -99,20 +94,17 @@ fn walk_children(
 /// Parallel sibling resolution: cascade sequentially, resolve in parallel,
 /// then apply and recurse sequentially.
 #[cfg(feature = "parallel")]
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 fn walk_children_parallel(
     dom: &mut EcsDom,
     parent: Entity,
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    depth: usize,
-    total_shadow_css: &mut usize,
+    state: &mut WalkState<'_>,
 ) {
     use crate::parallel::{par_resolve_siblings, to_owned_map, OwnedPropertyMap};
 
-    if depth > MAX_WALK_DEPTH {
+    if state.depth > MAX_WALK_DEPTH {
         return;
     }
 
@@ -134,16 +126,9 @@ fn walk_children_parallel(
     if has_shadow_hosts {
         // Fall back to sequential walk_tree for shadow DOM subtrees.
         for child in walkable {
-            walk_tree(
-                dom,
-                child,
-                stylesheets,
-                parent_style,
-                ctx,
-                hint_generator,
-                depth + 1,
-                total_shadow_css,
-            );
+            state.depth += 1;
+            walk_tree(dom, child, stylesheets, parent_style, state);
+            state.depth -= 1;
         }
         return;
     }
@@ -167,7 +152,7 @@ fn walk_children_parallel(
         remove_pseudo_entities(dom, child);
 
         let inline_decls = get_inline_declarations(child, dom);
-        let extra_decls = hint_generator(child, dom);
+        let extra_decls = (state.hint_generator)(child, dom);
         let winners = collect_and_cascade(
             child,
             dom,
@@ -182,7 +167,7 @@ fn walk_children_parallel(
     }
 
     // Phase 2: Parallel build_computed_style (elements only).
-    let element_ctx = ctx.with_em_base(parent_style.font_size);
+    let element_ctx = state.ctx.with_em_base(parent_style.font_size);
     let styles = par_resolve_siblings(&cascade_inputs, parent_style, &element_ctx);
 
     // Phase 3: Sequential apply + pseudo + recurse.
@@ -217,17 +202,13 @@ fn walk_children_parallel(
             parent_style
         };
 
-        let child_ctx = child_context(dom, child, style, ctx);
-        walk_children(
-            dom,
-            child,
-            stylesheets,
-            style,
-            &child_ctx,
-            hint_generator,
-            depth + 1,
-            total_shadow_css,
-        );
+        let child_ctx = child_context(dom, child, style, &state.ctx);
+        let saved_ctx = state.ctx;
+        state.ctx = child_ctx;
+        state.depth += 1;
+        walk_children(dom, child, stylesheets, style, state);
+        state.depth -= 1;
+        state.ctx = saved_ctx;
     }
 }
 
@@ -329,18 +310,14 @@ fn resolve_and_attach_style(
 ///
 /// Recursion is capped at `MAX_WALK_DEPTH` to prevent stack overflow on
 /// deeply nested DOM trees.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_tree(
     dom: &mut EcsDom,
     entity: Entity,
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    depth: usize,
-    total_shadow_css: &mut usize,
+    state: &mut WalkState<'_>,
 ) {
-    if depth > MAX_WALK_DEPTH {
+    if state.depth > MAX_WALK_DEPTH {
         return;
     }
     // A2: If this entity is a shadow host, we need to resolve its style with
@@ -353,7 +330,7 @@ pub(crate) fn walk_tree(
         .ok()
         .map(|sh| sh.shadow_root);
     let shadow_sheet_owned = shadow_root_entity.map(|sr| {
-        let shadow_css = collect_shadow_styles(dom, sr, total_shadow_css);
+        let shadow_css = collect_shadow_styles(dom, sr, state.total_shadow_css);
         parse_stylesheet(&shadow_css, Origin::Author)
     });
 
@@ -363,8 +340,8 @@ pub(crate) fn walk_tree(
             entity,
             stylesheets,
             parent_style,
-            ctx,
-            hint_generator,
+            &state.ctx,
+            state.hint_generator,
             &ShadowCascade::Host(shadow_sheet),
         )
     } else {
@@ -373,43 +350,37 @@ pub(crate) fn walk_tree(
             entity,
             stylesheets,
             parent_style,
-            ctx,
-            hint_generator,
+            &state.ctx,
+            state.hint_generator,
             &ShadowCascade::Outer,
         )
     };
 
-    let child_ctx = child_context(dom, entity, &entity_style, ctx);
+    let child_ctx = child_context(dom, entity, &entity_style, &state.ctx);
 
     // Shadow DOM: if this entity is a shadow host, distribute slots and
     // walk the shadow tree with shadow-internal stylesheets.
     if let Some(shadow_sheet) = shadow_sheet_owned {
         distribute_slots(dom, entity);
+        let saved_ctx = state.ctx;
+        state.ctx = child_ctx;
         walk_shadow_tree(
             dom,
             entity,
             stylesheets,
             &shadow_sheet,
             &entity_style,
-            &child_ctx,
-            hint_generator,
-            depth,
-            total_shadow_css,
+            state,
         );
+        state.ctx = saved_ctx;
         return;
     }
 
     // Recurse into children (re-collect since pseudo entities may have been added).
-    walk_children(
-        dom,
-        entity,
-        stylesheets,
-        &entity_style,
-        &child_ctx,
-        hint_generator,
-        depth,
-        total_shadow_css,
-    );
+    let saved_ctx = state.ctx;
+    state.ctx = child_ctx;
+    walk_children(dom, entity, stylesheets, &entity_style, state);
+    state.ctx = saved_ctx;
 }
 
 /// Context for shadow tree walking, bundling stylesheet references.
@@ -429,17 +400,13 @@ struct ShadowWalkContext<'a> {
 /// 3. When a `<slot>` with assigned nodes is encountered, each slotted node is
 ///    resolved with outer stylesheets + `ShadowCascade::Slotted` for `::slotted()`
 ///    rule participation, inheriting from the slot's computed style.
-#[allow(clippy::too_many_arguments)]
 fn walk_shadow_tree(
     dom: &mut EcsDom,
     host: Entity,
     outer_stylesheets: &[&Stylesheet],
     shadow_sheet: &Stylesheet,
     host_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    depth: usize,
-    total_shadow_css: &mut usize,
+    state: &mut WalkState<'_>,
 ) {
     let Some(shadow_root) = dom.get_shadow_root(host) else {
         return;
@@ -456,16 +423,9 @@ fn walk_shadow_tree(
     // Walk shadow root's children with shadow stylesheets.
     let children = dom.children(shadow_root);
     for child in children {
-        walk_shadow_child(
-            dom,
-            child,
-            &shadow_ctx,
-            host_style,
-            ctx,
-            hint_generator,
-            depth + 1,
-            total_shadow_css,
-        );
+        state.depth += 1;
+        walk_shadow_child(dom, child, &shadow_ctx, host_style, state);
+        state.depth -= 1;
     }
 }
 
@@ -479,18 +439,14 @@ fn walk_shadow_tree(
 /// `::slotted()` rules from the shadow stylesheet participate in the cascade.
 ///
 /// Regular shadow tree children are resolved with shadow stylesheets only.
-#[allow(clippy::too_many_arguments)]
 fn walk_shadow_child(
     dom: &mut EcsDom,
     entity: Entity,
     shadow_ctx: &ShadowWalkContext<'_>,
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    depth: usize,
-    total_shadow_css: &mut usize,
+    state: &mut WalkState<'_>,
 ) {
-    if depth > MAX_WALK_DEPTH {
+    if state.depth > MAX_WALK_DEPTH {
         return;
     }
 
@@ -511,7 +467,7 @@ fn walk_shadow_child(
         .map(|sh| sh.shadow_root);
     if let Some(inner_sr) = nested_shadow_root {
         // Parse the nested shadow's stylesheet for :host cascade.
-        let inner_shadow_css = collect_shadow_styles(dom, inner_sr, total_shadow_css);
+        let inner_shadow_css = collect_shadow_styles(dom, inner_sr, state.total_shadow_css);
         let inner_shadow_sheet = parse_stylesheet(&inner_shadow_css, Origin::Author);
 
         // Resolve host style: shadow_sheets act as "outer" for this nested host,
@@ -521,24 +477,25 @@ fn walk_shadow_child(
             entity,
             &shadow_ctx.shadow_sheets,
             parent_style,
-            ctx,
-            hint_generator,
+            &state.ctx,
+            state.hint_generator,
             &ShadowCascade::Host(&inner_shadow_sheet),
         );
 
-        let child_ctx = ctx.with_em_base(entity_style.font_size);
+        let child_ctx = state.ctx.with_em_base(entity_style.font_size);
         distribute_slots(dom, entity);
+
+        let saved_ctx = state.ctx;
+        state.ctx = child_ctx;
         walk_shadow_tree(
             dom,
             entity,
             &shadow_ctx.shadow_sheets,
             &inner_shadow_sheet,
             &entity_style,
-            &child_ctx,
-            hint_generator,
-            depth,
-            total_shadow_css,
+            state,
         );
+        state.ctx = saved_ctx;
         return;
     }
 
@@ -548,12 +505,12 @@ fn walk_shadow_child(
         entity,
         &shadow_ctx.shadow_sheets,
         parent_style,
-        ctx,
-        hint_generator,
+        &state.ctx,
+        state.hint_generator,
         &ShadowCascade::Outer,
     );
 
-    let child_ctx = ctx.with_em_base(entity_style.font_size);
+    let child_ctx = state.ctx.with_em_base(entity_style.font_size);
 
     // A3: If this is a <slot>, resolve assigned (slotted) nodes with outer
     // stylesheets + ShadowCascade::Slotted so ::slotted() rules participate.
@@ -571,21 +528,15 @@ fn walk_shadow_child(
                     shadow_ctx.outer_sheets,
                     &entity_style,
                     &child_ctx,
-                    hint_generator,
+                    state.hint_generator,
                     &ShadowCascade::Slotted(shadow_ctx.shadow_sheet),
                 );
                 // Recurse into slotted node's children with outer stylesheets.
                 let node_ctx = child_ctx.with_em_base(node_style.font_size);
-                walk_children(
-                    dom,
-                    *node,
-                    shadow_ctx.outer_sheets,
-                    &node_style,
-                    &node_ctx,
-                    hint_generator,
-                    depth,
-                    total_shadow_css,
-                );
+                let saved_ctx = state.ctx;
+                state.ctx = node_ctx;
+                walk_children(dom, *node, shadow_ctx.outer_sheets, &node_style, state);
+                state.ctx = saved_ctx;
             }
             // L6: Skip fallback children when assigned nodes are present.
             // Only walk shadow tree children (non-fallback) below.
@@ -596,18 +547,14 @@ fn walk_shadow_child(
     // A1: Recurse into shadow tree children (handles nested <slot> elements).
     // For slots with no assigned nodes, this walks fallback content.
     let children = dom.children(entity);
+    let saved_ctx = state.ctx;
+    state.ctx = child_ctx;
     for child in children {
-        walk_shadow_child(
-            dom,
-            child,
-            shadow_ctx,
-            &entity_style,
-            &child_ctx,
-            hint_generator,
-            depth + 1,
-            total_shadow_css,
-        );
+        state.depth += 1;
+        walk_shadow_child(dom, child, shadow_ctx, &entity_style, state);
+        state.depth -= 1;
     }
+    state.ctx = saved_ctx;
 }
 
 /// Maximum total CSS text size collected across all shadow roots (1 MB).

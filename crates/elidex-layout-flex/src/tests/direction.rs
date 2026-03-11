@@ -7,7 +7,7 @@ fn row_basic_layout() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -39,7 +39,7 @@ fn column_layout() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 70.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -70,7 +70,7 @@ fn column_reverse_layout() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 70.0)]);
     let font_db = FontDatabase::new();
-    let _lb = layout_flex(
+    let _lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -104,7 +104,7 @@ fn wrap_splits_lines() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         300.0,
@@ -134,7 +134,7 @@ fn wrap_reverse_layout() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         300.0,
@@ -173,7 +173,7 @@ fn display_none_skipped() {
     ];
     let (mut dom, container, _items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -192,7 +192,7 @@ fn display_none_skipped() {
 fn empty_flex_container() {
     let (mut dom, container, _) = make_flex_dom(flex_container(), &[]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -230,7 +230,7 @@ fn nested_flex_containers() {
     dom.append_child(inner, child);
 
     let font_db = FontDatabase::new();
-    let outer_lb = layout_flex(
+    let outer_lb = do_layout_flex(
         &mut dom,
         outer,
         800.0,
@@ -267,7 +267,7 @@ fn order_sorting() {
     ];
     let (mut dom, container, items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,

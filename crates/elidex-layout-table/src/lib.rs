@@ -31,7 +31,8 @@ mod tests;
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_layout_block::{
-    horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+    horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, LayoutInput,
+    MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     BorderCollapse, CaptionSide, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
@@ -84,28 +85,21 @@ fn collapse_adjusted_width(cell_width: f32, is_collapse: bool, cb: &CollapsedBor
 ///
 /// * `dom` — ECS DOM to read styles from and write layout boxes to
 /// * `entity` — the table element entity
-/// * `containing_width` — the width of the containing block
-/// * `containing_height` — the height of the containing block (if known)
-/// * `offset_x`, `offset_y` — top-left offset from the containing block
-/// * `font_db` — font database for text measurement
-/// * `depth` — recursion depth guard
+/// * `input` — contextual layout parameters (containing block size, offsets, `font_db`, depth)
 /// * `layout_child` — callback for laying out child elements
-#[allow(
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::cast_precision_loss
-)]
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 pub fn layout_table(
     dom: &mut EcsDom,
     entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
+    let containing_width = input.containing_width;
+    let containing_height = input.containing_height;
+    let offset_x = input.offset_x;
+    let offset_y = input.offset_y;
+    let font_db = input.font_db;
+    let depth = input.depth;
     if depth >= MAX_LAYOUT_DEPTH {
         return LayoutBox::default();
     }
@@ -181,16 +175,15 @@ pub fn layout_table(
     // Layout top captions.
     let mut caption_top_height = 0.0;
     for &cap in &captions_top {
-        let cap_lb = layout_child(
-            dom,
-            cap,
-            content_width,
-            None,
-            content_x,
-            cursor_y,
+        let cap_input = LayoutInput {
+            containing_width: content_width,
+            containing_height: None,
+            offset_x: content_x,
+            offset_y: cursor_y,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let cap_lb = layout_child(dom, cap, &cap_input);
         caption_top_height += box_total_height(&cap_lb);
         let _ = dom.world_mut().insert_one(cap, cap_lb);
     }
@@ -270,20 +263,17 @@ pub fn layout_table(
     };
 
     // Determine column widths.
-    let col_widths = compute_column_widths(
-        dom,
-        &style,
-        &cells,
-        &cell_styles,
-        &collapsed_borders,
+    let col_input = TableColumnInput {
+        style: &style,
+        cells: &cells,
+        cell_styles: &cell_styles,
+        collapsed_borders: &collapsed_borders,
         num_cols,
         available_for_cols,
         content_width,
-        font_db,
-        depth,
-        layout_child,
         is_collapse,
-    );
+    };
+    let col_widths = compute_column_widths(dom, &col_input, font_db, depth, layout_child);
 
     // Compute row heights by laying out each cell with its resolved column width.
     let mut row_heights = vec![0.0_f32; num_rows];
@@ -297,16 +287,15 @@ pub fn layout_table(
             collapse_adjusted_width(cell_width, is_collapse, &collapsed_borders[i]);
 
         // Layout the cell content (using block layout).
-        let cell_lb = layout_child(
-            dom,
-            cell.entity,
-            effective_width,
-            None,
-            0.0, // temporary x, will be positioned later
-            0.0, // temporary y
+        let cell_input = LayoutInput {
+            containing_width: effective_width,
+            containing_height: None,
+            offset_x: 0.0, // temporary x, will be positioned later
+            offset_y: 0.0, // temporary y
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let cell_lb = layout_child(dom, cell.entity, &cell_input);
 
         let cell_total_height = box_total_height(&cell_lb);
 
@@ -379,16 +368,15 @@ pub fn layout_table(
             + spacing_v * (cell.rowspan as f32 - 1.0).max(0.0);
 
         // Re-layout cell at correct position.
-        let cell_lb = layout_child(
-            dom,
-            cell.entity,
-            effective_width,
-            Some(cell_height),
-            cell_x,
-            cell_y,
+        let cell_relayout_input = LayoutInput {
+            containing_width: effective_width,
+            containing_height: Some(cell_height),
+            offset_x: cell_x,
+            offset_y: cell_y,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input);
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
     }
 
@@ -398,16 +386,15 @@ pub fn layout_table(
     // Layout bottom captions after table rows.
     let mut caption_bottom_height = 0.0;
     for &cap in &captions_bottom {
-        let cap_lb = layout_child(
-            dom,
-            cap,
-            content_width,
-            None,
-            content_x,
-            cursor_y,
+        let cap_input = LayoutInput {
+            containing_width: content_width,
+            containing_height: None,
+            offset_x: content_x,
+            offset_y: cursor_y,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let cap_lb = layout_child(dom, cap, &cap_input);
         caption_bottom_height += box_total_height(&cap_lb);
         cursor_y += box_total_height(&cap_lb);
         let _ = dom.world_mut().insert_one(cap, cap_lb);
@@ -465,26 +452,40 @@ fn resolve_table_height(
     explicit.unwrap_or(min_height).max(min_height)
 }
 
+/// Parameters for column width computation.
+///
+/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
+/// for Phase 4 (border-collapse-aware column sizing).
+#[allow(dead_code)]
+struct TableColumnInput<'a> {
+    style: &'a ComputedStyle,
+    cells: &'a [CellInfo],
+    cell_styles: &'a [ComputedStyle],
+    collapsed_borders: &'a [CollapsedBorders],
+    num_cols: usize,
+    available_for_cols: f32,
+    content_width: f32,
+    is_collapse: bool,
+}
+
 /// Compute column widths based on table-layout algorithm.
 ///
 /// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
 /// for Phase 4 (border-collapse-aware column sizing) and currently unused.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 fn compute_column_widths(
     dom: &mut EcsDom,
-    style: &ComputedStyle,
-    cells: &[CellInfo],
-    cell_styles: &[ComputedStyle],
-    _collapsed_borders: &[CollapsedBorders],
-    num_cols: usize,
-    available_for_cols: f32,
-    _content_width: f32,
+    params: &TableColumnInput<'_>,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: ChildLayoutFn,
-    _is_collapse: bool,
 ) -> Vec<f32> {
+    let style = params.style;
+    let cells = params.cells;
+    let cell_styles = params.cell_styles;
+    // params.collapsed_borders, params.content_width, params.is_collapse reserved for Phase 4.
+    let num_cols = params.num_cols;
+    let available_for_cols = params.available_for_cols;
     if style.table_layout == TableLayout::Fixed && !matches!(style.width, Dimension::Auto) {
         // Fixed table layout: use first row cell widths.
         // Collect (index, &CellInfo) pairs to avoid re-searching for indices.
@@ -529,26 +530,24 @@ fn compute_column_widths(
             .map(|cell| {
                 // Layout cell with a very small width to get min-content,
                 // and with a very large width to get max-content.
-                let min_lb = layout_child(
-                    dom,
-                    cell.entity,
-                    1.0, // min-content probe
-                    None,
-                    0.0,
-                    0.0,
+                let min_input = LayoutInput {
+                    containing_width: 1.0, // min-content probe
+                    containing_height: None,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
                     font_db,
-                    depth + 1,
-                );
-                let max_lb = layout_child(
-                    dom,
-                    cell.entity,
-                    f32::MAX / 4.0, // max-content probe
-                    None,
-                    0.0,
-                    0.0,
+                    depth: depth + 1,
+                };
+                let min_lb = layout_child(dom, cell.entity, &min_input);
+                let max_input = LayoutInput {
+                    containing_width: f32::MAX / 4.0, // max-content probe
+                    containing_height: None,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
                     font_db,
-                    depth + 1,
-                );
+                    depth: depth + 1,
+                };
+                let max_lb = layout_child(dom, cell.entity, &max_input);
                 let cs = elidex_layout_block::get_style(dom, cell.entity);
                 let p = sanitize_padding(&cs);
                 let b = sanitize_border(&cs);

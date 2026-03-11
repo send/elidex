@@ -381,11 +381,17 @@ mod tests {
         }
     }
 
+    type RoleTestCase = (
+        &'static str,
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        Role,
+    );
+
     #[test]
-    #[allow(clippy::type_complexity)]
     fn role_overrides() {
         // (description, tag, attrs, expected_role)
-        let cases: &[(&str, &str, &[(&str, &str)], Role)] = &[
+        let cases: &[RoleTestCase] = &[
             (
                 "img empty alt is presentational",
                 "img",
@@ -452,11 +458,18 @@ mod tests {
         assert_eq!(id1, id2);
     }
 
+    type ContextRoleTestCase = (
+        &'static str,
+        Option<&'static str>,
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        Role,
+    );
+
     #[test]
-    #[allow(clippy::type_complexity)]
     fn context_dependent_roles() {
         // (description, parent_tag, element_tag, element_attrs, expected_role)
-        let cases: &[(&str, Option<&str>, &str, &[(&str, &str)], Role)] = &[
+        let cases: &[ContextRoleTestCase] = &[
             (
                 "header top-level is Banner",
                 Some("body"),

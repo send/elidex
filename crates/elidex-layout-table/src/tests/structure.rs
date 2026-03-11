@@ -67,7 +67,7 @@ fn table_colspan() {
     dom.append_child(tr2, cell_r2c2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -150,7 +150,7 @@ fn table_rowspan() {
     dom.append_child(tr2, td3);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -231,7 +231,7 @@ fn table_colspan_and_rowspan() {
     dom.append_child(tr2, td2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -290,7 +290,7 @@ fn table_caption_top() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -350,7 +350,7 @@ fn table_caption_bottom() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -448,7 +448,7 @@ fn table_header_body_footer() {
     dom.append_child(tr_head, cell_head);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -539,7 +539,7 @@ fn table_tfoot_after_tbody() {
     dom.append_child(tr_body, cell_body);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -571,7 +571,7 @@ fn table_empty_cells() {
     let (mut dom, table, _) = create_simple_table(1, 2, default_table_style());
     // Give cells zero height to simulate empty cells.
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -590,7 +590,7 @@ fn table_empty_cells() {
 fn table_single_cell() {
     let (mut dom, table, cells) = create_simple_table(1, 1, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         300.0,
@@ -638,7 +638,7 @@ fn table_direct_cells_anonymous_row() {
     dom.append_child(table, td2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -727,7 +727,7 @@ fn table_rowspan_height_extension() {
     dom.append_child(tr2, td3);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -758,7 +758,7 @@ fn table_empty_zero_children() {
     dom.world_mut().insert_one(table, default_table_style());
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -833,7 +833,7 @@ fn table_display_none_cell_skipped() {
     dom.append_child(tr, td2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -881,7 +881,7 @@ fn table_rtl_reverses_column_order() {
     let (mut dom, table, cells) = create_simple_table(1, 3, table_style);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,

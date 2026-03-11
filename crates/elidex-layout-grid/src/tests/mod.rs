@@ -1,7 +1,7 @@
 //! Grid layout tests.
 
 use elidex_ecs::{Attributes, EcsDom};
-use elidex_layout_block::layout_block_only;
+use elidex_layout_block::{layout_block_only, LayoutInput};
 use elidex_plugin::{
     AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, LayoutBox, TrackBreadth,
     TrackSize,
@@ -9,6 +9,30 @@ use elidex_plugin::{
 use elidex_text::FontDatabase;
 
 use crate::layout_grid;
+
+/// Helper to call `layout_grid` with the old positional-argument pattern used by tests.
+#[allow(clippy::too_many_arguments)]
+fn do_layout_grid(
+    dom: &mut EcsDom,
+    entity: elidex_ecs::Entity,
+    containing_width: f32,
+    containing_height: Option<f32>,
+    offset_x: f32,
+    offset_y: f32,
+    font_db: &FontDatabase,
+    depth: u32,
+    layout_child: elidex_layout_block::ChildLayoutFn,
+) -> LayoutBox {
+    let input = LayoutInput {
+        containing_width,
+        containing_height,
+        offset_x,
+        offset_y,
+        font_db,
+        depth,
+    };
+    layout_grid(dom, entity, &input, layout_child)
+}
 
 mod alignment_box;
 mod placement;

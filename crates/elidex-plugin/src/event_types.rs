@@ -23,7 +23,7 @@ pub enum EventPhase {
 
 /// Initialization data for mouse events.
 #[derive(Clone, Debug, Default, PartialEq)]
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // DOM UIEvent spec requires 4 modifier key booleans.
 pub struct MouseEventInit {
     /// Horizontal coordinate relative to the viewport.
     pub client_x: f64,
@@ -45,7 +45,7 @@ pub struct MouseEventInit {
 
 /// Initialization data for keyboard events.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // DOM UIEvent spec requires 4 modifier key booleans.
 pub struct KeyboardEventInit {
     /// The `key` attribute value (e.g. `"Enter"`, `"a"`).
     pub key: String,

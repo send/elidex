@@ -481,7 +481,7 @@ pub(super) fn parse_value_property(
 
 /// Parse a `var(--name)` or `var(--name, fallback)` function call.
 #[must_use = "parsing result should be used"]
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_var_function(input: &mut Parser) -> Result<CssValue, ()> {
     input.expect_function_matching("var").map_err(|_| ())?;
     input

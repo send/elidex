@@ -83,28 +83,35 @@ fn importance_layer(origin: Origin, important: bool) -> u8 {
     }
 }
 
-/// Push a cascade entry for a declaration with the given priority fields.
-#[allow(clippy::too_many_arguments)]
-fn push_cascade_entry<'a>(
-    entries: &mut Vec<CascadeEntry<'a>>,
-    decl: &'a Declaration,
+/// Source location metadata for cascade ordering.
+///
+/// Groups the cascade source fields that are invariant per-declaration within
+/// a rule, reducing the argument count of [`push_cascade_entry`].
+struct CascadeSource {
     origin: Origin,
     is_outer_context: bool,
     is_inline: bool,
     specificity: Specificity,
     stylesheet_index: u32,
     source_order: u32,
+}
+
+/// Push a cascade entry for a declaration with the given source metadata.
+fn push_cascade_entry<'a>(
+    entries: &mut Vec<CascadeEntry<'a>>,
+    decl: &'a Declaration,
+    source: &CascadeSource,
 ) {
     entries.push(CascadeEntry {
         property: &decl.property,
         value: &decl.value,
         priority: CascadePriority {
-            importance_layer: importance_layer(origin, decl.important),
-            is_outer_context,
-            is_inline,
-            specificity,
-            stylesheet_index,
-            source_order,
+            importance_layer: importance_layer(source.origin, decl.important),
+            is_outer_context: source.is_outer_context,
+            is_inline: source.is_inline,
+            specificity: source.specificity,
+            stylesheet_index: source.stylesheet_index,
+            source_order: source.source_order,
         },
     });
 }
@@ -156,17 +163,16 @@ pub(crate) fn collect_and_cascade<'a>(
 
     // Collect presentational hints first — author origin, lowest specificity and
     // source_order=0 so any author stylesheet rule overrides them.
+    let hint_source = CascadeSource {
+        origin: Origin::Author,
+        is_outer_context: true,
+        is_inline: false,
+        specificity: Specificity::default(),
+        stylesheet_index: 0,
+        source_order: 0,
+    };
     for decl in extra_declarations {
-        push_cascade_entry(
-            &mut entries,
-            decl,
-            Origin::Author,
-            true,
-            false,
-            Specificity::default(),
-            0,
-            0,
-        );
+        push_cascade_entry(&mut entries, decl, &hint_source);
     }
 
     // Collect from stylesheets (only selectors without pseudo-elements).
@@ -200,17 +206,16 @@ pub(crate) fn collect_and_cascade<'a>(
     // Collect inline styles (highest specificity, treated as author origin).
     // Inline styles use a synthetic source_order of u32::MAX to ensure they
     // come after any stylesheet declarations at the same priority.
+    let inline_source = CascadeSource {
+        origin: Origin::Author,
+        is_outer_context: true,
+        is_inline: true,
+        specificity: Specificity::default(),
+        stylesheet_index: u32::MAX,
+        source_order: u32::MAX,
+    };
     for decl in inline_declarations {
-        push_cascade_entry(
-            &mut entries,
-            decl,
-            Origin::Author,
-            true,
-            true,
-            Specificity::default(),
-            u32::MAX,
-            u32::MAX,
-        );
+        push_cascade_entry(&mut entries, decl, &inline_source);
     }
 
     compute_winners(&mut entries)
@@ -254,17 +259,16 @@ fn collect_matching_rules<'a>(
                 continue;
             };
 
+            let source = CascadeSource {
+                origin: stylesheet.origin,
+                is_outer_context,
+                is_inline: false,
+                specificity: max_specificity,
+                stylesheet_index: sheet_index,
+                source_order: rule.source_order,
+            };
             for decl in &rule.declarations {
-                push_cascade_entry(
-                    entries,
-                    decl,
-                    stylesheet.origin,
-                    is_outer_context,
-                    false,
-                    max_specificity,
-                    sheet_index,
-                    rule.source_order,
-                );
+                push_cascade_entry(entries, decl, &source);
             }
         }
     }
@@ -321,17 +325,16 @@ fn collect_shadow_rules<'a>(
             continue;
         };
 
+        let source = CascadeSource {
+            origin: shadow_sheet.origin,
+            is_outer_context: false,
+            is_inline: false,
+            specificity: max_specificity,
+            stylesheet_index: 0,
+            source_order: rule.source_order,
+        };
         for decl in &rule.declarations {
-            push_cascade_entry(
-                entries,
-                decl,
-                shadow_sheet.origin,
-                false,
-                false,
-                max_specificity,
-                0,
-                rule.source_order,
-            );
+            push_cascade_entry(entries, decl, &source);
         }
     }
 }

@@ -13,13 +13,29 @@ use elidex_plugin::{
 };
 use elidex_text::FontDatabase;
 
+/// Contextual parameters for a single child layout invocation.
+#[derive(Debug, Clone, Copy)]
+pub struct LayoutInput<'a> {
+    /// Width of the containing block.
+    pub containing_width: f32,
+    /// Height of the containing block (if known).
+    pub containing_height: Option<f32>,
+    /// Horizontal offset from the containing block origin.
+    pub offset_x: f32,
+    /// Vertical offset from the containing block origin.
+    pub offset_y: f32,
+    /// Font database for text measurement.
+    pub font_db: &'a FontDatabase,
+    /// Recursion depth guard.
+    pub depth: u32,
+}
+
 /// Callback type for dispatching child layout by display type.
 ///
 /// The orchestrator (`elidex-layout`) provides a dispatch function that routes
 /// to block, flex, or grid layout based on the child's `display` value.
 /// Within standalone block-only scenarios, [`layout_block_only`] can be used.
-pub type ChildLayoutFn =
-    fn(&mut EcsDom, Entity, f32, Option<f32>, f32, f32, &FontDatabase, u32) -> LayoutBox;
+pub type ChildLayoutFn = fn(&mut EcsDom, Entity, &LayoutInput<'_>) -> LayoutBox;
 
 /// Maximum recursion depth for layout tree walking.
 ///
@@ -31,28 +47,8 @@ pub const MAX_LAYOUT_DEPTH: u32 = 1000;
 ///
 /// A [`ChildLayoutFn`] implementation that always uses block layout.
 /// Used for standalone tests and scenarios where flex/grid dispatch is not needed.
-#[allow(clippy::too_many_arguments)]
-pub fn layout_block_only(
-    dom: &mut EcsDom,
-    entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
-) -> LayoutBox {
-    block::layout_block_inner(
-        dom,
-        entity,
-        containing_width,
-        containing_height,
-        offset_x,
-        offset_y,
-        font_db,
-        depth,
-        layout_block_only,
-    )
+pub fn layout_block_only(dom: &mut EcsDom, entity: Entity, input: &LayoutInput<'_>) -> LayoutBox {
+    block::layout_block_inner(dom, entity, input, layout_block_only)
 }
 
 // ---------------------------------------------------------------------------
@@ -260,33 +256,45 @@ pub fn resolve_explicit_height(
     }
 }
 
+/// Parameters for [`empty_container_box`].
+pub struct EmptyContainerParams<'a> {
+    /// Computed style of the container.
+    pub style: &'a ComputedStyle,
+    /// Content area X coordinate.
+    pub content_x: f32,
+    /// Content area Y coordinate.
+    pub content_y: f32,
+    /// Content area width.
+    pub content_width: f32,
+    /// Containing block height (if known).
+    pub containing_height: Option<f32>,
+    /// Resolved padding.
+    pub padding: EdgeSizes,
+    /// Resolved border.
+    pub border: EdgeSizes,
+    /// Resolved margin.
+    pub margin: EdgeSizes,
+}
+
 /// Build a layout box for an empty or depth-limited container.
 ///
 /// Used when a container has no children or maximum layout depth is reached.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 pub fn empty_container_box(
     dom: &mut EcsDom,
     entity: Entity,
-    style: &ComputedStyle,
-    content_x: f32,
-    content_y: f32,
-    content_width: f32,
-    containing_height: Option<f32>,
-    padding: EdgeSizes,
-    border: EdgeSizes,
-    margin: EdgeSizes,
+    params: &EmptyContainerParams<'_>,
 ) -> LayoutBox {
     let lb = LayoutBox {
         content: elidex_plugin::Rect {
-            x: content_x,
-            y: content_y,
-            width: content_width,
-            height: resolve_explicit_height(style, containing_height).unwrap_or(0.0),
+            x: params.content_x,
+            y: params.content_y,
+            width: params.content_width,
+            height: resolve_explicit_height(params.style, params.containing_height).unwrap_or(0.0),
         },
-        padding,
-        border,
-        margin,
+        padding: params.padding,
+        border: params.border,
+        margin: params.margin,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb

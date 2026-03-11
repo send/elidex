@@ -12,14 +12,13 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     adjust_min_max_for_border_box, block::resolve_margin, clamp_min_max, effective_align,
     horizontal_pb, resolve_explicit_height, resolve_min_max, sanitize, sanitize_border,
-    sanitize_padding, vertical_pb, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+    sanitize_padding, vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput,
+    MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
     FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
 };
-use elidex_text::FontDatabase;
-
 /// Sentinel value representing an indefinite container main-axis size.
 ///
 /// Uses `f32::MAX / 2.0` (approximately 1.7e38) to avoid overflow when adding margins/padding,
@@ -185,18 +184,19 @@ fn resolve_container_main(
 }
 
 /// Layout a flex container and return its `LayoutBox`.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub fn layout_flex(
     dom: &mut EcsDom,
     entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
+    let containing_width = input.containing_width;
+    let containing_height = input.containing_height;
+    let offset_x = input.offset_x;
+    let offset_y = input.offset_y;
+    let font_db = input.font_db;
+    let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
     let padding = sanitize_padding(&style);
@@ -225,14 +225,16 @@ pub fn layout_flex(
         return elidex_layout_block::empty_container_box(
             dom,
             entity,
-            &style,
-            content_x,
-            content_y,
-            content_width,
-            containing_height,
-            padding,
-            border,
-            margin,
+            &EmptyContainerParams {
+                style: &style,
+                content_x,
+                content_y,
+                content_width,
+                containing_height,
+                padding,
+                border,
+                margin,
+            },
         );
     }
 
@@ -273,8 +275,14 @@ pub fn layout_flex(
         css_direction: style.direction,
     };
 
+    let env = algo::LayoutEnv {
+        font_db,
+        layout_child,
+        depth,
+    };
+
     // --- Collect, sort, flex-resolve, layout, position ---
-    let mut items = collect_flex_items(dom, &children, &ctx, font_db, layout_child, depth);
+    let mut items = collect_flex_items(dom, &children, &ctx, &env);
     items.sort_by(|a, b| {
         a.order
             .cmp(&b.order)
@@ -286,7 +294,7 @@ pub fn layout_flex(
         algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main, ctx.gap_main);
     }
 
-    algo::layout_items_cross(dom, &mut items, &ctx, font_db, layout_child, depth);
+    algo::layout_items_cross(dom, &mut items, &ctx, &env);
     let (line_cross_sizes, total_line_cross) = algo::compute_line_cross_sizes(&items, &line_ranges);
 
     let container_cross =
@@ -302,18 +310,13 @@ pub fn layout_flex(
     // Stretch items using effective line sizes (includes align-content stretch extra).
     algo::stretch_items(&mut items, &line_ranges, &align_result.effective_line_sizes);
 
-    algo::position_items(
-        dom,
-        &items,
-        &line_ranges,
-        &align_result.effective_line_sizes,
-        &align_result.offsets,
-        &ctx,
+    let lines = algo::LineGeometry {
+        line_ranges: &line_ranges,
+        line_cross_sizes: &align_result.effective_line_sizes,
+        line_offsets: &align_result.offsets,
         container_cross,
-        font_db,
-        layout_child,
-        depth,
-    );
+    };
+    algo::position_items(dom, &items, &lines, &ctx, &env);
 
     // --- Container LayoutBox ---
     let content_height =
@@ -345,9 +348,7 @@ fn collect_flex_items(
     dom: &mut EcsDom,
     children: &[Entity],
     ctx: &FlexContext,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &algo::LayoutEnv<'_>,
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
@@ -373,16 +374,15 @@ fn collect_flex_items(
         let hypo_main = if let Some(px) = basis {
             sanitize(px).max(0.0)
         } else {
-            let child_lb = layout_child(
-                dom,
-                child,
-                ctx.content_width,
-                None,
-                0.0,
-                0.0,
-                font_db,
-                depth + 1,
-            );
+            let child_input = LayoutInput {
+                containing_width: ctx.content_width,
+                containing_height: None,
+                offset_x: 0.0,
+                offset_y: 0.0,
+                font_db: env.font_db,
+                depth: env.depth + 1,
+            };
+            let child_lb = (env.layout_child)(dom, child, &child_input);
             if ctx.horizontal {
                 child_lb.content.width
             } else {

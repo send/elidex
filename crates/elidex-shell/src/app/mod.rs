@@ -499,14 +499,16 @@ impl App {
                     let y = (cy as f32) - y_offset;
                     if y >= 0.0 && x >= 0.0 {
                         let mods = Self::to_modifier_state(self.modifiers.state());
-                        self.send_to_content(BrowserToContent::MouseClick {
-                            x,
-                            y,
-                            client_x: cx,
-                            client_y: cy,
-                            button: winit_button_to_dom(button),
-                            mods,
-                        });
+                        self.send_to_content(BrowserToContent::MouseClick(
+                            crate::ipc::MouseClickEvent {
+                                x,
+                                y,
+                                client_x: cx,
+                                client_y: cy,
+                                button: winit_button_to_dom(button),
+                                mods,
+                            },
+                        ));
                     }
                 }
             }

@@ -88,7 +88,7 @@ impl Selector {
 
 /// Parse a comma-separated list of selectors.
 #[must_use = "parsing result should be used"]
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_selector_list(input: &mut Parser) -> Result<Vec<Selector>, ()> {
     let mut selectors = vec![parse_one_selector(input)?];
     while input
@@ -106,7 +106,7 @@ pub fn parse_selector_list(input: &mut Parser) -> Result<Vec<Selector>, ()> {
 /// `ParserInput` / `Parser` creation internally, so callers don't need
 /// a `cssparser` dependency.
 #[must_use = "parsing result should be used"]
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // Delegates to parse_selector_list which uses cssparser convention.
 pub fn parse_selector_from_str(selector: &str) -> Result<Vec<Selector>, ()> {
     let mut input = ParserInput::new(selector);
     let mut parser = Parser::new(&mut input);
