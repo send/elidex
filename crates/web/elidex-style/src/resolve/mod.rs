@@ -576,8 +576,16 @@ mod tests {
             ..ComputedStyle::default()
         };
         resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
-        assert_eq!(style.float, Float::None, "position:absolute should force float:none");
-        assert_eq!(style.display, Display::Block, "display should be blockified");
+        assert_eq!(
+            style.float,
+            Float::None,
+            "position:absolute should force float:none"
+        );
+        assert_eq!(
+            style.display,
+            Display::Block,
+            "display should be blockified"
+        );
     }
 
     #[test]
