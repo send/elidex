@@ -235,8 +235,9 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 
 ### CI
 
-- 5 jobs: `changes` (path filter), `check` (ubuntu/macos/windows: fmt + clippy + test), `doc` (cargo doc -D warnings), `deny` (standalone), `msrv` (1.88: check + test).
+- 4 jobs: `changes` (path filter), `check` (ubuntu/macos/windows: fmt + clippy + test), `doc` (cargo doc -D warnings), `deny` (standalone).
+- No MSRV policy during active development (ADR #36). Will adopt N-2 stable releases once the project stabilizes.
 - Path-based skip: `dorny/paths-filter@v3` detects `rust` (crates/\*\*, Cargo.\*, toolchain/fmt/clippy config, mise.toml) and `config` (deny.toml, Cargo.\*) changes. Push to main always runs all jobs.
 - Actions pinned: `actions/checkout@v4`, `Swatinem/rust-cache@v2`, `dorny/paths-filter@v3`, `taiki-e/install-action@v2`.
-- `rust-toolchain.toml`: `channel = "stable"`. MSRV `1.88` in `Cargo.toml`.
+- `rust-toolchain.toml`: `channel = "stable"`.
 
