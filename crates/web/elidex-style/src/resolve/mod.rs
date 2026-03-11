@@ -374,14 +374,17 @@ fn resolve_float_visibility_properties(
     }
 }
 
-/// CSS 2.1 §9.7: Map inline-level display values to their block-level
-/// equivalents when the element is floated (or absolutely positioned).
+/// CSS Display Level 3 §2.8 / CSS 2.1 §9.7: Map inline-level display values
+/// to their block-level equivalents when the element is floated or absolutely
+/// positioned.
+///
+/// `display: contents` is excluded — it generates no box, so blockification
+/// does not apply (browsers preserve `contents` when combined with `float`).
 fn blockify_display(display: Display) -> Display {
     match display {
-        // CSS 2.1 §9.7: inline-level and table-internal values become block.
+        // Inline-level and table-internal values become block.
         Display::Inline
         | Display::InlineBlock
-        | Display::Contents
         | Display::TableRow
         | Display::TableCell
         | Display::TableRowGroup
@@ -542,9 +545,10 @@ mod tests {
     }
 
     #[test]
-    fn blockify_contents_to_block() {
-        // CSS Display Level 3 §3.1: display:contents blockifies to block.
-        assert_eq!(blockify_display(Display::Contents), Display::Block);
+    fn blockify_contents_unchanged() {
+        // CSS Display Level 3 §2.8: display:contents generates no box,
+        // so blockification does not apply — value is preserved.
+        assert_eq!(blockify_display(Display::Contents), Display::Contents);
     }
 
     #[test]
