@@ -109,7 +109,8 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
                 // width isn't available during style resolution. Fall back to
                 // Auto rather than resolving % against 0.0, which would
                 // produce incorrect values (e.g. `calc(100% - 20px)` → -20px).
-                // TODO: Defer to layout via Dimension::Calc variant.
+                // TODO(Phase 4): Defer to layout via Dimension::Calc variant
+                // so layout can resolve with the correct containing-block base.
                 Dimension::Auto
             } else {
                 Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))
@@ -127,13 +128,10 @@ pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
         CssValue::Calc(expr) => {
-            if calc_has_percentage(expr) {
-                // Percentages are not supported at this stage; avoid resolving
-                // them against a 0.0 base, which would yield incorrect values.
-                0.0
-            } else {
-                resolve_calc_expr(expr, 0.0, ctx)
-            }
+            // Resolve with percentage_base=0.0 so fixed-length terms are
+            // preserved even when mixed with percentages (e.g.
+            // `calc(10px + 5%)` → 10px rather than 0px).
+            resolve_calc_expr(expr, 0.0, ctx)
         }
         // TODO(Phase 4): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,

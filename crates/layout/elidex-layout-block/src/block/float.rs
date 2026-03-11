@@ -59,9 +59,13 @@ impl FloatContext {
 
     /// Place a float and return its margin-box (x, y) position.
     ///
-    /// The float is placed at or below `cursor_y`, on the left or right edge,
-    /// avoiding overlap with existing floats. Coordinates are relative to the
-    /// containing block's content edge.
+    /// The float is placed at or below `cursor_y`, on the left or right edge
+    /// of its containing block, avoiding overlap with existing floats.
+    ///
+    /// The returned coordinates are in the same coordinate space as
+    /// `cursor_y` (an absolute layout Y coordinate provided by the caller).
+    /// The horizontal position (`x`) is relative to the containing block's
+    /// content edge.
     pub fn place_float(
         &mut self,
         float_side: Float,
