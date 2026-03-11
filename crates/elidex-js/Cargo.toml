@@ -12,7 +12,7 @@ keywords = ["browser-engine", "javascript", "parser"]
 categories = ["web-programming", "parsing"]
 
 [dependencies]
-hashbrown = "0.15"
+hashbrown = "0.16"
 unicode-ident = "1.0"
 
 [lints]
