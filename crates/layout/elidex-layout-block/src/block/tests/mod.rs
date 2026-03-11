@@ -5,6 +5,7 @@ use elidex_ecs::{Attributes, ImageData};
 use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Direction};
 use elidex_text::FontDatabase;
 
+mod float_layout;
 mod height_replaced;
 mod margin_collapse;
 mod width;

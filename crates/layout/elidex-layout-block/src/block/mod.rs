@@ -5,6 +5,7 @@
 //! centering, and vertical stacking of child blocks.
 
 mod children;
+pub mod float;
 mod margin;
 mod replaced;
 
