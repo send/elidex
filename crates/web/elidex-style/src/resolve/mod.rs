@@ -340,11 +340,13 @@ fn resolve_float_visibility_properties(
         style.float = f;
     }
 
-    // CSS 2.1 §9.7: If float is not 'none', or position is 'absolute'
-    // or 'fixed', display is set according to the table (inline-level
-    // values become their block-level equivalents).
-    if style.float != Float::None || matches!(style.position, Position::Absolute | Position::Fixed)
-    {
+    // CSS 2.1 §9.7 (applied in spec order):
+    // Step 2: position: absolute/fixed → blockify display AND force float to none.
+    // Step 3: float is not 'none' → blockify display.
+    if matches!(style.position, Position::Absolute | Position::Fixed) {
+        style.display = blockify_display(style.display);
+        style.float = Float::None;
+    } else if style.float != Float::None {
         style.display = blockify_display(style.display);
     }
 
@@ -547,6 +549,39 @@ mod tests {
     fn blockify_contents_to_block() {
         // CSS Display Level 3 §3.1: display:contents blockifies to block.
         assert_eq!(blockify_display(Display::Contents), Display::Block);
+    }
+
+    #[test]
+    fn blockify_table_internal_to_block() {
+        assert_eq!(blockify_display(Display::TableRow), Display::Block);
+        assert_eq!(blockify_display(Display::TableCell), Display::Block);
+        assert_eq!(blockify_display(Display::TableCaption), Display::Block);
+    }
+
+    // CSS 2.1 §9.7 step 2: position:absolute/fixed forces float to none.
+    #[test]
+    fn absolute_position_forces_float_none() {
+        use elidex_plugin::Float;
+
+        let winners = HashMap::new();
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 1920.0,
+            viewport_height: 1080.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+
+        // Simulate: float:left + position:absolute → float becomes none, display blockified
+        let mut style = ComputedStyle {
+            float: Float::Left,
+            position: Position::Absolute,
+            display: Display::Inline,
+            ..ComputedStyle::default()
+        };
+        resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
+        assert_eq!(style.float, Float::None, "position:absolute should force float:none");
+        assert_eq!(style.display, Display::Block, "display should be blockified");
     }
 
     #[test]
