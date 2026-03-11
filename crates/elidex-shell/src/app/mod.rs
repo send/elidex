@@ -443,8 +443,7 @@ impl App {
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                needs_redraw =
-                    self.handle_keyboard_threaded(event_loop, &key_event, address_focused);
+                self.handle_keyboard_threaded(event_loop, &key_event, address_focused);
             }
             _ => {
                 needs_redraw = false;
@@ -569,14 +568,12 @@ impl App {
     }
 
     /// Handle `KeyboardInput` in threaded mode.
-    ///
-    /// Returns `true` if a redraw is needed.
     fn handle_keyboard_threaded(
         &mut self,
         event_loop: &ActiveEventLoop,
         key_event: &winit::event::KeyEvent,
         address_focused: bool,
-    ) -> bool {
+    ) {
         let mut handled = false;
         if key_event.state == ElementState::Pressed {
             let mods = self.modifiers.state();
@@ -638,8 +635,6 @@ impl App {
             };
             self.send_to_content(msg);
         }
-
-        true
     }
 
     /// Check for tab-related keyboard shortcuts.
