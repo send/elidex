@@ -617,12 +617,10 @@ fn webassembly_instantiate_and_call_export() {
 }
 
 #[test]
-fn microtask_error_surfaces_in_eval_result() {
-    // Verify that EvalResult correctly reflects microtask queue status.
-    // boa's default job executor returns Ok(()) even for unhandled rejections,
-    // so a throwing .then() callback does not currently cause run_jobs() to fail.
-    // This test verifies the eval+microtask pipeline doesn't panic and that
-    // the (Ok, Ok) path produces success: true.
+fn eval_microtask_pipeline_succeeds() {
+    // Verify that the eval+microtask pipeline works end-to-end:
+    // a Promise .then() callback sets a flag, and both eval and
+    // microtask processing succeed.
     let (mut runtime, mut session, mut dom, doc) = setup();
 
     let result = runtime.eval(
@@ -635,12 +633,13 @@ fn microtask_error_surfaces_in_eval_result() {
     assert!(result.success, "Expected eval to succeed");
 
     // Verify microtask actually ran.
-    runtime.eval(
+    let log_result = runtime.eval(
         "console.log('microtask=' + microtaskRan);",
         &mut session,
         &mut dom,
         doc,
     );
+    assert!(log_result.success, "Expected logging eval to succeed");
     let messages = runtime.console_output().messages();
     assert!(
         messages.iter().any(|m| m.1.contains("microtask=true")),
