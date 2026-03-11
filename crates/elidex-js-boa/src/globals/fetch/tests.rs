@@ -269,7 +269,7 @@ fn response_text_method() {
         "var textResult = ''; testResp.text().then(function(t) { textResult = t; });",
     ))
     .unwrap();
-    ctx.run_jobs();
+    let _ = ctx.run_jobs();
 
     let result = ctx
         .eval(boa_engine::Source::from_bytes("textResult"))
@@ -302,7 +302,7 @@ fn response_json_method() {
         "var jsonResult = null; testResp.json().then(function(d) { jsonResult = d; });",
     ))
     .unwrap();
-    ctx.run_jobs();
+    let _ = ctx.run_jobs();
 
     let result = ctx
         .eval(boa_engine::Source::from_bytes("jsonResult.key"))
@@ -340,7 +340,7 @@ fn response_json_invalid_rejects() {
         "var jsonErr = ''; testResp.json().catch(function(e) { jsonErr = String(e); });",
     ))
     .unwrap();
-    ctx.run_jobs();
+    let _ = ctx.run_jobs();
 
     let result = ctx.eval(boa_engine::Source::from_bytes("jsonErr")).unwrap();
     let err_str = result.to_string(&mut ctx).unwrap().to_std_string_escaped();
@@ -381,7 +381,7 @@ fn response_clone_method() {
         "var cloneText = ''; cloned.text().then(function(t) { cloneText = t; });",
     ))
     .unwrap();
-    ctx.run_jobs();
+    let _ = ctx.run_jobs();
 
     let result = ctx
         .eval(boa_engine::Source::from_bytes("cloneText"))
@@ -426,7 +426,7 @@ fn response_clone_has_clone() {
         "var c2Text = ''; c2.text().then(function(t) { c2Text = t; });",
     ))
     .unwrap();
-    ctx.run_jobs();
+    let _ = ctx.run_jobs();
 
     let result = ctx.eval(boa_engine::Source::from_bytes("c2Text")).unwrap();
     assert_eq!(
