@@ -402,13 +402,9 @@ fn blockify_display(display: Display) -> Display {
 /// Compute the element's line-height in pixels for percentage resolution.
 ///
 /// CSS 2.1 §10.8.1: `vertical-align` percentages refer to the element's
-/// computed `line-height`. Normal line-height uses 1.2 × font-size.
+/// computed `line-height`. Delegates to `LineHeight::resolve_px`.
 fn computed_line_height_px(style: &ComputedStyle) -> f32 {
-    match style.line_height {
-        LineHeight::Px(px) => px,
-        LineHeight::Number(n) => n * style.font_size,
-        LineHeight::Normal => 1.2 * style.font_size,
-    }
+    style.line_height.resolve_px(style.font_size)
 }
 
 /// Resolve writing mode and bidi properties.

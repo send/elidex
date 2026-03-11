@@ -23,6 +23,11 @@ impl PlacedFloat {
     fn bottom(&self) -> f32 {
         self.y + self.height
     }
+
+    /// Returns `true` if this float overlaps the vertical span `[y, y+height)`.
+    fn overlaps_span(&self, y: f32, height: f32) -> bool {
+        self.bottom() > y && self.y < y + height
+    }
 }
 
 /// Tracks placed floats within a block formatting context.
@@ -47,7 +52,8 @@ impl FloatContext {
     }
 
     /// Returns `true` if there are any active floats.
-    pub fn has_floats(&self) -> bool {
+    #[cfg(test)]
+    fn has_floats(&self) -> bool {
         !self.left_floats.is_empty() || !self.right_floats.is_empty()
     }
 
@@ -134,19 +140,17 @@ impl FloatContext {
     ///
     /// Returns `(left_used, right_used)`.
     fn used_width_at(&self, y: f32, height: f32) -> (f32, f32) {
-        let bottom = y + height;
-
         let left_used = self
             .left_floats
             .iter()
-            .filter(|f| f.bottom() > y && f.y < bottom)
+            .filter(|f| f.overlaps_span(y, height))
             .map(|f| f.x + f.width)
             .fold(0.0_f32, f32::max);
 
         let right_used = self
             .right_floats
             .iter()
-            .filter(|f| f.bottom() > y && f.y < bottom)
+            .filter(|f| f.overlaps_span(y, height))
             .map(|f| self.containing_width - f.x)
             .fold(0.0_f32, f32::max);
 
@@ -160,10 +164,9 @@ impl FloatContext {
     /// `place_float()` correctly drops below floats that start within
     /// the new float's height span, not just at or above `y`.
     fn next_clear_y(&self, y: f32, height: f32) -> f32 {
-        let bottom = y + height;
         let mut min_bottom = f32::MAX;
         for f in self.left_floats.iter().chain(self.right_floats.iter()) {
-            if f.bottom() > y && f.y < bottom {
+            if f.overlaps_span(y, height) {
                 min_bottom = min_bottom.min(f.bottom());
             }
         }
