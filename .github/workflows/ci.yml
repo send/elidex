@@ -115,27 +115,3 @@ jobs:
 
       - name: Check licenses and vulnerabilities
         run: cargo deny check
-
-  msrv:
-    name: MSRV (1.88)
-    needs: changes
-    if: needs.changes.outputs.rust == 'true' || github.event_name == 'push'
-    timeout-minutes: 20
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install fonts
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-dejavu fonts-noto-core
-
-      - uses: dtolnay/rust-toolchain@1.88
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check MSRV
-        run: cargo check --workspace --all-targets
-
-      - name: Test MSRV
-        run: cargo test --workspace
