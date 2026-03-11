@@ -381,6 +381,12 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
         }
 
+        // --- Float/clear/visibility ---
+        "float" => parse_keyword_property(input, name, &["none", "left", "right"]),
+        "clear" => parse_keyword_property(input, name, &["none", "left", "right", "both"]),
+        "visibility" => parse_keyword_property(input, name, &["visible", "hidden", "collapse"]),
+        "vertical-align" => misc::parse_vertical_align(input),
+
         // --- Table properties ---
         "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
         "border-spacing" => misc::parse_border_spacing(input),

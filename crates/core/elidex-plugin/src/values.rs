@@ -38,6 +38,29 @@ pub enum CssValue {
     /// Custom properties (CSS Variables Level 1) accept arbitrary token
     /// sequences that are not type-checked at parse time.
     RawTokens(String),
+    /// A `calc()` expression (CSS Values Level 3 §8).
+    Calc(Box<CalcExpr>),
+}
+
+/// A node in a `calc()` expression tree.
+///
+/// Supports `+`, `-`, `*`, `/` with length, percentage, and number operands.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CalcExpr {
+    /// A length value (resolved to a specific unit).
+    Length(f32, LengthUnit),
+    /// A percentage value.
+    Percentage(f32),
+    /// A unitless number.
+    Number(f32),
+    /// Addition: `left + right`.
+    Add(Box<CalcExpr>, Box<CalcExpr>),
+    /// Subtraction: `left - right`.
+    Sub(Box<CalcExpr>, Box<CalcExpr>),
+    /// Multiplication: `left * right` (one operand must be a number).
+    Mul(Box<CalcExpr>, Box<CalcExpr>),
+    /// Division: `left / right` (right must be a number).
+    Div(Box<CalcExpr>, Box<CalcExpr>),
 }
 
 impl CssValue {
@@ -339,5 +362,27 @@ mod tests {
         let v = CssValue::Length(10.0, LengthUnit::Px);
         assert_eq!(v.as_length(), Some((10.0, LengthUnit::Px)));
         assert_eq!(CssValue::Auto.as_length(), None);
+    }
+
+    #[test]
+    fn calc_expr_add() {
+        let expr = CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
+        );
+        let val = CssValue::Calc(Box::new(expr));
+        assert!(matches!(val, CssValue::Calc(_)));
+    }
+
+    #[test]
+    fn calc_expr_nested() {
+        // (10px + 5px) * 2
+        let sum = CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(5.0, LengthUnit::Px)),
+        );
+        let expr = CalcExpr::Mul(Box::new(sum), Box::new(CalcExpr::Number(2.0)));
+        let val = CssValue::Calc(Box::new(expr));
+        assert!(matches!(val, CssValue::Calc(_)));
     }
 }

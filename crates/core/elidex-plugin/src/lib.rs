@@ -19,10 +19,10 @@ mod values;
 
 pub use computed_style::{
     AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
-    ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
-    FlexWrap, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
+    Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
+    FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
     Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextOrientation, TextTransform,
-    TrackBreadth, TrackSize, UnicodeBidi, WhiteSpace, WritingMode,
+    TrackBreadth, TrackSize, UnicodeBidi, VerticalAlign, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
@@ -36,7 +36,7 @@ pub use traits::{
     DeprecationInfo, ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware,
     ParseBehavior, StyleContext,
 };
-pub use values::{CssColor, CssValue, LengthUnit};
+pub use values::{CalcExpr, CssColor, CssValue, LengthUnit};
 
 // ---------------------------------------------------------------------------
 // Process model

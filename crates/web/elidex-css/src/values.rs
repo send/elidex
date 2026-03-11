@@ -3,10 +3,8 @@
 //! Provides parsers for lengths, percentages, keywords, and the `auto` value
 //! used across property declaration parsing.
 
-use cssparser::Parser;
-use elidex_plugin::{CssValue, LengthUnit};
-
-// TODO(Phase 4): Support calc() expressions (CSS Values Level 3 §8).
+use cssparser::{Parser, Token};
+use elidex_plugin::{CalcExpr, CssValue, LengthUnit};
 
 /// Try to parse a Dimension token or bare zero into a `CssValue`.
 ///
@@ -33,9 +31,13 @@ pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
     try_dimension_or_zero(token).ok_or(())
 }
 
-/// Parse a length or percentage value.
+/// Parse a length or percentage value, including `calc()` expressions.
 #[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
+    // Try calc() first.
+    if let Ok(val) = input.try_parse(parse_calc) {
+        return Ok(val);
+    }
     let token = input.next().map_err(|_| ())?;
     if let Some(val) = try_dimension_or_zero(token) {
         return Ok(val);
@@ -97,6 +99,109 @@ fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
         "vh" => Ok(LengthUnit::Vh),
         "vmin" => Ok(LengthUnit::Vmin),
         "vmax" => Ok(LengthUnit::Vmax),
+        _ => Err(()),
+    }
+}
+
+// --- calc() expression parser (CSS Values Level 3 §8) ---
+
+/// Parse a `calc()` function into a `CssValue::Calc`.
+fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
+    input
+        .expect_function_matching("calc")
+        .map_err(|_| ())?;
+    let expr = input
+        .parse_nested_block(|block| {
+            parse_calc_sum(block).map_err(|()| {
+                block.current_source_location().new_custom_error(())
+            })
+        })
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+    Ok(CssValue::Calc(Box::new(expr)))
+}
+
+/// Parse a calc sum: `<product> [ ['+' | '-'] <product> ]*`.
+///
+/// Per spec, `+` and `-` must be surrounded by whitespace.
+fn parse_calc_sum(input: &mut Parser) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_product(input)?;
+    loop {
+        let op = input.try_parse(|i| {
+            let tok = i.next().map_err(|_| ())?;
+            match tok {
+                Token::Delim('+') => Ok('+'),
+                Token::Delim('-') => Ok('-'),
+                _ => Err(()),
+            }
+        });
+        match op {
+            Ok('+') => {
+                let right = parse_calc_product(input)?;
+                left = CalcExpr::Add(Box::new(left), Box::new(right));
+            }
+            Ok('-') => {
+                let right = parse_calc_product(input)?;
+                left = CalcExpr::Sub(Box::new(left), Box::new(right));
+            }
+            _ => break,
+        }
+    }
+    Ok(left)
+}
+
+/// Parse a calc product: `<value> [ ['*' | '/'] <value> ]*`.
+fn parse_calc_product(input: &mut Parser) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_value(input)?;
+    loop {
+        let op = input.try_parse(|i| {
+            let tok = i.next().map_err(|_| ())?;
+            match tok {
+                Token::Delim('*') => Ok('*'),
+                Token::Delim('/') => Ok('/'),
+                _ => Err(()),
+            }
+        });
+        match op {
+            Ok('*') => {
+                let right = parse_calc_value(input)?;
+                left = CalcExpr::Mul(Box::new(left), Box::new(right));
+            }
+            Ok('/') => {
+                let right = parse_calc_value(input)?;
+                left = CalcExpr::Div(Box::new(left), Box::new(right));
+            }
+            _ => break,
+        }
+    }
+    Ok(left)
+}
+
+/// Parse a calc leaf value: `<number>` | `<dimension>` | `<percentage>` | `( <sum> )`.
+fn parse_calc_value(input: &mut Parser) -> Result<CalcExpr, ()> {
+    // Try parenthesized sub-expression.
+    if let Ok(expr) = input.try_parse(|i| {
+        i.expect_parenthesis_block().map_err(|_| ())?;
+        i.parse_nested_block(|block| {
+            parse_calc_sum(block)
+                .map_err(|()| block.current_source_location().new_custom_error(()))
+        })
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())
+    }) {
+        return Ok(expr);
+    }
+
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        Token::Number { value, .. } if value.is_finite() => Ok(CalcExpr::Number(value)),
+        Token::Dimension {
+            value, ref unit, ..
+        } if value.is_finite() => {
+            let u = parse_length_unit(unit)?;
+            Ok(CalcExpr::Length(value, u))
+        }
+        Token::Percentage { unit_value, .. } if unit_value.is_finite() => {
+            Ok(CalcExpr::Percentage(unit_value * 100.0))
+        }
         _ => Err(()),
     }
 }
@@ -172,5 +277,96 @@ mod tests {
         assert_eq!(parse_global_keyword("unset"), Some(CssValue::Unset));
         assert_eq!(parse_global_keyword("INITIAL"), Some(CssValue::Initial));
         assert_eq!(parse_global_keyword("something"), None);
+    }
+
+    // --- calc() parsing tests ---
+
+    #[test]
+    fn calc_simple_addition() {
+        let val = length_or_pct("calc(10px + 20px)").unwrap();
+        match val {
+            CssValue::Calc(expr) => match *expr {
+                CalcExpr::Add(a, b) => {
+                    assert_eq!(*a, CalcExpr::Length(10.0, LengthUnit::Px));
+                    assert_eq!(*b, CalcExpr::Length(20.0, LengthUnit::Px));
+                }
+                _ => panic!("expected Add, got {expr:?}"),
+            },
+            _ => panic!("expected Calc, got {val:?}"),
+        }
+    }
+
+    #[test]
+    fn calc_subtraction() {
+        let val = length_or_pct("calc(100% - 20px)").unwrap();
+        match val {
+            CssValue::Calc(expr) => match *expr {
+                CalcExpr::Sub(a, b) => {
+                    assert_eq!(*a, CalcExpr::Percentage(100.0));
+                    assert_eq!(*b, CalcExpr::Length(20.0, LengthUnit::Px));
+                }
+                _ => panic!("expected Sub, got {expr:?}"),
+            },
+            _ => panic!("expected Calc, got {val:?}"),
+        }
+    }
+
+    #[test]
+    fn calc_multiplication() {
+        let val = length_or_pct("calc(10px * 3)").unwrap();
+        match val {
+            CssValue::Calc(expr) => match *expr {
+                CalcExpr::Mul(a, b) => {
+                    assert_eq!(*a, CalcExpr::Length(10.0, LengthUnit::Px));
+                    assert_eq!(*b, CalcExpr::Number(3.0));
+                }
+                _ => panic!("expected Mul, got {expr:?}"),
+            },
+            _ => panic!("expected Calc, got {val:?}"),
+        }
+    }
+
+    #[test]
+    fn calc_division() {
+        let val = length_or_pct("calc(100px / 2)").unwrap();
+        match val {
+            CssValue::Calc(expr) => match *expr {
+                CalcExpr::Div(a, b) => {
+                    assert_eq!(*a, CalcExpr::Length(100.0, LengthUnit::Px));
+                    assert_eq!(*b, CalcExpr::Number(2.0));
+                }
+                _ => panic!("expected Div, got {expr:?}"),
+            },
+            _ => panic!("expected Calc, got {val:?}"),
+        }
+    }
+
+    #[test]
+    fn calc_parenthesized() {
+        // calc((10px + 5px) * 2)
+        let val = length_or_pct("calc((10px + 5px) * 2)").unwrap();
+        assert!(matches!(val, CssValue::Calc(_)));
+    }
+
+    #[test]
+    fn calc_in_auto_context() {
+        // calc() should work in length-percentage-or-auto context too
+        let val = length_pct_auto("calc(50% + 10px)").unwrap();
+        assert!(matches!(val, CssValue::Calc(_)));
+    }
+
+    #[test]
+    fn calc_with_em_units() {
+        let val = length_or_pct("calc(2em + 10px)").unwrap();
+        match val {
+            CssValue::Calc(expr) => match *expr {
+                CalcExpr::Add(a, b) => {
+                    assert_eq!(*a, CalcExpr::Length(2.0, LengthUnit::Em));
+                    assert_eq!(*b, CalcExpr::Length(10.0, LengthUnit::Px));
+                }
+                _ => panic!("expected Add"),
+            },
+            _ => panic!("expected Calc"),
+        }
     }
 }

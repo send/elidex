@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use elidex_plugin::{BorderStyle, ComputedStyle, CssValue, Dimension, LengthUnit};
+use elidex_plugin::{BorderStyle, CalcExpr, ComputedStyle, CssValue, Dimension, LengthUnit};
 
 use crate::inherit::{get_initial_value, is_inherited};
 
@@ -103,6 +103,7 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
         CssValue::Length(v, unit) => Dimension::Length(resolve_length(*v, *unit, ctx)),
         CssValue::Percentage(p) => Dimension::Percentage(*p),
         CssValue::Number(n) if *n == 0.0 => Dimension::Length(0.0),
+        CssValue::Calc(expr) => Dimension::Length(resolve_calc_expr(expr, 0.0, ctx)),
         // Auto and anything else → Auto.
         _ => Dimension::Auto,
     }
@@ -114,10 +115,45 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
 pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
+        CssValue::Calc(expr) => resolve_calc_expr(expr, 0.0, ctx),
         // TODO(Phase 4): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,
         _ => 0.0,
     }
+}
+
+/// Resolve a `calc()` expression tree to a pixel value.
+///
+/// `percentage_base` is the reference value for percentage terms (e.g.
+/// containing block width for width-related properties). Defaults to 0.0
+/// when the percentage base is unknown.
+pub(crate) fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> f32 {
+    let result = match expr {
+        CalcExpr::Length(v, unit) => resolve_length(*v, *unit, ctx),
+        CalcExpr::Percentage(p) => percentage_base * p / 100.0,
+        CalcExpr::Number(n) => *n,
+        CalcExpr::Add(a, b) => {
+            resolve_calc_expr(a, percentage_base, ctx)
+                + resolve_calc_expr(b, percentage_base, ctx)
+        }
+        CalcExpr::Sub(a, b) => {
+            resolve_calc_expr(a, percentage_base, ctx)
+                - resolve_calc_expr(b, percentage_base, ctx)
+        }
+        CalcExpr::Mul(a, b) => {
+            resolve_calc_expr(a, percentage_base, ctx)
+                * resolve_calc_expr(b, percentage_base, ctx)
+        }
+        CalcExpr::Div(a, b) => {
+            let divisor = resolve_calc_expr(b, percentage_base, ctx);
+            if divisor == 0.0 {
+                0.0
+            } else {
+                resolve_calc_expr(a, percentage_base, ctx) / divisor
+            }
+        }
+    };
+    if result.is_finite() { result } else { 0.0 }
 }
 
 /// Resolve a [`CssValue::Number`] to a non-negative `f32`.
@@ -276,6 +312,96 @@ mod tests {
         ] {
             assert_eq!(resolve_i32(&input, default), expected, "{input:?}");
         }
+    }
+
+    // --- calc() resolution tests ---
+
+    #[test]
+    fn resolve_calc_addition() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 30.0);
+    }
+
+    #[test]
+    fn resolve_calc_subtraction() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Sub(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(30.0, LengthUnit::Px)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 70.0);
+    }
+
+    #[test]
+    fn resolve_calc_mul_div() {
+        let ctx = default_ctx();
+        let mul = CalcExpr::Mul(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(3.0)),
+        );
+        assert_eq!(resolve_calc_expr(&mul, 0.0, &ctx), 30.0);
+
+        let div = CalcExpr::Div(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(4.0)),
+        );
+        assert_eq!(resolve_calc_expr(&div, 0.0, &ctx), 25.0);
+    }
+
+    #[test]
+    fn resolve_calc_with_em() {
+        let ctx = default_ctx(); // em_base = 16.0
+        let expr = CalcExpr::Add(
+            Box::new(CalcExpr::Length(2.0, LengthUnit::Em)),
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+        );
+        // 2em = 32px + 10px = 42px
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 42.0);
+    }
+
+    #[test]
+    fn resolve_calc_with_percentage() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Sub(
+            Box::new(CalcExpr::Percentage(100.0)),
+            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
+        );
+        // 100% of 800 - 20px = 780px
+        assert_eq!(resolve_calc_expr(&expr, 800.0, &ctx), 780.0);
+    }
+
+    #[test]
+    fn resolve_calc_div_by_zero() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Div(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(0.0)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 0.0);
+    }
+
+    #[test]
+    fn resolve_dimension_calc() {
+        let ctx = default_ctx();
+        let val = CssValue::Calc(Box::new(CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(5.0, LengthUnit::Px)),
+        )));
+        assert_eq!(resolve_dimension(&val, &ctx), Dimension::Length(15.0));
+    }
+
+    #[test]
+    fn resolve_to_px_calc() {
+        let ctx = default_ctx();
+        let val = CssValue::Calc(Box::new(CalcExpr::Mul(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(2.0)),
+        )));
+        assert_eq!(resolve_to_px(&val, &ctx), 20.0);
     }
 
     #[test]

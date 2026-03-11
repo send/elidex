@@ -12,8 +12,8 @@ pub(crate) mod helpers;
 mod var_resolution;
 
 use elidex_plugin::{
-    ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, LengthUnit,
-    LineHeight, TextOrientation, UnicodeBidi, WritingMode,
+    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Float,
+    LengthUnit, LineHeight, TextOrientation, UnicodeBidi, VerticalAlign, Visibility, WritingMode,
 };
 
 pub(crate) use helpers::PropertyMap;
@@ -205,6 +205,16 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "table-layout" => keyword_from(&style.table_layout),
         "caption-side" => keyword_from(&style.caption_side),
 
+        // Float/clear/visibility
+        "float" => keyword_from(&style.float),
+        "clear" => keyword_from(&style.clear),
+        "visibility" => keyword_from(&style.visibility),
+        "vertical-align" => match &style.vertical_align {
+            VerticalAlign::Length(px) => CssValue::Length(*px, LengthUnit::Px),
+            VerticalAlign::Percentage(pct) => CssValue::Percentage(*pct),
+            other => CssValue::Keyword(other.to_string()),
+        },
+
         "content" => match &style.content {
             ContentValue::Normal => CssValue::Keyword("normal".to_string()),
             ContentValue::None => CssValue::Keyword("none".to_string()),
@@ -298,7 +308,53 @@ pub(crate) fn build_computed_style(
     // Phase 10: Writing mode / BiDi properties.
     resolve_writing_mode_properties(&mut style, &winners, parent_style);
 
+    // Phase 11: Float, clear, visibility, vertical-align.
+    resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+
     style
+}
+
+/// Resolve float, clear, visibility, and vertical-align properties.
+fn resolve_float_visibility_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    use helpers::{
+        get_resolved_winner, resolve_inherited_keyword_enum, resolve_keyword_enum, resolve_length,
+    };
+
+    // visibility — inherited
+    style.visibility = resolve_inherited_keyword_enum(
+        "visibility",
+        winners,
+        parent_style,
+        parent_style.visibility,
+        Visibility::from_keyword,
+    );
+
+    // float — non-inherited
+    if let Some(f) = resolve_keyword_enum("float", winners, parent_style, Float::from_keyword) {
+        style.float = f;
+    }
+
+    // clear — non-inherited
+    if let Some(c) = resolve_keyword_enum("clear", winners, parent_style, Clear::from_keyword) {
+        style.clear = c;
+    }
+
+    // vertical-align — non-inherited, accepts keywords + length + percentage
+    if let Some(value) = get_resolved_winner("vertical-align", winners, parent_style) {
+        style.vertical_align = match &value {
+            CssValue::Keyword(kw) => {
+                VerticalAlign::from_keyword(kw).unwrap_or(VerticalAlign::Baseline)
+            }
+            CssValue::Length(v, unit) => VerticalAlign::Length(resolve_length(*v, *unit, ctx)),
+            CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
+            _ => VerticalAlign::Baseline,
+        };
+    }
 }
 
 /// Resolve writing mode and bidi properties.

@@ -1,7 +1,7 @@
 //! Pre-order tree walk for display list building.
 
 use elidex_ecs::{EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH};
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow, Visibility};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -44,23 +44,34 @@ pub(crate) fn walk(
         }
     }
 
+    // Check visibility — hidden elements skip painting but still occupy space
+    // and children can override visibility, so we must recurse.
+    let is_visible = dom
+        .world()
+        .get::<&ComputedStyle>(entity)
+        .map_or(true, |s| s.visibility == Visibility::Visible);
+
     // Emit background + borders for elements with a LayoutBox.
     let mut has_clip = false;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
         if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
-            emit_background(
-                &lb,
-                style.background_color,
-                style.border_radius,
-                style.opacity,
-                dl,
-            );
-            emit_borders(&lb, &style, dl);
+            if is_visible {
+                emit_background(
+                    &lb,
+                    style.background_color,
+                    style.border_radius,
+                    style.opacity,
+                    dl,
+                );
+                emit_borders(&lb, &style, dl);
+            }
 
             // Emit image for replaced elements with decoded pixel data.
-            if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
-                if style.opacity > 0.0 {
-                    emit_image(&lb, &image_data, style.opacity, dl);
+            if is_visible {
+                if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
+                    if style.opacity > 0.0 {
+                        emit_image(&lb, &image_data, style.opacity, dl);
+                    }
                 }
             }
 

@@ -5,7 +5,7 @@
 use cssparser::{Parser, Token};
 use elidex_plugin::{CssValue, LengthUnit};
 
-use crate::values::parse_non_negative_length_or_percentage;
+use crate::values::{parse_length_or_percentage, parse_non_negative_length_or_percentage};
 
 use super::{parse_color_property, parse_value_property, try_keyword_value, try_parse_keyword};
 use super::{single_decl, Declaration};
@@ -286,6 +286,32 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
     }
 
     single_decl("content", CssValue::List(items))
+}
+
+// --- Vertical-align parsing ---
+
+/// Parse `vertical-align`: keyword | `<length>` | `<percentage>`.
+pub(super) fn parse_vertical_align(input: &mut Parser) -> Vec<Declaration> {
+    // Try keyword first.
+    let keywords = &[
+        "baseline",
+        "sub",
+        "super",
+        "text-top",
+        "text-bottom",
+        "middle",
+        "top",
+        "bottom",
+    ];
+    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
+        let kw = try_parse_keyword(i, keywords).map_err(|_| ())?;
+        Ok(single_decl("vertical-align", CssValue::Keyword(kw)))
+    }) {
+        return decls;
+    }
+
+    // Try length or percentage.
+    parse_value_property(input, "vertical-align", parse_length_or_percentage)
 }
 
 // --- Border-spacing parsing ---
