@@ -128,6 +128,7 @@ impl<'a> Lexer<'a> {
 
     /// Produce the next token and whether a line terminator preceded it.
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(crate) fn next_token(&mut self) -> (Token, bool) {
         // S1: outer loop replaces recursion for unexpected bytes (stack safety)
         let mut had_newline = self.skip_whitespace_and_comments();

@@ -2,6 +2,7 @@
 
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
+// AST module exports 50+ node types used pervasively in parser.
 use crate::ast::*;
 use crate::error::JsParseErrorKind;
 use crate::span::Span;
@@ -148,6 +149,7 @@ impl Parser<'_> {
 
     /// Parse a prefix expression (unary, primary, or prefix update).
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     fn parse_prefix(&mut self) -> NodeId<Expr> {
         let start = self.span();
 
@@ -379,6 +381,7 @@ impl Parser<'_> {
     }
 
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     fn parse_infix(&mut self, lhs: NodeId<Expr>, next_bp: Bp) -> NodeId<Expr> {
         let lhs_span = self.exprs.get(lhs).span;
 

@@ -38,6 +38,7 @@ use grid::{
 };
 
 /// Context for resolving relative CSS values.
+#[derive(Clone, Copy)]
 pub(crate) struct ResolveContext {
     pub viewport_width: f32,
     pub viewport_height: f32,
@@ -69,6 +70,7 @@ impl ResolveContext {
 /// Also used by `getComputedStyle()` DOM API.
 #[must_use]
 #[allow(clippy::too_many_lines)]
+// Single match dispatcher over CSS property names.
 pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     use crate::inherit::get_initial_value;
 

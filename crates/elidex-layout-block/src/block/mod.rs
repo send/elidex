@@ -20,7 +20,7 @@ use crate::inline::layout_inline_context;
 use crate::sanitize;
 use crate::{
     adjust_min_max_for_border_box, clamp_min_max, horizontal_pb, resolve_dimension_value,
-    resolve_min_max, sanitize_border, sanitize_padding, MAX_LAYOUT_DEPTH,
+    resolve_min_max, sanitize_border, sanitize_padding, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
 pub use children::{resolve_block_height, stack_block_children, StackResult};
@@ -77,17 +77,15 @@ pub fn layout_block(
     offset_y: f32,
     font_db: &FontDatabase,
 ) -> LayoutBox {
-    layout_block_inner(
-        dom,
-        entity,
+    let input = LayoutInput {
         containing_width,
-        None,
+        containing_height: None,
         offset_x,
         offset_y,
         font_db,
-        0,
-        crate::layout_block_only,
-    )
+        depth: 0,
+    };
+    layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
 
 /// Layout a block-level element with an explicit containing height.
@@ -103,17 +101,15 @@ pub fn layout_block_with_height(
     offset_y: f32,
     font_db: &FontDatabase,
 ) -> LayoutBox {
-    layout_block_inner(
-        dom,
-        entity,
+    let input = LayoutInput {
         containing_width,
         containing_height,
         offset_x,
         offset_y,
         font_db,
-        0,
-        crate::layout_block_only,
-    )
+        depth: 0,
+    };
+    layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
 
 /// Inner recursive implementation with depth tracking.
@@ -121,18 +117,21 @@ pub fn layout_block_with_height(
 /// Uses the provided `layout_child` callback to dispatch child layout,
 /// which allows the orchestrator to route flex/grid containers to
 /// their respective layout algorithms.
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+// Sequential algorithm phases sharing extensive local state; splitting would add indirection without improving clarity.
 pub fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
 ) -> LayoutBox {
+    let containing_width = input.containing_width;
+    let containing_height = input.containing_height;
+    let offset_x = input.offset_x;
+    let offset_y = input.offset_y;
+    let font_db = input.font_db;
+    let depth = input.depth;
+
     let style = crate::get_style(dom, entity);
 
     // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
@@ -213,17 +212,15 @@ pub fn layout_block_inner(
     } else if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
     } else if children_are_block(dom, &children) {
-        let result = stack_block_children(
-            dom,
-            &children,
-            content_width,
-            child_containing_height,
-            content_x,
-            content_y,
+        let child_input = LayoutInput {
+            containing_width: content_width,
+            containing_height: child_containing_height,
+            offset_x: content_x,
+            offset_y: content_y,
             font_db,
-            depth + 1,
-            layout_child,
-        );
+            depth: depth + 1,
+        };
+        let result = stack_block_children(dom, &children, &child_input, layout_child);
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's top margin collapses with parent's top margin

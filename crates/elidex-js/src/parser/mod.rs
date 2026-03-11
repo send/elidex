@@ -14,6 +14,7 @@ mod stmt;
 
 use crate::arena::{Arena, NodeId};
 #[allow(clippy::wildcard_imports)]
+// AST module exports 50+ node types used pervasively in parser.
 use crate::ast::*;
 use crate::atom::{Atom, WellKnownAtoms};
 use crate::error::{JsParseError, JsParseErrorKind, ParseOutput, MAX_ERRORS, MAX_NESTING_DEPTH};
@@ -26,7 +27,7 @@ use crate::token::{Keyword, Token, TokenKind};
 pub(crate) const MAX_LIST_ITEMS: usize = 65536;
 
 /// Parse context flags (bitfield-style struct for readability).
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // Parser context tracks independent boolean flags per spec grammar.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ParseContext {
     pub(crate) in_function: bool,

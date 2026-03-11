@@ -185,7 +185,6 @@ impl HttpTransport {
     }
 
     /// Read and collect response body with size limit.
-    #[allow(clippy::unused_self)]
     async fn read_body(&self, body: hyper::body::Incoming) -> Result<Bytes, NetError> {
         let max = self.config.max_response_bytes;
         let limited = http_body_util::Limited::new(body, max);

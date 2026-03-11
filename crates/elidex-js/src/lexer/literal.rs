@@ -115,6 +115,7 @@ impl Lexer<'_> {
 
     /// Read an escape sequence after `\` has been consumed.
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn lex_escape_sequence(&mut self, out: &mut String, literal_start: u32) {
         match self.advance() {
             None => {
@@ -518,6 +519,7 @@ impl Lexer<'_> {
     }
 
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn lex_template_inner(&mut self, is_head: bool) -> TokenKind {
         let start_pos = self.pos as u32;
         let mut cooked = String::new();

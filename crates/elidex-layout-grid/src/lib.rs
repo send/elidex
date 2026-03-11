@@ -27,7 +27,7 @@ mod tests;
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     effective_align, horizontal_pb, resolve_explicit_height, sanitize, sanitize_border,
-    sanitize_padding, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+    sanitize_padding, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
@@ -79,18 +79,20 @@ struct GridItem {
 // ---------------------------------------------------------------------------
 
 /// Layout a grid container and return its `LayoutBox`.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
+// Sequential algorithm phases sharing extensive local state; splitting would add indirection without improving clarity.
 pub fn layout_grid(
     dom: &mut EcsDom,
     entity: Entity,
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
+    let containing_width = input.containing_width;
+    let containing_height = input.containing_height;
+    let offset_x = input.offset_x;
+    let offset_y = input.offset_y;
+    let font_db = input.font_db;
+    let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
     // --- 1. Container box model resolution ---
@@ -121,14 +123,16 @@ pub fn layout_grid(
         return elidex_layout_block::empty_container_box(
             dom,
             entity,
-            &style,
-            content_x,
-            content_y,
-            content_width,
-            containing_height,
-            padding,
-            border,
-            margin,
+            &EmptyContainerParams {
+                style: &style,
+                content_x,
+                content_y,
+                content_width,
+                containing_height,
+                padding,
+                border,
+                margin,
+            },
         );
     }
 
@@ -220,22 +224,18 @@ pub fn layout_grid(
     let row_positions = track::compute_track_positions(&row_tracks, gap_row);
 
     // --- 12. Position items + final layout ---
-    position_items(
-        dom,
-        &items,
-        &col_tracks,
-        &row_tracks,
-        &col_positions,
-        &row_positions,
+    let placement = GridPlacement {
+        col_tracks: &col_tracks,
+        row_tracks: &row_tracks,
+        col_positions: &col_positions,
+        row_positions: &row_positions,
         content_x,
         content_y,
         content_width,
-        style.direction,
+        direction: style.direction,
         containing_height,
-        font_db,
-        depth,
-        layout_child,
-    );
+    };
+    position_items(dom, &items, &placement, font_db, depth, layout_child);
 
     // --- 13. Container height ---
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
@@ -307,7 +307,6 @@ fn collect_grid_items(
 // ---------------------------------------------------------------------------
 
 /// Measure each item's content size via a preliminary layout.
-#[allow(clippy::too_many_arguments)]
 fn measure_item_content(
     dom: &mut EcsDom,
     items: &mut [GridItem],
@@ -335,16 +334,15 @@ fn measure_item_content(
         );
 
         // Preliminary layout at container width to get intrinsic sizes.
-        let lb = layout_child(
-            dom,
-            item.entity,
-            container_width,
+        let child_input = LayoutInput {
+            containing_width: container_width,
             containing_height,
-            0.0,
-            0.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let lb = layout_child(dom, item.entity, &child_input);
         item.content_width = lb.content.width + item.pb.left + item.pb.right;
         item.content_height = lb.content.height + item.pb.top + item.pb.bottom;
     }
@@ -424,25 +422,37 @@ fn build_track_definitions(
 // Item positioning
 // ---------------------------------------------------------------------------
 
-/// Position each item within its grid area and perform final layout.
-#[allow(clippy::too_many_arguments)]
-fn position_items(
-    dom: &mut EcsDom,
-    items: &[GridItem],
-    col_tracks: &[track::ResolvedTrack],
-    row_tracks: &[track::ResolvedTrack],
-    col_positions: &[f32],
-    row_positions: &[f32],
+/// Grid track layout and positioning context.
+struct GridPlacement<'a> {
+    col_tracks: &'a [track::ResolvedTrack],
+    row_tracks: &'a [track::ResolvedTrack],
+    col_positions: &'a [f32],
+    row_positions: &'a [f32],
     content_x: f32,
     content_y: f32,
     content_width: f32,
     direction: Direction,
     containing_height: Option<f32>,
+}
+
+/// Position each item within its grid area and perform final layout.
+fn position_items(
+    dom: &mut EcsDom,
+    items: &[GridItem],
+    placement: &GridPlacement<'_>,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: ChildLayoutFn,
 ) {
-    let is_rtl = direction == Direction::Rtl;
+    let is_rtl = placement.direction == Direction::Rtl;
+    let content_x = placement.content_x;
+    let content_y = placement.content_y;
+    let content_width = placement.content_width;
+    let containing_height = placement.containing_height;
+    let col_tracks = placement.col_tracks;
+    let row_tracks = placement.row_tracks;
+    let col_positions = placement.col_positions;
+    let row_positions = placement.row_positions;
     for item in items {
         // Compute the grid area rectangle.
         let ltr_area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
@@ -475,16 +485,15 @@ fn position_items(
         };
 
         // Preliminary layout to measure content height.
-        let prelim_lb = layout_child(
-            dom,
-            item.entity,
-            avail_w,
+        let prelim_input = LayoutInput {
+            containing_width: avail_w,
             containing_height,
-            0.0,
-            0.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let prelim_lb = layout_child(dom, item.entity, &prelim_input);
 
         // Resolve item content height: stretch fills the area, otherwise use content.
         let prelim_content_h = prelim_lb.content.height;
@@ -514,16 +523,15 @@ fn position_items(
         let margin_box_y = content_y + area_y + y_offset;
 
         // Final layout at resolved position.
-        let final_lb = layout_child(
-            dom,
-            item.entity,
-            area_width,
-            Some(item_content_h),
-            margin_box_x,
-            margin_box_y,
+        let final_input = LayoutInput {
+            containing_width: area_width,
+            containing_height: Some(item_content_h),
+            offset_x: margin_box_x,
+            offset_y: margin_box_y,
             font_db,
-            depth + 1,
-        );
+            depth: depth + 1,
+        };
+        let final_lb = layout_child(dom, item.entity, &final_input);
 
         // Ensure the content height matches the grid-resolved value.
         if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {

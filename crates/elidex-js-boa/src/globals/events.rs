@@ -55,6 +55,19 @@ fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<
     );
 }
 
+/// Shared event dispatch flags passed between the dispatch loop and JS event methods.
+///
+/// The `Rc<Cell<bool>>` flags allow JS code (e.g. `event.stopPropagation()`)
+/// to communicate back to the dispatch loop immediately.
+pub struct EventFlags {
+    /// Set to `true` when `event.preventDefault()` is called.
+    pub prevent_default: Rc<Cell<bool>>,
+    /// Set to `true` when `event.stopPropagation()` is called.
+    pub stop_propagation: Rc<Cell<bool>>,
+    /// Set to `true` when `event.stopImmediatePropagation()` is called.
+    pub stop_immediate: Rc<Cell<bool>>,
+}
+
 /// Create a JS event object for the given dispatch event.
 ///
 /// The returned object has:
@@ -67,19 +80,16 @@ fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<
 /// - `preventDefault()`, `stopPropagation()`, `stopImmediatePropagation()`
 /// - `composedPath()` — returns the event propagation path
 ///
-/// The `Rc<Cell<bool>>` flags are shared with the dispatch loop so that
+/// The [`EventFlags`] are shared with the dispatch loop so that
 /// calling `event.stopPropagation()` in JS immediately affects the loop.
 ///
 /// `composed_path_array` is a pre-built JS array of element wrappers for
 /// `composedPath()`. If `None`, `composedPath()` returns an empty array.
-#[allow(clippy::too_many_arguments)]
 pub fn create_event_object(
     event: &DispatchEvent,
     target_wrapper: &JsValue,
     current_target_wrapper: &JsValue,
-    prevent_default_flag: &Rc<Cell<bool>>,
-    stop_propagation_flag: &Rc<Cell<bool>>,
-    stop_immediate_flag: &Rc<Cell<bool>>,
+    flags: &EventFlags,
     composed_path_array: Option<JsValue>,
     ctx: &mut Context,
 ) -> JsValue {
@@ -126,12 +136,12 @@ pub fn create_event_object(
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload);
 
-    register_flag_method(&mut init, "preventDefault", prevent_default_flag);
-    register_flag_method(&mut init, "stopPropagation", stop_propagation_flag);
+    register_flag_method(&mut init, "preventDefault", &flags.prevent_default);
+    register_flag_method(&mut init, "stopPropagation", &flags.stop_propagation);
 
     // stopImmediatePropagation() sets both propagation + immediate flags.
-    let stop_prop = SharedFlag(Rc::clone(stop_propagation_flag));
-    let stop_imm = SharedFlag(Rc::clone(stop_immediate_flag));
+    let stop_prop = SharedFlag(Rc::clone(&flags.stop_propagation));
+    let stop_imm = SharedFlag(Rc::clone(&flags.stop_immediate));
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, _args, (sp, si), _ctx| {
@@ -164,7 +174,7 @@ pub fn create_event_object(
 }
 
 /// Modifier key state (alt/ctrl/meta/shift).
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // DOM UIEvent spec requires 4 modifier key booleans.
 struct ModifierKeys {
     alt: bool,
     ctrl: bool,

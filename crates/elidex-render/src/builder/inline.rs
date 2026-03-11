@@ -156,6 +156,7 @@ fn collect_styled_inline_text(
 /// modes, segments are placed left-to-right; for vertical modes, top-to-bottom.
 /// Text-align is applied to the total run width (horizontal) or height (vertical).
 #[allow(clippy::too_many_lines)]
+// Vertical path already extracted; horizontal path is a single linear pass.
 fn emit_styled_segments(
     ctx: &InlineRunContext<'_>,
     font_db: &FontDatabase,

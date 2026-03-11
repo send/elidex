@@ -20,7 +20,7 @@ fn flex_grow_distributes_space() {
     ];
     let (mut dom, container, items) = make_flex_dom(flex_container(), &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         600.0,
@@ -65,7 +65,7 @@ fn flex_shrink_reduces_items() {
         &items_styles,
     );
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         400.0,
@@ -118,7 +118,7 @@ fn grown_item_child_uses_flex_resolved_width() {
     dom.append_child(item, child);
 
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         600.0,
@@ -178,7 +178,7 @@ fn margin_item_child_not_double_offset() {
     dom.append_child(item, grandchild);
 
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -221,7 +221,7 @@ fn descendant_positioned_at_container_offset() {
     let font_db = FontDatabase::new();
     let offset_x = 100.0_f32;
     let offset_y = 200.0_f32;
-    let outer_lb = layout_flex(
+    let outer_lb = do_layout_flex(
         &mut dom,
         outer,
         800.0,
@@ -254,7 +254,7 @@ fn stretch_skips_explicit_cross_size() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -289,7 +289,7 @@ fn flex_item_border_box_width() {
     };
     let (mut dom, cont, items) = make_flex_dom(container, &[item]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         cont,
         800.0,
@@ -324,7 +324,7 @@ fn flex_container_border_box_height() {
     let item = flex_item(100.0, 50.0);
     let (mut dom, cont, _) = make_flex_dom(container, &[item]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         cont,
         800.0,
@@ -357,7 +357,7 @@ fn flex_child_percentage_height() {
     };
     let (mut dom, cont, items) = make_flex_dom(container, &[child_style]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         cont,
         800.0,
@@ -390,7 +390,7 @@ fn flex_item_min_width_prevents_shrink() {
     let (mut dom, container, items) =
         make_flex_dom(flex_container(), &[item0, flex_item(300.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         400.0,
@@ -436,7 +436,7 @@ fn flex_item_max_width_prevents_grow() {
     };
     let (mut dom, container, items) = make_flex_dom(flex_container(), &[item0, item1]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,

@@ -2,9 +2,10 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, EdgeSizes, LayoutBox};
-use elidex_text::FontDatabase;
 
-use crate::{adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, vertical_pb};
+use crate::{
+    adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, vertical_pb, LayoutInput,
+};
 
 use super::is_block_level;
 use super::margin::{collapse_margins, resolve_margin};
@@ -24,19 +25,13 @@ pub struct StackResult {
 /// Shared by block children layout and document-root layout. Returns
 /// the total height consumed and first/last child margin info for
 /// parent-child collapse (CSS 2.1 §8.3.1).
-#[allow(clippy::too_many_arguments)]
 pub fn stack_block_children(
     dom: &mut EcsDom,
     children: &[Entity],
-    containing_width: f32,
-    containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
 ) -> StackResult {
-    let mut cursor_y = offset_y;
+    let mut cursor_y = input.offset_y;
     let mut prev_margin_bottom: Option<f32> = None;
     let mut first_child_margin_top: Option<f32> = None;
     let mut last_child_margin_bottom: Option<f32> = None;
@@ -53,7 +48,7 @@ pub fn stack_block_children(
 
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
         // Both positive -> max, both negative -> min, mixed -> sum.
-        let child_margin_top = resolve_margin(child_margin_top_dim, containing_width);
+        let child_margin_top = resolve_margin(child_margin_top_dim, input.containing_width);
         if first_child_margin_top.is_none() {
             first_child_margin_top = Some(child_margin_top);
         }
@@ -64,23 +59,18 @@ pub fn stack_block_children(
 
         // Dispatch child layout via callback (routes to block/flex/grid
         // based on the child's display type).
-        let child_box = layout_child(
-            dom,
-            child,
-            containing_width,
-            containing_height,
-            offset_x,
-            cursor_y,
-            font_db,
-            depth,
-        );
+        let child_input = LayoutInput {
+            offset_y: cursor_y,
+            ..*input
+        };
+        let child_box = layout_child(dom, child, &child_input);
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
         last_child_margin_bottom = Some(child_box.margin.bottom);
     }
 
     StackResult {
-        height: cursor_y - offset_y,
+        height: cursor_y - input.offset_y,
         first_child_margin_top,
         last_child_margin_bottom,
     }

@@ -156,7 +156,7 @@ pub enum CharClassAtom {
 }
 
 /// Validated regexp flags.
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // ECMAScript spec defines 8 individual flag booleans.
 #[derive(Debug, Clone, Default)]
 pub struct RegExpFlags {
     pub global: bool,

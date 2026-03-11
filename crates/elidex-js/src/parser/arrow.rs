@@ -2,6 +2,7 @@
 
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
+// AST module exports 50+ node types used pervasively in parser.
 use crate::ast::*;
 use crate::atom::Atom;
 

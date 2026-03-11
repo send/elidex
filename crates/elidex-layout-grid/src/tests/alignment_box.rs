@@ -22,7 +22,7 @@ fn grid_gap_between_items() {
     let c3 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    let clb = layout_grid(
+    let clb = do_layout_grid(
         &mut dom,
         container,
         420.0,
@@ -69,7 +69,7 @@ fn grid_align_items_center() {
     let child = make_grid_child(&mut dom, container, 40.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -113,7 +113,7 @@ fn grid_with_padding_border() {
     let child = make_grid_child(&mut dom, container, 50.0);
 
     let font_db = FontDatabase::new();
-    let clb = layout_grid(
+    let clb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -169,7 +169,7 @@ fn grid_item_margin() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -214,7 +214,7 @@ fn grid_box_sizing_border_box() {
     let child = make_grid_child(&mut dom, container, 50.0);
 
     let font_db = FontDatabase::new();
-    let clb = layout_grid(
+    let clb = do_layout_grid(
         &mut dom,
         container,
         800.0,
@@ -266,7 +266,7 @@ fn grid_align_self_stretch_with_center_container() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -306,7 +306,7 @@ fn grid_negative_track_size_clamped() {
     let c2 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -353,7 +353,7 @@ fn grid_rtl_reverses_column_order() {
     let c1 = make_grid_child(&mut dom, grid, 30.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         grid,
         400.0,

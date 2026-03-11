@@ -327,7 +327,6 @@ impl ApplicationHandler for App {
         self.render_state = None;
     }
 
-    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -377,7 +376,6 @@ impl ApplicationHandler for App {
 
 // --- Threaded mode event handling ---
 impl App {
-    #[allow(clippy::too_many_lines)]
     fn handle_window_event_threaded(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         // Track modifier state on browser side.
         if let WindowEvent::ModifiersChanged(new_modifiers) = &event {
@@ -414,74 +412,13 @@ impl App {
 
         match event {
             WindowEvent::RedrawRequested => {
-                needs_redraw = false;
-                self.drain_content_messages();
-
-                let tab_infos = self.tab_bar_infos();
-
-                let chrome_actions = {
-                    let Self {
-                        render_state,
-                        tab_manager,
-                        ..
-                    } = &mut *self;
-                    let Some(state) = render_state.as_mut() else {
-                        return;
-                    };
-                    // tab_manager is always Some in threaded mode.
-                    let mgr = tab_manager
-                        .as_mut()
-                        .expect("threaded mode requires tab_manager");
-                    if let Some(tab) = mgr.active_tab_mut() {
-                        render::handle_redraw_with_tabs(
-                            state,
-                            &tab.display_list,
-                            &mut tab.chrome,
-                            tab.can_go_back,
-                            tab.can_go_forward,
-                            &tab_infos,
-                            position,
-                        )
-                    } else {
-                        let empty = DisplayList::default();
-                        handle_redraw(state, &empty, None, false, false);
-                        Vec::new()
-                    }
-                };
-
-                // TODO(Phase 4): Update accessibility tree in threaded mode.
-                // The DOM lives on the content thread, so we can't call
-                // `a11y_adapter.update_if_active()` here (unlike legacy mode).
-                // Requires a new IPC message (e.g. ContentToBrowser::A11yTreeReady).
-
-                for action in chrome_actions {
-                    self.handle_chrome_action_threaded(event_loop, action);
-                    needs_redraw = true;
-                }
+                needs_redraw = self.handle_redraw_threaded(event_loop);
             }
             _ if egui_consumed => {
                 needs_redraw = false;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                #[allow(clippy::cast_possible_truncation)]
-                let x = (position.x as f32) - x_offset;
-                #[allow(clippy::cast_possible_truncation)]
-                let y = (position.y as f32) - y_offset;
-                // Only send to content thread when cursor is in the content area.
-                // When cursor first moves into chrome/tab bar, send CursorLeft
-                // to clear hover state (otherwise :hover stays stuck).
-                if x >= 0.0 && y >= 0.0 {
-                    self.cursor_in_content = true;
-                    self.send_to_content(BrowserToContent::MouseMove {
-                        x,
-                        y,
-                        client_x: position.x,
-                        client_y: position.y,
-                    });
-                } else if self.cursor_in_content {
-                    self.cursor_in_content = false;
-                    self.send_to_content(BrowserToContent::CursorLeft);
-                }
+                self.handle_cursor_move_threaded(position.x, position.y, x_offset, y_offset);
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_in_content = false;
@@ -492,23 +429,7 @@ impl App {
                 button,
                 ..
             } => {
-                if let Some((cx, cy)) = self.cursor_pos {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let x = (cx as f32) - x_offset;
-                    #[allow(clippy::cast_possible_truncation)]
-                    let y = (cy as f32) - y_offset;
-                    if y >= 0.0 && x >= 0.0 {
-                        let mods = Self::to_modifier_state(self.modifiers.state());
-                        self.send_to_content(BrowserToContent::MouseClick {
-                            x,
-                            y,
-                            client_x: cx,
-                            client_y: cy,
-                            button: winit_button_to_dom(button),
-                            mods,
-                        });
-                    }
-                }
+                self.handle_mouse_press_threaded(button, x_offset, y_offset);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -522,67 +443,7 @@ impl App {
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                let mut handled = false;
-                if key_event.state == ElementState::Pressed {
-                    let mods = self.modifiers.state();
-
-                    // Tab keyboard shortcuts (Cmd/Ctrl+T/W, Ctrl+Tab, Ctrl+1-9).
-                    if let Some(action) = self.check_tab_shortcut(&key_event, mods) {
-                        self.handle_chrome_action_threaded(event_loop, action);
-                        handled = true;
-                    }
-
-                    // Alt+Left/Right: back/forward navigation.
-                    if !handled && mods.alt_key() {
-                        let nav_msg = match &key_event.logical_key {
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
-                                Some(BrowserToContent::GoBack)
-                            }
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
-                                Some(BrowserToContent::GoForward)
-                            }
-                            _ => None,
-                        };
-                        if let Some(msg) = nav_msg {
-                            self.send_to_content(msg);
-                            handled = true;
-                        }
-                    }
-                }
-
-                if !handled
-                    && !address_focused
-                    && (key_event.state == ElementState::Pressed
-                        || key_event.state == ElementState::Released)
-                {
-                    let event_type = if key_event.state == ElementState::Pressed {
-                        "keydown"
-                    } else {
-                        "keyup"
-                    };
-                    let (key, code) = crate::key_map::winit_key_to_dom(
-                        &key_event.logical_key,
-                        key_event.physical_key,
-                    );
-                    let ipc_mods = Self::to_modifier_state(self.modifiers.state());
-
-                    let msg = if event_type == "keydown" {
-                        BrowserToContent::KeyDown {
-                            key,
-                            code,
-                            repeat: key_event.repeat,
-                            mods: ipc_mods,
-                        }
-                    } else {
-                        BrowserToContent::KeyUp {
-                            key,
-                            code,
-                            repeat: key_event.repeat,
-                            mods: ipc_mods,
-                        }
-                    };
-                    self.send_to_content(msg);
-                }
+                self.handle_keyboard_threaded(event_loop, &key_event, address_focused);
             }
             _ => {
                 needs_redraw = false;
@@ -593,6 +454,182 @@ impl App {
             if let Some(s) = &self.render_state {
                 s.window.request_redraw();
             }
+        }
+    }
+
+    /// Handle `RedrawRequested` in threaded mode.
+    ///
+    /// Returns `true` if a redraw is needed (due to chrome actions).
+    fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        self.drain_content_messages();
+
+        let tab_infos = self.tab_bar_infos();
+        let position = self.tab_bar_position();
+
+        let chrome_actions = {
+            let Self {
+                render_state,
+                tab_manager,
+                ..
+            } = &mut *self;
+            let Some(state) = render_state.as_mut() else {
+                return false;
+            };
+            // tab_manager is always Some in threaded mode.
+            let mgr = tab_manager
+                .as_mut()
+                .expect("threaded mode requires tab_manager");
+            if let Some(tab) = mgr.active_tab_mut() {
+                render::handle_redraw_with_tabs(
+                    state,
+                    &tab.display_list,
+                    &mut tab.chrome,
+                    tab.can_go_back,
+                    tab.can_go_forward,
+                    &tab_infos,
+                    position,
+                )
+            } else {
+                let empty = DisplayList::default();
+                handle_redraw(state, &empty, None, false, false);
+                Vec::new()
+            }
+        };
+
+        // TODO(Phase 4): Update accessibility tree in threaded mode.
+        // The DOM lives on the content thread, so we can't call
+        // `a11y_adapter.update_if_active()` here (unlike legacy mode).
+        // Requires a new IPC message (e.g. ContentToBrowser::A11yTreeReady).
+
+        let mut needs_redraw = false;
+        for action in chrome_actions {
+            self.handle_chrome_action_threaded(event_loop, action);
+            needs_redraw = true;
+        }
+        needs_redraw
+    }
+
+    /// Handle `CursorMoved` in threaded mode.
+    ///
+    /// Only sends to content thread when cursor is in the content area.
+    /// When cursor first moves into chrome/tab bar, sends `CursorLeft`
+    /// to clear hover state (otherwise `:hover` stays stuck).
+    fn handle_cursor_move_threaded(
+        &mut self,
+        client_x: f64,
+        client_y: f64,
+        x_offset: f32,
+        y_offset: f32,
+    ) {
+        #[allow(clippy::cast_possible_truncation)]
+        let x = (client_x as f32) - x_offset;
+        #[allow(clippy::cast_possible_truncation)]
+        let y = (client_y as f32) - y_offset;
+        if x >= 0.0 && y >= 0.0 {
+            self.cursor_in_content = true;
+            self.send_to_content(BrowserToContent::MouseMove {
+                x,
+                y,
+                client_x,
+                client_y,
+            });
+        } else if self.cursor_in_content {
+            self.cursor_in_content = false;
+            self.send_to_content(BrowserToContent::CursorLeft);
+        }
+    }
+
+    /// Handle `MouseInput::Pressed` in threaded mode.
+    fn handle_mouse_press_threaded(
+        &mut self,
+        button: winit::event::MouseButton,
+        x_offset: f32,
+        y_offset: f32,
+    ) {
+        if let Some((cx, cy)) = self.cursor_pos {
+            #[allow(clippy::cast_possible_truncation)]
+            let x = (cx as f32) - x_offset;
+            #[allow(clippy::cast_possible_truncation)]
+            let y = (cy as f32) - y_offset;
+            if y >= 0.0 && x >= 0.0 {
+                let mods = Self::to_modifier_state(self.modifiers.state());
+                self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
+                    x,
+                    y,
+                    client_x: cx,
+                    client_y: cy,
+                    button: winit_button_to_dom(button),
+                    mods,
+                }));
+            }
+        }
+    }
+
+    /// Handle `KeyboardInput` in threaded mode.
+    fn handle_keyboard_threaded(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        key_event: &winit::event::KeyEvent,
+        address_focused: bool,
+    ) {
+        let mut handled = false;
+        if key_event.state == ElementState::Pressed {
+            let mods = self.modifiers.state();
+
+            // Tab keyboard shortcuts (Cmd/Ctrl+T/W, Ctrl+Tab, Ctrl+1-9).
+            if let Some(action) = self.check_tab_shortcut(key_event, mods) {
+                self.handle_chrome_action_threaded(event_loop, action);
+                handled = true;
+            }
+
+            // Alt+Left/Right: back/forward navigation.
+            if !handled && mods.alt_key() {
+                let nav_msg = match &key_event.logical_key {
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
+                        Some(BrowserToContent::GoBack)
+                    }
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
+                        Some(BrowserToContent::GoForward)
+                    }
+                    _ => None,
+                };
+                if let Some(msg) = nav_msg {
+                    self.send_to_content(msg);
+                    handled = true;
+                }
+            }
+        }
+
+        if !handled
+            && !address_focused
+            && (key_event.state == ElementState::Pressed
+                || key_event.state == ElementState::Released)
+        {
+            let event_type = if key_event.state == ElementState::Pressed {
+                "keydown"
+            } else {
+                "keyup"
+            };
+            let (key, code) =
+                crate::key_map::winit_key_to_dom(&key_event.logical_key, key_event.physical_key);
+            let ipc_mods = Self::to_modifier_state(self.modifiers.state());
+
+            let msg = if event_type == "keydown" {
+                BrowserToContent::KeyDown {
+                    key,
+                    code,
+                    repeat: key_event.repeat,
+                    mods: ipc_mods,
+                }
+            } else {
+                BrowserToContent::KeyUp {
+                    key,
+                    code,
+                    repeat: key_event.repeat,
+                    mods: ipc_mods,
+                }
+            };
+            self.send_to_content(msg);
         }
     }
 
@@ -724,7 +761,6 @@ impl App {
 
 // --- Legacy inline mode event handling ---
 impl App {
-    #[allow(clippy::too_many_lines)]
     fn handle_window_event_inline(&mut self, _event_loop: &ActiveEventLoop, event: WindowEvent) {
         // Always process state-tracking events before egui routing.
         match &event {
@@ -734,68 +770,10 @@ impl App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let hover_changed = if let Some(interactive) = &mut self.interactive {
-                    interactive.cursor_pos = Some((position.x, position.y));
-
-                    #[allow(clippy::cast_possible_truncation)]
-                    let (x, y) = (
-                        position.x as f32,
-                        (position.y as f32) - crate::chrome::CHROME_HEIGHT,
-                    );
-                    let new_chain = if y >= 0.0 {
-                        elidex_layout::hit_test(&interactive.pipeline.dom, x, y)
-                            .map(|hit| {
-                                hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity)
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
-
-                    if new_chain == interactive.hover_chain {
-                        false
-                    } else {
-                        let old_chain = std::mem::take(&mut interactive.hover_chain);
-                        hover::apply_hover_diff(
-                            &mut interactive.pipeline.dom,
-                            &old_chain,
-                            &new_chain,
-                        );
-                        interactive.hover_chain = new_chain;
-                        crate::re_render(&mut interactive.pipeline);
-                        true
-                    }
-                } else {
-                    false
-                };
-                if hover_changed {
-                    if let Some(s) = &self.render_state {
-                        s.window.request_redraw();
-                    }
-                }
+                self.handle_cursor_move_inline(position.x, position.y);
             }
             WindowEvent::CursorLeft { .. } => {
-                if let Some(interactive) = &mut self.interactive {
-                    let had_hover = !interactive.hover_chain.is_empty();
-                    let had_active = !interactive.active_chain.is_empty();
-                    for &e in &std::mem::take(&mut interactive.active_chain) {
-                        hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
-                            s.remove(DomElementState::ACTIVE);
-                        });
-                    }
-                    for &e in &std::mem::take(&mut interactive.hover_chain) {
-                        hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
-                            s.remove(DomElementState::HOVER);
-                            s.remove(DomElementState::ACTIVE);
-                        });
-                    }
-                    if had_hover || had_active {
-                        crate::re_render(&mut interactive.pipeline);
-                        if let Some(s) = &self.render_state {
-                            s.window.request_redraw();
-                        }
-                    }
-                }
+                self.handle_cursor_left_inline();
             }
             _ => {}
         }
@@ -819,47 +797,7 @@ impl App {
 
         match event {
             WindowEvent::RedrawRequested => {
-                let chrome_action = {
-                    let Self {
-                        render_state,
-                        interactive,
-                        ..
-                    } = &mut *self;
-                    let Some(state) = render_state.as_mut() else {
-                        return;
-                    };
-                    if let Some(interactive) = interactive.as_mut() {
-                        let can_back = interactive.nav_controller.can_go_back();
-                        let can_fwd = interactive.nav_controller.can_go_forward();
-                        handle_redraw(
-                            state,
-                            &interactive.pipeline.display_list,
-                            Some(&mut interactive.chrome),
-                            can_back,
-                            can_fwd,
-                        )
-                    } else {
-                        handle_redraw(state, &DisplayList::default(), None, false, false)
-                    }
-                };
-                // Update accessibility tree after rendering.
-                if let (Some(state), Some(interactive)) =
-                    (&mut self.render_state, &self.interactive)
-                {
-                    let dom = &interactive.pipeline.dom;
-                    let document = interactive.pipeline.document;
-                    let focus = interactive.focus_target.filter(|e| dom.contains(*e));
-                    state
-                        .a11y_adapter
-                        .update_if_active(|| elidex_a11y::build_tree_update(dom, document, focus));
-                }
-
-                if let Some(action) = chrome_action {
-                    self.handle_chrome_action(action);
-                    if let Some(s) = &self.render_state {
-                        s.window.request_redraw();
-                    }
-                }
+                self.handle_redraw_inline();
             }
             _ if egui_consumed => {}
             WindowEvent::MouseInput {
@@ -867,116 +805,231 @@ impl App {
                 button,
                 ..
             } => {
-                if let Some(interactive) = &mut self.interactive {
-                    // Clear stale ACTIVE from a previous press.
-                    for &e in &interactive.active_chain {
-                        hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
-                            s.remove(DomElementState::ACTIVE);
-                        });
-                    }
-                    interactive.active_chain = interactive.hover_chain.clone();
-                    for &e in &interactive.active_chain {
-                        hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
-                            s.insert(DomElementState::ACTIVE);
-                        });
-                    }
-                }
-                self.handle_click(button);
-                if let Some(s) = &self.render_state {
-                    s.window.request_redraw();
-                }
+                self.handle_mouse_press_inline(button);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 ..
             } => {
-                if let Some(interactive) = &mut self.interactive {
-                    let active = std::mem::take(&mut interactive.active_chain);
-                    for &e in &active {
-                        hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
-                            s.remove(DomElementState::ACTIVE);
-                        });
-                    }
-                    crate::re_render(&mut interactive.pipeline);
-                }
-
-                if let Some(s) = &self.render_state {
-                    s.window.request_redraw();
-                }
+                self.handle_mouse_release_inline();
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                if key_event.state == ElementState::Pressed {
-                    let mods = self
-                        .interactive
-                        .as_ref()
-                        .map(|i| i.modifiers.state())
-                        .unwrap_or_default();
-                    if mods.alt_key() {
-                        let nav_url = match &key_event.logical_key {
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
-                                self.interactive
-                                    .as_mut()
-                                    .and_then(|i| i.nav_controller.go_back().cloned())
-                            }
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
-                                self.interactive
-                                    .as_mut()
-                                    .and_then(|i| i.nav_controller.go_forward().cloned())
-                            }
-                            _ => None,
-                        };
-                        if let Some(url) = nav_url {
-                            self.navigate_to_history_url(&url);
-                            if let Some(s) = &self.render_state {
-                                s.window.request_redraw();
-                            }
-                            return;
-                        }
-                    }
-                }
+                self.handle_keyboard_inline(&key_event, address_focused);
+            }
+            _ => {}
+        }
+    }
 
-                if address_focused {
+    /// Handle `CursorMoved` in legacy inline mode (hover tracking).
+    fn handle_cursor_move_inline(&mut self, px: f64, py: f64) {
+        let hover_changed = if let Some(interactive) = &mut self.interactive {
+            interactive.cursor_pos = Some((px, py));
+
+            #[allow(clippy::cast_possible_truncation)]
+            let (x, y) = (px as f32, (py as f32) - crate::chrome::CHROME_HEIGHT);
+            let new_chain = if y >= 0.0 {
+                elidex_layout::hit_test(&interactive.pipeline.dom, x, y)
+                    .map(|hit| hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity))
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            if new_chain == interactive.hover_chain {
+                false
+            } else {
+                let old_chain = std::mem::take(&mut interactive.hover_chain);
+                hover::apply_hover_diff(&mut interactive.pipeline.dom, &old_chain, &new_chain);
+                interactive.hover_chain = new_chain;
+                crate::re_render(&mut interactive.pipeline);
+                true
+            }
+        } else {
+            false
+        };
+        if hover_changed {
+            if let Some(s) = &self.render_state {
+                s.window.request_redraw();
+            }
+        }
+    }
+
+    /// Handle `CursorLeft` in legacy inline mode (clear hover/active state).
+    fn handle_cursor_left_inline(&mut self) {
+        if let Some(interactive) = &mut self.interactive {
+            let had_hover = !interactive.hover_chain.is_empty();
+            let had_active = !interactive.active_chain.is_empty();
+            for &e in &std::mem::take(&mut interactive.active_chain) {
+                hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                    s.remove(DomElementState::ACTIVE);
+                });
+            }
+            for &e in &std::mem::take(&mut interactive.hover_chain) {
+                hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                    s.remove(DomElementState::HOVER);
+                    s.remove(DomElementState::ACTIVE);
+                });
+            }
+            if had_hover || had_active {
+                crate::re_render(&mut interactive.pipeline);
+                if let Some(s) = &self.render_state {
+                    s.window.request_redraw();
+                }
+            }
+        }
+    }
+
+    /// Handle `RedrawRequested` in legacy inline mode.
+    fn handle_redraw_inline(&mut self) {
+        let chrome_action = {
+            let Self {
+                render_state,
+                interactive,
+                ..
+            } = &mut *self;
+            let Some(state) = render_state.as_mut() else {
+                return;
+            };
+            if let Some(interactive) = interactive.as_mut() {
+                let can_back = interactive.nav_controller.can_go_back();
+                let can_fwd = interactive.nav_controller.can_go_forward();
+                handle_redraw(
+                    state,
+                    &interactive.pipeline.display_list,
+                    Some(&mut interactive.chrome),
+                    can_back,
+                    can_fwd,
+                )
+            } else {
+                handle_redraw(state, &DisplayList::default(), None, false, false)
+            }
+        };
+        // Update accessibility tree after rendering.
+        if let (Some(state), Some(interactive)) = (&mut self.render_state, &self.interactive) {
+            let dom = &interactive.pipeline.dom;
+            let document = interactive.pipeline.document;
+            let focus = interactive.focus_target.filter(|e| dom.contains(*e));
+            state
+                .a11y_adapter
+                .update_if_active(|| elidex_a11y::build_tree_update(dom, document, focus));
+        }
+
+        if let Some(action) = chrome_action {
+            self.handle_chrome_action(action);
+            if let Some(s) = &self.render_state {
+                s.window.request_redraw();
+            }
+        }
+    }
+
+    /// Handle `MouseInput::Pressed` in legacy inline mode.
+    fn handle_mouse_press_inline(&mut self, button: winit::event::MouseButton) {
+        if let Some(interactive) = &mut self.interactive {
+            // Clear stale ACTIVE from a previous press.
+            for &e in &interactive.active_chain {
+                hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                    s.remove(DomElementState::ACTIVE);
+                });
+            }
+            interactive.active_chain = interactive.hover_chain.clone();
+            for &e in &interactive.active_chain {
+                hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                    s.insert(DomElementState::ACTIVE);
+                });
+            }
+        }
+        self.handle_click(button);
+        if let Some(s) = &self.render_state {
+            s.window.request_redraw();
+        }
+    }
+
+    /// Handle `MouseInput::Released` in legacy inline mode.
+    fn handle_mouse_release_inline(&mut self) {
+        if let Some(interactive) = &mut self.interactive {
+            let active = std::mem::take(&mut interactive.active_chain);
+            for &e in &active {
+                hover::update_element_state(&mut interactive.pipeline.dom, e, |s| {
+                    s.remove(DomElementState::ACTIVE);
+                });
+            }
+            crate::re_render(&mut interactive.pipeline);
+        }
+
+        if let Some(s) = &self.render_state {
+            s.window.request_redraw();
+        }
+    }
+
+    /// Handle `KeyboardInput` in legacy inline mode.
+    fn handle_keyboard_inline(
+        &mut self,
+        key_event: &winit::event::KeyEvent,
+        address_focused: bool,
+    ) {
+        if key_event.state == ElementState::Pressed {
+            let mods = self
+                .interactive
+                .as_ref()
+                .map(|i| i.modifiers.state())
+                .unwrap_or_default();
+            if mods.alt_key() {
+                let nav_url = match &key_event.logical_key {
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => self
+                        .interactive
+                        .as_mut()
+                        .and_then(|i| i.nav_controller.go_back().cloned()),
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => self
+                        .interactive
+                        .as_mut()
+                        .and_then(|i| i.nav_controller.go_forward().cloned()),
+                    _ => None,
+                };
+                if let Some(url) = nav_url {
+                    self.navigate_to_history_url(&url);
                     if let Some(s) = &self.render_state {
                         s.window.request_redraw();
                     }
                     return;
                 }
-
-                if key_event.state == ElementState::Pressed
-                    || key_event.state == ElementState::Released
-                {
-                    let event_type = if key_event.state == ElementState::Pressed {
-                        "keydown"
-                    } else {
-                        "keyup"
-                    };
-                    let (key, code) = crate::key_map::winit_key_to_dom(
-                        &key_event.logical_key,
-                        key_event.physical_key,
-                    );
-                    let mods = self
-                        .interactive
-                        .as_ref()
-                        .map(|i| i.modifiers.state())
-                        .unwrap_or_default();
-                    let init = elidex_plugin::KeyboardEventInit {
-                        key,
-                        code,
-                        repeat: key_event.repeat,
-                        alt_key: mods.alt_key(),
-                        ctrl_key: mods.control_key(),
-                        meta_key: mods.super_key(),
-                        shift_key: mods.shift_key(),
-                    };
-                    self.handle_keyboard(event_type, init);
-                    if let Some(s) = &self.render_state {
-                        s.window.request_redraw();
-                    }
-                }
             }
-            _ => {}
+        }
+
+        if address_focused {
+            if let Some(s) = &self.render_state {
+                s.window.request_redraw();
+            }
+            return;
+        }
+
+        if key_event.state == ElementState::Pressed || key_event.state == ElementState::Released {
+            let event_type = if key_event.state == ElementState::Pressed {
+                "keydown"
+            } else {
+                "keyup"
+            };
+            let (key, code) =
+                crate::key_map::winit_key_to_dom(&key_event.logical_key, key_event.physical_key);
+            let mods = self
+                .interactive
+                .as_ref()
+                .map(|i| i.modifiers.state())
+                .unwrap_or_default();
+            let init = elidex_plugin::KeyboardEventInit {
+                key,
+                code,
+                repeat: key_event.repeat,
+                alt_key: mods.alt_key(),
+                ctrl_key: mods.control_key(),
+                meta_key: mods.super_key(),
+                shift_key: mods.shift_key(),
+            };
+            self.handle_keyboard(event_type, init);
+            if let Some(s) = &self.render_state {
+                s.window.request_redraw();
+            }
         }
     }
 }

@@ -568,7 +568,7 @@ impl EcsDom {
     /// - The host already has a shadow root attached
     /// - The entity does not exist or has no `TagType`
     #[must_use = "returns Err if the operation failed"]
-    #[allow(clippy::result_unit_err)]
+    #[allow(clippy::result_unit_err)] // WHATWG convention: attach_shadow fails with no useful error detail.
     pub fn attach_shadow(&mut self, host: Entity, mode: ShadowRootMode) -> Result<Entity, ()> {
         // Validate host exists and has a valid tag per WHATWG DOM §4.2.14.
         let tag = self.world.get::<&TagType>(host).map_err(|_| ())?.0.clone();

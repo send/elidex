@@ -143,6 +143,7 @@ fn sync_canvas_to_image_data(bridge: &HostBridge, entity_bits: u64) {
 /// The object has drawing methods that delegate to the `Canvas2dContext`
 /// stored in the `HostBridge`.
 #[allow(clippy::too_many_lines)]
+// Sequential property/method registration on a single JS object.
 pub(crate) fn create_context2d_object(
     entity_bits: u64,
     canvas_element: &JsValue,

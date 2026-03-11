@@ -9,7 +9,8 @@ mod layout;
 
 // Re-export shared types and utilities from subcrates.
 pub use elidex_layout_block::{
-    block, inline, sanitize, sanitize_border, sanitize_padding, ChildLayoutFn, MAX_LAYOUT_DEPTH,
+    block, inline, sanitize, sanitize_border, sanitize_padding, ChildLayoutFn, LayoutInput,
+    MAX_LAYOUT_DEPTH,
 };
 pub use hit_test::{hit_test, HitTestResult};
 pub use layout::layout_tree;

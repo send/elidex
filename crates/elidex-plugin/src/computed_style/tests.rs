@@ -308,6 +308,7 @@ fn from_keyword_unknown_returns_none() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
+// Test setup with multiple assertions.
 fn from_keyword_roundtrip() {
     // Every variant of every keyword_enum should roundtrip through
     // as_ref -> from_keyword. Since the macro is uniform, a typo in

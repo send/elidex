@@ -12,7 +12,7 @@ use elidex_render::DisplayList;
 
 /// Winit-independent modifier key state.
 #[derive(Clone, Copy, Debug, Default)]
-#[allow(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)] // Matches DOM UIEvent modifier key set (alt/ctrl/meta/shift).
 pub struct ModifierState {
     /// Alt/Option key.
     pub alt: bool,
@@ -24,26 +24,33 @@ pub struct ModifierState {
     pub shift: bool,
 }
 
+/// Mouse click event data.
+///
+/// Bundles content-relative coordinates, viewport coordinates, button number,
+/// and modifier key state for a mouse click.
+#[derive(Clone, Debug)]
+pub struct MouseClickEvent {
+    /// X position in content area (for hit testing).
+    pub x: f32,
+    /// Y position in content area (for hit testing).
+    pub y: f32,
+    /// X position in viewport (for DOM event clientX).
+    pub client_x: f64,
+    /// Y position in viewport (for DOM event clientY).
+    pub client_y: f64,
+    /// Mouse button number (DOM spec: 0=primary, 1=aux, 2=secondary).
+    pub button: u8,
+    /// Modifier keys held during click.
+    pub mods: ModifierState,
+}
+
 /// Messages sent from the browser thread to the content thread.
 #[derive(Debug)]
 pub enum BrowserToContent {
     /// Navigate to a URL.
     Navigate(url::Url),
     /// Mouse button pressed at content-relative coordinates.
-    MouseClick {
-        /// X position in content area (for hit testing).
-        x: f32,
-        /// Y position in content area (for hit testing).
-        y: f32,
-        /// X position in viewport (for DOM event clientX).
-        client_x: f64,
-        /// Y position in viewport (for DOM event clientY).
-        client_y: f64,
-        /// Mouse button number (DOM spec: 0=primary, 1=aux, 2=secondary).
-        button: u8,
-        /// Modifier keys held during click.
-        mods: ModifierState,
-    },
+    MouseClick(MouseClickEvent),
     /// Mouse button released.
     ///
     /// Per UI Events spec, `:active` pseudo-class applies from mousedown

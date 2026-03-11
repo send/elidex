@@ -2,6 +2,7 @@
 
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
+// AST module exports 50+ node types used pervasively in parser.
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::error::JsParseErrorKind;
@@ -12,6 +13,7 @@ use super::Parser;
 impl Parser<'_> {
     /// Parse object literal.
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn parse_object_literal(&mut self) -> NodeId<Expr> {
         let start = self.span();
         self.advance(); // skip {
@@ -328,7 +330,7 @@ impl Parser<'_> {
     /// Parse method function body (for object/class methods).
     /// A7: when `is_constructor` is true, sets `in_constructor` for `super()` validation.
     /// V11: when `is_derived_constructor` is true, `super()` is allowed.
-    #[allow(clippy::fn_params_excessive_bools)]
+    #[allow(clippy::fn_params_excessive_bools)] // ECMAScript MethodDefinition has independent async/generator/constructor flags.
     pub(crate) fn parse_method_function(
         &mut self,
         is_async: bool,

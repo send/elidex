@@ -36,7 +36,7 @@ fn grid_explicit_placement() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -92,7 +92,7 @@ fn grid_span_placement() {
     let c2 = make_grid_child(&mut dom, container, 40.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -135,7 +135,7 @@ fn grid_auto_placement_row() {
     let c3 = make_grid_child(&mut dom, container, 40.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -183,7 +183,7 @@ fn grid_auto_placement_column() {
     let c3 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -263,7 +263,7 @@ fn grid_dense_placement() {
     let c3 = make_grid_child(&mut dom, container, 40.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -346,7 +346,7 @@ fn grid_order_property() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -405,7 +405,7 @@ fn grid_negative_line_number() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -463,7 +463,7 @@ fn grid_negative_line_start_end() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -517,7 +517,7 @@ fn grid_extreme_line_number_capped() {
 
     let font_db = FontDatabase::new();
     // Should not OOM -- the line number is capped.
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -574,7 +574,7 @@ fn grid_extreme_span_capped() {
 
     let font_db = FontDatabase::new();
     // Should not OOM -- the span is capped.
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,

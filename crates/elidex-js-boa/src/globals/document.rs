@@ -32,6 +32,7 @@ fn invoke_doc_handler_returning_ref(
 
 /// Register the `document` global object.
 #[allow(clippy::too_many_lines)]
+// Sequential property/method registration on a single JS object.
 pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
 

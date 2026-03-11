@@ -55,9 +55,10 @@ pub fn validate_url(url: &url::Url) -> Result<(), NetworkError> {
         }
     }
 
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     if let Some(host) = url.host_str() {
         let lower = host.to_ascii_lowercase();
+        #[allow(clippy::case_sensitive_file_extension_comparisons)]
+        // This is a hostname, not a file path; already lowercased above.
         if lower == "localhost"
             || lower.ends_with(".local")
             || lower.ends_with(".internal")

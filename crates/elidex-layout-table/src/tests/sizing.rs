@@ -8,7 +8,7 @@ use super::*;
 fn table_basic_two_columns() {
     let (mut dom, table, cells) = create_simple_table(1, 2, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -40,7 +40,7 @@ fn table_basic_two_columns() {
 fn table_three_rows() {
     let (mut dom, table, _cells) = create_simple_table(3, 2, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -65,7 +65,7 @@ fn table_explicit_width() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         800.0,
@@ -84,7 +84,7 @@ fn table_explicit_width() {
 fn table_auto_width() {
     let (mut dom, table, _) = create_simple_table(1, 2, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -109,7 +109,7 @@ fn table_border_spacing() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -134,7 +134,7 @@ fn table_border_spacing_two_values() {
     };
     let (mut dom, table, _) = create_simple_table(2, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -167,7 +167,7 @@ fn table_auto_column_sizing() {
         );
     }
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -188,7 +188,7 @@ fn table_auto_column_sizing() {
 fn table_column_distribution() {
     let (mut dom, table, cells) = create_simple_table(1, 2, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -219,7 +219,7 @@ fn table_fixed_layout_basic() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -280,7 +280,7 @@ fn table_fixed_layout_explicit_widths() {
     dom.append_child(tr, td2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -316,7 +316,7 @@ fn table_fixed_layout_equal_distribution() {
         );
     }
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -343,7 +343,7 @@ fn table_fixed_overflow() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         600.0,
@@ -402,7 +402,7 @@ fn table_colspan_clamped_to_max() {
     let _ = dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         800.0,
@@ -459,7 +459,7 @@ fn table_column_limit_overflow() {
     }
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         800.0,

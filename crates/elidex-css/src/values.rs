@@ -27,14 +27,14 @@ fn try_dimension_or_zero(token: &cssparser::Token) -> Option<CssValue> {
 ///
 /// Unitless `0` is treated as `0px` per CSS specification.
 #[cfg(test)]
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
     let token = input.next().map_err(|_| ())?;
     try_dimension_or_zero(token).ok_or(())
 }
 
 /// Parse a length or percentage value.
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let token = input.next().map_err(|_| ())?;
     if let Some(val) = try_dimension_or_zero(token) {
@@ -51,7 +51,7 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
 /// Parse a non-negative length or percentage value.
 ///
 /// Returns `Err(())` if the value is negative.
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_non_negative_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let val = parse_length_or_percentage(input)?;
     match &val {
@@ -62,7 +62,7 @@ pub fn parse_non_negative_length_or_percentage(input: &mut Parser) -> Result<Css
 }
 
 /// Parse a length, percentage, or `auto` keyword.
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_length_percentage_or_auto(input: &mut Parser) -> Result<CssValue, ()> {
     if let Ok(val) = input.try_parse(|i| {
         let ident = i.expect_ident().map_err(|_| ())?;

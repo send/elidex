@@ -17,7 +17,7 @@ fn grid_empty_container() {
         .unwrap();
 
     let font_db = FontDatabase::new();
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         800.0,
@@ -107,7 +107,7 @@ fn column_track_sizing() {
             .map(|_| make_grid_child(&mut dom, container, 50.0))
             .collect();
 
-        layout_grid(
+        do_layout_grid(
             &mut dom,
             container,
             *container_w,
@@ -157,7 +157,7 @@ fn grid_auto_rows() {
     let _c4 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -199,7 +199,7 @@ fn grid_explicit_rows() {
     let c2 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -241,7 +241,7 @@ fn grid_auto_track_size() {
     let c3 = make_grid_child(&mut dom, container, 20.0);
 
     let font_db = FontDatabase::new();
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -281,7 +281,7 @@ fn grid_container_auto_height() {
     let _c2 = make_grid_child(&mut dom, container, 200.0);
 
     let font_db = FontDatabase::new();
-    let lb = layout_grid(
+    let lb = do_layout_grid(
         &mut dom,
         container,
         400.0,
@@ -322,7 +322,7 @@ fn grid_minmax_track() {
     let c2 = make_grid_child(&mut dom, container, 30.0);
 
     let font_db = FontDatabase::new();
-    layout_grid(
+    do_layout_grid(
         &mut dom,
         container,
         600.0,
@@ -365,7 +365,7 @@ fn grid_percentage_row_indefinite_height() {
     let child = make_grid_child(&mut dom, container, 80.0);
 
     let font_db = FontDatabase::new();
-    let clb = layout_grid(
+    let clb = do_layout_grid(
         &mut dom,
         container,
         400.0,

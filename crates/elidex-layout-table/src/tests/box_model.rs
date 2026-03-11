@@ -24,7 +24,7 @@ fn table_padding_border() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -74,7 +74,7 @@ fn table_cell_padding() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -128,7 +128,7 @@ fn table_nested_content() {
     dom.append_child(td, inner_div);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -174,7 +174,7 @@ fn table_cell_align() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -194,7 +194,7 @@ fn table_row_background() {
     // Just ensure row background doesn't break layout.
     let (mut dom, table, _) = create_simple_table(2, 2, default_table_style());
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -222,7 +222,7 @@ fn table_collapse_basic() {
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -249,7 +249,7 @@ fn table_collapse_no_spacing() {
     };
     let (mut dom, table, cells) = create_simple_table(1, 2, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -323,7 +323,7 @@ fn table_collapse_border_merge() {
     dom.append_child(tr, td2);
 
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,
@@ -350,7 +350,7 @@ fn table_collapse_outer_border() {
     };
     let (mut dom, table, _) = create_simple_table(1, 1, style);
     let font_db = FontDatabase::new();
-    layout_table(
+    do_layout_table(
         &mut dom,
         table,
         400.0,

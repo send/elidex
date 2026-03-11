@@ -1,10 +1,11 @@
 use super::*;
 
+type JustifyContentTestCase = (JustifyContent, &'static [(f32, f32)], f32, &'static [f32]);
+
 #[test]
-#[allow(clippy::type_complexity)]
 fn justify_content_variants() {
     // (JustifyContent, item_sizes, container_width, expected_x_positions)
-    let cases: &[(JustifyContent, &[(f32, f32)], f32, &[f32])] = &[
+    let cases: &[JustifyContentTestCase] = &[
         // FlexStart: 2 items at x=0, x=100
         (
             JustifyContent::FlexStart,
@@ -48,7 +49,7 @@ fn justify_content_variants() {
         let items: Vec<ComputedStyle> = item_sizes.iter().map(|(w, h)| flex_item(*w, *h)).collect();
         let (mut dom, container, item_entities) = make_flex_dom(style, &items);
         let font_db = FontDatabase::new();
-        layout_flex(
+        do_layout_flex(
             &mut dom,
             container,
             *container_width,
@@ -91,7 +92,7 @@ fn align_items_non_stretch() {
         let (mut dom, container, items) =
             make_flex_dom(style, &[flex_item(100.0, 30.0), flex_item(100.0, 60.0)]);
         let font_db = FontDatabase::new();
-        layout_flex(
+        do_layout_flex(
             &mut dom,
             container,
             800.0,
@@ -135,7 +136,7 @@ fn align_items_stretch() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[auto_height_item, flex_item(100.0, 60.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -168,7 +169,7 @@ fn column_gap_row_direction() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -198,7 +199,7 @@ fn row_gap_column_direction() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 40.0), flex_item(100.0, 40.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -244,7 +245,7 @@ fn gap_affects_flex_grow() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &items_styles);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         600.0,
@@ -271,7 +272,7 @@ fn gap_zero_default_unchanged() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -303,7 +304,7 @@ fn gap_with_wrap_cross_axis() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    let lb = layout_flex(
+    let lb = do_layout_flex(
         &mut dom,
         container,
         300.0,
@@ -336,7 +337,7 @@ fn gap_single_item_no_effect() {
     };
     let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -365,7 +366,7 @@ fn gap_with_justify_space_between() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -398,7 +399,7 @@ fn gap_with_row_reverse() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(100.0, 50.0), flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -432,7 +433,7 @@ fn gap_with_flex_shrink() {
     let (mut dom, container, items) =
         make_flex_dom(style, &[flex_item(200.0, 50.0), flex_item(200.0, 50.0)]);
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         400.0,
@@ -471,7 +472,7 @@ fn row_rtl_reverses_item_order() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,
@@ -506,7 +507,7 @@ fn row_reverse_rtl_restores_ltr_order() {
         &[flex_item(100.0, 50.0), flex_item(200.0, 50.0)],
     );
     let font_db = FontDatabase::new();
-    layout_flex(
+    do_layout_flex(
         &mut dom,
         container,
         800.0,

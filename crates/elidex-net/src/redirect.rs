@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::many_single_char_names)]
+    #[allow(clippy::many_single_char_names)] // Short URL variable names (a, b, c, ...) are clear in test context.
     fn is_same_origin_checks_scheme_host_port() {
         let a = url::Url::parse("https://example.com/a").unwrap();
         let b = url::Url::parse("https://example.com/b").unwrap();

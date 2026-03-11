@@ -203,13 +203,16 @@ impl JsRuntime {
                 Some(JsValue::from(arr))
             };
 
+            let event_flags = crate::globals::events::EventFlags {
+                prevent_default: Rc::clone(&prevent_default_flag),
+                stop_propagation: Rc::clone(&stop_propagation_flag),
+                stop_immediate: Rc::clone(&stop_immediate_flag),
+            };
             let event_obj = crate::globals::events::create_event_object(
                 ev,
                 &target_wrapper,
                 &current_target_wrapper,
-                &prevent_default_flag,
-                &stop_propagation_flag,
-                &stop_immediate_flag,
+                &event_flags,
                 composed_path_array,
                 ctx,
             );

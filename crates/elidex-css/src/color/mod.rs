@@ -171,7 +171,7 @@ fn named_color_lower(lower: &str) -> Option<CssColor> {
 ///
 /// Supports: named colors, hex (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`),
 /// `rgb()`, `rgba()`, and `transparent`.
-#[allow(clippy::result_unit_err)]
+#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_color(input: &mut Parser) -> Result<CssColor, ()> {
     let token = input.next().map_err(|_| ())?;
     match token {
@@ -319,7 +319,7 @@ fn clamp_u8(v: f32) -> u8 {
 /// - `h`: hue in degrees (0–360, wraps around)
 /// - `s`: saturation (0.0–1.0)
 /// - `l`: lightness (0.0–1.0)
-#[allow(clippy::many_single_char_names)]
+#[allow(clippy::many_single_char_names)] // h/s/l are standard HSL color model notation.
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §12).
     let h = if h.is_finite() { h } else { 0.0 };
@@ -389,7 +389,7 @@ fn parse_percentage_unit_value(input: &mut Parser) -> Result<f32, ()> {
 /// Parse the contents of `hsl(h, s%, l%)` or `hsla(h, s%, l%, a)`.
 ///
 /// Supports both comma-separated and space-separated syntax (CSS Color Level 4).
-#[allow(clippy::many_single_char_names)]
+#[allow(clippy::many_single_char_names)] // h/s/l are standard HSL color model notation.
 fn parse_hsl_function(input: &mut Parser) -> Result<CssColor, ()> {
     let h = parse_hue(input)?;
 

@@ -83,6 +83,7 @@ fn url_origin(u: &url::Url) -> String {
 /// Setting `location.href` or calling `assign()`/`replace()` sets a
 /// `pending_navigation` on the bridge.
 #[allow(clippy::too_many_lines)]
+// Sequential property/method registration on a single JS object.
 pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     // Clone the realm before creating ObjectInitializer to avoid borrow conflict.
     let realm = ctx.realm().clone();

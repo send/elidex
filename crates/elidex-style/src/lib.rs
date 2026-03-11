@@ -31,7 +31,7 @@ use elidex_plugin::ComputedStyle;
 pub use resolve::{dimension_to_css_value, get_computed_as_css_value};
 
 use resolve::ResolveContext;
-use walk::{find_roots, walk_tree};
+use walk::{find_roots, walk_tree, WalkState};
 
 /// No-op hint generator: produces no extra declarations.
 fn no_hints(_entity: Entity, _dom: &EcsDom) -> Vec<Declaration> {
@@ -98,16 +98,14 @@ pub fn resolve_styles_with_compat(
     let default_parent = ComputedStyle::default();
 
     let mut total_shadow_css = 0;
+    let mut state = WalkState {
+        ctx,
+        hint_generator,
+        depth: 0,
+        total_shadow_css: &mut total_shadow_css,
+    };
     for root in roots {
-        walk_tree(
-            dom,
-            root,
-            &all_sheets,
-            &default_parent,
-            &ctx,
-            hint_generator,
-            0,
-            &mut total_shadow_css,
-        );
+        state.depth = 0;
+        walk_tree(dom, root, &all_sheets, &default_parent, &mut state);
     }
 }
