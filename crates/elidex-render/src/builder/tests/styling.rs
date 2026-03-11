@@ -565,7 +565,6 @@ fn text_decoration_underline_emits_solid_rect() {
 
     let font_db = elidex_text::FontDatabase::new();
 
-
     let dl = build_display_list(&dom, &font_db);
     // Should have: Text item + SolidRect for underline.
     let text_count =
@@ -634,7 +633,6 @@ fn styled_span_color_preserved() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
-
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =

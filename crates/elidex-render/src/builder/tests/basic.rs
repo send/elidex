@@ -83,7 +83,6 @@ fn text_node_emits_text_item() {
 
     let font_db = elidex_text::FontDatabase::new();
 
-
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
         dl.0.iter()

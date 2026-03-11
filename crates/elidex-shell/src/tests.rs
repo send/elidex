@@ -3,7 +3,6 @@ use elidex_plugin::{EventPayload, MouseEventInit};
 use elidex_render::DisplayItem;
 use elidex_script_session::DispatchEvent;
 
-
 fn find_by_id(result: &PipelineResult, tag: &str, id: &str) -> Option<Entity> {
     let entities = result.dom.query_by_tag(tag);
     entities.into_iter().find(|&e| {
@@ -209,7 +208,7 @@ fn pipeline_without_scripts_still_works() {
     // Ensure the script integration path doesn't break pipelines without scripts.
     let dl = build_pipeline(
         "<h1>No Scripts</h1><p>Just content</p>",
-        "h1 { display: block; color: red; }",
+        "h1 { display: block; color: red; font-family: DejaVu Sans, Noto Sans, Arial, sans-serif; }",
     );
     let has_items = !dl.is_empty();
     assert!(has_items, "Expected display items for content");
@@ -441,7 +440,7 @@ fn lifecycle_events_not_cancelable() {
 fn inline_run_produces_single_text_item() {
     // Verifies that inline text is collected and rendered correctly.
     let html = r"<p>Hello <strong>world</strong>!</p>";
-    let css = "p { display: block; }";
+    let css = "p { display: block; font-family: DejaVu Sans, Noto Sans, Arial, sans-serif; }";
     let dl = build_pipeline(html, css);
     let text_count = dl
         .iter()

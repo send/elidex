@@ -45,7 +45,6 @@ fn inline_elements_text_collected() {
 
     let font_db = elidex_text::FontDatabase::new();
 
-
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
         dl.0.iter()
@@ -109,7 +108,6 @@ fn styled_segments_x_consecutive() {
 
     let font_db = elidex_text::FontDatabase::new();
 
-
     let dl = build_display_list(&dom, &font_db);
     let text_first_x: Vec<f32> =
         dl.0.iter()
@@ -167,7 +165,6 @@ fn display_none_inline_skipped() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
-
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
