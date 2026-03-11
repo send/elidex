@@ -13,8 +13,8 @@ mod var_resolution;
 
 use elidex_plugin::{
     Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Display,
-    Float, LengthUnit, LineHeight, TextOrientation, UnicodeBidi, VerticalAlign, Visibility,
-    WritingMode,
+    Float, LengthUnit, LineHeight, Position, TextOrientation, UnicodeBidi, VerticalAlign,
+    Visibility, WritingMode,
 };
 
 pub(crate) use helpers::PropertyMap;
@@ -340,10 +340,11 @@ fn resolve_float_visibility_properties(
         style.float = f;
     }
 
-    // CSS 2.1 §9.7: If float is not 'none', display is set according to
-    // the table (inline/inline-block/inline-flex/inline-grid/inline-table
-    // become their block-level equivalents).
-    if style.float != Float::None {
+    // CSS 2.1 §9.7: If float is not 'none', or position is 'absolute'
+    // or 'fixed', display is set according to the table (inline-level
+    // values become their block-level equivalents).
+    if style.float != Float::None || matches!(style.position, Position::Absolute | Position::Fixed)
+    {
         style.display = blockify_display(style.display);
     }
 
@@ -361,10 +362,10 @@ fn resolve_float_visibility_properties(
             CssValue::Length(v, unit) => VerticalAlign::Length(resolve_length(*v, *unit, ctx)),
             CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
             CssValue::Calc(expr) => {
-                // Resolve calc() to a pixel length. Percentage terms in
-                // vertical-align are relative to line-height, which isn't
-                // available here; they resolve against 0 for now.
-                VerticalAlign::Length(helpers::resolve_calc_expr(expr, 0.0, ctx))
+                // CSS 2.1 §10.8.1: percentages in vertical-align refer to
+                // the element's own line-height.
+                let lh_base = computed_line_height_px(style);
+                VerticalAlign::Length(helpers::resolve_calc_expr(expr, lh_base, ctx))
             }
             _ => VerticalAlign::Baseline,
         };
@@ -375,12 +376,25 @@ fn resolve_float_visibility_properties(
 /// equivalents when the element is floated (or absolutely positioned).
 fn blockify_display(display: Display) -> Display {
     match display {
-        Display::Inline | Display::InlineBlock => Display::Block,
+        Display::Inline | Display::InlineBlock | Display::Contents => Display::Block,
         Display::InlineFlex => Display::Flex,
         Display::InlineGrid => Display::Grid,
         Display::InlineTable => Display::Table,
-        // All other values are unchanged.
+        // All other values (Block, Flex, Grid, Table, ListItem, etc.)
+        // are already block-level — unchanged.
         other => other,
+    }
+}
+
+/// Compute the element's line-height in pixels for percentage resolution.
+///
+/// CSS 2.1 §10.8.1: `vertical-align` percentages refer to the element's
+/// computed `line-height`. Normal line-height uses 1.2 × font-size.
+fn computed_line_height_px(style: &ComputedStyle) -> f32 {
+    match style.line_height {
+        LineHeight::Px(px) => px,
+        LineHeight::Number(n) => n * style.font_size,
+        LineHeight::Normal => 1.2 * style.font_size,
     }
 }
 
@@ -516,5 +530,26 @@ mod tests {
         assert_eq!(blockify_display(Display::Block), Display::Block);
         assert_eq!(blockify_display(Display::Flex), Display::Flex);
         assert_eq!(blockify_display(Display::Table), Display::Table);
+    }
+
+    #[test]
+    fn blockify_contents_to_block() {
+        // CSS Display Level 3 §3.1: display:contents blockifies to block.
+        assert_eq!(blockify_display(Display::Contents), Display::Block);
+    }
+
+    #[test]
+    fn computed_line_height_px_variants() {
+        let mut style = ComputedStyle::default();
+        style.font_size = 16.0;
+
+        style.line_height = LineHeight::Px(24.0);
+        assert_eq!(computed_line_height_px(&style), 24.0);
+
+        style.line_height = LineHeight::Number(1.5);
+        assert_eq!(computed_line_height_px(&style), 24.0);
+
+        style.line_height = LineHeight::Normal;
+        assert!((computed_line_height_px(&style) - 19.2).abs() < 0.01);
     }
 }

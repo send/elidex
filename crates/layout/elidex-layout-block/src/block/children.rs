@@ -160,8 +160,10 @@ fn layout_float(
                 resolved
             }
         }
-        // Auto: shrink-to-fit. Layout with containing width to measure,
-        // then the child's actual content width becomes the float width.
+        // TODO(Phase 4): CSS 2.1 §10.3.5 — float with auto width should use
+        // shrink-to-fit: min(max(preferred_min_width, available), preferred_width).
+        // Currently uses available width as a fallback until intrinsic sizing is
+        // implemented.
         _ => containing_width - margin_left - margin_right - h_pb,
     };
 

@@ -14,7 +14,10 @@ mod replaced;
 mod tests;
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
-use elidex_plugin::{BoxSizing, Dimension, Display, EdgeSizes, LayoutBox, Rect, WritingMode};
+use elidex_plugin::{
+    BoxSizing, Dimension, Display, EdgeSizes, Float, LayoutBox, Overflow, Position, Rect,
+    WritingMode,
+};
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
@@ -225,8 +228,10 @@ pub fn layout_block_inner(
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's top margin collapses with parent's top margin
-        // when parent has no border-top and no padding-top.
-        if border.top == 0.0 && padding.top == 0.0 {
+        // when parent has no border-top, no padding-top, and the parent
+        // does not establish a new block formatting context.
+        let is_bfc = establishes_bfc(&style);
+        if border.top == 0.0 && padding.top == 0.0 && !is_bfc {
             if let Some(first_mt) = result.first_child_margin_top {
                 let new_margin_top = collapse_margins(margin_top, first_mt);
                 // Parent content origin shifts by (new_margin - old_margin), and
@@ -239,9 +244,12 @@ pub fn layout_block_inner(
             }
         }
         // Last child's bottom margin collapses with parent's bottom margin
-        // when parent has no border-bottom and no padding-bottom and
-        // the parent's height is auto (CSS 2.1 §8.3.1).
-        if border.bottom == 0.0 && padding.bottom == 0.0 && matches!(style.height, Dimension::Auto)
+        // when parent has no border-bottom, no padding-bottom, height is auto,
+        // and the parent does not establish a new BFC (CSS 2.1 §8.3.1).
+        if border.bottom == 0.0
+            && padding.bottom == 0.0
+            && matches!(style.height, Dimension::Auto)
+            && !is_bfc
         {
             if let Some(last_mb) = result.last_child_margin_bottom {
                 collapsed_margin_bottom = collapse_margins(margin_bottom, last_mb);
@@ -293,4 +301,29 @@ pub fn layout_block_inner(
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
+}
+
+/// CSS 2.1 §9.4.1: Does this element establish a new block formatting context?
+///
+/// Elements that establish a BFC prevent margin collapse with children.
+fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
+    // Float elements
+    style.float != Float::None
+        // Absolutely/fixedly positioned elements
+        || matches!(style.position, Position::Absolute | Position::Fixed)
+        // overflow other than 'visible'
+        || style.overflow != Overflow::Visible
+        // Flex/grid/table containers
+        || matches!(
+            style.display,
+            Display::Flex
+                | Display::InlineFlex
+                | Display::Grid
+                | Display::InlineGrid
+                | Display::Table
+                | Display::InlineTable
+                | Display::TableCell
+        )
+        // Inline-block
+        || style.display == Display::InlineBlock
 }
