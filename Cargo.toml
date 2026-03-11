@@ -72,7 +72,7 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 rustls-pki-types = "1"
 tokio-rustls = "0.26"
 url = "2"
-webpki-roots = "0.26"
+webpki-roots = "1"
 elidex-net = { path = "crates/elidex-net" }
 elidex-plugin = { path = "crates/elidex-plugin" }
 elidex-ecs = { path = "crates/elidex-ecs" }
