@@ -19,7 +19,12 @@ const MAX_WALK_DEPTH: usize = MAX_ANCESTOR_DEPTH;
 ///
 /// Updates `em_base` from the entity's font-size and `root_font_size`
 /// if the entity is the `<html>` root element.
-fn child_context(dom: &EcsDom, entity: Entity, style: &ComputedStyle, ctx: &ResolveContext) -> ResolveContext {
+fn child_context(
+    dom: &EcsDom,
+    entity: Entity,
+    style: &ComputedStyle,
+    ctx: &ResolveContext,
+) -> ResolveContext {
     let root_fs = if dom.has_tag(entity, "html") {
         style.font_size
     } else {

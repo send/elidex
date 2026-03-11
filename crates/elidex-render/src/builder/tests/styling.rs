@@ -11,6 +11,7 @@ fn text_align_center_offsets_text() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             text_align: elidex_plugin::TextAlign::Center,
+            font_family: test_font_family_strings(),
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -54,6 +55,7 @@ fn text_align_right_offsets_text() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             text_align: elidex_plugin::TextAlign::Right,
+            font_family: test_font_family_strings(),
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
