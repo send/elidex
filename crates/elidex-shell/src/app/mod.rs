@@ -553,16 +553,14 @@ impl App {
             let y = (cy as f32) - y_offset;
             if y >= 0.0 && x >= 0.0 {
                 let mods = Self::to_modifier_state(self.modifiers.state());
-                self.send_to_content(BrowserToContent::MouseClick(
-                    crate::ipc::MouseClickEvent {
-                        x,
-                        y,
-                        client_x: cx,
-                        client_y: cy,
-                        button: winit_button_to_dom(button),
-                        mods,
-                    },
-                ));
+                self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
+                    x,
+                    y,
+                    client_x: cx,
+                    client_y: cy,
+                    button: winit_button_to_dom(button),
+                    mods,
+                }));
             }
         }
     }
@@ -612,10 +610,8 @@ impl App {
             } else {
                 "keyup"
             };
-            let (key, code) = crate::key_map::winit_key_to_dom(
-                &key_event.logical_key,
-                key_event.physical_key,
-            );
+            let (key, code) =
+                crate::key_map::winit_key_to_dom(&key_event.logical_key, key_event.physical_key);
             let ipc_mods = Self::to_modifier_state(self.modifiers.state());
 
             let msg = if event_type == "keydown" {
@@ -832,15 +828,10 @@ impl App {
             interactive.cursor_pos = Some((px, py));
 
             #[allow(clippy::cast_possible_truncation)]
-            let (x, y) = (
-                px as f32,
-                (py as f32) - crate::chrome::CHROME_HEIGHT,
-            );
+            let (x, y) = (px as f32, (py as f32) - crate::chrome::CHROME_HEIGHT);
             let new_chain = if y >= 0.0 {
                 elidex_layout::hit_test(&interactive.pipeline.dom, x, y)
-                    .map(|hit| {
-                        hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity)
-                    })
+                    .map(|hit| hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity))
                     .unwrap_or_default()
             } else {
                 Vec::new()
@@ -850,11 +841,7 @@ impl App {
                 false
             } else {
                 let old_chain = std::mem::take(&mut interactive.hover_chain);
-                hover::apply_hover_diff(
-                    &mut interactive.pipeline.dom,
-                    &old_chain,
-                    &new_chain,
-                );
+                hover::apply_hover_diff(&mut interactive.pipeline.dom, &old_chain, &new_chain);
                 interactive.hover_chain = new_chain;
                 crate::re_render(&mut interactive.pipeline);
                 true
@@ -1017,18 +1004,14 @@ impl App {
             return;
         }
 
-        if key_event.state == ElementState::Pressed
-            || key_event.state == ElementState::Released
-        {
+        if key_event.state == ElementState::Pressed || key_event.state == ElementState::Released {
             let event_type = if key_event.state == ElementState::Pressed {
                 "keydown"
             } else {
                 "keyup"
             };
-            let (key, code) = crate::key_map::winit_key_to_dom(
-                &key_event.logical_key,
-                key_event.physical_key,
-            );
+            let (key, code) =
+                crate::key_map::winit_key_to_dom(&key_event.logical_key, key_event.physical_key);
             let mods = self
                 .interactive
                 .as_ref()
