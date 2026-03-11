@@ -12,8 +12,9 @@ pub(crate) mod helpers;
 mod var_resolution;
 
 use elidex_plugin::{
-    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Float,
-    LengthUnit, LineHeight, TextOrientation, UnicodeBidi, VerticalAlign, Visibility, WritingMode,
+    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Display,
+    Float, LengthUnit, LineHeight, TextOrientation, UnicodeBidi, VerticalAlign, Visibility,
+    WritingMode,
 };
 
 pub(crate) use helpers::PropertyMap;
@@ -339,6 +340,13 @@ fn resolve_float_visibility_properties(
         style.float = f;
     }
 
+    // CSS 2.1 §9.7: If float is not 'none', display is set according to
+    // the table (inline/inline-block/inline-flex/inline-grid/inline-table
+    // become their block-level equivalents).
+    if style.float != Float::None {
+        style.display = blockify_display(style.display);
+    }
+
     // clear — non-inherited
     if let Some(c) = resolve_keyword_enum("clear", winners, parent_style, Clear::from_keyword) {
         style.clear = c;
@@ -354,6 +362,19 @@ fn resolve_float_visibility_properties(
             CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
             _ => VerticalAlign::Baseline,
         };
+    }
+}
+
+/// CSS 2.1 §9.7: Map inline-level display values to their block-level
+/// equivalents when the element is floated (or absolutely positioned).
+fn blockify_display(display: Display) -> Display {
+    match display {
+        Display::Inline | Display::InlineBlock => Display::Block,
+        Display::InlineFlex => Display::Flex,
+        Display::InlineGrid => Display::Grid,
+        Display::InlineTable => Display::Table,
+        // All other values are unchanged.
+        other => other,
     }
 }
 
@@ -459,5 +480,35 @@ mod tests {
                 CssValue::Keyword("sans-serif".to_string()),
             ])
         );
+    }
+
+    // --- CSS 2.1 §9.7: blockify_display tests ---
+
+    #[test]
+    fn blockify_inline_to_block() {
+        assert_eq!(blockify_display(Display::Inline), Display::Block);
+        assert_eq!(blockify_display(Display::InlineBlock), Display::Block);
+    }
+
+    #[test]
+    fn blockify_inline_flex_to_flex() {
+        assert_eq!(blockify_display(Display::InlineFlex), Display::Flex);
+    }
+
+    #[test]
+    fn blockify_inline_grid_to_grid() {
+        assert_eq!(blockify_display(Display::InlineGrid), Display::Grid);
+    }
+
+    #[test]
+    fn blockify_inline_table_to_table() {
+        assert_eq!(blockify_display(Display::InlineTable), Display::Table);
+    }
+
+    #[test]
+    fn blockify_block_unchanged() {
+        assert_eq!(blockify_display(Display::Block), Display::Block);
+        assert_eq!(blockify_display(Display::Flex), Display::Flex);
+        assert_eq!(blockify_display(Display::Table), Display::Table);
     }
 }

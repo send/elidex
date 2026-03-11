@@ -84,11 +84,14 @@ impl FloatContext {
             y = next_y;
         }
 
-        let (left_used, _right_used) = self.used_width_at(y, margin_box_height);
+        let (left_used, right_used) = self.used_width_at(y, margin_box_height);
 
         let x = match float_side {
             Float::Left => left_used,
-            Float::Right => (self.containing_width - margin_box_width).max(left_used),
+            // CSS 2.1 §9.5.1 rule 3: right float's right edge must not be to
+            // the right of the containing block, and must not overlap existing
+            // right floats. Also must not be to the left of any left float.
+            Float::Right => (self.containing_width - right_used - margin_box_width).max(left_used),
             Float::None => return (0.0, y), // shouldn't happen
         };
 
@@ -232,6 +235,16 @@ mod tests {
         let (x, y) = ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
         assert_eq!(x, 200.0); // next to the first float
         assert_eq!(y, 0.0);
+    }
+
+    #[test]
+    fn right_floats_stack_horizontally() {
+        // CSS 2.1 §9.5.1 rule 3: right floats must not overlap.
+        let mut ctx = FloatContext::new(800.0);
+        let (x1, _) = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
+        assert_eq!(x1, 600.0); // 800 - 200
+        let (x2, _) = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
+        assert_eq!(x2, 400.0); // 800 - 200 - 200
     }
 
     #[test]

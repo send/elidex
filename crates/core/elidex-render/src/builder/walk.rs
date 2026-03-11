@@ -42,10 +42,17 @@ pub(crate) fn walk(
         if style.display == Display::None {
             return;
         }
+        // CSS 2.1 §11.2: visibility: collapse on table-row, table-column,
+        // table-row-group, or table-column-group hides the entire row/column
+        // (equivalent to display: none for rendering purposes).
+        if style.visibility == Visibility::Collapse && is_table_internal(style.display) {
+            return;
+        }
     }
 
     // Check visibility — hidden elements skip painting but still occupy space
     // and children can override visibility, so we must recurse.
+    // For non-table elements, 'collapse' is treated the same as 'hidden'.
     let is_visible = dom
         .world()
         .get::<&ComputedStyle>(entity)
@@ -147,4 +154,18 @@ pub(crate) fn walk(
 /// nodes and inline elements) are collected into inline runs.
 pub(crate) fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
     dom.world().get::<&LayoutBox>(entity).is_ok()
+}
+
+/// CSS 2.1 §11.2: table-internal display types where `visibility: collapse`
+/// hides the entire row/column (rather than just hiding the content).
+fn is_table_internal(display: Display) -> bool {
+    matches!(
+        display,
+        Display::TableRow
+            | Display::TableColumn
+            | Display::TableRowGroup
+            | Display::TableHeaderGroup
+            | Display::TableFooterGroup
+            | Display::TableColumnGroup
+    )
 }

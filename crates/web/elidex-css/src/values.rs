@@ -106,6 +106,9 @@ fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
 // --- calc() expression parser (CSS Values Level 3 §8) ---
 
 /// Parse a `calc()` function into a `CssValue::Calc`.
+///
+/// After parsing the expression tree, validates type correctness per
+/// CSS Values Level 3 §8.1.1.
 fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
     input.expect_function_matching("calc").map_err(|_| ())?;
     let expr = input
@@ -113,6 +116,8 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
             parse_calc_sum(block).map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+    // Validate type correctness before accepting.
+    validate_calc_types(&expr)?;
     Ok(CssValue::Calc(Box::new(expr)))
 }
 
@@ -198,6 +203,108 @@ fn parse_calc_value(input: &mut Parser) -> Result<CalcExpr, ()> {
             Ok(CalcExpr::Percentage(unit_value * 100.0))
         }
         _ => Err(()),
+    }
+}
+
+// --- calc() type validation (CSS Values Level 3 §8.1.1) ---
+
+/// The resolved type of a `calc()` sub-expression.
+#[derive(Clone, Copy, PartialEq)]
+enum CalcType {
+    /// A `<number>` (unitless).
+    Number,
+    /// A `<length>` or `<percentage>` (dimensional).
+    LengthPercentage,
+}
+
+/// Infer the type of a calc leaf.
+fn calc_leaf_type(expr: &CalcExpr) -> CalcType {
+    match expr {
+        CalcExpr::Number(_) => CalcType::Number,
+        CalcExpr::Length(..) | CalcExpr::Percentage(_) => CalcType::LengthPercentage,
+        // Compound nodes are checked recursively by validate_calc_types.
+        CalcExpr::Add(..) | CalcExpr::Sub(..) | CalcExpr::Mul(..) | CalcExpr::Div(..) => {
+            infer_calc_type(expr).unwrap_or(CalcType::LengthPercentage)
+        }
+    }
+}
+
+/// Infer the result type of a compound expression.
+fn infer_calc_type(expr: &CalcExpr) -> Option<CalcType> {
+    match expr {
+        CalcExpr::Number(_) => Some(CalcType::Number),
+        CalcExpr::Length(..) | CalcExpr::Percentage(_) => Some(CalcType::LengthPercentage),
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
+            let ta = infer_calc_type(a)?;
+            let tb = infer_calc_type(b)?;
+            if ta == tb {
+                Some(ta)
+            } else {
+                None
+            }
+        }
+        CalcExpr::Mul(a, b) => {
+            let ta = infer_calc_type(a)?;
+            let tb = infer_calc_type(b)?;
+            match (ta, tb) {
+                (CalcType::Number, CalcType::Number) => Some(CalcType::Number),
+                (CalcType::Number, CalcType::LengthPercentage)
+                | (CalcType::LengthPercentage, CalcType::Number) => {
+                    Some(CalcType::LengthPercentage)
+                }
+                // <length> * <length> is invalid.
+                _ => None,
+            }
+        }
+        CalcExpr::Div(a, b) => {
+            let _ta = infer_calc_type(a)?;
+            let tb = infer_calc_type(b)?;
+            // Divisor must be <number>.
+            if tb != CalcType::Number {
+                return None;
+            }
+            infer_calc_type(a)
+        }
+    }
+}
+
+/// Validate `calc()` expression type correctness.
+///
+/// CSS Values Level 3 §8.1.1:
+/// - `+`/`-`: both operands must be the same type
+/// - `*`: at least one operand must be `<number>`
+/// - `/`: the right operand must be `<number>`
+fn validate_calc_types(expr: &CalcExpr) -> Result<(), ()> {
+    match expr {
+        CalcExpr::Number(_) | CalcExpr::Length(..) | CalcExpr::Percentage(_) => Ok(()),
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
+            validate_calc_types(a)?;
+            validate_calc_types(b)?;
+            let ta = calc_leaf_type(a);
+            let tb = calc_leaf_type(b);
+            if ta != tb {
+                return Err(());
+            }
+            Ok(())
+        }
+        CalcExpr::Mul(a, b) => {
+            validate_calc_types(a)?;
+            validate_calc_types(b)?;
+            let ta = calc_leaf_type(a);
+            let tb = calc_leaf_type(b);
+            if ta == CalcType::LengthPercentage && tb == CalcType::LengthPercentage {
+                return Err(());
+            }
+            Ok(())
+        }
+        CalcExpr::Div(a, b) => {
+            validate_calc_types(a)?;
+            validate_calc_types(b)?;
+            if calc_leaf_type(b) != CalcType::Number {
+                return Err(());
+            }
+            Ok(())
+        }
     }
 }
 
@@ -363,5 +470,37 @@ mod tests {
             },
             _ => panic!("expected Calc"),
         }
+    }
+
+    // --- calc() type validation tests (CSS Values Level 3 §8.1.1) ---
+
+    #[test]
+    fn calc_rejects_length_times_length() {
+        // <length> * <length> is invalid.
+        assert!(length_or_pct("calc(10px * 5px)").is_err());
+    }
+
+    #[test]
+    fn calc_rejects_divide_by_length() {
+        // Divisor must be <number>.
+        assert!(length_or_pct("calc(100px / 5px)").is_err());
+    }
+
+    #[test]
+    fn calc_rejects_add_mixed_types() {
+        // <length> + <number> is invalid.
+        assert!(length_or_pct("calc(10px + 5)").is_err());
+    }
+
+    #[test]
+    fn calc_allows_number_times_length() {
+        // <number> * <length> is valid.
+        assert!(length_or_pct("calc(3 * 10px)").is_ok());
+    }
+
+    #[test]
+    fn calc_allows_length_plus_percentage() {
+        // Both are dimensional — allowed in length-percentage contexts.
+        assert!(length_or_pct("calc(10px + 50%)").is_ok());
     }
 }
