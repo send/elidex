@@ -399,7 +399,11 @@ fn compute_vertical_text_align_offset(
         _ => {
             let total_height: f32 = collapsed
                 .iter()
-                .map(|(text, idx)| measure_segment_height(text, &segments[*idx], font_db))
+                .filter_map(|(text, idx)| {
+                    segments
+                        .get(*idx)
+                        .map(|seg| measure_segment_height(text, seg, font_db))
+                })
                 .sum();
             let free = (container_height - total_height).max(0.0);
             match resolved {

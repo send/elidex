@@ -220,7 +220,7 @@ fn layout_float(
 }
 
 /// Shift all block-level children's `LayoutBox.content.y` by `delta`,
-/// recursively including descendants.
+/// iteratively including descendants.
 ///
 /// Used after parent-child margin collapse to reposition children that were
 /// laid out before the collapse was detected.
@@ -228,7 +228,8 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
     if delta.abs() < f32::EPSILON {
         return;
     }
-    for &child in children {
+    let mut stack: Vec<Entity> = children.to_vec();
+    while let Some(child) = stack.pop() {
         let is_block = crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !is_block {
             continue;
@@ -236,25 +237,19 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
         if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
             lb.content.y += delta;
         }
-        // Recurse into descendants so nested layout positions stay consistent.
-        let grandchildren = dom.composed_children(child);
-        if !grandchildren.is_empty() {
-            shift_block_children(dom, &grandchildren, delta);
-        }
+        stack.extend(dom.composed_children(child));
     }
 }
 
 /// Shift descendants by (dx, dy), used to reposition float contents after placement.
 fn shift_descendants(dom: &mut EcsDom, children: &[Entity], dx: f32, dy: f32) {
-    for &child in children {
+    let mut stack: Vec<Entity> = children.to_vec();
+    while let Some(child) = stack.pop() {
         if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
             lb.content.x += dx;
             lb.content.y += dy;
         }
-        let grandchildren = dom.composed_children(child);
-        if !grandchildren.is_empty() {
-            shift_descendants(dom, &grandchildren, dx, dy);
-        }
+        stack.extend(dom.composed_children(child));
     }
 }
 
