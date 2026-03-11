@@ -96,8 +96,8 @@ elidex-navigation = { path = "crates/elidex-navigation" }
 elidex-api-canvas = { path = "crates/elidex-api-canvas" }
 elidex-a11y = { path = "crates/elidex-a11y" }
 elidex-wasm-runtime = { path = "crates/elidex-wasm-runtime" }
-boa_engine = { version = "0.20", features = ["annex-b"] }
-boa_gc = "0.20"
+boa_engine = { version = "0.21", features = ["annex-b"] }
+boa_gc = "0.21"
 egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"

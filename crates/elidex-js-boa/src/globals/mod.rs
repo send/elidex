@@ -112,7 +112,7 @@ pub(crate) fn add_event_listener_for(
     let event_type = require_js_string_arg(args, 0, "addEventListener", ctx)?;
     let listener_fn = args
         .get(1)
-        .and_then(|v| v.as_object().cloned())
+        .and_then(|v| v.as_object())
         .ok_or_else(|| {
             JsNativeError::typ().with_message("addEventListener: argument 1 must be a function")
         })?;
@@ -164,7 +164,7 @@ pub(crate) fn remove_event_listener_for(
     let event_type = require_js_string_arg(args, 0, "removeEventListener", ctx)?;
     let listener_fn = args
         .get(1)
-        .and_then(|v| v.as_object().cloned())
+        .and_then(|v| v.as_object())
         .ok_or_else(|| {
             JsNativeError::typ().with_message("removeEventListener: argument 1 must be a function")
         })?;
