@@ -77,7 +77,7 @@ impl FloatContext {
             }
 
             // Float doesn't fit — drop below the shallowest float at this Y.
-            let next_y = self.next_clear_y(y);
+            let next_y = self.next_clear_y(y, margin_box_height);
             if next_y <= y {
                 break; // No more floats to clear
             }
@@ -154,11 +154,16 @@ impl FloatContext {
     }
 
     /// Find the next Y coordinate where a float clears (lowest bottom of
-    /// all floats that overlap with `y`).
-    fn next_clear_y(&self, y: f32) -> f32 {
+    /// the shallowest float that overlaps the vertical span `[y, y+height)`).
+    ///
+    /// Uses the same overlap condition as `used_width_at()` so that
+    /// `place_float()` correctly drops below floats that start within
+    /// the new float's height span, not just at or above `y`.
+    fn next_clear_y(&self, y: f32, height: f32) -> f32 {
+        let bottom = y + height;
         let mut min_bottom = f32::MAX;
         for f in self.left_floats.iter().chain(self.right_floats.iter()) {
-            if f.bottom() > y && f.y <= y {
+            if f.bottom() > y && f.y < bottom {
                 min_bottom = min_bottom.min(f.bottom());
             }
         }

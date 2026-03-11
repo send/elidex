@@ -40,6 +40,11 @@ pub fn stack_block_children(
     let mut prev_margin_bottom: Option<f32> = None;
     let mut first_child_margin_top: Option<f32> = None;
     let mut last_child_margin_bottom: Option<f32> = None;
+    // TODO(Phase 4): CSS 2.1 §9.5 — floats in non-BFC blocks should
+    // propagate to the nearest ancestor BFC. Currently each block creates
+    // a fresh FloatContext, so floats are scoped to their immediate parent.
+    // Proper propagation requires threading the float context through the
+    // layout tree.
     let mut float_ctx = FloatContext::new(input.containing_width);
 
     for &child in children {
@@ -264,17 +269,15 @@ fn shift_descendants_inner(
 ) {
     let mut stack: Vec<Entity> = children.to_vec();
     while let Some(child) = stack.pop() {
-        if block_only {
-            let is_block =
-                crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
-            if !is_block {
-                continue;
+        let skip_shift = block_only
+            && !crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
+        if !skip_shift {
+            if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
+                lb.content.x += dx;
+                lb.content.y += dy;
             }
         }
-        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
-            lb.content.x += dx;
-            lb.content.y += dy;
-        }
+        // Always walk descendants regardless of block_only filter.
         stack.extend(dom.composed_children(child));
     }
 }
