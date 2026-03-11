@@ -111,7 +111,7 @@ accesskit_winit = "0.32"
 wasmtime = "29"
 wat = "1"
 rayon = "1"
-criterion = { version = "0.5", default-features = false }
+criterion = { version = "0.8" }
 elidex-wpt = { path = "crates/elidex-wpt" }
 
 [profile.release]
