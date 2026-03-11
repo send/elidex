@@ -92,12 +92,25 @@ impl FloatContext {
 
         let (left_used, right_used) = self.used_width_at(y, margin_box_height);
 
+        let available = self.containing_width - left_used - right_used;
+
         let x = match float_side {
             Float::Left => left_used,
             // CSS 2.1 §9.5.1 rule 3: right float's right edge must not be to
             // the right of the containing block, and must not overlap existing
             // right floats. Also must not be to the left of any left float.
-            Float::Right => (self.containing_width - right_used - margin_box_width).max(left_used),
+            //
+            // If the float is wider than the available space, we still align
+            // its right edge with the containing block (which can yield a
+            // negative x) instead of clamping to `left_used`.
+            Float::Right => {
+                let base_x = self.containing_width - right_used - margin_box_width;
+                if margin_box_width <= available {
+                    base_x.max(left_used)
+                } else {
+                    base_x
+                }
+            }
             Float::None => return (0.0, y), // shouldn't happen
         };
 
@@ -283,6 +296,16 @@ mod tests {
         // Second float can't fit at y=0 (available=0), drops below.
         let (_, y) = ctx.place_float(Float::Left, 100.0, 50.0, 0.0);
         assert_eq!(y, 80.0);
+    }
+
+    #[test]
+    fn oversized_right_float_allows_negative_x() {
+        // A right float wider than the containing block should have its
+        // right edge aligned with the containing block (negative x),
+        // not clamped to left_used = 0.
+        let mut ctx = FloatContext::new(200.0);
+        let (x, _) = ctx.place_float(Float::Right, 300.0, 50.0, 0.0);
+        assert_eq!(x, -100.0); // 200 - 0 - 300 = -100
     }
 
     #[test]

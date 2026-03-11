@@ -126,7 +126,15 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
 pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
-        CssValue::Calc(expr) => resolve_calc_expr(expr, 0.0, ctx),
+        CssValue::Calc(expr) => {
+            if calc_has_percentage(expr) {
+                // Percentages are not supported at this stage; avoid resolving
+                // them against a 0.0 base, which would yield incorrect values.
+                0.0
+            } else {
+                resolve_calc_expr(expr, 0.0, ctx)
+            }
+        }
         // TODO(Phase 4): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,
         _ => 0.0,
