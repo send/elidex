@@ -540,16 +540,27 @@ mod tests {
 
     #[test]
     fn computed_line_height_px_variants() {
-        let mut style = ComputedStyle::default();
-        style.font_size = 16.0;
+        let base = ComputedStyle {
+            font_size: 16.0,
+            ..ComputedStyle::default()
+        };
 
-        style.line_height = LineHeight::Px(24.0);
-        assert_eq!(computed_line_height_px(&style), 24.0);
+        let s1 = ComputedStyle {
+            line_height: LineHeight::Px(24.0),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s1), 24.0);
 
-        style.line_height = LineHeight::Number(1.5);
-        assert_eq!(computed_line_height_px(&style), 24.0);
+        let s2 = ComputedStyle {
+            line_height: LineHeight::Number(1.5),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s2), 24.0);
 
-        style.line_height = LineHeight::Normal;
-        assert!((computed_line_height_px(&style) - 19.2).abs() < 0.01);
+        let s3 = ComputedStyle {
+            line_height: LineHeight::Normal,
+            ..base
+        };
+        assert!((computed_line_height_px(&s3) - 19.2).abs() < 0.01);
     }
 }
