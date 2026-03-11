@@ -222,19 +222,11 @@ enum CalcType {
     LengthPercentage,
 }
 
-/// Infer the type of a calc leaf.
-fn calc_leaf_type(expr: &CalcExpr) -> CalcType {
-    match expr {
-        CalcExpr::Number(_) => CalcType::Number,
-        CalcExpr::Length(..) | CalcExpr::Percentage(_) => CalcType::LengthPercentage,
-        // Compound nodes are checked recursively by validate_calc_types.
-        CalcExpr::Add(..) | CalcExpr::Sub(..) | CalcExpr::Mul(..) | CalcExpr::Div(..) => {
-            infer_calc_type(expr).unwrap_or(CalcType::LengthPercentage)
-        }
-    }
-}
-
-/// Infer the result type of a compound expression.
+/// Infer the result type of a `calc()` expression, returning `None` if
+/// the expression violates CSS Values Level 3 §8.1.1 type rules:
+/// - `+`/`-`: both operands must be the same type
+/// - `*`: at least one operand must be `<number>`
+/// - `/`: the right operand must be `<number>`
 fn infer_calc_type(expr: &CalcExpr) -> Option<CalcType> {
     match expr {
         CalcExpr::Number(_) => Some(CalcType::Number),
@@ -257,60 +249,25 @@ fn infer_calc_type(expr: &CalcExpr) -> Option<CalcType> {
                 | (CalcType::LengthPercentage, CalcType::Number) => {
                     Some(CalcType::LengthPercentage)
                 }
-                // <length> * <length> is invalid.
                 _ => None,
             }
         }
         CalcExpr::Div(a, b) => {
-            let _ta = infer_calc_type(a)?;
+            let ta = infer_calc_type(a)?;
             let tb = infer_calc_type(b)?;
-            // Divisor must be <number>.
             if tb != CalcType::Number {
                 return None;
             }
-            infer_calc_type(a)
+            Some(ta)
         }
     }
 }
 
 /// Validate `calc()` expression type correctness.
 ///
-/// CSS Values Level 3 §8.1.1:
-/// - `+`/`-`: both operands must be the same type
-/// - `*`: at least one operand must be `<number>`
-/// - `/`: the right operand must be `<number>`
+/// Returns `Err(())` if any sub-expression violates the type rules.
 fn validate_calc_types(expr: &CalcExpr) -> Result<(), ()> {
-    match expr {
-        CalcExpr::Number(_) | CalcExpr::Length(..) | CalcExpr::Percentage(_) => Ok(()),
-        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
-            validate_calc_types(a)?;
-            validate_calc_types(b)?;
-            let ta = calc_leaf_type(a);
-            let tb = calc_leaf_type(b);
-            if ta != tb {
-                return Err(());
-            }
-            Ok(())
-        }
-        CalcExpr::Mul(a, b) => {
-            validate_calc_types(a)?;
-            validate_calc_types(b)?;
-            let ta = calc_leaf_type(a);
-            let tb = calc_leaf_type(b);
-            if ta == CalcType::LengthPercentage && tb == CalcType::LengthPercentage {
-                return Err(());
-            }
-            Ok(())
-        }
-        CalcExpr::Div(a, b) => {
-            validate_calc_types(a)?;
-            validate_calc_types(b)?;
-            if calc_leaf_type(b) != CalcType::Number {
-                return Err(());
-            }
-            Ok(())
-        }
-    }
+    infer_calc_type(expr).map(|_| ()).ok_or(())
 }
 
 #[cfg(test)]

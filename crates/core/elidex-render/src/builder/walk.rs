@@ -35,10 +35,11 @@ pub(crate) fn walk(
         return;
     }
 
+    // Fetch ComputedStyle once for display/visibility/painting checks.
+    let style_ref = dom.world().get::<&ComputedStyle>(entity).ok();
+
     // Check for display: none — skip this subtree entirely.
-    // This check is independent of LayoutBox: an element without a LayoutBox
-    // but with display:none should still be skipped.
-    if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
+    if let Some(ref style) = style_ref {
         if style.display == Display::None {
             return;
         }
@@ -53,15 +54,14 @@ pub(crate) fn walk(
     // Check visibility — hidden elements skip painting but still occupy space
     // and children can override visibility, so we must recurse.
     // For non-table elements, 'collapse' is treated the same as 'hidden'.
-    let is_visible = dom
-        .world()
-        .get::<&ComputedStyle>(entity)
-        .map_or(true, |s| s.visibility == Visibility::Visible);
+    let is_visible = style_ref
+        .as_ref()
+        .is_none_or(|s| s.visibility == Visibility::Visible);
 
     // Emit background + borders for elements with a LayoutBox.
     let mut has_clip = false;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
+        if let Some(ref style) = style_ref {
             if is_visible {
                 emit_background(
                     &lb,
@@ -70,7 +70,7 @@ pub(crate) fn walk(
                     style.opacity,
                     dl,
                 );
-                emit_borders(&lb, &style, dl);
+                emit_borders(&lb, style, dl);
             }
 
             // Emit image for replaced elements with decoded pixel data.
@@ -88,9 +88,6 @@ pub(crate) fn walk(
                 dl.push(DisplayItem::PushClip { rect: pb });
                 has_clip = true;
             }
-
-            // List marker rendering — counter is managed per-parent, passed down.
-            // The walk function handles this instead (see below).
         }
     }
 

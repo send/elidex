@@ -115,31 +115,17 @@ impl FloatContext {
     ///
     /// Returns the Y below the relevant floats based on the `clear` value.
     pub fn clear_y(&self, clear: Clear, cursor_y: f32) -> f32 {
+        let max_bottom = |floats: &[PlacedFloat]| {
+            floats
+                .iter()
+                .map(PlacedFloat::bottom)
+                .fold(cursor_y, f32::max)
+        };
         match clear {
             Clear::None => cursor_y,
-            Clear::Left => self
-                .left_floats
-                .iter()
-                .map(PlacedFloat::bottom)
-                .fold(cursor_y, f32::max),
-            Clear::Right => self
-                .right_floats
-                .iter()
-                .map(PlacedFloat::bottom)
-                .fold(cursor_y, f32::max),
-            Clear::Both => {
-                let left_bottom = self
-                    .left_floats
-                    .iter()
-                    .map(PlacedFloat::bottom)
-                    .fold(cursor_y, f32::max);
-                let right_bottom = self
-                    .right_floats
-                    .iter()
-                    .map(PlacedFloat::bottom)
-                    .fold(cursor_y, f32::max);
-                left_bottom.max(right_bottom)
-            }
+            Clear::Left => max_bottom(&self.left_floats),
+            Clear::Right => max_bottom(&self.right_floats),
+            Clear::Both => max_bottom(&self.left_floats).max(max_bottom(&self.right_floats)),
         }
     }
 
