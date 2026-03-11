@@ -185,6 +185,7 @@ fn resolve_container_main(
 
 /// Layout a flex container and return its `LayoutBox`.
 #[allow(clippy::too_many_lines)]
+// Sequential algorithm phases sharing extensive local state; splitting would add indirection without improving clarity.
 pub fn layout_flex(
     dom: &mut EcsDom,
     entity: Entity,

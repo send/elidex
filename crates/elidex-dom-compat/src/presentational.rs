@@ -44,6 +44,7 @@ const FONT_SIZE_KEYWORDS: [&str; 7] = [
 /// for non-element or attribute-less entities are allocation-free.
 #[must_use]
 #[allow(clippy::too_many_lines)]
+// Per-tag dispatch already delegates to helper functions.
 pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration> {
     let Ok(tag_type) = dom.world().get::<&TagType>(entity) else {
         return Vec::new();

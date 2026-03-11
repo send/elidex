@@ -25,6 +25,7 @@ impl Parser<'_> {
     /// Apply suffix operators (member, call, optional chain, tagged template).
     /// When `allow_call` is false, `LParen` and templates are not consumed (for `new` callee).
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(crate) fn parse_suffix_loop(
         &mut self,
         mut expr: NodeId<Expr>,
@@ -292,6 +293,7 @@ impl Parser<'_> {
 
     /// Parse a primary expression.
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn parse_primary(&mut self) -> NodeId<Expr> {
         self.rescan_slash_as_regexp(); // B7
         let start = self.span();

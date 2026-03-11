@@ -118,6 +118,7 @@ pub fn layout_block_with_height(
 /// which allows the orchestrator to route flex/grid containers to
 /// their respective layout algorithms.
 #[allow(clippy::too_many_lines)]
+// Sequential algorithm phases sharing extensive local state; splitting would add indirection without improving clarity.
 pub fn layout_block_inner(
     dom: &mut EcsDom,
     entity: Entity,

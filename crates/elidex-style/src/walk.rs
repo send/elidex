@@ -95,6 +95,7 @@ fn walk_children(
 /// then apply and recurse sequentially.
 #[cfg(feature = "parallel")]
 #[allow(clippy::too_many_lines)]
+// Three cascade-resolve-recurse phases sharing intermediate state vectors.
 fn walk_children_parallel(
     dom: &mut EcsDom,
     parent: Entity,

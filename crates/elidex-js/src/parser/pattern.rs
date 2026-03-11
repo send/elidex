@@ -192,6 +192,7 @@ impl Parser<'_> {
 
     /// Convert an expression to a pattern (cover grammar reinterpretation).
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(crate) fn expr_to_pattern(&mut self, expr: NodeId<Expr>) -> NodeId<Pattern> {
         // S2: depth guard for recursive cover grammar reinterpretation
         if !self.enter_recursion() {

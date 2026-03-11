@@ -119,6 +119,7 @@ fn skip_to_semicolon(input: &mut Parser) {
 /// `DeclarationListParser`) treats an empty result as an error, which
 /// triggers cssparser's standard error recovery (skip the declaration).
 #[allow(clippy::too_many_lines)]
+// Single match dispatcher over token/AST variants.
 pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declaration> {
     // Custom properties (--*): store the entire value as raw tokens.
     if name.starts_with("--") {

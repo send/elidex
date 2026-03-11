@@ -13,6 +13,7 @@ use super::{has_use_strict, BindingKind, ScopeKind, ScopeState};
 
 /// Visit a statement for scope analysis.
 #[allow(clippy::too_many_lines)]
+// Single match dispatcher over token/AST variants.
 pub(super) fn visit_stmt(prog: &Program, state: &mut ScopeState, stmt_id: NodeId<Stmt>) {
     if !state.enter_recursion() {
         return;
@@ -229,6 +230,7 @@ fn visit_export(prog: &Program, state: &mut ScopeState, decl: &ExportDecl, span:
 
 /// Visit an expression for scope analysis.
 #[allow(clippy::too_many_lines)]
+// Single match dispatcher over token/AST variants.
 pub(super) fn visit_expr(prog: &Program, state: &mut ScopeState, expr_id: NodeId<Expr>) {
     if !state.enter_recursion() {
         return;

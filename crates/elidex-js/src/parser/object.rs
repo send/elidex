@@ -13,6 +13,7 @@ use super::Parser;
 impl Parser<'_> {
     /// Parse object literal.
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn parse_object_literal(&mut self) -> NodeId<Expr> {
         let start = self.span();
         self.advance(); // skip {

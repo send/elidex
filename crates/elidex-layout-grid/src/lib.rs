@@ -80,6 +80,7 @@ struct GridItem {
 
 /// Layout a grid container and return its `LayoutBox`.
 #[allow(clippy::too_many_lines)]
+// Sequential algorithm phases sharing extensive local state; splitting would add indirection without improving clarity.
 pub fn layout_grid(
     dom: &mut EcsDom,
     entity: Entity,

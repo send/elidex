@@ -140,6 +140,7 @@ fn convert_color(c: CssColor) -> Color {
 /// `FontData` entries (they do, since `FontData` clones the data into its own
 /// `Blob`).
 #[allow(clippy::too_many_lines)]
+// Single match dispatcher over display list item variants.
 pub(crate) fn build_scene(
     scene: &mut Scene,
     display_list: &DisplayList,

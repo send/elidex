@@ -123,6 +123,7 @@ impl RegExpParser<'_> {
     }
 
     #[allow(clippy::too_many_lines)]
+    // Single match dispatcher over token/AST variants.
     pub(super) fn parse_escape_kind(&mut self) -> Result<EscapeKind, RegExpError> {
         let c = self
             .advance()

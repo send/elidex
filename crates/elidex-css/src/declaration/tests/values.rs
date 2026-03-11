@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 #[allow(clippy::too_many_lines)]
+// Test setup with multiple assertions.
 fn parse_keyword_properties() {
     // (input_property, input_value, expected_property, expected_keyword)
     for (prop, input, expected_prop, expected_kw) in [
