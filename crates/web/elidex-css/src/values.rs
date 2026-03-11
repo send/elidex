@@ -52,13 +52,16 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
 
 /// Parse a non-negative length or percentage value.
 ///
-/// Returns `Err(())` if the value is negative.
+/// Returns `Err(())` if the value is negative. `calc()` expressions are
+/// accepted — per CSS Values Level 3 §10.1, out-of-range `calc()` results
+/// are clamped to the allowed range at used-value time, not at parse time.
 #[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_non_negative_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let val = parse_length_or_percentage(input)?;
     match &val {
         CssValue::Length(px, _) if *px < 0.0 => Err(()),
         CssValue::Percentage(pct) if *pct < 0.0 => Err(()),
+        // calc() negativity is clamped at used-value time (CSS Values §10.1).
         _ => Ok(val),
     }
 }
@@ -129,12 +132,13 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
 
 /// Parse a calc sum: `<product> [ ['+' | '-'] <product> ]*`.
 ///
-/// Note: CSS Values Level 3 requires `+` and `-` to be surrounded by
-/// whitespace. The cssparser `Parser::next()` skips whitespace, so we
-/// rely on the tokenizer having already split `10px+20px` into separate
-/// tokens. In practice, cssparser treats `+20px` as a positive dimension
-/// (not `Delim('+')` followed by dimension), which rejects the no-space
-/// form at the token level.
+/// Note: CSS Values Level 3 §8.1 requires `+` and `-` to be surrounded
+/// by whitespace. The cssparser tokenizer enforces this: `10px+20px` is
+/// tokenized as `Dimension(10px)` `Dimension(20px)` (no `Delim('+')`),
+/// so `try_parse` fails to find an operator and the expression ends
+/// after the first term, causing the overall parse to fail on remaining
+/// input. This means the whitespace requirement is enforced at the
+/// tokenizer level, not the parser level.
 fn parse_calc_sum(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
     let mut left = parse_calc_product(input, depth)?;
     loop {
@@ -273,11 +277,17 @@ fn infer_calc_type(expr: &CalcExpr) -> Option<CalcType> {
     }
 }
 
-/// Validate `calc()` expression type correctness.
+/// Validate `calc()` expression type correctness for a length/percentage context.
 ///
-/// Returns `Err(())` if any sub-expression violates the type rules.
+/// Returns `Err(())` if any sub-expression violates the type rules, or if
+/// the overall expression resolves to a pure `<number>` (invalid in a
+/// length/percentage context per CSS Values Level 3 §8.1.2).
 fn validate_calc_types(expr: &CalcExpr) -> Result<(), ()> {
-    infer_calc_type(expr).map(|_| ()).ok_or(())
+    match infer_calc_type(expr) {
+        Some(CalcType::LengthPercentage) => Ok(()),
+        // Pure <number> (e.g. `calc(1 + 2)`) is invalid in length/percentage context.
+        Some(CalcType::Number) | None => Err(()),
+    }
 }
 
 #[cfg(test)]
@@ -481,5 +491,12 @@ mod tests {
         // Deeply nested parentheses must be rejected to prevent stack overflow.
         let deep = format!("calc({}1px{})", "(".repeat(40), ")".repeat(40));
         assert!(length_or_pct(&deep).is_err());
+    }
+
+    #[test]
+    fn calc_rejects_pure_number_in_length_context() {
+        // calc(1 + 2) evaluates to a pure <number>, invalid in length/percentage context.
+        assert!(length_or_pct("calc(1 + 2)").is_err());
+        assert!(length_or_pct("calc(3 * 4)").is_err());
     }
 }

@@ -54,6 +54,12 @@ pub fn stack_block_children(
             continue;
         }
 
+        // --- Clear: advance past floats (CSS 2.1 §9.5.2) ---
+        // Applied to both floated and non-floated children.
+        if child_clear != Clear::None {
+            cursor_y = float_ctx.clear_y(child_clear, cursor_y);
+        }
+
         // --- Floated children: out of normal flow (CSS 2.1 §9.5) ---
         if child_float != Float::None {
             layout_float(
@@ -66,11 +72,6 @@ pub fn stack_block_children(
                 layout_child,
             );
             continue;
-        }
-
-        // --- Clear: advance past floats (CSS 2.1 §9.5.2) ---
-        if child_clear != Clear::None {
-            cursor_y = float_ctx.clear_y(child_clear, cursor_y);
         }
 
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
@@ -194,6 +195,8 @@ fn layout_float(
     let final_x = input.offset_x + float_x + margin_left + border.left + padding.left;
     let final_y = float_y + margin_top + border.top + padding.top;
 
+    // Overwrite the LayoutBox that layout_child inserted at a temporary
+    // position — hecs `insert_one` on an existing component is an upsert.
     let lb = LayoutBox {
         content: elidex_plugin::Rect {
             x: final_x,
