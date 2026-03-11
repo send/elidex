@@ -461,23 +461,23 @@ mod tests {
         assert!(registry.resolve("unknown").is_none());
     }
 
+    struct CustomCssHandler;
+    impl CssPropertyHandler for CustomCssHandler {
+        fn property_name(&self) -> &'static str {
+            "accent-color"
+        }
+        fn parse(&self, _value: &str) -> Result<CssValue, ParseError> {
+            Ok(CssValue::Auto)
+        }
+        fn resolve(&self, value: &CssValue, _ctx: &StyleContext) -> CssValue {
+            value.clone()
+        }
+    }
+
     #[test]
     fn css_registry_dynamic_override() {
         let mut registry = create_css_property_registry();
-        // Register a dynamic handler for a custom property.
-        struct CustomHandler;
-        impl CssPropertyHandler for CustomHandler {
-            fn property_name(&self) -> &str {
-                "accent-color"
-            }
-            fn parse(&self, _value: &str) -> Result<CssValue, ParseError> {
-                Ok(CssValue::Auto)
-            }
-            fn resolve(&self, value: &CssValue, _ctx: &StyleContext) -> CssValue {
-                value.clone()
-            }
-        }
-        registry.register_dynamic("accent-color".into(), Box::new(CustomHandler));
+        registry.register_dynamic("accent-color".into(), Box::new(CustomCssHandler));
         assert_eq!(registry.len(), 6);
         assert!(registry.resolve("accent-color").is_some());
     }

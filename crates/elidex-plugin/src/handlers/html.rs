@@ -207,23 +207,22 @@ mod tests {
         assert!(registry.resolve("unknown").is_none());
     }
 
+    struct MyWidgetHandler;
+    impl HtmlElementHandler for MyWidgetHandler {
+        fn tag_name(&self) -> &'static str {
+            "my-widget"
+        }
+        fn create_element(&self, attrs: &Attributes) -> ElementData {
+            ElementData {
+                tag_name: "my-widget".into(),
+                attributes: attrs.clone(),
+            }
+        }
+    }
+
     #[test]
     fn html_registry_dynamic_custom_tag() {
         let mut registry = create_html_element_registry();
-
-        struct MyWidgetHandler;
-        impl HtmlElementHandler for MyWidgetHandler {
-            fn tag_name(&self) -> &str {
-                "my-widget"
-            }
-            fn create_element(&self, attrs: &Attributes) -> ElementData {
-                ElementData {
-                    tag_name: "my-widget".into(),
-                    attributes: attrs.clone(),
-                }
-            }
-        }
-
         registry.register_dynamic("my-widget".into(), Box::new(MyWidgetHandler));
         assert_eq!(registry.len(), 6);
         let handler = registry.resolve("my-widget").unwrap();
