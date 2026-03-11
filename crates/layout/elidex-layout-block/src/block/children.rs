@@ -56,7 +56,15 @@ pub fn stack_block_children(
 
         // --- Floated children: out of normal flow (CSS 2.1 §9.5) ---
         if child_float != Float::None {
-            layout_float(dom, child, child_float, &mut float_ctx, input, cursor_y, layout_child);
+            layout_float(
+                dom,
+                child,
+                child_float,
+                &mut float_ctx,
+                input,
+                cursor_y,
+                layout_child,
+            );
             continue;
         }
 

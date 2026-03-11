@@ -84,7 +84,7 @@ mod writing_mode;
 pub use box_model::{BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
 pub use display::{Display, Overflow, Position};
 pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
-pub use float_visibility::{Clear, Float, Visibility, VerticalAlign};
+pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use grid::{GridAutoFlow, GridLine, TrackBreadth, TrackSize};
 pub use table::{BorderCollapse, CaptionSide, TableLayout};
 pub use text::{

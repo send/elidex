@@ -131,22 +131,23 @@ pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
 /// `percentage_base` is the reference value for percentage terms (e.g.
 /// containing block width for width-related properties). Defaults to 0.0
 /// when the percentage base is unknown.
-pub(crate) fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> f32 {
+pub(crate) fn resolve_calc_expr(
+    expr: &CalcExpr,
+    percentage_base: f32,
+    ctx: &ResolveContext,
+) -> f32 {
     let result = match expr {
         CalcExpr::Length(v, unit) => resolve_length(*v, *unit, ctx),
         CalcExpr::Percentage(p) => percentage_base * p / 100.0,
         CalcExpr::Number(n) => *n,
         CalcExpr::Add(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx)
-                + resolve_calc_expr(b, percentage_base, ctx)
+            resolve_calc_expr(a, percentage_base, ctx) + resolve_calc_expr(b, percentage_base, ctx)
         }
         CalcExpr::Sub(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx)
-                - resolve_calc_expr(b, percentage_base, ctx)
+            resolve_calc_expr(a, percentage_base, ctx) - resolve_calc_expr(b, percentage_base, ctx)
         }
         CalcExpr::Mul(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx)
-                * resolve_calc_expr(b, percentage_base, ctx)
+            resolve_calc_expr(a, percentage_base, ctx) * resolve_calc_expr(b, percentage_base, ctx)
         }
         CalcExpr::Div(a, b) => {
             let divisor = resolve_calc_expr(b, percentage_base, ctx);
@@ -157,7 +158,11 @@ pub(crate) fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &Res
             }
         }
     };
-    if result.is_finite() { result } else { 0.0 }
+    if result.is_finite() {
+        result
+    } else {
+        0.0
+    }
 }
 
 /// Resolve a [`CssValue::Number`] to a non-negative `f32`.

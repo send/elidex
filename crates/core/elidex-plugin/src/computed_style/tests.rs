@@ -552,7 +552,11 @@ fn from_keyword_roundtrip() {
         Clear::from_keyword,
     );
     assert_roundtrips(
-        &[Visibility::Visible, Visibility::Hidden, Visibility::Collapse],
+        &[
+            Visibility::Visible,
+            Visibility::Hidden,
+            Visibility::Collapse,
+        ],
         Visibility::from_keyword,
     );
 }

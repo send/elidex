@@ -107,14 +107,10 @@ fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
 
 /// Parse a `calc()` function into a `CssValue::Calc`.
 fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
-    input
-        .expect_function_matching("calc")
-        .map_err(|_| ())?;
+    input.expect_function_matching("calc").map_err(|_| ())?;
     let expr = input
         .parse_nested_block(|block| {
-            parse_calc_sum(block).map_err(|()| {
-                block.current_source_location().new_custom_error(())
-            })
+            parse_calc_sum(block).map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
     Ok(CssValue::Calc(Box::new(expr)))
@@ -182,8 +178,7 @@ fn parse_calc_value(input: &mut Parser) -> Result<CalcExpr, ()> {
     if let Ok(expr) = input.try_parse(|i| {
         i.expect_parenthesis_block().map_err(|_| ())?;
         i.parse_nested_block(|block| {
-            parse_calc_sum(block)
-                .map_err(|()| block.current_source_location().new_custom_error(()))
+            parse_calc_sum(block).map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
     }) {
