@@ -113,15 +113,23 @@ fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
 /// Prevents stack overflow from deeply nested input like `calc(((((...)))))`.
 const MAX_CALC_DEPTH: u32 = 32;
 
+/// Maximum number of AST nodes in a `calc()` expression.
+///
+/// Prevents stack overflow in recursive resolvers (`resolve_calc_typed`,
+/// `infer_calc_type`) from deeply left-recursive trees built by long flat
+/// expressions like `calc(1px + 1px + 1px + ...)`.
+const MAX_CALC_NODES: u32 = 256;
+
 /// Parse a `calc()` function into a `CssValue::Calc`.
 ///
 /// After parsing the expression tree, validates type correctness per
 /// CSS Values Level 3 §8.1.1.
 fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
     input.expect_function_matching("calc").map_err(|_| ())?;
+    let mut node_count: u32 = 0;
     let expr = input
         .parse_nested_block(|block| {
-            parse_calc_sum(block, 0)
+            parse_calc_sum(block, 0, &mut node_count)
                 .map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
@@ -139,8 +147,8 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
 /// after the first term, causing the overall parse to fail on remaining
 /// input. This means the whitespace requirement is enforced at the
 /// tokenizer level, not the parser level.
-fn parse_calc_sum(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
-    let mut left = parse_calc_product(input, depth)?;
+fn parse_calc_sum(input: &mut Parser, depth: u32, nodes: &mut u32) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_product(input, depth, nodes)?;
     loop {
         let op = input.try_parse(|i| {
             let tok = i.next().map_err(|_| ())?;
@@ -152,11 +160,19 @@ fn parse_calc_sum(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
         });
         match op {
             Ok('+') => {
-                let right = parse_calc_product(input, depth)?;
+                let right = parse_calc_product(input, depth, nodes)?;
+                *nodes += 1;
+                if *nodes > MAX_CALC_NODES {
+                    return Err(());
+                }
                 left = CalcExpr::Add(Box::new(left), Box::new(right));
             }
             Ok('-') => {
-                let right = parse_calc_product(input, depth)?;
+                let right = parse_calc_product(input, depth, nodes)?;
+                *nodes += 1;
+                if *nodes > MAX_CALC_NODES {
+                    return Err(());
+                }
                 left = CalcExpr::Sub(Box::new(left), Box::new(right));
             }
             _ => break,
@@ -166,8 +182,8 @@ fn parse_calc_sum(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
 }
 
 /// Parse a calc product: `<value> [ ['*' | '/'] <value> ]*`.
-fn parse_calc_product(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
-    let mut left = parse_calc_value(input, depth)?;
+fn parse_calc_product(input: &mut Parser, depth: u32, nodes: &mut u32) -> Result<CalcExpr, ()> {
+    let mut left = parse_calc_value(input, depth, nodes)?;
     loop {
         let op = input.try_parse(|i| {
             let tok = i.next().map_err(|_| ())?;
@@ -179,11 +195,19 @@ fn parse_calc_product(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
         });
         match op {
             Ok('*') => {
-                let right = parse_calc_value(input, depth)?;
+                let right = parse_calc_value(input, depth, nodes)?;
+                *nodes += 1;
+                if *nodes > MAX_CALC_NODES {
+                    return Err(());
+                }
                 left = CalcExpr::Mul(Box::new(left), Box::new(right));
             }
             Ok('/') => {
-                let right = parse_calc_value(input, depth)?;
+                let right = parse_calc_value(input, depth, nodes)?;
+                *nodes += 1;
+                if *nodes > MAX_CALC_NODES {
+                    return Err(());
+                }
                 left = CalcExpr::Div(Box::new(left), Box::new(right));
             }
             _ => break,
@@ -193,7 +217,12 @@ fn parse_calc_product(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
 }
 
 /// Parse a calc leaf value: `<number>` | `<dimension>` | `<percentage>` | `( <sum> )`.
-fn parse_calc_value(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
+fn parse_calc_value(input: &mut Parser, depth: u32, nodes: &mut u32) -> Result<CalcExpr, ()> {
+    *nodes += 1;
+    if *nodes > MAX_CALC_NODES {
+        return Err(());
+    }
+
     // Try parenthesized sub-expression (with depth limit).
     if let Ok(expr) = input.try_parse(|i| {
         i.expect_parenthesis_block().map_err(|_| ())?;
@@ -201,7 +230,7 @@ fn parse_calc_value(input: &mut Parser, depth: u32) -> Result<CalcExpr, ()> {
             return Err(());
         }
         i.parse_nested_block(|block| {
-            parse_calc_sum(block, depth + 1)
+            parse_calc_sum(block, depth + 1, nodes)
                 .map_err(|()| block.current_source_location().new_custom_error(()))
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
@@ -498,5 +527,13 @@ mod tests {
         // calc(1 + 2) evaluates to a pure <number>, invalid in length/percentage context.
         assert!(length_or_pct("calc(1 + 2)").is_err());
         assert!(length_or_pct("calc(3 * 4)").is_err());
+    }
+
+    #[test]
+    fn calc_rejects_too_many_nodes() {
+        // Long flat expressions exceeding MAX_CALC_NODES must be rejected.
+        let terms: Vec<&str> = (0..300).map(|_| "1px").collect();
+        let expr = format!("calc({})", terms.join(" + "));
+        assert!(length_or_pct(&expr).is_err());
     }
 }
