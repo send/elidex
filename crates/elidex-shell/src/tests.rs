@@ -3,13 +3,6 @@ use elidex_plugin::{EventPayload, MouseEventInit};
 use elidex_render::DisplayItem;
 use elidex_script_session::DispatchEvent;
 
-/// Check if any fonts are available for text rendering.
-/// CI environments (especially MSRV) may lack system fonts.
-fn fonts_available() -> bool {
-    let db = elidex_text::FontDatabase::new();
-    db.query(&["serif", "sans-serif", "monospace"], 400)
-        .is_some()
-}
 
 fn find_by_id(result: &PipelineResult, tag: &str, id: &str) -> Option<Entity> {
     let entities = result.dom.query_by_tag(tag);
@@ -213,9 +206,6 @@ fn script_set_timeout_zero_executes() {
 
 #[test]
 fn pipeline_without_scripts_still_works() {
-    if !fonts_available() {
-        return; // Skip on CI without system fonts
-    }
     // Ensure the script integration path doesn't break pipelines without scripts.
     let dl = build_pipeline(
         "<h1>No Scripts</h1><p>Just content</p>",
@@ -449,9 +439,6 @@ fn lifecycle_events_not_cancelable() {
 
 #[test]
 fn inline_run_produces_single_text_item() {
-    if !fonts_available() {
-        return; // Skip on CI without system fonts
-    }
     // Verifies that inline text is collected and rendered correctly.
     let html = r"<p>Hello <strong>world</strong>!</p>";
     let css = "p { display: block; }";

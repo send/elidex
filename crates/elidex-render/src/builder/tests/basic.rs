@@ -82,9 +82,7 @@ fn text_node_emits_text_item() {
     dom.append_child(div, text);
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =

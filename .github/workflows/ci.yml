@@ -61,6 +61,12 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install fonts (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-dejavu fonts-noto-core
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
@@ -118,6 +124,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-dejavu fonts-noto-core
 
       - uses: dtolnay/rust-toolchain@1.88
 

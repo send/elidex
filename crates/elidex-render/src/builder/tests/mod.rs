@@ -45,11 +45,6 @@ fn setup_block_element(
     (dom, elem)
 }
 
-/// Return `true` if test fonts are available on this system.
-fn fonts_available(font_db: &elidex_text::FontDatabase) -> bool {
-    font_db.query(TEST_FONT_FAMILIES, 400).is_some()
-}
-
 fn make_segment(text: &str) -> StyledTextSegment {
     StyledTextSegment {
         text: text.to_string(),

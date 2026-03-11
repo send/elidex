@@ -44,9 +44,7 @@ fn inline_elements_text_collected() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
@@ -110,9 +108,7 @@ fn styled_segments_x_consecutive() {
     }
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     let text_first_x: Vec<f32> =
@@ -171,9 +167,7 @@ fn display_none_inline_skipped() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =

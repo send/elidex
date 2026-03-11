@@ -28,9 +28,7 @@ fn text_align_center_offsets_text() {
     dom.append_child(p, txt);
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
         dl.0.iter()
@@ -72,9 +70,7 @@ fn text_align_right_offsets_text() {
     dom.append_child(p, txt);
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
         dl.0.iter()
@@ -568,9 +564,7 @@ fn text_decoration_underline_emits_solid_rect() {
     dom.append_child(div, text);
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     // Should have: Text item + SolidRect for underline.
@@ -640,9 +634,7 @@ fn styled_span_color_preserved() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
-    if !fonts_available(&font_db) {
-        return;
-    }
+
 
     let dl = build_display_list(&dom, &font_db);
     let text_items: Vec<_> =
