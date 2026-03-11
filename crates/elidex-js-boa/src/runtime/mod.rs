@@ -93,7 +93,7 @@ impl JsRuntime {
         let result = self.ctx.eval(Source::from_bytes(source));
 
         // Run microtask queue (Promise .then() callbacks) while bridge is bound.
-        self.ctx.run_jobs();
+        let _ = self.ctx.run_jobs();
 
         drop(guard);
 
@@ -229,7 +229,7 @@ impl JsRuntime {
         });
 
         // Run microtask queue (Promise .then() callbacks) while bridge is bound.
-        ctx.run_jobs();
+        let _ = ctx.run_jobs();
 
         // Sync flags after microtask queue processing — microtasks may have
         // called preventDefault() via the shared Rc<Cell> flags.

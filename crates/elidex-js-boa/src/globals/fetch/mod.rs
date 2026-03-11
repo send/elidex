@@ -73,7 +73,7 @@ fn fetch_impl(args: &[JsValue], captures: &FetchCaptures, ctx: &mut Context) -> 
     let mut headers: Vec<(String, String)> = Vec::new();
     let mut body = bytes::Bytes::new();
 
-    if let Some(opts) = args.get(1).and_then(|v| v.as_object()) {
+    if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
         // method
         let m = opts.get(js_string!("method"), ctx)?;
         if !m.is_undefined() {
@@ -359,7 +359,7 @@ fn create_headers_object(headers: &[(String, String)], ctx: &mut Context) -> JsV
             |_this, args, headers, ctx| -> JsResult<JsValue> {
                 let callback = args
                     .first()
-                    .and_then(|v| v.as_callable())
+                    .and_then(JsValue::as_callable)
                     .ok_or_else(|| {
                         JsNativeError::typ().with_message("forEach: callback is not a function")
                     })?
