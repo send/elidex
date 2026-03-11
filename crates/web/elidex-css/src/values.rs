@@ -123,7 +123,12 @@ fn parse_calc(input: &mut Parser) -> Result<CssValue, ()> {
 
 /// Parse a calc sum: `<product> [ ['+' | '-'] <product> ]*`.
 ///
-/// Per spec, `+` and `-` must be surrounded by whitespace.
+/// Note: CSS Values Level 3 requires `+` and `-` to be surrounded by
+/// whitespace. The cssparser `Parser::next()` skips whitespace, so we
+/// rely on the tokenizer having already split `10px+20px` into separate
+/// tokens. In practice, cssparser treats `+20px` as a positive dimension
+/// (not `Delim('+')` followed by dimension), which rejects the no-space
+/// form at the token level.
 fn parse_calc_sum(input: &mut Parser) -> Result<CalcExpr, ()> {
     let mut left = parse_calc_product(input)?;
     loop {

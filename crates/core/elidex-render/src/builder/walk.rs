@@ -112,10 +112,13 @@ pub(crate) fn walk(
             // Emit list marker for list-item children.
             // Counter increments for every list-item regardless of list-style-type;
             // list-style-type: none only suppresses marker rendering.
+            // visibility: hidden also suppresses marker painting.
             if let Ok(child_style) = dom.world().get::<&ComputedStyle>(child) {
                 if child_style.display == Display::ListItem {
                     list_counter += 1;
-                    if child_style.list_style_type != ListStyleType::None {
+                    if child_style.list_style_type != ListStyleType::None
+                        && child_style.visibility == Visibility::Visible
+                    {
                         if let Ok(child_lb) = dom.world().get::<&LayoutBox>(child) {
                             emit_list_marker_with_counter(
                                 &child_lb,

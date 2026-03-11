@@ -352,7 +352,7 @@ fn resolve_float_visibility_properties(
         style.clear = c;
     }
 
-    // vertical-align — non-inherited, accepts keywords + length + percentage
+    // vertical-align — non-inherited, accepts keywords + length + percentage + calc()
     if let Some(value) = get_resolved_winner("vertical-align", winners, parent_style) {
         style.vertical_align = match &value {
             CssValue::Keyword(kw) => {
@@ -360,6 +360,12 @@ fn resolve_float_visibility_properties(
             }
             CssValue::Length(v, unit) => VerticalAlign::Length(resolve_length(*v, *unit, ctx)),
             CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
+            CssValue::Calc(expr) => {
+                // Resolve calc() to a pixel length. Percentage terms in
+                // vertical-align are relative to line-height, which isn't
+                // available here; they resolve against 0 for now.
+                VerticalAlign::Length(helpers::resolve_calc_expr(expr, 0.0, ctx))
+            }
             _ => VerticalAlign::Baseline,
         };
     }

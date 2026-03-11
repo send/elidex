@@ -103,11 +103,18 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
         CssValue::Length(v, unit) => Dimension::Length(resolve_length(*v, *unit, ctx)),
         CssValue::Percentage(p) => Dimension::Percentage(*p),
         CssValue::Number(n) if *n == 0.0 => Dimension::Length(0.0),
-        // TODO: calc() with percentage terms resolves % against 0 here because
-        // the containing block width isn't available during style resolution.
-        // Percentage-only calc (e.g. `calc(100% - 20px)`) should ideally be
-        // deferred to layout time via a Dimension::Calc variant.
-        CssValue::Calc(expr) => Dimension::Length(resolve_calc_expr(expr, 0.0, ctx)),
+        CssValue::Calc(expr) => {
+            if calc_has_percentage(expr) {
+                // calc() contains percentage terms and the containing block
+                // width isn't available during style resolution. Fall back to
+                // Auto rather than resolving % against 0.0, which would
+                // produce incorrect values (e.g. `calc(100% - 20px)` → -20px).
+                // TODO: Defer to layout via Dimension::Calc variant.
+                Dimension::Auto
+            } else {
+                Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))
+            }
+        }
         // Auto and anything else → Auto.
         _ => Dimension::Auto,
     }
@@ -126,7 +133,22 @@ pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     }
 }
 
+/// Returns `true` if a `calc()` expression contains any percentage terms.
+fn calc_has_percentage(expr: &CalcExpr) -> bool {
+    match expr {
+        CalcExpr::Percentage(_) => true,
+        CalcExpr::Length(..) | CalcExpr::Number(_) => false,
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) | CalcExpr::Mul(a, b) | CalcExpr::Div(a, b) => {
+            calc_has_percentage(a) || calc_has_percentage(b)
+        }
+    }
+}
+
 /// Resolve a `calc()` expression tree to a pixel value.
+///
+/// Uses a typed resolver that distinguishes `Length` (dimensional) from
+/// `Scalar` (unitless number). Bare numbers used outside `Mul`/`Div` are
+/// treated as invalid and resolve to 0.
 ///
 /// `percentage_base` is the reference value for percentage terms (e.g.
 /// containing block width for width-related properties). Defaults to 0.0
@@ -136,32 +158,94 @@ pub(crate) fn resolve_calc_expr(
     percentage_base: f32,
     ctx: &ResolveContext,
 ) -> f32 {
-    let result = match expr {
-        CalcExpr::Length(v, unit) => resolve_length(*v, *unit, ctx),
-        CalcExpr::Percentage(p) => percentage_base * p / 100.0,
-        CalcExpr::Number(n) => *n,
-        CalcExpr::Add(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx) + resolve_calc_expr(b, percentage_base, ctx)
-        }
-        CalcExpr::Sub(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx) - resolve_calc_expr(b, percentage_base, ctx)
-        }
-        CalcExpr::Mul(a, b) => {
-            resolve_calc_expr(a, percentage_base, ctx) * resolve_calc_expr(b, percentage_base, ctx)
-        }
-        CalcExpr::Div(a, b) => {
-            let divisor = resolve_calc_expr(b, percentage_base, ctx);
-            if divisor == 0.0 {
-                0.0
-            } else {
-                resolve_calc_expr(a, percentage_base, ctx) / divisor
-            }
-        }
+    let result = match resolve_calc_typed(expr, percentage_base, ctx) {
+        CalcResolved::Length(l) => l,
+        // A pure scalar expression does not represent a length; treat as 0.
+        CalcResolved::Scalar(_) => 0.0,
     };
     if result.is_finite() {
         result
     } else {
         0.0
+    }
+}
+
+/// Internal resolved value kind for type-safe `calc()` evaluation.
+enum CalcResolved {
+    /// A dimensional value (px).
+    Length(f32),
+    /// A unitless number (only valid as multiplier/divisor).
+    Scalar(f32),
+}
+
+/// Recursively resolve a `calc()` expression with type tracking.
+fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> CalcResolved {
+    match expr {
+        CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length(*v, *unit, ctx)),
+        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_base * p / 100.0),
+        CalcExpr::Number(n) => CalcResolved::Scalar(*n),
+        CalcExpr::Add(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
+                    CalcResolved::Length(l1 + l2)
+                }
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    CalcResolved::Scalar(s1 + s2)
+                }
+                // Type mismatch: invalid per spec, resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
+        CalcExpr::Sub(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
+                    CalcResolved::Length(l1 - l2)
+                }
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    CalcResolved::Scalar(s1 - s2)
+                }
+                _ => CalcResolved::Length(0.0),
+            }
+        }
+        CalcExpr::Mul(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l), CalcResolved::Scalar(s))
+                | (CalcResolved::Scalar(s), CalcResolved::Length(l)) => CalcResolved::Length(l * s),
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    CalcResolved::Scalar(s1 * s2)
+                }
+                // length * length: invalid, resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
+        CalcExpr::Div(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l), CalcResolved::Scalar(s)) => {
+                    if s == 0.0 {
+                        CalcResolved::Length(0.0)
+                    } else {
+                        CalcResolved::Length(l / s)
+                    }
+                }
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    if s2 == 0.0 {
+                        CalcResolved::Scalar(0.0)
+                    } else {
+                        CalcResolved::Scalar(s1 / s2)
+                    }
+                }
+                // Dividing by a length is invalid; resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
     }
 }
 
