@@ -10,21 +10,9 @@ use super::{parse_value_property, single_decl, Declaration};
 /// Build the three longhand declarations for the `flex` shorthand.
 fn flex_triple(grow: f32, shrink: f32, basis: CssValue) -> Vec<Declaration> {
     vec![
-        Declaration {
-            property: "flex-grow".into(),
-            value: CssValue::Number(grow),
-            important: false,
-        },
-        Declaration {
-            property: "flex-shrink".into(),
-            value: CssValue::Number(shrink),
-            important: false,
-        },
-        Declaration {
-            property: "flex-basis".into(),
-            value: basis,
-            important: false,
-        },
+        Declaration::new("flex-grow", CssValue::Number(grow)),
+        Declaration::new("flex-shrink", CssValue::Number(shrink)),
+        Declaration::new("flex-basis", basis),
     ]
 }
 
@@ -97,6 +85,15 @@ pub(super) fn parse_flex_shorthand(input: &mut Parser) -> Vec<Declaration> {
             "auto" => Ok(flex_triple(1.0, 1.0, CssValue::Auto)),
             _ => Err(()),
         }
+    }) {
+        return decls;
+    }
+
+    // Try single <length>/<percentage> as flex-basis (CSS Flexbox §7.1.1).
+    // `flex: <width>` → `flex: 1 1 <width>`.
+    if let Ok(decls) = input.try_parse(|i| -> Result<Vec<Declaration>, ()> {
+        let basis = parse_length_or_percentage(i)?;
+        Ok(flex_triple(1.0, 1.0, basis))
     }) {
         return decls;
     }
@@ -187,15 +184,13 @@ pub(super) fn parse_flex_flow_shorthand(input: &mut Parser) -> Vec<Declaration> 
     }
 
     vec![
-        Declaration {
-            property: "flex-direction".into(),
-            value: direction.unwrap_or(CssValue::Keyword("row".into())),
-            important: false,
-        },
-        Declaration {
-            property: "flex-wrap".into(),
-            value: wrap.unwrap_or(CssValue::Keyword("nowrap".into())),
-            important: false,
-        },
+        Declaration::new(
+            "flex-direction",
+            direction.unwrap_or(CssValue::Keyword("row".into())),
+        ),
+        Declaration::new(
+            "flex-wrap",
+            wrap.unwrap_or(CssValue::Keyword("nowrap".into())),
+        ),
     ]
 }

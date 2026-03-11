@@ -1,6 +1,6 @@
 [package]
 name = "elidex-text"
-description = "Text shaping, measurement, and line breaking for elidex"
+description = "Text shaping, measurement, and line breaking for elidex (facade)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,8 +13,9 @@ keywords = ["browser-engine", "text", "shaping"]
 categories = ["web-programming"]
 
 [dependencies]
-fontdb.workspace = true
-rustybuzz.workspace = true
+elidex-shaping = { path = "../elidex-shaping" }
+elidex-linebreak = { path = "../elidex-linebreak" }
+elidex-bidi = { path = "../elidex-bidi" }
 
 [lints]
 workspace = true

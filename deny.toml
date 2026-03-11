@@ -2,7 +2,13 @@
 unmaintained = "workspace"
 yanked = "warn"
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste is pulled transitively via boa/wgpu stack; track separately until upstream replacement is feasible" },
+    # wasmtime 29 advisories — all WASI/sandbox related, not exploitable in elidex
+    # (we don't use WASI or shared memory). Upgrade to wasmtime >=36.0.6 in Phase 4.
+    { id = "RUSTSEC-2025-0046", reason = "WASIp1 fd_renumber panic — WASI not used in elidex" },
+    { id = "RUSTSEC-2025-0118", reason = "shared linear memory unsoundness — shared memory not used in elidex" },
+    { id = "RUSTSEC-2026-0006", reason = "f64.copysign sandbox escape — Wasm modules are trusted in elidex Phase 3.5" },
+    { id = "RUSTSEC-2026-0020", reason = "WASI resource exhaustion — WASI not used in elidex" },
+    { id = "RUSTSEC-2026-0021", reason = "wasi:http/types.fields panic — WASI not used in elidex" },
 ]
 
 [licenses]

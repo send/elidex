@@ -16,6 +16,17 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-text.workspace = true
+elidex-layout-block.workspace = true
+elidex-layout-flex.workspace = true
+elidex-layout-grid.workspace = true
+elidex-layout-table.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "layout_bench"
+harness = false
 
 [lints]
 workspace = true

@@ -16,6 +16,7 @@ pub mod class_list;
 pub mod computed_style;
 pub mod document;
 pub mod element;
+pub mod registry;
 pub mod style;
 pub(crate) mod util;
 

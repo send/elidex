@@ -6,7 +6,10 @@
 mod components;
 mod dom;
 
-pub use components::{Attributes, ImageData, InlineStyle, TagType, TextContent};
+pub use components::{
+    Attributes, ElementState, ImageData, InlineStyle, PseudoElementMarker, ShadowHost, ShadowRoot,
+    ShadowRootMode, SlotAssignment, SlottedMarker, TagType, TemplateContent, TextContent,
+};
 pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.

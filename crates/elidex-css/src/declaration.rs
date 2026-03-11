@@ -5,7 +5,7 @@
 //! longhand equivalents.
 
 use cssparser::{Parser, ParserInput, Token};
-use elidex_plugin::{CssValue, LengthUnit};
+use elidex_plugin::CssValue;
 
 use crate::color::parse_color;
 use crate::values::{
@@ -16,6 +16,8 @@ use crate::values::{
 mod box_model;
 mod flex;
 mod font;
+mod grid;
+mod misc;
 
 #[cfg(test)]
 mod tests;
@@ -40,6 +42,18 @@ pub struct Declaration {
     pub value: CssValue,
     /// Whether this declaration has `!important`.
     pub important: bool,
+}
+
+impl Declaration {
+    /// Create a normal (non-important) declaration.
+    #[must_use]
+    pub fn new(property: impl Into<String>, value: CssValue) -> Self {
+        Self {
+            property: property.into(),
+            value,
+            important: false,
+        }
+    }
 }
 
 /// Parse an inline style attribute string into declarations.
@@ -143,7 +157,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "border-right" => box_model::parse_border_side_shorthand(input, "right"),
         "border-bottom" => box_model::parse_border_side_shorthand(input, "bottom"),
         "border-left" => box_model::parse_border_side_shorthand(input, "left"),
-        "background" => parse_background_shorthand(input),
+        "background" => misc::parse_background_shorthand(input),
 
         // --- Keyword properties ---
         "display" => parse_keyword_property(
@@ -157,13 +171,35 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "flex",
                 "inline-flex",
                 "list-item",
+                "grid",
+                "inline-grid",
+                "table",
+                "inline-table",
+                "table-caption",
+                "table-row",
+                "table-cell",
+                "table-row-group",
+                "table-header-group",
+                "table-footer-group",
+                "table-column",
+                "table-column-group",
+                "contents",
             ],
         ),
-        "position" => {
-            parse_keyword_property(input, name, &["static", "relative", "absolute", "fixed"])
-        }
+        "position" => parse_keyword_property(
+            input,
+            name,
+            &["static", "relative", "absolute", "fixed", "sticky"],
+        ),
         "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
-            parse_keyword_property(input, name, &["none", "solid", "dashed", "dotted"])
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge",
+                    "inset", "outset",
+                ],
+            )
         }
 
         // --- Color properties ---
@@ -189,9 +225,12 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             box_model::parse_border_width_property(input, name)
         }
 
+        // TODO(Phase 4): `font` shorthand property (CSS Fonts Level 3 §4).
+
         // --- Font properties ---
         "font-size" => font::parse_font_size(input),
         "font-weight" => font::parse_font_weight(input),
+        "font-style" => parse_keyword_property(input, name, &["normal", "italic", "oblique"]),
         "font-family" => font::parse_font_family(input),
 
         // --- Line height ---
@@ -199,11 +238,11 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Box model ---
         "box-sizing" => parse_keyword_property(input, name, &["content-box", "border-box"]),
-        "border-radius" => parse_border_radius(input),
-        "opacity" => parse_opacity(input),
+        "border-radius" => misc::parse_border_radius(input),
+        "opacity" => misc::parse_opacity(input),
 
         // --- Text alignment ---
-        "text-align" => parse_text_align(input),
+        "text-align" => misc::parse_text_align(input),
 
         // --- Text transform ---
         "text-transform" => parse_keyword_property(
@@ -213,7 +252,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         ),
 
         // --- Text decoration ---
-        "text-decoration" | "text-decoration-line" => parse_text_decoration_line(input),
+        "text-decoration" | "text-decoration-line" => misc::parse_text_decoration_line(input),
 
         // --- White-space ---
         "white-space" => parse_keyword_property(
@@ -223,13 +262,13 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         ),
 
         // --- Overflow ---
-        "overflow" => parse_overflow(input),
+        "overflow" => misc::parse_overflow(input),
 
         // --- Min/max sizing ---
         "min-width" | "min-height" => {
             parse_value_property(input, name, parse_non_negative_length_or_percentage)
         }
-        "max-width" | "max-height" => parse_max_dimension(input, name),
+        "max-width" | "max-height" => misc::parse_max_dimension(input, name),
 
         // --- List style ---
         "list-style-type" => parse_keyword_property(
@@ -237,11 +276,11 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             name,
             &["disc", "circle", "square", "decimal", "none"],
         ),
-        "list-style" => parse_list_style_shorthand(input),
+        "list-style" => misc::parse_list_style_shorthand(input),
 
         // --- Gap properties ---
-        "row-gap" | "column-gap" => parse_value_property(input, name, parse_gap_value),
-        "gap" => parse_gap_shorthand(input),
+        "row-gap" | "column-gap" => parse_value_property(input, name, misc::parse_gap_value),
+        "gap" => misc::parse_gap_shorthand(input),
 
         // --- Flex keyword properties ---
         "flex-direction" => parse_keyword_property(
@@ -289,6 +328,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
                 "center",
                 "space-between",
                 "space-around",
+                "space-evenly",
             ],
         ),
 
@@ -303,18 +343,60 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         "flex" => flex::parse_flex_shorthand(input),
         "flex-flow" => flex::parse_flex_flow_shorthand(input),
 
+        // --- Grid container properties ---
+        "grid-template-columns" | "grid-template-rows" => grid::parse_grid_template(input, name),
+        "grid-auto-flow" => grid::parse_grid_auto_flow(input),
+        "grid-auto-columns" | "grid-auto-rows" => grid::parse_grid_auto_track(input, name),
+
+        // --- Grid item properties ---
+        "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
+            grid::parse_grid_line(input, name)
+        }
+
+        // --- Grid shorthands ---
+        "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
+        "grid-area" => grid::parse_grid_area(input),
+
+        // --- Writing mode / BiDi properties ---
+        "direction" => parse_keyword_property(input, name, &["ltr", "rtl"]),
+        "unicode-bidi" => parse_keyword_property(
+            input,
+            name,
+            &[
+                "normal",
+                "embed",
+                "bidi-override",
+                "isolate",
+                "isolate-override",
+                "plaintext",
+            ],
+        ),
+        "writing-mode" => parse_keyword_property(
+            input,
+            name,
+            &["horizontal-tb", "vertical-rl", "vertical-lr"],
+        ),
+        "text-orientation" => {
+            parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
+        }
+
+        // --- Table properties ---
+        "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
+        "border-spacing" => misc::parse_border_spacing(input),
+        "table-layout" => parse_keyword_property(input, name, &["auto", "fixed"]),
+        "caption-side" => parse_keyword_property(input, name, &["top", "bottom"]),
+
+        // --- Content property ---
+        "content" => misc::parse_content(input),
+
         // --- Unknown property: silently drop ---
         _ => Vec::new(),
     }
 }
 
 /// Create a single-declaration `Vec`.
-fn single_decl(name: &str, value: CssValue) -> Vec<Declaration> {
-    vec![Declaration {
-        property: name.to_string(),
-        value,
-        important: false,
-    }]
+pub(super) fn single_decl(name: &str, value: CssValue) -> Vec<Declaration> {
+    vec![Declaration::new(name, value)]
 }
 
 // --- Property-specific parsers ---
@@ -344,7 +426,7 @@ fn parse_keyword_property(input: &mut Parser, name: &str, allowed: &[&str]) -> V
         .unwrap_or_default()
 }
 
-fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
+pub(super) fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `currentcolor` keyword first (case-insensitive).
     if let Ok(val) = try_keyword_value(
         input,
@@ -366,7 +448,11 @@ fn parse_color_property(input: &mut Parser, name: &str) -> Vec<Declaration> {
 ///
 /// Used as an early-return before a fallback parser (e.g. `currentcolor` before color
 /// parsing, `none` before length parsing).
-fn try_keyword_value(input: &mut Parser, keyword: &str, value: &CssValue) -> Result<CssValue, ()> {
+pub(super) fn try_keyword_value(
+    input: &mut Parser,
+    keyword: &str,
+    value: &CssValue,
+) -> Result<CssValue, ()> {
     input.try_parse(|i| {
         let ident = i.expect_ident().map_err(|_| ())?;
         if ident.eq_ignore_ascii_case(keyword) {
@@ -378,7 +464,7 @@ fn try_keyword_value(input: &mut Parser, keyword: &str, value: &CssValue) -> Res
 }
 
 /// Parse a single-value property using the given value parser function.
-fn parse_value_property(
+pub(super) fn parse_value_property(
     input: &mut Parser,
     name: &str,
     value_parser: fn(&mut Parser) -> Result<CssValue, ()>,
@@ -389,87 +475,6 @@ fn parse_value_property(
             Ok(single_decl(name, val))
         })
         .unwrap_or_default()
-}
-
-// --- Border radius parsing ---
-
-/// Parse `border-radius` as a non-negative `<length>`.
-///
-/// Percentages are rejected (Phase 3 limitation — percentage border-radius
-/// requires box dimensions which are unavailable at style resolution time).
-/// Negative values are rejected per CSS Backgrounds and Borders Level 3 §5.3.
-fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_non_negative_length_or_percentage(i)?;
-            // Reject percentages — cannot resolve without box dimensions.
-            if matches!(val, CssValue::Percentage(_)) {
-                return Err(());
-            }
-            Ok(single_decl("border-radius", val))
-        })
-        .unwrap_or_default()
-}
-
-// --- Opacity parsing ---
-
-/// Parse `opacity` as a number (0.0–1.0), clamping out-of-range values.
-fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let n = i.expect_number().map_err(|_| ())?;
-            Ok(single_decl("opacity", CssValue::Number(n.clamp(0.0, 1.0))))
-        })
-        .unwrap_or_default()
-}
-
-// --- Text decoration parsing ---
-
-/// Parse `text-decoration-line` (or `text-decoration` shorthand).
-///
-/// Accepts `none`, or one or more of `underline`, `line-through` (space-separated).
-/// The `text-decoration` shorthand is treated as an alias for `text-decoration-line`
-/// (color/style are Phase 3 scope-out).
-fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
-    // Try "none" first.
-    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
-        return single_decl("text-decoration-line", val);
-    }
-
-    // Collect one or more of: underline, line-through.
-    let mut values = Vec::new();
-    loop {
-        let ok = input
-            .try_parse(|i| -> Result<(), ()> {
-                let ident = i.expect_ident().map_err(|_| ())?;
-                let lower = ident.to_ascii_lowercase();
-                match lower.as_str() {
-                    "underline" | "line-through" => {
-                        // Avoid duplicates.
-                        let kw = CssValue::Keyword(lower);
-                        if !values.contains(&kw) {
-                            values.push(kw);
-                        }
-                        Ok(())
-                    }
-                    _ => Err(()),
-                }
-            })
-            .is_ok();
-        if !ok {
-            break;
-        }
-    }
-
-    if values.is_empty() {
-        return Vec::new();
-    }
-
-    if values.len() == 1 {
-        return single_decl("text-decoration-line", values.swap_remove(0));
-    }
-
-    single_decl("text-decoration-line", CssValue::List(values))
 }
 
 // --- var() function parsing ---
@@ -520,148 +525,6 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
     slice.trim().to_string()
 }
 
-// --- Mapped keyword parsing ---
-
-/// Parse a property whose input keywords map to (potentially different) output keywords.
-///
-/// Each entry in `mappings` is `(&[input_keywords], output_keyword)`. The first matching
-/// entry wins, and `output_keyword` is stored as the declaration value.
-fn parse_mapped_keyword(
-    input: &mut Parser,
-    name: &str,
-    mappings: &[(&[&str], &str)],
-) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let ident = i.expect_ident().map_err(|_| ())?.clone();
-            let lower = ident.to_ascii_lowercase();
-            for &(inputs, output) in mappings {
-                if inputs.contains(&lower.as_str()) {
-                    return Ok(single_decl(name, CssValue::Keyword(output.to_string())));
-                }
-            }
-            Err(())
-        })
-        .unwrap_or_default()
-}
-
-// --- Text-align ---
-
-/// Parse `text-align`. Maps `start` and `justify` to `left` (Phase 3 simplification).
-fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
-    parse_mapped_keyword(
-        input,
-        "text-align",
-        &[
-            (&["left", "start", "justify"], "left"),
-            (&["center"], "center"),
-            (&["right", "end"], "right"),
-        ],
-    )
-}
-
-// --- Gap properties ---
-
-/// Parse a gap value: `normal` (→ 0px for flex) or a non-negative length/percentage.
-fn parse_gap_value(input: &mut Parser) -> Result<CssValue, ()> {
-    // `normal` keyword → 0px for flex containers (CSS Box Alignment §8).
-    if let Ok(val) = try_keyword_value(input, "normal", &CssValue::Length(0.0, LengthUnit::Px)) {
-        return Ok(val);
-    }
-    // Reject negative gap values (CSS Box Alignment §8).
-    parse_non_negative_length_or_percentage(input)
-}
-
-/// Parse the `gap` shorthand: 1 value → both row-gap and column-gap,
-/// 2 values → row-gap then column-gap.
-fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let row = parse_gap_value(i)?;
-            let col = i.try_parse(parse_gap_value).unwrap_or(row.clone());
-            Ok(vec![
-                Declaration {
-                    property: "row-gap".to_string(),
-                    value: row,
-                    important: false,
-                },
-                Declaration {
-                    property: "column-gap".to_string(),
-                    value: col,
-                    important: false,
-                },
-            ])
-        })
-        .unwrap_or_default()
-}
-
-// --- Overflow parsing ---
-
-/// Parse `overflow`. Maps `scroll`/`auto` to `hidden` (Phase 3 simplification).
-fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
-    parse_mapped_keyword(
-        input,
-        "overflow",
-        &[
-            (&["visible"], "visible"),
-            (&["hidden", "scroll", "auto"], "hidden"),
-        ],
-    )
-}
-
-// --- Max dimension parsing ---
-
-/// Parse `max-width`/`max-height`: `none` | `<length>` | `<percentage>`.
-fn parse_max_dimension(input: &mut Parser, name: &str) -> Vec<Declaration> {
-    // Try `none` keyword first (→ Auto = unconstrained).
-    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Auto) {
-        return single_decl(name, val);
-    }
-    parse_value_property(input, name, parse_non_negative_length_or_percentage)
-}
-
-// --- List-style shorthand ---
-
-/// Parse `list-style` shorthand, extracting only `list-style-type`.
-///
-/// Rejects declarations with extra unknown tokens after the keyword, while
-/// allowing `!important` (starts with `!`) to remain for the caller.
-fn parse_list_style_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    let allowed = &["disc", "circle", "square", "decimal", "none"];
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let kw = try_parse_keyword(i, allowed).map_err(|_| ())?;
-            // Reject trailing tokens that are not `!important`.
-            // Peek via try_parse (always rolls back on Err).
-            let has_extra = i
-                .try_parse(|peek| {
-                    let tok = peek.next().map_err(|_| ())?;
-                    if matches!(tok, Token::Delim('!')) {
-                        Err(()) // Likely !important — roll back, allow
-                    } else {
-                        Ok(()) // Unknown extra token — signal rejection
-                    }
-                })
-                .is_ok();
-            if has_extra {
-                return Err(());
-            }
-            Ok(single_decl("list-style-type", CssValue::Keyword(kw)))
-        })
-        .unwrap_or_default()
-}
-
-// --- Background shorthand ---
-
-/// Parse the `background` shorthand, extracting only `background-color`.
-///
-/// Phase 4 will handle background-image, background-position, background-size,
-/// background-repeat, background-origin, background-clip, and background-attachment.
-/// For now, try to parse the value as a color and emit `background-color`.
-fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    parse_color_property(input, "background-color")
-}
-
 // --- Shorthand expansion helpers ---
 
 /// Expand a global keyword (inherit/initial/unset) for shorthand properties into
@@ -701,15 +564,26 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
         "background" => vec!["background-color".to_string()],
+        "border-spacing" => vec![
+            "border-spacing-h".to_string(),
+            "border-spacing-v".to_string(),
+        ],
+        "grid-column" => vec![
+            "grid-column-start".to_string(),
+            "grid-column-end".to_string(),
+        ],
+        "grid-row" => vec!["grid-row-start".to_string(), "grid-row-end".to_string()],
+        "grid-area" => vec![
+            "grid-row-start".to_string(),
+            "grid-column-start".to_string(),
+            "grid-row-end".to_string(),
+            "grid-column-end".to_string(),
+        ],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };
     longhands
         .iter()
-        .map(|p| Declaration {
-            property: p.clone(),
-            value: val.clone(),
-            important: false,
-        })
+        .map(|p| Declaration::new(p.clone(), val.clone()))
         .collect()
 }

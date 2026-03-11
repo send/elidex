@@ -11,21 +11,28 @@
 
 mod app;
 pub(crate) mod chrome;
+mod content;
 mod gpu;
+pub mod ipc;
 pub(crate) mod key_map;
+mod pipeline;
+
+#[cfg(test)]
+mod tests;
 
 use std::rc::Rc;
 
-use elidex_css::{parse_stylesheet, Origin, Stylesheet};
+use elidex_css::Stylesheet;
+use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js::{extract_scripts, JsRuntime};
+use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
-use elidex_script_session::{DispatchEvent, SessionCore};
-use elidex_style::resolve_styles;
+use elidex_script_session::SessionCore;
+use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
 
@@ -36,17 +43,36 @@ const DEFAULT_VIEWPORT_WIDTH: f32 = 1024.0;
 /// Default viewport height for the initial layout pass.
 const DEFAULT_VIEWPORT_HEIGHT: f32 = 768.0;
 
+/// HTML content for a blank new-tab page.
+const BLANK_TAB_HTML: &str = "<html><body><h1>New Tab</h1></body></html>";
+/// CSS for the blank new-tab page.
+const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; font-family: sans-serif; } h1 { text-align: center; margin-top: 200px; }";
+
+/// Resolve styles with the compat layer (legacy UA + presentational hints).
+fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
+    let legacy_ua = legacy_ua_stylesheet();
+    resolve_styles_with_compat(
+        dom,
+        author_stylesheets,
+        &[legacy_ua],
+        &get_presentational_hints,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
+}
+
 /// Run the full browser pipeline and display the result in a window.
 ///
 /// Parses HTML, applies CSS, computes layout, builds a display list,
 /// and opens a window rendering the result via Vello + wgpu.
 ///
+/// Content processing (DOM, JS, style, layout) runs on a dedicated thread,
+/// communicating with the browser thread via message passing.
+///
 /// This function blocks until the window is closed.
 pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let pipeline_result = build_pipeline_interactive(html, css);
-
     let event_loop = EventLoop::new()?;
-    let mut app = App::new_interactive(pipeline_result);
+    let mut app = App::new_threaded(html.to_string(), css.to_string());
     event_loop.run_app(&mut app)?;
 
     Ok(())
@@ -102,14 +128,14 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let mut dom = parse_result.dom;
     let document = parse_result.document;
 
-    let stylesheets = vec![parse_stylesheet(css, Origin::Author)];
+    let stylesheets = vec![parse_compat_stylesheet(css, elidex_css::Origin::Author)];
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let font_db = Rc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    let (session, runtime) = run_scripts_and_finalize(
+    let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
@@ -134,109 +160,12 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     }
 }
 
-/// Common script execution and finalization phase shared by pipeline builders.
-///
-/// Performs:
-/// 1. Initial style resolution
-/// 2. Script execution (eval each source, drain timers, flush mutations)
-/// 3. Lifecycle event dispatch (`DOMContentLoaded`, `load`)
-/// 4. Post-script style re-resolution and layout
-///
-/// Returns the `(SessionCore, JsRuntime)` for the caller to include in `PipelineResult`.
-fn run_scripts_and_finalize(
-    dom: &mut EcsDom,
-    document: Entity,
-    stylesheets: &[Stylesheet],
-    script_sources: &[&str],
-    fetch_handle: Rc<FetchHandle>,
-    font_db: &Rc<FontDatabase>,
-    current_url: Option<url::Url>,
-) -> (SessionCore, JsRuntime) {
-    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
-
-    // Initial style resolution.
-    resolve_styles(
-        dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    // Script execution phase.
-    let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
-
-    if let Some(url) = current_url {
-        runtime.set_current_url(Some(url));
-    }
-
-    for source in script_sources {
-        runtime.eval(source, &mut session, dom, document);
-    }
-    runtime.drain_timers(&mut session, dom, document);
-    session.flush(dom);
-
-    // Dispatch lifecycle events.
-    dispatch_lifecycle_events(&mut runtime, &mut session, dom, document);
-    session.flush(dom);
-
-    // Re-resolve styles after DOM mutations from scripts.
-    resolve_styles(
-        dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
-
-    layout_tree(
-        dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-        font_db,
-    );
-
-    (session, runtime)
-}
-
-/// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.
-///
-/// Per the HTML spec:
-/// - `DOMContentLoaded` fires after HTML parsing and script execution complete.
-/// - `load` fires after all sub-resources (stylesheets, images) have loaded.
-///
-/// Both events bubble but are not cancelable.
-fn dispatch_lifecycle_events(
-    runtime: &mut JsRuntime,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-    document: Entity,
-) {
-    // DOMContentLoaded: bubbles, not cancelable.
-    let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
-    dcl_event.cancelable = false;
-    runtime.dispatch_event(&mut dcl_event, session, dom, document);
-
-    // Flush mutations from DOMContentLoaded handlers before dispatching load.
-    session.flush(dom);
-
-    // load: does NOT bubble (spec), not cancelable.
-    let mut load_event = DispatchEvent::new("load", document);
-    load_event.bubbles = false;
-    load_event.cancelable = false;
-    runtime.dispatch_event(&mut load_event, session, dom, document);
-}
-
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
 pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    resolve_styles(
-        &mut result.dom,
-        &stylesheet_refs,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    resolve_with_compat(&mut result.dom, &stylesheet_refs);
 
     layout_tree(
         &mut result.dom,
@@ -267,7 +196,7 @@ pub fn build_pipeline_from_loaded(
 
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    let (session, runtime) = run_scripts_and_finalize(
+    let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
@@ -309,531 +238,16 @@ pub fn build_pipeline_from_url(
 /// Parses the URL, fetches the page and its resources, executes scripts,
 /// renders the result, and runs the event loop.
 ///
+/// Content processing runs on a dedicated thread.
+///
 /// This function blocks until the window is closed.
 pub fn run_url(url_str: &str) -> Result<(), Box<dyn std::error::Error>> {
     let url = url::Url::parse(url_str)
         .map_err(|e| elidex_navigation::LoadError::InvalidUrl(format!("{url_str}: {e}")))?;
-    let pipeline_result = build_pipeline_from_url(&url)?;
-
-    // Set the window title to the URL.
-    let title = format!("elidex \u{2014} {url}");
 
     let event_loop = EventLoop::new()?;
-    let mut app = App::new_interactive_with_url(pipeline_result, title);
+    let mut app = App::new_threaded_url(url);
     event_loop.run_app(&mut app)?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use elidex_plugin::{EventPayload, MouseEventInit};
-    use elidex_render::DisplayItem;
-
-    const TEST_FONT_FAMILIES: &[&str] = &["Arial", "DejaVu Sans", "Noto Sans", "Hiragino Sans"];
-
-    fn fonts_available(font_db: &FontDatabase) -> bool {
-        font_db.query(TEST_FONT_FAMILIES, 400).is_some()
-    }
-
-    #[test]
-    fn build_pipeline_interactive_returns_all_fields() {
-        let result = build_pipeline_interactive(
-            "<div id=\"test\">Hello</div>",
-            "div { display: block; background-color: red; }",
-        );
-        assert!(!result.display_list.is_empty());
-        // Document entity should be valid.
-        assert!(result.dom.contains(result.document));
-    }
-
-    #[test]
-    fn build_pipeline_interactive_with_script() {
-        let result = build_pipeline_interactive(
-            "<div id=\"target\">Before</div>\
-             <script>document.getElementById('target').textContent = 'After';</script>",
-            "",
-        );
-        assert!(result.dom.contains(result.document));
-    }
-
-    #[test]
-    fn build_pipeline_interactive_compatible_with_build_pipeline() {
-        // Both functions should produce similar display lists for the same input.
-        let html = "<div style=\"background-color: red\">Hello</div>";
-        let css = "div { display: block; }";
-
-        let dl1 = build_pipeline(html, css);
-        let result = build_pipeline_interactive(html, css);
-
-        // Same number of display items.
-        assert_eq!(dl1.iter().count(), result.display_list.iter().count());
-    }
-
-    #[test]
-    fn re_render_updates_display_list() {
-        let mut result = build_pipeline_interactive(
-            "<div id=\"box\" style=\"background-color: red; width: 100px; height: 100px;\">Hello</div>",
-            "div { display: block; }",
-        );
-        let original_count = result.display_list.iter().count();
-
-        // Modify the DOM via the session (simulate a script mutation).
-        // No actual change needed — just verify re_render doesn't crash.
-        re_render(&mut result);
-        let new_count = result.display_list.iter().count();
-        assert_eq!(original_count, new_count);
-    }
-
-    #[test]
-    fn event_listener_with_pipeline_interactive() {
-        let mut result = build_pipeline_interactive(
-            "<div id=\"btn\" style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>\
-             <script>\
-               document.getElementById('btn').addEventListener('click', function(e) {\
-                 e.target.style.setProperty('background-color', 'red');\
-               });\
-             </script>",
-            "div { display: block; }",
-        );
-        // The pipeline should complete without panic.
-        assert!(!result.display_list.is_empty());
-        assert!(result.dom.contains(result.document));
-
-        // Simulate a click dispatch and re-render.
-        let btn_entities = result.dom.query_by_tag("div");
-        let btn = btn_entities.iter().find(|&&e| {
-            result
-                .dom
-                .world()
-                .get::<&elidex_ecs::Attributes>(e)
-                .ok()
-                .is_some_and(|a| a.get("id") == Some("btn"))
-        });
-        if let Some(&btn_entity) = btn {
-            let mut event = DispatchEvent::new("click", btn_entity);
-            event.payload = EventPayload::Mouse(MouseEventInit {
-                client_x: 100.0,
-                client_y: 50.0,
-                ..Default::default()
-            });
-            result.runtime.dispatch_event(
-                &mut event,
-                &mut result.session,
-                &mut result.dom,
-                result.document,
-            );
-            re_render(&mut result);
-        }
-    }
-
-    #[test]
-    fn empty_html_produces_display_list() {
-        let dl = build_pipeline("", "");
-        // Empty HTML still parses (html5ever creates html/head/body).
-        // UA stylesheet gives body a background, but it's transparent by default.
-        // So the display list may or may not be empty depending on UA styles.
-        let _ = dl;
-    }
-
-    #[test]
-    fn background_color_in_pipeline() {
-        let dl = build_pipeline(
-            "<div style=\"background-color: red\">Hello</div>",
-            "div { display: block; }",
-        );
-        let has_rect = dl
-            .iter()
-            .any(|item| matches!(item, DisplayItem::SolidRect { .. }));
-        assert!(
-            has_rect,
-            "Expected at least one SolidRect for red background"
-        );
-    }
-
-    #[test]
-    fn pipeline_with_stylesheet() {
-        let dl = build_pipeline(
-            "<div class=\"box\">Test</div>",
-            ".box { display: block; background-color: blue; width: 200px; height: 100px; }",
-        );
-        let rects: Vec<_> = dl
-            .iter()
-            .filter(|item| matches!(item, DisplayItem::SolidRect { .. }))
-            .collect();
-        assert!(!rects.is_empty(), "Expected SolidRect for blue box");
-    }
-
-    // --- Script execution integration tests ---
-
-    #[test]
-    fn script_does_not_crash_pipeline() {
-        // A script that does nothing should not break the pipeline.
-        let dl = build_pipeline(
-            "<div>Hello</div><script>var x = 1;</script>",
-            "div { display: block; }",
-        );
-        let _ = dl;
-    }
-
-    #[test]
-    fn script_error_does_not_crash_pipeline() {
-        // A script error should be caught and not propagate.
-        let dl = build_pipeline(
-            "<div>Hello</div><script>throw new Error('test error');</script>",
-            "div { display: block; }",
-        );
-        let _ = dl;
-    }
-
-    #[test]
-    fn multiple_scripts_execute_in_order() {
-        // Multiple scripts should all execute without crashing.
-        let dl = build_pipeline(
-            "<div>Hello</div>\
-             <script>var a = 1;</script>\
-             <script>var b = 2;</script>\
-             <script>var c = a + b;</script>",
-            "div { display: block; }",
-        );
-        let _ = dl;
-    }
-
-    #[test]
-    fn script_console_log_does_not_crash() {
-        let dl = build_pipeline(
-            "<div>Hello</div><script>console.log('hello from script');</script>",
-            "",
-        );
-        let _ = dl;
-    }
-
-    #[test]
-    fn script_set_timeout_zero_executes() {
-        // setTimeout with 0 delay should execute during drain_timers.
-        let dl = build_pipeline(
-            "<div>Hello</div><script>setTimeout('console.log(\"timer\")', 0);</script>",
-            "",
-        );
-        let _ = dl;
-    }
-
-    #[test]
-    fn pipeline_without_scripts_still_works() {
-        // Ensure the script integration path doesn't break pipelines without scripts.
-        let result = build_pipeline_interactive(
-            "<h1>No Scripts</h1><p>Just content</p>",
-            "h1 { display: block; color: red; }",
-        );
-        // The no-script pipeline should produce a valid DOM/document state
-        // regardless of font availability.
-        assert!(result.dom.contains(result.document));
-        assert!(!result.dom.query_by_tag("h1").is_empty());
-        assert!(!result.dom.query_by_tag("p").is_empty());
-    }
-
-    // --- DOM JS round-trip integration tests ---
-
-    #[test]
-    fn script_get_element_by_id() {
-        // getElementById should find an element and allow setting textContent.
-        let _dl = build_pipeline(
-            "<div id=\"target\">Before</div>\
-             <script>document.getElementById('target').textContent = 'After';</script>",
-            "",
-        );
-        // Pipeline completes without panic (H-1 fix validates RefCell safety).
-    }
-
-    #[test]
-    fn script_create_element_and_append() {
-        // createElement + appendChild through the full pipeline.
-        let _dl = build_pipeline(
-            "<div id=\"root\"></div>\
-             <script>\
-               var el = document.createElement('span');\
-               el.textContent = 'dynamic';\
-               document.getElementById('root').appendChild(el);\
-             </script>",
-            "",
-        );
-    }
-
-    #[test]
-    fn script_query_selector() {
-        // querySelector should find elements by CSS selector.
-        let _dl = build_pipeline(
-            "<div class=\"target\">original</div>\
-             <script>\
-               var el = document.querySelector('.target');\
-               el.setAttribute('data-found', 'true');\
-             </script>",
-            "",
-        );
-    }
-
-    #[test]
-    fn script_style_set_property() {
-        // element.style.setProperty should work through the pipeline.
-        let _dl = build_pipeline(
-            "<div id=\"box\">styled</div>\
-             <script>\
-               document.getElementById('box').style.setProperty('background-color', 'red');\
-             </script>",
-            "",
-        );
-    }
-
-    #[test]
-    fn script_remove_child() {
-        // removeChild should work through the DomApiHandler path.
-        let _dl = build_pipeline(
-            "<div id=\"parent\"><span id=\"child\">remove me</span></div>\
-             <script>\
-               var parent = document.getElementById('parent');\
-               var child = document.getElementById('child');\
-               parent.removeChild(child);\
-             </script>",
-            "",
-        );
-    }
-
-    #[test]
-    fn script_error_isolation() {
-        // First script errors, second still executes.
-        let _dl = build_pipeline(
-            "<div id=\"a\">one</div><div id=\"b\">two</div>\
-             <script>document.getElementById('nonexistent').textContent = 'fail';</script>\
-             <script>document.getElementById('b').textContent = 'ok';</script>",
-            "",
-        );
-    }
-
-    // --- Fetch integration tests ---
-
-    #[test]
-    fn pipeline_interactive_has_fetch_handle() {
-        // build_pipeline_interactive creates a JsRuntime with fetch support.
-        // Verify the pipeline completes with fetch available in the runtime.
-        let result = build_pipeline_interactive(
-            "<div id=\"test\">Hello</div>\
-             <script>var hasFetch = typeof fetch === 'function';</script>",
-            "",
-        );
-        assert!(result.dom.contains(result.document));
-    }
-
-    #[test]
-    fn script_promise_chain_in_pipeline() {
-        // Promise chains should work in the pipeline (run_jobs integration).
-        let _dl = build_pipeline(
-            "<div id=\"target\">Before</div>\
-             <script>\
-               Promise.resolve('After').then(function(val) {\
-                 document.getElementById('target').textContent = val;\
-               });\
-             </script>",
-            "",
-        );
-    }
-
-    #[test]
-    fn pipeline_interactive_event_with_promise() {
-        // Events that use Promises should work in interactive mode.
-        let mut result = build_pipeline_interactive(
-            "<div id=\"btn\" style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>\
-             <script>\
-               document.getElementById('btn').addEventListener('click', function(e) {\
-                 Promise.resolve('clicked').then(function(v) {\
-                   e.target.textContent = v;\
-                 });\
-               });\
-             </script>",
-            "div { display: block; }",
-        );
-        assert!(!result.display_list.is_empty());
-
-        // Simulate click dispatch.
-        let btn_entities = result.dom.query_by_tag("div");
-        let btn = btn_entities.iter().find(|&&e| {
-            result
-                .dom
-                .world()
-                .get::<&elidex_ecs::Attributes>(e)
-                .ok()
-                .is_some_and(|a| a.get("id") == Some("btn"))
-        });
-        if let Some(&btn_entity) = btn {
-            let mut event = DispatchEvent::new("click", btn_entity);
-            event.payload = EventPayload::Mouse(MouseEventInit {
-                client_x: 100.0,
-                client_y: 50.0,
-                ..Default::default()
-            });
-            result.runtime.dispatch_event(
-                &mut event,
-                &mut result.session,
-                &mut result.dom,
-                result.document,
-            );
-            re_render(&mut result);
-        }
-    }
-
-    // --- Lifecycle event tests ---
-
-    #[test]
-    fn domcontentloaded_fires() {
-        // DOMContentLoaded listener should fire during pipeline build.
-        let result = build_pipeline_interactive(
-            "<div id=\"target\">Before</div>\
-             <script>\
-               document.addEventListener('DOMContentLoaded', function() {\
-                 document.getElementById('target').textContent = 'DCL fired';\
-               });\
-             </script>",
-            "",
-        );
-        // The listener should have been invoked during build.
-        let messages = result.runtime.console_output().messages();
-        // Check the DOM — textContent should have been changed.
-        let divs = result.dom.query_by_tag("div");
-        let target = divs.iter().find(|&&e| {
-            result
-                .dom
-                .world()
-                .get::<&elidex_ecs::Attributes>(e)
-                .ok()
-                .is_some_and(|a| a.get("id") == Some("target"))
-        });
-        if let Some(&target_entity) = target {
-            let text_child = result.dom.get_first_child(target_entity);
-            if let Some(tc) = text_child {
-                let text = result
-                    .dom
-                    .world()
-                    .get::<&elidex_ecs::TextContent>(tc)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-                assert_eq!(text, "DCL fired");
-            }
-        }
-        let _ = messages;
-    }
-
-    #[test]
-    fn load_event_fires() {
-        // load listener should fire during pipeline build.
-        let result = build_pipeline_interactive(
-            "<div id=\"target\">Before</div>\
-             <script>\
-               document.addEventListener('load', function() {\
-                 document.getElementById('target').textContent = 'loaded';\
-               });\
-             </script>",
-            "",
-        );
-        let divs = result.dom.query_by_tag("div");
-        let target = divs.iter().find(|&&e| {
-            result
-                .dom
-                .world()
-                .get::<&elidex_ecs::Attributes>(e)
-                .ok()
-                .is_some_and(|a| a.get("id") == Some("target"))
-        });
-        if let Some(&target_entity) = target {
-            let text_child = result.dom.get_first_child(target_entity);
-            if let Some(tc) = text_child {
-                let text = result
-                    .dom
-                    .world()
-                    .get::<&elidex_ecs::TextContent>(tc)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-                assert_eq!(text, "loaded");
-            }
-        }
-    }
-
-    #[test]
-    fn domcontentloaded_fires_before_load() {
-        // DOMContentLoaded should fire before load.
-        let result = build_pipeline_interactive(
-            "<script>\
-               var order = [];\
-               document.addEventListener('DOMContentLoaded', function() {\
-                 order.push('dcl');\
-               });\
-               document.addEventListener('load', function() {\
-                 order.push('load');\
-               });\
-             </script>",
-            "",
-        );
-        // Check that both events fired in the right order via console.
-        // We need to read the `order` variable.
-        // Use a follow-up eval to check.
-        let mut session = result.session;
-        let mut dom = result.dom;
-        let mut runtime = result.runtime;
-        runtime.eval(
-            "console.log('order=' + order.join(','));",
-            &mut session,
-            &mut dom,
-            result.document,
-        );
-        let messages = runtime.console_output().messages();
-        assert!(
-            messages.iter().any(|m| m.1.contains("order=dcl,load")),
-            "Expected DOMContentLoaded before load, got: {messages:?}"
-        );
-    }
-
-    #[test]
-    fn lifecycle_events_not_cancelable() {
-        // preventDefault() on lifecycle events should not prevent them.
-        let result = build_pipeline_interactive(
-            "<script>\
-               var prevented = false;\
-               document.addEventListener('DOMContentLoaded', function(e) {\
-                 e.preventDefault();\
-                 prevented = e.defaultPrevented;\
-                 console.log('dcl-prevented=' + prevented);\
-               });\
-             </script>",
-            "",
-        );
-        let messages = result.runtime.console_output().messages();
-        // DOMContentLoaded is not cancelable, so preventDefault should have no effect.
-        // The `defaultPrevented` property should remain false.
-        assert!(
-            messages.iter().any(|m| m.1.contains("dcl-prevented=false")),
-            "DOMContentLoaded should not be cancelable, got: {messages:?}"
-        );
-    }
-
-    #[test]
-    fn inline_run_produces_single_text_item() {
-        // Verifies that inline text is collected and rendered correctly.
-        let html = r"<p>Hello <strong>world</strong>!</p>";
-        let css = "p, strong { display: inline; font-family: Arial, \"DejaVu Sans\", \"Noto Sans\", \"Hiragino Sans\"; } p { display: block; }";
-        let result = build_pipeline_interactive(html, css);
-        if !fonts_available(&result.font_db) {
-            // This test validates text item segmentation, which requires available fonts.
-            return;
-        }
-        let dl = &result.display_list;
-        let text_count = dl
-            .iter()
-            .filter(|i| matches!(i, DisplayItem::Text { .. }))
-            .count();
-        // Styled inline runs: one text item per styled segment.
-        // "Hello " (p style), "world" (strong style), "!" (p style) = 3.
-        assert_eq!(
-            text_count, 3,
-            "Expected 3 text items for styled inline run, got {text_count}"
-        );
-    }
 }

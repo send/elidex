@@ -64,26 +64,10 @@ pub(super) fn expand_four_sides(
     };
 
     vec![
-        Declaration {
-            property: format!("{prefix}-top"),
-            value: top,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-right"),
-            value: right,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-bottom"),
-            value: bottom,
-            important: false,
-        },
-        Declaration {
-            property: format!("{prefix}-left"),
-            value: left,
-            important: false,
-        },
+        Declaration::new(format!("{prefix}-top"), top),
+        Declaration::new(format!("{prefix}-right"), right),
+        Declaration::new(format!("{prefix}-bottom"), bottom),
+        Declaration::new(format!("{prefix}-left"), left),
     ]
 }
 
@@ -131,7 +115,8 @@ fn parse_border_components(input: &mut Parser) -> Option<(CssValue, CssValue, Cs
                 let ident = i.expect_ident().map_err(|_| ())?;
                 let lower = ident.to_ascii_lowercase();
                 match lower.as_str() {
-                    "none" | "solid" | "dashed" | "dotted" => Ok(CssValue::Keyword(lower)),
+                    "none" | "hidden" | "solid" | "dashed" | "dotted" | "double" | "groove"
+                    | "ridge" | "inset" | "outset" => Ok(CssValue::Keyword(lower)),
                     _ => Err(()),
                 }
             }) {
@@ -184,21 +169,9 @@ pub(super) fn parse_border_shorthand(input: &mut Parser) -> Vec<Declaration> {
 
     let mut decls = Vec::with_capacity(12);
     for side in SIDES {
-        decls.push(Declaration {
-            property: format!("border-{side}-width"),
-            value: w.clone(),
-            important: false,
-        });
-        decls.push(Declaration {
-            property: format!("border-{side}-style"),
-            value: s.clone(),
-            important: false,
-        });
-        decls.push(Declaration {
-            property: format!("border-{side}-color"),
-            value: c.clone(),
-            important: false,
-        });
+        decls.push(Declaration::new(format!("border-{side}-width"), w.clone()));
+        decls.push(Declaration::new(format!("border-{side}-style"), s.clone()));
+        decls.push(Declaration::new(format!("border-{side}-color"), c.clone()));
     }
     decls
 }
@@ -212,20 +185,8 @@ pub(super) fn parse_border_side_shorthand(input: &mut Parser, side: &str) -> Vec
     };
 
     vec![
-        Declaration {
-            property: format!("border-{side}-width"),
-            value: w,
-            important: false,
-        },
-        Declaration {
-            property: format!("border-{side}-style"),
-            value: s,
-            important: false,
-        },
-        Declaration {
-            property: format!("border-{side}-color"),
-            value: c,
-            important: false,
-        },
+        Declaration::new(format!("border-{side}-width"), w),
+        Declaration::new(format!("border-{side}-style"), s),
+        Declaration::new(format!("border-{side}-color"), c),
     ]
 }

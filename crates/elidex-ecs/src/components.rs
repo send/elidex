@@ -87,6 +87,111 @@ pub struct InlineStyle {
 
 impl_string_map!(InlineStyle, properties, "style property");
 
+/// Marker component for pseudo-element entities (`::before`, `::after`).
+///
+/// Pseudo-element entities are generated during style resolution and
+/// inserted as children of the originating element. They carry a
+/// `ComputedStyle` and `TextContent` but are not real DOM elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PseudoElementMarker;
+
+/// Dynamic element state flags for CSS pseudo-class matching.
+///
+/// Tracks whether an element is hovered, focused, active, or a link.
+/// Used by the selector engine to match `:hover`, `:focus`, `:active`,
+/// `:link`, and `:visited` pseudo-classes.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct ElementState(pub u8);
+
+impl ElementState {
+    pub const HOVER: u8 = 0b0000_0001;
+    pub const FOCUS: u8 = 0b0000_0010;
+    pub const ACTIVE: u8 = 0b0000_0100;
+    pub const LINK: u8 = 0b0000_1000;
+    pub const VISITED: u8 = 0b0001_0000;
+
+    /// Returns `true` if the given flag is set.
+    #[must_use]
+    pub fn contains(self, flag: u8) -> bool {
+        self.0 & flag != 0
+    }
+
+    /// Set the given flag.
+    pub fn insert(&mut self, flag: u8) {
+        self.0 |= flag;
+    }
+
+    /// Clear the given flag.
+    pub fn remove(&mut self, flag: u8) {
+        self.0 &= !flag;
+    }
+
+    /// Returns `true` if no flags are set.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// Shadow root mode (WHATWG DOM §4.8).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShadowRootMode {
+    /// Shadow root is accessible via `element.shadowRoot`.
+    Open,
+    /// Shadow root is not accessible via `element.shadowRoot`.
+    Closed,
+}
+
+/// Marker: this entity is a shadow root.
+///
+/// A shadow root is a document fragment attached to a host element.
+/// It provides style encapsulation and DOM isolation.
+///
+// TODO(L2): WHATWG DOM §4.8 specifies additional fields:
+// - `delegatesFocus: bool` (focus delegation to first focusable element)
+// - `slotAssignment: "manual" | "named"` (slot assignment mode)
+// Currently omitted because no consumer exists.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowRoot {
+    /// Open or closed mode.
+    pub mode: ShadowRootMode,
+    /// The host element that owns this shadow root.
+    pub host: Entity,
+}
+
+/// Marker: this element hosts a shadow root.
+///
+/// Attached to elements that have had `attachShadow()` called on them.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowHost {
+    /// The shadow root entity.
+    pub shadow_root: Entity,
+}
+
+/// Slot assignment for distributed nodes.
+///
+/// Attached to `<slot>` entities in the shadow tree.
+/// Contains the list of light DOM nodes distributed to this slot.
+#[derive(Debug, Default)]
+pub struct SlotAssignment {
+    /// Light DOM nodes assigned to this slot, in order.
+    pub assigned_nodes: Vec<Entity>,
+}
+
+/// Marker attached to light DOM nodes that have been distributed to a slot.
+///
+/// Added by `distribute_slots()` for O(1) slotted-element checks in
+/// selector matching and event retargeting.
+#[derive(Clone, Copy, Debug)]
+pub struct SlottedMarker;
+
+/// Marker for `<template>` elements (inert — not rendered/styled).
+///
+/// Template content is not part of the rendered document. Elements
+/// with this marker are excluded from style resolution and rendering.
+#[derive(Clone, Copy, Debug)]
+pub struct TemplateContent;
+
 /// Decoded image pixel data for `<img>` elements.
 ///
 /// Stored as a component on image entities after the image has been

@@ -117,6 +117,8 @@ pub enum LengthUnit {
     Vmin,
     /// Larger of `vw` and `vh` (`vmax`).
     Vmax,
+    /// Flexible fraction (`fr`) for CSS Grid.
+    Fr,
 }
 
 /// An RGBA color value.
@@ -268,6 +270,12 @@ mod tests {
         let u2 = u;
         assert_eq!(u, u2);
         assert_eq!(format!("{u:?}"), "Em");
+    }
+
+    #[test]
+    fn length_unit_fr() {
+        let v = CssValue::Length(1.0, LengthUnit::Fr);
+        assert_eq!(v.as_length(), Some((1.0, LengthUnit::Fr)));
     }
 
     #[test]

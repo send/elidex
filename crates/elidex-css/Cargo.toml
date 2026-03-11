@@ -17,5 +17,12 @@ elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 cssparser.workspace = true
 
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "css_parse"
+harness = false
+
 [lints]
 workspace = true

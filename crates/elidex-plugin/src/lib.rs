@@ -6,23 +6,29 @@
 mod computed_style;
 mod error;
 mod event_types;
+pub mod handlers;
 mod js_value;
 mod layout_types;
+mod logical;
 mod registry;
+pub mod sandbox;
 mod spec_level;
 mod traits;
 pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, ComputedStyle, Dimension, Display,
-    FlexDirection, FlexWrap, JustifyContent, LineHeight, ListStyleType, Overflow, Position,
-    TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
+    ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
+    FlexWrap, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
+    Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextOrientation, TextTransform,
+    TrackBreadth, TrackSize, UnicodeBidi, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
+pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{
@@ -31,6 +37,30 @@ pub use traits::{
     ParseBehavior, StyleContext,
 };
 pub use values::{CssColor, CssValue, LengthUnit};
+
+// ---------------------------------------------------------------------------
+// Process model
+// ---------------------------------------------------------------------------
+
+/// Describes how renderer (content) threads are allocated.
+///
+/// Phase 3.5 implements `SingleProcess` only (all content in one thread).
+/// Other variants are defined for future multi-process support.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProcessModel {
+    /// Each site (origin) gets its own renderer.
+    SiteIsolation,
+    /// Each tab gets its own renderer.
+    PerTab,
+    /// Renderers are shared across tabs up to a maximum count.
+    Shared {
+        /// Maximum number of concurrent renderer threads.
+        max_renderers: usize,
+    },
+    /// Everything runs in a single process (current default).
+    SingleProcess,
+}
 
 // ---------------------------------------------------------------------------
 // Network types

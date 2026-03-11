@@ -1,0 +1,20 @@
+[package]
+name = "elidex-shaping"
+description = "Font database, text shaping, and measurement for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["browser-engine", "text", "shaping"]
+categories = ["web-programming"]
+
+[dependencies]
+fontdb.workspace = true
+rustybuzz.workspace = true
+
+[lints]
+workspace = true

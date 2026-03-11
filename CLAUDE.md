@@ -23,6 +23,10 @@ crates/
   elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
   elidex-dom-api/       — DOM API handler implementations (engine-independent)
   elidex-js/            — JavaScript engine integration (boa_engine 0.20)
+  elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
+  elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
+  elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
+  elidex-wpt/           — WPT-style CSS conformance test harness
 ```
 
 ### Common Commands
@@ -33,6 +37,7 @@ mise run test        # cargo test --workspace
 mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 cargo doc --workspace --no-deps  # Build docs
+mise run bench                   # Run all benchmarks (CSS, style, layout)
 ```
 
 ### Key Files
@@ -73,6 +78,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **Internal helpers**: `update_rel()`, `read_rel()`, `clear_rel()` for TreeRelation access. `is_child_of()` for parent validation. `all_exist()` for entity checks.
 - **API**: `append_child`, `insert_before`, `replace_child` (validates before detach), `detach`, `destroy_entity`. Helpers: `get_parent`, `get_first_child`, `get_last_child`, `get_next_sibling`, `get_prev_sibling`, `contains`.
 - **Attributes**: `get/set/remove/contains` accessors on `Attributes` struct.
+- **Shadow DOM**: `ShadowRoot` (mode + host), `ShadowHost` (shadow_root), `ShadowRootMode` (Open/Closed), `SlotAssignment` (assigned_nodes), `SlottedMarker`, `TemplateContent` (marker) components. `attach_shadow(host, mode)` with WHATWG element whitelist (18 tags). `get_shadow_root(host)`. `composed_children(entity)` — shadow hosts return shadow tree children, slots return assigned nodes (or fallback), others return normal children.
 
 ### elidex-plugin
 
@@ -82,6 +88,9 @@ cargo doc --workspace --no-deps  # Build docs
 - **Error types**: `define_error_type!` macro for DRY error boilerplate (`ParseError`, `HtmlParseError`, `NetworkError`).
 - **JsValue**: `#[non_exhaustive]` enum (Undefined/Null/Bool/Number/String/ObjectRef) — cross-engine JS value type.
 - **Network types**: `HttpRequest` (method/url/headers), `HttpResponse` (status/headers), `NetworkError` (kind/message), `NetworkErrorKind` enum.
+- **ProcessModel**: `SiteIsolation`/`PerTab`/`Shared{max_renderers}`/`SingleProcess` — `#[non_exhaustive]`, Phase 3.5 implements `SingleProcess` only.
+- **Sandbox types** (`sandbox.rs`): `FilesystemAccess` (None/ReadOnly/ReadWrite), `NetworkAccess` (None/SameOrigin/Full), `SandboxPolicy` (filesystem/network/ipc/gpu) with `strict()`/`permissive()`/`web_content()` constructors, `PlatformSandbox` (LinuxSeccomp/MacOSAppSandbox/WindowsRestricted/Unsandboxed). Type-only — enforcement deferred to OS process isolation phase.
+- **Built-in handlers** (`handlers/`): Concrete trait implementations demonstrating the plugin pattern. `create_css_property_registry()` (display/color/width/opacity/overflow), `create_html_element_registry()` (div/a/img/script/button), `create_layout_registry()` (block/flex/grid/table). CSS handlers include parse + resolve logic; layout models use stub layout (actual dispatch remains in elidex-layout).
 
 ### elidex-layout
 
@@ -99,6 +108,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **apply_mutation()**: Delegates tree ops to `EcsDom`, attribute/style ops via `world_mut()`. `SetInlineStyle` auto-inserts `InlineStyle` component if missing. Returns `Option<MutationRecord>`.
 - **DomApiHandler / CssomApiHandler traits**: `Send + Sync`, `method_name()`, `spec_level()` (default Living/Standard), `invoke(this, args, session, dom) -> Result<JsValue, DomApiError>`.
 - **Types**: `JsObjectRef(u64)`, `ComponentKind` enum (Element/Style/ClassList/Attributes/Dataset/ChildNodes), `DomApiError` + `DomApiErrorKind` (NotFoundError/HierarchyRequestError/InvalidStateError/SyntaxError/TypeError/Other).
+- **Event dispatch**: `DispatchEvent` with `composed: bool` (default true) and `original_target: Option<Entity>`. `build_propagation_path(dom, target, composed)` — non-composed events stop at `ShadowRoot`. Event retargeting: shadow-internal targets → shadow host for outside listeners (slotted elements exempt).
 
 ### elidex-dom-api
 
@@ -115,7 +125,7 @@ cargo doc --workspace --no-deps  # Build docs
 - **JsRuntime**: Owns boa `Context`, `HostBridge`, `ConsoleOutput`, `TimerQueueHandle`. `eval()` binds bridge, evaluates source, unbinds. `drain_timers()` runs ready timer callbacks.
 - **HostBridge**: `Rc<RefCell<HostBridgeInner>>` with raw pointers to `SessionCore`/`EcsDom`. `bind()`/`unbind()` bracket eval. `with(|session, dom| ...)` for native function access. `!Send` via `Rc`. JsObject cache for entity identity (`HashMap<JsObjectRef, JsObject>`).
 - **globals/document.rs**: `register_document()` — querySelector, querySelectorAll (JsArray), getElementById, createElement, createTextNode, body accessor.
-- **globals/element.rs**: `build_element_object()` — appendChild, removeChild, setAttribute, getAttribute, removeAttribute, textContent (accessor), innerHTML (getter), style (accessor → `create_style_object`), classList (accessor → `create_class_list_object`). Entity stored as f64 in hidden `__elidex_entity__` property.
+- **globals/element.rs**: `build_element_object()` — appendChild, removeChild, setAttribute, getAttribute, removeAttribute, textContent (accessor), innerHTML (getter), style (accessor → `create_style_object`), classList (accessor → `create_class_list_object`), attachShadow({mode}) (creates shadow root via EcsDom), shadowRoot (accessor: open→root, closed/none→null). Entity stored as f64 in hidden `__elidex_entity__` property.
 - **globals/window.rs**: `register_window()` — `getComputedStyle(element)` returning computed style proxy. `create_style_object()` — setProperty/getPropertyValue/removeProperty.
 - **globals/console.rs**: `register_console()` — log/error/warn. `ConsoleOutput` captures messages for testing.
 - **globals/timers.rs**: `register_timers()` — setTimeout/setInterval/clearTimeout/clearInterval/requestAnimationFrame/cancelAnimationFrame. `TimerQueueHandle` wraps `Rc<RefCell<TimerQueue>>`.
@@ -126,7 +136,10 @@ cargo doc --workspace --no-deps  # Build docs
 - **boa 0.20 notes**: `ObjectInitializer` methods return `&mut Self`, accessors need `JsFunction` (via `to_js_function(&realm)`), `custom_trace!(this, mark, {body})` with 3 args, `from_copy_closure_with_captures` for safe closure registration.
 - **globals/fetch.rs**: `register_fetch()` — `fetch(url, options?)` global. Blocking HTTP via `FetchHandle::send_blocking()`. Returns `JsPromise::resolve(Response)` or `JsPromise::reject(TypeError)`. Response object: ok/status/statusText/url/type/redirected/headers properties + `text()`/`json()`/`clone()` methods. `json()` uses boa `JSON.parse()` via global object. Headers object: `get()` (combines duplicates per Fetch spec), `has()`, `forEach()`. `set()`/`delete()` omitted (Response headers immutable).
 - **run_jobs() integration**: `eval()` calls `ctx.run_jobs()` after evaluation (bridge still bound) to drain microtask queue. `dispatch_event()` similarly calls `ctx.run_jobs()` after dispatch loop. Enables `fetch().then(r => r.text())` chains.
-- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, url, bytes.
+- **globals/canvas.rs**: `create_context2d_object()` — CanvasRenderingContext2D JS object with drawing methods delegating to `Canvas2dContext` in `HostBridge`. `sync_canvas_to_image_data()` syncs pixels to ECS `ImageData` after each draw. `extract_entity_bits()` reads entity from hidden property.
+- **HostBridge canvas support**: `canvas_contexts: HashMap<u64, Canvas2dContext>` in `HostBridgeInner`. `ensure_canvas_context(entity_bits, width, height)` creates context, `with_canvas(entity_bits, f)` accesses it.
+- **globals/element.rs**: `getContext("2d")` on `<canvas>` elements — reads width/height attributes (defaults 300×150), creates Canvas2dContext via bridge, returns cached context2d JS object.
+- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, elidex-api-canvas, url, bytes.
 
 ### elidex-net
 
@@ -147,12 +160,78 @@ cargo doc --workspace --no-deps  # Build docs
 
 ### elidex-shell
 
-- **chrome.rs**: Browser chrome UI (egui overlay). `ChromeState` (address_text, address_focused), `ChromeAction` enum (Navigate/Back/Forward/Reload), `build()` draws egui `TopBottomPanel` with back/forward/reload buttons and address bar. `CHROME_HEIGHT = 36.0` logical pixels.
-- **egui integration**: `RenderState` holds `egui::Context`, `egui_winit::State`, `egui_wgpu::Renderer`. Initialized in `try_init_render_state()`. Overlay rendered via `render_egui_overlay()` using `LoadOp::Load` render pass after Vello blit. `forget_lifetime()` on `RenderPass` (wgpu 22+ render passes don't borrow encoder).
-- **Event routing**: egui-first — `on_window_event()` passes events to `egui_state` first; if consumed, content handlers are skipped. Address bar focus (`address_focused`) suppresses content keyboard events.
-- **Chrome actions**: `handle_chrome_action()` — Navigate (URL parse with `https://` fallback), Back/Forward (via `NavigationController`), Reload (re-navigate current URL).
+- **chrome.rs**: Browser chrome UI (egui overlay). `ChromeState` (address_text, address_focused, tab_bar_position), `ChromeAction` enum (Navigate/Back/Forward/Reload/NewTab/CloseTab/SwitchTab), `build()` draws egui `TopBottomPanel` with back/forward/reload buttons and address bar. `CHROME_HEIGHT = 36.0`, `TAB_BAR_HEIGHT = 28.0`, `TAB_SIDEBAR_WIDTH = 200.0` logical pixels. `TabBarPosition` (Top/Left/Right), `TabBarInfo` for tab bar rendering, `build_tab_bar()` renders horizontal or side-panel tabs, `chrome_content_offset()` computes content area `(x, y)` offset.
+- **Tab management** (`app/tab.rs`): `TabId(u64)` unique identifier, `Tab` (channel, thread, display_list, chrome, window_title), `TabManager` (Vec<Tab>, active_id, id_gen). Methods: `create_tab()`, `close_tab()` (shutdown + neighbor select), `active_tab()`/`active_tab_mut()`, `set_active()`, `next_tab_id()`/`prev_tab_id()` (wrap-around), `nth_tab_id()`, `shutdown_all()`.
+- **egui integration**: `RenderState` holds `egui::Context`, `egui_winit::State`, `egui_wgpu::Renderer`. Initialized in `try_init_render_state()`. Overlay rendered via `render_egui_overlay()` / `render_egui_output()` using `LoadOp::Load` render pass after Vello blit. `handle_redraw_with_tabs()` renders tab bar + chrome bar.
+- **Event routing**: egui-first — `on_window_event()` passes events to `egui_state` first; if consumed, content handlers are skipped. Address bar focus (`address_focused`) suppresses content keyboard events. Mouse coordinate offset via `chrome_content_offset()`.
+- **Chrome actions**: `handle_chrome_action_threaded()` — Navigate/Back/Forward/Reload + NewTab/CloseTab/SwitchTab. `handle_chrome_action()` for legacy mode.
+- **Keyboard shortcuts**: `check_tab_shortcut()` — Cmd/Ctrl+T (new tab), Cmd/Ctrl+W (close tab), Ctrl+Tab/Ctrl+Shift+Tab (cycle), Cmd/Ctrl+1-9 (nth tab).
 - **URL sync**: `chrome.set_url()` called in `navigate()`, `navigate_to_history_url()`, and `handle_history_action()` (PushState/ReplaceState).
-- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible).
+- **Accessibility**: `RenderState.a11y_adapter` — `accesskit_winit::Adapter` initialized via `with_direct_handlers()` with stub handlers (NoopActivation/Action/Deactivation). Window created `with_visible(false)` for AccessKit init safety, then shown.
+- **Multi-tab architecture (M3.5-10)**: `App.tab_manager: Option<TabManager>` replaces single `ContentHandle`. Each tab has independent content thread, display list, chrome state. `drain_content_messages()` drains all tabs, active tab title synced to window. `cursor_pos`/`modifiers` at App level (window-wide). `BLANK_TAB_HTML`/`BLANK_TAB_CSS` constants, `spawn_content_thread_blank()` for new tabs.
+- **IPC module** (`ipc.rs`): `BrowserToContent` (Navigate/MouseClick/MouseMove/CursorLeft/KeyDown/KeyUp/SetViewport/GoBack/GoForward/Reload/Shutdown), `ContentToBrowser` (DisplayListReady/TitleChanged/NavigationState/UrlChanged/NavigationFailed), `ModifierState`, `LocalChannel<S,R>`, `channel_pair()`.
+- **Content thread** (`content.rs`): `spawn_content_thread()`/`spawn_content_thread_url()`/`spawn_content_thread_blank()`, `content_thread_main()` event loop, hover/focus/active management, link navigation detection, JS timer drain via `recv_timeout`, history action handling.
+- **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible), accesskit 0.24, accesskit_winit 0.32, elidex-a11y, crossbeam-channel 0.5.
+
+### elidex-api-canvas
+
+- **Canvas2dContext**: Wraps `tiny_skia::Pixmap` with `DrawingState` stack (fill/stroke color, line_width, global_alpha, transform). Default 300×150 pixels.
+- **Drawing methods**: `fillRect`, `strokeRect`, `clearRect` (rectangle methods), `beginPath`/`moveTo`/`lineTo`/`closePath`/`rect`/`arc`/`fill`/`stroke` (path methods), `save`/`restore` (state), `translate`/`rotate`/`scale` (transform).
+- **Image data**: `getImageData`/`putImageData`/`createImageData` with premultiplied↔straight alpha conversion. `to_rgba8_straight()` for ECS `ImageData` sync.
+- **Arc approximation**: `arc_to_beziers()` converts Canvas 2D `arc()` to cubic Bezier curves — splits into ≤90° segments, k = (4/3)*tan(half_angle).
+- **Style parsing**: `parse_color_string()` delegates to `elidex_css::parse_color` for CSS color string support.
+- **Dependencies**: elidex-plugin (CssColor), elidex-css (parse_color), tiny-skia 0.11.
+
+### elidex-a11y
+
+- **build_tree_update()**: Walks ECS DOM pre-order → AccessKit `TreeUpdate`. `TREE_ROOT_ID = 0` sentinel for document root (safe because hecs entities are `NonZeroU64`). Skips `aria-hidden="true"` elements.
+- **Role mapping**: `tag_to_role()` maps ~30 HTML tags, `aria_role_from_str()` maps ~60 ARIA role strings. Special cases: `img` with empty `alt` → GenericContainer, `a` without `href` → GenericContainer.
+- **ACCNAME algorithm**: `compute_accessible_name()` — priority: `aria-labelledby` (id reference resolution) → `aria-label` → `alt` (img) → text content → `title`.
+- **entity_to_node_id()**: `Entity.to_bits().get()` → `NodeId(u64)`.
+- **Dependencies**: elidex-ecs, elidex-plugin (LayoutBox), accesskit 0.24.
+
+### elidex-wasm-runtime
+
+- **WasmRuntime**: Owns wasmtime `Engine` + `Linker<HostState>` + `Arc<DomHandlerRegistry>` / `Arc<CssomHandlerRegistry>`. `compile(bytes)` → `WasmModule`, `instantiate(module)` → `WasmInstance`.
+- **WasmInstance**: Owns `Store<HostState>` + `Instance`. `call_export(name, args, session, dom, doc)` with bind/unbind bracket + `UnbindGuard`. `export_names()` / `get_func()` for introspection.
+- **HostState**: Raw pointers to `SessionCore`/`EcsDom` (bind/unbind pattern from `HostBridge`). `Arc<Registry>` for `Send` compatibility. `unsafe impl Send` (single-threaded usage).
+- **Host functions** ("elidex" namespace): 12 functions registered via `Linker`. Entity handles as `i64` (0 = null). Strings via `(ptr, len)` pairs in Wasm linear memory. Returns: packed `i64` `(ptr << 32) | len`, allocated via guest's `__alloc(len) -> ptr`.
+- **Identity map bridge**: `objref_to_entity_i64()` / `entity_i64_to_objref()` translate between Wasm entity handles and `JsObjectRef` for handler dispatch.
+- **Dependencies**: wasmtime 29, elidex-plugin, elidex-ecs, elidex-script-session, elidex-dom-api. Dev: wat 1.
+
+### elidex-style (parallel)
+
+- **Feature flag**: `parallel` enables rayon-based sibling parallel style resolution.
+- **Strategy**: Cascade (`collect_and_cascade`) runs sequentially (requires `&EcsDom`), then `build_computed_style` runs in parallel across siblings via rayon, then results applied and children recursed sequentially.
+- **parallel.rs**: `OwnedPropertyMap`, `to_owned_map()`, `par_resolve_siblings()` (threshold 8), `build_computed_style_owned()`.
+- **walk.rs**: `walk_children_parallel()` — 3-phase approach (cascade → parallel resolve → apply+recurse). Falls back to sequential for shadow hosts.
+- **Dependencies**: rayon 1 (optional).
+
+### elidex-wpt
+
+- **WPT-style test harness**: JSON-based test case format for CSS conformance testing.
+- **WptTestCase**: name, html, css, expected (selector → property → value string).
+- **run_test_case()**: parse_html → parse_stylesheet → resolve_styles → find element by selector → compare computed values.
+- **run_test_suite()**: batch runner returning `Vec<WptTestResult>`.
+- **Built-in suites**: `suites::cascade::cascade_suite()` — 10 cascade/specificity/inheritance test cases.
+- **Dependencies**: elidex-parser, elidex-css, elidex-ecs, elidex-style, elidex-plugin, serde, serde_json.
+
+### Benchmarks (criterion)
+
+- **elidex-css** (`benches/css_parse.rs`): `css_parse_10/100/1000_rules`.
+- **elidex-style** (`benches/style_resolve.rs`): `resolve_100/1000_flat`, `resolve_deep_100`.
+- **elidex-layout** (`benches/layout_bench.rs`): `block_100`, `flex_20`.
+- **Run**: `mise run bench` or `cargo bench -p <crate>`.
+
+### elidex-script-session (additions)
+
+- **ScriptEngine trait**: `eval()`, `dispatch_event()`, `drain_timers()` — engine-agnostic interface. Navigation state methods intentionally excluded (engine-specific).
+- **EvalResult**: Moved from `elidex-js-boa` to `elidex-script-session` (canonical location). Re-exported from `elidex-js-boa` for compatibility.
+
+### elidex-js-boa (additions)
+
+- **globals/wasm.rs**: `register_wasm()` — `WebAssembly.instantiate(bufferSource)` / `WebAssembly.compile(bufferSource)`. `WasmRuntime` + `WasmInstance` stored in `Rc<RefCell>` closures. Export functions wrapped as JS callables via `ExportCaptures`. `extract_wasm_bytes()` reads array-like objects.
+- **impl ScriptEngine for JsRuntime**: Delegates to concrete methods.
 
 ### CI
 

@@ -6,7 +6,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use elidex_css::{parse_stylesheet, Origin, Stylesheet};
+use elidex_css::{Origin, Stylesheet};
+use elidex_dom_compat::parse_compat_stylesheet;
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_net::{FetchHandle, NetError};
 
@@ -143,12 +144,12 @@ pub fn load_document(
     for source in &style_sources {
         match source {
             StyleSource::Inline(css) => {
-                stylesheets.push(parse_stylesheet(css, Origin::Author));
+                stylesheets.push(parse_compat_stylesheet(css, Origin::Author));
             }
             StyleSource::External(href) => {
                 match resolve_and_fetch_text(&response.url, href, fetch_handle) {
                     Ok(css_text) => {
-                        stylesheets.push(parse_stylesheet(&css_text, Origin::Author));
+                        stylesheets.push(parse_compat_stylesheet(&css_text, Origin::Author));
                     }
                     Err(e) => {
                         tracing::warn!("Failed to fetch stylesheet {href}: {e}");

@@ -10,12 +10,20 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "color",
     "font-size",
     "font-weight",
+    "font-style",
     "font-family",
     "line-height",
     "text-transform",
     "text-align",
     "white-space",
     "list-style-type",
+    "border-collapse",
+    "border-spacing-h",
+    "border-spacing-v",
+    "caption-side",
+    "direction",
+    "writing-mode",
+    "text-orientation",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -39,16 +47,26 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Inherited text
         "font-weight" => CssValue::Number(400.0),
-        "line-height" | "white-space" => CssValue::Keyword("normal".to_string()),
+        "font-style" | "line-height" | "white-space" | "content" => {
+            CssValue::Keyword("normal".to_string())
+        }
         // Keyword "none" initial values
         "text-transform"
         | "text-decoration-line"
         | "border-top-style"
         | "border-right-style"
         | "border-bottom-style"
-        | "border-left-style" => CssValue::Keyword("none".to_string()),
-        "text-align" => CssValue::Keyword("left".to_string()),
+        | "border-left-style"
+        | "grid-template-columns"
+        | "grid-template-rows" => CssValue::Keyword("none".to_string()),
+        "text-align" => CssValue::Keyword("start".to_string()),
         "list-style-type" => CssValue::Keyword("disc".to_string()),
+
+        // Writing mode / BiDi
+        "direction" => CssValue::Keyword("ltr".to_string()),
+        "unicode-bidi" => CssValue::Keyword("normal".to_string()),
+        "writing-mode" => CssValue::Keyword("horizontal-tb".to_string()),
+        "text-orientation" => CssValue::Keyword("mixed".to_string()),
 
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
@@ -61,7 +79,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "overflow" => CssValue::Keyword("visible".to_string()),
 
         // Sizing (auto)
-        "width" | "height" | "flex-basis" | "max-width" | "max-height" => CssValue::Auto,
+        "width" | "height" | "flex-basis" | "max-width" | "max-height" | "grid-auto-columns"
+        | "grid-auto-rows" | "grid-column-start" | "grid-column-end" | "grid-row-start"
+        | "grid-row-end" => CssValue::Auto,
 
         // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
         "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
@@ -78,17 +98,22 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
             CssValue::Keyword("currentcolor".to_string())
         }
 
+        // Table
+        "border-collapse" => CssValue::Keyword("separate".to_string()),
+        "border-spacing" | "border-spacing-h" | "border-spacing-v" => {
+            CssValue::Length(0.0, LengthUnit::Px)
+        }
+        "table-layout" | "align-self" => CssValue::Keyword("auto".to_string()),
+        "caption-side" => CssValue::Keyword("top".to_string()),
+
         // Box model
         "box-sizing" => CssValue::Keyword("content-box".to_string()),
 
-        // Flex container
-        "flex-direction" => CssValue::Keyword("row".to_string()),
+        // Flex/Grid container
+        "flex-direction" | "grid-auto-flow" => CssValue::Keyword("row".to_string()),
         "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
         "justify-content" => CssValue::Keyword("flex-start".to_string()),
         "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
-
-        // Flex item
-        "align-self" => CssValue::Keyword("auto".to_string()),
         "flex-grow" | "order" => CssValue::Number(0.0),
         "flex-shrink" | "opacity" => CssValue::Number(1.0),
 
@@ -244,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             get_initial_value("text-align"),
-            CssValue::Keyword("left".to_string())
+            CssValue::Keyword("start".to_string())
         );
     }
 
@@ -293,5 +318,135 @@ mod tests {
             CssValue::Length(0.0, LengthUnit::Px)
         );
         assert_eq!(get_initial_value("max-height"), CssValue::Auto);
+    }
+
+    // --- M3.5-1: Grid property inheritance ---
+
+    #[test]
+    fn grid_properties_not_inherited() {
+        assert!(!is_inherited("grid-template-columns"));
+        assert!(!is_inherited("grid-template-rows"));
+        assert!(!is_inherited("grid-auto-flow"));
+        assert!(!is_inherited("grid-auto-columns"));
+        assert!(!is_inherited("grid-auto-rows"));
+        assert!(!is_inherited("grid-column-start"));
+        assert!(!is_inherited("grid-column-end"));
+        assert!(!is_inherited("grid-row-start"));
+        assert!(!is_inherited("grid-row-end"));
+    }
+
+    // --- M3.5-2: Table property inheritance ---
+
+    #[test]
+    fn border_collapse_inherited() {
+        assert!(is_inherited("border-collapse"));
+    }
+
+    #[test]
+    fn border_spacing_inherited() {
+        assert!(is_inherited("border-spacing-h"));
+        assert!(is_inherited("border-spacing-v"));
+    }
+
+    #[test]
+    fn caption_side_inherited() {
+        assert!(is_inherited("caption-side"));
+    }
+
+    #[test]
+    fn table_layout_not_inherited() {
+        assert!(!is_inherited("table-layout"));
+    }
+
+    #[test]
+    fn initial_values_table() {
+        assert_eq!(
+            get_initial_value("border-collapse"),
+            CssValue::Keyword("separate".to_string())
+        );
+        assert_eq!(
+            get_initial_value("border-spacing"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("border-spacing-h"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("border-spacing-v"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
+        assert_eq!(
+            get_initial_value("table-layout"),
+            CssValue::Keyword("auto".to_string())
+        );
+        assert_eq!(
+            get_initial_value("caption-side"),
+            CssValue::Keyword("top".to_string())
+        );
+    }
+
+    // --- M3.5-4: Writing mode / BiDi property inheritance ---
+
+    #[test]
+    fn direction_inherited() {
+        assert!(is_inherited("direction"));
+    }
+
+    #[test]
+    fn writing_mode_inherited() {
+        assert!(is_inherited("writing-mode"));
+    }
+
+    #[test]
+    fn text_orientation_inherited() {
+        assert!(is_inherited("text-orientation"));
+    }
+
+    #[test]
+    fn unicode_bidi_not_inherited() {
+        assert!(!is_inherited("unicode-bidi"));
+    }
+
+    #[test]
+    fn initial_values_i18n() {
+        assert_eq!(
+            get_initial_value("direction"),
+            CssValue::Keyword("ltr".to_string())
+        );
+        assert_eq!(
+            get_initial_value("unicode-bidi"),
+            CssValue::Keyword("normal".to_string())
+        );
+        assert_eq!(
+            get_initial_value("writing-mode"),
+            CssValue::Keyword("horizontal-tb".to_string())
+        );
+        assert_eq!(
+            get_initial_value("text-orientation"),
+            CssValue::Keyword("mixed".to_string())
+        );
+    }
+
+    #[test]
+    fn initial_values_grid() {
+        assert_eq!(
+            get_initial_value("grid-template-columns"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("grid-template-rows"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("grid-auto-flow"),
+            CssValue::Keyword("row".to_string())
+        );
+        assert_eq!(get_initial_value("grid-auto-columns"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-auto-rows"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-column-start"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-column-end"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-row-start"), CssValue::Auto);
+        assert_eq!(get_initial_value("grid-row-end"), CssValue::Auto);
     }
 }
