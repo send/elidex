@@ -180,7 +180,8 @@ fn layout_float(
         float_ctx.place_float(float_side, margin_box_width, margin_box_height, cursor_y);
 
     // Reposition the float's LayoutBox to the placed position.
-    let final_x = float_x + margin_left + border.left + padding.left;
+    // float_x is relative to the containing block; add parent offset for absolute position.
+    let final_x = input.offset_x + float_x + margin_left + border.left + padding.left;
     let final_y = float_y + margin_top + border.top + padding.top;
 
     let lb = LayoutBox {

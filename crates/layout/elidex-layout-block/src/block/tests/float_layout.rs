@@ -208,3 +208,49 @@ fn clear_both_advances_past_all_floats() {
     let cleared_box = dom.world().get::<&LayoutBox>(cleared).unwrap();
     assert!((cleared_box.content.y - 120.0).abs() < f32::EPSILON);
 }
+
+#[test]
+fn float_with_nonzero_parent_offset() {
+    // Float X position must include the parent's content offset.
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    let floated = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, floated);
+
+    dom.world_mut().insert_one(
+        parent,
+        ComputedStyle {
+            display: Display::Block,
+            padding_left: 20.0,
+            padding_top: 10.0,
+            ..Default::default()
+        },
+    );
+    dom.world_mut().insert_one(
+        floated,
+        ComputedStyle {
+            display: Display::Block,
+            float: elidex_plugin::Float::Left,
+            width: Dimension::Length(100.0),
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+
+    let font_db = FontDatabase::new();
+    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+    let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
+    // Float x should include parent's padding-left (20px).
+    assert!(
+        (float_box.content.x - 20.0).abs() < f32::EPSILON,
+        "expected x=20.0, got {}",
+        float_box.content.x
+    );
+    // Float y should include parent's padding-top (10px).
+    assert!(
+        (float_box.content.y - 10.0).abs() < f32::EPSILON,
+        "expected y=10.0, got {}",
+        float_box.content.y
+    );
+}

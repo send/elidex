@@ -103,6 +103,10 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
         CssValue::Length(v, unit) => Dimension::Length(resolve_length(*v, *unit, ctx)),
         CssValue::Percentage(p) => Dimension::Percentage(*p),
         CssValue::Number(n) if *n == 0.0 => Dimension::Length(0.0),
+        // TODO: calc() with percentage terms resolves % against 0 here because
+        // the containing block width isn't available during style resolution.
+        // Percentage-only calc (e.g. `calc(100% - 20px)`) should ideally be
+        // deferred to layout time via a Dimension::Calc variant.
         CssValue::Calc(expr) => Dimension::Length(resolve_calc_expr(expr, 0.0, ctx)),
         // Auto and anything else → Auto.
         _ => Dimension::Auto,

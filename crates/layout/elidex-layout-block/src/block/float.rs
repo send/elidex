@@ -51,11 +51,11 @@ impl FloatContext {
         !self.left_floats.is_empty() || !self.right_floats.is_empty()
     }
 
-    /// Place a float and return its (x, y) position for the content box.
+    /// Place a float and return its margin-box (x, y) position.
     ///
-    /// The float is placed at the top of the current position (`cursor_y`),
-    /// on the left or right edge, avoiding overlap with existing floats.
-    /// Returns the content-box origin (x, y) for the float.
+    /// The float is placed at or below `cursor_y`, on the left or right edge,
+    /// avoiding overlap with existing floats. Coordinates are relative to the
+    /// containing block's content edge.
     pub fn place_float(
         &mut self,
         float_side: Float,
@@ -67,23 +67,21 @@ impl FloatContext {
         // existing floats on the same side.
         let mut y = cursor_y;
 
-        // Ensure we're below any float that would overlap horizontally.
+        // Drop below floats until the new float fits horizontally.
         loop {
             let (left_used, right_used) = self.used_width_at(y, margin_box_height);
             let available = self.containing_width - left_used - right_used;
 
-            if margin_box_width <= available || available <= 0.0 {
+            if margin_box_width <= available {
                 break;
             }
 
-            // If the float doesn't fit, drop below the lowest float at this Y.
-            if margin_box_width > available {
-                let next_y = self.next_clear_y(y);
-                if next_y <= y {
-                    break; // No more floats to clear
-                }
-                y = next_y;
+            // Float doesn't fit — drop below the shallowest float at this Y.
+            let next_y = self.next_clear_y(y);
+            if next_y <= y {
+                break; // No more floats to clear
             }
+            y = next_y;
         }
 
         let (left_used, _right_used) = self.used_width_at(y, margin_box_height);
@@ -116,22 +114,16 @@ impl FloatContext {
     pub fn clear_y(&self, clear: Clear, cursor_y: f32) -> f32 {
         match clear {
             Clear::None => cursor_y,
-            Clear::Left => {
-                let max_bottom = self
-                    .left_floats
-                    .iter()
-                    .map(PlacedFloat::bottom)
-                    .fold(cursor_y, f32::max);
-                max_bottom
-            }
-            Clear::Right => {
-                let max_bottom = self
-                    .right_floats
-                    .iter()
-                    .map(PlacedFloat::bottom)
-                    .fold(cursor_y, f32::max);
-                max_bottom
-            }
+            Clear::Left => self
+                .left_floats
+                .iter()
+                .map(PlacedFloat::bottom)
+                .fold(cursor_y, f32::max),
+            Clear::Right => self
+                .right_floats
+                .iter()
+                .map(PlacedFloat::bottom)
+                .fold(cursor_y, f32::max),
             Clear::Both => {
                 let left_bottom = self
                     .left_floats
@@ -282,6 +274,18 @@ mod tests {
         // Second float doesn't fit beside the first (250 + 250 > 400).
         let (_x, y) = ctx.place_float(Float::Left, 250.0, 100.0, 0.0);
         assert_eq!(y, 100.0); // Drops below the first float
+    }
+
+    #[test]
+    fn float_drops_below_when_width_exhausted() {
+        // Left float fills entire width. A second float must drop below it
+        // instead of being stuck at y=0 (tests that the loop doesn't break
+        // early on negative available width).
+        let mut ctx = FloatContext::new(400.0);
+        ctx.place_float(Float::Left, 400.0, 80.0, 0.0);
+        // Second float can't fit at y=0 (available=0), drops below.
+        let (_, y) = ctx.place_float(Float::Left, 100.0, 50.0, 0.0);
+        assert_eq!(y, 80.0);
     }
 
     #[test]
