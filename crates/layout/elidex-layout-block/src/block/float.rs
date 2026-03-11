@@ -171,17 +171,7 @@ impl FloatContext {
 
     /// Get the bottom edge of all floats (for containing block height).
     pub fn float_bottom(&self) -> f32 {
-        let left = self
-            .left_floats
-            .iter()
-            .map(PlacedFloat::bottom)
-            .fold(0.0_f32, f32::max);
-        let right = self
-            .right_floats
-            .iter()
-            .map(PlacedFloat::bottom)
-            .fold(0.0_f32, f32::max);
-        left.max(right)
+        self.clear_y(Clear::Both, 0.0)
     }
 }
 

@@ -184,30 +184,19 @@ fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContex
         CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length(*v, *unit, ctx)),
         CalcExpr::Percentage(p) => CalcResolved::Length(percentage_base * p / 100.0),
         CalcExpr::Number(n) => CalcResolved::Scalar(*n),
-        CalcExpr::Add(a, b) => {
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
+            let is_sub = matches!(expr, CalcExpr::Sub(..));
             let left = resolve_calc_typed(a, percentage_base, ctx);
             let right = resolve_calc_typed(b, percentage_base, ctx);
+            let op: fn(f32, f32) -> f32 = if is_sub { |a, b| a - b } else { |a, b| a + b };
             match (left, right) {
                 (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
-                    CalcResolved::Length(l1 + l2)
+                    CalcResolved::Length(op(l1, l2))
                 }
                 (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
-                    CalcResolved::Scalar(s1 + s2)
+                    CalcResolved::Scalar(op(s1, s2))
                 }
                 // Type mismatch: invalid per spec, resolve to 0.
-                _ => CalcResolved::Length(0.0),
-            }
-        }
-        CalcExpr::Sub(a, b) => {
-            let left = resolve_calc_typed(a, percentage_base, ctx);
-            let right = resolve_calc_typed(b, percentage_base, ctx);
-            match (left, right) {
-                (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
-                    CalcResolved::Length(l1 - l2)
-                }
-                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
-                    CalcResolved::Scalar(s1 - s2)
-                }
                 _ => CalcResolved::Length(0.0),
             }
         }

@@ -141,6 +141,7 @@ pub fn layout_block_inner(
     // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
     let padding = sanitize_padding(&style);
     let border = sanitize_border(&style);
+    let h_pb = horizontal_pb(&padding, &border);
 
     // --- Resolve margins ---
     let margin_top = resolve_margin(style.margin_top, containing_width);
@@ -156,7 +157,7 @@ pub fn layout_block_inner(
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
     let margin_right_raw = resolve_margin(style.margin_right, containing_width);
-    let horizontal_extra = margin_left_raw + margin_right_raw + horizontal_pb(&padding, &border);
+    let horizontal_extra = margin_left_raw + margin_right_raw + h_pb;
     let mut content_width = if let Some((iw, ih)) = intrinsic {
         resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border)
     } else {
@@ -170,7 +171,7 @@ pub fn layout_block_inner(
     // Only for non-replaced elements or replaced elements with explicit dimensions.
     if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
         if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
-            content_width = (content_width - horizontal_pb(&padding, &border)).max(0.0);
+            content_width = (content_width - h_pb).max(0.0);
         }
     }
 
@@ -182,13 +183,13 @@ pub fn layout_block_inner(
         let mut min_w = resolve_min_max(style.min_width, containing_width, 0.0);
         let mut max_w = resolve_min_max(style.max_width, containing_width, f32::INFINITY);
         if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
-            adjust_min_max_for_border_box(&mut min_w, &mut max_w, horizontal_pb(&padding, &border));
+            adjust_min_max_for_border_box(&mut min_w, &mut max_w, h_pb);
         }
         content_width = clamp_min_max(content_width, min_w, max_w);
     }
 
     // --- Horizontal margin auto centering ---
-    let used_horizontal = content_width + horizontal_pb(&padding, &border);
+    let used_horizontal = content_width + h_pb;
     let (margin_left, margin_right) =
         if matches!(style.width, Dimension::Auto) && intrinsic.is_none() {
             (margin_left_raw, margin_right_raw)

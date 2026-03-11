@@ -28,6 +28,23 @@ keyword_enum! {
     }
 }
 
+impl Display {
+    /// CSS 2.1 §11.2: table-internal display types where `visibility: collapse`
+    /// hides the entire row/column (rather than just hiding the content).
+    #[must_use]
+    pub fn is_table_internal(self) -> bool {
+        matches!(
+            self,
+            Self::TableRow
+                | Self::TableColumn
+                | Self::TableRowGroup
+                | Self::TableHeaderGroup
+                | Self::TableFooterGroup
+                | Self::TableColumnGroup
+        )
+    }
+}
+
 keyword_enum! {
     /// The CSS `position` property.
     Position {

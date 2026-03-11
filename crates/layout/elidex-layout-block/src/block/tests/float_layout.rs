@@ -1,24 +1,11 @@
 use super::*;
-use elidex_plugin::Clear;
 
 #[test]
 fn left_float_positioned_at_left_edge() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(100.0),
-            ..Default::default()
-        },
-    );
+    let floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
 
     let font_db = FontDatabase::new();
     let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
@@ -34,20 +21,8 @@ fn left_float_positioned_at_left_edge() {
 fn right_float_positioned_at_right_edge() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Right,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(100.0),
-            ..Default::default()
-        },
-    );
+    let floated = make_float_child(&mut dom, parent, Float::Right, 200.0, 100.0);
 
     let font_db = FontDatabase::new();
     let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
@@ -62,22 +37,11 @@ fn right_float_positioned_at_right_edge() {
 fn float_excluded_from_normal_flow() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    let normal = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-    dom.append_child(parent, normal);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(100.0),
-            ..Default::default()
-        },
-    );
+    let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
+
+    let normal = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, normal);
     dom.world_mut().insert_one(
         normal,
         ComputedStyle {
@@ -99,22 +63,11 @@ fn float_excluded_from_normal_flow() {
 fn clear_left_advances_past_float() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    let cleared = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-    dom.append_child(parent, cleared);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(100.0),
-            ..Default::default()
-        },
-    );
+    let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
+
+    let cleared = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, cleared);
     dom.world_mut().insert_one(
         cleared,
         ComputedStyle {
@@ -137,20 +90,8 @@ fn clear_left_advances_past_float() {
 fn float_extends_parent_height() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(150.0),
-            ..Default::default()
-        },
-    );
+    let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 150.0);
 
     let font_db = FontDatabase::new();
     let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
@@ -163,34 +104,12 @@ fn float_extends_parent_height() {
 fn clear_both_advances_past_all_floats() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let left_float = dom.create_element("div", Attributes::default());
-    let right_float = dom.create_element("div", Attributes::default());
-    let cleared = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, left_float);
-    dom.append_child(parent, right_float);
-    dom.append_child(parent, cleared);
-
     dom.world_mut().insert_one(parent, block_style());
-    dom.world_mut().insert_one(
-        left_float,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(80.0),
-            ..Default::default()
-        },
-    );
-    dom.world_mut().insert_one(
-        right_float,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Right,
-            width: Dimension::Length(200.0),
-            height: Dimension::Length(120.0),
-            ..Default::default()
-        },
-    );
+    let _left_float = make_float_child(&mut dom, parent, Float::Left, 200.0, 80.0);
+    let _right_float = make_float_child(&mut dom, parent, Float::Right, 200.0, 120.0);
+
+    let cleared = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, cleared);
     dom.world_mut().insert_one(
         cleared,
         ComputedStyle {
@@ -214,9 +133,6 @@ fn float_with_nonzero_parent_offset() {
     // Float X position must include the parent's content offset.
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let floated = dom.create_element("div", Attributes::default());
-    dom.append_child(parent, floated);
-
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -226,16 +142,7 @@ fn float_with_nonzero_parent_offset() {
             ..Default::default()
         },
     );
-    dom.world_mut().insert_one(
-        floated,
-        ComputedStyle {
-            display: Display::Block,
-            float: elidex_plugin::Float::Left,
-            width: Dimension::Length(100.0),
-            height: Dimension::Length(50.0),
-            ..Default::default()
-        },
-    );
+    let floated = make_float_child(&mut dom, parent, Float::Left, 100.0, 50.0);
 
     let font_db = FontDatabase::new();
     let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);

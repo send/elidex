@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::*;
 use elidex_ecs::{Attributes, ImageData};
-use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Direction};
+use elidex_plugin::{BoxSizing, Clear, ComputedStyle, Dimension, Direction, Float};
 use elidex_text::FontDatabase;
 
 mod float_layout;
@@ -22,6 +22,23 @@ fn make_dom_with_block_div(style: ComputedStyle) -> (EcsDom, Entity) {
     let div = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(div, style);
     (dom, div)
+}
+
+/// Create a floated child element and append it to the parent.
+fn make_float_child(dom: &mut EcsDom, parent: Entity, float: Float, w: f32, h: f32) -> Entity {
+    let child = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, child);
+    dom.world_mut().insert_one(
+        child,
+        ComputedStyle {
+            display: Display::Block,
+            float,
+            width: Dimension::Length(w),
+            height: Dimension::Length(h),
+            ..Default::default()
+        },
+    );
+    child
 }
 
 fn make_dom_with_image(style: ComputedStyle, img_w: u32, img_h: u32) -> (EcsDom, Entity) {
