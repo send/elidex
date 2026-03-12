@@ -1,7 +1,7 @@
 //! CSS float layout context (CSS 2.1 §9.5).
 //!
-//! Tracks placed floats (left/right) and provides placement, clearance,
-//! and available-width queries for content flowing around floats.
+//! Tracks placed floats (left/right) and provides placement and clearance
+//! utilities for content flowing around floats.
 
 use elidex_plugin::{Clear, Float};
 
