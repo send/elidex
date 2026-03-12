@@ -238,6 +238,13 @@ fn build_animation_decls(
     ]
 }
 
+/// Maximum number of component values in a single `animation` shorthand entry.
+///
+/// The `animation` shorthand has 8 longhands (duration, timing-function, delay,
+/// iteration-count, direction, fill-mode, play-state, name), so we try to parse
+/// at most 8 components per comma-separated entry.
+const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
+
 fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimationSpec {
     let mut name = "none".to_string();
     let mut duration = 0.0_f32;
@@ -249,7 +256,7 @@ fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimat
     let mut play_state = style::PlayState::Running;
     let mut found_duration = false;
 
-    for _ in 0..8 {
+    for _ in 0..MAX_ANIMATION_SHORTHAND_COMPONENTS {
         // Try timing function
         if let Ok(tf) = input.try_parse(parse::parse_timing_function) {
             timing_function = tf;

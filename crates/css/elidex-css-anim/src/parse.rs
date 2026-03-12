@@ -24,6 +24,8 @@ pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseErr
                 _ => Err(parse_err("time", &format!("unknown unit: {lower}"))),
             }
         }
+        // CSS Values Level 3 §5.1.1: unitless 0 is not valid for <time>,
+        // but all major browsers accept it for backwards compatibility.
         cssparser::Token::Number { value: 0.0, .. } => Ok(0.0),
         _ => Err(parse_err("time", "expected time value")),
     }
@@ -362,11 +364,20 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
 }
 
 /// Find the position of the matching `}` for an opening `{`, handling nesting.
+///
+/// Returns `None` if no matching brace is found or nesting exceeds 128 levels.
 fn find_matching_brace(text: &str) -> Option<usize> {
+    /// Maximum nesting depth for braces in `@keyframes` blocks.
+    const MAX_BRACE_DEPTH: u32 = 128;
     let mut depth = 0u32;
     for (i, ch) in text.char_indices() {
         match ch {
-            '{' => depth += 1,
+            '{' => {
+                depth = depth.checked_add(1)?;
+                if depth > MAX_BRACE_DEPTH {
+                    return None;
+                }
+            }
             '}' => {
                 if depth == 0 {
                     return Some(i);

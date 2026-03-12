@@ -207,41 +207,32 @@ impl CssPropertyHandler for BoxHandler {
             "border-left-width" => style.border_left_width = resolve_to_px(value, ctx).max(0.0),
 
             "border-top-style" => {
-                resolve_border_style(value, &mut style.border_top_style);
-                // CSS 2.1 §8.5.1: border-width computes to 0 when border-style is none/hidden.
-                if matches!(
-                    style.border_top_style,
-                    BorderStyle::None | BorderStyle::Hidden
-                ) {
-                    style.border_top_width = 0.0;
-                }
+                resolve_border_style_and_zero_width(
+                    value,
+                    &mut style.border_top_style,
+                    &mut style.border_top_width,
+                );
             }
             "border-right-style" => {
-                resolve_border_style(value, &mut style.border_right_style);
-                if matches!(
-                    style.border_right_style,
-                    BorderStyle::None | BorderStyle::Hidden
-                ) {
-                    style.border_right_width = 0.0;
-                }
+                resolve_border_style_and_zero_width(
+                    value,
+                    &mut style.border_right_style,
+                    &mut style.border_right_width,
+                );
             }
             "border-bottom-style" => {
-                resolve_border_style(value, &mut style.border_bottom_style);
-                if matches!(
-                    style.border_bottom_style,
-                    BorderStyle::None | BorderStyle::Hidden
-                ) {
-                    style.border_bottom_width = 0.0;
-                }
+                resolve_border_style_and_zero_width(
+                    value,
+                    &mut style.border_bottom_style,
+                    &mut style.border_bottom_width,
+                );
             }
             "border-left-style" => {
-                resolve_border_style(value, &mut style.border_left_style);
-                if matches!(
-                    style.border_left_style,
-                    BorderStyle::None | BorderStyle::Hidden
-                ) {
-                    style.border_left_width = 0.0;
-                }
+                resolve_border_style_and_zero_width(
+                    value,
+                    &mut style.border_left_style,
+                    &mut style.border_left_width,
+                );
             }
 
             "border-top-color" => style.border_top_color = resolve_color(value, style.color),
@@ -534,6 +525,19 @@ fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
 fn resolve_border_style(value: &CssValue, target: &mut BorderStyle) {
     if let CssValue::Keyword(ref k) = value {
         *target = BorderStyle::from_keyword(k).unwrap_or_default();
+    }
+}
+
+/// Resolve a border-style value and zero the corresponding width when the
+/// style is `none` or `hidden` (CSS 2.1 §8.5.1).
+fn resolve_border_style_and_zero_width(
+    value: &CssValue,
+    style: &mut BorderStyle,
+    width: &mut f32,
+) {
+    resolve_border_style(value, style);
+    if matches!(*style, BorderStyle::None | BorderStyle::Hidden) {
+        *width = 0.0;
     }
 }
 

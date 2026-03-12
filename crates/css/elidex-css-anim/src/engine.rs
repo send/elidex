@@ -59,6 +59,11 @@ impl AnimationEngine {
     ///
     /// Returns any `TransitionCancel` events that must be dispatched for
     /// in-progress transitions that are being replaced by this new transition.
+    ///
+    /// **Important**: Per CSS Transitions §5.3, when replacing an in-progress
+    /// transition, the caller should use the **current animated value** (from
+    /// `current_value()`) as the `from` value of the new `TransitionInstance`,
+    /// not the original computed value. This ensures smooth reversal.
     pub fn add_transition(
         &mut self,
         entity: EntityId,

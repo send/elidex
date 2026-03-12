@@ -147,7 +147,20 @@ impl AnimationInstance {
         }
 
         if self.duration <= 0.0 {
-            return Some(1.0);
+            // CSS Animations §3.9: zero-duration animations still respect
+            // direction and fill-mode. The final iteration's directed progress
+            // determines the output value.
+            let final_iteration = match self.iteration_count {
+                IterationCount::Number(n) => {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
+                    let iter = (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1);
+                    iter
+                }
+                IterationCount::Infinite => 0,
+            };
+            let directed = self.direction_for_iteration(final_iteration, 1.0);
+            let transformed = self.timing_function.sample(directed);
+            return Some(transformed);
         }
 
         let dur = f64::from(self.duration);
@@ -397,6 +410,34 @@ mod tests {
             AnimationFillMode::None,
         );
         assert_eq!(anim.progress(), Some(1.0));
+    }
+
+    // S3-5: Zero-duration animation should still respect direction.
+    // With direction:reverse, the final progress should be 0.0 (reversed 1.0).
+    #[test]
+    fn animation_zero_duration_respects_direction() {
+        let anim = make_anim(
+            0.0,
+            0.0,
+            IterationCount::Number(1.0),
+            AnimationDirection::Reverse,
+            AnimationFillMode::None,
+        );
+        // direction:reverse → 1.0 - 1.0 = 0.0
+        assert_eq!(anim.progress(), Some(0.0));
+    }
+
+    #[test]
+    fn animation_zero_duration_alternate_two_iterations() {
+        let anim = make_anim(
+            0.0,
+            0.0,
+            IterationCount::Number(2.0),
+            AnimationDirection::Alternate,
+            AnimationFillMode::None,
+        );
+        // 2 iterations, alternate: final iteration is 1 (reversed) → 1.0 - 1.0 = 0.0
+        assert_eq!(anim.progress(), Some(0.0));
     }
 
     #[test]
