@@ -105,8 +105,17 @@ pub(super) fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration>
 ///
 /// Produces up to 3 longhand declarations.
 pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    // Try "none" first.
-    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
+    // "none" alone resets all 3 longhands.  Only take this branch when the
+    // input is exhausted after "none", so that "none dashed red" still parses
+    // the style/color components.
+    if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
+        let val = try_keyword_value(i, "none", &CssValue::Keyword("none".to_string()))?;
+        if i.is_exhausted() {
+            Ok(val)
+        } else {
+            Err(())
+        }
+    }) {
         return vec![
             Declaration::new("text-decoration-line", val),
             Declaration::new("text-decoration-style", CssValue::Keyword("solid".to_string())),
@@ -118,6 +127,7 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
     }
 
     let mut line_values: Vec<CssValue> = Vec::new();
+    let mut has_none = false;
     let mut style_val: Option<CssValue> = None;
     let mut color_val: Option<CssValue> = None;
     let style_keywords = ["solid", "double", "dotted", "dashed", "wavy"];
@@ -129,7 +139,10 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
             .try_parse(|i| -> Result<(), ()> {
                 let ident = i.expect_ident().map_err(|_| ())?;
                 let lower = ident.to_ascii_lowercase();
-                if line_keywords.contains(&lower.as_str()) {
+                if lower == "none" {
+                    has_none = true;
+                    Ok(())
+                } else if line_keywords.contains(&lower.as_str()) {
                     let kw = CssValue::Keyword(lower);
                     if !line_values.contains(&kw) {
                         line_values.push(kw);
@@ -162,7 +175,7 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
         }
     }
 
-    if line_values.is_empty() && style_val.is_none() && color_val.is_none() {
+    if line_values.is_empty() && !has_none && style_val.is_none() && color_val.is_none() {
         return Vec::new();
     }
 
@@ -190,6 +203,8 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
 // --- Letter/word spacing ---
 
 /// Parse `letter-spacing` or `word-spacing`: `normal` | `<length>`.
+///
+/// Percentages are rejected per CSS Text Level 3 §4.2/§4.3.
 // TODO: preserve Keyword("normal") instead of converting to Length(0, Px)
 // so that `getComputedStyle` can serialize "normal" per CSS Text L3 §4.2/§4.3.
 pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> {
@@ -200,7 +215,7 @@ pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> 
     ) {
         return single_decl(name, val);
     }
-    parse_value_property(input, name, parse_length_or_percentage)
+    parse_value_property(input, name, crate::values::parse_length)
 }
 
 // --- Mapped keyword parsing ---

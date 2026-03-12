@@ -313,8 +313,20 @@ pub fn shape_text_with_fallback(
                     continue;
                 }
                 total_advance += fb_shaped.total_advance;
+                // Offset cluster indices so they refer to the original text,
+                // not the sub_text substring.
+                let offset_glyphs: Vec<ShapedGlyph> = fb_shaped
+                    .glyphs
+                    .into_iter()
+                    .map(|mut g| {
+                        #[allow(clippy::cast_possible_truncation)]
+                        // sub_start ≤ text.len() which fits in u32 for any practical text.
+                        { g.cluster += sub_start as u32; }
+                        g
+                    })
+                    .collect();
                 runs.push(ShapedRun {
-                    glyphs: fb_shaped.glyphs,
+                    glyphs: offset_glyphs,
                     font_id: fallback_id,
                 });
                 found = true;

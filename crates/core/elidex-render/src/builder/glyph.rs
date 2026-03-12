@@ -4,9 +4,9 @@ use crate::display_list::GlyphEntry;
 
 /// Place shaped glyphs into a `Vec<GlyphEntry>`, advancing `cursor_x`.
 ///
-/// `letter_spacing` is added between each glyph (not after the last).
-/// `word_spacing` is added for glyphs at word separator (U+0020) cluster positions,
-/// per CSS Text Level 3 §4.3.
+/// `letter_spacing` is added between clusters (not between glyphs within the
+/// same cluster, and not after the last cluster) per CSS Text Level 3 §4.2.
+/// `word_spacing` is added once per U+0020 cluster per CSS Text Level 3 §4.3.
 ///
 /// Returns the placed glyphs. `cursor_x` is updated to reflect the total advance.
 #[must_use]
@@ -24,7 +24,7 @@ pub(crate) fn place_glyphs(
     let by = if baseline_y.is_finite() { baseline_y } else { 0.0 };
 
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
-    let last_idx = shaped_glyphs.len().saturating_sub(1);
+    let mut last_ws_cluster: Option<u32> = None;
     for (i, glyph) in shaped_glyphs.iter().enumerate() {
         let x = *cursor_x + glyph.x_offset;
         let y = by - glyph.y_offset;
@@ -35,18 +35,26 @@ pub(crate) fn place_glyphs(
         });
         *cursor_x += glyph.x_advance;
 
-        // Word spacing: add extra space at U+0020 SPACE clusters (CSS Text L3 §4.3).
-        if ws != 0.0 {
+        // Word spacing: add once per U+0020 SPACE cluster (CSS Text L3 §4.3).
+        // Multiple glyphs can share a cluster (ligatures/combining marks); only
+        // apply word-spacing on the first glyph of each space cluster.
+        if ws != 0.0 && last_ws_cluster != Some(glyph.cluster) {
             if let Some(ch) = text.get(glyph.cluster as usize..).and_then(|s| s.chars().next()) {
                 if ch == ' ' {
                     *cursor_x += ws;
+                    last_ws_cluster = Some(glyph.cluster);
                 }
             }
         }
 
-        // Letter spacing: between glyphs (not after last).
-        if ls != 0.0 && i < last_idx {
-            *cursor_x += ls;
+        // Letter spacing: between clusters, not between glyphs within the same
+        // cluster (CSS Text L3 §4.2). Skip after the last glyph.
+        if ls != 0.0 {
+            if let Some(next) = shaped_glyphs.get(i + 1) {
+                if next.cluster != glyph.cluster {
+                    *cursor_x += ls;
+                }
+            }
         }
     }
     glyphs

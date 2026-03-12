@@ -24,9 +24,16 @@ fn try_dimension_or_zero(token: &cssparser::Token) -> Option<CssValue> {
 /// Parse a CSS length value (e.g. `10px`, `2em`, `0`).
 ///
 /// Unitless `0` is treated as `0px` per CSS specification.
-#[cfg(test)]
+/// Also accepts `calc()` expressions that resolve to a length.
 #[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
+    // Try calc() first (may resolve to a length).
+    if let Ok(val) = input.try_parse(parse_calc) {
+        match &val {
+            CssValue::Calc(_) | CssValue::Length(_, _) => return Ok(val),
+            _ => return Err(()),
+        }
+    }
     let token = input.next().map_err(|_| ())?;
     try_dimension_or_zero(token).ok_or(())
 }

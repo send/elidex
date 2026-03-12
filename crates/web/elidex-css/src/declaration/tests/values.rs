@@ -537,6 +537,20 @@ fn parse_text_decoration_shorthand_none() {
 }
 
 #[test]
+fn parse_text_decoration_none_with_style_and_color() {
+    // "none dashed red" — "none" is the line value, style and color should still parse.
+    let decls = parse_single("text-decoration", "none dashed red");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".into()));
+    assert_eq!(decls[2].property, "text-decoration-color");
+    // "red" parsed as Color.
+    assert!(matches!(decls[2].value, CssValue::Color(_)));
+}
+
+#[test]
 fn parse_text_decoration_style_longhand() {
     for kw in &["solid", "double", "dotted", "dashed", "wavy"] {
         let decls = parse_single("text-decoration-style", kw);
@@ -608,6 +622,18 @@ fn parse_word_spacing_length() {
         decls[0].value,
         CssValue::Length(4.0, elidex_plugin::LengthUnit::Px)
     );
+}
+
+#[test]
+fn parse_letter_spacing_rejects_percentage() {
+    let decls = parse_single("letter-spacing", "50%");
+    assert!(decls.is_empty(), "letter-spacing must not accept percentages");
+}
+
+#[test]
+fn parse_word_spacing_rejects_percentage() {
+    let decls = parse_single("word-spacing", "10%");
+    assert!(decls.is_empty(), "word-spacing must not accept percentages");
 }
 
 #[test]
