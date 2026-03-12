@@ -97,12 +97,12 @@ impl LayoutModel for TableLayoutModel {
 fn stub_result(child_count: usize, constraints: &Constraints) -> LayoutResult {
     let count = u16::try_from(child_count).unwrap_or(u16::MAX);
     LayoutResult {
-        bounds: Rect {
-            x: 0.0,
-            y: 0.0,
-            width: constraints.available_width.unwrap_or(0.0),
-            height: f32::from(count) * 10.0,
-        },
+        bounds: Rect::new(
+            0.0,
+            0.0,
+            constraints.available_width.unwrap_or(0.0),
+            f32::from(count) * 10.0,
+        ),
         margin: EdgeSizes::default(),
         padding: EdgeSizes::default(),
         border: EdgeSizes::default(),

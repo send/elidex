@@ -83,7 +83,7 @@ pub(crate) fn emit_inline_run(
     dl: &mut DisplayList,
 ) {
     let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
-        Ok(s) => (*s).clone(),
+        Ok(s) => s.clone(),
         Err(_) => return,
     };
     let Some(lb) = find_nearest_layout_box(dom, parent) else {
@@ -490,33 +490,18 @@ fn emit_decoration_line(
     match style {
         TextDecorationStyle::Solid | TextDecorationStyle::Wavy => {
             dl.push(DisplayItem::SolidRect {
-                rect: elidex_plugin::Rect {
-                    x,
-                    y,
-                    width,
-                    height: thickness,
-                },
+                rect: elidex_plugin::Rect::new(x, y, width, thickness),
                 color,
             });
         }
         TextDecorationStyle::Double => {
             let thin = (thickness * 0.5).max(1.0);
             dl.push(DisplayItem::SolidRect {
-                rect: elidex_plugin::Rect {
-                    x,
-                    y,
-                    width,
-                    height: thin,
-                },
+                rect: elidex_plugin::Rect::new(x, y, width, thin),
                 color,
             });
             dl.push(DisplayItem::SolidRect {
-                rect: elidex_plugin::Rect {
-                    x,
-                    y: y + thickness,
-                    width,
-                    height: thin,
-                },
+                rect: elidex_plugin::Rect::new(x, y + thickness, width, thin),
                 color,
             });
         }
@@ -551,12 +536,7 @@ fn emit_repeating_decoration(
     while cx < end {
         let w = mark_width.min(end - cx);
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: cx,
-                y,
-                width: w,
-                height: thickness,
-            },
+            rect: elidex_plugin::Rect::new(cx, y, w, thickness),
             color,
         });
         cx += step;

@@ -73,24 +73,19 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // top (full width)
     if style.border_top_style != BorderStyle::None && lb.border.top > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y,
-                width: bb.width,
-                height: lb.border.top,
-            },
+            rect: elidex_plugin::Rect::new(bb.x, bb.y, bb.width, lb.border.top),
             color: apply_opacity(style.border_top_color, opacity),
         });
     }
     // bottom (full width)
     if style.border_bottom_style != BorderStyle::None && lb.border.bottom > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y + bb.height - lb.border.bottom,
-                width: bb.width,
-                height: lb.border.bottom,
-            },
+            rect: elidex_plugin::Rect::new(
+                bb.x,
+                bb.y + bb.height - lb.border.bottom,
+                bb.width,
+                lb.border.bottom,
+            ),
             color: apply_opacity(style.border_bottom_color, opacity),
         });
     }
@@ -100,24 +95,19 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     let v_height = (bb.height - v_inset_top - v_inset_bottom).max(0.0);
     if style.border_right_style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x + bb.width - lb.border.right,
-                y: bb.y + v_inset_top,
-                width: lb.border.right,
-                height: v_height,
-            },
+            rect: elidex_plugin::Rect::new(
+                bb.x + bb.width - lb.border.right,
+                bb.y + v_inset_top,
+                lb.border.right,
+                v_height,
+            ),
             color: apply_opacity(style.border_right_color, opacity),
         });
     }
     // left (inset by top/bottom to avoid corner overlap)
     if style.border_left_style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y + v_inset_top,
-                width: lb.border.left,
-                height: v_height,
-            },
+            rect: elidex_plugin::Rect::new(bb.x, bb.y + v_inset_top, lb.border.left, v_height),
             color: apply_opacity(style.border_left_color, opacity),
         });
     }
@@ -174,12 +164,7 @@ pub(crate) fn emit_list_marker_with_counter(
     let color = apply_opacity(style.color, style.opacity);
 
     // Common marker rect for disc/circle/square (R2: hoisted before match).
-    let marker_rect = Rect {
-        x: marker_x,
-        y: marker_y,
-        width: marker_size,
-        height: marker_size,
-    };
+    let marker_rect = Rect::new(marker_x, marker_y, marker_size, marker_size);
 
     match style.list_style_type {
         ListStyleType::Disc => {

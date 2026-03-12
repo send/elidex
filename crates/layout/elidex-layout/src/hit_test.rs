@@ -85,12 +85,7 @@ mod tests {
 
     fn set_layout(dom: &mut EcsDom, entity: Entity, x: f32, y: f32, w: f32, h: f32) {
         let lb = LayoutBox {
-            content: Rect {
-                x,
-                y,
-                width: w,
-                height: h,
-            },
+            content: Rect::new(x, y, w, h),
             ..Default::default()
         };
         let _ = dom.world_mut().insert_one(entity, lb);
@@ -244,12 +239,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = elem(&mut dom, "div");
         let lb = LayoutBox {
-            content: Rect {
-                x: 20.0,
-                y: 20.0,
-                width: 60.0,
-                height: 60.0,
-            },
+            content: Rect::new(20.0, 20.0, 60.0, 60.0),
             padding: EdgeSizes::uniform(5.0),
             border: EdgeSizes::uniform(5.0),
             ..Default::default()

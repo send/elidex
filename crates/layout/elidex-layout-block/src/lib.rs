@@ -286,12 +286,12 @@ pub fn empty_container_box(
     params: &EmptyContainerParams<'_>,
 ) -> LayoutBox {
     let lb = LayoutBox {
-        content: elidex_plugin::Rect {
-            x: params.content_x,
-            y: params.content_y,
-            width: params.content_width,
-            height: resolve_explicit_height(params.style, params.containing_height).unwrap_or(0.0),
-        },
+        content: elidex_plugin::Rect::new(
+            params.content_x,
+            params.content_y,
+            params.content_width,
+            resolve_explicit_height(params.style, params.containing_height).unwrap_or(0.0),
+        ),
         padding: params.padding,
         border: params.border,
         margin: params.margin,

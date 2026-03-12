@@ -575,12 +575,7 @@ fn build_table_layout_box(
     content_height: f32,
 ) -> LayoutBox {
     LayoutBox {
-        content: Rect {
-            x: content_x,
-            y: content_y,
-            width: content_width,
-            height: content_height,
-        },
+        content: Rect::new(content_x, content_y, content_width, content_height),
         padding: *padding,
         border: *border,
         margin: *margin,

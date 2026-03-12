@@ -16,12 +16,7 @@ fn inline_elements_text_collected() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -78,12 +73,7 @@ fn styled_segments_x_consecutive() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -140,12 +130,7 @@ fn display_none_inline_skipped() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -189,12 +174,7 @@ fn overflow_hidden_emits_clip() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 10.0,
-                y: 10.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(10.0, 10.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -220,12 +200,7 @@ fn overflow_visible_no_clip() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 10.0,
-                y: 10.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(10.0, 10.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -260,12 +235,7 @@ fn nested_overflow_hidden_balanced_clips() {
         dom.world_mut().insert_one(
             entity,
             elidex_plugin::LayoutBox {
-                content: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: w,
-                    height: h,
-                },
+                content: Rect::new(0.0, 0.0, w, h),
                 ..Default::default()
             },
         );
@@ -310,12 +280,7 @@ fn list_item_disc_emits_marker() {
     dom.world_mut().insert_one(
         ul,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 100.0),
             padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
             ..Default::default()
         },
@@ -332,12 +297,7 @@ fn list_item_disc_emits_marker() {
     dom.world_mut().insert_one(
         li,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 40.0,
-                y: 0.0,
-                width: 760.0,
-                height: 20.0,
-            },
+            content: Rect::new(40.0, 0.0, 760.0, 20.0),
             ..Default::default()
         },
     );
@@ -371,12 +331,7 @@ fn list_item_square_emits_solid_rect_marker() {
     dom.world_mut().insert_one(
         ul,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 100.0),
             padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
             ..Default::default()
         },
@@ -393,12 +348,7 @@ fn list_item_square_emits_solid_rect_marker() {
     dom.world_mut().insert_one(
         li,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 40.0,
-                y: 0.0,
-                width: 760.0,
-                height: 20.0,
-            },
+            content: Rect::new(40.0, 0.0, 760.0, 20.0),
             ..Default::default()
         },
     );
@@ -439,12 +389,7 @@ fn list_item_none_no_marker() {
     dom.world_mut().insert_one(
         ul,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 100.0),
             ..Default::default()
         },
     );
@@ -460,12 +405,7 @@ fn list_item_none_no_marker() {
     dom.world_mut().insert_one(
         li,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -499,12 +439,7 @@ fn list_item_circle_emits_stroked_marker() {
     dom.world_mut().insert_one(
         ul,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 100.0),
             padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
             ..Default::default()
         },
@@ -521,12 +456,7 @@ fn list_item_circle_emits_stroked_marker() {
     dom.world_mut().insert_one(
         li,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 40.0,
-                y: 0.0,
-                width: 760.0,
-                height: 20.0,
-            },
+            content: Rect::new(40.0, 0.0, 760.0, 20.0),
             ..Default::default()
         },
     );
@@ -573,12 +503,7 @@ fn list_item_decimal_emits_text_marker() {
     dom.world_mut().insert_one(
         ol,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 100.0),
             padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
             ..Default::default()
         },
@@ -595,12 +520,7 @@ fn list_item_decimal_emits_text_marker() {
     dom.world_mut().insert_one(
         li,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 40.0,
-                y: 0.0,
-                width: 760.0,
-                height: 20.0,
-            },
+            content: Rect::new(40.0, 0.0, 760.0, 20.0),
             ..Default::default()
         },
     );
@@ -657,12 +577,7 @@ fn list_item_counter_increments() {
     dom.world_mut().insert_one(
         ol,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 200.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 200.0),
             padding: EdgeSizes::new(0.0, 0.0, 0.0, 40.0),
             ..Default::default()
         },
@@ -680,12 +595,7 @@ fn list_item_counter_increments() {
         dom.world_mut().insert_one(
             li,
             elidex_plugin::LayoutBox {
-                content: Rect {
-                    x: 40.0,
-                    y: y_off,
-                    width: 760.0,
-                    height: 20.0,
-                },
+                content: Rect::new(40.0, y_off, 760.0, 20.0),
                 ..Default::default()
             },
         );

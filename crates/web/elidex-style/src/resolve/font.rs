@@ -126,7 +126,14 @@ fn resolve_font_size_value(
             // For font-size, em is relative to parent, not self.
             resolve_length(*v, *unit, &ctx.with_em_base(parent_style.font_size))
         }
-        CssValue::Percentage(p) => parent_style.font_size * p / 100.0,
+        CssValue::Percentage(p) => {
+            let result = parent_style.font_size * p / 100.0;
+            if result.is_finite() {
+                result
+            } else {
+                parent_style.font_size
+            }
+        }
         CssValue::Keyword(kw) => {
             resolve_font_size_keyword(kw, parent_style.font_size).unwrap_or(parent_style.font_size)
         }

@@ -130,19 +130,19 @@ impl LogicalRect {
     #[must_use]
     pub fn to_physical(self, ctx: WritingModeContext) -> Rect {
         if ctx.is_horizontal() {
-            Rect {
-                x: self.inline_start,
-                y: self.block_start,
-                width: self.inline_size,
-                height: self.block_size,
-            }
+            Rect::new(
+                self.inline_start,
+                self.block_start,
+                self.inline_size,
+                self.block_size,
+            )
         } else {
-            Rect {
-                x: self.block_start,
-                y: self.inline_start,
-                width: self.block_size,
-                height: self.inline_size,
-            }
+            Rect::new(
+                self.block_start,
+                self.inline_start,
+                self.block_size,
+                self.inline_size,
+            )
         }
     }
 }
@@ -310,12 +310,7 @@ mod tests {
 
     #[test]
     fn logical_rect_roundtrip() {
-        let phys = Rect {
-            x: 10.0,
-            y: 20.0,
-            width: 100.0,
-            height: 50.0,
-        };
+        let phys = Rect::new(10.0, 20.0, 100.0, 50.0);
         for ctx in [
             ltr_horizontal(),
             rtl_horizontal(),

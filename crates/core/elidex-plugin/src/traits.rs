@@ -289,12 +289,7 @@ mod tests {
             let child_count = u16::try_from(children.len()).unwrap_or(u16::MAX);
             let h = f32::from(child_count) * 10.0;
             LayoutResult {
-                bounds: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: constraints.available_width.unwrap_or(0.0),
-                    height: h,
-                },
+                bounds: Rect::new(0.0, 0.0, constraints.available_width.unwrap_or(0.0), h),
                 margin: EdgeSizes::default(),
                 padding: EdgeSizes::default(),
                 border: EdgeSizes::default(),

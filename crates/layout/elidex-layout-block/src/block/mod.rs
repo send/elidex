@@ -284,12 +284,7 @@ pub fn layout_block_inner(
     );
 
     let lb = LayoutBox {
-        content: Rect {
-            x: content_x,
-            y: content_y,
-            width: content_width,
-            height,
-        },
+        content: Rect::new(content_x, content_y, content_width, height),
         padding,
         border,
         margin: EdgeSizes::new(

@@ -174,6 +174,13 @@ pub struct ShapedTextWithFonts {
     pub total_advance: f32,
 }
 
+/// Build a [`ShapedRun`] from an iterator of glyphs, returning the run and its total x-advance.
+fn build_run(glyphs: impl Iterator<Item = ShapedGlyph>, font_id: fontdb::ID) -> (ShapedRun, f32) {
+    let glyphs: Vec<ShapedGlyph> = glyphs.collect();
+    let advance: f32 = glyphs.iter().map(|g| g.x_advance).sum();
+    (ShapedRun { glyphs, font_id }, advance)
+}
+
 /// Round down `index` to the nearest UTF-8 char boundary in `text`.
 fn floor_char_boundary(text: &str, mut index: usize) -> usize {
     if index >= text.len() {
@@ -255,13 +262,9 @@ pub fn shape_text_with_fallback(
             while i < glyphs.len() && glyphs[i].glyph_id != 0 {
                 i += 1;
             }
-            let run_glyphs: Vec<ShapedGlyph> = glyphs[start..i].to_vec();
-            let advance: f32 = run_glyphs.iter().map(|g| g.x_advance).sum();
+            let (run, advance) = build_run(glyphs[start..i].iter().copied(), primary_id);
             total_advance += advance;
-            runs.push(ShapedRun {
-                glyphs: run_glyphs,
-                font_id: primary_id,
-            });
+            runs.push(run);
         } else {
             // .notdef range — extract text substring via cluster mapping.
             let cluster_start = glyphs[i].cluster as usize;
@@ -286,13 +289,9 @@ pub fn shape_text_with_fallback(
 
             // Skip empty substrings (collapsed cluster boundaries).
             if sub_text.is_empty() {
-                let run_glyphs: Vec<ShapedGlyph> = glyphs[notdef_start..i].to_vec();
-                let advance: f32 = run_glyphs.iter().map(|g| g.x_advance).sum();
+                let (run, advance) = build_run(glyphs[notdef_start..i].iter().copied(), primary_id);
                 total_advance += advance;
-                runs.push(ShapedRun {
-                    glyphs: run_glyphs,
-                    font_id: primary_id,
-                });
+                runs.push(run);
                 continue;
             }
 
@@ -322,7 +321,7 @@ pub fn shape_text_with_fallback(
                         #[allow(clippy::cast_possible_truncation)]
                         // sub_start ≤ text.len() which fits in u32 for any practical text.
                         {
-                            g.cluster += sub_start as u32;
+                            g.cluster = g.cluster.saturating_add(sub_start as u32);
                         }
                         g
                     })
@@ -336,13 +335,9 @@ pub fn shape_text_with_fallback(
             }
             if !found {
                 // No fallback covered this range; keep the .notdef glyphs from primary.
-                let run_glyphs: Vec<ShapedGlyph> = glyphs[notdef_start..i].to_vec();
-                let advance: f32 = run_glyphs.iter().map(|g| g.x_advance).sum();
+                let (run, advance) = build_run(glyphs[notdef_start..i].iter().copied(), primary_id);
                 total_advance += advance;
-                runs.push(ShapedRun {
-                    glyphs: run_glyphs,
-                    font_id: primary_id,
-                });
+                runs.push(run);
             }
         }
     }

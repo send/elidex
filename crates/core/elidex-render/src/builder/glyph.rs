@@ -51,13 +51,13 @@ pub(crate) fn place_glyphs(
         // Multiple glyphs can share a cluster (ligatures/combining marks); only
         // apply word-spacing on the first glyph of each space cluster.
         if ws != 0.0 && last_ws_cluster != Some(glyph.cluster) {
-            if let Some(ch) = text
-                .get(glyph.cluster as usize..)
-                .and_then(|s| s.chars().next())
-            {
-                if ch == ' ' {
-                    *cursor_x += ws;
-                    last_ws_cluster = Some(glyph.cluster);
+            let idx = glyph.cluster as usize;
+            if idx < text.len() && text.is_char_boundary(idx) {
+                if let Some(ch) = text[idx..].chars().next() {
+                    if ch == ' ' {
+                        *cursor_x += ws;
+                        last_ws_cluster = Some(glyph.cluster);
+                    }
                 }
             }
         }
