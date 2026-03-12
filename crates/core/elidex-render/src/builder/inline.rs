@@ -490,8 +490,14 @@ fn emit_decoration_line(
     color: CssColor,
     style: TextDecorationStyle,
 ) {
-    // Guard: skip entirely if width or thickness is non-finite or non-positive.
-    if !width.is_finite() || !thickness.is_finite() || width <= 0.0 || thickness <= 0.0 {
+    // Guard: skip entirely if any coordinate is non-finite or size is non-positive.
+    if !x.is_finite()
+        || !y.is_finite()
+        || !width.is_finite()
+        || !thickness.is_finite()
+        || width <= 0.0
+        || thickness <= 0.0
+    {
         return;
     }
     match style {
@@ -525,6 +531,10 @@ fn emit_decoration_line(
 ///
 /// Each mark has `mark_width` inline extent and `thickness` block extent,
 /// separated by gaps equal to `thickness`.
+/// Maximum number of marks in a repeating decoration (dotted/dashed) to prevent
+/// memory exhaustion on extreme inputs.
+const MAX_DECORATION_MARKS: usize = 10_000;
+
 fn emit_repeating_decoration(
     dl: &mut DisplayList,
     x: f32,
@@ -535,17 +545,19 @@ fn emit_repeating_decoration(
     color: CssColor,
 ) {
     let step = mark_width + thickness;
-    if step <= 0.0 || !step.is_finite() {
+    if step <= 0.0 || !step.is_finite() || !x.is_finite() || !y.is_finite() {
         return;
     }
     let mut cx = x;
     let end = x + width;
-    while cx < end {
+    let mut count = 0usize;
+    while cx < end && count < MAX_DECORATION_MARKS {
         let w = mark_width.min(end - cx);
         dl.push(DisplayItem::SolidRect {
             rect: elidex_plugin::Rect::new(cx, y, w, thickness),
             color,
         });
         cx += step;
+        count += 1;
     }
 }
