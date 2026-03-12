@@ -63,7 +63,9 @@ fn measure_segment_widths(
     font_weight: u16,
     font_style: FontStyle,
     segment: &str,
+    spacing: (f32, f32),
 ) -> (f32, f32) {
+    let (letter_spacing, word_spacing) = spacing;
     let seg_width = measure_text(
         font_db,
         families,
@@ -72,7 +74,8 @@ fn measure_segment_widths(
         font_style,
         segment,
     )
-    .map_or(0.0, |m| m.width);
+    .map_or(0.0, |m| m.width)
+        + spacing_adjustment(segment, letter_spacing, word_spacing);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
@@ -88,8 +91,32 @@ fn measure_segment_widths(
             trimmed,
         )
         .map_or(0.0, |m| m.width)
+            + spacing_adjustment(trimmed, letter_spacing, word_spacing)
     };
     (seg_width, trimmed_width)
+}
+
+/// Estimate extra width from letter-spacing and word-spacing.
+///
+/// Letter-spacing is applied between characters (not after the last one),
+/// approximated as `ls * (char_count - 1)`. Word-spacing is applied once
+/// per whitespace character. This is a simplified approximation of the
+/// per-cluster logic in `place_glyphs()`, sufficient for line-break decisions.
+#[allow(clippy::cast_precision_loss)] // char counts are far below f32 mantissa limit in practice
+fn spacing_adjustment(text: &str, letter_spacing: f32, word_spacing: f32) -> f32 {
+    let char_count = text.chars().count();
+    let ls_extra = if char_count > 1 {
+        letter_spacing * (char_count - 1) as f32
+    } else {
+        0.0
+    };
+    let ws_extra = if word_spacing == 0.0 {
+        0.0
+    } else {
+        let space_count = text.chars().filter(|c| c.is_whitespace()).count();
+        word_spacing * space_count as f32
+    };
+    ls_extra + ws_extra
 }
 
 /// Layout inline content (text nodes and inline elements) within a line box.
@@ -122,6 +149,8 @@ pub fn layout_inline_context(
     let font_size = parent_style.font_size;
     let font_weight = parent_style.font_weight;
     let font_style = to_fontdb_style(parent_style.font_style);
+    let letter_spacing = parent_style.letter_spacing.unwrap_or(0.0);
+    let word_spacing = parent_style.word_spacing.unwrap_or(0.0);
 
     // Use CSS line-height (resolved to px via the element's font-size).
     let line_height = parent_style.line_height.resolve_px(font_size);
@@ -177,6 +206,7 @@ pub fn layout_inline_context(
             font_weight,
             font_style,
             segment,
+            (letter_spacing, word_spacing),
         );
 
         if current_inline + trimmed_width > containing_inline_size && on_line {
