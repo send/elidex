@@ -104,21 +104,18 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
         CssValue::Percentage(p) => Dimension::Percentage(*p),
         CssValue::Number(n) if *n == 0.0 => Dimension::Length(0.0),
         CssValue::Calc(expr) => {
-            if calc_has_percentage(expr) {
-                // calc() contains percentage terms and the containing block
-                // width isn't available during style resolution. Fall back to
-                // Auto rather than resolving % against 0.0, which would
-                // produce incorrect values (e.g. `calc(100% - 20px)` → -20px).
-                //
-                // TODO(Phase 4): Add a `Dimension::Calc(CalcExpr)` variant to
-                // carry the expression through to layout, where the containing
-                // block width is known. This requires removing `Copy` from
-                // `Dimension` (since `CalcExpr` uses `Box`) and updating all
-                // pattern matches across the layout crates.
-                Dimension::Auto
-            } else {
-                Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))
-            }
+            // Resolve calc() to a length. Percentage terms are resolved
+            // against 0.0 since the containing block width isn't available
+            // at style-resolution time. This preserves fixed-length terms
+            // (e.g. `calc(10% + 5px)` → `5px`) rather than mapping to Auto,
+            // which would change semantics (e.g. trigger centering for margins).
+            //
+            // TODO(Phase 4): Add a `Dimension::Calc(CalcExpr)` variant to
+            // carry the expression through to layout, where the containing
+            // block width is known. This requires removing `Copy` from
+            // `Dimension` (since `CalcExpr` uses `Box`) and updating all
+            // pattern matches across the layout crates.
+            Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))
         }
         // Auto and anything else → Auto.
         _ => Dimension::Auto,
