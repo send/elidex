@@ -81,7 +81,11 @@ fn shape_with_options(
     db.with_face_data(font_id, |data, face_index| {
         let mut face = rustybuzz::Face::from_slice(data, face_index)?;
         // Clamp font_size to valid range: non-negative, finite, within u16 ppem range.
-        let clamped_size = font_size.max(0.0).min(f32::from(u16::MAX));
+        // NaN.is_finite() is false, so this also handles NaN inputs.
+        if !font_size.is_finite() || font_size < 0.0 {
+            return None;
+        }
+        let clamped_size = font_size.min(f32::from(u16::MAX));
         let scale = pixel_scale(&face, clamped_size)?;
 
         // Set ppem for hinting.
@@ -621,5 +625,17 @@ mod tests {
         assert_eq!(ceil_char_boundary("", 0), 0);
         assert_eq!(floor_char_boundary("", 5), 0);
         assert_eq!(ceil_char_boundary("", 5), 0);
+    }
+
+    #[test]
+    fn shape_text_nan_font_size_returns_none() {
+        let db = FontDatabase::new();
+        let Some(id) = test_font(&db) else {
+            return;
+        };
+        assert!(shape_text(&db, id, f32::NAN, "hello").is_none());
+        assert!(shape_text(&db, id, f32::INFINITY, "hello").is_none());
+        assert!(shape_text(&db, id, f32::NEG_INFINITY, "hello").is_none());
+        assert!(shape_text(&db, id, -1.0, "hello").is_none());
     }
 }

@@ -548,6 +548,41 @@ fn parse_text_decoration_none_with_style_and_color() {
 }
 
 #[test]
+fn parse_text_decoration_none_exclusive_with_line_keywords() {
+    // "none underline" — CSS Text Decoration Level 3: none is exclusive.
+    // Only "none" should be recognized; "underline" is ignored (not a valid shorthand).
+    let decls = parse_single("text-decoration", "none underline");
+    // When "none" is followed by a line keyword, the parser rejects the combination.
+    // The "none" early-return requires exhausted input, so the fallback loop is entered.
+    // In the loop, "none" sets has_none, then "underline" is rejected because has_none is set.
+    // Result: only "none" is consumed as line, "underline" is leftover (ignored by cssparser).
+    assert!(
+        decls
+            .iter()
+            .any(|d| d.property == "text-decoration-line"
+                && d.value == CssValue::Keyword("none".into())),
+        "line should be none, got: {decls:?}"
+    );
+
+    // "underline none" — reverse order, also rejected.
+    let decls2 = parse_single("text-decoration", "underline none");
+    // "underline" is consumed first, then "none" is rejected because line_values is non-empty.
+    assert!(
+        decls2.iter().any(|d| d.property == "text-decoration-line"),
+        "should have text-decoration-line"
+    );
+    // The line value should contain underline only (none rejected).
+    let line = decls2
+        .iter()
+        .find(|d| d.property == "text-decoration-line")
+        .unwrap();
+    assert!(
+        !matches!(&line.value, CssValue::Keyword(k) if k == "none"),
+        "line should not be none when underline was already parsed"
+    );
+}
+
+#[test]
 fn parse_text_decoration_style_longhand() {
     for kw in &["solid", "double", "dotted", "dashed", "wavy"] {
         let decls = parse_single("text-decoration-style", kw);

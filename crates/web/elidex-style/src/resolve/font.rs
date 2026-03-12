@@ -377,6 +377,9 @@ fn resolve_inherited_spacing(
 ) -> Option<f32> {
     match get_resolved_winner(property, winners, parent_style) {
         Some(CssValue::Length(v, unit)) => Some(resolve_length(v, unit, ctx)),
+        Some(CssValue::Calc(expr)) => {
+            Some(super::helpers::resolve_calc_expr(expr.as_ref(), 0.0, ctx))
+        }
         Some(CssValue::Keyword(ref k)) if k == "normal" => None,
         Some(_) | None => parent_value,
     }
@@ -883,6 +886,21 @@ mod tests {
             get_computed_as_css_value("word-spacing", &style),
             CssValue::Length(2.0, LengthUnit::Px)
         );
+    }
+
+    #[test]
+    fn letter_spacing_calc_resolved() {
+        use elidex_plugin::CalcExpr;
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Calc(Box::new(CalcExpr::Add(
+            Box::new(CalcExpr::Length(2.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(3.0, LengthUnit::Px)),
+        )));
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("letter-spacing", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.letter_spacing, Some(5.0));
     }
 
     // --- M4-1: text-decoration-style resolution ---

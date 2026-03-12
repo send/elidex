@@ -143,9 +143,17 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
                 let ident = i.expect_ident().map_err(|_| ())?;
                 let lower = ident.to_ascii_lowercase();
                 if lower == "none" {
+                    // "none" is exclusive: reject if line keywords already seen.
+                    if !line_values.is_empty() {
+                        return Err(());
+                    }
                     has_none = true;
                     Ok(())
                 } else if line_keywords.contains(&lower.as_str()) {
+                    // Line keywords are exclusive with "none".
+                    if has_none {
+                        return Err(());
+                    }
                     let kw = CssValue::Keyword(lower);
                     if !line_values.contains(&kw) {
                         line_values.push(kw);
