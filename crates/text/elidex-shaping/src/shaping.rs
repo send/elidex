@@ -179,9 +179,14 @@ pub struct ShapedTextWithFonts {
 }
 
 /// Build a [`ShapedRun`] from an iterator of glyphs, returning the run and its total x-advance.
+///
+/// Uses a single-pass fold to accumulate both the glyph vector and the advance sum.
 fn build_run(glyphs: impl Iterator<Item = ShapedGlyph>, font_id: fontdb::ID) -> (ShapedRun, f32) {
-    let glyphs: Vec<ShapedGlyph> = glyphs.collect();
-    let advance: f32 = glyphs.iter().map(|g| g.x_advance).sum();
+    let (glyphs, advance) = glyphs.fold((Vec::new(), 0.0_f32), |(mut acc, sum), g| {
+        let adv = g.x_advance;
+        acc.push(g);
+        (acc, sum + adv)
+    });
     (ShapedRun { glyphs, font_id }, advance)
 }
 
@@ -318,18 +323,16 @@ pub fn shape_text_with_fallback(
                 total_advance += fb_shaped.total_advance;
                 // Offset cluster indices so they refer to the original text,
                 // not the sub_text substring.
-                let offset_glyphs: Vec<ShapedGlyph> = fb_shaped
-                    .glyphs
-                    .into_iter()
-                    .map(|mut g| {
-                        #[allow(clippy::cast_possible_truncation)]
-                        // sub_start ≤ text.len() which fits in u32 for any practical text.
-                        {
-                            g.cluster = g.cluster.saturating_add(sub_start as u32);
-                        }
-                        g
-                    })
-                    .collect();
+                let fb_glyphs = fb_shaped.glyphs;
+                let mut offset_glyphs = Vec::with_capacity(fb_glyphs.len());
+                for mut g in fb_glyphs {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // sub_start ≤ text.len() which fits in u32 for any practical text.
+                    {
+                        g.cluster = g.cluster.saturating_add(sub_start as u32);
+                    }
+                    offset_glyphs.push(g);
+                }
                 runs.push(ShapedRun {
                     glyphs: offset_glyphs,
                     font_id: fallback_id,
@@ -625,6 +628,36 @@ mod tests {
         assert_eq!(ceil_char_boundary("", 0), 0);
         assert_eq!(floor_char_boundary("", 5), 0);
         assert_eq!(ceil_char_boundary("", 5), 0);
+    }
+
+    #[test]
+    fn fallback_multibyte_boundary() {
+        // Mix ASCII and CJK/emoji to exercise fallback at multi-byte UTF-8 boundaries.
+        let db = FontDatabase::new();
+        let text = "Hello\u{4E16}\u{754C}World\u{1F600}";
+        let result = shape_text_with_fallback(
+            &db,
+            crate::TEST_FONT_FAMILIES,
+            400,
+            fontdb::Style::Normal,
+            16.0,
+            text,
+        );
+        let Some(result) = result else { return };
+        // Should produce at least one run with positive advance.
+        assert!(!result.runs.is_empty(), "runs should be non-empty");
+        assert!(
+            result.total_advance > 0.0,
+            "total_advance should be positive, got {}",
+            result.total_advance
+        );
+        // All runs should have at least one glyph.
+        for (i, run) in result.runs.iter().enumerate() {
+            assert!(
+                !run.glyphs.is_empty(),
+                "run {i} should have at least one glyph"
+            );
+        }
     }
 
     #[test]

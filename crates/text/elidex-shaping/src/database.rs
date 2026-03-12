@@ -123,6 +123,11 @@ impl FontDatabase {
 }
 
 /// Convert [`elidex_plugin::FontStyle`] to [`fontdb::Style`].
+///
+/// Font-style fallback (italic ↔ oblique) is delegated to fontdb, which
+/// implements the CSS Fonts Level 3 §5.2 font matching algorithm. When the
+/// exact style is unavailable, fontdb automatically substitutes oblique for
+/// italic and vice versa.
 #[must_use]
 pub fn to_fontdb_style(fs: elidex_plugin::FontStyle) -> fontdb::Style {
     match fs {

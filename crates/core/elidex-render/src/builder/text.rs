@@ -55,7 +55,11 @@ pub(crate) fn compute_text_align_offset(
         _ => {
             let total_width: f32 = collapsed
                 .iter()
-                .map(|(text, idx)| measure_segment_width(text, &segments[*idx], font_db))
+                .filter_map(|(text, idx)| {
+                    segments
+                        .get(*idx)
+                        .map(|seg| measure_segment_width(text, seg, font_db))
+                })
                 .sum();
             let free = (container_width - total_width).max(0.0);
             align_offset(resolved, free)
@@ -108,15 +112,18 @@ pub(crate) fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<
 }
 
 /// Capitalize the first letter of each word (whitespace-delimited).
+///
+/// TODO(Phase 4+): Word boundary detection uses `is_whitespace()` as a
+/// simplification. Full CSS Text Level 3 compliance requires UAX #29 word
+/// segmentation (e.g. via the `unicode-segmentation` crate), which would
+/// correctly handle punctuation-adjacent boundaries and non-space separators.
 #[must_use]
 fn capitalize_words(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut prev_was_whitespace = true;
     for ch in text.chars() {
         if prev_was_whitespace && ch.is_alphabetic() {
-            for upper in ch.to_uppercase() {
-                result.push(upper);
-            }
+            result.extend(ch.to_uppercase());
             prev_was_whitespace = false;
         } else {
             result.push(ch);

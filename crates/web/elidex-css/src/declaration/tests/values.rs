@@ -550,35 +550,18 @@ fn parse_text_decoration_none_with_style_and_color() {
 #[test]
 fn parse_text_decoration_none_exclusive_with_line_keywords() {
     // "none underline" — CSS Text Decoration Level 3: none is exclusive.
-    // Only "none" should be recognized; "underline" is ignored (not a valid shorthand).
+    // Trailing unparsed tokens make the shorthand invalid → empty result.
     let decls = parse_single("text-decoration", "none underline");
-    // When "none" is followed by a line keyword, the parser rejects the combination.
-    // The "none" early-return requires exhausted input, so the fallback loop is entered.
-    // In the loop, "none" sets has_none, then "underline" is rejected because has_none is set.
-    // Result: only "none" is consumed as line, "underline" is leftover (ignored by cssparser).
     assert!(
-        decls
-            .iter()
-            .any(|d| d.property == "text-decoration-line"
-                && d.value == CssValue::Keyword("none".into())),
-        "line should be none, got: {decls:?}"
+        decls.is_empty(),
+        "none + line keyword should be invalid (trailing tokens), got: {decls:?}"
     );
 
-    // "underline none" — reverse order, also rejected.
+    // "underline none" — reverse order, also invalid due to trailing "none" token.
     let decls2 = parse_single("text-decoration", "underline none");
-    // "underline" is consumed first, then "none" is rejected because line_values is non-empty.
     assert!(
-        decls2.iter().any(|d| d.property == "text-decoration-line"),
-        "should have text-decoration-line"
-    );
-    // The line value should contain underline only (none rejected).
-    let line = decls2
-        .iter()
-        .find(|d| d.property == "text-decoration-line")
-        .unwrap();
-    assert!(
-        !matches!(&line.value, CssValue::Keyword(k) if k == "none"),
-        "line should not be none when underline was already parsed"
+        decls2.is_empty(),
+        "line keyword + none should be invalid (trailing tokens), got: {decls2:?}"
     );
 }
 

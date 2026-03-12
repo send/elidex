@@ -20,6 +20,13 @@ use super::{
 use elidex_text::{shape_text, shape_text_vertical, to_fontdb_style};
 
 /// A segment of text with its own style properties.
+///
+/// `font_family` is an owned `Vec<String>` rather than a reference because
+/// segments outlive the `ComputedStyle` borrows they are created from
+/// (collected into a `Vec` and consumed after the DOM walk). Switching to
+/// `&[String]` would require a lifetime parameter that propagates through
+/// `collapse_segments`, `bidi_visual_order`, and the display-list builder,
+/// so the allocation is accepted here.
 pub(crate) struct StyledTextSegment {
     pub(crate) text: String,
     pub(crate) color: CssColor,

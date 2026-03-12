@@ -190,6 +190,11 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
         return Vec::new();
     }
 
+    // Reject if there are remaining unparsed tokens (invalid shorthand).
+    if !input.is_exhausted() {
+        return Vec::new();
+    }
+
     let mut decls = Vec::new();
     // line
     let line = if line_values.is_empty() {

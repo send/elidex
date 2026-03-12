@@ -153,9 +153,9 @@ pub(crate) fn emit_list_marker_with_counter(
     let marker_x = lb.content.x - style.font_size * MARKER_X_OFFSET_FACTOR;
 
     let families = families_as_refs(&style.font_family);
-    let fs = to_fontdb_style(style.font_style);
+    let font_style = to_fontdb_style(style.font_style);
     let ascent = font_db
-        .query(&families, style.font_weight, fs)
+        .query(&families, style.font_weight, font_style)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
     let marker_y =
@@ -190,9 +190,7 @@ pub(crate) fn emit_list_marker_with_counter(
         }
         ListStyleType::Decimal => {
             let marker_text = format!("{counter}.");
-            let marker_font_style = to_fontdb_style(style.font_style);
-            let Some(font_id) = font_db.query(&families, style.font_weight, marker_font_style)
-            else {
+            let Some(font_id) = font_db.query(&families, style.font_weight, font_style) else {
                 return;
             };
             let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {

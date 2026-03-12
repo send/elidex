@@ -2,11 +2,38 @@
 
 use crate::display_list::GlyphEntry;
 
+/// Returns `true` if `ch` is a Unicode word separator (General Category Zs).
+///
+/// Per CSS Text Level 3 §4.3, word-spacing applies to all characters with
+/// Unicode General Category Zs (space separators), not just U+0020 SPACE.
+fn is_word_separator(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{0020}'  // SPACE
+        | '\u{00A0}'  // NO-BREAK SPACE
+        | '\u{1680}'  // OGHAM SPACE MARK
+        | '\u{2000}'  // EN QUAD
+        | '\u{2001}'  // EM QUAD
+        | '\u{2002}'  // EN SPACE
+        | '\u{2003}'  // EM SPACE
+        | '\u{2004}'  // THREE-PER-EM SPACE
+        | '\u{2005}'  // FOUR-PER-EM SPACE
+        | '\u{2006}'  // SIX-PER-EM SPACE
+        | '\u{2007}'  // FIGURE SPACE
+        | '\u{2008}'  // PUNCTUATION SPACE
+        | '\u{2009}'  // THIN SPACE
+        | '\u{200A}'  // HAIR SPACE
+        | '\u{202F}'  // NARROW NO-BREAK SPACE
+        | '\u{205F}'  // MEDIUM MATHEMATICAL SPACE
+        | '\u{3000}' // IDEOGRAPHIC SPACE
+    )
+}
+
 /// Place shaped glyphs into a `Vec<GlyphEntry>`, advancing `cursor_x`.
 ///
 /// `letter_spacing` is added between clusters (not between glyphs within the
 /// same cluster, and not after the last cluster) per CSS Text Level 3 §4.2.
-/// `word_spacing` is added once per U+0020 cluster per CSS Text Level 3 §4.3.
+/// `word_spacing` is added once per word separator cluster per CSS Text Level 3 §4.3.
 ///
 /// Returns the placed glyphs. `cursor_x` is updated to reflect the total advance.
 #[must_use]
@@ -54,7 +81,7 @@ pub(crate) fn place_glyphs(
             let idx = glyph.cluster as usize;
             if idx < text.len() && text.is_char_boundary(idx) {
                 if let Some(ch) = text[idx..].chars().next() {
-                    if ch == ' ' {
+                    if is_word_separator(ch) {
                         *cursor_x += ws;
                         last_ws_cluster = Some(glyph.cluster);
                     }
