@@ -208,8 +208,10 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
 /// Parse `letter-spacing` or `word-spacing`: `normal` | `<length>`.
 ///
 /// Percentages are rejected per CSS Text Level 3 §4.2/§4.3.
-// TODO: preserve Keyword("normal") instead of converting to Length(0, Px)
-// so that `getComputedStyle` can serialize "normal" per CSS Text L3 §4.2/§4.3.
+// Note: "normal" is converted to Length(0, Px) at parse time. The computed
+// value serialization in spacing_to_css_value() maps 0.0 back to "normal",
+// so getComputedStyle works correctly. Explicit "0px" also serializes as
+// "normal", which is a minor deviation (CSS OM §6.7.2) but acceptable.
 pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> {
     if let Ok(val) = try_keyword_value(
         input,

@@ -451,11 +451,9 @@ fn compute_vertical_text_align_offset(
 ///
 /// Tries vertical shaping first; falls back to horizontal shaping
 /// (using `x_advance` sum as the vertical extent).
+#[must_use]
 fn measure_segment_height(text: &str, seg: &StyledTextSegment, font_db: &FontDatabase) -> f32 {
-    let transformed = apply_text_transform(text, seg.text_transform);
-    let families = families_as_refs(&seg.font_family);
-    let style = to_fontdb_style(seg.font_style);
-    let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
+    let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
         return 0.0;
     };
     // Prefer vertical shaping (total_advance = sum of y_advance).

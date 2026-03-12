@@ -63,6 +63,23 @@ pub(crate) fn compute_text_align_offset(
     }
 }
 
+/// Transform text and query the matching font for a segment.
+///
+/// Shared setup for [`measure_segment_width`] and `measure_segment_height`.
+/// Returns the transformed text and font ID, or `None` if no font matches.
+#[must_use]
+pub(crate) fn query_segment_font<'a>(
+    text: &'a str,
+    seg: &StyledTextSegment,
+    font_db: &FontDatabase,
+) -> Option<(Cow<'a, str>, elidex_text::FontId)> {
+    let transformed = apply_text_transform(text, seg.text_transform);
+    let families = families_as_refs(&seg.font_family);
+    let style = to_fontdb_style(seg.font_style);
+    let font_id = font_db.query(&families, seg.font_weight, style)?;
+    Some((transformed, font_id))
+}
+
 /// Measure a segment's text width after text-transform.
 #[must_use]
 pub(crate) fn measure_segment_width(
@@ -70,10 +87,7 @@ pub(crate) fn measure_segment_width(
     seg: &StyledTextSegment,
     font_db: &FontDatabase,
 ) -> f32 {
-    let transformed = apply_text_transform(text, seg.text_transform);
-    let families = families_as_refs(&seg.font_family);
-    let style = to_fontdb_style(seg.font_style);
-    let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
+    let Some((transformed, font_id)) = query_segment_font(text, seg, font_db) else {
         return 0.0;
     };
     let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
