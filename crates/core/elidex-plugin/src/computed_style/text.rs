@@ -12,6 +12,7 @@ keyword_enum! {
         Left => "left",
         Center => "center",
         Right => "right",
+        Justify => "justify",
     }
 }
 

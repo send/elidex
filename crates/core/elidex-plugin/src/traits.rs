@@ -11,70 +11,135 @@ use crate::{
     LayoutContext, LayoutResult, NetworkError, WebApiSpecLevel,
 };
 
-/// Pre-resolve context passed to CSS property handlers.
+/// Context for resolving relative CSS values to computed values.
+///
+/// Provides the base sizes needed for resolving em, rem, vw, vh, and
+/// percentage units.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct StyleContext {
-    /// Root element font size in px.
-    pub root_font_size_px: f32,
-    /// Parent element font size in px.
-    pub parent_font_size_px: f32,
+pub struct ResolveContext {
     /// Viewport width in px.
-    pub viewport_width_px: f32,
+    pub viewport_width: f32,
     /// Viewport height in px.
-    pub viewport_height_px: f32,
+    pub viewport_height: f32,
+    /// Base value for `em` unit resolution. For font-size this is the
+    /// parent's font-size; for all other properties it is the element's
+    /// own computed font-size.
+    pub em_base: f32,
+    /// Root element font size in px (for `rem` resolution).
+    pub root_font_size: f32,
 }
 
-impl Default for StyleContext {
-    fn default() -> Self {
+impl ResolveContext {
+    /// Return a copy with a different `em_base` value.
+    #[must_use]
+    pub fn with_em_base(&self, em_base: f32) -> Self {
+        Self { em_base, ..*self }
+    }
+
+    /// Return a copy with both `em_base` and `root_font_size` overridden.
+    #[must_use]
+    pub fn with_em_and_root(&self, em_base: f32, root_font_size: f32) -> Self {
         Self {
-            root_font_size_px: 16.0,
-            parent_font_size_px: 16.0,
-            viewport_width_px: 1280.0,
-            viewport_height_px: 720.0,
+            em_base,
+            root_font_size,
+            ..*self
         }
     }
 }
 
-/// Normalized value returned by a CSS property handler after resolution.
-pub type ComputedValue = CssValue;
+impl Default for ResolveContext {
+    fn default() -> Self {
+        Self {
+            viewport_width: 1280.0,
+            viewport_height: 720.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        }
+    }
+}
 
-/// Metadata used to announce planned deprecation of a plugin handler.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct DeprecationInfo {
-    /// Project version where this handler became deprecated.
-    pub since: String,
-    /// Optional replacement feature name.
-    pub replacement: Option<String>,
-    /// Optional free-form migration notes.
-    pub note: Option<String>,
+/// A parsed property declaration returned by [`CssPropertyHandler::parse`].
+///
+/// Represents a single property-value pair after shorthand expansion.
+/// Importance (`!important`) is handled by the cascade, not by handlers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropertyDeclaration {
+    /// Longhand property name (e.g. `"margin-top"`).
+    pub property: String,
+    /// Parsed value.
+    pub value: CssValue,
+}
+
+impl PropertyDeclaration {
+    /// Create a new property declaration.
+    #[must_use]
+    pub fn new(property: impl Into<String>, value: CssValue) -> Self {
+        Self {
+            property: property.into(),
+            value,
+        }
+    }
 }
 
 /// Handler interface for CSS property parsing and resolution.
+///
+/// Each handler covers one or more related CSS properties. Handlers
+/// are registered in a [`CssPropertyRegistry`](crate::CssPropertyRegistry)
+/// and dispatched by property name during parsing and resolution.
 pub trait CssPropertyHandler: Send + Sync {
-    /// Returns the canonical property name (e.g. `display`).
-    fn property_name(&self) -> &str;
+    /// Returns the CSS property names this handler covers.
+    ///
+    /// Longhand names only — shorthand expansion is handled internally
+    /// by [`parse`](Self::parse).
+    fn property_names(&self) -> &[&str];
 
     /// Returns the specification level of this property handler.
     fn spec_level(&self) -> CssSpecLevel {
         CssSpecLevel::Standard
     }
 
-    /// Parse raw CSS text into an internal value representation.
-    fn parse(&self, value: &str) -> Result<CssValue, crate::ParseError>;
+    /// Parse a CSS property value using a cssparser tokenizer.
+    ///
+    /// For shorthand properties, returns multiple longhand declarations.
+    /// For longhands, returns a single-element vec.
+    #[allow(clippy::elidable_lifetime_names)]
+    fn parse<'i>(
+        &self,
+        name: &str,
+        input: &mut cssparser::Parser<'i, '_>,
+    ) -> Result<Vec<PropertyDeclaration>, crate::ParseError>;
 
-    /// Resolve a parsed value into a computed value.
-    fn resolve(&self, value: &CssValue, ctx: &StyleContext) -> ComputedValue;
+    /// Resolve a parsed value into a computed value on `style`.
+    ///
+    /// Writes the resolved value directly to the appropriate
+    /// [`ComputedStyle`] field(s).
+    fn resolve(
+        &self,
+        name: &str,
+        value: &CssValue,
+        ctx: &ResolveContext,
+        style: &mut ComputedStyle,
+    );
+
+    /// Returns the CSS initial value for `name`.
+    fn initial_value(&self, name: &str) -> CssValue;
+
+    /// Returns `true` if `name` is an inherited property.
+    fn is_inherited(&self, name: &str) -> bool;
 
     /// Whether changing this property may affect layout.
-    fn affects_layout(&self) -> bool {
+    fn affects_layout(&self, _name: &str) -> bool {
         false
     }
 
-    /// Optional deprecation metadata for this handler.
-    fn deprecated_by(&self) -> Option<DeprecationInfo> {
-        None
-    }
+    /// Extract the current computed value from `style` as a [`CssValue`].
+    ///
+    /// Used by `getComputedStyle()` and for inheritance serialization.
+    fn get_computed(&self, name: &str, style: &ComputedStyle) -> CssValue;
 }
+
+/// Type alias for a registry of CSS property handlers.
+pub type CssPropertyRegistry = crate::PluginRegistry<dyn CssPropertyHandler>;
 
 /// Attribute map passed to HTML element handlers.
 pub type Attributes = HashMap<String, String>;
@@ -230,30 +295,55 @@ mod tests {
     use super::*;
     use crate::{EdgeSizes, LayoutBox, ParseError, Rect, Size};
 
-    struct WidthHandler;
+    struct TestWidthHandler;
 
-    impl CssPropertyHandler for WidthHandler {
-        fn property_name(&self) -> &'static str {
-            "width"
+    impl CssPropertyHandler for TestWidthHandler {
+        fn property_names(&self) -> &[&str] {
+            &["width"]
         }
 
-        fn parse(&self, value: &str) -> Result<CssValue, ParseError> {
-            if value == "auto" {
-                return Ok(CssValue::Auto);
+        fn parse<'i>(
+            &self,
+            _name: &str,
+            input: &mut cssparser::Parser<'i, '_>,
+        ) -> Result<Vec<PropertyDeclaration>, ParseError> {
+            let location = input.current_source_location();
+            if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+                return Ok(vec![PropertyDeclaration::new("width", CssValue::Auto)]);
             }
             Err(ParseError {
                 property: "width".into(),
-                input: value.into(),
+                input: format!("line {}", location.line),
                 message: "only auto is supported in test".into(),
             })
         }
 
-        fn resolve(&self, value: &CssValue, _ctx: &StyleContext) -> ComputedValue {
-            value.clone()
+        fn resolve(
+            &self,
+            _name: &str,
+            value: &CssValue,
+            _ctx: &ResolveContext,
+            style: &mut ComputedStyle,
+        ) {
+            if let CssValue::Auto = value {
+                style.width = crate::Dimension::Auto;
+            }
         }
 
-        fn affects_layout(&self) -> bool {
+        fn initial_value(&self, _name: &str) -> CssValue {
+            CssValue::Auto
+        }
+
+        fn is_inherited(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn affects_layout(&self, _name: &str) -> bool {
             true
+        }
+
+        fn get_computed(&self, _name: &str, _style: &ComputedStyle) -> CssValue {
+            CssValue::Auto
         }
     }
 
@@ -299,12 +389,23 @@ mod tests {
 
     #[test]
     fn css_property_handler_contract() {
-        let handler = WidthHandler;
-        assert_eq!(handler.property_name(), "width");
+        let handler = TestWidthHandler;
+        assert_eq!(handler.property_names(), &["width"]);
         assert_eq!(handler.spec_level(), CssSpecLevel::Standard);
-        assert!(handler.affects_layout());
-        assert_eq!(handler.parse("auto"), Ok(CssValue::Auto));
-        assert_eq!(handler.deprecated_by(), None);
+        assert!(handler.affects_layout("width"));
+        assert!(!handler.is_inherited("width"));
+        assert_eq!(handler.initial_value("width"), CssValue::Auto);
+    }
+
+    #[test]
+    fn css_property_handler_parse() {
+        let handler = TestWidthHandler;
+        let mut parser_input = cssparser::ParserInput::new("auto");
+        let mut parser = cssparser::Parser::new(&mut parser_input);
+        let result = handler.parse("width", &mut parser).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].property, "width");
+        assert_eq!(result[0].value, CssValue::Auto);
     }
 
     #[test]
@@ -350,5 +451,21 @@ mod tests {
         assert_eq!(result.bounds.width, 320.0);
         assert_eq!(result.bounds.height, 20.0);
         let _ = LayoutBox::default();
+    }
+
+    #[test]
+    fn property_declaration_new() {
+        let decl = PropertyDeclaration::new("color", CssValue::Color(crate::CssColor::RED));
+        assert_eq!(decl.property, "color");
+        assert_eq!(decl.value, CssValue::Color(crate::CssColor::RED));
+    }
+
+    #[test]
+    fn resolve_context_default() {
+        let ctx = ResolveContext::default();
+        assert_eq!(ctx.viewport_width, 1280.0);
+        assert_eq!(ctx.viewport_height, 720.0);
+        assert_eq!(ctx.em_base, 16.0);
+        assert_eq!(ctx.root_font_size, 16.0);
     }
 }

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use boa_engine::JsObject;
-use elidex_api_canvas::Canvas2dContext;
+use elidex_web_canvas::Canvas2dContext;
 use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_navigation::{HistoryAction, NavigationRequest};

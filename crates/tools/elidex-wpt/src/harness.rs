@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use elidex_css::{parse_selector_from_str, parse_stylesheet, Origin};
 use elidex_ecs::{EcsDom, Entity, TagType};
-use elidex_parser::parse_html;
+use elidex_html_parser::parse_html;
 use elidex_plugin::ComputedStyle;
 use elidex_style::{get_computed_as_css_value, resolve_styles};
 

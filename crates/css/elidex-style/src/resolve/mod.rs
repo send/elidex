@@ -1,0 +1,647 @@
+//! CSS value resolution: relative units → absolute pixels.
+//!
+//! Converts parsed [`CssValue`]s into concrete values for [`ComputedStyle`]
+//! fields, resolving relative lengths, font-size keywords, `currentcolor`,
+//! and the border-width/border-style interaction.
+
+mod box_model;
+mod flex;
+mod font;
+mod grid;
+pub(crate) mod helpers;
+mod var_resolution;
+
+use elidex_plugin::{
+    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Display,
+    Float, LengthUnit, LineHeight, Position, TextOrientation, UnicodeBidi, VerticalAlign,
+    Visibility, WritingMode,
+};
+
+pub(crate) use helpers::PropertyMap;
+use helpers::{keyword_from, resolve_dimension};
+
+/// Convert a spacing value (letter-spacing / word-spacing) to its computed CSS value.
+/// `None` → `Keyword("normal")`, `Some(px)` → `Length(px, Px)`.
+fn spacing_to_css_value(value: Option<f32>) -> CssValue {
+    match value {
+        None => CssValue::Keyword("normal".to_string()),
+        Some(v) => CssValue::Length(v, LengthUnit::Px),
+    }
+}
+
+use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
+
+use font::{
+    resolve_background_color, resolve_color, resolve_font_and_text_properties, resolve_font_size,
+};
+
+use box_model::{
+    resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,
+    resolve_display, resolve_gap_properties, resolve_overflow, resolve_position,
+    resolve_table_properties,
+};
+
+use flex::resolve_flex_properties;
+use grid::{
+    grid_line_to_css_value, resolve_grid_properties, track_list_to_css_value,
+    track_size_to_css_value,
+};
+
+/// Context for resolving relative CSS values (re-exported from elidex-plugin).
+pub(crate) type ResolveContext = elidex_plugin::ResolveContext;
+
+/// Extract a property's computed value back into a [`CssValue`] for inheritance.
+///
+/// Also used by `getComputedStyle()` DOM API.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+// Single match dispatcher over CSS property names.
+pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
+    use crate::inherit::get_initial_value;
+
+    // Custom properties: return the raw token string.
+    if property.starts_with("--") {
+        return match style.custom_properties.get(property) {
+            Some(raw) => CssValue::RawTokens(raw.clone()),
+            None => CssValue::RawTokens(String::new()),
+        };
+    }
+
+    match property {
+        "color" => CssValue::Color(style.color),
+        "font-size" => CssValue::Length(style.font_size, LengthUnit::Px),
+        "font-family" => CssValue::List(
+            style
+                .font_family
+                .iter()
+                .map(|s| CssValue::Keyword(s.clone()))
+                .collect(),
+        ),
+        "font-weight" => CssValue::Number(f32::from(style.font_weight)),
+        "font-style" => keyword_from(&style.font_style),
+        "line-height" => match style.line_height {
+            LineHeight::Normal => CssValue::Keyword("normal".to_string()),
+            LineHeight::Number(n) => CssValue::Number(n),
+            LineHeight::Px(px) => CssValue::Length(px, LengthUnit::Px),
+        },
+        "text-transform" => keyword_from(&style.text_transform),
+        "text-align" => keyword_from(&style.text_align),
+        "white-space" => keyword_from(&style.white_space),
+        "list-style-type" => keyword_from(&style.list_style_type),
+        "direction" => keyword_from(&style.direction),
+        "unicode-bidi" => keyword_from(&style.unicode_bidi),
+        "writing-mode" => keyword_from(&style.writing_mode),
+        "text-orientation" => keyword_from(&style.text_orientation),
+        "text-decoration-line" => {
+            let d = &style.text_decoration_line;
+            let mut parts = Vec::new();
+            if d.underline {
+                parts.push(CssValue::Keyword("underline".to_string()));
+            }
+            if d.overline {
+                parts.push(CssValue::Keyword("overline".to_string()));
+            }
+            if d.line_through {
+                parts.push(CssValue::Keyword("line-through".to_string()));
+            }
+            if parts.len() > 1 {
+                CssValue::List(parts)
+            } else {
+                CssValue::Keyword(d.to_string())
+            }
+        }
+        "text-decoration-style" => keyword_from(&style.text_decoration_style),
+        "text-decoration-color" => match style.text_decoration_color {
+            Some(c) => CssValue::Color(c),
+            None => CssValue::Keyword("currentcolor".to_string()),
+        },
+        "letter-spacing" => spacing_to_css_value(style.letter_spacing),
+        "word-spacing" => spacing_to_css_value(style.word_spacing),
+        "display" => keyword_from(&style.display),
+        "position" => keyword_from(&style.position),
+        "overflow" => keyword_from(&style.overflow),
+        "background-color" => CssValue::Color(style.background_color),
+        "width" => dimension_to_css_value(style.width),
+        "height" => dimension_to_css_value(style.height),
+        "min-width" => dimension_to_css_value(style.min_width),
+        "max-width" => {
+            if style.max_width == Dimension::Auto {
+                CssValue::Keyword("none".to_string())
+            } else {
+                dimension_to_css_value(style.max_width)
+            }
+        }
+        "min-height" => dimension_to_css_value(style.min_height),
+        "max-height" => {
+            if style.max_height == Dimension::Auto {
+                CssValue::Keyword("none".to_string())
+            } else {
+                dimension_to_css_value(style.max_height)
+            }
+        }
+        "margin-top" => dimension_to_css_value(style.margin_top),
+        "margin-right" => dimension_to_css_value(style.margin_right),
+        "margin-bottom" => dimension_to_css_value(style.margin_bottom),
+        "margin-left" => dimension_to_css_value(style.margin_left),
+        "padding-top" => CssValue::Length(style.padding_top, LengthUnit::Px),
+        "padding-right" => CssValue::Length(style.padding_right, LengthUnit::Px),
+        "padding-bottom" => CssValue::Length(style.padding_bottom, LengthUnit::Px),
+        "padding-left" => CssValue::Length(style.padding_left, LengthUnit::Px),
+        "border-top-width" => CssValue::Length(style.border_top_width, LengthUnit::Px),
+        "border-right-width" => CssValue::Length(style.border_right_width, LengthUnit::Px),
+        "border-bottom-width" => CssValue::Length(style.border_bottom_width, LengthUnit::Px),
+        "border-left-width" => CssValue::Length(style.border_left_width, LengthUnit::Px),
+        "border-top-style" => keyword_from(&style.border_top_style),
+        "border-right-style" => keyword_from(&style.border_right_style),
+        "border-bottom-style" => keyword_from(&style.border_bottom_style),
+        "border-left-style" => keyword_from(&style.border_left_style),
+        "border-top-color" => CssValue::Color(style.border_top_color),
+        "border-right-color" => CssValue::Color(style.border_right_color),
+        "border-bottom-color" => CssValue::Color(style.border_bottom_color),
+        "border-left-color" => CssValue::Color(style.border_left_color),
+        "flex-direction" => keyword_from(&style.flex_direction),
+        "flex-wrap" => keyword_from(&style.flex_wrap),
+        "justify-content" => keyword_from(&style.justify_content),
+        "align-items" => keyword_from(&style.align_items),
+        "align-content" => keyword_from(&style.align_content),
+        "align-self" => keyword_from(&style.align_self),
+        "flex-grow" => CssValue::Number(style.flex_grow),
+        "flex-shrink" => CssValue::Number(style.flex_shrink),
+        "flex-basis" => dimension_to_css_value(style.flex_basis),
+        #[allow(clippy::cast_precision_loss)]
+        "order" => CssValue::Number(style.order as f32),
+        "row-gap" => CssValue::Length(style.row_gap, LengthUnit::Px),
+        "column-gap" => CssValue::Length(style.column_gap, LengthUnit::Px),
+        "box-sizing" => keyword_from(&style.box_sizing),
+        "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
+        "opacity" => CssValue::Number(style.opacity),
+        // Grid container
+        "grid-template-columns" => track_list_to_css_value(&style.grid_template_columns),
+        "grid-template-rows" => track_list_to_css_value(&style.grid_template_rows),
+        "grid-auto-flow" => keyword_from(&style.grid_auto_flow),
+        "grid-auto-columns" => track_size_to_css_value(&style.grid_auto_columns),
+        "grid-auto-rows" => track_size_to_css_value(&style.grid_auto_rows),
+        // Grid item
+        "grid-column-start" => grid_line_to_css_value(style.grid_column_start),
+        "grid-column-end" => grid_line_to_css_value(style.grid_column_end),
+        "grid-row-start" => grid_line_to_css_value(style.grid_row_start),
+        "grid-row-end" => grid_line_to_css_value(style.grid_row_end),
+
+        // Table properties
+        "border-collapse" => keyword_from(&style.border_collapse),
+        "border-spacing" => {
+            if (style.border_spacing_h - style.border_spacing_v).abs() < f32::EPSILON {
+                CssValue::Length(style.border_spacing_h, LengthUnit::Px)
+            } else {
+                CssValue::List(vec![
+                    CssValue::Length(style.border_spacing_h, LengthUnit::Px),
+                    CssValue::Length(style.border_spacing_v, LengthUnit::Px),
+                ])
+            }
+        }
+        "border-spacing-h" => CssValue::Length(style.border_spacing_h, LengthUnit::Px),
+        "border-spacing-v" => CssValue::Length(style.border_spacing_v, LengthUnit::Px),
+        "table-layout" => keyword_from(&style.table_layout),
+        "caption-side" => keyword_from(&style.caption_side),
+
+        // Float/clear/visibility
+        "float" => keyword_from(&style.float),
+        "clear" => keyword_from(&style.clear),
+        "visibility" => keyword_from(&style.visibility),
+        "vertical-align" => match &style.vertical_align {
+            VerticalAlign::Length(px) => CssValue::Length(*px, LengthUnit::Px),
+            VerticalAlign::Percentage(pct) => CssValue::Percentage(*pct),
+            other => CssValue::Keyword(other.to_string()),
+        },
+
+        "content" => match &style.content {
+            ContentValue::Normal => CssValue::Keyword("normal".to_string()),
+            ContentValue::None => CssValue::Keyword("none".to_string()),
+            ContentValue::Items(items) => {
+                if items.len() == 1 {
+                    match &items[0] {
+                        ContentItem::String(s) => CssValue::String(s.clone()),
+                        ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                    }
+                } else {
+                    CssValue::List(
+                        items
+                            .iter()
+                            .map(|item| match item {
+                                ContentItem::String(s) => CssValue::String(s.clone()),
+                                ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                            })
+                            .collect(),
+                    )
+                }
+            }
+        },
+        _ => get_initial_value(property),
+    }
+}
+
+/// Extract a property's computed value using the CSS property registry.
+///
+/// Tries to find a registered handler for the property and delegates to
+/// [`CssPropertyHandler::get_computed`]. Falls back to the hardcoded
+/// [`get_computed_as_css_value`] for custom properties and unregistered properties.
+///
+/// This is the preferred entry point when a registry is available (e.g. from
+/// `elidex-shell`'s pipeline).
+#[must_use]
+pub fn get_computed_with_registry(
+    property: &str,
+    style: &ComputedStyle,
+    registry: &elidex_plugin::CssPropertyRegistry,
+) -> CssValue {
+    // Custom properties are not handled by plugin handlers.
+    if property.starts_with("--") {
+        return get_computed_as_css_value(property, style);
+    }
+    // Compound shorthand serializations (border-spacing, text-decoration)
+    // have special multi-value logic that handlers don't cover.
+    if matches!(property, "border-spacing" | "text-decoration") {
+        return get_computed_as_css_value(property, style);
+    }
+    if let Some(handler) = registry.resolve(property) {
+        return handler.get_computed(property, style);
+    }
+    get_computed_as_css_value(property, style)
+}
+
+// Display, Position, and BorderStyle implement AsRef<str> in elidex-plugin,
+// so enum-to-string conversion is handled via .as_ref() directly.
+
+/// Convert a [`Dimension`] back into a [`CssValue`] for CSS serialization.
+pub fn dimension_to_css_value(d: Dimension) -> CssValue {
+    match d {
+        Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
+        Dimension::Percentage(p) => CssValue::Percentage(p),
+        Dimension::Auto => CssValue::Auto,
+    }
+}
+
+/// Build a [`ComputedStyle`] from the cascade winner map.
+///
+/// Resolution order: font-size first (dependencies), then color,
+/// then all remaining properties.
+#[must_use]
+pub(crate) fn build_computed_style(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) -> ComputedStyle {
+    // Phase 1: Build custom properties map (inherit from parent + override).
+    let mut style = ComputedStyle {
+        custom_properties: build_custom_properties(winners, parent_style),
+        ..ComputedStyle::default()
+    };
+
+    // Phase 2: Resolve var() references in winners.
+    let resolved_winners = resolve_var_references(winners, &style.custom_properties);
+    let winners = merge_winners(winners, &resolved_winners);
+
+    // Phase 3: Font-size first (em units in all other properties depend on it).
+    let element_font_size = resolve_font_size(&winners, parent_style, ctx);
+    style.font_size = element_font_size;
+    let elem_ctx = ctx.with_em_base(element_font_size);
+
+    // Phase 4: Font, text, and color properties.
+    resolve_font_and_text_properties(&mut style, &winners, parent_style, &elem_ctx);
+    style.color = resolve_color(&winners, parent_style);
+    resolve_background_color(&mut style, &winners, parent_style);
+
+    // Phase 5: Display, positioning, overflow.
+    resolve_display(&mut style, &winners, parent_style);
+    resolve_position(&mut style, &winners, parent_style);
+    resolve_overflow(&mut style, &winners, parent_style);
+
+    // Phase 6: Box model — dimensions, margin, padding, border, extras.
+    resolve_box_dimensions(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 7: Flex, grid, and gap properties.
+    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
+    resolve_flex_properties(&mut style, &winners, parent_style, dim);
+    resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 8: Content property (non-inherited).
+    resolve_content(&mut style, &winners, parent_style);
+
+    // Phase 9: Table properties.
+    resolve_table_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 10: Writing mode / BiDi properties.
+    resolve_writing_mode_properties(&mut style, &winners, parent_style);
+
+    // Phase 11: Float, clear, visibility, vertical-align.
+    resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    style
+}
+
+/// Resolve float, clear, visibility, and vertical-align properties.
+fn resolve_float_visibility_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    use helpers::{
+        get_resolved_winner, resolve_inherited_keyword_enum, resolve_keyword_enum, resolve_length,
+    };
+
+    // visibility — inherited
+    style.visibility = resolve_inherited_keyword_enum(
+        "visibility",
+        winners,
+        parent_style,
+        parent_style.visibility,
+        Visibility::from_keyword,
+    );
+
+    // float — non-inherited
+    if let Some(f) = resolve_keyword_enum("float", winners, parent_style, Float::from_keyword) {
+        style.float = f;
+    }
+
+    // CSS 2.1 §9.7 (applied in spec order):
+    // Step 2: position: absolute/fixed → blockify display AND force float to none.
+    // Step 3: float is not 'none' → blockify display.
+    if matches!(style.position, Position::Absolute | Position::Fixed) {
+        style.display = blockify_display(style.display);
+        style.float = Float::None;
+    } else if style.float != Float::None {
+        style.display = blockify_display(style.display);
+    }
+
+    // clear — non-inherited
+    if let Some(c) = resolve_keyword_enum("clear", winners, parent_style, Clear::from_keyword) {
+        style.clear = c;
+    }
+
+    // vertical-align — non-inherited, accepts keywords + length + percentage + calc()
+    if let Some(value) = get_resolved_winner("vertical-align", winners, parent_style) {
+        style.vertical_align = match &value {
+            CssValue::Keyword(kw) => {
+                VerticalAlign::from_keyword(kw).unwrap_or(VerticalAlign::Baseline)
+            }
+            CssValue::Length(v, unit) => VerticalAlign::Length(resolve_length(*v, *unit, ctx)),
+            CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
+            CssValue::Calc(expr) => {
+                // CSS 2.1 §10.8.1: percentages in vertical-align refer to
+                // the element's own line-height.
+                let lh_base = computed_line_height_px(style);
+                VerticalAlign::Length(helpers::resolve_calc_expr(expr, lh_base, ctx))
+            }
+            _ => VerticalAlign::Baseline,
+        };
+    }
+}
+
+/// CSS Display Level 3 §2.8 / CSS 2.1 §9.7: Map inline-level display values
+/// to their block-level equivalents when the element is floated or absolutely
+/// positioned.
+///
+/// `display: contents` is excluded — it generates no box, so blockification
+/// does not apply (browsers preserve `contents` when combined with `float`).
+fn blockify_display(display: Display) -> Display {
+    match display {
+        // Inline-level and table-internal values become block.
+        Display::Inline
+        | Display::InlineBlock
+        | Display::TableRow
+        | Display::TableCell
+        | Display::TableRowGroup
+        | Display::TableHeaderGroup
+        | Display::TableFooterGroup
+        | Display::TableColumn
+        | Display::TableColumnGroup
+        | Display::TableCaption => Display::Block,
+        Display::InlineFlex => Display::Flex,
+        Display::InlineGrid => Display::Grid,
+        Display::InlineTable => Display::Table,
+        // Block, Flex, Grid, Table, ListItem, None — already block-level
+        // or special, unchanged.
+        other => other,
+    }
+}
+
+/// Compute the element's line-height in pixels for percentage resolution.
+///
+/// CSS 2.1 §10.8.1: `vertical-align` percentages refer to the element's
+/// computed `line-height`. Delegates to `LineHeight::resolve_px`.
+fn computed_line_height_px(style: &ComputedStyle) -> f32 {
+    style.line_height.resolve_px(style.font_size)
+}
+
+/// Resolve writing mode and bidi properties.
+///
+/// Uses `resolve_inherited_keyword_enum` / `resolve_keyword_enum` to
+/// correctly handle `initial`, `unset`, and `inherit` global keywords
+/// via `get_resolved_winner`.
+fn resolve_writing_mode_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    use helpers::{resolve_inherited_keyword_enum, resolve_keyword_enum};
+
+    // direction — inherited
+    style.direction = resolve_inherited_keyword_enum(
+        "direction",
+        winners,
+        parent_style,
+        parent_style.direction,
+        Direction::from_keyword,
+    );
+
+    // unicode-bidi — non-inherited
+    if let Some(u) = resolve_keyword_enum(
+        "unicode-bidi",
+        winners,
+        parent_style,
+        UnicodeBidi::from_keyword,
+    ) {
+        style.unicode_bidi = u;
+    }
+
+    // writing-mode — inherited
+    style.writing_mode = resolve_inherited_keyword_enum(
+        "writing-mode",
+        winners,
+        parent_style,
+        parent_style.writing_mode,
+        WritingMode::from_keyword,
+    );
+
+    // text-orientation — inherited
+    style.text_orientation = resolve_inherited_keyword_enum(
+        "text-orientation",
+        winners,
+        parent_style,
+        parent_style.text_orientation,
+        TextOrientation::from_keyword,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    use elidex_plugin::{CssValue, Display};
+
+    #[test]
+    fn get_computed_display() {
+        let style = ComputedStyle {
+            display: Display::Flex,
+            ..ComputedStyle::default()
+        };
+        let val = get_computed_as_css_value("display", &style);
+        assert_eq!(val, CssValue::Keyword("flex".to_string()));
+    }
+
+    #[test]
+    fn get_computed_custom_property() {
+        let style = ComputedStyle {
+            custom_properties: {
+                let mut m = HashMap::new();
+                m.insert("--my-color".to_string(), "red".to_string());
+                m
+            },
+            ..ComputedStyle::default()
+        };
+        let val = get_computed_as_css_value("--my-color", &style);
+        assert_eq!(val, CssValue::RawTokens("red".to_string()));
+    }
+
+    #[test]
+    fn get_computed_custom_property_undefined() {
+        let style = ComputedStyle::default();
+        let val = get_computed_as_css_value("--undefined", &style);
+        assert_eq!(val, CssValue::RawTokens(String::new()));
+    }
+
+    #[test]
+    fn get_computed_font_family() {
+        let style = ComputedStyle {
+            font_family: vec!["Arial".to_string(), "sans-serif".to_string()],
+            ..ComputedStyle::default()
+        };
+        let val = get_computed_as_css_value("font-family", &style);
+        assert_eq!(
+            val,
+            CssValue::List(vec![
+                CssValue::Keyword("Arial".to_string()),
+                CssValue::Keyword("sans-serif".to_string()),
+            ])
+        );
+    }
+
+    // --- CSS 2.1 §9.7: blockify_display tests ---
+
+    #[test]
+    fn blockify_inline_to_block() {
+        assert_eq!(blockify_display(Display::Inline), Display::Block);
+        assert_eq!(blockify_display(Display::InlineBlock), Display::Block);
+    }
+
+    #[test]
+    fn blockify_inline_flex_to_flex() {
+        assert_eq!(blockify_display(Display::InlineFlex), Display::Flex);
+    }
+
+    #[test]
+    fn blockify_inline_grid_to_grid() {
+        assert_eq!(blockify_display(Display::InlineGrid), Display::Grid);
+    }
+
+    #[test]
+    fn blockify_inline_table_to_table() {
+        assert_eq!(blockify_display(Display::InlineTable), Display::Table);
+    }
+
+    #[test]
+    fn blockify_block_unchanged() {
+        assert_eq!(blockify_display(Display::Block), Display::Block);
+        assert_eq!(blockify_display(Display::Flex), Display::Flex);
+        assert_eq!(blockify_display(Display::Table), Display::Table);
+    }
+
+    #[test]
+    fn blockify_contents_unchanged() {
+        // CSS Display Level 3 §2.8: display:contents generates no box,
+        // so blockification does not apply — value is preserved.
+        assert_eq!(blockify_display(Display::Contents), Display::Contents);
+    }
+
+    #[test]
+    fn blockify_table_internal_to_block() {
+        assert_eq!(blockify_display(Display::TableRow), Display::Block);
+        assert_eq!(blockify_display(Display::TableCell), Display::Block);
+        assert_eq!(blockify_display(Display::TableCaption), Display::Block);
+    }
+
+    // CSS 2.1 §9.7 step 2: position:absolute/fixed forces float to none.
+    #[test]
+    fn absolute_position_forces_float_none() {
+        use elidex_plugin::Float;
+
+        let winners = HashMap::new();
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 1920.0,
+            viewport_height: 1080.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+
+        // Simulate: float:left + position:absolute → float becomes none, display blockified
+        let mut style = ComputedStyle {
+            float: Float::Left,
+            position: Position::Absolute,
+            display: Display::Inline,
+            ..ComputedStyle::default()
+        };
+        resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
+        assert_eq!(
+            style.float,
+            Float::None,
+            "position:absolute should force float:none"
+        );
+        assert_eq!(
+            style.display,
+            Display::Block,
+            "display should be blockified"
+        );
+    }
+
+    #[test]
+    fn computed_line_height_px_variants() {
+        let base = ComputedStyle {
+            font_size: 16.0,
+            ..ComputedStyle::default()
+        };
+
+        let s1 = ComputedStyle {
+            line_height: LineHeight::Px(24.0),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s1), 24.0);
+
+        let s2 = ComputedStyle {
+            line_height: LineHeight::Number(1.5),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s2), 24.0);
+
+        let s3 = ComputedStyle {
+            line_height: LineHeight::Normal,
+            ..base
+        };
+        assert!((computed_line_height_px(&s3) - 19.2).abs() < 0.01);
+    }
+}

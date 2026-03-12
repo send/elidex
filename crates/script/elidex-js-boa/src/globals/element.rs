@@ -503,13 +503,13 @@ fn register_canvas_method(init: &mut ObjectInitializer<'_>, bridge: &HostBridge)
                         .get::<&elidex_ecs::Attributes>(entity)
                         .ok()
                         .and_then(|a| a.get("width").and_then(|v| v.parse::<u32>().ok()))
-                        .unwrap_or(elidex_api_canvas::DEFAULT_WIDTH);
+                        .unwrap_or(elidex_web_canvas::DEFAULT_WIDTH);
                     let h = dom
                         .world()
                         .get::<&elidex_ecs::Attributes>(entity)
                         .ok()
                         .and_then(|a| a.get("height").and_then(|v| v.parse::<u32>().ok()))
-                        .unwrap_or(elidex_api_canvas::DEFAULT_HEIGHT);
+                        .unwrap_or(elidex_web_canvas::DEFAULT_HEIGHT);
                     (w, h)
                 });
 

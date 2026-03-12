@@ -11,7 +11,7 @@ keywords = ["browser-engine", "testing", "wpt"]
 categories = ["development-tools::testing"]
 
 [dependencies]
-elidex-parser.workspace = true
+elidex-html-parser.workspace = true
 elidex-css.workspace = true
 elidex-ecs.workspace = true
 elidex-style.workspace = true

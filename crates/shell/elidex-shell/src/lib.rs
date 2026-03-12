@@ -29,7 +29,7 @@ use elidex_ecs::Entity;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
-use elidex_parser::parse_html;
+use elidex_html_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::SessionCore;
 use elidex_style::resolve_styles_with_compat;
@@ -37,6 +37,23 @@ use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
 
 use app::App;
+
+/// Build the CSS property registry with all standard property handlers.
+///
+/// Called once at startup. The registry is used by property handlers to parse
+/// and resolve CSS values in a pluggable manner.
+#[must_use]
+pub fn create_css_property_registry() -> elidex_plugin::CssPropertyRegistry {
+    let mut registry = elidex_plugin::CssPropertyRegistry::new();
+    elidex_css_box::BoxHandler::register(&mut registry);
+    elidex_css_text::TextHandler::register(&mut registry);
+    elidex_css_flex::FlexHandler::register(&mut registry);
+    elidex_css_grid::GridHandler::register(&mut registry);
+    elidex_css_table::TableHandler::register(&mut registry);
+    elidex_css_float::FloatHandler::register(&mut registry);
+    elidex_css_anim::AnimHandler::register(&mut registry);
+    registry
+}
 
 /// Default viewport width for the initial layout pass.
 const DEFAULT_VIEWPORT_WIDTH: f32 = 1024.0;
@@ -49,8 +66,12 @@ const BLANK_TAB_HTML: &str = "<html><body><h1>New Tab</h1></body></html>";
 const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; font-family: sans-serif; } h1 { text-align: center; margin-top: 200px; }";
 
 /// Resolve styles with the compat layer (legacy UA + presentational hints).
+///
+/// Passes the CSS property registry to enable handler-based dispatch for
+/// `is_inherited()`, `initial_value()`, and `get_computed()` queries.
 fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
     let legacy_ua = legacy_ua_stylesheet();
+    let registry = create_css_property_registry();
     resolve_styles_with_compat(
         dom,
         author_stylesheets,
@@ -58,6 +79,7 @@ fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
         &get_presentational_hints,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
+        Some(&registry),
     );
 }
 

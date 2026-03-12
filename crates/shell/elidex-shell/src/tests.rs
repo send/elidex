@@ -436,6 +436,62 @@ fn lifecycle_events_not_cancelable() {
     );
 }
 
+// --- CSS property registry tests ---
+
+#[test]
+fn get_computed_with_registry_matches_hardcoded() {
+    use elidex_plugin::{ComputedStyle, CssColor, CssValue, Display, Float, LengthUnit};
+    use elidex_style::get_computed_with_registry;
+
+    let registry = create_css_property_registry();
+    let style = ComputedStyle {
+        display: Display::Flex,
+        color: CssColor::RED,
+        font_size: 20.0,
+        float: Float::Left,
+        opacity: 0.5,
+        ..ComputedStyle::default()
+    };
+
+    // Each handler-based result should match the hardcoded get_computed_as_css_value.
+    let cases = &[
+        ("display", CssValue::Keyword("flex".to_string())),
+        ("color", CssValue::Color(CssColor::RED)),
+        ("font-size", CssValue::Length(20.0, LengthUnit::Px)),
+        ("float", CssValue::Keyword("left".to_string())),
+        ("opacity", CssValue::Number(0.5)),
+    ];
+    for (prop, expected) in cases {
+        let result = get_computed_with_registry(prop, &style, &registry);
+        assert_eq!(
+            result, *expected,
+            "get_computed_with_registry({prop}) mismatch"
+        );
+    }
+}
+
+#[test]
+fn registry_covers_all_handler_properties() {
+    let registry = create_css_property_registry();
+
+    // Verify that all 6 handlers' properties are resolvable in the registry.
+    let expected_properties = &[
+        "display", "position", "width", "margin-top", "padding-left",
+        "border-top-width", "opacity", "background-color",  // box
+        "color", "font-size", "font-weight", "text-align", "white-space", // text
+        "flex-direction", "flex-wrap", "justify-content",   // flex
+        "grid-template-columns", "grid-auto-flow",          // grid
+        "border-collapse", "table-layout",                  // table
+        "float", "clear", "visibility", "vertical-align",   // float
+    ];
+    for prop in expected_properties {
+        assert!(
+            registry.resolve(prop).is_some(),
+            "Registry should contain handler for '{prop}'"
+        );
+    }
+}
+
 #[test]
 fn inline_run_produces_single_text_item() {
     // Verifies that inline text is collected and rendered correctly.

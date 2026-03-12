@@ -4,6 +4,7 @@
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
 mod computed_style;
+pub mod css_resolve;
 mod error;
 mod event_types;
 pub mod handlers;
@@ -33,9 +34,9 @@ pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{
-    AccessibilityRole, Attributes, ComputedValue, Constraints, CssPropertyHandler, CssRule,
-    DeprecationInfo, ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware,
-    ParseBehavior, StyleContext,
+    AccessibilityRole, Attributes, Constraints, CssPropertyHandler, CssPropertyRegistry, CssRule,
+    ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware, ParseBehavior,
+    PropertyDeclaration, ResolveContext,
 };
 pub use values::{CalcExpr, CssColor, CssValue, LengthUnit};
 
