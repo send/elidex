@@ -377,7 +377,7 @@ fn resolve_inherited_spacing(
 ) -> Option<f32> {
     match get_resolved_winner(property, winners, parent_style) {
         Some(CssValue::Length(v, unit)) => Some(resolve_length(v, unit, ctx)),
-        Some(CssValue::Calc(expr)) => {
+        Some(CssValue::Calc(expr)) if !expr.contains_percentage() => {
             Some(super::helpers::resolve_calc_expr(expr.as_ref(), 0.0, ctx))
         }
         Some(CssValue::Keyword(ref k)) if k == "normal" => None,

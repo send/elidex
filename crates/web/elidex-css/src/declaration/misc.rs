@@ -52,18 +52,18 @@ pub(super) fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Text decoration parsing ---
 
-/// Parse `text-decoration-line` (or `text-decoration` shorthand).
+/// Parse `text-decoration-line` longhand.
 ///
 /// Accepts `none`, or one or more of `underline`, `overline`, `line-through` (space-separated).
-/// The `text-decoration` shorthand is treated as an alias for `text-decoration-line`
-/// (color/style are Phase 3 scope-out).
+/// The `text-decoration` shorthand is parsed separately by `parse_text_decoration_shorthand`
+/// which decomposes into `text-decoration-line`, `text-decoration-style`, and `text-decoration-color`.
 pub(super) fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {
     // Try "none" first.
     if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
         return single_decl("text-decoration-line", val);
     }
 
-    // Collect one or more of: underline, line-through.
+    // Collect one or more of: underline, overline, line-through.
     let mut values = Vec::new();
     loop {
         let ok = input

@@ -21,17 +21,6 @@ fn try_dimension_or_zero(token: &cssparser::Token) -> Option<CssValue> {
     }
 }
 
-/// Returns `true` if a `CalcExpr` contains any percentage terms.
-fn calc_contains_percentage(expr: &CalcExpr) -> bool {
-    match expr {
-        CalcExpr::Percentage(_) => true,
-        CalcExpr::Length(..) | CalcExpr::Number(_) => false,
-        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) | CalcExpr::Mul(a, b) | CalcExpr::Div(a, b) => {
-            calc_contains_percentage(a) || calc_contains_percentage(b)
-        }
-    }
-}
-
 /// Parse a CSS length value (e.g. `10px`, `2em`, `0`).
 ///
 /// Unitless `0` is treated as `0px` per CSS specification.
@@ -43,7 +32,7 @@ pub fn parse_length(input: &mut Parser) -> Result<CssValue, ()> {
     // Try calc() first (may resolve to a length).
     if let Ok(val) = input.try_parse(parse_calc) {
         match &val {
-            CssValue::Calc(expr) if !calc_contains_percentage(expr) => return Ok(val),
+            CssValue::Calc(expr) if !expr.contains_percentage() => return Ok(val),
             CssValue::Length(_, _) => return Ok(val),
             _ => return Err(()),
         }

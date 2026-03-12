@@ -289,8 +289,11 @@ pub fn shape_text_with_fallback(
             };
 
             // Ensure valid slice boundaries (clusters may be non-monotonic for RTL/complex scripts).
-            let sub_start = cluster_start.min(text.len());
-            let sub_end = cluster_end.min(text.len()).max(sub_start);
+            // Use min/max to handle RTL where cluster_end < cluster_start.
+            let raw_start = cluster_start.min(cluster_end);
+            let raw_end = cluster_start.max(cluster_end);
+            let sub_start = raw_start.min(text.len());
+            let sub_end = raw_end.min(text.len()).max(sub_start);
             // Verify we land on UTF-8 char boundaries.
             let sub_start = floor_char_boundary(text, sub_start);
             let sub_end = ceil_char_boundary(text, sub_end);
