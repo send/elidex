@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use super::{families_as_refs, StyledTextSegment};
 use elidex_plugin::{Direction, TextAlign, TextTransform};
-use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
+use elidex_text::{measure_text, to_fontdb_style, FontDatabase, TextMeasureParams};
 
 /// Resolve `text-align: start/end` to physical `left/right` based on direction.
 ///
@@ -87,20 +87,27 @@ pub(crate) fn query_segment_font<'a>(
     Some((transformed, font_id))
 }
 
-/// Measure a segment's text width after text-transform.
+/// Measure a segment's text width after text-transform, including spacing.
+///
+/// Uses `elidex_text::measure_text` which includes per-cluster letter-spacing
+/// and word-spacing via `compute_spacing_extra()`, matching `place_glyphs()`.
 #[must_use]
 pub(crate) fn measure_segment_width(
     text: &str,
     seg: &StyledTextSegment,
     font_db: &FontDatabase,
 ) -> f32 {
-    let Some((transformed, font_id)) = query_segment_font(text, seg, font_db) else {
-        return 0.0;
+    let transformed = apply_text_transform(text, seg.text_transform);
+    let families = families_as_refs(&seg.font_family);
+    let params = TextMeasureParams {
+        families: &families,
+        font_size: seg.font_size,
+        weight: seg.font_weight,
+        style: to_fontdb_style(seg.font_style),
+        letter_spacing: seg.letter_spacing,
+        word_spacing: seg.word_spacing,
     };
-    let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
-        return 0.0;
-    };
-    shaped.glyphs.iter().map(|g| g.x_advance).sum()
+    measure_text(font_db, &params, &transformed).map_or(0.0, |m| m.width)
 }
 
 /// Apply CSS `text-transform` to a string before shaping.
