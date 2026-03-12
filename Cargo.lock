@@ -1752,6 +1752,7 @@ name = "elidex-css-anim"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "elidex-css",
  "elidex-plugin",
 ]
 

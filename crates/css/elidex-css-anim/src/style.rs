@@ -75,6 +75,9 @@ impl fmt::Display for IterationCount {
 }
 
 /// `animation-direction` value.
+///
+/// Note: `elidex_plugin::keyword_enum!` is not `#[macro_export]`, so these
+/// enums retain manual `Display` impls instead of using the macro.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum AnimationDirection {
     /// `normal`.

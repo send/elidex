@@ -45,7 +45,10 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
     }
 }
 
-/// Linear interpolation.
+/// Linear interpolation: `a + (b - a) * t`.
+///
+/// Assumes input values are in normal CSS ranges. Extreme values near
+/// `f32::MAX` may cause overflow to infinity.
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }

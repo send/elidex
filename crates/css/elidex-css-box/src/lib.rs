@@ -2,21 +2,22 @@
 //! border, opacity, box-sizing, overflow, background-color, content, gap).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_dimension, resolve_to_px},
+    css_resolve::{
+        keyword_from, parse_non_negative_length_or_percentage, resolve_dimension, resolve_to_px,
+    },
     parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
     ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
     ParseError, Position, PropertyDeclaration, ResolveContext,
 };
 
 /// CSS box model property handler.
+#[derive(Clone)]
 pub struct BoxHandler;
 
 impl BoxHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -205,10 +206,43 @@ impl CssPropertyHandler for BoxHandler {
             }
             "border-left-width" => style.border_left_width = resolve_to_px(value, ctx).max(0.0),
 
-            "border-top-style" => resolve_border_style(value, &mut style.border_top_style),
-            "border-right-style" => resolve_border_style(value, &mut style.border_right_style),
-            "border-bottom-style" => resolve_border_style(value, &mut style.border_bottom_style),
-            "border-left-style" => resolve_border_style(value, &mut style.border_left_style),
+            "border-top-style" => {
+                resolve_border_style(value, &mut style.border_top_style);
+                // CSS 2.1 §8.5.1: border-width computes to 0 when border-style is none/hidden.
+                if matches!(
+                    style.border_top_style,
+                    BorderStyle::None | BorderStyle::Hidden
+                ) {
+                    style.border_top_width = 0.0;
+                }
+            }
+            "border-right-style" => {
+                resolve_border_style(value, &mut style.border_right_style);
+                if matches!(
+                    style.border_right_style,
+                    BorderStyle::None | BorderStyle::Hidden
+                ) {
+                    style.border_right_width = 0.0;
+                }
+            }
+            "border-bottom-style" => {
+                resolve_border_style(value, &mut style.border_bottom_style);
+                if matches!(
+                    style.border_bottom_style,
+                    BorderStyle::None | BorderStyle::Hidden
+                ) {
+                    style.border_bottom_width = 0.0;
+                }
+            }
+            "border-left-style" => {
+                resolve_border_style(value, &mut style.border_left_style);
+                if matches!(
+                    style.border_left_style,
+                    BorderStyle::None | BorderStyle::Hidden
+                ) {
+                    style.border_left_width = 0.0;
+                }
+            }
 
             "border-top-color" => style.border_top_color = resolve_color(value, style.color),
             "border-right-color" => style.border_right_color = resolve_color(value, style.color),
@@ -385,48 +419,14 @@ fn parse_length_percentage_auto_or_none(
 
 /// Parse a length or percentage value.
 fn parse_length_percentage(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    let token = input.next().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected length or percentage".into(),
-    })?;
-    match *token {
-        cssparser::Token::Dimension {
-            value, ref unit, ..
-        } => {
-            let unit = parse_length_unit(unit);
-            Ok(CssValue::Length(value, unit))
-        }
-        cssparser::Token::Percentage { unit_value, .. } => {
-            Ok(CssValue::Percentage(unit_value * 100.0))
-        }
-        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
-        _ => Err(ParseError {
-            property: String::new(),
-            input: String::new(),
-            message: "expected length or percentage".into(),
-        }),
-    }
+    elidex_plugin::css_resolve::parse_length_or_percentage(input)
 }
 
 /// Parse a non-negative length or percentage value.
 fn parse_non_negative_length_percentage(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<CssValue, ParseError> {
-    let value = parse_length_percentage(input)?;
-    match &value {
-        CssValue::Length(v, _) if *v < 0.0 => Err(ParseError {
-            property: String::new(),
-            input: String::new(),
-            message: "negative values not allowed".into(),
-        }),
-        CssValue::Percentage(p) if *p < 0.0 => Err(ParseError {
-            property: String::new(),
-            input: String::new(),
-            message: "negative values not allowed".into(),
-        }),
-        _ => Ok(value),
-    }
+    parse_non_negative_length_or_percentage(input)
 }
 
 /// Parse a border width value: length or keyword (thin/medium/thick).
@@ -449,19 +449,7 @@ fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
 
 /// Parse a CSS color value, including the `currentcolor` keyword.
 fn parse_color_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    // Try `currentcolor` keyword first
-    if input
-        .try_parse(|i| i.expect_ident_matching("currentcolor"))
-        .is_ok()
-    {
-        return Ok(CssValue::Keyword("currentcolor".to_string()));
-    }
-    let color = elidex_css::parse_color(input).map_err(|()| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "invalid color value".into(),
-    })?;
-    Ok(CssValue::Color(color))
+    elidex_css::parse_color_with_currentcolor(input)
 }
 
 /// Parse opacity: a number clamped to 0.0..=1.0.
@@ -487,6 +475,7 @@ fn parse_opacity(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
 
 /// Parse the CSS `content` property.
 fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
+    const MAX_CONTENT_ITEMS: usize = 256;
     // Try keywords
     if input
         .try_parse(|i| i.expect_ident_matching("normal"))
@@ -501,6 +490,9 @@ fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
     // Collect content items (strings and attr())
     let mut items: Vec<CssValue> = Vec::new();
     loop {
+        if items.len() >= MAX_CONTENT_ITEMS {
+            break;
+        }
         // Try quoted string
         if let Ok(s) = input.try_parse(|i| i.expect_string().map(std::string::ToString::to_string))
         {

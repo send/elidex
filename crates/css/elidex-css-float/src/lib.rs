@@ -7,14 +7,13 @@ use elidex_plugin::{
 };
 
 /// CSS float/clear/visibility/vertical-align property handler.
+#[derive(Clone)]
 pub struct FloatHandler;
 
 impl FloatHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 

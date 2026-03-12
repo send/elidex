@@ -44,12 +44,10 @@ pub fn detect_transitions(
         if !is_animatable(property) {
             continue;
         }
-        if !property_matches_transition(&anim_style.transition_property, property) {
+        // Find the index for this property in the transition lists (also checks membership)
+        let Some(idx) = find_transition_index(&anim_style.transition_property, property) else {
             continue;
-        }
-
-        // Find the index for this property in the transition lists
-        let idx = property_index(&anim_style.transition_property, property);
+        };
         let duration = get_cyclic(&anim_style.transition_duration, idx)
             .copied()
             .unwrap_or(0.0);
@@ -76,26 +74,16 @@ pub fn detect_transitions(
     detected
 }
 
-/// Check if a property matches the transition-property list.
-fn property_matches_transition(props: &[TransitionProperty], property: &str) -> bool {
-    props.iter().any(|p| match p {
+/// Find the index of a property in the transition-property list.
+///
+/// Returns `Some(index)` when the property matches (either via `all` or a specific name),
+/// or `None` when it is not covered by any entry in the list.
+fn find_transition_index(props: &[TransitionProperty], property: &str) -> Option<usize> {
+    props.iter().position(|p| match p {
         TransitionProperty::All => true,
         TransitionProperty::Property(name) => name == property,
         TransitionProperty::None => false,
     })
-}
-
-/// Find the index of a property in the transition-property list.
-/// Returns 0 for `all`.
-fn property_index(props: &[TransitionProperty], property: &str) -> usize {
-    props
-        .iter()
-        .position(|p| match p {
-            TransitionProperty::All => true,
-            TransitionProperty::Property(name) => name == property,
-            TransitionProperty::None => false,
-        })
-        .unwrap_or(0)
 }
 
 /// Get a value from a list with CSS cycling behavior.

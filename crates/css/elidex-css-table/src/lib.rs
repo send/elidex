@@ -2,21 +2,20 @@
 //! caption-side, border-spacing).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_to_px},
+    css_resolve::{keyword_from, parse_non_negative_length, resolve_to_px},
     parse_css_keyword as parse_keyword, BorderCollapse, CaptionSide, ComputedStyle,
     CssPropertyHandler, CssValue, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
     TableLayout,
 };
 
 /// CSS table property handler.
+#[derive(Clone)]
 pub struct TableHandler;
 
 impl TableHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -111,37 +110,6 @@ impl CssPropertyHandler for TableHandler {
             "caption-side" => keyword_from(&style.caption_side),
             _ => CssValue::Initial,
         }
-    }
-}
-
-fn parse_non_negative_length(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
-    let token = input.next().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected length value".into(),
-    })?;
-    match *token {
-        cssparser::Token::Dimension {
-            value, ref unit, ..
-        } => {
-            if value < 0.0 {
-                return Err(ParseError {
-                    property: String::new(),
-                    input: format!("{value}{unit}"),
-                    message: "negative length not allowed".into(),
-                });
-            }
-            let unit = parse_length_unit(unit);
-            Ok(CssValue::Length(value, unit))
-        }
-        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
-        _ => Err(ParseError {
-            property: String::new(),
-            input: String::new(),
-            message: "expected length value".into(),
-        }),
     }
 }
 

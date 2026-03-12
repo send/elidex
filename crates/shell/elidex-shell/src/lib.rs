@@ -162,6 +162,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    let registry = create_css_property_registry();
+
     let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
@@ -170,11 +172,10 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         Rc::clone(&fetch_handle),
         &font_db,
         None,
+        &registry,
     );
 
     let display_list = build_display_list(&dom, &font_db);
-
-    let registry = create_css_property_registry();
 
     PipelineResult {
         display_list,
@@ -226,6 +227,8 @@ pub fn build_pipeline_from_loaded(
 
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    let registry = create_css_property_registry();
+
     let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
@@ -234,11 +237,10 @@ pub fn build_pipeline_from_loaded(
         Rc::clone(&fetch_handle),
         &font_db,
         Some(url.clone()),
+        &registry,
     );
 
     let display_list = build_display_list(&dom, &font_db);
-
-    let registry = create_css_property_registry();
 
     PipelineResult {
         display_list,

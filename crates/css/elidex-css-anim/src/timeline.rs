@@ -17,8 +17,12 @@ impl DocumentTimeline {
     }
 
     /// Advance the timeline by `dt` seconds.
+    ///
+    /// No-ops for non-finite or negative values.
     pub fn advance(&mut self, dt: f64) {
-        self.current_time += dt;
+        if dt.is_finite() && dt >= 0.0 {
+            self.current_time += dt;
+        }
     }
 
     /// Get the current time in seconds.

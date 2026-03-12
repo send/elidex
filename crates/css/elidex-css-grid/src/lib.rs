@@ -7,14 +7,13 @@ use elidex_plugin::{
 };
 
 /// CSS grid property handler.
+#[derive(Clone)]
 pub struct GridHandler;
 
 impl GridHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -131,6 +130,9 @@ impl CssPropertyHandler for GridHandler {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
+/// Maximum number of track entries in a grid-template-columns/rows list.
+const MAX_TRACKS: usize = 10_000;
+
 /// Parse a grid-template-columns / grid-template-rows value.
 ///
 /// `none` produces `Keyword("none")`, otherwise a space-separated list of track sizes.
@@ -142,6 +144,9 @@ fn parse_track_list(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
     let mut items = Vec::new();
     while let Ok(v) = parse_single_track_size_inner(input) {
         items.push(v);
+        if items.len() >= MAX_TRACKS {
+            break;
+        }
     }
     if items.is_empty() {
         return Err(ParseError {

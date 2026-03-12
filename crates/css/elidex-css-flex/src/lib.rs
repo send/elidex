@@ -2,21 +2,20 @@
 //! justify-content, align-items/self/content, flex-grow/shrink/basis, order).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_dimension},
+    css_resolve::{keyword_from, parse_length_or_percentage, resolve_dimension},
     parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, ComputedStyle,
     CssPropertyHandler, CssValue, Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit,
     ParseError, PropertyDeclaration, ResolveContext,
 };
 
 /// CSS flexbox property handler.
+#[derive(Clone)]
 pub struct FlexHandler;
 
 impl FlexHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -49,6 +48,7 @@ impl CssPropertyHandler for FlexHandler {
             "justify-content" => parse_keyword(
                 input,
                 &[
+                    "normal",
                     "flex-start",
                     "flex-end",
                     "center",
@@ -64,6 +64,7 @@ impl CssPropertyHandler for FlexHandler {
             "align-content" => parse_keyword(
                 input,
                 &[
+                    "normal",
                     "stretch",
                     "flex-start",
                     "flex-end",
@@ -160,8 +161,11 @@ impl CssPropertyHandler for FlexHandler {
         match name {
             "flex-direction" => CssValue::Keyword("row".to_string()),
             "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
-            "justify-content" => CssValue::Keyword("flex-start".to_string()),
-            "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
+            // CSS Box Alignment Level 3: initial value of justify-content and
+            // align-content is `normal`, which behaves as `flex-start`/`stretch`
+            // respectively in flex containers.
+            "justify-content" | "align-content" => CssValue::Keyword("normal".to_string()),
+            "align-items" => CssValue::Keyword("stretch".to_string()),
             "align-self" | "flex-basis" => CssValue::Keyword("auto".to_string()),
             "flex-grow" | "order" => CssValue::Number(0.0),
             "flex-shrink" => CssValue::Number(1.0),
@@ -225,28 +229,11 @@ fn parse_flex_basis(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
     }
 
     // Try length/percentage/zero
-    let token = input.next().map_err(|_| ParseError {
-        property: "flex-basis".into(),
-        input: String::new(),
-        message: "expected auto, length, or percentage".into(),
-    })?;
-    match *token {
-        cssparser::Token::Dimension {
-            value, ref unit, ..
-        } => {
-            let unit = parse_length_unit(unit);
-            Ok(CssValue::Length(value, unit))
-        }
-        cssparser::Token::Percentage { unit_value, .. } => {
-            Ok(CssValue::Percentage(unit_value * 100.0))
-        }
-        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
-        _ => Err(ParseError {
-            property: "flex-basis".into(),
-            input: String::new(),
-            message: "expected auto, length, or percentage".into(),
-        }),
-    }
+    parse_length_or_percentage(input).map_err(|mut e| {
+        e.property = "flex-basis".into();
+        e.message = "expected auto, length, or percentage".into();
+        e
+    })
 }
 
 fn parse_order(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {

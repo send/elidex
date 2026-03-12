@@ -30,6 +30,10 @@ pub struct AnimationInstance {
     pub(crate) finished: bool,
     /// Whether the `animationend` event has been dispatched.
     pub(crate) end_event_dispatched: bool,
+    /// Whether the `animationstart` event has been dispatched.
+    pub(crate) start_event_dispatched: bool,
+    /// The last known iteration number (for `animationiteration` detection).
+    pub(crate) current_iteration: u32,
 }
 
 impl AnimationInstance {
@@ -60,6 +64,8 @@ impl AnimationInstance {
             start_time,
             finished: false,
             end_event_dispatched: false,
+            start_event_dispatched: false,
+            current_iteration: 0,
         }
     }
 
@@ -131,8 +137,10 @@ impl AnimationInstance {
             // In delay phase
             return match self.fill_mode {
                 AnimationFillMode::Backwards | AnimationFillMode::Both => {
-                    let timed = self.timing_function.sample(0.0);
-                    Some(self.direction_for_iteration(0, timed))
+                    // CSS Animations §3.9: directed progress first, then timing function.
+                    let directed = self.direction_for_iteration(0, 0.0);
+                    let transformed = self.timing_function.sample(directed);
+                    Some(transformed)
                 }
                 _ => None,
             };
@@ -152,9 +160,11 @@ impl AnimationInstance {
             // Finished
             return match self.fill_mode {
                 AnimationFillMode::Forwards | AnimationFillMode::Both => {
-                    #[allow(clippy::cast_sign_loss)]
+                    #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
                     let final_iteration = match self.iteration_count {
-                        IterationCount::Number(n) => (n.ceil() as u32).saturating_sub(1),
+                        IterationCount::Number(n) => {
+                            (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1)
+                        }
                         IterationCount::Infinite => 0,
                     };
                     let raw = if n_is_whole(match self.iteration_count {
@@ -165,20 +175,23 @@ impl AnimationInstance {
                     } else {
                         ((active_time % dur) / dur) as f32
                     };
-                    let timed = self.timing_function.sample(raw);
-                    Some(self.direction_for_iteration(final_iteration, timed))
+                    // CSS Animations §3.9: apply direction first, then timing function.
+                    let directed = self.direction_for_iteration(final_iteration, raw);
+                    let transformed = self.timing_function.sample(directed);
+                    Some(transformed)
                 }
                 _ => None,
             };
         }
 
         #[allow(clippy::cast_sign_loss)]
-        let iteration = (active_time / dur).floor() as u32;
+        let iteration = (active_time / dur).floor().min(f64::from(u32::MAX)) as u32;
         let raw_progress = ((active_time % dur) / dur) as f32;
-        // Per CSS Animations Level 1 §3.9.1: apply timing function first,
-        // then apply direction adjustment to the transformed progress.
-        let timed = self.timing_function.sample(raw_progress);
-        Some(self.direction_for_iteration(iteration, timed))
+        // Per CSS Animations Level 1 §3.9: apply direction first (step 2),
+        // then apply timing function (step 3).
+        let directed = self.direction_for_iteration(iteration, raw_progress);
+        let transformed = self.timing_function.sample(directed);
+        Some(transformed)
     }
 
     /// Compute direction-adjusted progress for a given iteration.
@@ -203,6 +216,7 @@ fn n_is_whole(n: f32) -> bool {
 
 /// A running transition instance for a single property.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TransitionInstance {
     /// The property being transitioned.
     pub property: String,
@@ -222,6 +236,10 @@ pub struct TransitionInstance {
     pub finished: bool,
     /// Whether the `transitionend` event has been dispatched.
     pub end_event_dispatched: bool,
+    /// Whether the `transitionrun` event has been dispatched.
+    pub run_event_dispatched: bool,
+    /// Whether the `transitionstart` event has been dispatched.
+    pub start_event_dispatched: bool,
 }
 
 impl TransitionInstance {
@@ -245,6 +263,8 @@ impl TransitionInstance {
             elapsed: 0.0,
             finished: false,
             end_event_dispatched: false,
+            run_event_dispatched: false,
+            start_event_dispatched: false,
         }
     }
 

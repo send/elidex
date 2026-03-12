@@ -4,7 +4,7 @@
 //! to absolute pixel values. Used by CSS property handlers during style
 //! resolution.
 
-use crate::{CalcExpr, CssValue, Dimension, LengthUnit, ResolveContext};
+use crate::{CalcExpr, CssValue, Dimension, LengthUnit, ParseError, ResolveContext};
 
 /// Resolve a CSS length value to pixels.
 ///
@@ -110,6 +110,97 @@ pub fn parse_length_unit(unit: &str) -> LengthUnit {
         "vmin" => LengthUnit::Vmin,
         "vmax" => LengthUnit::Vmax,
         _ => LengthUnit::Px, // px and unknown units
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CSS parse helpers shared by handler crates
+// ---------------------------------------------------------------------------
+
+/// Parse a length or percentage value from a CSS token stream.
+///
+/// Accepts:
+/// - A bare `0` number → `Length(0.0, Px)`
+/// - A `<percentage>` → `Percentage`
+/// - A `<dimension>` → `Length` with the appropriate unit
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if none of the above forms is found.
+pub fn parse_length_or_percentage(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    let token = input
+        .next()
+        .map_err(|_| ParseError::simple("expected length or percentage"))?;
+    match *token {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
+            let unit = parse_length_unit(unit);
+            Ok(CssValue::Length(value, unit))
+        }
+        cssparser::Token::Percentage { unit_value, .. } => {
+            Ok(CssValue::Percentage(unit_value * 100.0))
+        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(ParseError::simple("expected length or percentage")),
+    }
+}
+
+/// Parse a non-negative length or percentage value.
+///
+/// Delegates to [`parse_length_or_percentage`] and then rejects negative
+/// lengths and negative percentages.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the value is negative or not a length/percentage.
+pub fn parse_non_negative_length_or_percentage(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    let value = parse_length_or_percentage(input)?;
+    match &value {
+        CssValue::Length(v, _) if *v < 0.0 => {
+            Err(ParseError::simple("negative values not allowed"))
+        }
+        CssValue::Percentage(p) if *p < 0.0 => {
+            Err(ParseError::simple("negative values not allowed"))
+        }
+        _ => Ok(value),
+    }
+}
+
+/// Parse a non-negative length value (no percentages).
+///
+/// Accepts a `<dimension>` or a bare `0`. Rejects negative values and
+/// percentages.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the input is not a valid non-negative length.
+pub fn parse_non_negative_length(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    let token = input
+        .next()
+        .map_err(|_| ParseError::simple("expected length value"))?;
+    match *token {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
+            if value < 0.0 {
+                return Err(ParseError {
+                    property: String::new(),
+                    input: format!("{value}{unit}"),
+                    message: "negative length not allowed".into(),
+                });
+            }
+            let unit = parse_length_unit(unit);
+            Ok(CssValue::Length(value, unit))
+        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(ParseError::simple("expected length value")),
     }
 }
 

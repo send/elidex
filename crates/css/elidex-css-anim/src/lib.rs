@@ -48,14 +48,13 @@ const PROPERTY_NAMES: &[&str] = &[
 ];
 
 /// CSS animation/transition property handler.
+#[derive(Clone)]
 pub struct AnimHandler;
 
 impl AnimHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -138,6 +137,18 @@ impl CssPropertyHandler for AnimHandler {
     }
 }
 
+/// Parsed components of a single animation from the `animation` shorthand.
+pub(crate) struct SingleAnimationSpec {
+    name: String,
+    duration: f32,
+    timing_function: timing::TimingFunction,
+    delay: f32,
+    iteration_count: style::IterationCount,
+    direction: style::AnimationDirection,
+    fill_mode: style::AnimationFillMode,
+    play_state: style::PlayState,
+}
+
 /// Parse the `animation` shorthand.
 ///
 /// Syntax: `<duration> || <timing-function> || <delay> || <iteration-count> ||
@@ -153,15 +164,15 @@ fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<Prope
     let mut play_states = Vec::new();
 
     loop {
-        let (name, dur, tf, del, ic, dir, fm, ps) = parse_single_animation(input);
-        names.push(name);
-        durations.push(dur);
-        timing_fns.push(tf);
-        delays.push(del);
-        iteration_counts.push(ic);
-        directions.push(dir);
-        fill_modes.push(fm);
-        play_states.push(ps);
+        let spec = parse_single_animation(input);
+        names.push(spec.name);
+        durations.push(spec.duration);
+        timing_fns.push(spec.timing_function);
+        delays.push(spec.delay);
+        iteration_counts.push(spec.iteration_count);
+        directions.push(spec.direction);
+        fill_modes.push(spec.fill_mode);
+        play_states.push(spec.play_state);
         if input.try_parse(cssparser::Parser::expect_comma).is_err() {
             break;
         }
@@ -180,7 +191,7 @@ fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<Prope
 }
 
 /// Build a `CssValue` from a time list (single → `Time`, multiple → `List`).
-fn time_list_value(times: &[f32]) -> CssValue {
+pub(crate) fn time_list_value(times: &[f32]) -> CssValue {
     let list: Vec<CssValue> = times.iter().map(|t| CssValue::Time(*t)).collect();
     if list.len() == 1 {
         list.into_iter().next().unwrap()
@@ -190,7 +201,7 @@ fn time_list_value(times: &[f32]) -> CssValue {
 }
 
 /// Serialize a list of `Display` values as a comma-separated string `CssValue`.
-fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue {
+pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue {
     CssValue::String(
         items
             .iter()
@@ -227,22 +238,10 @@ fn build_animation_decls(
     ]
 }
 
-#[allow(clippy::type_complexity)]
-fn parse_single_animation(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> (
-    String,
-    f32,
-    timing::TimingFunction,
-    f32,
-    style::IterationCount,
-    style::AnimationDirection,
-    style::AnimationFillMode,
-    style::PlayState,
-) {
+fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimationSpec {
     let mut name = "none".to_string();
     let mut duration = 0.0_f32;
-    let mut timing = timing::TimingFunction::EASE;
+    let mut timing_function = timing::TimingFunction::EASE;
     let mut delay = 0.0_f32;
     let mut iteration_count = style::IterationCount::Number(1.0);
     let mut direction = style::AnimationDirection::Normal;
@@ -253,7 +252,7 @@ fn parse_single_animation(
     for _ in 0..8 {
         // Try timing function
         if let Ok(tf) = input.try_parse(parse::parse_timing_function) {
-            timing = tf;
+            timing_function = tf;
             continue;
         }
         // Try time value
@@ -267,15 +266,18 @@ fn parse_single_animation(
             continue;
         }
         // Try keyword identifiers
-        if let Ok(ident) = input.try_parse(|i| -> Result<String, ParseError> {
+        if let Ok(raw_ident) = input.try_parse(|i| -> Result<String, ParseError> {
             let id = i.expect_ident().map_err(|_| ParseError {
                 property: "animation".into(),
                 input: String::new(),
                 message: "expected ident".into(),
             })?;
-            Ok(id.to_ascii_lowercase())
+            // Preserve original casing — animation-name is case-sensitive
+            // (CSS Animations Level 1 §3.1). Only lowercase for keyword
+            // comparison; the original string is kept for the name.
+            Ok(id.as_ref().to_string())
         }) {
-            match ident.as_str() {
+            match raw_ident.to_ascii_lowercase().as_str() {
                 "infinite" => iteration_count = style::IterationCount::Infinite,
                 "normal" => direction = style::AnimationDirection::Normal,
                 "reverse" => direction = style::AnimationDirection::Reverse,
@@ -287,23 +289,24 @@ fn parse_single_animation(
                 "running" => play_state = style::PlayState::Running,
                 "paused" => play_state = style::PlayState::Paused,
                 "none" => name = "none".to_string(),
-                other => name = other.to_string(),
+                // Not a reserved keyword — treat as animation name, preserving case.
+                _ => name = raw_ident,
             }
             continue;
         }
         break;
     }
 
-    (
+    SingleAnimationSpec {
         name,
         duration,
-        timing,
+        timing_function,
         delay,
         iteration_count,
         direction,
         fill_mode,
         play_state,
-    )
+    }
 }
 
 #[cfg(test)]
@@ -406,9 +409,9 @@ mod tests {
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = handler.parse("animation", &mut parser).unwrap();
         assert_eq!(decls.len(), 8); // 8 longhands
-                                    // animation-name (lowercased by cssparser)
+                                    // animation-name is case-sensitive (CSS Animations Level 1 §3.1)
         assert_eq!(decls[0].property, "animation-name");
-        assert_eq!(decls[0].value, CssValue::String("fadein".into()));
+        assert_eq!(decls[0].value, CssValue::String("fadeIn".into()));
         // animation-duration
         assert_eq!(decls[1].property, "animation-duration");
         assert_eq!(decls[1].value, CssValue::Time(1.0));
@@ -420,7 +423,7 @@ mod tests {
         let mut pi = cssparser::ParserInput::new("fadeIn 1s, slideUp 0.5s");
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = handler.parse("animation", &mut parser).unwrap();
-        // cssparser lowercases identifiers
-        assert_eq!(decls[0].value, CssValue::String("fadein, slideup".into()));
+        // animation-name is case-sensitive; original casing must be preserved
+        assert_eq!(decls[0].value, CssValue::String("fadeIn, slideUp".into()));
     }
 }

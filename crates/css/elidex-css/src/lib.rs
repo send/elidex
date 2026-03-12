@@ -18,7 +18,32 @@ pub use selector::{
 };
 
 use cssparser::{Parser, ParserInput};
-use elidex_plugin::CssValue;
+use elidex_plugin::{CssValue, ParseError};
+
+/// Parse a CSS color value, handling `currentcolor` before attempting a full
+/// color parse.
+///
+/// Returns:
+/// - `CssValue::Keyword("currentcolor")` for the `currentcolor` keyword.
+/// - `CssValue::Color(c)` for any other valid CSS color.
+/// - `Err(ParseError)` for invalid input.
+///
+/// # Errors
+///
+/// Returns a [`ParseError`] if the input is not a valid CSS color value.
+pub fn parse_color_with_currentcolor(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    if input
+        .try_parse(|i| i.expect_ident_matching("currentcolor"))
+        .is_ok()
+    {
+        return Ok(CssValue::Keyword("currentcolor".to_string()));
+    }
+    color::parse_color(input)
+        .map(CssValue::Color)
+        .map_err(|()| ParseError::simple("invalid color value"))
+}
 
 /// Parse a raw CSS token string into a typed [`CssValue`].
 ///

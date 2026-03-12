@@ -4,6 +4,10 @@ use crate::style::TransitionProperty;
 use crate::timing::{StepPosition, TimingFunction};
 use elidex_plugin::{CssValue, ParseError, PropertyDeclaration};
 
+/// Maximum number of items in a comma-separated CSS list value to prevent
+/// unbounded memory growth from malicious or malformed stylesheets.
+const MAX_LIST_ITEMS: usize = 1024;
+
 /// Parse a `<time>` value from a cssparser token, returning seconds.
 pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
     let token = input
@@ -78,6 +82,9 @@ pub fn parse_transition_property(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut props = Vec::new();
     loop {
+        if props.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         let ident = input
             .expect_ident()
             .map_err(|_| parse_err("transition-property", "expected identifier"))?;
@@ -115,6 +122,9 @@ pub fn parse_time_list(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut values = Vec::new();
     loop {
+        if values.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         values.push(parse_time(input)?);
         if input.try_parse(cssparser::Parser::expect_comma).is_err() {
             break;
@@ -139,6 +149,9 @@ pub fn parse_timing_function_list(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut fns = Vec::new();
     loop {
+        if fns.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         fns.push(parse_timing_function(input)?);
         if input.try_parse(cssparser::Parser::expect_comma).is_err() {
             break;
@@ -162,6 +175,9 @@ pub fn parse_animation_name(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut names = Vec::new();
     loop {
+        if names.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         let ident = input
             .expect_ident()
             .map_err(|_| parse_err("animation-name", "expected identifier"))?;
@@ -183,6 +199,9 @@ pub fn parse_iteration_count(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut counts = Vec::new();
     loop {
+        if counts.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         if input
             .try_parse(|i| i.expect_ident_matching("infinite"))
             .is_ok()
@@ -244,6 +263,9 @@ fn parse_keyword_list(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut values = Vec::new();
     loop {
+        if values.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         let ident = input
             .expect_ident()
             .map_err(|_| parse_err(name, "expected keyword"))?;
@@ -287,11 +309,19 @@ pub struct Keyframe {
 ///
 /// The `name` should already be extracted by the at-rule parser.
 /// `block_text` is the content between `{` and `}`.
+/// Maximum number of keyframe blocks parsed from a single `@keyframes` rule.
+const MAX_KEYFRAMES: usize = 1000;
+
 pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     let mut keyframes = Vec::new();
     let mut remaining = block_text.trim();
+    let mut count = 0;
 
     while !remaining.is_empty() {
+        count += 1;
+        if count > MAX_KEYFRAMES {
+            break;
+        }
         // Parse selector (offset list)
         let Some(brace_start) = remaining.find('{') else {
             break;
@@ -387,8 +417,26 @@ fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {
     decls
 }
 
-/// Parse a simple CSS value (number, length, percentage, color keyword, keyword).
+/// Try to parse the current parser position as a CSS color using `elidex_css::parse_color`.
+///
+/// Returns `Some(CssValue::Color(...))` on success, `None` if not a color token.
+fn try_parse_color(input: &mut cssparser::Parser<'_, '_>) -> Option<CssValue> {
+    input
+        .try_parse(elidex_css::parse_color)
+        .ok()
+        .map(CssValue::Color)
+}
+
+/// Parse a simple CSS value (number, length, percentage, color, keyword).
+///
+/// TODO: Consider delegating to elidex-css value parsing for full CSS value
+/// support in keyframes.
 fn parse_simple_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
+    // Try CSS color parsing first (covers named colors, #hex, rgb(), hsl(), etc.)
+    if let Some(color_val) = try_parse_color(input) {
+        return Ok(color_val);
+    }
+
     let token = input.next().map_err(|_| ())?;
     match token.clone() {
         cssparser::Token::Number { value, .. } => Ok(CssValue::Number(value)),
@@ -408,60 +456,9 @@ fn parse_simple_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
                 "auto" => Ok(CssValue::Auto),
                 "inherit" => Ok(CssValue::Inherit),
                 "initial" => Ok(CssValue::Initial),
-                "transparent" => Ok(CssValue::Color(elidex_plugin::CssColor::TRANSPARENT)),
-                "red" => Ok(CssValue::Color(elidex_plugin::CssColor::RED)),
-                "green" => Ok(CssValue::Color(elidex_plugin::CssColor::GREEN)),
-                "blue" => Ok(CssValue::Color(elidex_plugin::CssColor::BLUE)),
-                "black" => Ok(CssValue::Color(elidex_plugin::CssColor::BLACK)),
-                "white" => Ok(CssValue::Color(elidex_plugin::CssColor::WHITE)),
                 _ => Ok(CssValue::Keyword(lower)),
             }
         }
-        cssparser::Token::Hash(ref hash) | cssparser::Token::IDHash(ref hash) => {
-            parse_hex_color(hash).map(CssValue::Color)
-        }
-        _ => Err(()),
-    }
-}
-
-fn parse_hex_color(hex: &str) -> Result<elidex_plugin::CssColor, ()> {
-    let bytes: Vec<u8> = hex.as_bytes().to_vec();
-    match bytes.len() {
-        3 => {
-            let r = hex_digit(bytes[0])? * 17;
-            let g = hex_digit(bytes[1])? * 17;
-            let b = hex_digit(bytes[2])? * 17;
-            Ok(elidex_plugin::CssColor::rgb(r, g, b))
-        }
-        4 => {
-            let r = hex_digit(bytes[0])? * 17;
-            let g = hex_digit(bytes[1])? * 17;
-            let b = hex_digit(bytes[2])? * 17;
-            let a = hex_digit(bytes[3])? * 17;
-            Ok(elidex_plugin::CssColor::new(r, g, b, a))
-        }
-        6 => {
-            let r = hex_digit(bytes[0])? * 16 + hex_digit(bytes[1])?;
-            let g = hex_digit(bytes[2])? * 16 + hex_digit(bytes[3])?;
-            let b = hex_digit(bytes[4])? * 16 + hex_digit(bytes[5])?;
-            Ok(elidex_plugin::CssColor::rgb(r, g, b))
-        }
-        8 => {
-            let r = hex_digit(bytes[0])? * 16 + hex_digit(bytes[1])?;
-            let g = hex_digit(bytes[2])? * 16 + hex_digit(bytes[3])?;
-            let b = hex_digit(bytes[4])? * 16 + hex_digit(bytes[5])?;
-            let a = hex_digit(bytes[6])? * 16 + hex_digit(bytes[7])?;
-            Ok(elidex_plugin::CssColor::new(r, g, b, a))
-        }
-        _ => Err(()),
-    }
-}
-
-fn hex_digit(b: u8) -> Result<u8, ()> {
-    match b {
-        b'0'..=b'9' => Ok(b - b'0'),
-        b'a'..=b'f' => Ok(b - b'a' + 10),
-        b'A'..=b'F' => Ok(b - b'A' + 10),
         _ => Err(()),
     }
 }
@@ -850,14 +847,21 @@ mod tests {
 
     #[test]
     fn hex_color_parse() {
-        let c = parse_hex_color("ff0000").unwrap();
-        assert_eq!(c, elidex_plugin::CssColor::RED);
+        let mut pi = cssparser::ParserInput::new("#ff0000");
+        let mut parser = cssparser::Parser::new(&mut pi);
+        let color = try_parse_color(&mut parser).unwrap();
+        assert_eq!(color, CssValue::Color(elidex_plugin::CssColor::RED));
     }
 
     #[test]
     fn hex_color_short() {
-        let c = parse_hex_color("f00").unwrap();
-        assert_eq!(c, elidex_plugin::CssColor::rgb(255, 0, 0));
+        let mut pi = cssparser::ParserInput::new("#f00");
+        let mut parser = cssparser::Parser::new(&mut pi);
+        let color = try_parse_color(&mut parser).unwrap();
+        assert_eq!(
+            color,
+            CssValue::Color(elidex_plugin::CssColor::rgb(255, 0, 0))
+        );
     }
 
     // F22: Multi-transition shorthand parse test.

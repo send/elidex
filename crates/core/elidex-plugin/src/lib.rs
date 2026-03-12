@@ -161,6 +161,28 @@ impl std::fmt::Display for NetworkErrorKind {
 // CSS parse helpers (shared by CSS property handler crates)
 // ---------------------------------------------------------------------------
 
+/// Register a CSS property handler for all its declared property names.
+///
+/// This is a shared helper to avoid duplicating the identical registration
+/// pattern across CSS property handler crates. The handler is cloned once per
+/// property name; all handlers are unit structs (zero-sized), so the clone is
+/// free.
+#[allow(clippy::needless_pass_by_value)] // handler.clone() requires ownership or &H; by-value is idiomatic here
+pub fn register_css_handler<H: CssPropertyHandler + Clone + 'static>(
+    registry: &mut CssPropertyRegistry,
+    handler: H,
+) {
+    // Collect names first to release the borrow on `handler` before cloning into boxes.
+    let names: Vec<String> = handler
+        .property_names()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    for name in names {
+        registry.register_dynamic(name, Box::new(handler.clone()));
+    }
+}
+
 /// Parse a CSS keyword from the input, accepting only values in `allowed`.
 ///
 /// Returns `CssValue::Keyword(lowercase)` on success. This is a shared helper

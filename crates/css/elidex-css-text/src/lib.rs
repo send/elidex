@@ -33,14 +33,13 @@ const PROPERTY_NAMES: &[&str] = &[
 ];
 
 /// CSS text and font property handler.
+#[derive(Clone)]
 pub struct TextHandler;
 
 impl TextHandler {
     /// Register this handler in a CSS property registry.
     pub fn register(registry: &mut elidex_plugin::CssPropertyRegistry) {
-        for name in Self.property_names() {
-            registry.register_static(name, Box::new(Self));
-        }
+        elidex_plugin::register_css_handler(registry, Self);
     }
 }
 
@@ -309,25 +308,8 @@ impl CssPropertyHandler for TextHandler {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-fn parse_err(msg: &str) -> ParseError {
-    ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: msg.into(),
-    }
-}
-
 fn parse_css_color(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    // Handle "currentcolor" keyword first.
-    if input
-        .try_parse(|i| i.expect_ident_matching("currentcolor"))
-        .is_ok()
-    {
-        return Ok(CssValue::Keyword("currentcolor".to_string()));
-    }
-    elidex_css::parse_color(input)
-        .map(CssValue::Color)
-        .map_err(|()| parse_err("invalid color value"))
+    elidex_css::parse_color_with_currentcolor(input)
 }
 
 /// CSS absolute font-size keyword values in pixels (CSS Fonts Level 4).
@@ -391,15 +373,20 @@ fn parse_font_family(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, 
             families.push(CssValue::String(s));
         } else {
             // Unquoted: collect consecutive idents as a single family name.
+            // Limit word count to prevent unbounded accumulation.
+            const MAX_FAMILY_WORDS: usize = 32;
             let mut name_parts = Vec::new();
             while let Ok(ident) =
                 input.try_parse(|i| i.expect_ident().map(std::string::ToString::to_string))
             {
                 name_parts.push(ident);
+                if name_parts.len() >= MAX_FAMILY_WORDS {
+                    break;
+                }
             }
             if name_parts.is_empty() {
                 if families.is_empty() {
-                    return Err(parse_err("expected font family name"));
+                    return Err(ParseError::simple("expected font family name"));
                 }
                 break;
             }
@@ -426,7 +413,7 @@ fn parse_line_height(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, 
     // Try number/length/percentage.
     let token = input
         .next()
-        .map_err(|_| parse_err("expected line-height value"))?;
+        .map_err(|_| ParseError::simple("expected line-height value"))?;
     match *token {
         cssparser::Token::Number { value, .. } => Ok(CssValue::Number(value)),
         cssparser::Token::Dimension {
@@ -438,7 +425,7 @@ fn parse_line_height(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, 
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        _ => Err(parse_err("expected line-height value")),
+        _ => Err(ParseError::simple("expected line-height value")),
     }
 }
 
@@ -454,7 +441,7 @@ fn parse_spacing(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
     // Try length.
     let token = input
         .next()
-        .map_err(|_| parse_err("expected spacing value"))?;
+        .map_err(|_| ParseError::simple("expected spacing value"))?;
     match *token {
         cssparser::Token::Dimension {
             value, ref unit, ..
@@ -463,7 +450,7 @@ fn parse_spacing(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
             Ok(CssValue::Length(value, unit))
         }
         cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
-        _ => Err(parse_err("expected length or 'normal'")),
+        _ => Err(ParseError::simple("expected length or 'normal'")),
     }
 }
 
@@ -495,7 +482,7 @@ fn parse_text_decoration_line(
     }
 
     if values.is_empty() {
-        return Err(parse_err("expected text-decoration-line keyword"));
+        return Err(ParseError::simple("expected text-decoration-line keyword"));
     }
     if values.len() == 1 {
         Ok(values.into_iter().next().unwrap())
