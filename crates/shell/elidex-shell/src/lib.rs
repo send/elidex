@@ -40,8 +40,9 @@ use app::App;
 
 /// Build the CSS property registry with all standard property handlers.
 ///
-/// Called once at startup. The registry is used by property handlers to parse
-/// and resolve CSS values in a pluggable manner.
+/// Called once per pipeline build and cached in [`PipelineResult`] for
+/// re-renders. The registry is used by property handlers to parse and
+/// resolve CSS values in a pluggable manner.
 #[must_use]
 pub fn create_css_property_registry() -> elidex_plugin::CssPropertyRegistry {
     let mut registry = elidex_plugin::CssPropertyRegistry::new();
