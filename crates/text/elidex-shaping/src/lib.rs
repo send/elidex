@@ -7,10 +7,14 @@ mod database;
 mod measurement;
 mod shaping;
 
-pub use database::{FontDatabase, FontMetrics};
+pub use database::{to_fontdb_style, FontDatabase, FontMetrics};
 pub use fontdb::ID as FontId;
+pub use fontdb::Style as FontStyle;
 pub use measurement::{measure_text, TextMetrics};
-pub use shaping::{shape_text, shape_text_vertical, ShapedGlyph, ShapedText};
+pub use shaping::{
+    shape_text, shape_text_vertical, shape_text_with_fallback, ShapedGlyph, ShapedRun, ShapedText,
+    ShapedTextWithFonts,
+};
 
 /// Cross-platform fallback font families used by tests that need a system font.
 #[cfg(test)]

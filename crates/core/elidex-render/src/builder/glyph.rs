@@ -4,15 +4,27 @@ use crate::display_list::GlyphEntry;
 
 /// Place shaped glyphs into a `Vec<GlyphEntry>`, advancing `cursor_x`.
 ///
+/// `letter_spacing` is added between each glyph (not after the last).
+/// `word_spacing` is added for glyphs at word separator (U+0020) cluster positions,
+/// per CSS Text Level 3 §4.3.
+///
 /// Returns the placed glyphs. `cursor_x` is updated to reflect the total advance.
 #[must_use]
 pub(crate) fn place_glyphs(
     shaped_glyphs: &[elidex_text::ShapedGlyph],
     cursor_x: &mut f32,
     baseline_y: f32,
+    letter_spacing: f32,
+    word_spacing: f32,
+    text: &str,
 ) -> Vec<GlyphEntry> {
+    // Sanitize spacing values: NaN/infinity would corrupt cursor position.
+    let ls = if letter_spacing.is_finite() { letter_spacing } else { 0.0 };
+    let ws = if word_spacing.is_finite() { word_spacing } else { 0.0 };
+
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
-    for glyph in shaped_glyphs {
+    let last_idx = shaped_glyphs.len().saturating_sub(1);
+    for (i, glyph) in shaped_glyphs.iter().enumerate() {
         let x = *cursor_x + glyph.x_offset;
         let y = baseline_y - glyph.y_offset;
         glyphs.push(GlyphEntry {
@@ -21,6 +33,20 @@ pub(crate) fn place_glyphs(
             y,
         });
         *cursor_x += glyph.x_advance;
+
+        // Word spacing: add extra space at U+0020 SPACE clusters (CSS Text L3 §4.3).
+        if ws != 0.0 {
+            if let Some(ch) = text.get(glyph.cluster as usize..).and_then(|s| s.chars().next()) {
+                if ch == ' ' {
+                    *cursor_x += ws;
+                }
+            }
+        }
+
+        // Letter spacing: between glyphs (not after last).
+        if ls != 0.0 && i < last_idx {
+            *cursor_x += ls;
+        }
     }
     glyphs
 }

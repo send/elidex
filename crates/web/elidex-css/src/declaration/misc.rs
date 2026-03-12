@@ -99,6 +99,108 @@ pub(super) fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration>
     single_decl("text-decoration-line", CssValue::List(values))
 }
 
+// --- Text decoration shorthand ---
+
+/// Parse `text-decoration` shorthand: `<line> || <style> || <color>`.
+///
+/// Produces up to 3 longhand declarations.
+pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    // Try "none" first.
+    if let Ok(val) = try_keyword_value(input, "none", &CssValue::Keyword("none".to_string())) {
+        return vec![
+            Declaration::new("text-decoration-line", val),
+            Declaration::new("text-decoration-style", CssValue::Keyword("solid".to_string())),
+            Declaration::new(
+                "text-decoration-color",
+                CssValue::Keyword("currentcolor".to_string()),
+            ),
+        ];
+    }
+
+    let mut line_values: Vec<CssValue> = Vec::new();
+    let mut style_val: Option<CssValue> = None;
+    let mut color_val: Option<CssValue> = None;
+    let style_keywords = ["solid", "double", "dotted", "dashed", "wavy"];
+    let line_keywords = ["underline", "overline", "line-through"];
+
+    // Parse tokens in any order.
+    loop {
+        let ok = input
+            .try_parse(|i| -> Result<(), ()> {
+                let ident = i.expect_ident().map_err(|_| ())?;
+                let lower = ident.to_ascii_lowercase();
+                if line_keywords.contains(&lower.as_str()) {
+                    let kw = CssValue::Keyword(lower);
+                    if !line_values.contains(&kw) {
+                        line_values.push(kw);
+                    }
+                    Ok(())
+                } else if style_val.is_none() && style_keywords.contains(&lower.as_str()) {
+                    style_val = Some(CssValue::Keyword(lower));
+                    Ok(())
+                } else if color_val.is_none() && lower == "currentcolor" {
+                    color_val = Some(CssValue::Keyword("currentcolor".to_string()));
+                    Ok(())
+                } else {
+                    Err(())
+                }
+            })
+            .is_ok();
+
+        if !ok {
+            // Try color value.
+            if color_val.is_none() {
+                if let Ok(()) = input.try_parse(|i| -> Result<(), ()> {
+                    let c = crate::color::parse_color(i)?;
+                    color_val = Some(CssValue::Color(c));
+                    Ok(())
+                }) {
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    if line_values.is_empty() && style_val.is_none() && color_val.is_none() {
+        return Vec::new();
+    }
+
+    let mut decls = Vec::new();
+    // line
+    let line = if line_values.is_empty() {
+        CssValue::Keyword("none".to_string())
+    } else if line_values.len() == 1 {
+        line_values.swap_remove(0)
+    } else {
+        CssValue::List(line_values)
+    };
+    decls.push(Declaration::new("text-decoration-line", line));
+    decls.push(Declaration::new(
+        "text-decoration-style",
+        style_val.unwrap_or_else(|| CssValue::Keyword("solid".to_string())),
+    ));
+    decls.push(Declaration::new(
+        "text-decoration-color",
+        color_val.unwrap_or_else(|| CssValue::Keyword("currentcolor".to_string())),
+    ));
+    decls
+}
+
+// --- Letter/word spacing ---
+
+/// Parse `letter-spacing` or `word-spacing`: `normal` | `<length>`.
+pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> {
+    if let Ok(val) = try_keyword_value(
+        input,
+        "normal",
+        &CssValue::Length(0.0, elidex_plugin::LengthUnit::Px),
+    ) {
+        return single_decl(name, val);
+    }
+    parse_value_property(input, name, parse_length_or_percentage)
+}
+
 // --- Mapped keyword parsing ---
 
 /// Parse a property whose input keywords map to (potentially different) output keywords.

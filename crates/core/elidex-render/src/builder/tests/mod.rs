@@ -52,8 +52,13 @@ fn make_segment(text: &str) -> StyledTextSegment {
         font_family: vec!["serif".to_string()],
         font_size: 16.0,
         font_weight: 400,
+        font_style: elidex_plugin::FontStyle::Normal,
         text_transform: elidex_plugin::TextTransform::None,
         text_decoration_line: elidex_plugin::TextDecorationLine::default(),
+        text_decoration_style: elidex_plugin::TextDecorationStyle::Solid,
+        text_decoration_color: None,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
         opacity: 1.0,
     }
 }

@@ -88,7 +88,8 @@ pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use grid::{GridAutoFlow, GridLine, TrackBreadth, TrackSize};
 pub use table::{BorderCollapse, CaptionSide, TableLayout};
 pub use text::{
-    FontStyle, LineHeight, ListStyleType, TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+    FontStyle, LineHeight, ListStyleType, TextAlign, TextDecorationLine, TextDecorationStyle,
+    TextTransform, WhiteSpace,
 };
 pub use writing_mode::{Direction, TextOrientation, UnicodeBidi, WritingMode};
 
@@ -204,9 +205,19 @@ pub struct ComputedStyle {
     /// Border left color. Initial: currentcolor (resolved to `color`).
     pub border_left_color: CssColor,
 
+    // --- Inherited text spacing ---
+    /// Letter spacing in pixels. Initial: 0.0 (normal). **Inherited.**
+    pub letter_spacing: f32,
+    /// Word spacing in pixels. Initial: 0.0 (normal). **Inherited.**
+    pub word_spacing: f32,
+
     // --- Text decoration (non-inherited) ---
     /// Text decoration line. Initial: none.
     pub text_decoration_line: TextDecorationLine,
+    /// Text decoration style. Initial: solid.
+    pub text_decoration_style: TextDecorationStyle,
+    /// Text decoration color. Initial: None (= currentcolor).
+    pub text_decoration_color: Option<CssColor>,
 
     // --- Box model (non-inherited) ---
     /// Box sizing model. Initial: content-box.
@@ -362,8 +373,14 @@ impl Default for ComputedStyle {
             border_bottom_color: color,
             border_left_color: color,
 
+            // Inherited text spacing
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
+
             // Text decoration (non-inherited)
             text_decoration_line: TextDecorationLine::default(),
+            text_decoration_style: TextDecorationStyle::default(),
+            text_decoration_color: None,
 
             // Box model
             box_sizing: BoxSizing::default(),

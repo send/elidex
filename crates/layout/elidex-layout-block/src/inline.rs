@@ -6,7 +6,10 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, WritingMode};
-use elidex_text::{find_break_opportunities, measure_text, BreakOpportunity, FontDatabase};
+use elidex_text::{
+    find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
+    FontStyle,
+};
 
 use crate::MAX_LAYOUT_DEPTH;
 
@@ -58,17 +61,19 @@ fn measure_segment_widths(
     families: &[&str],
     font_size: f32,
     font_weight: u16,
+    font_style: FontStyle,
     segment: &str,
 ) -> (f32, f32) {
-    let seg_width =
-        measure_text(font_db, families, font_size, font_weight, segment).map_or(0.0, |m| m.width);
+    let seg_width = measure_text(font_db, families, font_size, font_weight, font_style, segment)
+        .map_or(0.0, |m| m.width);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {
         0.0
     } else {
-        measure_text(font_db, families, font_size, font_weight, trimmed).map_or(0.0, |m| m.width)
+        measure_text(font_db, families, font_size, font_weight, font_style, trimmed)
+            .map_or(0.0, |m| m.width)
     };
     (seg_width, trimmed_width)
 }
@@ -102,12 +107,13 @@ pub fn layout_inline_context(
         .collect();
     let font_size = parent_style.font_size;
     let font_weight = parent_style.font_weight;
+    let font_style = to_fontdb_style(parent_style.font_style);
 
     // Use CSS line-height (resolved to px via the element's font-size).
     let line_height = parent_style.line_height.resolve_px(font_size);
 
     // Verify a font is available (needed for segment width measurement).
-    if measure_text(font_db, &families, font_size, font_weight, "x").is_none() {
+    if measure_text(font_db, &families, font_size, font_weight, font_style, "x").is_none() {
         return 0.0; // no font available
     }
 
@@ -151,7 +157,7 @@ pub fn layout_inline_context(
 
         // TODO(Phase 4): use vertical shaping metrics for vertical modes.
         let (seg_width, trimmed_width) =
-            measure_segment_widths(font_db, &families, font_size, font_weight, segment);
+            measure_segment_widths(font_db, &families, font_size, font_weight, font_style, segment);
 
         if current_inline + trimmed_width > containing_inline_size && on_line {
             // Current line overflows — wrap to next line.
@@ -208,7 +214,7 @@ mod tests {
             ..Default::default()
         };
         let font_db = FontDatabase::new();
-        measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x")?;
+        measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, FontStyle::Normal, "x")?;
         Some((dom, parent, style, font_db))
     }
 

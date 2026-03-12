@@ -546,7 +546,7 @@ fn text_decoration_underline_emits_solid_rect() {
             font_family: test_font_family_strings(),
             text_decoration_line: elidex_plugin::TextDecorationLine {
                 underline: true,
-                line_through: false,
+                ..elidex_plugin::TextDecorationLine::default()
             },
             ..Default::default()
         },

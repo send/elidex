@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Rect};
-use elidex_text::{shape_text, FontDatabase};
+use elidex_text::{shape_text, FontDatabase, FontStyle};
 
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::font_cache::FontCache;
@@ -164,7 +164,7 @@ pub(crate) fn emit_list_marker_with_counter(
 
     let families = families_as_refs(&style.font_family);
     let ascent = font_db
-        .query(&families, style.font_weight)
+        .query(&families, style.font_weight, FontStyle::Normal)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
     let marker_y =
@@ -204,7 +204,7 @@ pub(crate) fn emit_list_marker_with_counter(
         }
         ListStyleType::Decimal => {
             let marker_text = format!("{counter}.");
-            let Some(font_id) = font_db.query(&families, style.font_weight) else {
+            let Some(font_id) = font_db.query(&families, style.font_weight, FontStyle::Normal) else {
                 return;
             };
             let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {
@@ -217,7 +217,7 @@ pub(crate) fn emit_list_marker_with_counter(
             let baseline_y = lb.content.y + ascent;
             let mut text_x =
                 lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
-            let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y);
+            let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y, 0.0, 0.0, &marker_text);
             dl.push(DisplayItem::Text {
                 glyphs,
                 font_blob,

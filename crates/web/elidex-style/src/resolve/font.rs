@@ -2,7 +2,7 @@
 
 use elidex_plugin::{
     ComputedStyle, CssColor, CssValue, FontStyle, LineHeight, ListStyleType, TextAlign,
-    TextDecorationLine, TextTransform, WhiteSpace,
+    TextDecorationLine, TextDecorationStyle, TextTransform, WhiteSpace,
 };
 
 use super::helpers::{
@@ -87,6 +87,12 @@ pub(super) fn resolve_font_and_text_properties(
     );
     // text-decoration-line is non-inherited.
     resolve_text_decoration_line(style, winners, parent_style);
+    resolve_text_decoration_style(style, winners, parent_style);
+    resolve_text_decoration_color(style, winners, parent_style);
+    style.letter_spacing =
+        resolve_inherited_spacing("letter-spacing", winners, parent_style, ctx, parent_style.letter_spacing);
+    style.word_spacing =
+        resolve_inherited_spacing("word-spacing", winners, parent_style, ctx, parent_style.word_spacing);
 }
 
 pub(super) fn resolve_font_size(
@@ -273,24 +279,14 @@ fn resolve_text_decoration_line(
         return;
     };
     style.text_decoration_line = match &value {
-        CssValue::Keyword(k) => match k.as_str() {
-            "underline" => TextDecorationLine {
-                underline: true,
-                line_through: false,
-            },
-            "line-through" => TextDecorationLine {
-                underline: false,
-                line_through: true,
-            },
-            // "none" and unrecognized keywords.
-            _ => TextDecorationLine::default(),
-        },
+        CssValue::Keyword(k) => keyword_to_decoration_line(k),
         CssValue::List(items) => {
             let mut result = TextDecorationLine::default();
             for item in items {
                 if let CssValue::Keyword(k) = item {
                     match k.as_str() {
                         "underline" => result.underline = true,
+                        "overline" => result.overline = true,
                         "line-through" => result.line_through = true,
                         _ => {}
                     }
@@ -302,13 +298,79 @@ fn resolve_text_decoration_line(
     };
 }
 
+fn keyword_to_decoration_line(k: &str) -> TextDecorationLine {
+    match k {
+        "underline" => TextDecorationLine {
+            underline: true,
+            ..TextDecorationLine::default()
+        },
+        "overline" => TextDecorationLine {
+            overline: true,
+            ..TextDecorationLine::default()
+        },
+        "line-through" => TextDecorationLine {
+            line_through: true,
+            ..TextDecorationLine::default()
+        },
+        _ => TextDecorationLine::default(),
+    }
+}
+
+fn resolve_text_decoration_style(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    if let Some(CssValue::Keyword(ref k)) =
+        get_resolved_winner("text-decoration-style", winners, parent_style)
+    {
+        if let Some(s) = TextDecorationStyle::from_keyword(k) {
+            style.text_decoration_style = s;
+        }
+    }
+}
+
+fn resolve_text_decoration_color(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+) {
+    if let Some(value) = get_resolved_winner("text-decoration-color", winners, parent_style) {
+        match &value {
+            CssValue::Color(c) => style.text_decoration_color = Some(*c),
+            CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
+                // None means use currentcolor (resolved at render time).
+                style.text_decoration_color = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Resolve an inherited spacing property (`letter-spacing` or `word-spacing`).
+///
+/// Both properties accept `normal` (= 0.0) or a `<length>`, and inherit from parent.
+fn resolve_inherited_spacing(
+    property: &str,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    parent_value: f32,
+) -> f32 {
+    match get_resolved_winner(property, winners, parent_style) {
+        Some(CssValue::Length(v, unit)) => resolve_length(v, unit, ctx),
+        Some(CssValue::Keyword(ref k)) if k == "normal" => 0.0,
+        Some(_) | None => parent_value,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use elidex_plugin::{
         ComputedStyle, CssColor, CssValue, FontStyle, LengthUnit, LineHeight, ListStyleType,
-        TextAlign, TextDecorationLine, TextTransform, WhiteSpace,
+        TextAlign, TextDecorationLine, TextDecorationStyle, TextTransform, WhiteSpace,
     };
 
     use super::*;
@@ -638,7 +700,7 @@ mod tests {
         let parent = ComputedStyle {
             text_decoration_line: TextDecorationLine {
                 underline: true,
-                line_through: false,
+                ..TextDecorationLine::default()
             },
             ..ComputedStyle::default()
         };
@@ -653,7 +715,7 @@ mod tests {
         let parent = ComputedStyle {
             text_decoration_line: TextDecorationLine {
                 underline: true,
-                line_through: false,
+                ..TextDecorationLine::default()
             },
             ..ComputedStyle::default()
         };
@@ -697,5 +759,180 @@ mod tests {
     fn parse_font_family_from_raw_empty() {
         let result = parse_font_family_from_raw("");
         assert!(result.is_empty());
+    }
+
+    // --- M4-1: letter-spacing resolution ---
+
+    #[test]
+    fn letter_spacing_length_resolved() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Length(2.0, LengthUnit::Px);
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("letter-spacing", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.letter_spacing - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn letter_spacing_normal_is_zero() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Keyword("normal".to_string());
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("letter-spacing", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.letter_spacing.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn letter_spacing_inherits() {
+        let parent = ComputedStyle {
+            letter_spacing: 3.0,
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap = HashMap::new();
+        let ctx = default_ctx();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.letter_spacing - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn letter_spacing_computed_value() {
+        let style = ComputedStyle {
+            letter_spacing: 1.5,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("letter-spacing", &style),
+            CssValue::Length(1.5, LengthUnit::Px)
+        );
+    }
+
+    // --- M4-1: word-spacing resolution ---
+
+    #[test]
+    fn word_spacing_length_resolved() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Length(5.0, LengthUnit::Px);
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("word-spacing", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.word_spacing - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn word_spacing_inherits() {
+        let parent = ComputedStyle {
+            word_spacing: 4.0,
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap = HashMap::new();
+        let ctx = default_ctx();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!((style.word_spacing - 4.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn word_spacing_computed_value() {
+        let style = ComputedStyle {
+            word_spacing: 2.0,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("word-spacing", &style),
+            CssValue::Length(2.0, LengthUnit::Px)
+        );
+    }
+
+    // --- M4-1: text-decoration-style resolution ---
+
+    #[test]
+    fn text_decoration_style_resolved() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Keyword("dashed".to_string());
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("text-decoration-style", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.text_decoration_style, TextDecorationStyle::Dashed);
+    }
+
+    #[test]
+    fn text_decoration_style_not_inherited() {
+        let parent = ComputedStyle {
+            text_decoration_style: TextDecorationStyle::Dotted,
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap = HashMap::new();
+        let ctx = default_ctx();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // text-decoration-style is NOT inherited → defaults to Solid.
+        assert_eq!(style.text_decoration_style, TextDecorationStyle::Solid);
+    }
+
+    #[test]
+    fn text_decoration_style_computed_value() {
+        let style = ComputedStyle {
+            text_decoration_style: TextDecorationStyle::Double,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("text-decoration-style", &style),
+            CssValue::Keyword("double".to_string())
+        );
+    }
+
+    // --- M4-1: text-decoration-color resolution ---
+
+    #[test]
+    fn text_decoration_color_explicit() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Color(CssColor::RED);
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("text-decoration-color", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.text_decoration_color, Some(CssColor::RED));
+    }
+
+    #[test]
+    fn text_decoration_color_currentcolor_is_none() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Keyword("currentcolor".to_string());
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("text-decoration-color", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.text_decoration_color, None);
+    }
+
+    #[test]
+    fn text_decoration_color_not_inherited() {
+        let parent = ComputedStyle {
+            text_decoration_color: Some(CssColor::BLUE),
+            ..ComputedStyle::default()
+        };
+        let winners: PropertyMap = HashMap::new();
+        let ctx = default_ctx();
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // text-decoration-color is NOT inherited → defaults to None.
+        assert_eq!(style.text_decoration_color, None);
+    }
+
+    // --- M4-1: overline in text-decoration-line ---
+
+    #[test]
+    fn text_decoration_line_overline_resolved() {
+        let parent = ComputedStyle::default();
+        let ctx = default_ctx();
+        let val = CssValue::Keyword("overline".to_string());
+        let mut winners: PropertyMap = HashMap::new();
+        winners.insert("text-decoration-line", &val);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.text_decoration_line.overline);
+        assert!(!style.text_decoration_line.underline);
+        assert!(!style.text_decoration_line.line_through);
     }
 }

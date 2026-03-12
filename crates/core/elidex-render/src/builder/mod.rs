@@ -71,6 +71,9 @@ pub(super) const LINE_THROUGH_POSITION_FACTOR: f32 = 0.4;
 /// Minimum text decoration thickness divisor: `font_size / DECORATION_THICKNESS_DIVISOR`.
 pub(super) const DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
 
+/// Overline position as a fraction of the ascent above the baseline.
+pub(super) const OVERLINE_POSITION_FACTOR: f32 = 1.0;
+
 /// Build a display list from a laid-out DOM tree.
 ///
 /// Each element with a [`LayoutBox`](elidex_plugin::LayoutBox) component is visited in pre-order.

@@ -209,7 +209,8 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         | "border-top-color"
         | "border-right-color"
         | "border-bottom-color"
-        | "border-left-color" => parse_color_property(input, name),
+        | "border-left-color"
+        | "text-decoration-color" => parse_color_property(input, name),
 
         // --- Length/percentage/auto properties ---
         "width" | "height" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
@@ -253,7 +254,16 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         ),
 
         // --- Text decoration ---
-        "text-decoration" | "text-decoration-line" => misc::parse_text_decoration_line(input),
+        "text-decoration-line" => misc::parse_text_decoration_line(input),
+        "text-decoration" => misc::parse_text_decoration_shorthand(input),
+        "text-decoration-style" => parse_keyword_property(
+            input,
+            name,
+            &["solid", "double", "dotted", "dashed", "wavy"],
+        ),
+        // --- Letter/word spacing ---
+        "letter-spacing" => misc::parse_spacing(input, "letter-spacing"),
+        "word-spacing" => misc::parse_spacing(input, "word-spacing"),
 
         // --- White-space ---
         "white-space" => parse_keyword_property(
@@ -567,7 +577,11 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "flex-basis".to_string(),
         ],
         "flex-flow" => vec!["flex-direction".to_string(), "flex-wrap".to_string()],
-        "text-decoration" => vec!["text-decoration-line".to_string()],
+        "text-decoration" => vec![
+            "text-decoration-line".to_string(),
+            "text-decoration-style".to_string(),
+            "text-decoration-color".to_string(),
+        ],
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
         "background" => vec!["background-color".to_string()],

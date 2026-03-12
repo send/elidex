@@ -25,6 +25,8 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "writing-mode",
     "text-orientation",
     "visibility",
+    "letter-spacing",
+    "word-spacing",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -51,6 +53,10 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "font-style" | "line-height" | "white-space" | "content" => {
             CssValue::Keyword("normal".to_string())
         }
+        // Text decoration style/color
+        "text-decoration-style" => CssValue::Keyword("solid".to_string()),
+        "text-decoration-color" => CssValue::Keyword("currentcolor".to_string()),
+
         // Keyword "none" initial values
         "text-transform"
         | "text-decoration-line"
@@ -92,7 +98,10 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
         "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
         | "margin-left" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
-        | "border-radius" | "row-gap" | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
+        | "border-radius" | "row-gap" | "column-gap" | "letter-spacing" | "word-spacing"
+        | "border-spacing" | "border-spacing-h" | "border-spacing-v" => {
+            CssValue::Length(0.0, LengthUnit::Px)
+        }
 
         // Border width (CSS initial = medium = 3px)
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
@@ -106,9 +115,6 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Table
         "border-collapse" => CssValue::Keyword("separate".to_string()),
-        "border-spacing" | "border-spacing-h" | "border-spacing-v" => {
-            CssValue::Length(0.0, LengthUnit::Px)
-        }
         "table-layout" | "align-self" => CssValue::Keyword("auto".to_string()),
         "caption-side" => CssValue::Keyword("top".to_string()),
 

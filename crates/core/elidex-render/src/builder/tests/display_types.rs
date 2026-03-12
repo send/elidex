@@ -624,7 +624,7 @@ fn list_item_decimal_emits_text_marker() {
     let has_text =
         dl.0.iter()
             .any(|i| matches!(i, crate::display_list::DisplayItem::Text { .. }));
-    if font_db.query(&["serif"], 400).is_some() {
+    if font_db.query(&["serif"], 400, elidex_text::FontStyle::Normal).is_some() {
         assert!(
             has_text,
             "decimal marker should emit Text when fonts available"

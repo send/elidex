@@ -87,9 +87,13 @@ fn global_keyword_expands_flex_shorthand() {
 #[test]
 fn global_keyword_expands_text_decoration_shorthand() {
     let decls = parse_single("text-decoration", "inherit");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 3);
     assert_eq!(decls[0].property, "text-decoration-line");
     assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+    assert_eq!(decls[2].property, "text-decoration-color");
+    assert_eq!(decls[2].value, CssValue::Inherit);
 }
 
 #[test]

@@ -2,8 +2,8 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    ComputedStyle, CssColor, Direction, Display, LayoutBox, TextAlign, TextDecorationLine,
-    TextTransform, Visibility, WritingMode,
+    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, TextAlign,
+    TextDecorationLine, TextDecorationStyle, TextTransform, Visibility, WritingMode,
 };
 use elidex_text::FontDatabase;
 
@@ -14,9 +14,10 @@ use super::{
     apply_opacity, apply_text_transform, bidi_visual_order, collapse_segments,
     compute_text_align_offset, families_as_refs, find_nearest_layout_box, place_glyphs,
     place_glyphs_vertical, resolve_text_align, DECORATION_THICKNESS_DIVISOR,
-    DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR, UNDERLINE_POSITION_FACTOR,
+    DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR, OVERLINE_POSITION_FACTOR,
+    UNDERLINE_POSITION_FACTOR,
 };
-use elidex_text::{shape_text, shape_text_vertical};
+use elidex_text::{shape_text, shape_text_vertical, to_fontdb_style};
 
 /// A segment of text with its own style properties.
 pub(crate) struct StyledTextSegment {
@@ -25,8 +26,13 @@ pub(crate) struct StyledTextSegment {
     pub(crate) font_family: Vec<String>,
     pub(crate) font_size: f32,
     pub(crate) font_weight: u16,
+    pub(crate) font_style: PluginFontStyle,
     pub(crate) text_transform: TextTransform,
     pub(crate) text_decoration_line: TextDecorationLine,
+    pub(crate) text_decoration_style: TextDecorationStyle,
+    pub(crate) text_decoration_color: Option<CssColor>,
+    pub(crate) letter_spacing: f32,
+    pub(crate) word_spacing: f32,
     pub(crate) opacity: f32,
 }
 
@@ -39,8 +45,13 @@ impl StyledTextSegment {
             font_family: style.font_family.clone(),
             font_size: style.font_size,
             font_weight: style.font_weight,
+            font_style: style.font_style,
             text_transform: style.text_transform,
             text_decoration_line: style.text_decoration_line,
+            text_decoration_style: style.text_decoration_style,
+            text_decoration_color: style.text_decoration_color,
+            letter_spacing: style.letter_spacing,
+            word_spacing: style.word_spacing,
             opacity: style.opacity,
         }
     }
@@ -213,8 +224,8 @@ fn emit_styled_segments(
         };
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
-        // TODO(Phase 4): pass font_style to font_db.query() for italic/oblique selection.
-        let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+        let style = to_fontdb_style(seg.font_style);
+        let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
             continue;
         };
         let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
@@ -230,7 +241,14 @@ fn emit_styled_segments(
         let baseline_y = lb.content.y + ascent;
 
         let seg_start_x = cursor_x;
-        let glyphs = place_glyphs(&shaped.glyphs, &mut cursor_x, baseline_y);
+        let glyphs = place_glyphs(
+            &shaped.glyphs,
+            &mut cursor_x,
+            baseline_y,
+            seg.letter_spacing,
+            seg.word_spacing,
+            &transformed,
+        );
         let seg_width = cursor_x - seg_start_x;
         let text_color = apply_opacity(seg.color, seg.opacity);
 
@@ -244,29 +262,45 @@ fn emit_styled_segments(
 
         // Text decoration.
         let decoration_thickness = (seg.font_size / DECORATION_THICKNESS_DIVISOR).max(1.0);
+        let decoration_color = apply_opacity(
+            seg.text_decoration_color.unwrap_or(seg.color),
+            seg.opacity,
+        );
         if seg.text_decoration_line.underline {
             let y = baseline_y - descent * UNDERLINE_POSITION_FACTOR;
-            dl.push(DisplayItem::SolidRect {
-                rect: elidex_plugin::Rect {
-                    x: seg_start_x,
-                    y,
-                    width: seg_width,
-                    height: decoration_thickness,
-                },
-                color: text_color,
-            });
+            emit_decoration_line(
+                dl,
+                seg_start_x,
+                y,
+                seg_width,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
+        }
+        if seg.text_decoration_line.overline {
+            let y = baseline_y - ascent * OVERLINE_POSITION_FACTOR;
+            emit_decoration_line(
+                dl,
+                seg_start_x,
+                y,
+                seg_width,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
         }
         if seg.text_decoration_line.line_through {
             let y = baseline_y - ascent * LINE_THROUGH_POSITION_FACTOR;
-            dl.push(DisplayItem::SolidRect {
-                rect: elidex_plugin::Rect {
-                    x: seg_start_x,
-                    y,
-                    width: seg_width,
-                    height: decoration_thickness,
-                },
-                color: text_color,
-            });
+            emit_decoration_line(
+                dl,
+                seg_start_x,
+                y,
+                seg_width,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
         }
     }
 }
@@ -321,7 +355,8 @@ fn emit_styled_segments_vertical(
         };
         let transformed = apply_text_transform(text, seg.text_transform);
         let families = families_as_refs(&seg.font_family);
-        let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+        let style = to_fontdb_style(seg.font_style);
+        let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
             continue;
         };
         let Some(shaped) = shape_text_vertical(font_db, font_id, seg.font_size, &transformed)
@@ -421,7 +456,8 @@ fn compute_vertical_text_align_offset(
 fn measure_segment_height(text: &str, seg: &StyledTextSegment, font_db: &FontDatabase) -> f32 {
     let transformed = apply_text_transform(text, seg.text_transform);
     let families = families_as_refs(&seg.font_family);
-    let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+    let style = to_fontdb_style(seg.font_style);
+    let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
         return 0.0;
     };
     // Prefer vertical shaping (total_advance = sum of y_advance).
@@ -433,4 +469,99 @@ fn measure_segment_height(text: &str, seg: &StyledTextSegment, font_db: &FontDat
         return 0.0;
     };
     shaped.glyphs.iter().map(|g| g.x_advance).sum()
+}
+
+/// Emit a text decoration line using the given style.
+///
+/// - `Solid`: single `SolidRect`
+/// - `Double`: two thin `SolidRect`s separated by `thickness`
+/// - `Dotted`: repeating square dots
+/// - `Dashed`: repeating dashes (3:1 ratio)
+/// - `Wavy`: falls back to solid (Vello path drawing needed for true wave)
+fn emit_decoration_line(
+    dl: &mut DisplayList,
+    x: f32,
+    y: f32,
+    width: f32,
+    thickness: f32,
+    color: CssColor,
+    style: TextDecorationStyle,
+) {
+    match style {
+        TextDecorationStyle::Solid | TextDecorationStyle::Wavy => {
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect {
+                    x,
+                    y,
+                    width,
+                    height: thickness,
+                },
+                color,
+            });
+        }
+        TextDecorationStyle::Double => {
+            let thin = (thickness * 0.5).max(1.0);
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect {
+                    x,
+                    y,
+                    width,
+                    height: thin,
+                },
+                color,
+            });
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect {
+                    x,
+                    y: y + thickness,
+                    width,
+                    height: thin,
+                },
+                color,
+            });
+        }
+        TextDecorationStyle::Dotted => {
+            let dot = thickness;
+            let step = dot * 2.0;
+            // Guard: skip if step is not positive (avoids infinite loop for zero/NaN thickness).
+            if step > 0.0 {
+                let mut cx = x;
+                while cx < x + width {
+                    let w = dot.min(x + width - cx);
+                    dl.push(DisplayItem::SolidRect {
+                        rect: elidex_plugin::Rect {
+                            x: cx,
+                            y,
+                            width: w,
+                            height: thickness,
+                        },
+                        color,
+                    });
+                    cx += step;
+                }
+            }
+        }
+        TextDecorationStyle::Dashed => {
+            let dash = thickness * 3.0;
+            let gap = thickness;
+            let step = dash + gap;
+            // Guard: skip if step is not positive (avoids infinite loop for zero/NaN thickness).
+            if step > 0.0 {
+                let mut cx = x;
+                while cx < x + width {
+                    let w = dash.min(x + width - cx);
+                    dl.push(DisplayItem::SolidRect {
+                        rect: elidex_plugin::Rect {
+                            x: cx,
+                            y,
+                            width: w,
+                            height: thickness,
+                        },
+                        color,
+                    });
+                    cx += step;
+                }
+            }
+        }
+    }
 }

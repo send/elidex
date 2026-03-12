@@ -122,14 +122,6 @@ fn parse_keyword_properties() {
             "border-top-color",
             "currentcolor",
         ),
-        // text-decoration → text-decoration-line
-        ("text-decoration", "none", "text-decoration-line", "none"),
-        (
-            "text-decoration",
-            "underline",
-            "text-decoration-line",
-            "underline",
-        ),
         // text-decoration-line longhand
         (
             "text-decoration-line",
@@ -503,7 +495,7 @@ fn parse_var_function_nested() {
 #[test]
 fn parse_text_decoration_multiple() {
     let decls = parse_single("text-decoration", "underline line-through");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 3);
     assert_eq!(decls[0].property, "text-decoration-line");
     match &decls[0].value {
         CssValue::List(items) => {
@@ -513,4 +505,109 @@ fn parse_text_decoration_multiple() {
         }
         other => panic!("expected List, got {other:?}"),
     }
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
+    assert_eq!(decls[2].property, "text-decoration-color");
+    assert_eq!(
+        decls[2].value,
+        CssValue::Keyword("currentcolor".into())
+    );
+}
+
+// --- M4-1: text-decoration shorthand with style ---
+
+#[test]
+fn parse_text_decoration_shorthand_with_style() {
+    let decls = parse_single("text-decoration", "underline dashed");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("underline".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".into()));
+}
+
+#[test]
+fn parse_text_decoration_shorthand_none() {
+    let decls = parse_single("text-decoration", "none");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
+}
+
+#[test]
+fn parse_text_decoration_style_longhand() {
+    for kw in &["solid", "double", "dotted", "dashed", "wavy"] {
+        let decls = parse_single("text-decoration-style", kw);
+        assert_eq!(decls.len(), 1, "text-decoration-style: {kw}");
+        assert_eq!(decls[0].property, "text-decoration-style");
+        assert_eq!(decls[0].value, CssValue::Keyword(kw.to_string()));
+    }
+}
+
+#[test]
+fn parse_text_decoration_color_longhand() {
+    let decls = parse_single("text-decoration-color", "red");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-color");
+    assert!(matches!(decls[0].value, CssValue::Color(_)));
+}
+
+#[test]
+fn parse_text_decoration_color_currentcolor() {
+    let decls = parse_single("text-decoration-color", "currentcolor");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-color");
+    assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
+}
+
+// --- M4-1: letter-spacing / word-spacing ---
+
+#[test]
+fn parse_letter_spacing_normal() {
+    let decls = parse_single("letter-spacing", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "letter-spacing");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(0.0, elidex_plugin::LengthUnit::Px)
+    );
+}
+
+#[test]
+fn parse_letter_spacing_length() {
+    let decls = parse_single("letter-spacing", "2px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "letter-spacing");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(2.0, elidex_plugin::LengthUnit::Px)
+    );
+}
+
+#[test]
+fn parse_word_spacing_normal() {
+    let decls = parse_single("word-spacing", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "word-spacing");
+}
+
+#[test]
+fn parse_word_spacing_length() {
+    let decls = parse_single("word-spacing", "4px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "word-spacing");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(4.0, elidex_plugin::LengthUnit::Px)
+    );
+}
+
+#[test]
+fn parse_text_decoration_overline() {
+    let decls = parse_single("text-decoration-line", "overline");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("overline".into()));
 }

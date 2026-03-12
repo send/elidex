@@ -3,8 +3,7 @@
 use std::borrow::Cow;
 
 use elidex_plugin::{Direction, TextAlign, TextTransform};
-use elidex_text::{shape_text, FontDatabase};
-
+use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
 use super::{families_as_refs, StyledTextSegment};
 
 /// Resolve `text-align: start/end` to physical `left/right` based on direction.
@@ -73,7 +72,8 @@ pub(crate) fn measure_segment_width(
 ) -> f32 {
     let transformed = apply_text_transform(text, seg.text_transform);
     let families = families_as_refs(&seg.font_family);
-    let Some(font_id) = font_db.query(&families, seg.font_weight) else {
+    let style = to_fontdb_style(seg.font_style);
+    let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
         return 0.0;
     };
     let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
