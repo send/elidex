@@ -8,7 +8,7 @@ use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, WritingMode};
 use elidex_text::{
     find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
-    FontStyle,
+    TextMeasureParams,
 };
 
 use crate::MAX_LAYOUT_DEPTH;
@@ -58,65 +58,19 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
 /// trigger line overflow).
 fn measure_segment_widths(
     font_db: &FontDatabase,
-    families: &[&str],
-    font_size: f32,
-    font_weight: u16,
-    font_style: FontStyle,
+    params: &TextMeasureParams<'_>,
     segment: &str,
-    spacing: (f32, f32),
 ) -> (f32, f32) {
-    let (letter_spacing, word_spacing) = spacing;
-    let seg_width = measure_text(
-        font_db,
-        families,
-        font_size,
-        font_weight,
-        font_style,
-        segment,
-    )
-    .map_or(0.0, |m| m.width)
-        + spacing_adjustment(segment, letter_spacing, word_spacing);
+    let seg_width = measure_text(font_db, params, segment).map_or(0.0, |m| m.width);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {
         0.0
     } else {
-        measure_text(
-            font_db,
-            families,
-            font_size,
-            font_weight,
-            font_style,
-            trimmed,
-        )
-        .map_or(0.0, |m| m.width)
-            + spacing_adjustment(trimmed, letter_spacing, word_spacing)
+        measure_text(font_db, params, trimmed).map_or(0.0, |m| m.width)
     };
     (seg_width, trimmed_width)
-}
-
-/// Estimate extra width from letter-spacing and word-spacing.
-///
-/// Letter-spacing is applied between characters (not after the last one),
-/// approximated as `ls * (char_count - 1)`. Word-spacing is applied once
-/// per whitespace character. This is a simplified approximation of the
-/// per-cluster logic in `place_glyphs()`, sufficient for line-break decisions.
-#[allow(clippy::cast_precision_loss)] // char counts are far below f32 mantissa limit in practice
-fn spacing_adjustment(text: &str, letter_spacing: f32, word_spacing: f32) -> f32 {
-    let char_count = text.chars().count();
-    let ls_extra = if char_count > 1 {
-        letter_spacing * (char_count - 1) as f32
-    } else {
-        0.0
-    };
-    let ws_extra = if word_spacing == 0.0 {
-        0.0
-    } else {
-        let space_count = text.chars().filter(|c| c.is_whitespace()).count();
-        word_spacing * space_count as f32
-    };
-    ls_extra + ws_extra
 }
 
 /// Layout inline content (text nodes and inline elements) within a line box.
@@ -146,17 +100,20 @@ pub fn layout_inline_context(
         .iter()
         .map(String::as_str)
         .collect();
-    let font_size = parent_style.font_size;
-    let font_weight = parent_style.font_weight;
-    let font_style = to_fontdb_style(parent_style.font_style);
-    let letter_spacing = parent_style.letter_spacing.unwrap_or(0.0);
-    let word_spacing = parent_style.word_spacing.unwrap_or(0.0);
+    let params = TextMeasureParams {
+        families: &families,
+        font_size: parent_style.font_size,
+        weight: parent_style.font_weight,
+        style: to_fontdb_style(parent_style.font_style),
+        letter_spacing: parent_style.letter_spacing.unwrap_or(0.0),
+        word_spacing: parent_style.word_spacing.unwrap_or(0.0),
+    };
 
     // Use CSS line-height (resolved to px via the element's font-size).
-    let line_height = parent_style.line_height.resolve_px(font_size);
+    let line_height = parent_style.line_height.resolve_px(params.font_size);
 
     // Verify a font is available (needed for segment width measurement).
-    if measure_text(font_db, &families, font_size, font_weight, font_style, "x").is_none() {
+    if measure_text(font_db, &params, "x").is_none() {
         return 0.0; // no font available
     }
 
@@ -182,7 +139,11 @@ pub fn layout_inline_context(
     // For vertical writing: each "line" stacks along the block axis (X),
     // and the line advance is the font-size (column width), not line-height.
     // For horizontal: "line" stacks along Y, line advance = line-height.
-    let line_advance = if is_vertical { font_size } else { line_height };
+    let line_advance = if is_vertical {
+        params.font_size
+    } else {
+        line_height
+    };
 
     // Greedy line packing: accumulate segment inline sizes until overflow
     // or mandatory break.
@@ -199,15 +160,7 @@ pub fn layout_inline_context(
         }
 
         // TODO(Phase 4): use vertical shaping metrics for vertical modes.
-        let (seg_width, trimmed_width) = measure_segment_widths(
-            font_db,
-            &families,
-            font_size,
-            font_weight,
-            font_style,
-            segment,
-            (letter_spacing, word_spacing),
-        );
+        let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, segment);
 
         if current_inline + trimmed_width > containing_inline_size && on_line {
             // Current line overflows — wrap to next line.
@@ -264,14 +217,15 @@ mod tests {
             ..Default::default()
         };
         let font_db = FontDatabase::new();
-        measure_text(
-            &font_db,
-            TEST_FAMILIES,
-            style.font_size,
-            400,
-            FontStyle::Normal,
-            "x",
-        )?;
+        let params = TextMeasureParams {
+            families: TEST_FAMILIES,
+            font_size: style.font_size,
+            weight: 400,
+            style: elidex_text::FontStyle::Normal,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
+        };
+        measure_text(&font_db, &params, "x")?;
         Some((dom, parent, style, font_db))
     }
 
