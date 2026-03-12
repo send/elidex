@@ -63,6 +63,23 @@ pub enum CalcExpr {
     Div(Box<CalcExpr>, Box<CalcExpr>),
 }
 
+impl CalcExpr {
+    /// Returns `true` if this expression tree contains any percentage terms.
+    ///
+    /// Used to reject `calc()` with percentages in length-only properties
+    /// such as `letter-spacing` and `word-spacing`.
+    #[must_use]
+    pub fn contains_percentage(&self) -> bool {
+        match self {
+            Self::Percentage(_) => true,
+            Self::Length(..) | Self::Number(_) => false,
+            Self::Add(a, b) | Self::Sub(a, b) | Self::Mul(a, b) | Self::Div(a, b) => {
+                a.contains_percentage() || b.contains_percentage()
+            }
+        }
+    }
+}
+
 impl CssValue {
     /// Extract the keyword string if this is a `Keyword` variant.
     #[must_use]

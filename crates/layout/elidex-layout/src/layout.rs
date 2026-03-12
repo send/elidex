@@ -26,12 +26,7 @@ pub fn dispatch_layout_child(
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
         Display::Contents => LayoutBox {
-            content: elidex_plugin::Rect {
-                x: input.offset_x,
-                y: input.offset_y,
-                width: 0.0,
-                height: 0.0,
-            },
+            content: elidex_plugin::Rect::new(input.offset_x, input.offset_y, 0.0, 0.0),
             padding: elidex_plugin::EdgeSizes::default(),
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),

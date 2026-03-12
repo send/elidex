@@ -323,12 +323,7 @@ pub fn layout_flex(
     let content_height =
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross);
     let lb = LayoutBox {
-        content: Rect {
-            x: content_x,
-            y: content_y,
-            width: content_width,
-            height: content_height,
-        },
+        content: Rect::new(content_x, content_y, content_width, content_height),
         padding,
         border,
         margin,

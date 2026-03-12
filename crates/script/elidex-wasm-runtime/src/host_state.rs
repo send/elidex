@@ -79,6 +79,10 @@ impl HostState {
             !self.session_ptr.is_null(),
             "HostState::with() called while unbound"
         );
+        // SAFETY: `session_ptr` and `dom_ptr` are set by `bind()` from valid
+        // `&mut` references and cleared by `unbind()` immediately after the call.
+        // The null check above guarantees we are within a bind/unbind bracket.
+        // Single-threaded access is enforced by wasmtime's `Store` ownership.
         unsafe {
             let session = &mut *self.session_ptr;
             let dom = &mut *self.dom_ptr;

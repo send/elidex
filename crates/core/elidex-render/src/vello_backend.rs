@@ -290,12 +290,7 @@ mod tests {
         let mut scene = Scene::new();
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::SolidRect {
-            rect: Rect {
-                x: 10.0,
-                y: 20.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
             color: CssColor::RED,
         }]);
         build_scene(&mut scene, &dl, &mut fc);
@@ -307,12 +302,7 @@ mod tests {
         let mut scene = Scene::new();
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::Image {
-            rect: Rect {
-                x: 10.0,
-                y: 20.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
             pixels: Arc::new(vec![255u8; 4 * 2 * 2]), // 2×2 white
             image_width: 2,
             image_height: 2,
@@ -327,12 +317,7 @@ mod tests {
         let mut scene = Scene::new();
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::RoundedRect {
-            rect: Rect {
-                x: 10.0,
-                y: 20.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
             radius: 8.0,
             color: CssColor::BLUE,
         }]);
@@ -345,12 +330,7 @@ mod tests {
         let mut scene = Scene::new();
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::StrokedRoundedRect {
-            rect: Rect {
-                x: 10.0,
-                y: 20.0,
-                width: 8.0,
-                height: 8.0,
-            },
+            rect: Rect::new(10.0, 20.0, 8.0, 8.0),
             radius: 4.0,
             stroke_width: 1.0,
             color: CssColor::BLACK,
@@ -365,20 +345,10 @@ mod tests {
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![
             DisplayItem::PushClip {
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 200.0,
-                    height: 100.0,
-                },
+                rect: Rect::new(0.0, 0.0, 200.0, 100.0),
             },
             DisplayItem::SolidRect {
-                rect: Rect {
-                    x: 10.0,
-                    y: 10.0,
-                    width: 50.0,
-                    height: 50.0,
-                },
+                rect: Rect::new(10.0, 10.0, 50.0, 50.0),
                 color: CssColor::RED,
             },
             DisplayItem::PopClip,

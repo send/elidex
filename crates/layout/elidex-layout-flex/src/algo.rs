@@ -366,12 +366,12 @@ fn relayout_item_at_position(
     // child_lb.content.x/y already include margin + border + padding
     // offsets from the margin-box position, so use them directly.
     let lb = LayoutBox {
-        content: Rect {
-            x: child_lb.content.x,
-            y: child_lb.content.y,
-            width: item_content_width,
-            height: item_content_height,
-        },
+        content: Rect::new(
+            child_lb.content.x,
+            child_lb.content.y,
+            item_content_width,
+            item_content_height,
+        ),
         padding: child_lb.padding,
         border: child_lb.border,
         margin: child_lb.margin,

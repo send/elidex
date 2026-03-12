@@ -2,10 +2,9 @@
 
 use std::borrow::Cow;
 
-use elidex_plugin::{Direction, TextAlign, TextTransform};
-use elidex_text::{shape_text, FontDatabase};
-
 use super::{families_as_refs, StyledTextSegment};
+use elidex_plugin::{Direction, TextAlign, TextTransform};
+use elidex_text::{measure_text, to_fontdb_style, FontDatabase, TextMeasureParams};
 
 /// Resolve `text-align: start/end` to physical `left/right` based on direction.
 ///
@@ -56,15 +55,42 @@ pub(crate) fn compute_text_align_offset(
         _ => {
             let total_width: f32 = collapsed
                 .iter()
-                .map(|(text, idx)| measure_segment_width(text, &segments[*idx], font_db))
+                .filter_map(|(text, idx)| {
+                    segments
+                        .get(*idx)
+                        .map(|seg| measure_segment_width(text, seg, font_db))
+                })
                 .sum();
+            if !total_width.is_finite() {
+                return 0.0;
+            }
             let free = (container_width - total_width).max(0.0);
             align_offset(resolved, free)
         }
     }
 }
 
-/// Measure a segment's text width after text-transform.
+/// Transform text and query the matching font for a segment.
+///
+/// Shared setup for [`measure_segment_width`] and `measure_segment_height`.
+/// Returns the transformed text and font ID, or `None` if no font matches.
+#[must_use]
+pub(crate) fn query_segment_font<'a>(
+    text: &'a str,
+    seg: &StyledTextSegment,
+    font_db: &FontDatabase,
+) -> Option<(Cow<'a, str>, elidex_text::FontId)> {
+    let transformed = apply_text_transform(text, seg.text_transform);
+    let families = families_as_refs(&seg.font_family);
+    let style = to_fontdb_style(seg.font_style);
+    let font_id = font_db.query(&families, seg.font_weight, style)?;
+    Some((transformed, font_id))
+}
+
+/// Measure a segment's text width after text-transform, including spacing.
+///
+/// Uses `elidex_text::measure_text` which includes per-cluster letter-spacing
+/// and word-spacing via `compute_spacing_extra()`, matching `place_glyphs()`.
 #[must_use]
 pub(crate) fn measure_segment_width(
     text: &str,
@@ -73,13 +99,15 @@ pub(crate) fn measure_segment_width(
 ) -> f32 {
     let transformed = apply_text_transform(text, seg.text_transform);
     let families = families_as_refs(&seg.font_family);
-    let Some(font_id) = font_db.query(&families, seg.font_weight) else {
-        return 0.0;
+    let params = TextMeasureParams {
+        families: &families,
+        font_size: seg.font_size,
+        weight: seg.font_weight,
+        style: to_fontdb_style(seg.font_style),
+        letter_spacing: seg.letter_spacing,
+        word_spacing: seg.word_spacing,
     };
-    let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
-        return 0.0;
-    };
-    shaped.glyphs.iter().map(|g| g.x_advance).sum()
+    measure_text(font_db, &params, &transformed).map_or(0.0, |m| m.width)
 }
 
 /// Apply CSS `text-transform` to a string before shaping.
@@ -94,15 +122,18 @@ pub(crate) fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<
 }
 
 /// Capitalize the first letter of each word (whitespace-delimited).
+///
+/// TODO(Phase 4+): Word boundary detection uses `is_whitespace()` as a
+/// simplification. Full CSS Text Level 3 compliance requires UAX #29 word
+/// segmentation (e.g. via the `unicode-segmentation` crate), which would
+/// correctly handle punctuation-adjacent boundaries and non-space separators.
 #[must_use]
 fn capitalize_words(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut prev_was_whitespace = true;
     for ch in text.chars() {
         if prev_was_whitespace && ch.is_alphabetic() {
-            for upper in ch.to_uppercase() {
-                result.push(upper);
-            }
+            result.extend(ch.to_uppercase());
             prev_was_whitespace = false;
         } else {
             result.push(ch);

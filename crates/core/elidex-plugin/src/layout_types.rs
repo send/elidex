@@ -60,6 +60,17 @@ impl EdgeSizes {
 }
 
 impl Rect {
+    /// Create a rectangle from position and size.
+    #[must_use]
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
     /// Returns a new rectangle expanded outward by the given edge sizes.
     #[must_use]
     pub fn expand(self, edges: EdgeSizes) -> Self {
@@ -163,12 +174,7 @@ mod tests {
     #[test]
     fn layout_box_padding_box() {
         let b = LayoutBox {
-            content: Rect {
-                x: 20.0,
-                y: 20.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(20.0, 20.0, 100.0, 50.0),
             padding: EdgeSizes {
                 top: 10.0,
                 right: 10.0,
@@ -187,12 +193,7 @@ mod tests {
     #[test]
     fn layout_box_border_box() {
         let b = LayoutBox {
-            content: Rect {
-                x: 25.0,
-                y: 25.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(25.0, 25.0, 100.0, 50.0),
             padding: EdgeSizes {
                 top: 10.0,
                 right: 10.0,
@@ -217,12 +218,7 @@ mod tests {
     #[test]
     fn layout_box_margin_box() {
         let b = LayoutBox {
-            content: Rect {
-                x: 30.0,
-                y: 30.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(30.0, 30.0, 100.0, 50.0),
             padding: EdgeSizes {
                 top: 10.0,
                 right: 10.0,
@@ -259,12 +255,7 @@ mod tests {
     #[test]
     fn layout_box_asymmetric_edges() {
         let b = LayoutBox {
-            content: Rect {
-                x: 20.0,
-                y: 10.0,
-                width: 200.0,
-                height: 100.0,
-            },
+            content: Rect::new(20.0, 10.0, 200.0, 100.0),
             padding: EdgeSizes {
                 top: 5.0,
                 right: 15.0,

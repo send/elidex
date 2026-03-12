@@ -122,14 +122,6 @@ fn parse_keyword_properties() {
             "border-top-color",
             "currentcolor",
         ),
-        // text-decoration → text-decoration-line
-        ("text-decoration", "none", "text-decoration-line", "none"),
-        (
-            "text-decoration",
-            "underline",
-            "text-decoration-line",
-            "underline",
-        ),
         // text-decoration-line longhand
         (
             "text-decoration-line",
@@ -503,7 +495,7 @@ fn parse_var_function_nested() {
 #[test]
 fn parse_text_decoration_multiple() {
     let decls = parse_single("text-decoration", "underline line-through");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 3);
     assert_eq!(decls[0].property, "text-decoration-line");
     match &decls[0].value {
         CssValue::List(items) => {
@@ -513,4 +505,184 @@ fn parse_text_decoration_multiple() {
         }
         other => panic!("expected List, got {other:?}"),
     }
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
+    assert_eq!(decls[2].property, "text-decoration-color");
+    assert_eq!(decls[2].value, CssValue::Keyword("currentcolor".into()));
+}
+
+// --- M4-1: text-decoration shorthand with style ---
+
+#[test]
+fn parse_text_decoration_shorthand_with_style() {
+    let decls = parse_single("text-decoration", "underline dashed");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("underline".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".into()));
+}
+
+#[test]
+fn parse_text_decoration_shorthand_none() {
+    let decls = parse_single("text-decoration", "none");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
+}
+
+#[test]
+fn parse_text_decoration_none_with_style_and_color() {
+    // "none dashed red" — "none" is the line value, style and color should still parse.
+    let decls = parse_single("text-decoration", "none dashed red");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+    assert_eq!(decls[1].property, "text-decoration-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".into()));
+    assert_eq!(decls[2].property, "text-decoration-color");
+    // "red" parsed as Color.
+    assert!(matches!(decls[2].value, CssValue::Color(_)));
+}
+
+#[test]
+fn parse_text_decoration_none_exclusive_with_line_keywords() {
+    // "none underline" — CSS Text Decoration Level 3: none is exclusive.
+    // Trailing unparsed tokens make the shorthand invalid → empty result.
+    let decls = parse_single("text-decoration", "none underline");
+    assert!(
+        decls.is_empty(),
+        "none + line keyword should be invalid (trailing tokens), got: {decls:?}"
+    );
+
+    // "underline none" — reverse order, also invalid due to trailing "none" token.
+    let decls2 = parse_single("text-decoration", "underline none");
+    assert!(
+        decls2.is_empty(),
+        "line keyword + none should be invalid (trailing tokens), got: {decls2:?}"
+    );
+}
+
+#[test]
+fn parse_text_decoration_style_longhand() {
+    for kw in &["solid", "double", "dotted", "dashed", "wavy"] {
+        let decls = parse_single("text-decoration-style", kw);
+        assert_eq!(decls.len(), 1, "text-decoration-style: {kw}");
+        assert_eq!(decls[0].property, "text-decoration-style");
+        assert_eq!(decls[0].value, CssValue::Keyword(kw.to_string()));
+    }
+}
+
+#[test]
+fn parse_text_decoration_color_longhand() {
+    let decls = parse_single("text-decoration-color", "red");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-color");
+    assert!(matches!(decls[0].value, CssValue::Color(_)));
+}
+
+#[test]
+fn parse_text_decoration_color_currentcolor() {
+    let decls = parse_single("text-decoration-color", "currentcolor");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-color");
+    assert_eq!(decls[0].value, CssValue::Keyword("currentcolor".into()));
+}
+
+// --- M4-1: letter-spacing / word-spacing ---
+
+#[test]
+fn parse_letter_spacing_normal() {
+    let decls = parse_single("letter-spacing", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "letter-spacing");
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into()));
+}
+
+#[test]
+fn parse_letter_spacing_length() {
+    let decls = parse_single("letter-spacing", "2px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "letter-spacing");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(2.0, elidex_plugin::LengthUnit::Px)
+    );
+}
+
+#[test]
+fn parse_word_spacing_normal() {
+    let decls = parse_single("word-spacing", "normal");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "word-spacing");
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into()));
+}
+
+#[test]
+fn parse_word_spacing_length() {
+    let decls = parse_single("word-spacing", "4px");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "word-spacing");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(4.0, elidex_plugin::LengthUnit::Px)
+    );
+}
+
+#[test]
+fn parse_letter_spacing_rejects_percentage() {
+    let decls = parse_single("letter-spacing", "50%");
+    assert!(
+        decls.is_empty(),
+        "letter-spacing must not accept percentages"
+    );
+}
+
+#[test]
+fn parse_word_spacing_rejects_percentage() {
+    let decls = parse_single("word-spacing", "10%");
+    assert!(decls.is_empty(), "word-spacing must not accept percentages");
+}
+
+#[test]
+fn parse_letter_spacing_rejects_calc_with_percentage() {
+    let decls = parse_single("letter-spacing", "calc(10px + 5%)");
+    assert!(
+        decls.is_empty(),
+        "letter-spacing must not accept calc() with percentages"
+    );
+}
+
+#[test]
+fn parse_letter_spacing_accepts_calc_without_percentage() {
+    let decls = parse_single("letter-spacing", "calc(10px + 2em)");
+    assert_eq!(
+        decls.len(),
+        1,
+        "letter-spacing should accept calc() with lengths only"
+    );
+    assert_eq!(decls[0].property, "letter-spacing");
+    assert!(matches!(decls[0].value, CssValue::Calc(_)));
+}
+
+#[test]
+fn parse_word_spacing_accepts_calc_without_percentage() {
+    let decls = parse_single("word-spacing", "calc(5px + 1em)");
+    assert_eq!(
+        decls.len(),
+        1,
+        "word-spacing should accept calc() with lengths only"
+    );
+    assert_eq!(decls[0].property, "word-spacing");
+    assert!(matches!(decls[0].value, CssValue::Calc(_)));
+}
+
+#[test]
+fn parse_text_decoration_overline() {
+    let decls = parse_single("text-decoration-line", "overline");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "text-decoration-line");
+    assert_eq!(decls[0].value, CssValue::Keyword("overline".into()));
 }

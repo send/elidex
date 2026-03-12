@@ -17,12 +17,7 @@ fn background_color_emits_solid_rect() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 10.0,
-                y: 10.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(10.0, 10.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -45,12 +40,7 @@ fn transparent_background_no_item() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -69,12 +59,7 @@ fn text_node_emits_text_item() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -120,12 +105,7 @@ fn nested_elements_painter_order() {
     dom.world_mut().insert_one(
         outer,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 200.0,
-                height: 100.0,
-            },
+            content: Rect::new(0.0, 0.0, 200.0, 100.0),
             ..Default::default()
         },
     );
@@ -141,12 +121,7 @@ fn nested_elements_painter_order() {
     dom.world_mut().insert_one(
         inner,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 10.0,
-                y: 10.0,
-                width: 180.0,
-                height: 80.0,
-            },
+            content: Rect::new(10.0, 10.0, 180.0, 80.0),
             ..Default::default()
         },
     );
@@ -197,12 +172,7 @@ fn display_none_skipped() {
     dom.world_mut().insert_one(
         visible,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -218,12 +188,7 @@ fn display_none_skipped() {
     dom.world_mut().insert_one(
         hidden,
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 50.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 50.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -246,12 +211,7 @@ fn background_uses_border_box() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 20.0,
-                y: 20.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(20.0, 20.0, 100.0, 50.0),
             padding: EdgeSizes {
                 top: 5.0,
                 right: 5.0,
@@ -289,12 +249,7 @@ fn whitespace_only_text_node_skipped() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );

@@ -12,6 +12,7 @@ keywords = ["browser-engine", "text", "shaping"]
 categories = ["web-programming"]
 
 [dependencies]
+elidex-plugin.workspace = true
 fontdb.workspace = true
 rustybuzz.workspace = true
 

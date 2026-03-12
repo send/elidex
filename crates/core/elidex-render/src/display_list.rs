@@ -127,12 +127,7 @@ mod tests {
     fn push_solid_rect() {
         let mut dl = DisplayList::default();
         dl.0.push(DisplayItem::SolidRect {
-            rect: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            rect: Rect::new(0.0, 0.0, 100.0, 50.0),
             color: CssColor::RED,
         });
         assert_eq!(dl.0.len(), 1);

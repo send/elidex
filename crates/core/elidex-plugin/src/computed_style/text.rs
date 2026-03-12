@@ -58,25 +58,49 @@ keyword_enum! {
 
 /// The CSS `text-decoration-line` property.
 ///
-/// Not inherited. Multiple values possible (e.g. `underline line-through`).
-// TODO(Phase 4): Add `overline` field per CSS Text Decoration 3 §2.1.
-// The spec defines three line values: underline, overline, line-through.
+/// Not inherited. Multiple values possible (e.g. `underline overline line-through`).
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct TextDecorationLine {
     /// Whether `underline` is set.
     pub underline: bool,
+    /// Whether `overline` is set.
+    pub overline: bool,
     /// Whether `line-through` is set.
     pub line_through: bool,
 }
 
 impl fmt::Display for TextDecorationLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (self.underline, self.line_through) {
-            (false, false) => f.write_str("none"),
-            (true, false) => f.write_str("underline"),
-            (false, true) => f.write_str("line-through"),
-            (true, true) => f.write_str("underline line-through"),
+        let values = [
+            (self.underline, "underline"),
+            (self.overline, "overline"),
+            (self.line_through, "line-through"),
+        ];
+        let mut first = true;
+        for (set, name) in values {
+            if set {
+                if !first {
+                    f.write_str(" ")?;
+                }
+                f.write_str(name)?;
+                first = false;
+            }
         }
+        if first {
+            f.write_str("none")?;
+        }
+        Ok(())
+    }
+}
+
+keyword_enum! {
+    /// The CSS `text-decoration-style` property (CSS Text Decoration 3 §2.2).
+    TextDecorationStyle {
+        Solid => "solid",
+        Double => "double",
+        Dotted => "dotted",
+        Dashed => "dashed",
+        Wavy => "wavy",
     }
 }
 

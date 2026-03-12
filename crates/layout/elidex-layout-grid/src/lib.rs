@@ -243,12 +243,7 @@ pub fn layout_grid(
 
     // --- 14. LayoutBox ---
     let lb = LayoutBox {
-        content: Rect {
-            x: content_x,
-            y: content_y,
-            width: content_width,
-            height: content_height,
-        },
+        content: Rect::new(content_x, content_y, content_width, content_height),
         padding,
         border,
         margin,
@@ -536,12 +531,12 @@ fn position_items(
         // Ensure the content height matches the grid-resolved value.
         if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {
             let corrected = LayoutBox {
-                content: Rect {
-                    x: final_lb.content.x,
-                    y: final_lb.content.y,
-                    width: item_content_w,
-                    height: item_content_h,
-                },
+                content: Rect::new(
+                    final_lb.content.x,
+                    final_lb.content.y,
+                    item_content_w,
+                    item_content_h,
+                ),
                 ..final_lb
             };
             let _ = dom.world_mut().insert_one(item.entity, corrected);

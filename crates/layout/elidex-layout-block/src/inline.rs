@@ -6,7 +6,10 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, WritingMode};
-use elidex_text::{find_break_opportunities, measure_text, BreakOpportunity, FontDatabase};
+use elidex_text::{
+    find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
+    TextMeasureParams,
+};
 
 use crate::MAX_LAYOUT_DEPTH;
 
@@ -55,20 +58,17 @@ fn collect_text_inner(dom: &EcsDom, children: &[Entity], depth: u32) -> String {
 /// trigger line overflow).
 fn measure_segment_widths(
     font_db: &FontDatabase,
-    families: &[&str],
-    font_size: f32,
-    font_weight: u16,
+    params: &TextMeasureParams<'_>,
     segment: &str,
 ) -> (f32, f32) {
-    let seg_width =
-        measure_text(font_db, families, font_size, font_weight, segment).map_or(0.0, |m| m.width);
+    let seg_width = measure_text(font_db, params, segment).map_or(0.0, |m| m.width);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {
         0.0
     } else {
-        measure_text(font_db, families, font_size, font_weight, trimmed).map_or(0.0, |m| m.width)
+        measure_text(font_db, params, trimmed).map_or(0.0, |m| m.width)
     };
     (seg_width, trimmed_width)
 }
@@ -100,14 +100,20 @@ pub fn layout_inline_context(
         .iter()
         .map(String::as_str)
         .collect();
-    let font_size = parent_style.font_size;
-    let font_weight = parent_style.font_weight;
+    let params = TextMeasureParams {
+        families: &families,
+        font_size: parent_style.font_size,
+        weight: parent_style.font_weight,
+        style: to_fontdb_style(parent_style.font_style),
+        letter_spacing: parent_style.letter_spacing.unwrap_or(0.0),
+        word_spacing: parent_style.word_spacing.unwrap_or(0.0),
+    };
 
     // Use CSS line-height (resolved to px via the element's font-size).
-    let line_height = parent_style.line_height.resolve_px(font_size);
+    let line_height = parent_style.line_height.resolve_px(params.font_size);
 
     // Verify a font is available (needed for segment width measurement).
-    if measure_text(font_db, &families, font_size, font_weight, "x").is_none() {
+    if measure_text(font_db, &params, "x").is_none() {
         return 0.0; // no font available
     }
 
@@ -133,7 +139,11 @@ pub fn layout_inline_context(
     // For vertical writing: each "line" stacks along the block axis (X),
     // and the line advance is the font-size (column width), not line-height.
     // For horizontal: "line" stacks along Y, line advance = line-height.
-    let line_advance = if is_vertical { font_size } else { line_height };
+    let line_advance = if is_vertical {
+        params.font_size
+    } else {
+        line_height
+    };
 
     // Greedy line packing: accumulate segment inline sizes until overflow
     // or mandatory break.
@@ -150,8 +160,7 @@ pub fn layout_inline_context(
         }
 
         // TODO(Phase 4): use vertical shaping metrics for vertical modes.
-        let (seg_width, trimmed_width) =
-            measure_segment_widths(font_db, &families, font_size, font_weight, segment);
+        let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, segment);
 
         if current_inline + trimmed_width > containing_inline_size && on_line {
             // Current line overflows — wrap to next line.
@@ -208,7 +217,15 @@ mod tests {
             ..Default::default()
         };
         let font_db = FontDatabase::new();
-        measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, "x")?;
+        let params = TextMeasureParams {
+            families: TEST_FAMILIES,
+            font_size: style.font_size,
+            weight: 400,
+            style: elidex_text::FontStyle::Normal,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
+        };
+        measure_text(&font_db, &params, "x")?;
         Some((dom, parent, style, font_db))
     }
 

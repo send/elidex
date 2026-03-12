@@ -25,6 +25,8 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "writing-mode",
     "text-orientation",
     "visibility",
+    "letter-spacing",
+    "word-spacing",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -46,11 +48,14 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "font-size" => CssValue::Length(16.0, LengthUnit::Px),
         "font-family" => CssValue::List(vec![CssValue::Keyword("serif".to_string())]),
 
-        // Inherited text
+        // Inherited text / keyword "normal" initial values
         "font-weight" => CssValue::Number(400.0),
-        "font-style" | "line-height" | "white-space" | "content" => {
-            CssValue::Keyword("normal".to_string())
-        }
+        "font-style" | "line-height" | "white-space" | "content" | "unicode-bidi"
+        | "letter-spacing" | "word-spacing" => CssValue::Keyword("normal".to_string()),
+        // Non-inherited text decoration style/color
+        "text-decoration-style" => CssValue::Keyword("solid".to_string()),
+        "text-decoration-color" => CssValue::Keyword("currentcolor".to_string()),
+
         // Keyword "none" initial values
         "text-transform"
         | "text-decoration-line"
@@ -67,7 +72,6 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Writing mode / BiDi
         "direction" => CssValue::Keyword("ltr".to_string()),
-        "unicode-bidi" => CssValue::Keyword("normal".to_string()),
         "writing-mode" => CssValue::Keyword("horizontal-tb".to_string()),
         "text-orientation" => CssValue::Keyword("mixed".to_string()),
 
@@ -92,7 +96,8 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
         "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
         | "margin-left" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
-        | "border-radius" | "row-gap" | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
+        | "border-radius" | "row-gap" | "column-gap" | "border-spacing" | "border-spacing-h"
+        | "border-spacing-v" => CssValue::Length(0.0, LengthUnit::Px),
 
         // Border width (CSS initial = medium = 3px)
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
@@ -106,9 +111,6 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
 
         // Table
         "border-collapse" => CssValue::Keyword("separate".to_string()),
-        "border-spacing" | "border-spacing-h" | "border-spacing-v" => {
-            CssValue::Length(0.0, LengthUnit::Px)
-        }
         "table-layout" | "align-self" => CssValue::Keyword("auto".to_string()),
         "caption-side" => CssValue::Keyword("top".to_string()),
 

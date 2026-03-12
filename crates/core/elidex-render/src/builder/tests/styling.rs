@@ -15,12 +15,7 @@ fn text_align_center_offsets_text() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 400.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 400.0, 20.0),
             ..Default::default()
         },
     );
@@ -57,12 +52,7 @@ fn text_align_right_offsets_text() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 400.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 400.0, 20.0),
             ..Default::default()
         },
     );
@@ -115,12 +105,7 @@ fn emit_borders_four_sides() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 12.0,
-                y: 12.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(12.0, 12.0, 100.0, 50.0),
             border: EdgeSizes {
                 top: 2.0,
                 right: 2.0,
@@ -152,12 +137,7 @@ fn emit_borders_style_none_skipped() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 2.0,
-                y: 2.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(2.0, 2.0, 100.0, 50.0),
             border: EdgeSizes {
                 top: 2.0,
                 right: 2.0,
@@ -184,12 +164,7 @@ fn emit_borders_zero_width_skipped() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             border: EdgeSizes {
                 top: 0.0,
                 ..Default::default()
@@ -212,12 +187,7 @@ fn background_with_border_radius_emits_rounded_rect() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -239,12 +209,7 @@ fn background_without_border_radius_emits_solid_rect() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -300,12 +265,7 @@ fn border_radius_with_border_known_limitation() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 2.0,
-                y: 2.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(2.0, 2.0, 100.0, 50.0),
             border: EdgeSizes {
                 top: 2.0,
                 right: 2.0,
@@ -348,12 +308,7 @@ fn border_corners_no_overlap() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 5.0,
-                y: 5.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(5.0, 5.0, 100.0, 50.0),
             border: EdgeSizes {
                 top: 3.0,
                 right: 2.0,
@@ -408,7 +363,7 @@ fn apply_text_transform_cases() {
     ];
     for (input, transform, expected) in cases {
         assert_eq!(
-            super::super::apply_text_transform(input, transform),
+            super::super::text::apply_text_transform(input, transform),
             expected,
             "input={input:?}, transform={transform:?}"
         );
@@ -428,12 +383,7 @@ fn image_data_emits_image_item() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 10.0,
-                y: 10.0,
-                width: 200.0,
-                height: 100.0,
-            },
+            content: Rect::new(10.0, 10.0, 200.0, 100.0),
             ..Default::default()
         },
     );
@@ -478,12 +428,7 @@ fn no_image_data_no_image_item() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -506,12 +451,7 @@ fn image_opacity_zero_skipped() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 50.0,
-            },
+            content: Rect::new(0.0, 0.0, 100.0, 50.0),
             ..Default::default()
         },
     );
@@ -546,17 +486,12 @@ fn text_decoration_underline_emits_solid_rect() {
             font_family: test_font_family_strings(),
             text_decoration_line: elidex_plugin::TextDecorationLine {
                 underline: true,
-                line_through: false,
+                ..elidex_plugin::TextDecorationLine::default()
             },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );
@@ -602,12 +537,7 @@ fn styled_span_color_preserved() {
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
-            content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 800.0,
-                height: 20.0,
-            },
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
             ..Default::default()
         },
     );

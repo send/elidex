@@ -32,7 +32,7 @@ pub(super) use paint::{
     apply_opacity, emit_background, emit_borders, emit_image, emit_list_marker_with_counter,
     find_nearest_layout_box,
 };
-pub(super) use text::{apply_text_transform, compute_text_align_offset, resolve_text_align};
+pub(super) use text::{compute_text_align_offset, query_segment_font, resolve_text_align};
 pub(super) use walk::walk;
 pub(super) use whitespace::collapse_segments;
 
@@ -63,13 +63,26 @@ pub(super) const DECIMAL_MARKER_GAP_FACTOR: f32 = 0.3;
 pub(super) const DEFAULT_DESCENT_FACTOR: f32 = 0.25;
 
 /// Underline position as a fraction of the descent below the baseline.
+///
+/// CSS Text Decoration Level 3 section 2.2 leaves the exact position UA-defined when
+/// font metrics are unavailable. We place the underline at 50% of the descent.
 pub(super) const UNDERLINE_POSITION_FACTOR: f32 = 0.5;
 
 /// Line-through position as a fraction of the ascent above the baseline.
+///
+/// CSS Text Decoration Level 3 section 2.2 leaves the exact position UA-defined.
+/// We place the line-through at 40% of the ascent (roughly the vertical center of
+/// lowercase glyphs).
 pub(super) const LINE_THROUGH_POSITION_FACTOR: f32 = 0.4;
 
 /// Minimum text decoration thickness divisor: `font_size / DECORATION_THICKNESS_DIVISOR`.
 pub(super) const DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
+
+/// Overline position as a fraction of the ascent above the baseline.
+///
+/// CSS Text Decoration Level 3 section 2.2 leaves the exact position UA-defined.
+/// We place the overline at 100% of the ascent (top of the em square).
+pub(super) const OVERLINE_POSITION_FACTOR: f32 = 1.0;
 
 /// Build a display list from a laid-out DOM tree.
 ///

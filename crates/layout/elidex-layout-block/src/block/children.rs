@@ -220,12 +220,7 @@ fn layout_float(
     // Overwrite the LayoutBox that layout_child inserted at a temporary
     // position — hecs `insert_one` on an existing component is an upsert.
     let lb = LayoutBox {
-        content: elidex_plugin::Rect {
-            x: final_x,
-            y: final_y,
-            width: content_width,
-            height: content_height,
-        },
+        content: elidex_plugin::Rect::new(final_x, final_y, content_width, content_height),
         padding,
         border,
         margin: EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),

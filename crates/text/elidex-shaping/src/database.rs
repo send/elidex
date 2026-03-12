@@ -39,7 +39,7 @@ impl FontDatabase {
         Self { db }
     }
 
-    /// Queries for a font matching any of the given family names and weight.
+    /// Queries for a font matching any of the given family names, weight, and style.
     ///
     /// CSS generic family names (`serif`, `sans-serif`, `monospace`,
     /// `cursive`, `fantasy`) are mapped to the corresponding `fontdb`
@@ -47,15 +47,16 @@ impl FontDatabase {
     /// family names.
     ///
     /// `weight` is the CSS font-weight value (100-900). Pass `400` for normal.
+    /// `style` is the fontdb style (Normal, Italic, Oblique).
     ///
     /// Returns the first match found, or `None` if no font matches.
-    ///
-    // TODO(Phase 4): Implement per-glyph font fallback. Currently a single
-    // font is selected for the entire text run; glyphs missing from that font
-    // render as `.notdef`. A proper fallback chain should try each family in
-    // order per glyph (CSS Fonts Level 4 §4.7).
     #[must_use]
-    pub fn query(&self, families: &[&str], weight: u16) -> Option<fontdb::ID> {
+    pub fn query(
+        &self,
+        families: &[&str],
+        weight: u16,
+        style: fontdb::Style,
+    ) -> Option<fontdb::ID> {
         let family_list: Vec<fontdb::Family<'_>> = families
             .iter()
             .map(|name| match *name {
@@ -70,9 +71,21 @@ impl FontDatabase {
         let query = fontdb::Query {
             families: &family_list,
             weight: fontdb::Weight(weight),
+            style,
             ..fontdb::Query::default()
         };
         self.db.query(&query)
+    }
+
+    /// Check whether the font with the given ID contains a glyph for `ch`.
+    #[must_use]
+    pub fn has_glyph(&self, id: fontdb::ID, ch: char) -> bool {
+        self.db
+            .with_face_data(id, |data, face_index| {
+                rustybuzz::Face::from_slice(data, face_index)
+                    .is_some_and(|face| face.glyph_index(ch).is_some())
+            })
+            .unwrap_or(false)
     }
 
     /// Returns pixel-scaled font metrics for the given font and size.
@@ -109,6 +122,21 @@ impl FontDatabase {
     }
 }
 
+/// Convert [`elidex_plugin::FontStyle`] to [`fontdb::Style`].
+///
+/// Font-style fallback (italic ↔ oblique) is delegated to fontdb, which
+/// implements the CSS Fonts Level 3 §5.2 font matching algorithm. When the
+/// exact style is unavailable, fontdb automatically substitutes oblique for
+/// italic and vice versa.
+#[must_use]
+pub fn to_fontdb_style(fs: elidex_plugin::FontStyle) -> fontdb::Style {
+    match fs {
+        elidex_plugin::FontStyle::Normal => fontdb::Style::Normal,
+        elidex_plugin::FontStyle::Italic => fontdb::Style::Italic,
+        elidex_plugin::FontStyle::Oblique => fontdb::Style::Oblique,
+    }
+}
+
 impl Default for FontDatabase {
     fn default() -> Self {
         Self::new()
@@ -128,14 +156,18 @@ mod tests {
     fn nonexistent_font_returns_none() {
         let db = FontDatabase::new();
         assert!(db
-            .query(&["__nonexistent_font_family_12345__"], 400)
+            .query(
+                &["__nonexistent_font_family_12345__"],
+                400,
+                fontdb::Style::Normal
+            )
             .is_none());
     }
 
     #[test]
     fn query_system_font() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400, fontdb::Style::Normal) else {
             // CI environment may not have fonts installed
             return;
         };
@@ -147,7 +179,7 @@ mod tests {
     #[test]
     fn font_metrics_pixel_scaling() {
         let db = FontDatabase::new();
-        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400, fontdb::Style::Normal) else {
             return;
         };
         let metrics = db.font_metrics(id, 16.0).unwrap();
@@ -161,7 +193,7 @@ mod tests {
     fn query_with_bold_weight() {
         let db = FontDatabase::new();
         // Bold font query (weight 700) should also succeed.
-        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 700) else {
+        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 700, fontdb::Style::Normal) else {
             // Some CI environments may not have bold variants.
             return;
         };
@@ -172,8 +204,27 @@ mod tests {
         let db = FontDatabase::new();
         // Normal weight (400) is the standard default.
         // If any font is available at all, 400 should work.
-        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 400) else {
+        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 400, fontdb::Style::Normal) else {
             return;
         };
+    }
+
+    #[test]
+    fn query_with_italic_style() {
+        let db = FontDatabase::new();
+        // Italic query should succeed (fontdb falls back to closest match).
+        let Some(_id) = db.query(crate::TEST_FONT_FAMILIES, 400, fontdb::Style::Italic) else {
+            return;
+        };
+    }
+
+    #[test]
+    fn has_glyph_ascii() {
+        let db = FontDatabase::new();
+        let Some(id) = db.query(crate::TEST_FONT_FAMILIES, 400, fontdb::Style::Normal) else {
+            return;
+        };
+        // ASCII 'A' should be present in any system font.
+        assert!(db.has_glyph(id, 'A'));
     }
 }

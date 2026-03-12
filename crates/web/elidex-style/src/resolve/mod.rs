@@ -20,6 +20,15 @@ use elidex_plugin::{
 pub(crate) use helpers::PropertyMap;
 use helpers::{keyword_from, resolve_dimension};
 
+/// Convert a spacing value (letter-spacing / word-spacing) to its computed CSS value.
+/// `None` → `Keyword("normal")`, `Some(px)` → `Length(px, Px)`.
+fn spacing_to_css_value(value: Option<f32>) -> CssValue {
+    match value {
+        None => CssValue::Keyword("normal".to_string()),
+        Some(v) => CssValue::Length(v, LengthUnit::Px),
+    }
+}
+
 use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
 
 use font::{
@@ -110,15 +119,29 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "text-orientation" => keyword_from(&style.text_orientation),
         "text-decoration-line" => {
             let d = &style.text_decoration_line;
-            if d.underline && d.line_through {
-                CssValue::List(vec![
-                    CssValue::Keyword("underline".to_string()),
-                    CssValue::Keyword("line-through".to_string()),
-                ])
+            let mut parts = Vec::new();
+            if d.underline {
+                parts.push(CssValue::Keyword("underline".to_string()));
+            }
+            if d.overline {
+                parts.push(CssValue::Keyword("overline".to_string()));
+            }
+            if d.line_through {
+                parts.push(CssValue::Keyword("line-through".to_string()));
+            }
+            if parts.len() > 1 {
+                CssValue::List(parts)
             } else {
                 CssValue::Keyword(d.to_string())
             }
         }
+        "text-decoration-style" => keyword_from(&style.text_decoration_style),
+        "text-decoration-color" => match style.text_decoration_color {
+            Some(c) => CssValue::Color(c),
+            None => CssValue::Keyword("currentcolor".to_string()),
+        },
+        "letter-spacing" => spacing_to_css_value(style.letter_spacing),
+        "word-spacing" => spacing_to_css_value(style.word_spacing),
         "display" => keyword_from(&style.display),
         "position" => keyword_from(&style.position),
         "overflow" => keyword_from(&style.overflow),

@@ -244,21 +244,35 @@ fn text_decoration_line_display() {
 
     let ul = TextDecorationLine {
         underline: true,
-        line_through: false,
+        ..TextDecorationLine::default()
     };
     assert_eq!(ul.to_string(), "underline");
 
     let lt = TextDecorationLine {
-        underline: false,
         line_through: true,
+        ..TextDecorationLine::default()
     };
     assert_eq!(lt.to_string(), "line-through");
 
     let both = TextDecorationLine {
         underline: true,
         line_through: true,
+        ..TextDecorationLine::default()
     };
     assert_eq!(both.to_string(), "underline line-through");
+
+    let overline = TextDecorationLine {
+        overline: true,
+        ..TextDecorationLine::default()
+    };
+    assert_eq!(overline.to_string(), "overline");
+
+    let all = TextDecorationLine {
+        underline: true,
+        overline: true,
+        line_through: true,
+    };
+    assert_eq!(all.to_string(), "underline overline line-through");
 }
 
 #[test]

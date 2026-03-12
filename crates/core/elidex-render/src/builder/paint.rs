@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Rect};
-use elidex_text::{shape_text, FontDatabase};
+use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
 
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::font_cache::FontCache;
@@ -73,24 +73,19 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // top (full width)
     if style.border_top_style != BorderStyle::None && lb.border.top > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y,
-                width: bb.width,
-                height: lb.border.top,
-            },
+            rect: elidex_plugin::Rect::new(bb.x, bb.y, bb.width, lb.border.top),
             color: apply_opacity(style.border_top_color, opacity),
         });
     }
     // bottom (full width)
     if style.border_bottom_style != BorderStyle::None && lb.border.bottom > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y + bb.height - lb.border.bottom,
-                width: bb.width,
-                height: lb.border.bottom,
-            },
+            rect: elidex_plugin::Rect::new(
+                bb.x,
+                bb.y + bb.height - lb.border.bottom,
+                bb.width,
+                lb.border.bottom,
+            ),
             color: apply_opacity(style.border_bottom_color, opacity),
         });
     }
@@ -100,24 +95,19 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     let v_height = (bb.height - v_inset_top - v_inset_bottom).max(0.0);
     if style.border_right_style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x + bb.width - lb.border.right,
-                y: bb.y + v_inset_top,
-                width: lb.border.right,
-                height: v_height,
-            },
+            rect: elidex_plugin::Rect::new(
+                bb.x + bb.width - lb.border.right,
+                bb.y + v_inset_top,
+                lb.border.right,
+                v_height,
+            ),
             color: apply_opacity(style.border_right_color, opacity),
         });
     }
     // left (inset by top/bottom to avoid corner overlap)
     if style.border_left_style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
-            rect: elidex_plugin::Rect {
-                x: bb.x,
-                y: bb.y + v_inset_top,
-                width: lb.border.left,
-                height: v_height,
-            },
+            rect: elidex_plugin::Rect::new(bb.x, bb.y + v_inset_top, lb.border.left, v_height),
             color: apply_opacity(style.border_left_color, opacity),
         });
     }
@@ -163,8 +153,9 @@ pub(crate) fn emit_list_marker_with_counter(
     let marker_x = lb.content.x - style.font_size * MARKER_X_OFFSET_FACTOR;
 
     let families = families_as_refs(&style.font_family);
+    let font_style = to_fontdb_style(style.font_style);
     let ascent = font_db
-        .query(&families, style.font_weight)
+        .query(&families, style.font_weight, font_style)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
     let marker_y =
@@ -173,12 +164,7 @@ pub(crate) fn emit_list_marker_with_counter(
     let color = apply_opacity(style.color, style.opacity);
 
     // Common marker rect for disc/circle/square (R2: hoisted before match).
-    let marker_rect = Rect {
-        x: marker_x,
-        y: marker_y,
-        width: marker_size,
-        height: marker_size,
-    };
+    let marker_rect = Rect::new(marker_x, marker_y, marker_size, marker_size);
 
     match style.list_style_type {
         ListStyleType::Disc => {
@@ -204,7 +190,7 @@ pub(crate) fn emit_list_marker_with_counter(
         }
         ListStyleType::Decimal => {
             let marker_text = format!("{counter}.");
-            let Some(font_id) = font_db.query(&families, style.font_weight) else {
+            let Some(font_id) = font_db.query(&families, style.font_weight, font_style) else {
                 return;
             };
             let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {
@@ -214,10 +200,20 @@ pub(crate) fn emit_list_marker_with_counter(
                 return;
             };
             let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
+            if !text_width.is_finite() {
+                return;
+            }
             let baseline_y = lb.content.y + ascent;
             let mut text_x =
                 lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
-            let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y);
+            let glyphs = place_glyphs(
+                &shaped.glyphs,
+                &mut text_x,
+                baseline_y,
+                0.0,
+                0.0,
+                &marker_text,
+            );
             dl.push(DisplayItem::Text {
                 glyphs,
                 font_blob,
