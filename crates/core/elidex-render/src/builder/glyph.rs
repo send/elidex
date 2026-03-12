@@ -2,6 +2,16 @@
 
 use crate::display_list::GlyphEntry;
 
+/// Sanitize a float value: replace NaN/infinity with `0.0`.
+#[inline]
+fn sanitize_float(v: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
+}
+
 /// Returns `true` if `ch` is a Unicode word separator (General Category Zs).
 ///
 /// Per CSS Text Level 3 §4.3, word-spacing applies to all characters with
@@ -46,21 +56,9 @@ pub(crate) fn place_glyphs(
     text: &str,
 ) -> Vec<GlyphEntry> {
     // Sanitize inputs: NaN/infinity would corrupt cursor position and glyph coordinates.
-    let ls = if letter_spacing.is_finite() {
-        letter_spacing
-    } else {
-        0.0
-    };
-    let ws = if word_spacing.is_finite() {
-        word_spacing
-    } else {
-        0.0
-    };
-    let by = if baseline_y.is_finite() {
-        baseline_y
-    } else {
-        0.0
-    };
+    let ls = sanitize_float(letter_spacing);
+    let ws = sanitize_float(word_spacing);
+    let by = sanitize_float(baseline_y);
 
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
     let mut last_ws_cluster: Option<u32> = None;
@@ -113,7 +111,7 @@ pub(crate) fn place_glyphs_vertical(
     cursor_y: &mut f32,
 ) -> Vec<GlyphEntry> {
     // Sanitize: NaN/infinity would corrupt glyph coordinates.
-    let cx = if center_x.is_finite() { center_x } else { 0.0 };
+    let cx = sanitize_float(center_x);
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
     for glyph in shaped_glyphs {
         let x = cx + glyph.x_offset;

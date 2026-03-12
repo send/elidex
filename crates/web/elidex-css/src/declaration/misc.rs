@@ -101,6 +101,11 @@ pub(super) fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration>
 
 // --- Text decoration shorthand ---
 
+/// Valid `text-decoration-style` keywords (CSS Text Decoration Level 3 §2.2).
+const DECORATION_STYLE_KEYWORDS: [&str; 5] = ["solid", "double", "dotted", "dashed", "wavy"];
+/// Valid `text-decoration-line` keywords (CSS Text Decoration Level 3 §2.1).
+const DECORATION_LINE_KEYWORDS: [&str; 3] = ["underline", "overline", "line-through"];
+
 /// Parse `text-decoration` shorthand: `<line> || <style> || <color>`.
 ///
 /// Produces up to 3 longhand declarations.
@@ -133,8 +138,6 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
     let mut has_none = false;
     let mut style_val: Option<CssValue> = None;
     let mut color_val: Option<CssValue> = None;
-    let style_keywords = ["solid", "double", "dotted", "dashed", "wavy"];
-    let line_keywords = ["underline", "overline", "line-through"];
 
     // Parse tokens in any order.
     loop {
@@ -149,7 +152,7 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
                     }
                     has_none = true;
                     Ok(())
-                } else if line_keywords.contains(&lower.as_str()) {
+                } else if DECORATION_LINE_KEYWORDS.contains(&lower.as_str()) {
                     // Line keywords are exclusive with "none".
                     if has_none {
                         return Err(());
@@ -159,7 +162,7 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
                         line_values.push(kw);
                     }
                     Ok(())
-                } else if style_val.is_none() && style_keywords.contains(&lower.as_str()) {
+                } else if style_val.is_none() && DECORATION_STYLE_KEYWORDS.contains(&lower.as_str()) {
                     style_val = Some(CssValue::Keyword(lower));
                     Ok(())
                 } else if color_val.is_none() && lower == "currentcolor" {
