@@ -140,17 +140,6 @@ pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     }
 }
 
-/// Returns `true` if a `calc()` expression contains any percentage terms.
-fn calc_has_percentage(expr: &CalcExpr) -> bool {
-    match expr {
-        CalcExpr::Percentage(_) => true,
-        CalcExpr::Length(..) | CalcExpr::Number(_) => false,
-        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) | CalcExpr::Mul(a, b) | CalcExpr::Div(a, b) => {
-            calc_has_percentage(a) || calc_has_percentage(b)
-        }
-    }
-}
-
 /// Resolve a `calc()` expression tree to a pixel value.
 ///
 /// Uses a typed resolver that distinguishes `Length` (dimensional) from
