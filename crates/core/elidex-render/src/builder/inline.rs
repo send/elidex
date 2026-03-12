@@ -2,8 +2,8 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, TextAlign,
-    TextDecorationLine, TextDecorationStyle, TextTransform, Visibility, WritingMode,
+    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox,
+    TextAlign, TextDecorationLine, TextDecorationStyle, TextTransform, Visibility, WritingMode,
 };
 use elidex_text::FontDatabase;
 
@@ -262,10 +262,8 @@ fn emit_styled_segments(
 
         // Text decoration.
         let decoration_thickness = (seg.font_size / DECORATION_THICKNESS_DIVISOR).max(1.0);
-        let decoration_color = apply_opacity(
-            seg.text_decoration_color.unwrap_or(seg.color),
-            seg.opacity,
-        );
+        let decoration_color =
+            apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
         if seg.text_decoration_line.underline {
             let y = baseline_y - descent * UNDERLINE_POSITION_FACTOR;
             emit_decoration_line(

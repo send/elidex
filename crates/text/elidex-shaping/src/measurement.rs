@@ -59,7 +59,14 @@ mod tests {
     #[test]
     fn measure_text_positive_width() {
         let db = FontDatabase::new();
-        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, fontdb::Style::Normal, "Hello, world!") else {
+        let Some(m) = measure_text(
+            &db,
+            TEST_FAMILIES,
+            16.0,
+            400,
+            fontdb::Style::Normal,
+            "Hello, world!",
+        ) else {
             return;
         };
         assert!(m.width > 0.0);
@@ -70,7 +77,8 @@ mod tests {
     #[test]
     fn line_height_formula() {
         let db = FontDatabase::new();
-        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, fontdb::Style::Normal, "Test") else {
+        let Some(m) = measure_text(&db, TEST_FAMILIES, 16.0, 400, fontdb::Style::Normal, "Test")
+        else {
             return;
         };
         // line_height should be >= ascent - descent (line_gap >= 0 for most fonts)
@@ -81,7 +89,14 @@ mod tests {
     #[test]
     fn nonexistent_font_returns_none() {
         let db = FontDatabase::new();
-        let result = measure_text(&db, &["__nonexistent_font_12345__"], 16.0, 400, fontdb::Style::Normal, "test");
+        let result = measure_text(
+            &db,
+            &["__nonexistent_font_12345__"],
+            16.0,
+            400,
+            fontdb::Style::Normal,
+            "test",
+        );
         assert!(result.is_none());
     }
 

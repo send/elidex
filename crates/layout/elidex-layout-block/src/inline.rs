@@ -64,16 +64,30 @@ fn measure_segment_widths(
     font_style: FontStyle,
     segment: &str,
 ) -> (f32, f32) {
-    let seg_width = measure_text(font_db, families, font_size, font_weight, font_style, segment)
-        .map_or(0.0, |m| m.width);
+    let seg_width = measure_text(
+        font_db,
+        families,
+        font_size,
+        font_weight,
+        font_style,
+        segment,
+    )
+    .map_or(0.0, |m| m.width);
     let trimmed = segment.trim_end();
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {
         0.0
     } else {
-        measure_text(font_db, families, font_size, font_weight, font_style, trimmed)
-            .map_or(0.0, |m| m.width)
+        measure_text(
+            font_db,
+            families,
+            font_size,
+            font_weight,
+            font_style,
+            trimmed,
+        )
+        .map_or(0.0, |m| m.width)
     };
     (seg_width, trimmed_width)
 }
@@ -156,8 +170,14 @@ pub fn layout_inline_context(
         }
 
         // TODO(Phase 4): use vertical shaping metrics for vertical modes.
-        let (seg_width, trimmed_width) =
-            measure_segment_widths(font_db, &families, font_size, font_weight, font_style, segment);
+        let (seg_width, trimmed_width) = measure_segment_widths(
+            font_db,
+            &families,
+            font_size,
+            font_weight,
+            font_style,
+            segment,
+        );
 
         if current_inline + trimmed_width > containing_inline_size && on_line {
             // Current line overflows — wrap to next line.
@@ -214,7 +234,14 @@ mod tests {
             ..Default::default()
         };
         let font_db = FontDatabase::new();
-        measure_text(&font_db, TEST_FAMILIES, style.font_size, 400, FontStyle::Normal, "x")?;
+        measure_text(
+            &font_db,
+            TEST_FAMILIES,
+            style.font_size,
+            400,
+            FontStyle::Normal,
+            "x",
+        )?;
         Some((dom, parent, style, font_db))
     }
 

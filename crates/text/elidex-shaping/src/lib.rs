@@ -8,8 +8,8 @@ mod measurement;
 mod shaping;
 
 pub use database::{to_fontdb_style, FontDatabase, FontMetrics};
-pub use fontdb::ID as FontId;
 pub use fontdb::Style as FontStyle;
+pub use fontdb::ID as FontId;
 pub use measurement::{measure_text, TextMetrics};
 pub use shaping::{
     shape_text, shape_text_vertical, shape_text_with_fallback, ShapedGlyph, ShapedRun, ShapedText,

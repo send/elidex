@@ -89,10 +89,20 @@ pub(super) fn resolve_font_and_text_properties(
     resolve_text_decoration_line(style, winners, parent_style);
     resolve_text_decoration_style(style, winners, parent_style);
     resolve_text_decoration_color(style, winners, parent_style);
-    style.letter_spacing =
-        resolve_inherited_spacing("letter-spacing", winners, parent_style, ctx, parent_style.letter_spacing);
-    style.word_spacing =
-        resolve_inherited_spacing("word-spacing", winners, parent_style, ctx, parent_style.word_spacing);
+    style.letter_spacing = resolve_inherited_spacing(
+        "letter-spacing",
+        winners,
+        parent_style,
+        ctx,
+        parent_style.letter_spacing,
+    );
+    style.word_spacing = resolve_inherited_spacing(
+        "word-spacing",
+        winners,
+        parent_style,
+        ctx,
+        parent_style.word_spacing,
+    );
 }
 
 pub(super) fn resolve_font_size(

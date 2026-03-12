@@ -2,9 +2,9 @@
 
 use std::borrow::Cow;
 
+use super::{families_as_refs, StyledTextSegment};
 use elidex_plugin::{Direction, TextAlign, TextTransform};
 use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
-use super::{families_as_refs, StyledTextSegment};
 
 /// Resolve `text-align: start/end` to physical `left/right` based on direction.
 ///

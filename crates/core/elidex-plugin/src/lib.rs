@@ -22,8 +22,8 @@ pub use computed_style::{
     Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
     FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
     Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle,
-    TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi, VerticalAlign, Visibility,
-    WhiteSpace, WritingMode,
+    TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi, VerticalAlign,
+    Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};

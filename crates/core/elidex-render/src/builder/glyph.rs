@@ -19,9 +19,21 @@ pub(crate) fn place_glyphs(
     text: &str,
 ) -> Vec<GlyphEntry> {
     // Sanitize inputs: NaN/infinity would corrupt cursor position and glyph coordinates.
-    let ls = if letter_spacing.is_finite() { letter_spacing } else { 0.0 };
-    let ws = if word_spacing.is_finite() { word_spacing } else { 0.0 };
-    let by = if baseline_y.is_finite() { baseline_y } else { 0.0 };
+    let ls = if letter_spacing.is_finite() {
+        letter_spacing
+    } else {
+        0.0
+    };
+    let ws = if word_spacing.is_finite() {
+        word_spacing
+    } else {
+        0.0
+    };
+    let by = if baseline_y.is_finite() {
+        baseline_y
+    } else {
+        0.0
+    };
 
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
     let mut last_ws_cluster: Option<u32> = None;
@@ -39,7 +51,10 @@ pub(crate) fn place_glyphs(
         // Multiple glyphs can share a cluster (ligatures/combining marks); only
         // apply word-spacing on the first glyph of each space cluster.
         if ws != 0.0 && last_ws_cluster != Some(glyph.cluster) {
-            if let Some(ch) = text.get(glyph.cluster as usize..).and_then(|s| s.chars().next()) {
+            if let Some(ch) = text
+                .get(glyph.cluster as usize..)
+                .and_then(|s| s.chars().next())
+            {
                 if ch == ' ' {
                     *cursor_x += ws;
                     last_ws_cluster = Some(glyph.cluster);

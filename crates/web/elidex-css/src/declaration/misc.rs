@@ -118,7 +118,10 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
     }) {
         return vec![
             Declaration::new("text-decoration-line", val),
-            Declaration::new("text-decoration-style", CssValue::Keyword("solid".to_string())),
+            Declaration::new(
+                "text-decoration-style",
+                CssValue::Keyword("solid".to_string()),
+            ),
             Declaration::new(
                 "text-decoration-color",
                 CssValue::Keyword("currentcolor".to_string()),

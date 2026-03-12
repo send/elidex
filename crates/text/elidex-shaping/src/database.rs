@@ -151,7 +151,11 @@ mod tests {
     fn nonexistent_font_returns_none() {
         let db = FontDatabase::new();
         assert!(db
-            .query(&["__nonexistent_font_family_12345__"], 400, fontdb::Style::Normal)
+            .query(
+                &["__nonexistent_font_family_12345__"],
+                400,
+                fontdb::Style::Normal
+            )
             .is_none());
     }
 

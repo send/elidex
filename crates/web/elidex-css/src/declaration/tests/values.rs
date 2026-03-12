@@ -508,10 +508,7 @@ fn parse_text_decoration_multiple() {
     assert_eq!(decls[1].property, "text-decoration-style");
     assert_eq!(decls[1].value, CssValue::Keyword("solid".into()));
     assert_eq!(decls[2].property, "text-decoration-color");
-    assert_eq!(
-        decls[2].value,
-        CssValue::Keyword("currentcolor".into())
-    );
+    assert_eq!(decls[2].value, CssValue::Keyword("currentcolor".into()));
 }
 
 // --- M4-1: text-decoration shorthand with style ---
@@ -627,7 +624,10 @@ fn parse_word_spacing_length() {
 #[test]
 fn parse_letter_spacing_rejects_percentage() {
     let decls = parse_single("letter-spacing", "50%");
-    assert!(decls.is_empty(), "letter-spacing must not accept percentages");
+    assert!(
+        decls.is_empty(),
+        "letter-spacing must not accept percentages"
+    );
 }
 
 #[test]

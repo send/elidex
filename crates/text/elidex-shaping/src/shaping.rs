@@ -321,7 +321,9 @@ pub fn shape_text_with_fallback(
                     .map(|mut g| {
                         #[allow(clippy::cast_possible_truncation)]
                         // sub_start ≤ text.len() which fits in u32 for any practical text.
-                        { g.cluster += sub_start as u32; }
+                        {
+                            g.cluster += sub_start as u32;
+                        }
                         g
                     })
                     .collect();
