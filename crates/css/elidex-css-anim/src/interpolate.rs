@@ -21,6 +21,20 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
             Some(CssValue::Length(lerp(*a, *b, t), *ua))
         }
 
+        // Length ↔ Length (mismatched units) — should not happen after resolve;
+        // all lengths should be normalized to px before interpolation.
+        (CssValue::Length(_, ua), CssValue::Length(_, ub)) => {
+            eprintln!(
+                "interpolate: mismatched length units {ua:?} vs {ub:?}, \
+                 falling back to discrete interpolation"
+            );
+            if t < 0.5 {
+                Some(from.clone())
+            } else {
+                Some(to.clone())
+            }
+        }
+
         // Percentage ↔ Percentage
         (CssValue::Percentage(a), CssValue::Percentage(b)) => {
             Some(CssValue::Percentage(lerp(*a, *b, t)))

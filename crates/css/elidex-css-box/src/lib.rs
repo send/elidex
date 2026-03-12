@@ -530,11 +530,7 @@ fn resolve_border_style(value: &CssValue, target: &mut BorderStyle) {
 
 /// Resolve a border-style value and zero the corresponding width when the
 /// style is `none` or `hidden` (CSS 2.1 §8.5.1).
-fn resolve_border_style_and_zero_width(
-    value: &CssValue,
-    style: &mut BorderStyle,
-    width: &mut f32,
-) {
+fn resolve_border_style_and_zero_width(value: &CssValue, style: &mut BorderStyle, width: &mut f32) {
     resolve_border_style(value, style);
     if matches!(*style, BorderStyle::None | BorderStyle::Hidden) {
         *width = 0.0;
