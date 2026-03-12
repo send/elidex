@@ -591,6 +591,12 @@ fn parse_word_spacing_normal() {
     let decls = parse_single("word-spacing", "normal");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "word-spacing");
+    // "normal" is converted to 0px at parse time.
+    // TODO: preserve Keyword("normal") for computed value serialization (CSS Text L3 §4.3).
+    assert_eq!(
+        decls[0].value,
+        CssValue::Length(0.0, elidex_plugin::LengthUnit::Px)
+    );
 }
 
 #[test]

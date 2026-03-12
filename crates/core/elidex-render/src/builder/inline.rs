@@ -487,6 +487,10 @@ fn emit_decoration_line(
     color: CssColor,
     style: TextDecorationStyle,
 ) {
+    // Guard: skip entirely if width or thickness is non-finite or non-positive.
+    if !width.is_finite() || !thickness.is_finite() || width <= 0.0 || thickness <= 0.0 {
+        return;
+    }
     match style {
         TextDecorationStyle::Solid | TextDecorationStyle::Wavy => {
             dl.push(DisplayItem::SolidRect {
@@ -521,47 +525,44 @@ fn emit_decoration_line(
             });
         }
         TextDecorationStyle::Dotted => {
-            let dot = thickness;
-            let step = dot * 2.0;
-            // Guard: skip if step is not positive (avoids infinite loop for zero/NaN thickness).
-            if step > 0.0 {
-                let mut cx = x;
-                while cx < x + width {
-                    let w = dot.min(x + width - cx);
-                    dl.push(DisplayItem::SolidRect {
-                        rect: elidex_plugin::Rect {
-                            x: cx,
-                            y,
-                            width: w,
-                            height: thickness,
-                        },
-                        color,
-                    });
-                    cx += step;
-                }
-            }
+            emit_repeating_decoration(dl, x, y, width, thickness, thickness, color);
         }
         TextDecorationStyle::Dashed => {
-            let dash = thickness * 3.0;
-            let gap = thickness;
-            let step = dash + gap;
-            // Guard: skip if step is not positive (avoids infinite loop for zero/NaN thickness).
-            if step > 0.0 {
-                let mut cx = x;
-                while cx < x + width {
-                    let w = dash.min(x + width - cx);
-                    dl.push(DisplayItem::SolidRect {
-                        rect: elidex_plugin::Rect {
-                            x: cx,
-                            y,
-                            width: w,
-                            height: thickness,
-                        },
-                        color,
-                    });
-                    cx += step;
-                }
-            }
+            emit_repeating_decoration(dl, x, y, width, thickness * 3.0, thickness, color);
         }
+    }
+}
+
+/// Emit a repeating decoration pattern (dots or dashes).
+///
+/// Each mark has `mark_width` inline extent and `thickness` block extent,
+/// separated by gaps equal to `thickness`.
+fn emit_repeating_decoration(
+    dl: &mut DisplayList,
+    x: f32,
+    y: f32,
+    width: f32,
+    mark_width: f32,
+    thickness: f32,
+    color: CssColor,
+) {
+    let step = mark_width + thickness;
+    if step <= 0.0 || !step.is_finite() {
+        return;
+    }
+    let mut cx = x;
+    let end = x + width;
+    while cx < end {
+        let w = mark_width.min(end - cx);
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect {
+                x: cx,
+                y,
+                width: w,
+                height: thickness,
+            },
+            color,
+        });
+        cx += step;
     }
 }

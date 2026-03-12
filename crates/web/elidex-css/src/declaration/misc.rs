@@ -190,6 +190,8 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
 // --- Letter/word spacing ---
 
 /// Parse `letter-spacing` or `word-spacing`: `normal` | `<length>`.
+// TODO: preserve Keyword("normal") instead of converting to Length(0, Px)
+// so that `getComputedStyle` can serialize "normal" per CSS Text L3 §4.2/§4.3.
 pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> {
     if let Ok(val) = try_keyword_value(
         input,

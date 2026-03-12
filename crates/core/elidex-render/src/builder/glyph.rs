@@ -18,15 +18,16 @@ pub(crate) fn place_glyphs(
     word_spacing: f32,
     text: &str,
 ) -> Vec<GlyphEntry> {
-    // Sanitize spacing values: NaN/infinity would corrupt cursor position.
+    // Sanitize inputs: NaN/infinity would corrupt cursor position and glyph coordinates.
     let ls = if letter_spacing.is_finite() { letter_spacing } else { 0.0 };
     let ws = if word_spacing.is_finite() { word_spacing } else { 0.0 };
+    let by = if baseline_y.is_finite() { baseline_y } else { 0.0 };
 
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
     let last_idx = shaped_glyphs.len().saturating_sub(1);
     for (i, glyph) in shaped_glyphs.iter().enumerate() {
         let x = *cursor_x + glyph.x_offset;
-        let y = baseline_y - glyph.y_offset;
+        let y = by - glyph.y_offset;
         glyphs.push(GlyphEntry {
             glyph_id: u32::from(glyph.glyph_id),
             x,
@@ -61,9 +62,11 @@ pub(crate) fn place_glyphs_vertical(
     center_x: f32,
     cursor_y: &mut f32,
 ) -> Vec<GlyphEntry> {
+    // Sanitize: NaN/infinity would corrupt glyph coordinates.
+    let cx = if center_x.is_finite() { center_x } else { 0.0 };
     let mut glyphs = Vec::with_capacity(shaped_glyphs.len());
     for glyph in shaped_glyphs {
-        let x = center_x + glyph.x_offset;
+        let x = cx + glyph.x_offset;
         let y = *cursor_y + glyph.y_offset;
         glyphs.push(GlyphEntry {
             glyph_id: u32::from(glyph.glyph_id),

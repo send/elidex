@@ -566,4 +566,51 @@ mod tests {
         assert_eq!(result.runs.len(), 1);
         assert!(result.total_advance > 0.0);
     }
+
+    // --- floor/ceil_char_boundary ---
+
+    #[test]
+    fn floor_boundary_ascii() {
+        let text = "hello";
+        assert_eq!(floor_char_boundary(text, 0), 0);
+        assert_eq!(floor_char_boundary(text, 3), 3);
+        assert_eq!(floor_char_boundary(text, 5), 5);
+        assert_eq!(floor_char_boundary(text, 10), 5); // beyond length
+    }
+
+    #[test]
+    fn ceil_boundary_ascii() {
+        let text = "hello";
+        assert_eq!(ceil_char_boundary(text, 0), 0);
+        assert_eq!(ceil_char_boundary(text, 3), 3);
+        assert_eq!(ceil_char_boundary(text, 5), 5);
+        assert_eq!(ceil_char_boundary(text, 10), 5); // beyond length
+    }
+
+    #[test]
+    fn floor_boundary_multibyte() {
+        // "aé" = [0x61, 0xC3, 0xA9] — 'é' starts at byte 1, ends at byte 3
+        let text = "aé";
+        assert_eq!(floor_char_boundary(text, 0), 0);
+        assert_eq!(floor_char_boundary(text, 1), 1); // start of 'é'
+        assert_eq!(floor_char_boundary(text, 2), 1); // mid-'é' rounds down
+        assert_eq!(floor_char_boundary(text, 3), 3); // end of string
+    }
+
+    #[test]
+    fn ceil_boundary_multibyte() {
+        let text = "aé";
+        assert_eq!(ceil_char_boundary(text, 0), 0);
+        assert_eq!(ceil_char_boundary(text, 1), 1);
+        assert_eq!(ceil_char_boundary(text, 2), 3); // mid-'é' rounds up
+        assert_eq!(ceil_char_boundary(text, 3), 3);
+    }
+
+    #[test]
+    fn boundary_empty_string() {
+        assert_eq!(floor_char_boundary("", 0), 0);
+        assert_eq!(ceil_char_boundary("", 0), 0);
+        assert_eq!(floor_char_boundary("", 5), 0);
+        assert_eq!(ceil_char_boundary("", 5), 0);
+    }
 }
