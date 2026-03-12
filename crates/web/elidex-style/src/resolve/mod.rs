@@ -21,12 +21,11 @@ pub(crate) use helpers::PropertyMap;
 use helpers::{keyword_from, resolve_dimension};
 
 /// Convert a spacing value (letter-spacing / word-spacing) to its computed CSS value.
-/// `0.0` maps to `"normal"`, non-zero to `<length>px`.
-fn spacing_to_css_value(value: f32) -> CssValue {
-    if value == 0.0 {
-        CssValue::Keyword("normal".to_string())
-    } else {
-        CssValue::Length(value, LengthUnit::Px)
+/// `None` → `Keyword("normal")`, `Some(px)` → `Length(px, Px)`.
+fn spacing_to_css_value(value: Option<f32>) -> CssValue {
+    match value {
+        None => CssValue::Keyword("normal".to_string()),
+        Some(v) => CssValue::Length(v, LengthUnit::Px),
     }
 }
 

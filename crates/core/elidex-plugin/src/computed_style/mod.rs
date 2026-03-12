@@ -206,10 +206,12 @@ pub struct ComputedStyle {
     pub border_left_color: CssColor,
 
     // --- Inherited text spacing ---
-    /// Letter spacing in pixels. Initial: 0.0 (normal). **Inherited.**
-    pub letter_spacing: f32,
-    /// Word spacing in pixels. Initial: 0.0 (normal). **Inherited.**
-    pub word_spacing: f32,
+    /// Letter spacing in pixels. `None` = `normal` (CSS initial value).
+    /// `Some(0.0)` = explicit `0px`. **Inherited.**
+    pub letter_spacing: Option<f32>,
+    /// Word spacing in pixels. `None` = `normal` (CSS initial value).
+    /// `Some(0.0)` = explicit `0px`. **Inherited.**
+    pub word_spacing: Option<f32>,
 
     // --- Text decoration (non-inherited) ---
     /// Text decoration line. Initial: none.
@@ -374,8 +376,8 @@ impl Default for ComputedStyle {
             border_left_color: color,
 
             // Inherited text spacing
-            letter_spacing: 0.0,
-            word_spacing: 0.0,
+            letter_spacing: None,
+            word_spacing: None,
 
             // Text decoration (non-inherited)
             text_decoration_line: TextDecorationLine::default(),

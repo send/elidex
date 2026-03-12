@@ -359,17 +359,18 @@ fn resolve_text_decoration_color(
 
 /// Resolve an inherited spacing property (`letter-spacing` or `word-spacing`).
 ///
-/// Both properties accept `normal` (= 0.0) or a `<length>`, and inherit from parent.
+/// Returns `None` for `normal`, `Some(px)` for an explicit `<length>`.
+/// Inherits from parent when no declaration is present.
 fn resolve_inherited_spacing(
     property: &str,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
-    parent_value: f32,
-) -> f32 {
+    parent_value: Option<f32>,
+) -> Option<f32> {
     match get_resolved_winner(property, winners, parent_style) {
-        Some(CssValue::Length(v, unit)) => resolve_length(v, unit, ctx),
-        Some(CssValue::Keyword(ref k)) if k == "normal" => 0.0,
+        Some(CssValue::Length(v, unit)) => Some(resolve_length(v, unit, ctx)),
+        Some(CssValue::Keyword(ref k)) if k == "normal" => None,
         Some(_) | None => parent_value,
     }
 }
@@ -781,41 +782,62 @@ mod tests {
         let mut winners: PropertyMap = HashMap::new();
         winners.insert("letter-spacing", &val);
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert!((style.letter_spacing - 2.0).abs() < f32::EPSILON);
+        assert_eq!(style.letter_spacing, Some(2.0));
     }
 
     #[test]
-    fn letter_spacing_normal_is_zero() {
+    fn letter_spacing_normal_is_none() {
         let parent = ComputedStyle::default();
         let ctx = default_ctx();
         let val = CssValue::Keyword("normal".to_string());
         let mut winners: PropertyMap = HashMap::new();
         winners.insert("letter-spacing", &val);
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert!(style.letter_spacing.abs() < f32::EPSILON);
+        assert_eq!(style.letter_spacing, None);
     }
 
     #[test]
     fn letter_spacing_inherits() {
         let parent = ComputedStyle {
-            letter_spacing: 3.0,
+            letter_spacing: Some(3.0),
             ..ComputedStyle::default()
         };
         let winners: PropertyMap = HashMap::new();
         let ctx = default_ctx();
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert!((style.letter_spacing - 3.0).abs() < f32::EPSILON);
+        assert_eq!(style.letter_spacing, Some(3.0));
     }
 
     #[test]
     fn letter_spacing_computed_value() {
         let style = ComputedStyle {
-            letter_spacing: 1.5,
+            letter_spacing: Some(1.5),
             ..ComputedStyle::default()
         };
         assert_eq!(
             get_computed_as_css_value("letter-spacing", &style),
             CssValue::Length(1.5, LengthUnit::Px)
+        );
+    }
+
+    #[test]
+    fn letter_spacing_normal_computed_value() {
+        let style = ComputedStyle::default();
+        assert_eq!(
+            get_computed_as_css_value("letter-spacing", &style),
+            CssValue::Keyword("normal".to_string())
+        );
+    }
+
+    #[test]
+    fn letter_spacing_zero_px_computed_value() {
+        let style = ComputedStyle {
+            letter_spacing: Some(0.0),
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            get_computed_as_css_value("letter-spacing", &style),
+            CssValue::Length(0.0, LengthUnit::Px)
         );
     }
 
@@ -829,25 +851,25 @@ mod tests {
         let mut winners: PropertyMap = HashMap::new();
         winners.insert("word-spacing", &val);
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert!((style.word_spacing - 5.0).abs() < f32::EPSILON);
+        assert_eq!(style.word_spacing, Some(5.0));
     }
 
     #[test]
     fn word_spacing_inherits() {
         let parent = ComputedStyle {
-            word_spacing: 4.0,
+            word_spacing: Some(4.0),
             ..ComputedStyle::default()
         };
         let winners: PropertyMap = HashMap::new();
         let ctx = default_ctx();
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert!((style.word_spacing - 4.0).abs() < f32::EPSILON);
+        assert_eq!(style.word_spacing, Some(4.0));
     }
 
     #[test]
     fn word_spacing_computed_value() {
         let style = ComputedStyle {
-            word_spacing: 2.0,
+            word_spacing: Some(2.0),
             ..ComputedStyle::default()
         };
         assert_eq!(

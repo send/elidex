@@ -50,8 +50,8 @@ impl StyledTextSegment {
             text_decoration_line: style.text_decoration_line,
             text_decoration_style: style.text_decoration_style,
             text_decoration_color: style.text_decoration_color,
-            letter_spacing: style.letter_spacing,
-            word_spacing: style.word_spacing,
+            letter_spacing: style.letter_spacing.unwrap_or(0.0),
+            word_spacing: style.word_spacing.unwrap_or(0.0),
             opacity: style.opacity,
         }
     }
