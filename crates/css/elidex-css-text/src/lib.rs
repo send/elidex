@@ -3,10 +3,10 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_length},
-    ComputedStyle, CssColor, CssPropertyHandler, CssValue, Direction, FontStyle,
-    LengthUnit, LineHeight, ListStyleType, ParseError, PropertyDeclaration, ResolveContext,
-    TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform,
-    UnicodeBidi, WhiteSpace, WritingMode,
+    parse_css_keyword as parse_keyword, ComputedStyle, CssColor, CssPropertyHandler, CssValue,
+    Direction, FontStyle, LengthUnit, LineHeight, ListStyleType, ParseError, PropertyDeclaration,
+    ResolveContext, TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation,
+    TextTransform, UnicodeBidi, WhiteSpace, WritingMode,
 };
 
 /// All property names handled by this handler.
@@ -60,9 +60,10 @@ impl CssPropertyHandler for TextHandler {
             "font-style" => parse_keyword(input, &["normal", "italic", "oblique"])?,
             "font-family" => parse_font_family(input)?,
             "line-height" => parse_line_height(input)?,
-            "text-align" => {
-                parse_keyword(input, &["left", "right", "center", "justify", "start", "end"])?
-            }
+            "text-align" => parse_keyword(
+                input,
+                &["left", "right", "center", "justify", "start", "end"],
+            )?,
             "text-transform" => {
                 parse_keyword(input, &["none", "uppercase", "lowercase", "capitalize"])?
             }
@@ -159,15 +160,13 @@ impl CssPropertyHandler for TextHandler {
                         TextDecorationStyle::from_keyword(k).unwrap_or_default();
                 }
             }
-            "text-decoration-color" => {
-                match value {
-                    CssValue::Color(c) => style.text_decoration_color = Some(*c),
-                    CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
-                        style.text_decoration_color = None;
-                    }
-                    _ => {}
+            "text-decoration-color" => match value {
+                CssValue::Color(c) => style.text_decoration_color = Some(*c),
+                CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
+                    style.text_decoration_color = None;
                 }
-            }
+                _ => {}
+            },
             "writing-mode" => {
                 if let CssValue::Keyword(ref k) = value {
                     style.writing_mode = WritingMode::from_keyword(k).unwrap_or_default();
@@ -202,11 +201,7 @@ impl CssPropertyHandler for TextHandler {
             "color" => CssValue::Color(CssColor::BLACK),
             "font-size" => CssValue::Length(16.0, LengthUnit::Px),
             "font-weight" => CssValue::Number(400.0),
-            "font-style"
-            | "line-height"
-            | "white-space"
-            | "letter-spacing"
-            | "word-spacing"
+            "font-style" | "line-height" | "white-space" | "letter-spacing" | "word-spacing"
             | "unicode-bidi" => CssValue::Keyword("normal".to_string()),
             "font-family" => CssValue::List(vec![CssValue::Keyword("serif".to_string())]),
             "text-align" => CssValue::Keyword("start".to_string()),
@@ -258,7 +253,7 @@ impl CssPropertyHandler for TextHandler {
                 style
                     .font_family
                     .iter()
-                    .map(|s| CssValue::String(s.clone()))
+                    .map(|s| CssValue::Keyword(s.clone()))
                     .collect(),
             ),
             "line-height" => match style.line_height {
@@ -278,7 +273,22 @@ impl CssPropertyHandler for TextHandler {
                 Some(px) => CssValue::Length(px, LengthUnit::Px),
             },
             "text-decoration-line" => {
-                CssValue::Keyword(style.text_decoration_line.to_string())
+                let d = &style.text_decoration_line;
+                let mut parts = Vec::new();
+                if d.underline {
+                    parts.push(CssValue::Keyword("underline".to_string()));
+                }
+                if d.overline {
+                    parts.push(CssValue::Keyword("overline".to_string()));
+                }
+                if d.line_through {
+                    parts.push(CssValue::Keyword("line-through".to_string()));
+                }
+                if parts.len() > 1 {
+                    CssValue::List(parts)
+                } else {
+                    CssValue::Keyword(d.to_string())
+                }
             }
             "text-decoration-style" => keyword_from(&style.text_decoration_style),
             "text-decoration-color" => match style.text_decoration_color {
@@ -304,25 +314,6 @@ fn parse_err(msg: &str) -> ParseError {
         property: String::new(),
         input: String::new(),
         message: msg.into(),
-    }
-}
-
-fn parse_keyword(
-    input: &mut cssparser::Parser<'_, '_>,
-    allowed: &[&str],
-) -> Result<CssValue, ParseError> {
-    let ident = input
-        .expect_ident()
-        .map_err(|_| parse_err("expected identifier"))?;
-    let lower = ident.to_ascii_lowercase();
-    if allowed.contains(&lower.as_str()) {
-        Ok(CssValue::Keyword(lower))
-    } else {
-        Err(ParseError {
-            property: String::new(),
-            input: lower,
-            message: "unexpected keyword".into(),
-        })
     }
 }
 
@@ -395,12 +386,15 @@ fn parse_font_family(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, 
     let mut families = Vec::new();
     loop {
         // Try quoted string.
-        if let Ok(s) = input.try_parse(|i| i.expect_string().map(std::string::ToString::to_string)) {
+        if let Ok(s) = input.try_parse(|i| i.expect_string().map(std::string::ToString::to_string))
+        {
             families.push(CssValue::String(s));
         } else {
             // Unquoted: collect consecutive idents as a single family name.
             let mut name_parts = Vec::new();
-            while let Ok(ident) = input.try_parse(|i| i.expect_ident().map(std::string::ToString::to_string)) {
+            while let Ok(ident) =
+                input.try_parse(|i| i.expect_ident().map(std::string::ToString::to_string))
+            {
                 name_parts.push(ident);
             }
             if name_parts.is_empty() {
@@ -468,9 +462,7 @@ fn parse_spacing(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
             let unit = parse_length_unit(unit);
             Ok(CssValue::Length(value, unit))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(parse_err("expected length or 'normal'")),
     }
 }
@@ -479,10 +471,7 @@ fn parse_text_decoration_line(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<CssValue, ParseError> {
     // Try "none" first (must be the only keyword).
-    if input
-        .try_parse(|i| i.expect_ident_matching("none"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Keyword("none".to_string()));
     }
 
@@ -534,9 +523,7 @@ fn parse_length_percentage_number(
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError {
             property: property.into(),
             input: String::new(),
@@ -787,10 +774,7 @@ mod tests {
         match val {
             CssValue::List(items) => {
                 assert_eq!(items.len(), 2);
-                assert_eq!(
-                    items[0],
-                    CssValue::Keyword("Times New Roman".to_string())
-                );
+                assert_eq!(items[0], CssValue::Keyword("Times New Roman".to_string()));
                 assert_eq!(items[1], CssValue::Keyword("serif".to_string()));
             }
             other => panic!("expected List, got {other:?}"),

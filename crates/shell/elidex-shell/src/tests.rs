@@ -476,13 +476,30 @@ fn registry_covers_all_handler_properties() {
 
     // Verify that all 6 handlers' properties are resolvable in the registry.
     let expected_properties = &[
-        "display", "position", "width", "margin-top", "padding-left",
-        "border-top-width", "opacity", "background-color",  // box
-        "color", "font-size", "font-weight", "text-align", "white-space", // text
-        "flex-direction", "flex-wrap", "justify-content",   // flex
-        "grid-template-columns", "grid-auto-flow",          // grid
-        "border-collapse", "table-layout",                  // table
-        "float", "clear", "visibility", "vertical-align",   // float
+        "display",
+        "position",
+        "width",
+        "margin-top",
+        "padding-left",
+        "border-top-width",
+        "opacity",
+        "background-color", // box
+        "color",
+        "font-size",
+        "font-weight",
+        "text-align",
+        "white-space", // text
+        "flex-direction",
+        "flex-wrap",
+        "justify-content", // flex
+        "grid-template-columns",
+        "grid-auto-flow", // grid
+        "border-collapse",
+        "table-layout", // table
+        "float",
+        "clear",
+        "visibility",
+        "vertical-align", // float
     ];
     for prop in expected_properties {
         assert!(

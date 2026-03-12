@@ -7,29 +7,29 @@ use crate::timing::TimingFunction;
 #[derive(Clone, Debug)]
 pub struct AnimationInstance {
     /// The `@keyframes` name.
-    pub name: String,
+    name: String,
     /// Duration in seconds.
-    pub duration: f32,
+    duration: f32,
     /// Timing function.
-    pub timing_function: TimingFunction,
+    timing_function: TimingFunction,
     /// Delay in seconds (can be negative for a head start).
-    pub delay: f32,
+    delay: f32,
     /// Iteration count.
-    pub iteration_count: IterationCount,
+    iteration_count: IterationCount,
     /// Direction.
-    pub direction: AnimationDirection,
+    direction: AnimationDirection,
     /// Fill mode.
-    pub fill_mode: AnimationFillMode,
+    fill_mode: AnimationFillMode,
     /// Play state.
-    pub play_state: PlayState,
+    pub(crate) play_state: PlayState,
     /// Elapsed time since the animation started (after delay), in seconds.
-    pub elapsed: f32,
+    pub(crate) elapsed: f64,
     /// The time at which this animation was started (document time).
     pub start_time: f64,
     /// Whether the animation has finished.
-    pub finished: bool,
+    pub(crate) finished: bool,
     /// Whether the `animationend` event has been dispatched.
-    pub end_event_dispatched: bool,
+    pub(crate) end_event_dispatched: bool,
 }
 
 impl AnimationInstance {
@@ -63,20 +63,76 @@ impl AnimationInstance {
         }
     }
 
+    /// The `@keyframes` name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Duration in seconds.
+    #[must_use]
+    pub fn duration(&self) -> f32 {
+        self.duration
+    }
+
+    /// Delay in seconds (can be negative for a head start).
+    #[must_use]
+    pub fn delay(&self) -> f32 {
+        self.delay
+    }
+
+    /// Timing function.
+    #[must_use]
+    pub fn timing_function(&self) -> &TimingFunction {
+        &self.timing_function
+    }
+
+    /// Iteration count.
+    #[must_use]
+    pub fn iteration_count(&self) -> IterationCount {
+        self.iteration_count
+    }
+
+    /// Direction.
+    #[must_use]
+    pub fn direction(&self) -> AnimationDirection {
+        self.direction
+    }
+
+    /// Fill mode.
+    #[must_use]
+    pub fn fill_mode(&self) -> AnimationFillMode {
+        self.fill_mode
+    }
+
+    /// Play state.
+    #[must_use]
+    pub fn play_state(&self) -> PlayState {
+        self.play_state
+    }
+
+    /// Whether the animation has finished.
+    #[must_use]
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
     /// Compute the current iteration progress (0.0..=1.0), accounting for
     /// direction and iteration count.
     ///
     /// Returns `None` if the animation is in the delay phase or finished
     /// without a fill mode that applies.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn progress(&self) -> Option<f32> {
-        let active_time = self.elapsed - self.delay;
+        let active_time = self.elapsed - f64::from(self.delay);
 
         if active_time < 0.0 {
             // In delay phase
             return match self.fill_mode {
                 AnimationFillMode::Backwards | AnimationFillMode::Both => {
-                    Some(self.direction_adjusted_progress(0.0))
+                    let timed = self.timing_function.sample(0.0);
+                    Some(self.direction_for_iteration(0, timed))
                 }
                 _ => None,
             };
@@ -86,16 +142,17 @@ impl AnimationInstance {
             return Some(1.0);
         }
 
+        let dur = f64::from(self.duration);
         let total_duration = match self.iteration_count {
-            IterationCount::Number(n) => n * self.duration,
-            IterationCount::Infinite => f32::INFINITY,
+            IterationCount::Number(n) => f64::from(n) * dur,
+            IterationCount::Infinite => f64::INFINITY,
         };
 
         if active_time >= total_duration {
             // Finished
             return match self.fill_mode {
                 AnimationFillMode::Forwards | AnimationFillMode::Both => {
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    #[allow(clippy::cast_sign_loss)]
                     let final_iteration = match self.iteration_count {
                         IterationCount::Number(n) => (n.ceil() as u32).saturating_sub(1),
                         IterationCount::Infinite => 0,
@@ -106,24 +163,22 @@ impl AnimationInstance {
                     }) {
                         1.0
                     } else {
-                        (active_time % self.duration) / self.duration
+                        ((active_time % dur) / dur) as f32
                     };
-                    Some(self.direction_for_iteration(final_iteration, raw))
+                    let timed = self.timing_function.sample(raw);
+                    Some(self.direction_for_iteration(final_iteration, timed))
                 }
                 _ => None,
             };
         }
 
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let iteration = (active_time / self.duration).floor() as u32;
-        let raw_progress = (active_time % self.duration) / self.duration;
-        let directed = self.direction_for_iteration(iteration, raw_progress);
-        Some(self.timing_function.sample(directed))
-    }
-
-    /// Apply direction adjustment to a raw progress value.
-    fn direction_adjusted_progress(&self, raw: f32) -> f32 {
-        self.direction_for_iteration(0, raw)
+        #[allow(clippy::cast_sign_loss)]
+        let iteration = (active_time / dur).floor() as u32;
+        let raw_progress = ((active_time % dur) / dur) as f32;
+        // Per CSS Animations Level 1 §3.9.1: apply timing function first,
+        // then apply direction adjustment to the transformed progress.
+        let timed = self.timing_function.sample(raw_progress);
+        Some(self.direction_for_iteration(iteration, timed))
     }
 
     /// Compute direction-adjusted progress for a given iteration.
@@ -162,7 +217,7 @@ pub struct TransitionInstance {
     /// Delay in seconds.
     pub delay: f32,
     /// Elapsed time since transition start, in seconds.
-    pub elapsed: f32,
+    pub elapsed: f64,
     /// Whether the transition has completed.
     pub finished: bool,
     /// Whether the `transitionend` event has been dispatched.
@@ -197,15 +252,17 @@ impl TransitionInstance {
     ///
     /// Returns `None` if the transition is in the delay phase.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn current_value(&self) -> Option<elidex_plugin::CssValue> {
-        let active_time = self.elapsed - self.delay;
+        let active_time = self.elapsed - f64::from(self.delay);
         if active_time < 0.0 {
             return Some(self.from.clone());
         }
-        if self.duration <= 0.0 || active_time >= self.duration {
+        let dur = f64::from(self.duration);
+        if self.duration <= 0.0 || active_time >= dur {
             return Some(self.to.clone());
         }
-        let raw_progress = active_time / self.duration;
+        let raw_progress = (active_time / dur) as f32;
         let eased = self.timing_function.sample(raw_progress);
         crate::interpolate::interpolate(&self.from, &self.to, eased)
     }
@@ -239,7 +296,13 @@ mod tests {
 
     #[test]
     fn animation_progress_linear() {
-        let mut anim = make_anim(1.0, 0.0, IterationCount::Number(1.0), AnimationDirection::Normal, AnimationFillMode::None);
+        let mut anim = make_anim(
+            1.0,
+            0.0,
+            IterationCount::Number(1.0),
+            AnimationDirection::Normal,
+            AnimationFillMode::None,
+        );
         anim.elapsed = 0.5;
         let p = anim.progress().unwrap();
         assert!((p - 0.5).abs() < 0.01);
@@ -247,21 +310,39 @@ mod tests {
 
     #[test]
     fn animation_progress_delay() {
-        let mut anim = make_anim(1.0, 0.5, IterationCount::Number(1.0), AnimationDirection::Normal, AnimationFillMode::None);
+        let mut anim = make_anim(
+            1.0,
+            0.5,
+            IterationCount::Number(1.0),
+            AnimationDirection::Normal,
+            AnimationFillMode::None,
+        );
         anim.elapsed = 0.25;
         assert!(anim.progress().is_none());
     }
 
     #[test]
     fn animation_progress_delay_fill_backwards() {
-        let mut anim = make_anim(1.0, 0.5, IterationCount::Number(1.0), AnimationDirection::Normal, AnimationFillMode::Backwards);
+        let mut anim = make_anim(
+            1.0,
+            0.5,
+            IterationCount::Number(1.0),
+            AnimationDirection::Normal,
+            AnimationFillMode::Backwards,
+        );
         anim.elapsed = 0.25;
         assert!(anim.progress().is_some());
     }
 
     #[test]
     fn animation_reverse() {
-        let mut anim = make_anim(1.0, 0.0, IterationCount::Number(1.0), AnimationDirection::Reverse, AnimationFillMode::None);
+        let mut anim = make_anim(
+            1.0,
+            0.0,
+            IterationCount::Number(1.0),
+            AnimationDirection::Reverse,
+            AnimationFillMode::None,
+        );
         anim.elapsed = 0.25;
         let p = anim.progress().unwrap();
         // Reversed: 1.0 - 0.25 = 0.75
@@ -270,7 +351,13 @@ mod tests {
 
     #[test]
     fn animation_alternate() {
-        let mut anim = make_anim(1.0, 0.0, IterationCount::Number(3.0), AnimationDirection::Alternate, AnimationFillMode::None);
+        let mut anim = make_anim(
+            1.0,
+            0.0,
+            IterationCount::Number(3.0),
+            AnimationDirection::Alternate,
+            AnimationFillMode::None,
+        );
         // First iteration: normal (0.5 -> 0.5)
         anim.elapsed = 0.5;
         assert!((anim.progress().unwrap() - 0.5).abs() < 0.01);
@@ -282,7 +369,13 @@ mod tests {
 
     #[test]
     fn animation_zero_duration() {
-        let anim = make_anim(0.0, 0.0, IterationCount::Number(1.0), AnimationDirection::Normal, AnimationFillMode::None);
+        let anim = make_anim(
+            0.0,
+            0.0,
+            IterationCount::Number(1.0),
+            AnimationDirection::Normal,
+            AnimationFillMode::None,
+        );
         assert_eq!(anim.progress(), Some(1.0));
     }
 
@@ -330,6 +423,131 @@ mod tests {
         assert_eq!(
             trans.current_value(),
             Some(CssValue::Length(20.0, LengthUnit::Px))
+        );
+    }
+
+    // F18: fill-mode forwards with non-integer iteration count (2.5 iterations).
+    //
+    // CSS Animations §3.9: when the animation ends with a non-integer iteration
+    // count, the final state should reflect the progress of the fractional part
+    // of the last iteration rather than clamping to the end (1.0).
+    // With 2.5 iterations of 1.0s duration, total active time = 2.5s.
+    // The fractional part: (2.5 % 1.0) / 1.0 = 0.5, so progress = 0.5.
+    #[test]
+    fn fill_mode_forwards_non_integer_iteration() {
+        let mut anim = make_anim(
+            1.0,
+            0.0,
+            IterationCount::Number(2.5),
+            AnimationDirection::Normal,
+            AnimationFillMode::Forwards,
+        );
+        // Set elapsed to exactly the total duration (2.5 iterations × 1.0s = 2.5s).
+        // active_time = 2.5 - 0.0 = 2.5 >= total_duration = 2.5, so we enter
+        // the "finished with forwards fill" branch.
+        // n_is_whole(2.5) = false, so raw = (2.5 % 1.0) / 1.0 = 0.5.
+        anim.elapsed = 2.5;
+        let p = anim
+            .progress()
+            .expect("should have progress with fill:forwards");
+        // Progress should reflect the fractional position (0.5), not 1.0.
+        assert!(
+            (p - 0.5).abs() < 0.01,
+            "expected ~0.5 for 2.5 non-integer iterations with forwards fill, got {p}"
+        );
+    }
+
+    // F19: AlternateReverse direction test.
+    //
+    // alternate-reverse starts in the reverse direction and alternates:
+    //   iteration 0 → reversed  (progress = 1.0 - raw)
+    //   iteration 1 → normal    (progress = raw)
+    //   iteration 2 → reversed  (progress = 1.0 - raw)
+    #[test]
+    fn animation_alternate_reverse() {
+        let mut anim = make_anim(
+            1.0,
+            0.0,
+            IterationCount::Number(3.0),
+            AnimationDirection::AlternateReverse,
+            AnimationFillMode::None,
+        );
+
+        // Iteration 0 at raw=0.25 → reversed → 1.0 - 0.25 = 0.75
+        anim.elapsed = 0.25;
+        let p0 = anim.progress().unwrap();
+        assert!(
+            (p0 - 0.75).abs() < 0.01,
+            "iteration 0 alternate-reverse: expected 0.75, got {p0}"
+        );
+
+        // Iteration 1 at raw=0.25 → normal → 0.25
+        anim.elapsed = 1.25;
+        let p1 = anim.progress().unwrap();
+        assert!(
+            (p1 - 0.25).abs() < 0.01,
+            "iteration 1 alternate-reverse: expected 0.25, got {p1}"
+        );
+
+        // Iteration 2 at raw=0.25 → reversed → 0.75
+        anim.elapsed = 2.25;
+        let p2 = anim.progress().unwrap();
+        assert!(
+            (p2 - 0.75).abs() < 0.01,
+            "iteration 2 alternate-reverse: expected 0.75, got {p2}"
+        );
+    }
+
+    // F20: Negative delay test — animation should start partway through.
+    //
+    // A negative delay means the animation conceptually started |delay| seconds
+    // ago, so elapsed=0 should already show progress > 0.
+    #[test]
+    fn negative_delay_starts_partway_through() {
+        let mut anim = make_anim(
+            2.0,
+            -0.5,
+            IterationCount::Number(1.0),
+            AnimationDirection::Normal,
+            AnimationFillMode::None,
+        );
+        // elapsed=0, but delay=-0.5, so active_time = 0 - (-0.5) = 0.5 seconds
+        // out of 2.0s duration → progress = 0.5 / 2.0 = 0.25
+        anim.elapsed = 0.0;
+        let p = anim
+            .progress()
+            .expect("should have active progress with negative delay");
+        assert!(
+            (p - 0.25).abs() < 0.01,
+            "negative delay: expected ~0.25 at elapsed=0, got {p}"
+        );
+    }
+
+    // F21: Mismatched type interpolation — interpolating between a length and a
+    // color should use discrete fallback and return the "from" value before 50%.
+    #[test]
+    fn transition_mismatched_types_returns_from() {
+        let mut trans = TransitionInstance::new(
+            "x".into(),
+            CssValue::Length(10.0, LengthUnit::Px),
+            CssValue::Color(elidex_plugin::CssColor::RED),
+            1.0,
+            0.0,
+            TimingFunction::Linear,
+        );
+        // At 30% (before 50%), should return the "from" value
+        trans.elapsed = 0.3;
+        assert_eq!(
+            trans.current_value(),
+            Some(CssValue::Length(10.0, LengthUnit::Px)),
+            "mismatched types at t=0.3 should return from value"
+        );
+        // At 70% (after 50%), should return the "to" value
+        trans.elapsed = 0.7;
+        assert_eq!(
+            trans.current_value(),
+            Some(CssValue::Color(elidex_plugin::CssColor::RED)),
+            "mismatched types at t=0.7 should return to value"
         );
     }
 }

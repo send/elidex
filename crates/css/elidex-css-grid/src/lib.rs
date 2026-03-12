@@ -95,12 +95,9 @@ impl CssPropertyHandler for GridHandler {
 
     fn initial_value(&self, name: &str) -> CssValue {
         match name {
-            "grid-template-columns" | "grid-template-rows" => {
-                CssValue::Keyword("none".to_string())
-            }
+            "grid-template-columns" | "grid-template-rows" => CssValue::Keyword("none".to_string()),
             "grid-auto-flow" => CssValue::Keyword("row".to_string()),
-            "grid-auto-columns" | "grid-auto-rows"
-            | "grid-column-start" | "grid-column-end"
+            "grid-auto-columns" | "grid-auto-rows" | "grid-column-start" | "grid-column-end"
             | "grid-row-start" | "grid-row-end" => CssValue::Auto,
             _ => CssValue::Initial,
         }
@@ -137,13 +134,8 @@ impl CssPropertyHandler for GridHandler {
 /// Parse a grid-template-columns / grid-template-rows value.
 ///
 /// `none` produces `Keyword("none")`, otherwise a space-separated list of track sizes.
-fn parse_track_list(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
-    if input
-        .try_parse(|i| i.expect_ident_matching("none"))
-        .is_ok()
-    {
+fn parse_track_list(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Keyword("none".to_string()));
     }
 
@@ -166,9 +158,7 @@ fn parse_track_list(
 }
 
 /// Parse a single track size value (used for grid-auto-columns/rows and within track lists).
-fn parse_single_track_size(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_single_track_size(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     parse_single_track_size_inner(input).map_err(|()| ParseError {
         property: String::new(),
         input: String::new(),
@@ -177,9 +167,7 @@ fn parse_single_track_size(
 }
 
 /// Inner helper that returns `Result<CssValue, ()>` for use with `try_parse`.
-fn parse_single_track_size_inner(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ()> {
+fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
     // Try keywords: auto, min-content, max-content
     if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(ToString::to_string)) {
         match ident.to_ascii_lowercase().as_str() {
@@ -194,15 +182,12 @@ fn parse_single_track_size_inner(
     if let Ok(val) = input.try_parse(|i| {
         i.expect_function_matching("minmax").map_err(|_| ())?;
         i.parse_nested_block(|args| {
-            let min = parse_track_breadth_value(args).map_err(|()| {
-                args.new_custom_error::<_, ()>(())
-            })?;
-            args.expect_comma().map_err(|_| {
-                args.new_custom_error::<_, ()>(())
-            })?;
-            let max = parse_track_breadth_value(args).map_err(|()| {
-                args.new_custom_error::<_, ()>(())
-            })?;
+            let min =
+                parse_track_breadth_value(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
+            args.expect_comma()
+                .map_err(|_| args.new_custom_error::<_, ()>(()))?;
+            let max =
+                parse_track_breadth_value(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
             Ok(CssValue::List(vec![
                 CssValue::Keyword("minmax".to_string()),
                 min,
@@ -240,9 +225,7 @@ fn parse_single_track_size_inner(
 }
 
 /// Parse a track breadth value inside `minmax()`.
-fn parse_track_breadth_value(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ()> {
+fn parse_track_breadth_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
     // Keywords
     if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(ToString::to_string)) {
         match ident.to_ascii_lowercase().as_str() {
@@ -269,17 +252,13 @@ fn parse_track_breadth_value(
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(()),
     }
 }
 
 /// Parse `grid-auto-flow`: `row`, `column`, `row dense`, `column dense`.
-fn parse_auto_flow(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_auto_flow(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let ident = input
         .expect_ident()
         .map(|s| s.to_ascii_lowercase())
@@ -310,14 +289,9 @@ fn parse_auto_flow(
 }
 
 /// Parse a grid line value: `auto`, `<integer>`, `span <integer>`.
-fn parse_grid_line(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_grid_line(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try "auto"
-    if input
-        .try_parse(|i| i.expect_ident_matching("auto"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
         return Ok(CssValue::Auto);
     }
 
@@ -647,12 +621,7 @@ mod tests {
         let handler = GridHandler;
         let ctx = ResolveContext::default();
         let mut style = ComputedStyle::default();
-        handler.resolve(
-            "grid-row-start",
-            &CssValue::Number(0.0),
-            &ctx,
-            &mut style,
-        );
+        handler.resolve("grid-row-start", &CssValue::Number(0.0), &ctx, &mut style);
         assert_eq!(style.grid_row_start, GridLine::Auto);
     }
 

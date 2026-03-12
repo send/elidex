@@ -50,11 +50,15 @@ pub fn detect_transitions(
 
         // Find the index for this property in the transition lists
         let idx = property_index(&anim_style.transition_property, property);
-        let duration = get_cyclic(&anim_style.transition_duration, idx).copied().unwrap_or(0.0);
+        let duration = get_cyclic(&anim_style.transition_duration, idx)
+            .copied()
+            .unwrap_or(0.0);
         if duration <= 0.0 {
             continue;
         }
-        let delay = get_cyclic(&anim_style.transition_delay, idx).copied().unwrap_or(0.0);
+        let delay = get_cyclic(&anim_style.transition_delay, idx)
+            .copied()
+            .unwrap_or(0.0);
         let timing = get_cyclic(&anim_style.transition_timing_function, idx)
             .cloned()
             .unwrap_or_default();
@@ -121,7 +125,11 @@ mod tests {
     #[test]
     fn detect_opacity_transition() {
         let style = make_anim_style("opacity", 0.3);
-        let changes = vec![("opacity".into(), CssValue::Number(1.0), CssValue::Number(0.5))];
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.5),
+        )];
         let detected = detect_transitions(&style, &changes);
         assert_eq!(detected.len(), 1);
         assert_eq!(detected[0].property, "opacity");
@@ -131,7 +139,11 @@ mod tests {
     #[test]
     fn detect_no_transition_same_value() {
         let style = make_anim_style("opacity", 0.3);
-        let changes = vec![("opacity".into(), CssValue::Number(1.0), CssValue::Number(1.0))];
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(1.0),
+        )];
         let detected = detect_transitions(&style, &changes);
         assert!(detected.is_empty());
     }
@@ -151,7 +163,11 @@ mod tests {
     #[test]
     fn detect_no_transition_zero_duration() {
         let style = make_anim_style("opacity", 0.0);
-        let changes = vec![("opacity".into(), CssValue::Number(1.0), CssValue::Number(0.0))];
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+        )];
         let detected = detect_transitions(&style, &changes);
         assert!(detected.is_empty());
     }
@@ -166,8 +182,16 @@ mod tests {
             ..AnimStyle::default()
         };
         let changes = vec![
-            ("opacity".into(), CssValue::Number(1.0), CssValue::Number(0.0)),
-            ("color".into(), CssValue::Color(CssColor::RED), CssValue::Color(CssColor::BLUE)),
+            (
+                "opacity".into(),
+                CssValue::Number(1.0),
+                CssValue::Number(0.0),
+            ),
+            (
+                "color".into(),
+                CssValue::Color(CssColor::RED),
+                CssValue::Color(CssColor::BLUE),
+            ),
         ];
         let detected = detect_transitions(&style, &changes);
         assert_eq!(detected.len(), 2);
@@ -204,7 +228,11 @@ mod tests {
     #[test]
     fn empty_transition_property() {
         let style = AnimStyle::default();
-        let changes = vec![("opacity".into(), CssValue::Number(1.0), CssValue::Number(0.0))];
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+        )];
         let detected = detect_transitions(&style, &changes);
         assert!(detected.is_empty());
     }

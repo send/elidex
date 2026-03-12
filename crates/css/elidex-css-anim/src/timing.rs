@@ -1,6 +1,7 @@
-//! CSS timing functions (CSS Easing Functions Level 2).
+//! CSS timing functions (CSS Easing Functions Level 1).
 //!
 //! Implements `cubic-bezier()`, `steps()`, and named easing keywords.
+//! Note: The `linear()` function with stop points (Level 2) is not yet implemented.
 
 use std::fmt;
 

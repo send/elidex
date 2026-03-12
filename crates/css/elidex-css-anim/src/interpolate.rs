@@ -3,24 +3,22 @@
 //! Implements interpolation between CSS computed values for animatable
 //! properties (CSS Transitions Level 1 §4).
 
-use elidex_plugin::{CssColor, CssValue, LengthUnit};
+use elidex_plugin::{CssColor, CssValue};
 
 /// Interpolate between two CSS values at progress `t` (0.0..=1.0).
 ///
-/// Returns `None` if the values cannot be interpolated (discrete properties).
+/// Continuous interpolation for numeric types (Number, Length, Percentage,
+/// Color, Time). Falls back to discrete interpolation (flip at 50%) for
+/// non-numeric or mismatched types.
 #[must_use]
 pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
     match (from, to) {
         // Number ↔ Number
         (CssValue::Number(a), CssValue::Number(b)) => Some(CssValue::Number(lerp(*a, *b, t))),
 
-        // Length ↔ Length (same unit or both px)
+        // Length ↔ Length (same unit)
         (CssValue::Length(a, ua), CssValue::Length(b, ub)) if ua == ub => {
             Some(CssValue::Length(lerp(*a, *b, t), *ua))
-        }
-        // Both lengths resolved to px
-        (CssValue::Length(a, LengthUnit::Px), CssValue::Length(b, LengthUnit::Px)) => {
-            Some(CssValue::Length(lerp(*a, *b, t), LengthUnit::Px))
         }
 
         // Percentage ↔ Percentage
@@ -28,13 +26,15 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
             Some(CssValue::Percentage(lerp(*a, *b, t)))
         }
 
-        // Color ↔ Color (RGBA interpolation)
-        (CssValue::Color(a), CssValue::Color(b)) => Some(CssValue::Color(interpolate_color(a, b, t))),
+        // Color ↔ Color (RGBA interpolation, premultiplied alpha)
+        (CssValue::Color(a), CssValue::Color(b)) => {
+            Some(CssValue::Color(interpolate_color(a, b, t)))
+        }
 
         // Time ↔ Time
         (CssValue::Time(a), CssValue::Time(b)) => Some(CssValue::Time(lerp(*a, *b, t))),
 
-        // Discrete: keyword, string, auto, etc. — flip at 50%
+        // Discrete: keyword, string, auto, mismatched types — flip at 50%
         _ => {
             if t < 0.5 {
                 Some(from.clone())
@@ -50,23 +50,39 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-/// Interpolate two RGBA colors component-wise.
+/// Interpolate two RGBA colors component-wise with premultiplied alpha.
 ///
-/// Uses linear RGB interpolation (not premultiplied alpha for simplicity).
+/// Per CSS Color Level 4 §12, color interpolation uses premultiplied alpha
+/// to avoid darkening artifacts at semi-transparent midpoints.
 #[must_use]
+#[allow(clippy::many_single_char_names)]
 pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
-    CssColor::new(
-        lerp_u8(from.r, to.r, t),
-        lerp_u8(from.g, to.g, t),
-        lerp_u8(from.b, to.b, t),
-        lerp_u8(from.a, to.a, t),
-    )
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    let result = f32::from(a) + (f32::from(b) - f32::from(a)) * t;
-    result.round().clamp(0.0, 255.0) as u8
+    let from_alpha = f32::from(from.a) / 255.0;
+    let to_alpha = f32::from(to.a) / 255.0;
+    // Premultiply
+    let from_r = f32::from(from.r) * from_alpha;
+    let from_g = f32::from(from.g) * from_alpha;
+    let from_b = f32::from(from.b) * from_alpha;
+    let to_r = f32::from(to.r) * to_alpha;
+    let to_g = f32::from(to.g) * to_alpha;
+    let to_b = f32::from(to.b) * to_alpha;
+    // Interpolate in premultiplied space
+    let alpha = lerp(from_alpha, to_alpha, t);
+    let red = lerp(from_r, to_r, t);
+    let green = lerp(from_g, to_g, t);
+    let blue = lerp(from_b, to_b, t);
+    // Un-premultiply
+    if alpha < f32::EPSILON {
+        CssColor::new(0, 0, 0, 0)
+    } else {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        CssColor::new(
+            (red / alpha).round().clamp(0.0, 255.0) as u8,
+            (green / alpha).round().clamp(0.0, 255.0) as u8,
+            (blue / alpha).round().clamp(0.0, 255.0) as u8,
+            (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
+        )
+    }
 }
 
 /// Returns `true` if the given CSS property name is animatable.
@@ -119,6 +135,7 @@ pub fn is_animatable(property: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_plugin::LengthUnit;
 
     #[test]
     fn interpolate_numbers() {
@@ -174,10 +191,13 @@ mod tests {
 
     #[test]
     fn interpolate_colors_with_alpha() {
+        // With premultiplied alpha: from is fully transparent red, to is opaque red.
+        // At t=0.5: alpha=0.5, premul_r=lerp(0, 255, 0.5)=127.5, unpremul_r=127.5/0.5=255
         let from = CssColor::new(255, 0, 0, 0);
         let to = CssColor::new(255, 0, 0, 255);
         let result = interpolate_color(&from, &to, 0.5);
         assert_eq!(result.a, 128);
+        assert_eq!(result.r, 255); // red stays 255 with premultiplied
     }
 
     #[test]
@@ -226,9 +246,11 @@ mod tests {
     }
 
     #[test]
-    fn lerp_u8_boundary() {
-        assert_eq!(lerp_u8(0, 255, 0.0), 0);
-        assert_eq!(lerp_u8(0, 255, 1.0), 255);
-        assert_eq!(lerp_u8(0, 255, 0.5), 128);
+    fn interpolate_transparent_colors() {
+        // Both fully transparent → should produce transparent
+        let from = CssColor::new(255, 0, 0, 0);
+        let to = CssColor::new(0, 255, 0, 0);
+        let result = interpolate_color(&from, &to, 0.5);
+        assert_eq!(result.a, 0);
     }
 }

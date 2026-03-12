@@ -2,8 +2,8 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, resolve_length},
-    Clear, ComputedStyle, CssPropertyHandler, CssValue, Float, LengthUnit,
-    ParseError, PropertyDeclaration, ResolveContext, VerticalAlign, Visibility,
+    parse_css_keyword as parse_keyword, Clear, ComputedStyle, CssPropertyHandler, CssValue, Float,
+    LengthUnit, ParseError, PropertyDeclaration, ResolveContext, VerticalAlign, Visibility,
 };
 
 /// CSS float/clear/visibility/vertical-align property handler.
@@ -109,41 +109,24 @@ impl CssPropertyHandler for FloatHandler {
     }
 }
 
-fn parse_keyword(
-    input: &mut cssparser::Parser<'_, '_>,
-    allowed: &[&str],
-) -> Result<CssValue, ParseError> {
-    let ident = input.expect_ident().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected identifier".into(),
-    })?;
-    let lower = ident.to_ascii_lowercase();
-    if allowed.contains(&lower.as_str()) {
-        Ok(CssValue::Keyword(lower))
-    } else {
-        Err(ParseError {
-            property: String::new(),
-            input: lower,
-            message: "unexpected keyword".into(),
-        })
-    }
-}
-
-fn parse_vertical_align(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_vertical_align(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keyword first
-    if input.try_parse(|i| i.expect_ident_matching("baseline")).is_ok() {
+    if input
+        .try_parse(|i| i.expect_ident_matching("baseline"))
+        .is_ok()
+    {
         return Ok(CssValue::Keyword("baseline".to_string()));
     }
     for kw in &[
-        "sub", "super", "top", "text-top", "middle", "bottom", "text-bottom",
+        "sub",
+        "super",
+        "top",
+        "text-top",
+        "middle",
+        "bottom",
+        "text-bottom",
     ] {
-        if input
-            .try_parse(|i| i.expect_ident_matching(kw))
-            .is_ok()
-        {
+        if input.try_parse(|i| i.expect_ident_matching(kw)).is_ok() {
             return Ok(CssValue::Keyword((*kw).to_string()));
         }
     }
@@ -152,7 +135,9 @@ fn parse_vertical_align(
     if let Ok(value) = input.try_parse(|i| {
         let token = i.next().map_err(|_| ())?;
         match *token {
-            cssparser::Token::Dimension { value, ref unit, .. } => {
+            cssparser::Token::Dimension {
+                value, ref unit, ..
+            } => {
                 let unit = elidex_plugin::css_resolve::parse_length_unit(unit);
                 Ok(CssValue::Length(value, unit))
             }

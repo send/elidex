@@ -3,8 +3,9 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_to_px},
-    BorderCollapse, CaptionSide, ComputedStyle, CssPropertyHandler, CssValue, LengthUnit,
-    ParseError, PropertyDeclaration, ResolveContext, TableLayout,
+    parse_css_keyword as parse_keyword, BorderCollapse, CaptionSide, ComputedStyle,
+    CssPropertyHandler, CssValue, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
+    TableLayout,
 };
 
 /// CSS table property handler.
@@ -55,8 +56,7 @@ impl CssPropertyHandler for TableHandler {
         match name {
             "border-collapse" => {
                 if let CssValue::Keyword(ref k) = value {
-                    style.border_collapse =
-                        BorderCollapse::from_keyword(k).unwrap_or_default();
+                    style.border_collapse = BorderCollapse::from_keyword(k).unwrap_or_default();
                 }
             }
             "border-spacing-h" => {
@@ -69,14 +69,12 @@ impl CssPropertyHandler for TableHandler {
             }
             "table-layout" => {
                 if let CssValue::Keyword(ref k) = value {
-                    style.table_layout =
-                        TableLayout::from_keyword(k).unwrap_or_default();
+                    style.table_layout = TableLayout::from_keyword(k).unwrap_or_default();
                 }
             }
             "caption-side" => {
                 if let CssValue::Keyword(ref k) = value {
-                    style.caption_side =
-                        CaptionSide::from_keyword(k).unwrap_or_default();
+                    style.caption_side = CaptionSide::from_keyword(k).unwrap_or_default();
                 }
             }
             _ => {}
@@ -116,27 +114,6 @@ impl CssPropertyHandler for TableHandler {
     }
 }
 
-fn parse_keyword(
-    input: &mut cssparser::Parser<'_, '_>,
-    allowed: &[&str],
-) -> Result<CssValue, ParseError> {
-    let ident = input.expect_ident().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected identifier".into(),
-    })?;
-    let lower = ident.to_ascii_lowercase();
-    if allowed.contains(&lower.as_str()) {
-        Ok(CssValue::Keyword(lower))
-    } else {
-        Err(ParseError {
-            property: String::new(),
-            input: lower,
-            message: "unexpected keyword".into(),
-        })
-    }
-}
-
 fn parse_non_negative_length(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<CssValue, ParseError> {
@@ -146,7 +123,9 @@ fn parse_non_negative_length(
         message: "expected length value".into(),
     })?;
     match *token {
-        cssparser::Token::Dimension { value, ref unit, .. } => {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
             if value < 0.0 {
                 return Err(ParseError {
                     property: String::new(),
@@ -157,9 +136,7 @@ fn parse_non_negative_length(
             let unit = parse_length_unit(unit);
             Ok(CssValue::Length(value, unit))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError {
             property: String::new(),
             input: String::new(),

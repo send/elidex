@@ -48,6 +48,8 @@ pub enum TransitionProperty {
     Property(String),
 }
 
+use std::fmt;
+
 /// `animation-iteration-count` value.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IterationCount {
@@ -60,6 +62,15 @@ pub enum IterationCount {
 impl Default for IterationCount {
     fn default() -> Self {
         Self::Number(1.0)
+    }
+}
+
+impl fmt::Display for IterationCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Infinite => f.write_str("infinite"),
+        }
     }
 }
 
@@ -77,6 +88,17 @@ pub enum AnimationDirection {
     AlternateReverse,
 }
 
+impl fmt::Display for AnimationDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal => f.write_str("normal"),
+            Self::Reverse => f.write_str("reverse"),
+            Self::Alternate => f.write_str("alternate"),
+            Self::AlternateReverse => f.write_str("alternate-reverse"),
+        }
+    }
+}
+
 /// `animation-fill-mode` value.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum AnimationFillMode {
@@ -91,6 +113,17 @@ pub enum AnimationFillMode {
     Both,
 }
 
+impl fmt::Display for AnimationFillMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("none"),
+            Self::Forwards => f.write_str("forwards"),
+            Self::Backwards => f.write_str("backwards"),
+            Self::Both => f.write_str("both"),
+        }
+    }
+}
+
 /// `animation-play-state` value.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum PlayState {
@@ -99,6 +132,15 @@ pub enum PlayState {
     Running,
     /// `paused`.
     Paused,
+}
+
+impl fmt::Display for PlayState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Running => f.write_str("running"),
+            Self::Paused => f.write_str("paused"),
+        }
+    }
 }
 
 #[cfg(test)]

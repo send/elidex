@@ -6,9 +6,13 @@ use elidex_plugin::{CssValue, ParseError, PropertyDeclaration};
 
 /// Parse a `<time>` value from a cssparser token, returning seconds.
 pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
-    let token = input.next().map_err(|_| parse_err("time", "unexpected EOF"))?;
+    let token = input
+        .next()
+        .map_err(|_| parse_err("time", "unexpected EOF"))?;
     match *token {
-        cssparser::Token::Dimension { value, ref unit, .. } => {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
             let lower = unit.to_ascii_lowercase();
             match lower.as_str() {
                 "s" => Ok(value),
@@ -38,7 +42,10 @@ pub fn parse_timing_function(
             "ease-in-out" => Ok(TimingFunction::EASE_IN_OUT),
             "step-start" => Ok(TimingFunction::Steps(1, StepPosition::JumpStart)),
             "step-end" => Ok(TimingFunction::Steps(1, StepPosition::JumpEnd)),
-            _ => Err(parse_err("timing-function", &format!("unknown keyword: {ident}"))),
+            _ => Err(parse_err(
+                "timing-function",
+                &format!("unknown keyword: {ident}"),
+            )),
         };
     }
 
@@ -56,10 +63,8 @@ pub fn parse_timing_function(
     // Try steps()
     if let Ok(tf) = input.try_parse(|i| -> Result<TimingFunction, ()> {
         i.expect_function_matching("steps").map_err(|_| ())?;
-        i.parse_nested_block(|args| {
-            parse_steps_args(args).map_err(|()| args.new_custom_error(()))
-        })
-        .map_err(|_: cssparser::ParseError<'_, ()>| ())
+        i.parse_nested_block(|args| parse_steps_args(args).map_err(|()| args.new_custom_error(())))
+            .map_err(|_: cssparser::ParseError<'_, ()>| ())
     }) {
         return Ok(tf);
     }
@@ -73,7 +78,9 @@ pub fn parse_transition_property(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut props = Vec::new();
     loop {
-        let ident = input.expect_ident().map_err(|_| parse_err("transition-property", "expected identifier"))?;
+        let ident = input
+            .expect_ident()
+            .map_err(|_| parse_err("transition-property", "expected identifier"))?;
         let lower = ident.to_ascii_lowercase();
         let tp = match lower.as_str() {
             "none" => TransitionProperty::None,
@@ -138,8 +145,15 @@ pub fn parse_timing_function_list(
         }
     }
     // Serialize as string
-    let serialized = fns.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-    Ok(vec![PropertyDeclaration::new(name, CssValue::String(serialized))])
+    let serialized = fns
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(vec![PropertyDeclaration::new(
+        name,
+        CssValue::String(serialized),
+    )])
 }
 
 /// Parse `animation-name` (comma-separated identifiers or `none`).
@@ -169,12 +183,15 @@ pub fn parse_iteration_count(
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let mut counts = Vec::new();
     loop {
-        if input.try_parse(|i| i.expect_ident_matching("infinite")).is_ok() {
+        if input
+            .try_parse(|i| i.expect_ident_matching("infinite"))
+            .is_ok()
+        {
             counts.push("infinite".to_string());
         } else {
-            let n = input
-                .expect_number()
-                .map_err(|_| parse_err("animation-iteration-count", "expected number or infinite"))?;
+            let n = input.expect_number().map_err(|_| {
+                parse_err("animation-iteration-count", "expected number or infinite")
+            })?;
             if n < 0.0 {
                 return Err(parse_err("animation-iteration-count", "negative value"));
             }
@@ -217,11 +234,7 @@ pub fn parse_animation_fill_mode(
 pub fn parse_animation_play_state(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    parse_keyword_list(
-        "animation-play-state",
-        input,
-        &["running", "paused"],
-    )
+    parse_keyword_list("animation-play-state", input, &["running", "paused"])
 }
 
 fn parse_keyword_list(
@@ -244,7 +257,10 @@ fn parse_keyword_list(
         }
     }
     let serialized = values.join(", ");
-    Ok(vec![PropertyDeclaration::new(name, CssValue::String(serialized))])
+    Ok(vec![PropertyDeclaration::new(
+        name,
+        CssValue::String(serialized),
+    )])
 }
 
 // --- @keyframes parsing ---
@@ -283,9 +299,9 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         let selector_text = remaining[..brace_start].trim();
         let offsets = parse_keyframe_selectors(selector_text);
 
-        // Find matching closing brace
+        // Find matching closing brace (handles nested braces)
         let after_brace = &remaining[brace_start + 1..];
-        let Some(brace_end) = after_brace.find('}') else {
+        let Some(brace_end) = find_matching_brace(after_brace) else {
             break;
         };
         let decl_text = &after_brace[..brace_end];
@@ -303,12 +319,34 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         remaining = after_brace[brace_end + 1..].trim();
     }
 
-    keyframes.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap_or(std::cmp::Ordering::Equal));
+    keyframes.sort_by(|a, b| {
+        a.offset
+            .partial_cmp(&b.offset)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     KeyframesRule {
         name: name.to_string(),
         keyframes,
     }
+}
+
+/// Find the position of the matching `}` for an opening `{`, handling nesting.
+fn find_matching_brace(text: &str) -> Option<usize> {
+    let mut depth = 0u32;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                if depth == 0 {
+                    return Some(i);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
@@ -354,7 +392,9 @@ fn parse_simple_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
     let token = input.next().map_err(|_| ())?;
     match token.clone() {
         cssparser::Token::Number { value, .. } => Ok(CssValue::Number(value)),
-        cssparser::Token::Dimension { value, ref unit, .. } => {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => {
             let u = elidex_plugin::css_resolve::parse_length_unit(unit);
             Ok(CssValue::Length(value, u))
         }
@@ -393,11 +433,25 @@ fn parse_hex_color(hex: &str) -> Result<elidex_plugin::CssColor, ()> {
             let b = hex_digit(bytes[2])? * 17;
             Ok(elidex_plugin::CssColor::rgb(r, g, b))
         }
+        4 => {
+            let r = hex_digit(bytes[0])? * 17;
+            let g = hex_digit(bytes[1])? * 17;
+            let b = hex_digit(bytes[2])? * 17;
+            let a = hex_digit(bytes[3])? * 17;
+            Ok(elidex_plugin::CssColor::new(r, g, b, a))
+        }
         6 => {
             let r = hex_digit(bytes[0])? * 16 + hex_digit(bytes[1])?;
             let g = hex_digit(bytes[2])? * 16 + hex_digit(bytes[3])?;
             let b = hex_digit(bytes[4])? * 16 + hex_digit(bytes[5])?;
             Ok(elidex_plugin::CssColor::rgb(r, g, b))
+        }
+        8 => {
+            let r = hex_digit(bytes[0])? * 16 + hex_digit(bytes[1])?;
+            let g = hex_digit(bytes[2])? * 16 + hex_digit(bytes[3])?;
+            let b = hex_digit(bytes[4])? * 16 + hex_digit(bytes[5])?;
+            let a = hex_digit(bytes[6])? * 16 + hex_digit(bytes[7])?;
+            Ok(elidex_plugin::CssColor::new(r, g, b, a))
         }
         _ => Err(()),
     }
@@ -431,6 +485,7 @@ fn parse_steps_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFuncti
     if count < 1 {
         return Err(());
     }
+    // Per CSS Easing Functions Level 2, steps(n, jump-none) requires n >= 2.
     let position = if args.try_parse(cssparser::Parser::expect_comma).is_ok() {
         let ident = args.expect_ident().map_err(|_| ())?;
         match ident.to_ascii_lowercase().as_str() {
@@ -443,6 +498,10 @@ fn parse_steps_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFuncti
     } else {
         StepPosition::JumpEnd
     };
+    // jump-none requires at least 2 steps (n-1 intervals must be >= 1).
+    if position == StepPosition::JumpNone && count < 2 {
+        return Err(());
+    }
     #[allow(clippy::cast_sign_loss)]
     Ok(TimingFunction::Steps(count as u32, position))
 }
@@ -478,27 +537,18 @@ pub fn parse_transition_shorthand(
         }
     }
 
-    let mut decls = Vec::new();
-    decls.push(PropertyDeclaration::new(
-        "transition-property",
-        CssValue::String(properties.join(", ")),
-    ));
-    let dur_list: Vec<CssValue> = durations.iter().map(|d| CssValue::Time(*d)).collect();
-    decls.push(PropertyDeclaration::new(
-        "transition-duration",
-        if dur_list.len() == 1 { dur_list.into_iter().next().unwrap() } else { CssValue::List(dur_list) },
-    ));
-    decls.push(PropertyDeclaration::new(
-        "transition-timing-function",
-        CssValue::String(timing_fns.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")),
-    ));
-    let del_list: Vec<CssValue> = delays.iter().map(|d| CssValue::Time(*d)).collect();
-    decls.push(PropertyDeclaration::new(
-        "transition-delay",
-        if del_list.len() == 1 { del_list.into_iter().next().unwrap() } else { CssValue::List(del_list) },
-    ));
-
-    Ok(decls)
+    Ok(vec![
+        PropertyDeclaration::new(
+            "transition-property",
+            CssValue::String(properties.join(", ")),
+        ),
+        PropertyDeclaration::new("transition-duration", crate::time_list_value(&durations)),
+        PropertyDeclaration::new(
+            "transition-timing-function",
+            crate::display_list_value(&timing_fns),
+        ),
+        PropertyDeclaration::new("transition-delay", crate::time_list_value(&delays)),
+    ])
 }
 
 fn parse_single_transition(
@@ -529,7 +579,9 @@ fn parse_single_transition(
         }
         // Try property ident
         if let Ok(ident) = input.try_parse(|i| -> Result<String, ParseError> {
-            let id = i.expect_ident().map_err(|_| parse_err("transition", "expected ident"))?;
+            let id = i
+                .expect_ident()
+                .map_err(|_| parse_err("transition", "expected ident"))?;
             Ok(id.to_ascii_lowercase())
         }) {
             property = ident;
@@ -570,14 +622,20 @@ mod tests {
     fn parse_timing_ease() {
         let mut pi = cssparser::ParserInput::new("ease");
         let mut parser = cssparser::Parser::new(&mut pi);
-        assert_eq!(parse_timing_function(&mut parser).unwrap(), TimingFunction::EASE);
+        assert_eq!(
+            parse_timing_function(&mut parser).unwrap(),
+            TimingFunction::EASE
+        );
     }
 
     #[test]
     fn parse_timing_linear() {
         let mut pi = cssparser::ParserInput::new("linear");
         let mut parser = cssparser::Parser::new(&mut pi);
-        assert_eq!(parse_timing_function(&mut parser).unwrap(), TimingFunction::Linear);
+        assert_eq!(
+            parse_timing_function(&mut parser).unwrap(),
+            TimingFunction::Linear
+        );
     }
 
     #[test]
@@ -650,7 +708,10 @@ mod tests {
         let mut pi = cssparser::ParserInput::new("opacity, width, color");
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = parse_transition_property(&mut parser).unwrap();
-        assert_eq!(decls[0].value, CssValue::String("opacity, width, color".into()));
+        assert_eq!(
+            decls[0].value,
+            CssValue::String("opacity, width, color".into())
+        );
     }
 
     #[test]
@@ -734,10 +795,7 @@ mod tests {
 
     #[test]
     fn keyframes_parse_basic() {
-        let rule = parse_keyframes(
-            "fadeIn",
-            "from { opacity: 0; } to { opacity: 1; }",
-        );
+        let rule = parse_keyframes("fadeIn", "from { opacity: 0; } to { opacity: 1; }");
         assert_eq!(rule.name, "fadeIn");
         assert_eq!(rule.keyframes.len(), 2);
         assert_eq!(rule.keyframes[0].offset, 0.0);
@@ -758,22 +816,22 @@ mod tests {
 
     #[test]
     fn keyframes_parse_multiple_selectors() {
-        let rule = parse_keyframes(
-            "test",
-            "0%, 100% { opacity: 1; } 50% { opacity: 0; }",
-        );
+        let rule = parse_keyframes("test", "0%, 100% { opacity: 1; } 50% { opacity: 0; }");
         // 0% and 100% share same block → 2 keyframes, plus 50% → 3 total
         assert_eq!(rule.keyframes.len(), 3);
     }
 
     #[test]
     fn keyframes_parse_color() {
-        let rule = parse_keyframes(
-            "color-anim",
-            "from { color: red; } to { color: blue; }",
+        let rule = parse_keyframes("color-anim", "from { color: red; } to { color: blue; }");
+        assert_eq!(
+            rule.keyframes[0].declarations[0].value,
+            CssValue::Color(elidex_plugin::CssColor::RED)
         );
-        assert_eq!(rule.keyframes[0].declarations[0].value, CssValue::Color(elidex_plugin::CssColor::RED));
-        assert_eq!(rule.keyframes[1].declarations[0].value, CssValue::Color(elidex_plugin::CssColor::BLUE));
+        assert_eq!(
+            rule.keyframes[1].declarations[0].value,
+            CssValue::Color(elidex_plugin::CssColor::BLUE)
+        );
     }
 
     #[test]
@@ -800,5 +858,67 @@ mod tests {
     fn hex_color_short() {
         let c = parse_hex_color("f00").unwrap();
         assert_eq!(c, elidex_plugin::CssColor::rgb(255, 0, 0));
+    }
+
+    // F22: Multi-transition shorthand parse test.
+    //
+    // "opacity 0.3s, transform 0.5s ease-in" should produce two sets of
+    // transition longhand values, each property carrying two comma-separated
+    // entries.
+    #[test]
+    fn transition_shorthand_multi_value() {
+        let mut pi = cssparser::ParserInput::new("opacity 0.3s, transform 0.5s ease-in");
+        let mut parser = cssparser::Parser::new(&mut pi);
+        let decls = parse_transition_shorthand(&mut parser).unwrap();
+
+        // Should produce 4 longhands: property, duration, timing-function, delay
+        assert_eq!(decls.len(), 4);
+
+        // transition-property: "opacity, transform"
+        assert_eq!(decls[0].property, "transition-property");
+        assert_eq!(
+            decls[0].value,
+            CssValue::String("opacity, transform".into())
+        );
+
+        // transition-duration: list with 0.3s and 0.5s
+        assert_eq!(decls[1].property, "transition-duration");
+        match &decls[1].value {
+            CssValue::List(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0], CssValue::Time(0.3));
+                assert_eq!(items[1], CssValue::Time(0.5));
+            }
+            other => panic!("expected List for transition-duration, got {other:?}"),
+        }
+
+        // transition-timing-function: the second entry should be ease-in.
+        // ease-in is stored internally as CubicBezier(0.42, 0.0, 1.0, 1.0) and
+        // serialized as "cubic-bezier(0.42, 0, 1, 1)".
+        assert_eq!(decls[2].property, "transition-timing-function");
+        let tf_str = match &decls[2].value {
+            CssValue::String(s) => s.clone(),
+            other => panic!("expected String for timing-function, got {other:?}"),
+        };
+        // The string contains two entries: the default "ease" for the first
+        // transition and "cubic-bezier(0.42, 0, 1, 1)" (ease-in) for the second.
+        assert!(
+            tf_str.contains("cubic-bezier(0.42"),
+            "second timing function should be the ease-in cubic-bezier: {tf_str}"
+        );
+    }
+
+    // F23: steps(1, jump-none) should be rejected.
+    //
+    // Per CSS Easing Functions Level 2, jump-none requires at least 2 steps
+    // because jump-none produces (n-1) intervals and 0 intervals is invalid.
+    #[test]
+    fn steps_jump_none_count_one_rejected() {
+        let mut pi = cssparser::ParserInput::new("steps(1, jump-none)");
+        let mut parser = cssparser::Parser::new(&mut pi);
+        assert!(
+            parse_timing_function(&mut parser).is_err(),
+            "steps(1, jump-none) should be rejected: n=1 with jump-none produces 0 intervals"
+        );
     }
 }

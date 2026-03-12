@@ -3,9 +3,9 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_dimension, resolve_to_px},
-    BorderStyle, BoxSizing, ComputedStyle, ContentItem, ContentValue, CssColor,
-    CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow, ParseError,
-    Position, PropertyDeclaration, ResolveContext,
+    parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
+    ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
+    ParseError, Position, PropertyDeclaration, ResolveContext,
 };
 
 /// CSS box model property handler.
@@ -110,7 +110,9 @@ impl CssPropertyHandler for BoxHandler {
             "box-sizing" => parse_keyword(input, BOX_SIZING_KEYWORDS)?,
             "overflow" => parse_keyword(input, OVERFLOW_KEYWORDS)?,
 
-            "border-top-style" | "border-right-style" | "border-bottom-style"
+            "border-top-style"
+            | "border-right-style"
+            | "border-bottom-style"
             | "border-left-style" => parse_keyword(input, BORDER_STYLE_KEYWORDS)?,
 
             "width" | "height" | "max-width" | "max-height" => {
@@ -126,11 +128,16 @@ impl CssPropertyHandler for BoxHandler {
                 parse_length_percentage_auto(input)?
             }
 
-            "border-top-width" | "border-right-width" | "border-bottom-width"
+            "border-top-width"
+            | "border-right-width"
+            | "border-bottom-width"
             | "border-left-width" => parse_border_width(input)?,
 
-            "border-top-color" | "border-right-color" | "border-bottom-color"
-            | "border-left-color" | "background-color" => parse_color_value(input)?,
+            "border-top-color"
+            | "border-right-color"
+            | "border-bottom-color"
+            | "border-left-color"
+            | "background-color" => parse_color_value(input)?,
 
             "opacity" => parse_opacity(input)?,
             "content" => parse_content(input)?,
@@ -238,13 +245,19 @@ impl CssPropertyHandler for BoxHandler {
                 CssValue::Length(0.0, LengthUnit::Px)
             }
 
-            "border-top-width" | "border-right-width" | "border-bottom-width"
+            "border-top-width"
+            | "border-right-width"
+            | "border-bottom-width"
             | "border-left-width" => CssValue::Length(3.0, LengthUnit::Px),
 
-            "border-top-style" | "border-right-style" | "border-bottom-style"
+            "border-top-style"
+            | "border-right-style"
+            | "border-bottom-style"
             | "border-left-style" => CssValue::Keyword("none".to_string()),
 
-            "border-top-color" | "border-right-color" | "border-bottom-color"
+            "border-top-color"
+            | "border-right-color"
+            | "border-bottom-color"
             | "border-left-color" => CssValue::Keyword("currentcolor".to_string()),
 
             "box-sizing" => CssValue::Keyword("content-box".to_string()),
@@ -323,9 +336,7 @@ impl CssPropertyHandler for BoxHandler {
                         .iter()
                         .map(|item| match item {
                             ContentItem::String(s) => CssValue::String(s.clone()),
-                            ContentItem::Attr(a) => {
-                                CssValue::Keyword(format!("attr({a})"))
-                            }
+                            ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
                         })
                         .collect();
                     if parts.len() == 1 {
@@ -348,36 +359,12 @@ impl CssPropertyHandler for BoxHandler {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-fn parse_keyword(
-    input: &mut cssparser::Parser<'_, '_>,
-    allowed: &[&str],
-) -> Result<CssValue, ParseError> {
-    let ident = input.expect_ident().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected identifier".into(),
-    })?;
-    let lower = ident.to_ascii_lowercase();
-    if allowed.contains(&lower.as_str()) {
-        Ok(CssValue::Keyword(lower))
-    } else {
-        Err(ParseError {
-            property: String::new(),
-            input: lower,
-            message: "unexpected keyword".into(),
-        })
-    }
-}
-
 /// Parse a length, percentage, or `auto` keyword.
 fn parse_length_percentage_auto(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<CssValue, ParseError> {
     // Try `auto` keyword first.
-    if input
-        .try_parse(|i| i.expect_ident_matching("auto"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
         return Ok(CssValue::Auto);
     }
     parse_length_percentage(input)
@@ -387,25 +374,17 @@ fn parse_length_percentage_auto(
 fn parse_length_percentage_auto_or_none(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<CssValue, ParseError> {
-    if input
-        .try_parse(|i| i.expect_ident_matching("auto"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
         return Ok(CssValue::Auto);
     }
-    if input
-        .try_parse(|i| i.expect_ident_matching("none"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Auto); // `none` maps to Auto (unconstrained)
     }
     parse_length_percentage(input)
 }
 
 /// Parse a length or percentage value.
-fn parse_length_percentage(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_length_percentage(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let token = input.next().map_err(|_| ParseError {
         property: String::new(),
         input: String::new(),
@@ -421,9 +400,7 @@ fn parse_length_percentage(
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError {
             property: String::new(),
             input: String::new(),
@@ -453,9 +430,7 @@ fn parse_non_negative_length_percentage(
 }
 
 /// Parse a border width value: length or keyword (thin/medium/thick).
-fn parse_border_width(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keywords first
     if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(|s| s.to_ascii_lowercase())) {
         return match ident.as_str() {
@@ -473,9 +448,7 @@ fn parse_border_width(
 }
 
 /// Parse a CSS color value, including the `currentcolor` keyword.
-fn parse_color_value(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_color_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try `currentcolor` keyword first
     if input
         .try_parse(|i| i.expect_ident_matching("currentcolor"))
@@ -492,9 +465,7 @@ fn parse_color_value(
 }
 
 /// Parse opacity: a number clamped to 0.0..=1.0.
-fn parse_opacity(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_opacity(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let token = input.next().map_err(|_| ParseError {
         property: String::new(),
         input: String::new(),
@@ -515,9 +486,7 @@ fn parse_opacity(
 }
 
 /// Parse the CSS `content` property.
-fn parse_content(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
+fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keywords
     if input
         .try_parse(|i| i.expect_ident_matching("normal"))
@@ -525,10 +494,7 @@ fn parse_content(
     {
         return Ok(CssValue::Keyword("normal".to_string()));
     }
-    if input
-        .try_parse(|i| i.expect_ident_matching("none"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Keyword("none".to_string()));
     }
 
@@ -544,14 +510,10 @@ fn parse_content(
         // Try attr() function
         if let Ok(attr_name) = input.try_parse(|i| {
             i.expect_function_matching("attr")?;
-            i.parse_nested_block(
-                |nested| -> Result<String, cssparser::ParseError<'_, ()>> {
-                    let name = nested
-                        .expect_ident()
-                        .map_err(cssparser::ParseError::from)?;
-                    Ok(name.as_ref().to_string())
-                },
-            )
+            i.parse_nested_block(|nested| -> Result<String, cssparser::ParseError<'_, ()>> {
+                let name = nested.expect_ident().map_err(cssparser::ParseError::from)?;
+                Ok(name.as_ref().to_string())
+            })
         }) {
             items.push(CssValue::Keyword(format!("attr({attr_name})")));
             continue;
@@ -751,7 +713,12 @@ mod tests {
         let decls = parse("border-top-color", "#ff0000");
         assert_eq!(
             decls[0].value,
-            CssValue::Color(CssColor { r: 255, g: 0, b: 0, a: 255 })
+            CssValue::Color(CssColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            })
         );
     }
 
@@ -772,7 +739,12 @@ mod tests {
         let decls = parse("background-color", "red");
         assert_eq!(
             decls[0].value,
-            CssValue::Color(CssColor { r: 255, g: 0, b: 0, a: 255 })
+            CssValue::Color(CssColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            })
         );
     }
 
@@ -794,19 +766,13 @@ mod tests {
     #[test]
     fn parse_content_attr() {
         let decls = parse("content", "attr(title)");
-        assert_eq!(
-            decls[0].value,
-            CssValue::Keyword("attr(title)".to_string())
-        );
+        assert_eq!(decls[0].value, CssValue::Keyword("attr(title)".to_string()));
     }
 
     #[test]
     fn parse_box_sizing() {
         let decls = parse("box-sizing", "border-box");
-        assert_eq!(
-            decls[0].value,
-            CssValue::Keyword("border-box".to_string())
-        );
+        assert_eq!(decls[0].value, CssValue::Keyword("border-box".to_string()));
     }
 
     #[test]
@@ -830,7 +796,12 @@ mod tests {
         let h = handler();
         let ctx = default_ctx();
         let mut style = ComputedStyle::default();
-        h.resolve("display", &CssValue::Keyword("flex".into()), &ctx, &mut style);
+        h.resolve(
+            "display",
+            &CssValue::Keyword("flex".into()),
+            &ctx,
+            &mut style,
+        );
         assert_eq!(style.display, Display::Flex);
     }
 
@@ -870,14 +841,27 @@ mod tests {
         let h = handler();
         let ctx = default_ctx();
         let mut style = ComputedStyle::default();
-        style.color = CssColor { r: 0, g: 128, b: 255, a: 255 };
+        style.color = CssColor {
+            r: 0,
+            g: 128,
+            b: 255,
+            a: 255,
+        };
         h.resolve(
             "border-top-color",
             &CssValue::Keyword("currentcolor".into()),
             &ctx,
             &mut style,
         );
-        assert_eq!(style.border_top_color, CssColor { r: 0, g: 128, b: 255, a: 255 });
+        assert_eq!(
+            style.border_top_color,
+            CssColor {
+                r: 0,
+                g: 128,
+                b: 255,
+                a: 255
+            }
+        );
     }
 
     #[test]
@@ -894,12 +878,7 @@ mod tests {
         let h = handler();
         let ctx = default_ctx();
         let mut style = ComputedStyle::default();
-        h.resolve(
-            "content",
-            &CssValue::String(">>".into()),
-            &ctx,
-            &mut style,
-        );
+        h.resolve("content", &CssValue::String(">>".into()), &ctx, &mut style);
         assert_eq!(
             style.content,
             ContentValue::Items(vec![ContentItem::String(">>".into())])
@@ -937,10 +916,7 @@ mod tests {
     fn no_properties_inherited() {
         let h = handler();
         for name in BOX_PROPERTIES {
-            assert!(
-                !h.is_inherited(name),
-                "{name} should not be inherited"
-            );
+            assert!(!h.is_inherited(name), "{name} should not be inherited");
         }
     }
 
@@ -999,7 +975,7 @@ mod tests {
             h.get_computed("content", &style),
             CssValue::List(vec![
                 CssValue::String("a".into()),
-                CssValue::Keyword("attr(title)".into()),
+                CssValue::Keyword("attr:title".into()),
             ])
         );
     }

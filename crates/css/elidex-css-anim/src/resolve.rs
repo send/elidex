@@ -57,8 +57,7 @@ pub fn resolve_timing_function_list(value: &CssValue) -> Vec<TimingFunction> {
             let part = part.trim();
             let mut pi = cssparser::ParserInput::new(part);
             let mut parser = cssparser::Parser::new(&mut pi);
-            crate::parse::parse_timing_function(&mut parser)
-                .unwrap_or_default()
+            crate::parse::parse_timing_function(&mut parser).unwrap_or_default()
         })
         .collect()
 }
@@ -179,8 +178,7 @@ mod tests {
 
     #[test]
     fn resolve_transition_property_multiple() {
-        let props =
-            resolve_transition_property(&CssValue::String("opacity, width, color".into()));
+        let props = resolve_transition_property(&CssValue::String("opacity, width, color".into()));
         assert_eq!(props.len(), 3);
         assert_eq!(props[0], TransitionProperty::Property("opacity".into()));
         assert_eq!(props[1], TransitionProperty::Property("width".into()));
@@ -216,8 +214,7 @@ mod tests {
 
     #[test]
     fn resolve_iteration_counts_mixed() {
-        let counts =
-            resolve_iteration_counts(&CssValue::String("3, infinite, 1.5".into()));
+        let counts = resolve_iteration_counts(&CssValue::String("3, infinite, 1.5".into()));
         assert_eq!(counts.len(), 3);
         assert_eq!(counts[0], IterationCount::Number(3.0));
         assert_eq!(counts[1], IterationCount::Infinite);
@@ -227,7 +224,10 @@ mod tests {
     #[test]
     fn resolve_directions() {
         let dirs = resolve_animation_directions(&CssValue::String("normal, reverse".into()));
-        assert_eq!(dirs, vec![AnimationDirection::Normal, AnimationDirection::Reverse]);
+        assert_eq!(
+            dirs,
+            vec![AnimationDirection::Normal, AnimationDirection::Reverse]
+        );
     }
 
     #[test]

@@ -157,6 +157,35 @@ impl std::fmt::Display for NetworkErrorKind {
     }
 }
 
+// ---------------------------------------------------------------------------
+// CSS parse helpers (shared by CSS property handler crates)
+// ---------------------------------------------------------------------------
+
+/// Parse a CSS keyword from the input, accepting only values in `allowed`.
+///
+/// Returns `CssValue::Keyword(lowercase)` on success. This is a shared helper
+/// to avoid duplicating the same pattern across CSS property plugin crates.
+pub fn parse_css_keyword(
+    input: &mut cssparser::Parser<'_, '_>,
+    allowed: &[&str],
+) -> Result<CssValue, ParseError> {
+    let ident = input.expect_ident().map_err(|_| ParseError {
+        property: String::new(),
+        input: String::new(),
+        message: "expected identifier".into(),
+    })?;
+    let lower = ident.to_ascii_lowercase();
+    if allowed.contains(&lower.as_str()) {
+        Ok(CssValue::Keyword(lower))
+    } else {
+        Err(ParseError {
+            property: String::new(),
+            input: lower,
+            message: "unexpected keyword".into(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

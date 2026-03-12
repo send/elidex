@@ -3,9 +3,9 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_dimension},
-    AlignContent, AlignItems, AlignSelf, ComputedStyle, CssPropertyHandler, CssValue,
-    Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit, ParseError,
-    PropertyDeclaration, ResolveContext,
+    parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, ComputedStyle,
+    CssPropertyHandler, CssValue, Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit,
+    ParseError, PropertyDeclaration, ResolveContext,
 };
 
 /// CSS flexbox property handler.
@@ -76,7 +76,12 @@ impl CssPropertyHandler for FlexHandler {
             "align-self" => parse_keyword(
                 input,
                 &[
-                    "auto", "stretch", "flex-start", "flex-end", "center", "baseline",
+                    "auto",
+                    "stretch",
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "baseline",
                 ],
             )?,
             "flex-grow" => parse_non_negative_number(input, "flex-grow")?,
@@ -108,8 +113,7 @@ impl CssPropertyHandler for FlexHandler {
             }
             "justify-content" => {
                 if let CssValue::Keyword(ref k) = value {
-                    style.justify_content =
-                        JustifyContent::from_keyword(k).unwrap_or_default();
+                    style.justify_content = JustifyContent::from_keyword(k).unwrap_or_default();
                 }
             }
             "align-items" => {
@@ -195,27 +199,6 @@ impl CssPropertyHandler for FlexHandler {
     }
 }
 
-fn parse_keyword(
-    input: &mut cssparser::Parser<'_, '_>,
-    allowed: &[&str],
-) -> Result<CssValue, ParseError> {
-    let ident = input.expect_ident().map_err(|_| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected identifier".into(),
-    })?;
-    let lower = ident.to_ascii_lowercase();
-    if allowed.contains(&lower.as_str()) {
-        Ok(CssValue::Keyword(lower))
-    } else {
-        Err(ParseError {
-            property: String::new(),
-            input: lower,
-            message: "unexpected keyword".into(),
-        })
-    }
-}
-
 fn parse_non_negative_number(
     input: &mut cssparser::Parser<'_, '_>,
     prop: &str,
@@ -237,10 +220,7 @@ fn parse_non_negative_number(
 
 fn parse_flex_basis(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try "auto" keyword
-    if input
-        .try_parse(|i| i.expect_ident_matching("auto"))
-        .is_ok()
-    {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
         return Ok(CssValue::Keyword("auto".to_string()));
     }
 
@@ -260,9 +240,7 @@ fn parse_flex_basis(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
         cssparser::Token::Percentage { unit_value, .. } => {
             Ok(CssValue::Percentage(unit_value * 100.0))
         }
-        cssparser::Token::Number { value: 0.0, .. } => {
-            Ok(CssValue::Length(0.0, LengthUnit::Px))
-        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError {
             property: "flex-basis".into(),
             input: String::new(),
@@ -453,7 +431,10 @@ mod tests {
     fn no_properties_inherited() {
         let handler = FlexHandler;
         for name in handler.property_names() {
-            assert!(!handler.is_inherited(name), "{name} should not be inherited");
+            assert!(
+                !handler.is_inherited(name),
+                "{name} should not be inherited"
+            );
         }
     }
 
@@ -505,7 +486,10 @@ mod tests {
             handler.get_computed("align-self", &style),
             CssValue::Keyword("flex-end".into())
         );
-        assert_eq!(handler.get_computed("flex-grow", &style), CssValue::Number(3.0));
+        assert_eq!(
+            handler.get_computed("flex-grow", &style),
+            CssValue::Number(3.0)
+        );
         assert_eq!(
             handler.get_computed("flex-shrink", &style),
             CssValue::Number(0.0)

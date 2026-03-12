@@ -7,11 +7,11 @@ use elidex_plugin::{BorderStyle, ComputedStyle, CssValue};
 use crate::inherit::{get_initial_value, is_inherited};
 
 // Re-export core resolve functions from elidex-plugin.
+pub(super) use elidex_plugin::css_resolve::keyword_from;
 pub(crate) use elidex_plugin::css_resolve::{
     resolve_calc_expr, resolve_dimension, resolve_i32, resolve_length, resolve_non_negative_f32,
     resolve_to_px,
 };
-pub(super) use elidex_plugin::css_resolve::keyword_from;
 
 /// Cascade winner map: property name → winning CSS value.
 pub(crate) type PropertyMap<'a> = HashMap<&'a str, &'a CssValue>;
@@ -135,7 +135,9 @@ pub(crate) use resolve_keyword_enum_prop;
 
 #[cfg(test)]
 mod tests {
-    use elidex_plugin::{CalcExpr, ComputedStyle, CssColor, CssValue, Dimension, Display, LengthUnit, ResolveContext};
+    use elidex_plugin::{
+        CalcExpr, ComputedStyle, CssColor, CssValue, Dimension, Display, LengthUnit, ResolveContext,
+    };
 
     use super::*;
 

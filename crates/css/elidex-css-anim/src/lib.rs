@@ -72,7 +72,9 @@ impl CssPropertyHandler for AnimHandler {
         match name {
             "transition" => parse::parse_transition_shorthand(input),
             "transition-property" => parse::parse_transition_property(input),
-            "transition-duration" | "transition-delay" | "animation-duration"
+            "transition-duration"
+            | "transition-delay"
+            | "animation-duration"
             | "animation-delay" => parse::parse_time_list(name, input),
             "transition-timing-function" | "animation-timing-function" => {
                 parse::parse_timing_function_list(name, input)
@@ -103,7 +105,9 @@ impl CssPropertyHandler for AnimHandler {
     fn initial_value(&self, name: &str) -> CssValue {
         match name {
             "transition-property" => CssValue::Keyword("all".into()),
-            "transition-duration" | "transition-delay" | "animation-duration"
+            "transition-duration"
+            | "transition-delay"
+            | "animation-duration"
             | "animation-delay" => CssValue::Time(0.0),
             "transition-timing-function" | "animation-timing-function" => {
                 CssValue::String("ease".into())
@@ -138,9 +142,7 @@ impl CssPropertyHandler for AnimHandler {
 ///
 /// Syntax: `<duration> || <timing-function> || <delay> || <iteration-count> ||
 ///          <direction> || <fill-mode> || <play-state> || <name>`
-fn parse_animation_shorthand(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Vec<PropertyDeclaration> {
+fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<PropertyDeclaration> {
     let mut names = Vec::new();
     let mut durations = Vec::new();
     let mut timing_fns = Vec::new();
@@ -177,6 +179,27 @@ fn parse_animation_shorthand(
     )
 }
 
+/// Build a `CssValue` from a time list (single → `Time`, multiple → `List`).
+fn time_list_value(times: &[f32]) -> CssValue {
+    let list: Vec<CssValue> = times.iter().map(|t| CssValue::Time(*t)).collect();
+    if list.len() == 1 {
+        list.into_iter().next().unwrap()
+    } else {
+        CssValue::List(list)
+    }
+}
+
+/// Serialize a list of `Display` values as a comma-separated string `CssValue`.
+fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue {
+    CssValue::String(
+        items
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
 /// Build longhand declarations from collected animation shorthand components.
 #[allow(clippy::too_many_arguments)]
 fn build_animation_decls(
@@ -189,96 +212,19 @@ fn build_animation_decls(
     fill_modes: &[style::AnimationFillMode],
     play_states: &[style::PlayState],
 ) -> Vec<PropertyDeclaration> {
-    let mut decls = Vec::new();
-    decls.push(PropertyDeclaration::new(
-        "animation-name",
-        CssValue::String(names.join(", ")),
-    ));
-    let dur_list: Vec<CssValue> = durations.iter().map(|d| CssValue::Time(*d)).collect();
-    decls.push(PropertyDeclaration::new(
-        "animation-duration",
-        if dur_list.len() == 1 {
-            dur_list.into_iter().next().unwrap()
-        } else {
-            CssValue::List(dur_list)
-        },
-    ));
-    decls.push(PropertyDeclaration::new(
-        "animation-timing-function",
-        CssValue::String(
-            timing_fns
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", "),
+    vec![
+        PropertyDeclaration::new("animation-name", CssValue::String(names.join(", "))),
+        PropertyDeclaration::new("animation-duration", time_list_value(durations)),
+        PropertyDeclaration::new("animation-timing-function", display_list_value(timing_fns)),
+        PropertyDeclaration::new("animation-delay", time_list_value(delays)),
+        PropertyDeclaration::new(
+            "animation-iteration-count",
+            display_list_value(iteration_counts),
         ),
-    ));
-    let del_list: Vec<CssValue> = delays.iter().map(|d| CssValue::Time(*d)).collect();
-    decls.push(PropertyDeclaration::new(
-        "animation-delay",
-        if del_list.len() == 1 {
-            del_list.into_iter().next().unwrap()
-        } else {
-            CssValue::List(del_list)
-        },
-    ));
-    decls.push(PropertyDeclaration::new(
-        "animation-iteration-count",
-        CssValue::String(
-            iteration_counts
-                .iter()
-                .map(|ic| match ic {
-                    style::IterationCount::Infinite => "infinite".to_string(),
-                    style::IterationCount::Number(n) => n.to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-        ),
-    ));
-    decls.push(PropertyDeclaration::new(
-        "animation-direction",
-        CssValue::String(
-            directions
-                .iter()
-                .map(|d| match d {
-                    style::AnimationDirection::Normal => "normal",
-                    style::AnimationDirection::Reverse => "reverse",
-                    style::AnimationDirection::Alternate => "alternate",
-                    style::AnimationDirection::AlternateReverse => "alternate-reverse",
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-        ),
-    ));
-    decls.push(PropertyDeclaration::new(
-        "animation-fill-mode",
-        CssValue::String(
-            fill_modes
-                .iter()
-                .map(|fm| match fm {
-                    style::AnimationFillMode::None => "none",
-                    style::AnimationFillMode::Forwards => "forwards",
-                    style::AnimationFillMode::Backwards => "backwards",
-                    style::AnimationFillMode::Both => "both",
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-        ),
-    ));
-    decls.push(PropertyDeclaration::new(
-        "animation-play-state",
-        CssValue::String(
-            play_states
-                .iter()
-                .map(|ps| match ps {
-                    style::PlayState::Running => "running",
-                    style::PlayState::Paused => "paused",
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-        ),
-    ));
-    decls
+        PropertyDeclaration::new("animation-direction", display_list_value(directions)),
+        PropertyDeclaration::new("animation-fill-mode", display_list_value(fill_modes)),
+        PropertyDeclaration::new("animation-play-state", display_list_value(play_states)),
+    ]
 }
 
 #[allow(clippy::type_complexity)]
@@ -322,12 +268,10 @@ fn parse_single_animation(
         }
         // Try keyword identifiers
         if let Ok(ident) = input.try_parse(|i| -> Result<String, ParseError> {
-            let id = i.expect_ident().map_err(|_| {
-                ParseError {
-                    property: "animation".into(),
-                    input: String::new(),
-                    message: "expected ident".into(),
-                }
+            let id = i.expect_ident().map_err(|_| ParseError {
+                property: "animation".into(),
+                input: String::new(),
+                message: "expected ident".into(),
             })?;
             Ok(id.to_ascii_lowercase())
         }) {
@@ -419,7 +363,10 @@ mod tests {
     fn handler_not_inherited() {
         let handler = AnimHandler;
         for name in handler.property_names() {
-            assert!(!handler.is_inherited(name), "{name} should not be inherited");
+            assert!(
+                !handler.is_inherited(name),
+                "{name} should not be inherited"
+            );
         }
     }
 
@@ -459,7 +406,7 @@ mod tests {
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = handler.parse("animation", &mut parser).unwrap();
         assert_eq!(decls.len(), 8); // 8 longhands
-        // animation-name (lowercased by cssparser)
+                                    // animation-name (lowercased by cssparser)
         assert_eq!(decls[0].property, "animation-name");
         assert_eq!(decls[0].value, CssValue::String("fadein".into()));
         // animation-duration

@@ -10,9 +10,9 @@ use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
-use elidex_web_canvas::{serialize_canvas_color, Canvas2dContext};
 use elidex_ecs::ImageData;
 use elidex_plugin::CssColor;
+use elidex_web_canvas::{serialize_canvas_color, Canvas2dContext};
 
 use crate::bridge::HostBridge;
 use crate::globals::element::ENTITY_KEY;

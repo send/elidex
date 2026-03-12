@@ -26,10 +26,10 @@ use elidex_css::Stylesheet;
 use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
+use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
-use elidex_html_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::SessionCore;
 use elidex_style::resolve_styles_with_compat;
@@ -69,9 +69,12 @@ const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; f
 ///
 /// Passes the CSS property registry to enable handler-based dispatch for
 /// `is_inherited()`, `initial_value()`, and `get_computed()` queries.
-fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
+fn resolve_with_compat(
+    dom: &mut EcsDom,
+    author_stylesheets: &[&Stylesheet],
+    registry: &elidex_plugin::CssPropertyRegistry,
+) {
     let legacy_ua = legacy_ua_stylesheet();
-    let registry = create_css_property_registry();
     resolve_styles_with_compat(
         dom,
         author_stylesheets,
@@ -79,7 +82,7 @@ fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
         &get_presentational_hints,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
-        Some(&registry),
+        Some(registry),
     );
 }
 
@@ -134,6 +137,8 @@ pub struct PipelineResult {
     pub url: Option<url::Url>,
     /// Shared fetch handle (for cookie sharing across navigation).
     pub fetch_handle: Rc<FetchHandle>,
+    /// CSS property registry (cached to avoid re-creation on each re-render).
+    pub registry: elidex_plugin::CssPropertyRegistry,
 }
 
 /// Execute the rendering pipeline and return all state for interactive use.
@@ -169,6 +174,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let display_list = build_display_list(&dom, &font_db);
 
+    let registry = create_css_property_registry();
+
     PipelineResult {
         display_list,
         dom,
@@ -179,6 +186,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         font_db,
         url: None,
         fetch_handle,
+        registry,
     }
 }
 
@@ -187,7 +195,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    resolve_with_compat(&mut result.dom, &stylesheet_refs);
+    resolve_with_compat(&mut result.dom, &stylesheet_refs, &result.registry);
 
     layout_tree(
         &mut result.dom,
@@ -230,6 +238,8 @@ pub fn build_pipeline_from_loaded(
 
     let display_list = build_display_list(&dom, &font_db);
 
+    let registry = create_css_property_registry();
+
     PipelineResult {
         display_list,
         dom,
@@ -240,6 +250,7 @@ pub fn build_pipeline_from_loaded(
         font_db,
         url: Some(url),
         fetch_handle,
+        registry,
     }
 }
 

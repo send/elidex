@@ -6,6 +6,13 @@
 use elidex_plugin::{CssColor, CssValue, LengthUnit};
 
 /// Inherited properties.
+///
+/// # Maintenance note
+///
+/// TODO: This list has dual maintenance with `CssPropertyHandler::is_inherited()` in
+/// `elidex-plugin/src/handlers/`. The two sources of truth should be unified — ideally
+/// by making the plugin registry the single authority on inheritance metadata and delegating
+/// to it from here. Until then, keep both lists in sync when adding new inherited properties.
 const INHERITED_PROPERTIES: &[&str] = &[
     "color",
     "font-size",

@@ -10,7 +10,10 @@ use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_script_session::{DispatchEvent, SessionCore};
 
-use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
+use crate::{
+    create_css_property_registry, resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT,
+    DEFAULT_VIEWPORT_WIDTH,
+};
 
 /// Common script execution and finalization phase shared by pipeline builders.
 ///
@@ -31,9 +34,10 @@ pub(super) fn run_scripts_and_finalize(
     current_url: Option<url::Url>,
 ) -> (SessionCore, JsRuntime) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
+    let registry = create_css_property_registry();
 
     // Initial style resolution (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs);
+    resolve_with_compat(dom, &stylesheet_refs, &registry);
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -54,7 +58,7 @@ pub(super) fn run_scripts_and_finalize(
     session.flush(dom);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs);
+    resolve_with_compat(dom, &stylesheet_refs, &registry);
 
     layout_tree(
         dom,

@@ -60,11 +60,7 @@ pub fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
 /// `Scalar` (unitless number). `percentage_base` is the reference value
 /// for percentage terms (e.g. containing block width).
 #[must_use]
-pub fn resolve_calc_expr(
-    expr: &CalcExpr,
-    percentage_base: f32,
-    ctx: &ResolveContext,
-) -> f32 {
+pub fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> f32 {
     let result = match resolve_calc_typed(expr, percentage_base, ctx) {
         CalcResolved::Length(l) => l,
         CalcResolved::Scalar(_) => 0.0,
@@ -244,10 +240,7 @@ mod tests {
             resolve_dimension(&CssValue::Percentage(50.0), &ctx),
             Dimension::Percentage(50.0)
         );
-        assert_eq!(
-            resolve_dimension(&CssValue::Auto, &ctx),
-            Dimension::Auto
-        );
+        assert_eq!(resolve_dimension(&CssValue::Auto, &ctx), Dimension::Auto);
     }
 
     #[test]

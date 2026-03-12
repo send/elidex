@@ -1,4 +1,4 @@
-# elidex-parser
+# elidex-html-parser
 
 HTML/XML parser for the elidex browser engine.
 

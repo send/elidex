@@ -14,7 +14,7 @@ type EntityId = u64;
 #[derive(Debug)]
 pub struct AnimationEngine {
     /// Document timeline.
-    pub timeline: DocumentTimeline,
+    timeline: DocumentTimeline,
     /// Running transitions per entity.
     transitions: HashMap<EntityId, Vec<TransitionInstance>>,
     /// Running animation instances per entity.
@@ -33,6 +33,12 @@ impl AnimationEngine {
             animations: HashMap::new(),
             keyframes: HashMap::new(),
         }
+    }
+
+    /// Access the document timeline.
+    #[must_use]
+    pub fn timeline(&self) -> &DocumentTimeline {
+        &self.timeline
     }
 
     /// Register a `@keyframes` rule.
@@ -65,8 +71,6 @@ impl AnimationEngine {
     /// be dispatched (e.g., `transitionend`, `animationend`).
     pub fn tick(&mut self, dt: f64) -> Vec<(EntityId, AnimationEvent)> {
         self.timeline.advance(dt);
-        #[allow(clippy::cast_possible_truncation)]
-        let dt_f32 = dt as f32;
         let mut events = Vec::new();
 
         // Tick transitions
@@ -75,9 +79,9 @@ impl AnimationEngine {
                 if trans.finished {
                     continue;
                 }
-                trans.elapsed += dt_f32;
-                let active_time = trans.elapsed - trans.delay;
-                if active_time >= trans.duration {
+                trans.elapsed += dt;
+                let active_time = trans.elapsed - f64::from(trans.delay);
+                if active_time >= f64::from(trans.duration) {
                     trans.finished = true;
                     if !trans.end_event_dispatched {
                         trans.end_event_dispatched = true;
@@ -99,24 +103,27 @@ impl AnimationEngine {
                 if anim.finished || anim.play_state == crate::style::PlayState::Paused {
                     continue;
                 }
-                anim.elapsed += dt_f32;
-                let active_time = anim.elapsed - anim.delay;
+                anim.elapsed += dt;
+                let active_time = anim.elapsed - f64::from(anim.delay());
                 if active_time < 0.0 {
                     continue;
                 }
-                let total = match anim.iteration_count {
-                    crate::style::IterationCount::Number(n) => n * anim.duration,
-                    crate::style::IterationCount::Infinite => f32::INFINITY,
+                let total = match anim.iteration_count() {
+                    crate::style::IterationCount::Number(n) => {
+                        f64::from(n) * f64::from(anim.duration())
+                    }
+                    crate::style::IterationCount::Infinite => f64::INFINITY,
                 };
                 if active_time >= total && total.is_finite() {
                     anim.finished = true;
                     if !anim.end_event_dispatched {
                         anim.end_event_dispatched = true;
+                        #[allow(clippy::cast_possible_truncation)]
                         events.push((
                             *entity,
                             AnimationEvent::AnimationEnd {
-                                name: anim.name.clone(),
-                                elapsed_time: total,
+                                name: anim.name().to_string(),
+                                elapsed_time: total as f32,
                             },
                         ));
                     }
@@ -378,10 +385,8 @@ mod tests {
     #[test]
     fn engine_register_keyframes() {
         let mut engine = AnimationEngine::new();
-        let rule = crate::parse::parse_keyframes(
-            "fadeIn",
-            "from { opacity: 0; } to { opacity: 1; }",
-        );
+        let rule =
+            crate::parse::parse_keyframes("fadeIn", "from { opacity: 0; } to { opacity: 1; }");
         engine.register_keyframes(rule);
         assert!(engine.get_keyframes("fadeIn").is_some());
         assert!(engine.get_keyframes("nonexistent").is_none());
