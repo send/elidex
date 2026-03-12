@@ -474,7 +474,7 @@ fn get_computed_with_registry_matches_hardcoded() {
 fn registry_covers_all_handler_properties() {
     let registry = create_css_property_registry();
 
-    // Verify that all 6 handlers' properties are resolvable in the registry.
+    // Verify that all 7 handlers' properties are resolvable in the registry.
     let expected_properties = &[
         "display",
         "position",
@@ -500,6 +500,10 @@ fn registry_covers_all_handler_properties() {
         "clear",
         "visibility",
         "vertical-align", // float
+        "animation-name",
+        "animation-duration",
+        "transition-property",
+        "transition-duration", // anim
     ];
     for prop in expected_properties {
         assert!(

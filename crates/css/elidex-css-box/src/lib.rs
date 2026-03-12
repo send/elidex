@@ -832,12 +832,14 @@ mod tests {
     fn resolve_border_color_currentcolor() {
         let h = handler();
         let ctx = default_ctx();
-        let mut style = ComputedStyle::default();
-        style.color = CssColor {
-            r: 0,
-            g: 128,
-            b: 255,
-            a: 255,
+        let mut style = ComputedStyle {
+            color: CssColor {
+                r: 0,
+                g: 128,
+                b: 255,
+                a: 255,
+            },
+            ..ComputedStyle::default()
         };
         h.resolve(
             "border-top-color",

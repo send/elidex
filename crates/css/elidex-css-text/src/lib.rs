@@ -883,8 +883,10 @@ mod tests {
     fn resolve_font_weight_bolder() {
         let handler = TextHandler;
         let ctx = ResolveContext::default();
-        let mut style = ComputedStyle::default();
-        style.font_weight = 400;
+        let mut style = ComputedStyle {
+            font_weight: 400,
+            ..ComputedStyle::default()
+        };
         handler.resolve(
             "font-weight",
             &CssValue::Keyword("bolder".to_string()),
@@ -898,8 +900,10 @@ mod tests {
     fn resolve_font_weight_lighter() {
         let handler = TextHandler;
         let ctx = ResolveContext::default();
-        let mut style = ComputedStyle::default();
-        style.font_weight = 700;
+        let mut style = ComputedStyle {
+            font_weight: 700,
+            ..ComputedStyle::default()
+        };
         handler.resolve(
             "font-weight",
             &CssValue::Keyword("lighter".to_string()),
@@ -955,8 +959,10 @@ mod tests {
     fn resolve_letter_spacing_normal() {
         let handler = TextHandler;
         let ctx = ResolveContext::default();
-        let mut style = ComputedStyle::default();
-        style.letter_spacing = Some(5.0);
+        let mut style = ComputedStyle {
+            letter_spacing: Some(5.0),
+            ..ComputedStyle::default()
+        };
         handler.resolve(
             "letter-spacing",
             &CssValue::Keyword("normal".to_string()),
@@ -994,8 +1000,10 @@ mod tests {
     #[test]
     fn get_computed_roundtrip() {
         let handler = TextHandler;
-        let mut style = ComputedStyle::default();
-        style.text_align = TextAlign::Justify;
+        let style = ComputedStyle {
+            text_align: TextAlign::Justify,
+            ..ComputedStyle::default()
+        };
         let val = handler.get_computed("text-align", &style);
         assert_eq!(val, CssValue::Keyword("justify".to_string()));
     }

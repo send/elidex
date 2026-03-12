@@ -243,7 +243,7 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
 /// Extract a property's computed value using the CSS property registry.
 ///
 /// Tries to find a registered handler for the property and delegates to
-/// [`CssPropertyHandler::get_computed`]. Falls back to the hardcoded
+/// `CssPropertyHandler::get_computed`. Falls back to the hardcoded
 /// [`get_computed_as_css_value`] for custom properties and unregistered properties.
 ///
 /// This is the preferred entry point when a registry is available (e.g. from

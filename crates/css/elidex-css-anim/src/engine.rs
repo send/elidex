@@ -91,7 +91,7 @@ impl AnimationEngine {
     /// Add an animation instance for an entity.
     ///
     /// Silently drops the animation if the entity already has
-    /// [`MAX_ANIMATIONS_PER_ENTITY`] animations, preventing unbounded growth.
+    /// 256 animations, preventing unbounded growth.
     pub fn add_animation(&mut self, entity: EntityId, animation: AnimationInstance) {
         let anims = self.animations.entry(entity).or_default();
         if anims.len() >= MAX_ANIMATIONS_PER_ENTITY {

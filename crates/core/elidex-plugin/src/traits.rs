@@ -302,10 +302,10 @@ mod tests {
             &["width"]
         }
 
-        fn parse<'i>(
+        fn parse(
             &self,
             _name: &str,
-            input: &mut cssparser::Parser<'i, '_>,
+            input: &mut cssparser::Parser<'_, '_>,
         ) -> Result<Vec<PropertyDeclaration>, ParseError> {
             let location = input.current_source_location();
             if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
