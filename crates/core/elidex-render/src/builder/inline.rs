@@ -3,7 +3,7 @@
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{
     ComputedStyle, CssColor, Direction, Display, LayoutBox, TextAlign, TextDecorationLine,
-    TextTransform, WritingMode,
+    TextTransform, Visibility, WritingMode,
 };
 use elidex_text::FontDatabase;
 
@@ -120,11 +120,17 @@ fn collect_styled_inline_text(
             if style.display == Display::None {
                 continue;
             }
+            // visibility: hidden — skip text but recurse children
+            // (children can override visibility).
+            let visible = style.visibility == Visibility::Visible;
+
             // Pseudo-element: emit text with own style (skip child recursion).
             if dom.world().get::<&PseudoElementMarker>(entity).is_ok() {
-                if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
-                    if !tc.0.is_empty() {
-                        segments.push(StyledTextSegment::from_style(tc.0.clone(), &style));
+                if visible {
+                    if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+                        if !tc.0.is_empty() {
+                            segments.push(StyledTextSegment::from_style(tc.0.clone(), &style));
+                        }
                     }
                 }
                 continue;
@@ -141,9 +147,12 @@ fn collect_styled_inline_text(
         }
 
         // Text node: produce a segment with the parent's style.
-        if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
-            if !tc.0.is_empty() {
-                segments.push(StyledTextSegment::from_style(tc.0.clone(), parent_style));
+        // Inherits parent's visibility.
+        if parent_style.visibility == Visibility::Visible {
+            if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+                if !tc.0.is_empty() {
+                    segments.push(StyledTextSegment::from_style(tc.0.clone(), parent_style));
+                }
             }
         }
     }
@@ -390,7 +399,11 @@ fn compute_vertical_text_align_offset(
         _ => {
             let total_height: f32 = collapsed
                 .iter()
-                .map(|(text, idx)| measure_segment_height(text, &segments[*idx], font_db))
+                .filter_map(|(text, idx)| {
+                    segments
+                        .get(*idx)
+                        .map(|seg| measure_segment_height(text, seg, font_db))
+                })
                 .sum();
             let free = (container_height - total_height).max(0.0);
             match resolved {

@@ -112,6 +112,12 @@ fn default_initial_values() {
     // --- Generated content ---
     assert_eq!(s.content, ContentValue::Normal);
 
+    // --- Float/clear/visibility ---
+    assert_eq!(s.visibility, Visibility::Visible);
+    assert_eq!(s.float, Float::None);
+    assert_eq!(s.clear, Clear::None);
+    assert_eq!(s.vertical_align, VerticalAlign::Baseline);
+
     // --- Custom properties ---
     assert!(s.custom_properties.is_empty());
 }
@@ -144,6 +150,9 @@ fn keyword_enum_defaults_and_as_ref() {
     assert_eq!(TableLayout::default().as_ref(), "auto");
     assert_eq!(CaptionSide::default().as_ref(), "top");
     assert_eq!(Dimension::default(), Dimension::Auto);
+    assert_eq!(Float::default().as_ref(), "none");
+    assert_eq!(Clear::default().as_ref(), "none");
+    assert_eq!(Visibility::default().as_ref(), "visible");
 
     // Spot-check as_ref values via table
     for (variant_ref, expected) in [
@@ -534,4 +543,45 @@ fn from_keyword_roundtrip() {
         ],
         GridAutoFlow::from_keyword,
     );
+    assert_roundtrips(
+        &[Float::None, Float::Left, Float::Right],
+        Float::from_keyword,
+    );
+    assert_roundtrips(
+        &[Clear::None, Clear::Left, Clear::Right, Clear::Both],
+        Clear::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            Visibility::Visible,
+            Visibility::Hidden,
+            Visibility::Collapse,
+        ],
+        Visibility::from_keyword,
+    );
+}
+
+#[test]
+fn vertical_align_from_keyword() {
+    assert_eq!(
+        VerticalAlign::from_keyword("baseline"),
+        Some(VerticalAlign::Baseline)
+    );
+    assert_eq!(
+        VerticalAlign::from_keyword("middle"),
+        Some(VerticalAlign::Middle)
+    );
+    assert_eq!(
+        VerticalAlign::from_keyword("TEXT-TOP"),
+        Some(VerticalAlign::TextTop)
+    );
+    assert_eq!(VerticalAlign::from_keyword("10px"), None);
+}
+
+#[test]
+fn vertical_align_display() {
+    assert_eq!(VerticalAlign::Baseline.to_string(), "baseline");
+    assert_eq!(VerticalAlign::TextBottom.to_string(), "text-bottom");
+    assert_eq!(VerticalAlign::Length(5.0).to_string(), "5px");
+    assert_eq!(VerticalAlign::Percentage(50.0).to_string(), "50%");
 }

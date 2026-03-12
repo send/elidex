@@ -75,6 +75,7 @@ macro_rules! keyword_enum {
 mod box_model;
 mod display;
 mod flex;
+mod float_visibility;
 mod grid;
 mod table;
 mod text;
@@ -83,6 +84,7 @@ mod writing_mode;
 pub use box_model::{BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
 pub use display::{Display, Overflow, Position};
 pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
+pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use grid::{GridAutoFlow, GridLine, TrackBreadth, TrackSize};
 pub use table::{BorderCollapse, CaptionSide, TableLayout};
 pub use text::{
@@ -126,6 +128,8 @@ pub struct ComputedStyle {
     pub text_orientation: TextOrientation,
     /// Inline base direction. Initial: `Ltr`. **Inherited.**
     pub direction: Direction,
+    /// Visibility. Initial: `Visible`. **Inherited.**
+    pub visibility: Visibility,
 
     // --- Non-inherited properties ---
     /// Display type. Initial: Inline.
@@ -276,6 +280,14 @@ pub struct ComputedStyle {
     /// Caption placement. Initial: `Top`. **Inherited.**
     pub caption_side: CaptionSide,
 
+    // --- Float/clear properties (non-inherited) ---
+    /// Float positioning. Initial: `None`.
+    pub float: Float,
+    /// Clear floating. Initial: `None`.
+    pub clear: Clear,
+    /// Vertical alignment for inline/table-cell. Initial: `Baseline`.
+    pub vertical_align: VerticalAlign,
+
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
@@ -306,6 +318,7 @@ impl Default for ComputedStyle {
             writing_mode: WritingMode::default(),
             text_orientation: TextOrientation::default(),
             direction: Direction::default(),
+            visibility: Visibility::default(),
 
             // Non-inherited
             display: Display::default(),
@@ -394,6 +407,11 @@ impl Default for ComputedStyle {
             border_spacing_v: 0.0,
             table_layout: TableLayout::default(),
             caption_side: CaptionSide::default(),
+
+            // Float/clear
+            float: Float::default(),
+            clear: Clear::default(),
+            vertical_align: VerticalAlign::default(),
 
             // Generated content
             content: ContentValue::Normal,

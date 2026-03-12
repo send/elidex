@@ -24,6 +24,7 @@ const INHERITED_PROPERTIES: &[&str] = &[
     "direction",
     "writing-mode",
     "text-orientation",
+    "visibility",
 ];
 
 /// Returns `true` if the named CSS property is inherited.
@@ -58,7 +59,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         | "border-bottom-style"
         | "border-left-style"
         | "grid-template-columns"
-        | "grid-template-rows" => CssValue::Keyword("none".to_string()),
+        | "grid-template-rows"
+        | "float"
+        | "clear" => CssValue::Keyword("none".to_string()),
         "text-align" => CssValue::Keyword("start".to_string()),
         "list-style-type" => CssValue::Keyword("disc".to_string()),
 
@@ -68,6 +71,9 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "writing-mode" => CssValue::Keyword("horizontal-tb".to_string()),
         "text-orientation" => CssValue::Keyword("mixed".to_string()),
 
+        // Vertical-align (non-inherited)
+        "vertical-align" => CssValue::Keyword("baseline".to_string()),
+
         // Display / position
         "display" => CssValue::Keyword("inline".to_string()),
         "position" => CssValue::Keyword("static".to_string()),
@@ -75,8 +81,8 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         // Background
         "background-color" => CssValue::Color(CssColor::TRANSPARENT),
 
-        // Display
-        "overflow" => CssValue::Keyword("visible".to_string()),
+        // Visibility (inherited) / overflow
+        "visibility" | "overflow" => CssValue::Keyword("visible".to_string()),
 
         // Sizing (auto)
         "width" | "height" | "flex-basis" | "max-width" | "max-height" | "grid-auto-columns"
@@ -383,6 +389,40 @@ mod tests {
         assert_eq!(
             get_initial_value("caption-side"),
             CssValue::Keyword("top".to_string())
+        );
+    }
+
+    // --- M4-0: float/clear/visibility/vertical-align ---
+
+    #[test]
+    fn visibility_inherited() {
+        assert!(is_inherited("visibility"));
+    }
+
+    #[test]
+    fn float_clear_not_inherited() {
+        assert!(!is_inherited("float"));
+        assert!(!is_inherited("clear"));
+        assert!(!is_inherited("vertical-align"));
+    }
+
+    #[test]
+    fn initial_values_m4_0() {
+        assert_eq!(
+            get_initial_value("visibility"),
+            CssValue::Keyword("visible".to_string())
+        );
+        assert_eq!(
+            get_initial_value("float"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("clear"),
+            CssValue::Keyword("none".to_string())
+        );
+        assert_eq!(
+            get_initial_value("vertical-align"),
+            CssValue::Keyword("baseline".to_string())
         );
     }
 

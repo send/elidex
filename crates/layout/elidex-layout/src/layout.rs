@@ -114,7 +114,8 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
         if display == Display::Contents {
             // display: contents at root — skip box, layout children directly.
             let children = elidex_layout_block::composed_children_flat(dom, root);
-            let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child);
+            // Root-level always establishes a BFC.
+            let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child, true);
             return;
         }
         dispatch_layout_child(dom, root, &root_input);
@@ -122,8 +123,9 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
     }
 
     // Document root: layout children as top-level blocks with margin collapse.
+    // Root always establishes a BFC.
     let children = elidex_layout_block::composed_children_flat(dom, root);
-    let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child);
+    let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child, true);
 }
 
 #[cfg(test)]

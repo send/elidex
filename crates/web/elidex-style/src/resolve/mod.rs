@@ -12,8 +12,9 @@ pub(crate) mod helpers;
 mod var_resolution;
 
 use elidex_plugin::{
-    ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, LengthUnit,
-    LineHeight, TextOrientation, UnicodeBidi, WritingMode,
+    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Display,
+    Float, LengthUnit, LineHeight, Position, TextOrientation, UnicodeBidi, VerticalAlign,
+    Visibility, WritingMode,
 };
 
 pub(crate) use helpers::PropertyMap;
@@ -205,6 +206,16 @@ pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssVa
         "table-layout" => keyword_from(&style.table_layout),
         "caption-side" => keyword_from(&style.caption_side),
 
+        // Float/clear/visibility
+        "float" => keyword_from(&style.float),
+        "clear" => keyword_from(&style.clear),
+        "visibility" => keyword_from(&style.visibility),
+        "vertical-align" => match &style.vertical_align {
+            VerticalAlign::Length(px) => CssValue::Length(*px, LengthUnit::Px),
+            VerticalAlign::Percentage(pct) => CssValue::Percentage(*pct),
+            other => CssValue::Keyword(other.to_string()),
+        },
+
         "content" => match &style.content {
             ContentValue::Normal => CssValue::Keyword("normal".to_string()),
             ContentValue::None => CssValue::Keyword("none".to_string()),
@@ -298,7 +309,105 @@ pub(crate) fn build_computed_style(
     // Phase 10: Writing mode / BiDi properties.
     resolve_writing_mode_properties(&mut style, &winners, parent_style);
 
+    // Phase 11: Float, clear, visibility, vertical-align.
+    resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+
     style
+}
+
+/// Resolve float, clear, visibility, and vertical-align properties.
+fn resolve_float_visibility_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    use helpers::{
+        get_resolved_winner, resolve_inherited_keyword_enum, resolve_keyword_enum, resolve_length,
+    };
+
+    // visibility — inherited
+    style.visibility = resolve_inherited_keyword_enum(
+        "visibility",
+        winners,
+        parent_style,
+        parent_style.visibility,
+        Visibility::from_keyword,
+    );
+
+    // float — non-inherited
+    if let Some(f) = resolve_keyword_enum("float", winners, parent_style, Float::from_keyword) {
+        style.float = f;
+    }
+
+    // CSS 2.1 §9.7 (applied in spec order):
+    // Step 2: position: absolute/fixed → blockify display AND force float to none.
+    // Step 3: float is not 'none' → blockify display.
+    if matches!(style.position, Position::Absolute | Position::Fixed) {
+        style.display = blockify_display(style.display);
+        style.float = Float::None;
+    } else if style.float != Float::None {
+        style.display = blockify_display(style.display);
+    }
+
+    // clear — non-inherited
+    if let Some(c) = resolve_keyword_enum("clear", winners, parent_style, Clear::from_keyword) {
+        style.clear = c;
+    }
+
+    // vertical-align — non-inherited, accepts keywords + length + percentage + calc()
+    if let Some(value) = get_resolved_winner("vertical-align", winners, parent_style) {
+        style.vertical_align = match &value {
+            CssValue::Keyword(kw) => {
+                VerticalAlign::from_keyword(kw).unwrap_or(VerticalAlign::Baseline)
+            }
+            CssValue::Length(v, unit) => VerticalAlign::Length(resolve_length(*v, *unit, ctx)),
+            CssValue::Percentage(pct) => VerticalAlign::Percentage(*pct),
+            CssValue::Calc(expr) => {
+                // CSS 2.1 §10.8.1: percentages in vertical-align refer to
+                // the element's own line-height.
+                let lh_base = computed_line_height_px(style);
+                VerticalAlign::Length(helpers::resolve_calc_expr(expr, lh_base, ctx))
+            }
+            _ => VerticalAlign::Baseline,
+        };
+    }
+}
+
+/// CSS Display Level 3 §2.8 / CSS 2.1 §9.7: Map inline-level display values
+/// to their block-level equivalents when the element is floated or absolutely
+/// positioned.
+///
+/// `display: contents` is excluded — it generates no box, so blockification
+/// does not apply (browsers preserve `contents` when combined with `float`).
+fn blockify_display(display: Display) -> Display {
+    match display {
+        // Inline-level and table-internal values become block.
+        Display::Inline
+        | Display::InlineBlock
+        | Display::TableRow
+        | Display::TableCell
+        | Display::TableRowGroup
+        | Display::TableHeaderGroup
+        | Display::TableFooterGroup
+        | Display::TableColumn
+        | Display::TableColumnGroup
+        | Display::TableCaption => Display::Block,
+        Display::InlineFlex => Display::Flex,
+        Display::InlineGrid => Display::Grid,
+        Display::InlineTable => Display::Table,
+        // Block, Flex, Grid, Table, ListItem, None — already block-level
+        // or special, unchanged.
+        other => other,
+    }
+}
+
+/// Compute the element's line-height in pixels for percentage resolution.
+///
+/// CSS 2.1 §10.8.1: `vertical-align` percentages refer to the element's
+/// computed `line-height`. Delegates to `LineHeight::resolve_px`.
+fn computed_line_height_px(style: &ComputedStyle) -> f32 {
+    style.line_height.resolve_px(style.font_size)
 }
 
 /// Resolve writing mode and bidi properties.
@@ -403,5 +512,109 @@ mod tests {
                 CssValue::Keyword("sans-serif".to_string()),
             ])
         );
+    }
+
+    // --- CSS 2.1 §9.7: blockify_display tests ---
+
+    #[test]
+    fn blockify_inline_to_block() {
+        assert_eq!(blockify_display(Display::Inline), Display::Block);
+        assert_eq!(blockify_display(Display::InlineBlock), Display::Block);
+    }
+
+    #[test]
+    fn blockify_inline_flex_to_flex() {
+        assert_eq!(blockify_display(Display::InlineFlex), Display::Flex);
+    }
+
+    #[test]
+    fn blockify_inline_grid_to_grid() {
+        assert_eq!(blockify_display(Display::InlineGrid), Display::Grid);
+    }
+
+    #[test]
+    fn blockify_inline_table_to_table() {
+        assert_eq!(blockify_display(Display::InlineTable), Display::Table);
+    }
+
+    #[test]
+    fn blockify_block_unchanged() {
+        assert_eq!(blockify_display(Display::Block), Display::Block);
+        assert_eq!(blockify_display(Display::Flex), Display::Flex);
+        assert_eq!(blockify_display(Display::Table), Display::Table);
+    }
+
+    #[test]
+    fn blockify_contents_unchanged() {
+        // CSS Display Level 3 §2.8: display:contents generates no box,
+        // so blockification does not apply — value is preserved.
+        assert_eq!(blockify_display(Display::Contents), Display::Contents);
+    }
+
+    #[test]
+    fn blockify_table_internal_to_block() {
+        assert_eq!(blockify_display(Display::TableRow), Display::Block);
+        assert_eq!(blockify_display(Display::TableCell), Display::Block);
+        assert_eq!(blockify_display(Display::TableCaption), Display::Block);
+    }
+
+    // CSS 2.1 §9.7 step 2: position:absolute/fixed forces float to none.
+    #[test]
+    fn absolute_position_forces_float_none() {
+        use elidex_plugin::Float;
+
+        let winners = HashMap::new();
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 1920.0,
+            viewport_height: 1080.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+
+        // Simulate: float:left + position:absolute → float becomes none, display blockified
+        let mut style = ComputedStyle {
+            float: Float::Left,
+            position: Position::Absolute,
+            display: Display::Inline,
+            ..ComputedStyle::default()
+        };
+        resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
+        assert_eq!(
+            style.float,
+            Float::None,
+            "position:absolute should force float:none"
+        );
+        assert_eq!(
+            style.display,
+            Display::Block,
+            "display should be blockified"
+        );
+    }
+
+    #[test]
+    fn computed_line_height_px_variants() {
+        let base = ComputedStyle {
+            font_size: 16.0,
+            ..ComputedStyle::default()
+        };
+
+        let s1 = ComputedStyle {
+            line_height: LineHeight::Px(24.0),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s1), 24.0);
+
+        let s2 = ComputedStyle {
+            line_height: LineHeight::Number(1.5),
+            ..base.clone()
+        };
+        assert_eq!(computed_line_height_px(&s2), 24.0);
+
+        let s3 = ComputedStyle {
+            line_height: LineHeight::Normal,
+            ..base
+        };
+        assert!((computed_line_height_px(&s3) - 19.2).abs() < 0.01);
     }
 }

@@ -1,7 +1,7 @@
 //! Pre-order tree walk for display list building.
 
 use elidex_ecs::{EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH};
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow, Visibility};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -35,32 +35,48 @@ pub(crate) fn walk(
         return;
     }
 
+    // Fetch ComputedStyle once for display/visibility/painting checks.
+    let style_ref = dom.world().get::<&ComputedStyle>(entity).ok();
+
     // Check for display: none — skip this subtree entirely.
-    // This check is independent of LayoutBox: an element without a LayoutBox
-    // but with display:none should still be skipped.
-    if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
+    if let Some(ref style) = style_ref {
         if style.display == Display::None {
+            return;
+        }
+        // CSS 2.1 §11.2: visibility: collapse on table-row, table-column,
+        // table-row-group, or table-column-group hides the entire row/column
+        // (equivalent to display: none for rendering purposes).
+        if style.visibility == Visibility::Collapse && style.display.is_table_internal() {
             return;
         }
     }
 
-    // Emit background + borders for elements with a LayoutBox.
+    // Check visibility — hidden elements skip painting but still occupy space
+    // and children can override visibility, so we must recurse.
+    // For non-table elements, 'collapse' is treated the same as 'hidden'.
+    let is_visible = style_ref
+        .as_ref()
+        .is_none_or(|s| s.visibility == Visibility::Visible);
+
+    // Emit background + borders + images for elements with a LayoutBox.
     let mut has_clip = false;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(entity) {
-            emit_background(
-                &lb,
-                style.background_color,
-                style.border_radius,
-                style.opacity,
-                dl,
-            );
-            emit_borders(&lb, &style, dl);
+        if let Some(ref style) = style_ref {
+            if is_visible {
+                emit_background(
+                    &lb,
+                    style.background_color,
+                    style.border_radius,
+                    style.opacity,
+                    dl,
+                );
+                emit_borders(&lb, style, dl);
 
-            // Emit image for replaced elements with decoded pixel data.
-            if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
-                if style.opacity > 0.0 {
-                    emit_image(&lb, &image_data, style.opacity, dl);
+                // Emit image for replaced elements with decoded pixel data.
+                if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
+                    if style.opacity > 0.0 {
+                        emit_image(&lb, &image_data, style.opacity, dl);
+                    }
                 }
             }
 
@@ -70,9 +86,6 @@ pub(crate) fn walk(
                 dl.push(DisplayItem::PushClip { rect: pb });
                 has_clip = true;
             }
-
-            // List marker rendering — counter is managed per-parent, passed down.
-            // The walk function handles this instead (see below).
         }
     }
 
@@ -94,10 +107,13 @@ pub(crate) fn walk(
             // Emit list marker for list-item children.
             // Counter increments for every list-item regardless of list-style-type;
             // list-style-type: none only suppresses marker rendering.
+            // visibility: hidden also suppresses marker painting.
             if let Ok(child_style) = dom.world().get::<&ComputedStyle>(child) {
                 if child_style.display == Display::ListItem {
                     list_counter += 1;
-                    if child_style.list_style_type != ListStyleType::None {
+                    if child_style.list_style_type != ListStyleType::None
+                        && child_style.visibility == Visibility::Visible
+                    {
                         if let Ok(child_lb) = dom.world().get::<&LayoutBox>(child) {
                             emit_list_marker_with_counter(
                                 &child_lb,

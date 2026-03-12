@@ -5,6 +5,7 @@
 //! centering, and vertical stacking of child blocks.
 
 mod children;
+pub mod float;
 mod margin;
 mod replaced;
 
@@ -13,7 +14,10 @@ mod replaced;
 mod tests;
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
-use elidex_plugin::{BoxSizing, Dimension, Display, EdgeSizes, LayoutBox, Rect, WritingMode};
+use elidex_plugin::{
+    BoxSizing, Dimension, Display, EdgeSizes, Float, LayoutBox, Overflow, Position, Rect,
+    WritingMode,
+};
 use elidex_text::FontDatabase;
 
 use crate::inline::layout_inline_context;
@@ -137,6 +141,7 @@ pub fn layout_block_inner(
     // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
     let padding = sanitize_padding(&style);
     let border = sanitize_border(&style);
+    let h_pb = horizontal_pb(&padding, &border);
 
     // --- Resolve margins ---
     let margin_top = resolve_margin(style.margin_top, containing_width);
@@ -152,7 +157,7 @@ pub fn layout_block_inner(
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
     let margin_right_raw = resolve_margin(style.margin_right, containing_width);
-    let horizontal_extra = margin_left_raw + margin_right_raw + horizontal_pb(&padding, &border);
+    let horizontal_extra = margin_left_raw + margin_right_raw + h_pb;
     let mut content_width = if let Some((iw, ih)) = intrinsic {
         resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border)
     } else {
@@ -166,7 +171,7 @@ pub fn layout_block_inner(
     // Only for non-replaced elements or replaced elements with explicit dimensions.
     if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
         if let Dimension::Length(_) | Dimension::Percentage(_) = style.width {
-            content_width = (content_width - horizontal_pb(&padding, &border)).max(0.0);
+            content_width = (content_width - h_pb).max(0.0);
         }
     }
 
@@ -178,13 +183,13 @@ pub fn layout_block_inner(
         let mut min_w = resolve_min_max(style.min_width, containing_width, 0.0);
         let mut max_w = resolve_min_max(style.max_width, containing_width, f32::INFINITY);
         if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
-            adjust_min_max_for_border_box(&mut min_w, &mut max_w, horizontal_pb(&padding, &border));
+            adjust_min_max_for_border_box(&mut min_w, &mut max_w, h_pb);
         }
         content_width = clamp_min_max(content_width, min_w, max_w);
     }
 
     // --- Horizontal margin auto centering ---
-    let used_horizontal = content_width + horizontal_pb(&padding, &border);
+    let used_horizontal = content_width + h_pb;
     let (margin_left, margin_right) =
         if matches!(style.width, Dimension::Auto) && intrinsic.is_none() {
             (margin_left_raw, margin_right_raw)
@@ -220,12 +225,14 @@ pub fn layout_block_inner(
             font_db,
             depth: depth + 1,
         };
-        let result = stack_block_children(dom, &children, &child_input, layout_child);
+        let is_bfc = establishes_bfc(&style);
+        let result = stack_block_children(dom, &children, &child_input, layout_child, is_bfc);
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's top margin collapses with parent's top margin
-        // when parent has no border-top and no padding-top.
-        if border.top == 0.0 && padding.top == 0.0 {
+        // when parent has no border-top, no padding-top, and the parent
+        // does not establish a new block formatting context.
+        if border.top == 0.0 && padding.top == 0.0 && !is_bfc {
             if let Some(first_mt) = result.first_child_margin_top {
                 let new_margin_top = collapse_margins(margin_top, first_mt);
                 // Parent content origin shifts by (new_margin - old_margin), and
@@ -238,9 +245,12 @@ pub fn layout_block_inner(
             }
         }
         // Last child's bottom margin collapses with parent's bottom margin
-        // when parent has no border-bottom and no padding-bottom and
-        // the parent's height is auto (CSS 2.1 §8.3.1).
-        if border.bottom == 0.0 && padding.bottom == 0.0 && matches!(style.height, Dimension::Auto)
+        // when parent has no border-bottom, no padding-bottom, height is auto,
+        // and the parent does not establish a new BFC (CSS 2.1 §8.3.1).
+        if border.bottom == 0.0
+            && padding.bottom == 0.0
+            && matches!(style.height, Dimension::Auto)
+            && !is_bfc
         {
             if let Some(last_mb) = result.last_child_margin_bottom {
                 collapsed_margin_bottom = collapse_margins(margin_bottom, last_mb);
@@ -292,4 +302,24 @@ pub fn layout_block_inner(
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
+}
+
+/// CSS 2.1 §9.4.1: Does this element establish a new block formatting context?
+///
+/// Elements that establish a BFC prevent margin collapse with children.
+fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
+    style.float != Float::None
+        || matches!(style.position, Position::Absolute | Position::Fixed)
+        || style.overflow != Overflow::Visible
+        || matches!(
+            style.display,
+            Display::InlineBlock
+                | Display::Flex
+                | Display::InlineFlex
+                | Display::Grid
+                | Display::InlineGrid
+                | Display::Table
+                | Display::InlineTable
+                | Display::TableCell
+        )
 }

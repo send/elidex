@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use elidex_plugin::{BorderStyle, ComputedStyle, CssValue, Dimension, LengthUnit};
+use elidex_plugin::{BorderStyle, CalcExpr, ComputedStyle, CssValue, Dimension, LengthUnit};
 
 use crate::inherit::{get_initial_value, is_inherited};
 
@@ -103,6 +103,20 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
         CssValue::Length(v, unit) => Dimension::Length(resolve_length(*v, *unit, ctx)),
         CssValue::Percentage(p) => Dimension::Percentage(*p),
         CssValue::Number(n) if *n == 0.0 => Dimension::Length(0.0),
+        CssValue::Calc(expr) => {
+            // Resolve calc() to a length. Percentage terms are resolved
+            // against 0.0 since the containing block width isn't available
+            // at style-resolution time. This preserves fixed-length terms
+            // (e.g. `calc(10% + 5px)` → `5px`) rather than mapping to Auto,
+            // which would change semantics (e.g. trigger centering for margins).
+            //
+            // TODO(Phase 4): Add a `Dimension::Calc(CalcExpr)` variant to
+            // carry the expression through to layout, where the containing
+            // block width is known. This requires removing `Copy` from
+            // `Dimension` (since `CalcExpr` uses `Box`) and updating all
+            // pattern matches across the layout crates.
+            Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))
+        }
         // Auto and anything else → Auto.
         _ => Dimension::Auto,
     }
@@ -114,9 +128,109 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
 pub(super) fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {
         CssValue::Length(v, unit) => resolve_length(*v, *unit, ctx),
+        CssValue::Calc(expr) => {
+            // Resolve with percentage_base=0.0 so fixed-length terms are
+            // preserved even when mixed with percentages (e.g.
+            // `calc(10px + 5%)` → 10px rather than 0px).
+            resolve_calc_expr(expr, 0.0, ctx)
+        }
         // TODO(Phase 4): resolve CssValue::Percentage against containing block width
         CssValue::Number(n) if *n == 0.0 => 0.0,
         _ => 0.0,
+    }
+}
+
+/// Resolve a `calc()` expression tree to a pixel value.
+///
+/// Uses a typed resolver that distinguishes `Length` (dimensional) from
+/// `Scalar` (unitless number). Bare numbers used outside `Mul`/`Div` are
+/// treated as invalid and resolve to 0.
+///
+/// `percentage_base` is the reference value for percentage terms (e.g.
+/// containing block width for width-related properties). Defaults to 0.0
+/// when the percentage base is unknown.
+pub(crate) fn resolve_calc_expr(
+    expr: &CalcExpr,
+    percentage_base: f32,
+    ctx: &ResolveContext,
+) -> f32 {
+    let result = match resolve_calc_typed(expr, percentage_base, ctx) {
+        CalcResolved::Length(l) => l,
+        // A pure scalar expression does not represent a length; treat as 0.
+        CalcResolved::Scalar(_) => 0.0,
+    };
+    if result.is_finite() {
+        result
+    } else {
+        0.0
+    }
+}
+
+/// Internal resolved value kind for type-safe `calc()` evaluation.
+enum CalcResolved {
+    /// A dimensional value (px).
+    Length(f32),
+    /// A unitless number (only valid as multiplier/divisor).
+    Scalar(f32),
+}
+
+/// Recursively resolve a `calc()` expression with type tracking.
+fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> CalcResolved {
+    match expr {
+        CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length(*v, *unit, ctx)),
+        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_base * p / 100.0),
+        CalcExpr::Number(n) => CalcResolved::Scalar(*n),
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
+            let is_sub = matches!(expr, CalcExpr::Sub(..));
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            let op: fn(f32, f32) -> f32 = if is_sub { |a, b| a - b } else { |a, b| a + b };
+            match (left, right) {
+                (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
+                    CalcResolved::Length(op(l1, l2))
+                }
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    CalcResolved::Scalar(op(s1, s2))
+                }
+                // Type mismatch: invalid per spec, resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
+        CalcExpr::Mul(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l), CalcResolved::Scalar(s))
+                | (CalcResolved::Scalar(s), CalcResolved::Length(l)) => CalcResolved::Length(l * s),
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    CalcResolved::Scalar(s1 * s2)
+                }
+                // length * length: invalid, resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
+        CalcExpr::Div(a, b) => {
+            let left = resolve_calc_typed(a, percentage_base, ctx);
+            let right = resolve_calc_typed(b, percentage_base, ctx);
+            match (left, right) {
+                (CalcResolved::Length(l), CalcResolved::Scalar(s)) => {
+                    if s == 0.0 {
+                        CalcResolved::Length(0.0)
+                    } else {
+                        CalcResolved::Length(l / s)
+                    }
+                }
+                (CalcResolved::Scalar(s1), CalcResolved::Scalar(s2)) => {
+                    if s2 == 0.0 {
+                        CalcResolved::Scalar(0.0)
+                    } else {
+                        CalcResolved::Scalar(s1 / s2)
+                    }
+                }
+                // Dividing by a length is invalid; resolve to 0.
+                _ => CalcResolved::Length(0.0),
+            }
+        }
     }
 }
 
@@ -276,6 +390,96 @@ mod tests {
         ] {
             assert_eq!(resolve_i32(&input, default), expected, "{input:?}");
         }
+    }
+
+    // --- calc() resolution tests ---
+
+    #[test]
+    fn resolve_calc_addition() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 30.0);
+    }
+
+    #[test]
+    fn resolve_calc_subtraction() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Sub(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(30.0, LengthUnit::Px)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 70.0);
+    }
+
+    #[test]
+    fn resolve_calc_mul_div() {
+        let ctx = default_ctx();
+        let mul = CalcExpr::Mul(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(3.0)),
+        );
+        assert_eq!(resolve_calc_expr(&mul, 0.0, &ctx), 30.0);
+
+        let div = CalcExpr::Div(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(4.0)),
+        );
+        assert_eq!(resolve_calc_expr(&div, 0.0, &ctx), 25.0);
+    }
+
+    #[test]
+    fn resolve_calc_with_em() {
+        let ctx = default_ctx(); // em_base = 16.0
+        let expr = CalcExpr::Add(
+            Box::new(CalcExpr::Length(2.0, LengthUnit::Em)),
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+        );
+        // 2em = 32px + 10px = 42px
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 42.0);
+    }
+
+    #[test]
+    fn resolve_calc_with_percentage() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Sub(
+            Box::new(CalcExpr::Percentage(100.0)),
+            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
+        );
+        // 100% of 800 - 20px = 780px
+        assert_eq!(resolve_calc_expr(&expr, 800.0, &ctx), 780.0);
+    }
+
+    #[test]
+    fn resolve_calc_div_by_zero() {
+        let ctx = default_ctx();
+        let expr = CalcExpr::Div(
+            Box::new(CalcExpr::Length(100.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(0.0)),
+        );
+        assert_eq!(resolve_calc_expr(&expr, 0.0, &ctx), 0.0);
+    }
+
+    #[test]
+    fn resolve_dimension_calc() {
+        let ctx = default_ctx();
+        let val = CssValue::Calc(Box::new(CalcExpr::Add(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Length(5.0, LengthUnit::Px)),
+        )));
+        assert_eq!(resolve_dimension(&val, &ctx), Dimension::Length(15.0));
+    }
+
+    #[test]
+    fn resolve_to_px_calc() {
+        let ctx = default_ctx();
+        let val = CssValue::Calc(Box::new(CalcExpr::Mul(
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+            Box::new(CalcExpr::Number(2.0)),
+        )));
+        assert_eq!(resolve_to_px(&val, &ctx), 20.0);
     }
 
     #[test]
