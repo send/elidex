@@ -71,26 +71,23 @@ pub struct TextDecorationLine {
 
 impl fmt::Display for TextDecorationLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !self.underline && !self.overline && !self.line_through {
-            return f.write_str("none");
-        }
+        let values = [
+            (self.underline, "underline"),
+            (self.overline, "overline"),
+            (self.line_through, "line-through"),
+        ];
         let mut first = true;
-        if self.underline {
-            f.write_str("underline")?;
-            first = false;
-        }
-        if self.overline {
-            if !first {
-                f.write_str(" ")?;
+        for (set, name) in values {
+            if set {
+                if !first {
+                    f.write_str(" ")?;
+                }
+                f.write_str(name)?;
+                first = false;
             }
-            f.write_str("overline")?;
-            first = false;
         }
-        if self.line_through {
-            if !first {
-                f.write_str(" ")?;
-            }
-            f.write_str("line-through")?;
+        if first {
+            f.write_str("none")?;
         }
         Ok(())
     }
