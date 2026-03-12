@@ -33,7 +33,7 @@ fn is_word_separator(ch: char) -> bool {
 ///
 /// `letter_spacing` is added between clusters (not between glyphs within the
 /// same cluster, and not after the last cluster) per CSS Text Level 3 §4.2.
-/// `word_spacing` is added once per word separator cluster per CSS Text Level 3 §4.3.
+/// `word_spacing` is added once per Unicode Zs (space separator) cluster per CSS Text Level 3 §4.3.
 ///
 /// Returns the placed glyphs. `cursor_x` is updated to reflect the total advance.
 #[must_use]

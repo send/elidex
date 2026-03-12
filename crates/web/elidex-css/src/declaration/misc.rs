@@ -54,7 +54,7 @@ pub(super) fn parse_opacity(input: &mut Parser) -> Vec<Declaration> {
 
 /// Parse `text-decoration-line` (or `text-decoration` shorthand).
 ///
-/// Accepts `none`, or one or more of `underline`, `line-through` (space-separated).
+/// Accepts `none`, or one or more of `underline`, `overline`, `line-through` (space-separated).
 /// The `text-decoration` shorthand is treated as an alias for `text-decoration-line`
 /// (color/style are Phase 3 scope-out).
 pub(super) fn parse_text_decoration_line(input: &mut Parser) -> Vec<Declaration> {

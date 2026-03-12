@@ -363,7 +363,7 @@ fn apply_text_transform_cases() {
     ];
     for (input, transform, expected) in cases {
         assert_eq!(
-            super::super::apply_text_transform(input, transform),
+            super::super::text::apply_text_transform(input, transform),
             expected,
             "input={input:?}, transform={transform:?}"
         );

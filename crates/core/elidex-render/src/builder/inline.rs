@@ -11,13 +11,12 @@ use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
 use crate::font_cache::FontCache;
 
 use super::{
-    apply_opacity, apply_text_transform, bidi_visual_order, collapse_segments,
-    compute_text_align_offset, families_as_refs, find_nearest_layout_box, place_glyphs,
-    place_glyphs_vertical, resolve_text_align, DECORATION_THICKNESS_DIVISOR,
-    DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR, OVERLINE_POSITION_FACTOR,
-    UNDERLINE_POSITION_FACTOR,
+    apply_opacity, bidi_visual_order, collapse_segments, compute_text_align_offset,
+    find_nearest_layout_box, place_glyphs, place_glyphs_vertical, resolve_text_align,
+    DECORATION_THICKNESS_DIVISOR, DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR,
+    OVERLINE_POSITION_FACTOR, UNDERLINE_POSITION_FACTOR,
 };
-use elidex_text::{shape_text, shape_text_vertical, to_fontdb_style};
+use elidex_text::{shape_text, shape_text_vertical};
 
 /// A segment of text with its own style properties.
 ///
@@ -229,10 +228,7 @@ fn emit_styled_segments(
         let Some(seg) = segments.get(*idx) else {
             continue;
         };
-        let transformed = apply_text_transform(text, seg.text_transform);
-        let families = families_as_refs(&seg.font_family);
-        let style = to_fontdb_style(seg.font_style);
-        let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
+        let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
             continue;
         };
         let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
@@ -241,6 +237,7 @@ fn emit_styled_segments(
         let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
             continue;
         };
+        let text_color = apply_opacity(seg.color, seg.opacity);
 
         let metrics = font_db.font_metrics(font_id, seg.font_size);
         let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
@@ -257,7 +254,6 @@ fn emit_styled_segments(
             &transformed,
         );
         let seg_width = cursor_x - seg_start_x;
-        let text_color = apply_opacity(seg.color, seg.opacity);
 
         dl.push(DisplayItem::Text {
             glyphs,
@@ -358,26 +354,26 @@ fn emit_styled_segments_vertical(
         let Some(seg) = segments.get(*idx) else {
             continue;
         };
-        let transformed = apply_text_transform(text, seg.text_transform);
-        let families = families_as_refs(&seg.font_family);
-        let style = to_fontdb_style(seg.font_style);
-        let Some(font_id) = font_db.query(&families, seg.font_weight, style) else {
+        let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
             continue;
         };
+        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+            continue;
+        };
+        let text_color = apply_opacity(seg.color, seg.opacity);
+
         let Some(shaped) = shape_text_vertical(font_db, font_id, seg.font_size, &transformed)
         else {
             // Fallback to horizontal shaping if vertical shaping fails.
             let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
                 continue;
             };
-            let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-                continue;
-            };
-            let text_color = apply_opacity(seg.color, seg.opacity);
             // Place horizontally-shaped glyphs vertically (one per line).
-            // TODO(Phase 4): glyph.y_offset was derived from horizontal
-            // shaping, so its sign may be incorrect for vertical layout
-            // (e.g. diacritics could be offset in the wrong direction).
+            // TODO(Phase 4): Apply per-glyph text-orientation rotation
+            // (CSS Writing Modes Level 3 §5.1) so that upright glyphs are
+            // rotated 90° CW. Currently glyph.y_offset was derived from
+            // horizontal shaping, so its sign may be incorrect for vertical
+            // layout (e.g. diacritics could be offset in the wrong direction).
             for glyph in &shaped.glyphs {
                 let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
                 let y = cursor_y + glyph.y_offset;
@@ -398,10 +394,6 @@ fn emit_styled_segments_vertical(
             }
             continue;
         };
-        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-            continue;
-        };
-        let text_color = apply_opacity(seg.color, seg.opacity);
         let glyphs = place_glyphs_vertical(&shaped.glyphs, center_x, &mut cursor_y);
 
         dl.push(DisplayItem::Text {
@@ -445,6 +437,9 @@ fn compute_vertical_text_align_offset(
                         .map(|seg| measure_segment_height(text, seg, font_db))
                 })
                 .sum();
+            if !total_height.is_finite() {
+                return 0.0;
+            }
             let free = (container_height - total_height).max(0.0);
             match resolved {
                 TextAlign::Center => free / 2.0,
@@ -544,6 +539,8 @@ fn emit_repeating_decoration(
     thickness: f32,
     color: CssColor,
 ) {
+    // Note: -0.0 inputs are safe here — `step <= 0.0` catches -0.0 + -0.0,
+    // and the MAX_DECORATION_MARKS cap prevents runaway loops in all cases.
     let step = mark_width + thickness;
     if step <= 0.0 || !step.is_finite() || !x.is_finite() || !y.is_finite() {
         return;

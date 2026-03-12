@@ -200,6 +200,9 @@ pub(crate) fn emit_list_marker_with_counter(
                 return;
             };
             let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
+            if !text_width.is_finite() {
+                return;
+            }
             let baseline_y = lb.content.y + ascent;
             let mut text_x =
                 lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;

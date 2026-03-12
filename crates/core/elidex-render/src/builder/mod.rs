@@ -32,9 +32,7 @@ pub(super) use paint::{
     apply_opacity, emit_background, emit_borders, emit_image, emit_list_marker_with_counter,
     find_nearest_layout_box,
 };
-pub(super) use text::{
-    apply_text_transform, compute_text_align_offset, query_segment_font, resolve_text_align,
-};
+pub(super) use text::{compute_text_align_offset, query_segment_font, resolve_text_align};
 pub(super) use walk::walk;
 pub(super) use whitespace::collapse_segments;
 

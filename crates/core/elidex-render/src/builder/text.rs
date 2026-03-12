@@ -61,6 +61,9 @@ pub(crate) fn compute_text_align_offset(
                         .map(|seg| measure_segment_width(text, seg, font_db))
                 })
                 .sum();
+            if !total_width.is_finite() {
+                return 0.0;
+            }
             let free = (container_width - total_width).max(0.0);
             align_offset(resolved, free)
         }
