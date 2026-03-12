@@ -162,7 +162,8 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
                         line_values.push(kw);
                     }
                     Ok(())
-                } else if style_val.is_none() && DECORATION_STYLE_KEYWORDS.contains(&lower.as_str()) {
+                } else if style_val.is_none() && DECORATION_STYLE_KEYWORDS.contains(&lower.as_str())
+                {
                     style_val = Some(CssValue::Keyword(lower));
                     Ok(())
                 } else if color_val.is_none() && lower == "currentcolor" {

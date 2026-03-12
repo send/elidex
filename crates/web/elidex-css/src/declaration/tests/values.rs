@@ -658,7 +658,11 @@ fn parse_letter_spacing_rejects_calc_with_percentage() {
 #[test]
 fn parse_letter_spacing_accepts_calc_without_percentage() {
     let decls = parse_single("letter-spacing", "calc(10px + 2em)");
-    assert_eq!(decls.len(), 1, "letter-spacing should accept calc() with lengths only");
+    assert_eq!(
+        decls.len(),
+        1,
+        "letter-spacing should accept calc() with lengths only"
+    );
     assert_eq!(decls[0].property, "letter-spacing");
     assert!(matches!(decls[0].value, CssValue::Calc(_)));
 }
@@ -666,7 +670,11 @@ fn parse_letter_spacing_accepts_calc_without_percentage() {
 #[test]
 fn parse_word_spacing_accepts_calc_without_percentage() {
     let decls = parse_single("word-spacing", "calc(5px + 1em)");
-    assert_eq!(decls.len(), 1, "word-spacing should accept calc() with lengths only");
+    assert_eq!(
+        decls.len(),
+        1,
+        "word-spacing should accept calc() with lengths only"
+    );
     assert_eq!(decls[0].property, "word-spacing");
     assert!(matches!(decls[0].value, CssValue::Calc(_)));
 }
