@@ -48,11 +48,11 @@ pub(crate) fn get_initial_value(property: &str) -> CssValue {
         "font-size" => CssValue::Length(16.0, LengthUnit::Px),
         "font-family" => CssValue::List(vec![CssValue::Keyword("serif".to_string())]),
 
-        // Inherited text
+        // Inherited text / keyword "normal" initial values
         "font-weight" => CssValue::Number(400.0),
         "font-style" | "line-height" | "white-space" | "content" | "unicode-bidi"
         | "letter-spacing" | "word-spacing" => CssValue::Keyword("normal".to_string()),
-        // Text decoration style/color
+        // Non-inherited text decoration style/color
         "text-decoration-style" => CssValue::Keyword("solid".to_string()),
         "text-decoration-color" => CssValue::Keyword("currentcolor".to_string()),
 

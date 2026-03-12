@@ -182,12 +182,33 @@ pub struct ShapedTextWithFonts {
 ///
 /// Uses a single-pass fold to accumulate both the glyph vector and the advance sum.
 fn build_run(glyphs: impl Iterator<Item = ShapedGlyph>, font_id: fontdb::ID) -> (ShapedRun, f32) {
-    let (glyphs, advance) = glyphs.fold((Vec::new(), 0.0_f32), |(mut acc, sum), g| {
+    let (lo, hi) = glyphs.size_hint();
+    let cap = hi.unwrap_or(lo);
+    let (glyphs, advance) = glyphs.fold((Vec::with_capacity(cap), 0.0_f32), |(mut acc, sum), g| {
         let adv = g.x_advance;
         acc.push(g);
         (acc, sum + adv)
     });
     (ShapedRun { glyphs, font_id }, advance)
+}
+
+/// Merge adjacent [`ShapedRun`]s that share the same `font_id`.
+///
+/// This reduces downstream per-run overhead (e.g. separate `DisplayItem::Text`
+/// entries) when the fallback loop produces consecutive primary-font runs
+/// separated by notdef ranges that were also kept on the primary font.
+fn merge_adjacent_runs(runs: Vec<ShapedRun>) -> Vec<ShapedRun> {
+    let mut merged: Vec<ShapedRun> = Vec::with_capacity(runs.len());
+    for run in runs {
+        if let Some(last) = merged.last_mut() {
+            if last.font_id == run.font_id {
+                last.glyphs.extend(run.glyphs);
+                continue;
+            }
+        }
+        merged.push(run);
+    }
+    merged
 }
 
 /// Round down `index` to the nearest UTF-8 char boundary in `text`.
@@ -351,6 +372,9 @@ pub fn shape_text_with_fallback(
             }
         }
     }
+
+    // Merge adjacent runs with the same font_id to reduce downstream work.
+    let runs = merge_adjacent_runs(runs);
 
     Some(ShapedTextWithFonts {
         runs,
