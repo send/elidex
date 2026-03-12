@@ -109,8 +109,12 @@ pub(super) fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimen
                 // width isn't available during style resolution. Fall back to
                 // Auto rather than resolving % against 0.0, which would
                 // produce incorrect values (e.g. `calc(100% - 20px)` → -20px).
-                // TODO(Phase 4): Defer to layout via Dimension::Calc variant
-                // so layout can resolve with the correct containing-block base.
+                //
+                // TODO(Phase 4): Add a `Dimension::Calc(CalcExpr)` variant to
+                // carry the expression through to layout, where the containing
+                // block width is known. This requires removing `Copy` from
+                // `Dimension` (since `CalcExpr` uses `Box`) and updating all
+                // pattern matches across the layout crates.
                 Dimension::Auto
             } else {
                 Dimension::Length(resolve_calc_expr(expr, 0.0, ctx))

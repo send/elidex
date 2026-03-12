@@ -90,7 +90,10 @@ pub fn stack_block_children(
         // Clearance breaks margin adjacency — margins do not collapse when
         // the element has clearance (CSS 2.1 §8.3.1).
         let child_margin_top = resolve_margin(child_margin_top_dim, input.containing_width);
-        if first_child_margin_top.is_none() {
+        // Only record a first-child top margin for parent/child collapse
+        // when the child does not have clearance; clearance breaks
+        // margin adjacency with the parent as well (CSS 2.1 §8.3.1).
+        if first_child_margin_top.is_none() && !has_clearance {
             first_child_margin_top = Some(child_margin_top);
         }
         if let Some(prev_mb) = prev_margin_bottom {
