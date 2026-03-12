@@ -71,21 +71,28 @@ pub struct TextDecorationLine {
 
 impl fmt::Display for TextDecorationLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut parts = Vec::new();
+        if !self.underline && !self.overline && !self.line_through {
+            return f.write_str("none");
+        }
+        let mut first = true;
         if self.underline {
-            parts.push("underline");
+            f.write_str("underline")?;
+            first = false;
         }
         if self.overline {
-            parts.push("overline");
+            if !first {
+                f.write_str(" ")?;
+            }
+            f.write_str("overline")?;
+            first = false;
         }
         if self.line_through {
-            parts.push("line-through");
+            if !first {
+                f.write_str(" ")?;
+            }
+            f.write_str("line-through")?;
         }
-        if parts.is_empty() {
-            f.write_str("none")
-        } else {
-            f.write_str(&parts.join(" "))
-        }
+        Ok(())
     }
 }
 

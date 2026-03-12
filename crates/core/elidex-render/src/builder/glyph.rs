@@ -74,7 +74,7 @@ pub(crate) fn place_glyphs(
         });
         *cursor_x += glyph.x_advance;
 
-        // Word spacing: add once per U+0020 SPACE cluster (CSS Text L3 §4.3).
+        // Word spacing: add once per Unicode Zs separator cluster (CSS Text L3 §4.3).
         // Multiple glyphs can share a cluster (ligatures/combining marks); only
         // apply word-spacing on the first glyph of each space cluster.
         if ws != 0.0 && last_ws_cluster != Some(glyph.cluster) {
