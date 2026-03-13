@@ -12,6 +12,7 @@ keywords = ["browser-engine", "plugin", "ecs"]
 categories = ["web-programming"]
 
 [dependencies]
+cssparser.workspace = true
 url = { workspace = true }
 
 [lints]

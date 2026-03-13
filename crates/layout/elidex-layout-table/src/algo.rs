@@ -389,20 +389,20 @@ pub fn resolve_collapsed_borders(
 
 /// Extract (width, style) for the top border from a computed style.
 fn border_top(s: &ComputedStyle) -> (f32, BorderStyle) {
-    (s.border_top_width, s.border_top_style)
+    (s.border_top.width, s.border_top.style)
 }
 
 /// Extract (width, style) for the right border from a computed style.
 fn border_right(s: &ComputedStyle) -> (f32, BorderStyle) {
-    (s.border_right_width, s.border_right_style)
+    (s.border_right.width, s.border_right.style)
 }
 
 /// Extract (width, style) for the bottom border from a computed style.
 fn border_bottom(s: &ComputedStyle) -> (f32, BorderStyle) {
-    (s.border_bottom_width, s.border_bottom_style)
+    (s.border_bottom.width, s.border_bottom.style)
 }
 
 /// Extract (width, style) for the left border from a computed style.
 fn border_left(s: &ComputedStyle) -> (f32, BorderStyle) {
-    (s.border_left_width, s.border_left_style)
+    (s.border_left.width, s.border_left.style)
 }

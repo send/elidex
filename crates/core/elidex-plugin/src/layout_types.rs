@@ -57,6 +57,18 @@ impl EdgeSizes {
             left: value,
         }
     }
+
+    /// Sum of left and right edges.
+    #[must_use]
+    pub fn horizontal(&self) -> f32 {
+        self.left + self.right
+    }
+
+    /// Sum of top and bottom edges.
+    #[must_use]
+    pub fn vertical(&self) -> f32 {
+        self.top + self.bottom
+    }
 }
 
 impl Rect {

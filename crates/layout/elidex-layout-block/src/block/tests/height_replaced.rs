@@ -61,10 +61,20 @@ fn box_sizing_border_box_height() {
     let style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(100.0),
-        padding_top: 10.0,
-        padding_bottom: 10.0,
-        border_top_width: 2.0,
-        border_bottom_width: 2.0,
+        padding: EdgeSizes {
+            top: 10.0,
+            right: 0.0,
+            bottom: 10.0,
+            left: 0.0,
+        },
+        border_top: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_bottom: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -151,10 +161,12 @@ fn replaced_element_border_box() {
         display: Display::Block,
         width: Dimension::Length(220.0),
         height: Dimension::Length(120.0),
-        padding_left: 10.0,
-        padding_right: 10.0,
-        padding_top: 10.0,
-        padding_bottom: 10.0,
+        padding: EdgeSizes {
+            top: 10.0,
+            right: 10.0,
+            bottom: 10.0,
+            left: 10.0,
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };

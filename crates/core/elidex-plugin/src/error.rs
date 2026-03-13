@@ -27,6 +27,19 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+impl ParseError {
+    /// Construct a `ParseError` with only a message, leaving `property` and
+    /// `input` empty.
+    #[must_use]
+    pub fn simple(message: impl Into<String>) -> Self {
+        Self {
+            property: String::new(),
+            input: String::new(),
+            message: message.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

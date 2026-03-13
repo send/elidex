@@ -26,10 +26,10 @@ use elidex_css::Stylesheet;
 use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
+use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
-use elidex_parser::parse_html;
 use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::SessionCore;
 use elidex_style::resolve_styles_with_compat;
@@ -37,6 +37,14 @@ use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
 
 use app::App;
+
+/// Build the CSS property registry with all standard property handlers.
+///
+/// Delegates to [`elidex_style::create_css_property_registry`].
+#[must_use]
+pub fn create_css_property_registry() -> elidex_plugin::CssPropertyRegistry {
+    elidex_style::create_css_property_registry()
+}
 
 /// Default viewport width for the initial layout pass.
 const DEFAULT_VIEWPORT_WIDTH: f32 = 1024.0;
@@ -49,7 +57,14 @@ const BLANK_TAB_HTML: &str = "<html><body><h1>New Tab</h1></body></html>";
 const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; font-family: sans-serif; } h1 { text-align: center; margin-top: 200px; }";
 
 /// Resolve styles with the compat layer (legacy UA + presentational hints).
-fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
+///
+/// Passes the CSS property registry to enable handler-based dispatch for
+/// `is_inherited()`, `initial_value()`, and `get_computed()` queries.
+fn resolve_with_compat(
+    dom: &mut EcsDom,
+    author_stylesheets: &[&Stylesheet],
+    registry: &elidex_plugin::CssPropertyRegistry,
+) {
     let legacy_ua = legacy_ua_stylesheet();
     resolve_styles_with_compat(
         dom,
@@ -58,6 +73,7 @@ fn resolve_with_compat(dom: &mut EcsDom, author_stylesheets: &[&Stylesheet]) {
         &get_presentational_hints,
         DEFAULT_VIEWPORT_WIDTH,
         DEFAULT_VIEWPORT_HEIGHT,
+        Some(registry),
     );
 }
 
@@ -112,6 +128,8 @@ pub struct PipelineResult {
     pub url: Option<url::Url>,
     /// Shared fetch handle (for cookie sharing across navigation).
     pub fetch_handle: Rc<FetchHandle>,
+    /// CSS property registry (cached to avoid re-creation on each re-render).
+    pub registry: elidex_plugin::CssPropertyRegistry,
 }
 
 /// Execute the rendering pipeline and return all state for interactive use.
@@ -135,6 +153,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    let registry = create_css_property_registry();
+
     let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
@@ -143,6 +163,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         Rc::clone(&fetch_handle),
         &font_db,
         None,
+        &registry,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -157,6 +178,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         font_db,
         url: None,
         fetch_handle,
+        registry,
     }
 }
 
@@ -165,7 +187,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    resolve_with_compat(&mut result.dom, &stylesheet_refs);
+    resolve_with_compat(&mut result.dom, &stylesheet_refs, &result.registry);
 
     layout_tree(
         &mut result.dom,
@@ -196,6 +218,8 @@ pub fn build_pipeline_from_loaded(
 
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    let registry = create_css_property_registry();
+
     let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
@@ -204,6 +228,7 @@ pub fn build_pipeline_from_loaded(
         Rc::clone(&fetch_handle),
         &font_db,
         Some(url.clone()),
+        &registry,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -218,6 +243,7 @@ pub fn build_pipeline_from_loaded(
         font_db,
         url: Some(url),
         fetch_handle,
+        registry,
     }
 }
 

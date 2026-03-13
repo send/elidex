@@ -4,6 +4,7 @@
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
 mod computed_style;
+pub mod css_resolve;
 mod error;
 mod event_types;
 pub mod handlers;
@@ -18,12 +19,12 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
-    Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
-    FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
-    Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle,
-    TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi, VerticalAlign,
-    Visibility, WhiteSpace, WritingMode,
+    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderSide, BorderStyle, BoxSizing,
+    CaptionSide, Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display,
+    FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight,
+    ListStyleType, Overflow, Position, TableLayout, TextAlign, TextDecorationLine,
+    TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi,
+    VerticalAlign, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
@@ -33,9 +34,9 @@ pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{
-    AccessibilityRole, Attributes, ComputedValue, Constraints, CssPropertyHandler, CssRule,
-    DeprecationInfo, ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware,
-    ParseBehavior, StyleContext,
+    AccessibilityRole, Attributes, Constraints, CssPropertyHandler, CssPropertyRegistry, CssRule,
+    ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware, ParseBehavior,
+    PropertyDeclaration, ResolveContext,
 };
 pub use values::{CalcExpr, CssColor, CssValue, LengthUnit};
 
@@ -153,6 +154,57 @@ impl std::fmt::Display for NetworkErrorKind {
             Self::SsrfBlocked => f.write_str("SSRF blocked"),
             Self::Other => f.write_str("network error"),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CSS parse helpers (shared by CSS property handler crates)
+// ---------------------------------------------------------------------------
+
+/// Register a CSS property handler for all its declared property names.
+///
+/// This is a shared helper to avoid duplicating the identical registration
+/// pattern across CSS property handler crates. The handler is cloned once per
+/// property name; all handlers are unit structs (zero-sized), so the clone is
+/// free.
+#[allow(clippy::needless_pass_by_value)] // handler.clone() requires ownership or &H; by-value is idiomatic here
+pub fn register_css_handler<H: CssPropertyHandler + Clone + 'static>(
+    registry: &mut CssPropertyRegistry,
+    handler: H,
+) {
+    // Collect names first to release the borrow on `handler` before cloning into boxes.
+    let names: Vec<String> = handler
+        .property_names()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    for name in names {
+        registry.register_dynamic(name, Box::new(handler.clone()));
+    }
+}
+
+/// Parse a CSS keyword from the input, accepting only values in `allowed`.
+///
+/// Returns `CssValue::Keyword(lowercase)` on success. This is a shared helper
+/// to avoid duplicating the same pattern across CSS property plugin crates.
+pub fn parse_css_keyword(
+    input: &mut cssparser::Parser<'_, '_>,
+    allowed: &[&str],
+) -> Result<CssValue, ParseError> {
+    let ident = input.expect_ident().map_err(|_| ParseError {
+        property: String::new(),
+        input: String::new(),
+        message: "expected identifier".into(),
+    })?;
+    let lower = ident.to_ascii_lowercase();
+    if allowed.contains(&lower.as_str()) {
+        Ok(CssValue::Keyword(lower))
+    } else {
+        Err(ParseError {
+            property: String::new(),
+            input: lower,
+            message: "unexpected keyword".into(),
+        })
     }
 }
 

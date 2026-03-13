@@ -71,14 +71,14 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     let opacity = style.opacity;
 
     // top (full width)
-    if style.border_top_style != BorderStyle::None && lb.border.top > 0.0 {
+    if style.border_top.style != BorderStyle::None && lb.border.top > 0.0 {
         dl.push(DisplayItem::SolidRect {
             rect: elidex_plugin::Rect::new(bb.x, bb.y, bb.width, lb.border.top),
-            color: apply_opacity(style.border_top_color, opacity),
+            color: apply_opacity(style.border_top.color, opacity),
         });
     }
     // bottom (full width)
-    if style.border_bottom_style != BorderStyle::None && lb.border.bottom > 0.0 {
+    if style.border_bottom.style != BorderStyle::None && lb.border.bottom > 0.0 {
         dl.push(DisplayItem::SolidRect {
             rect: elidex_plugin::Rect::new(
                 bb.x,
@@ -86,14 +86,14 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
                 bb.width,
                 lb.border.bottom,
             ),
-            color: apply_opacity(style.border_bottom_color, opacity),
+            color: apply_opacity(style.border_bottom.color, opacity),
         });
     }
     // right (inset by top/bottom to avoid corner overlap)
     let v_inset_top = lb.border.top;
     let v_inset_bottom = lb.border.bottom;
     let v_height = (bb.height - v_inset_top - v_inset_bottom).max(0.0);
-    if style.border_right_style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
+    if style.border_right.style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
             rect: elidex_plugin::Rect::new(
                 bb.x + bb.width - lb.border.right,
@@ -101,14 +101,14 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
                 lb.border.right,
                 v_height,
             ),
-            color: apply_opacity(style.border_right_color, opacity),
+            color: apply_opacity(style.border_right.color, opacity),
         });
     }
     // left (inset by top/bottom to avoid corner overlap)
-    if style.border_left_style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
+    if style.border_left.style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
         dl.push(DisplayItem::SolidRect {
             rect: elidex_plugin::Rect::new(bb.x, bb.y + v_inset_top, lb.border.left, v_height),
-            color: apply_opacity(style.border_left_color, opacity),
+            color: apply_opacity(style.border_left.color, opacity),
         });
     }
 }

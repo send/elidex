@@ -5,11 +5,19 @@ members = [
     "crates/core/elidex-plugin-macros",
     "crates/core/elidex-ecs",
     "crates/core/elidex-render",
-    "crates/web/elidex-parser",
-    "crates/web/elidex-css",
-    "crates/web/elidex-style",
-    "crates/web/elidex-navigation",
-    "crates/web/elidex-net",
+    "crates/css/elidex-css",
+    "crates/css/elidex-css-box",
+    "crates/css/elidex-css-text",
+    "crates/css/elidex-css-flex",
+    "crates/css/elidex-css-grid",
+    "crates/css/elidex-css-table",
+    "crates/css/elidex-css-float",
+    "crates/css/elidex-css-anim",
+    "crates/css/elidex-style",
+    "crates/dom/elidex-html-parser",
+    "crates/dom/elidex-dom-api",
+    "crates/dom/elidex-dom-compat",
+    "crates/dom/elidex-a11y",
     "crates/layout/elidex-layout",
     "crates/layout/elidex-layout-block",
     "crates/layout/elidex-layout-flex",
@@ -19,15 +27,14 @@ members = [
     "crates/text/elidex-linebreak",
     "crates/text/elidex-bidi",
     "crates/text/elidex-text",
+    "crates/net/elidex-net",
     "crates/script/elidex-script-session",
     "crates/script/elidex-js",
     "crates/script/elidex-js-boa",
     "crates/script/elidex-wasm-runtime",
-    "crates/api/elidex-api-canvas",
-    "crates/api/elidex-dom-api",
-    "crates/api/elidex-dom-compat",
+    "crates/web/elidex-web-canvas",
     "crates/shell/elidex-shell",
-    "crates/shell/elidex-a11y",
+    "crates/shell/elidex-navigation",
     "crates/tools/elidex-crawler",
     "crates/tools/elidex-wpt",
 ]
@@ -76,11 +83,18 @@ webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }
 elidex-render = { path = "crates/core/elidex-render" }
-elidex-parser = { path = "crates/web/elidex-parser" }
-elidex-css = { path = "crates/web/elidex-css" }
-elidex-style = { path = "crates/web/elidex-style" }
-elidex-navigation = { path = "crates/web/elidex-navigation" }
-elidex-net = { path = "crates/web/elidex-net" }
+elidex-html-parser = { path = "crates/dom/elidex-html-parser" }
+elidex-css = { path = "crates/css/elidex-css" }
+elidex-css-box = { path = "crates/css/elidex-css-box" }
+elidex-css-text = { path = "crates/css/elidex-css-text" }
+elidex-css-flex = { path = "crates/css/elidex-css-flex" }
+elidex-css-grid = { path = "crates/css/elidex-css-grid" }
+elidex-css-table = { path = "crates/css/elidex-css-table" }
+elidex-css-float = { path = "crates/css/elidex-css-float" }
+elidex-css-anim = { path = "crates/css/elidex-css-anim" }
+elidex-style = { path = "crates/css/elidex-style" }
+elidex-navigation = { path = "crates/shell/elidex-navigation" }
+elidex-net = { path = "crates/net/elidex-net" }
 elidex-layout = { path = "crates/layout/elidex-layout" }
 elidex-layout-block = { path = "crates/layout/elidex-layout-block" }
 elidex-layout-flex = { path = "crates/layout/elidex-layout-flex" }
@@ -91,11 +105,11 @@ elidex-script-session = { path = "crates/script/elidex-script-session" }
 elidex-js = { path = "crates/script/elidex-js" }
 elidex-js-boa = { path = "crates/script/elidex-js-boa" }
 elidex-wasm-runtime = { path = "crates/script/elidex-wasm-runtime" }
-elidex-api-canvas = { path = "crates/api/elidex-api-canvas" }
-elidex-dom-api = { path = "crates/api/elidex-dom-api" }
-elidex-dom-compat = { path = "crates/api/elidex-dom-compat" }
+elidex-web-canvas = { path = "crates/web/elidex-web-canvas" }
+elidex-dom-api = { path = "crates/dom/elidex-dom-api" }
+elidex-dom-compat = { path = "crates/dom/elidex-dom-compat" }
 elidex-shell = { path = "crates/shell/elidex-shell" }
-elidex-a11y = { path = "crates/shell/elidex-a11y" }
+elidex-a11y = { path = "crates/dom/elidex-a11y" }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
 egui = "0.33"

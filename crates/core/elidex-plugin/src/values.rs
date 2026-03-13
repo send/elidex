@@ -40,6 +40,8 @@ pub enum CssValue {
     RawTokens(String),
     /// A `calc()` expression (CSS Values Level 3 §8).
     Calc(Box<CalcExpr>),
+    /// A time value (e.g. `0.3s`, `200ms`). Stored in seconds.
+    Time(f32),
 }
 
 /// A node in a `calc()` expression tree.

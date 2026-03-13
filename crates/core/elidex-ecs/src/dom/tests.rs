@@ -980,3 +980,16 @@ fn composed_children_fallback_after_shadow_root_destroy() {
     // After destroy: ShadowHost cleaned up, falls through to normal children.
     assert_eq!(dom.composed_children(host), vec![light_child]);
 }
+
+#[test]
+fn document_root_none_initially() {
+    let dom = EcsDom::new();
+    assert!(dom.document_root().is_none());
+}
+
+#[test]
+fn document_root_set_by_create() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_document_root();
+    assert_eq!(dom.document_root(), Some(root));
+}

@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::{BorderSide, EdgeSizes};
 
 #[test]
 fn flex_grow_distributes_space() {
@@ -280,10 +281,15 @@ fn flex_item_border_box_width() {
         display: Display::Block,
         width: Dimension::Length(200.0),
         height: Dimension::Length(50.0),
-        padding_left: 10.0,
-        padding_right: 10.0,
-        border_left_width: 2.0,
-        border_right_width: 2.0,
+        padding: EdgeSizes::new(0.0, 10.0, 0.0, 10.0),
+        border_left: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -314,10 +320,15 @@ fn flex_container_border_box_height() {
     let container = ComputedStyle {
         display: Display::Flex,
         height: Dimension::Length(200.0),
-        padding_top: 15.0,
-        padding_bottom: 15.0,
-        border_top_width: 5.0,
-        border_bottom_width: 5.0,
+        padding: EdgeSizes::new(15.0, 0.0, 15.0, 0.0),
+        border_top: BorderSide {
+            width: 5.0,
+            ..BorderSide::NONE
+        },
+        border_bottom: BorderSide {
+            width: 5.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };

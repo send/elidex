@@ -1712,16 +1712,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "elidex-api-canvas"
-version = "0.1.0"
-dependencies = [
- "cssparser",
- "elidex-css",
- "elidex-plugin",
- "tiny-skia 0.12.0",
-]
-
-[[package]]
 name = "elidex-bidi"
 version = "0.1.0"
 dependencies = [
@@ -1758,6 +1748,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-css-anim"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-box"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-flex"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-float"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-grid"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-table"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+]
+
+[[package]]
+name = "elidex-css-text"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-dom-api"
 version = "0.1.0"
 dependencies = [
@@ -1786,6 +1836,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-html-parser"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "encoding_rs",
+ "html5ever",
+ "markup5ever_rcdom",
+]
+
+[[package]]
 name = "elidex-js"
 version = "0.1.0"
 dependencies = [
@@ -1800,7 +1860,6 @@ dependencies = [
  "boa_engine",
  "boa_gc",
  "bytes",
- "elidex-api-canvas",
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-navigation",
@@ -1808,6 +1867,7 @@ dependencies = [
  "elidex-plugin",
  "elidex-script-session",
  "elidex-wasm-runtime",
+ "elidex-web-canvas",
  "tracing",
  "url",
  "wasmtime",
@@ -1879,8 +1939,8 @@ dependencies = [
  "elidex-css",
  "elidex-dom-compat",
  "elidex-ecs",
+ "elidex-html-parser",
  "elidex-net",
- "elidex-parser",
  "image",
  "tracing",
  "url",
@@ -1907,19 +1967,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "elidex-parser"
-version = "0.1.0"
-dependencies = [
- "elidex-ecs",
- "encoding_rs",
- "html5ever",
- "markup5ever_rcdom",
-]
-
-[[package]]
 name = "elidex-plugin"
 version = "0.1.0"
 dependencies = [
+ "cssparser",
  "url",
 ]
 
@@ -1976,11 +2027,11 @@ dependencies = [
  "elidex-css",
  "elidex-dom-compat",
  "elidex-ecs",
+ "elidex-html-parser",
  "elidex-js-boa",
  "elidex-layout",
  "elidex-navigation",
  "elidex-net",
- "elidex-parser",
  "elidex-plugin",
  "elidex-render",
  "elidex-script-session",
@@ -1998,6 +2049,13 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "elidex-css",
+ "elidex-css-anim",
+ "elidex-css-box",
+ "elidex-css-flex",
+ "elidex-css-float",
+ "elidex-css-grid",
+ "elidex-css-table",
+ "elidex-css-text",
  "elidex-ecs",
  "elidex-plugin",
  "rayon",
@@ -2025,12 +2083,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-web-canvas"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+ "tiny-skia 0.12.0",
+]
+
+[[package]]
 name = "elidex-wpt"
 version = "0.1.0"
 dependencies = [
  "elidex-css",
  "elidex-ecs",
- "elidex-parser",
+ "elidex-html-parser",
  "elidex-plugin",
  "elidex-style",
  "serde",

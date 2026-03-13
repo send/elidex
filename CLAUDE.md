@@ -9,16 +9,25 @@ elidex is an experimental browser engine written in Rust. Phase 0 (foundation) i
 ```
 crates/
   core/
-    elidex-plugin/        — Plugin traits, SpecLevel enums, PluginRegistry
+    elidex-plugin/        — Plugin traits, SpecLevel enums, PluginRegistry, css_resolve helpers
     elidex-plugin-macros/ — Procedural macros (#[derive(SpecLevel)] etc.)
     elidex-ecs/           — ECS (hecs) based DOM prototype
     elidex-render/        — Rendering backend abstraction
-  web/
-    elidex-parser/        — HTML/XML parser (html5ever wrapper, charset detection)
+  css/
     elidex-css/           — CSS parser, value types, selector engine
+    elidex-css-box/       — CSS box model property handler plugin (display, position, margin, padding, border, etc.)
+    elidex-css-text/      — CSS text/font property handler plugin (color, font-*, text-*, etc.)
+    elidex-css-flex/      — CSS flexbox property handler plugin (flex-*, justify/align-*, order)
+    elidex-css-grid/      — CSS grid property handler plugin (grid-*)
+    elidex-css-table/     — CSS table property handler plugin (border-collapse, table-layout, etc.)
+    elidex-css-float/     — CSS float/clear/visibility/vertical-align property handler plugin
+    elidex-css-anim/      — CSS Animations + Transitions property handler plugin
     elidex-style/         — Cascade, inheritance, style resolution
-    elidex-navigation/    — Navigation controller (history, load pipeline)
-    elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
+  dom/
+    elidex-html-parser/   — HTML/XML parser (html5ever wrapper, charset detection)
+    elidex-dom-api/       — DOM API handler implementations (engine-independent)
+    elidex-dom-compat/    — Legacy/compat DOM layer
+    elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
   layout/
     elidex-layout/        — Layout orchestrator (block, inline, dispatch)
     elidex-layout-block/  — Block layout
@@ -30,18 +39,18 @@ crates/
     elidex-linebreak/     — Line breaking (UAX #14)
     elidex-bidi/          — BiDi algorithm (UAX #9)
     elidex-text/          — Text facade (shaping + linebreak + bidi)
+  net/
+    elidex-net/           — HTTP network stack (hyper, TLS, connection pool, cookies)
   script/
     elidex-script-session/ — Script session abstraction (JS ↔ ECS DOM bridge)
     elidex-js/            — JavaScript parser (custom ES2020+ parser)
     elidex-js-boa/        — Boa JS engine integration (boa_engine 0.21)
     elidex-wasm-runtime/  — WebAssembly runtime (wasmtime, DOM host functions)
-  api/
-    elidex-api-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
-    elidex-dom-api/       — DOM API handler implementations (engine-independent)
-    elidex-dom-compat/    — Legacy/compat DOM layer
+  web/
+    elidex-web-canvas/    — Canvas 2D API (tiny-skia CPU rasterization)
   shell/
     elidex-shell/         — Window management, event loop shell, browser chrome (egui)
-    elidex-a11y/          — Accessibility tree builder (ECS DOM → AccessKit)
+    elidex-navigation/    — Navigation controller (history, load pipeline)
   tools/
     elidex-crawler/       — Web compatibility survey tool (binary crate)
     elidex-wpt/           — WPT-style CSS conformance test harness
@@ -82,7 +91,7 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **Error chain**: Retry errors use `format!("{e:#}")` to preserve full anyhow error chain.
 - **`to_ascii_lowercase()` safety**: Verified — only modifies ASCII bytes, preserving byte positions. Safe to cross-index with original HTML.
 
-### elidex-parser
+### elidex-html-parser
 
 - **Three entry points**: `parse_html(&str)` (existing, UTF-8), `parse_tolerant(&[u8], charset_hint)` (byte input with charset auto-detection), `parse_strict(&str)` (rejects documents with parse errors).
 - **Charset detection** (`charset.rs`): BOM always stripped first (`strip_bom()`), then encoding priority: HTTP charset hint → BOM encoding → `<meta charset>` prescan (1024 bytes) → `<meta http-equiv="Content-Type" content="…;charset=…">` prescan → UTF-8 default. Uses `encoding_rs` with `new_decoder_without_bom_handling()` to avoid encoding_rs's built-in BOM sniffing overriding our priority logic.
@@ -108,7 +117,8 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **Network types**: `HttpRequest` (method/url/headers), `HttpResponse` (status/headers), `NetworkError` (kind/message), `NetworkErrorKind` enum.
 - **ProcessModel**: `SiteIsolation`/`PerTab`/`Shared{max_renderers}`/`SingleProcess` — `#[non_exhaustive]`, Phase 3.5 implements `SingleProcess` only.
 - **Sandbox types** (`sandbox.rs`): `FilesystemAccess` (None/ReadOnly/ReadWrite), `NetworkAccess` (None/SameOrigin/Full), `SandboxPolicy` (filesystem/network/ipc/gpu) with `strict()`/`permissive()`/`web_content()` constructors, `PlatformSandbox` (LinuxSeccomp/MacOSAppSandbox/WindowsRestricted/Unsandboxed). Type-only — enforcement deferred to OS process isolation phase.
-- **Built-in handlers** (`handlers/`): Concrete trait implementations demonstrating the plugin pattern. `create_css_property_registry()` (display/color/width/opacity/overflow), `create_html_element_registry()` (div/a/img/script/button), `create_layout_registry()` (block/flex/grid/table). CSS handlers include parse + resolve logic; layout models use stub layout (actual dispatch remains in elidex-layout).
+- **Built-in handlers** (`handlers/`): Demo trait implementations for HTML and layout plugins. `create_html_element_registry()` (div/a/img/script/button), `create_layout_registry()` (block/flex/grid/table). Layout models use stub layout (actual dispatch remains in elidex-layout). CSS property handlers moved to dedicated plugin crates (elidex-css-{box,text,flex,grid,table,float}).
+- **css_resolve module**: Shared resolution utilities re-exported for plugin crates — `resolve_length`, `resolve_dimension`, `resolve_to_px`, `resolve_calc_expr`, `resolve_non_negative_f32`, `resolve_i32`, `keyword_from`, `parse_length_unit`.
 
 ### elidex-layout
 
@@ -157,7 +167,7 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **globals/canvas.rs**: `create_context2d_object()` — CanvasRenderingContext2D JS object with drawing methods delegating to `Canvas2dContext` in `HostBridge`. `sync_canvas_to_image_data()` syncs pixels to ECS `ImageData` after each draw. `extract_entity_bits()` reads entity from hidden property.
 - **HostBridge canvas support**: `canvas_contexts: HashMap<u64, Canvas2dContext>` in `HostBridgeInner`. `ensure_canvas_context(entity_bits, width, height)` creates context, `with_canvas(entity_bits, f)` accesses it.
 - **globals/element.rs**: `getContext("2d")` on `<canvas>` elements — reads width/height attributes (defaults 300×150), creates Canvas2dContext via bridge, returns cached context2d JS object.
-- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, elidex-api-canvas, url, bytes.
+- **Dependencies**: boa_engine 0.20 (annex-b), boa_gc 0.20, elidex-net, elidex-navigation, elidex-web-canvas, url, bytes.
 
 ### elidex-net
 
@@ -176,8 +186,35 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **FetchHandle**: Wraps tokio current-thread `Runtime` + `NetClient`. `send_blocking(&self, request)` blocks via `rt.block_on(client.send(request))`. Used by elidex-js (`JsRuntime::with_fetch`) and elidex-navigation (`load_document`).
 - **SSRF shared module**: `elidex_plugin::url_security` — `validate_url()` + `is_private_ip()`, shared by elidex-net and elidex-crawler.
 
+### CSS Plugin Crates (elidex-css-{box,text,flex,grid,table,float,anim})
+
+- **Plugin architecture**: Each crate implements `CssPropertyHandler` for a group of related CSS properties. Handlers provide `parse()`, `resolve()`, `initial_value()`, `is_inherited()`, `affects_layout()`, and `get_computed()`.
+- **elidex-css-box**: `BoxHandler` — display, position, width/height/min/max, margin-*, padding-*, border-*-{width,style,color}, box-sizing, border-radius, opacity, overflow, background-color, content, row-gap, column-gap (33 tests).
+- **elidex-css-text**: `TextHandler` — color, font-size/weight/style/family, line-height, text-align/transform, white-space, letter/word-spacing, text-decoration-*, writing-mode, text-orientation, direction, unicode-bidi, list-style-type (36 tests).
+- **elidex-css-flex**: `FlexHandler` — flex-direction/wrap, justify-content, align-items/content/self, flex-grow/shrink, flex-basis, order (20 tests).
+- **elidex-css-grid**: `GridHandler` — grid-template-columns/rows, grid-auto-flow/columns/rows, grid-column/row-start/end (20 tests).
+- **elidex-css-table**: `TableHandler` — border-collapse (inherited), border-spacing-h/v (inherited), table-layout, caption-side (inherited) (12 tests).
+- **elidex-css-float**: `FloatHandler` — float, clear, visibility (inherited), vertical-align (10 tests).
+- **elidex-css-anim**: `AnimHandler` — transition/animation shorthands + 12 longhands (113 tests). See below.
+- **Registration**: Each handler has `register(&mut CssPropertyRegistry)`. All 7 registered in `elidex_shell::create_css_property_registry()`.
+- **Dependencies**: All depend on elidex-plugin (traits, CssValue, ComputedStyle). Some depend on elidex-css (color parsing) and cssparser (tokenization).
+
+### elidex-css-anim
+
+- **AnimHandler**: `CssPropertyHandler` impl for 14 properties: `transition` (shorthand), `transition-property/duration/timing-function/delay`, `animation` (shorthand), `animation-name/duration/timing-function/delay/iteration-count/direction/fill-mode/play-state`. None inherited, none affects layout directly.
+- **timing.rs**: `TimingFunction` enum — `CubicBezier(x1,y1,x2,y2)`, `Steps(count, StepPosition)`, `Linear`. Cubic-bezier solver: Newton-Raphson with bisection fallback. Named easings: `EASE`, `EASE_IN`, `EASE_OUT`, `EASE_IN_OUT`. `StepPosition`: JumpStart/JumpEnd/JumpNone/JumpBoth.
+- **style.rs**: `AnimStyle` ECS component — 12 `Vec` fields for transition/animation property lists. Separate from `ComputedStyle` (only inserted when animation/transition props are set). Types: `TransitionProperty`, `IterationCount`, `AnimationDirection`, `AnimationFillMode`, `PlayState`.
+- **parse.rs**: `parse_time()` (s/ms), `parse_timing_function()` (keywords + cubic-bezier() + steps()), `parse_transition_property/shorthand()`, `parse_animation_name/iteration_count/direction/fill_mode/play_state()`. `KeyframesRule`/`Keyframe` types, `parse_keyframes()` for `@keyframes` block parsing.
+- **resolve.rs**: `resolve_anim_property()` dispatches by property name into `AnimStyle` fields. Helpers: `resolve_transition_property()`, `resolve_time_list()`, `resolve_timing_function_list()`, `resolve_animation_names()`, etc.
+- **interpolate.rs**: `interpolate(from, to, t)` — numeric lerp for Number/Length/Percentage/Time/Color, discrete flip at 50% for keywords/auto. `interpolate_color()` component-wise RGBA. `is_animatable()` checks ~35 animatable property names.
+- **instance.rs**: `AnimationInstance` (name, timing, iteration, direction, fill, play state, elapsed, finished). `progress()` computes iteration-aware progress with direction/fill. `TransitionInstance` (property, from/to values, elapsed). `current_value()` returns interpolated value.
+- **engine.rs**: `AnimationEngine` — manages running transitions/animations per entity (`HashMap<u64, Vec>`). `tick(dt)` advances all, returns `Vec<(EntityId, AnimationEvent)>` for `transitionend`/`animationend`. `register_keyframes()`, `add_transition()`/`add_animation()`, auto-cleanup on finish.
+- **timeline.rs**: `DocumentTimeline` — monotonic time tracker (`current_time`, `advance(dt)`).
+- **detection.rs**: `detect_transitions()` — compares old/new computed values against `AnimStyle.transition_property` list, produces `Vec<DetectedTransition>` with CSS list cycling behavior.
+
 ### elidex-shell
 
+- **CSS property registry**: `create_css_property_registry()` builds a `CssPropertyRegistry` with all 7 CSS plugin handlers (box, text, flex, grid, table, float, anim). Passed to `resolve_styles_with_compat()` for handler-based dispatch. `get_computed_with_registry()` in elidex-style uses handlers for computed value extraction.
 - **chrome.rs**: Browser chrome UI (egui overlay). `ChromeState` (address_text, address_focused, tab_bar_position), `ChromeAction` enum (Navigate/Back/Forward/Reload/NewTab/CloseTab/SwitchTab), `build()` draws egui `TopBottomPanel` with back/forward/reload buttons and address bar. `CHROME_HEIGHT = 36.0`, `TAB_BAR_HEIGHT = 28.0`, `TAB_SIDEBAR_WIDTH = 200.0` logical pixels. `TabBarPosition` (Top/Left/Right), `TabBarInfo` for tab bar rendering, `build_tab_bar()` renders horizontal or side-panel tabs, `chrome_content_offset()` computes content area `(x, y)` offset.
 - **Tab management** (`app/tab.rs`): `TabId(u64)` unique identifier, `Tab` (channel, thread, display_list, chrome, window_title), `TabManager` (Vec<Tab>, active_id, id_gen). Methods: `create_tab()`, `close_tab()` (shutdown + neighbor select), `active_tab()`/`active_tab_mut()`, `set_active()`, `next_tab_id()`/`prev_tab_id()` (wrap-around), `nth_tab_id()`, `shutdown_all()`.
 - **egui integration**: `RenderState` holds `egui::Context`, `egui_winit::State`, `egui_wgpu::Renderer`. Initialized in `try_init_render_state()`. Overlay rendered via `render_egui_overlay()` / `render_egui_output()` using `LoadOp::Load` render pass after Vello blit. `handle_redraw_with_tabs()` renders tab bar + chrome bar.
@@ -191,7 +228,7 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **Content thread** (`content.rs`): `spawn_content_thread()`/`spawn_content_thread_url()`/`spawn_content_thread_blank()`, `content_thread_main()` event loop, hover/focus/active management, link navigation detection, JS timer drain via `recv_timeout`, history action handling.
 - **Dependencies**: egui 0.33, egui-wgpu 0.33, egui-winit 0.33 (all MIT/Apache-2.0, wgpu 27 compatible), accesskit 0.24, accesskit_winit 0.32, elidex-a11y, crossbeam-channel 0.5.
 
-### elidex-api-canvas
+### elidex-web-canvas
 
 - **Canvas2dContext**: Wraps `tiny_skia::Pixmap` with `DrawingState` stack (fill/stroke color, line_width, global_alpha, transform). Default 300×150 pixels.
 - **Drawing methods**: `fillRect`, `strokeRect`, `clearRect` (rectangle methods), `beginPath`/`moveTo`/`lineTo`/`closePath`/`rect`/`arc`/`fill`/`stroke` (path methods), `save`/`restore` (state), `translate`/`rotate`/`scale` (transform).
@@ -232,7 +269,7 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - **run_test_case()**: parse_html → parse_stylesheet → resolve_styles → find element by selector → compare computed values.
 - **run_test_suite()**: batch runner returning `Vec<WptTestResult>`.
 - **Built-in suites**: `suites::cascade::cascade_suite()` — 10 cascade/specificity/inheritance test cases.
-- **Dependencies**: elidex-parser, elidex-css, elidex-ecs, elidex-style, elidex-plugin, serde, serde_json.
+- **Dependencies**: elidex-html-parser, elidex-css, elidex-ecs, elidex-style, elidex-plugin, serde, serde_json.
 
 ### Benchmarks (criterion)
 

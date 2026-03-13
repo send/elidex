@@ -20,7 +20,11 @@ use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH
 /// 3. Lifecycle event dispatch (`DOMContentLoaded`, `load`)
 /// 4. Post-script style re-resolution and layout
 ///
+/// The `registry` is passed in from the caller to avoid creating a duplicate
+/// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
+///
 /// Returns the `(SessionCore, JsRuntime)` for the caller to include in `PipelineResult`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_scripts_and_finalize(
     dom: &mut EcsDom,
     document: Entity,
@@ -29,11 +33,12 @@ pub(super) fn run_scripts_and_finalize(
     fetch_handle: Rc<FetchHandle>,
     font_db: &Rc<elidex_text::FontDatabase>,
     current_url: Option<url::Url>,
+    registry: &elidex_plugin::CssPropertyRegistry,
 ) -> (SessionCore, JsRuntime) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs);
+    resolve_with_compat(dom, &stylesheet_refs, registry);
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -54,7 +59,7 @@ pub(super) fn run_scripts_and_finalize(
     session.flush(dom);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs);
+    resolve_with_compat(dom, &stylesheet_refs, registry);
 
     layout_tree(
         dom,
