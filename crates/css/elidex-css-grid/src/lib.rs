@@ -1,7 +1,7 @@
 //! CSS grid layout property handler plugin (grid-*).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_length},
+    css_resolve::{keyword_from, parse_length_unit, resolve_keyword_to_enum, resolve_length},
     ComputedStyle, CssPropertyHandler, CssValue, GridAutoFlow, GridLine, LengthUnit, ParseError,
     PropertyDeclaration, ResolveContext, TrackBreadth, TrackSize,
 };
@@ -66,8 +66,8 @@ impl CssPropertyHandler for GridHandler {
                 style.grid_template_rows = resolve_track_list(value, ctx);
             }
             "grid-auto-flow" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.grid_auto_flow = GridAutoFlow::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, GridAutoFlow::from_keyword) {
+                    style.grid_auto_flow = v;
                 }
             }
             "grid-auto-columns" => {

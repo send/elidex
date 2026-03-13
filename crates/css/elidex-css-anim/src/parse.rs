@@ -456,61 +456,14 @@ fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {
             let property = prop.trim().to_ascii_lowercase();
             // CSS Animations Level 1 §4.1: !important in @keyframes is ignored.
             let value_str = val.trim().trim_end_matches("!important").trim();
-            // Parse value using cssparser
-            let mut pi = cssparser::ParserInput::new(value_str);
-            let mut parser = cssparser::Parser::new(&mut pi);
-            if let Ok(css_value) = parse_simple_value(&mut parser) {
+            let css_value = elidex_css::parse_raw_token_value(value_str);
+            // Skip empty/unparseable values
+            if !matches!(css_value, CssValue::RawTokens(ref s) if s.is_empty()) {
                 decls.push(PropertyDeclaration::new(property, css_value));
             }
         }
     }
     decls
-}
-
-/// Try to parse the current parser position as a CSS color using `elidex_css::parse_color`.
-///
-/// Returns `Some(CssValue::Color(...))` on success, `None` if not a color token.
-fn try_parse_color(input: &mut cssparser::Parser<'_, '_>) -> Option<CssValue> {
-    input
-        .try_parse(elidex_css::parse_color)
-        .ok()
-        .map(CssValue::Color)
-}
-
-/// Parse a simple CSS value (number, length, percentage, color, keyword).
-///
-/// TODO: Consider delegating to elidex-css value parsing for full CSS value
-/// support in keyframes.
-fn parse_simple_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
-    // Try CSS color parsing first (covers named colors, #hex, rgb(), hsl(), etc.)
-    if let Some(color_val) = try_parse_color(input) {
-        return Ok(color_val);
-    }
-
-    let token = input.next().map_err(|_| ())?;
-    match token.clone() {
-        cssparser::Token::Number { value, .. } => Ok(CssValue::Number(value)),
-        cssparser::Token::Dimension {
-            value, ref unit, ..
-        } => {
-            let u = elidex_plugin::css_resolve::parse_length_unit(unit);
-            Ok(CssValue::Length(value, u))
-        }
-        cssparser::Token::Percentage { unit_value, .. } => {
-            Ok(CssValue::Percentage(unit_value * 100.0))
-        }
-        cssparser::Token::Ident(ref ident) => {
-            let lower = ident.to_ascii_lowercase();
-            match lower.as_str() {
-                "none" => Ok(CssValue::Keyword("none".into())),
-                "auto" => Ok(CssValue::Auto),
-                "inherit" => Ok(CssValue::Inherit),
-                "initial" => Ok(CssValue::Initial),
-                _ => Ok(CssValue::Keyword(lower)),
-            }
-        }
-        _ => Err(()),
-    }
 }
 
 fn parse_cubic_bezier_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFunction, ()> {

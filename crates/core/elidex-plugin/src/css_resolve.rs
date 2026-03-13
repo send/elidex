@@ -93,8 +93,19 @@ pub fn resolve_i32(value: &CssValue, default: i32) -> i32 {
     }
 }
 
-// TODO: add resolve_keyword_to_enum<T>(value: &CssValue, from_keyword: fn(&str) -> Option<T>) -> Option<T>
-// to DRY the keyword→enum pattern used in all CSS property handlers.
+/// Resolve a `CssValue::Keyword` to an enum variant via a `from_keyword` function.
+///
+/// Returns `None` if the value is not a `Keyword` or the keyword is unrecognized.
+#[must_use]
+pub fn resolve_keyword_to_enum<T: Default>(
+    value: &CssValue,
+    from_keyword: fn(&str) -> Option<T>,
+) -> Option<T> {
+    match value {
+        CssValue::Keyword(ref k) => Some(from_keyword(k).unwrap_or_default()),
+        _ => None,
+    }
+}
 
 /// Wrap an `AsRef<str>` value in `CssValue::Keyword`.
 #[must_use]
@@ -361,5 +372,52 @@ mod tests {
     fn resolve_i32_values() {
         assert_eq!(resolve_i32(&CssValue::Number(42.0), 0), 42);
         assert_eq!(resolve_i32(&CssValue::Number(f32::NAN), 5), 5);
+    }
+
+    #[test]
+    fn resolve_keyword_to_enum_known() {
+        // Simulate a simple enum with from_keyword
+        fn from_kw(s: &str) -> Option<u8> {
+            match s {
+                "a" => Some(1),
+                "b" => Some(2),
+                _ => None,
+            }
+        }
+        assert_eq!(
+            resolve_keyword_to_enum(&CssValue::Keyword("a".into()), from_kw),
+            Some(1)
+        );
+        assert_eq!(
+            resolve_keyword_to_enum(&CssValue::Keyword("b".into()), from_kw),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn resolve_keyword_to_enum_unknown_returns_default() {
+        fn from_kw(s: &str) -> Option<u8> {
+            match s {
+                "a" => Some(1),
+                _ => None,
+            }
+        }
+        // Unknown keyword falls back to T::default()
+        assert_eq!(
+            resolve_keyword_to_enum(&CssValue::Keyword("zzz".into()), from_kw),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn resolve_keyword_to_enum_non_keyword_returns_none() {
+        fn from_kw(_s: &str) -> Option<u8> {
+            Some(1)
+        }
+        assert_eq!(
+            resolve_keyword_to_enum(&CssValue::Number(42.0), from_kw),
+            None
+        );
+        assert_eq!(resolve_keyword_to_enum(&CssValue::Auto, from_kw), None);
     }
 }

@@ -2,7 +2,9 @@
 //! justify-content, align-items/self/content, flex-grow/shrink/basis, order).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_or_percentage, resolve_dimension},
+    css_resolve::{
+        keyword_from, parse_length_or_percentage, resolve_dimension, resolve_keyword_to_enum,
+    },
     parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, ComputedStyle,
     CssPropertyHandler, CssValue, Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit,
     ParseError, PropertyDeclaration, ResolveContext,
@@ -103,33 +105,33 @@ impl CssPropertyHandler for FlexHandler {
     ) {
         match name {
             "flex-direction" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.flex_direction = FlexDirection::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, FlexDirection::from_keyword) {
+                    style.flex_direction = v;
                 }
             }
             "flex-wrap" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.flex_wrap = FlexWrap::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, FlexWrap::from_keyword) {
+                    style.flex_wrap = v;
                 }
             }
             "justify-content" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.justify_content = JustifyContent::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, JustifyContent::from_keyword) {
+                    style.justify_content = v;
                 }
             }
             "align-items" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.align_items = AlignItems::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, AlignItems::from_keyword) {
+                    style.align_items = v;
                 }
             }
             "align-content" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.align_content = AlignContent::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, AlignContent::from_keyword) {
+                    style.align_content = v;
                 }
             }
             "align-self" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.align_self = AlignSelf::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, AlignSelf::from_keyword) {
+                    style.align_self = v;
                 }
             }
             "flex-grow" => {

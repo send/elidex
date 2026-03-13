@@ -253,19 +253,15 @@ fn transition_shorthand_basic() {
 
 #[test]
 fn hex_color_parse() {
-    let mut pi = cssparser::ParserInput::new("#ff0000");
-    let mut parser = cssparser::Parser::new(&mut pi);
-    let color = try_parse_color(&mut parser).unwrap();
-    assert_eq!(color, CssValue::Color(elidex_plugin::CssColor::RED));
+    let value = elidex_css::parse_raw_token_value("#ff0000");
+    assert_eq!(value, CssValue::Color(elidex_plugin::CssColor::RED));
 }
 
 #[test]
 fn hex_color_short() {
-    let mut pi = cssparser::ParserInput::new("#f00");
-    let mut parser = cssparser::Parser::new(&mut pi);
-    let color = try_parse_color(&mut parser).unwrap();
+    let value = elidex_css::parse_raw_token_value("#f00");
     assert_eq!(
-        color,
+        value,
         CssValue::Color(elidex_plugin::CssColor::rgb(255, 0, 0))
     );
 }
@@ -337,9 +333,10 @@ fn steps_jump_none_count_one_rejected() {
 fn keyframes_important_stripped() {
     let rule = parse_keyframes("test", "from { opacity: 0 !important; } to { opacity: 1; }");
     assert_eq!(rule.keyframes.len(), 2);
+    // parse_raw_token_value treats bare `0` as a zero-length (CSS unitless zero).
     assert_eq!(
         rule.keyframes[0].declarations[0].value,
-        CssValue::Number(0.0),
+        CssValue::Length(0.0, elidex_plugin::LengthUnit::Px),
         "!important should be stripped, leaving just the value"
     );
 }

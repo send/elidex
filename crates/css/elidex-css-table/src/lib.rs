@@ -2,7 +2,9 @@
 //! caption-side, border-spacing).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_non_negative_length, resolve_to_px},
+    css_resolve::{
+        keyword_from, parse_non_negative_length, resolve_keyword_to_enum, resolve_to_px,
+    },
     parse_css_keyword as parse_keyword, BorderCollapse, CaptionSide, ComputedStyle,
     CssPropertyHandler, CssValue, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
     TableLayout,
@@ -54,8 +56,8 @@ impl CssPropertyHandler for TableHandler {
     ) {
         match name {
             "border-collapse" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.border_collapse = BorderCollapse::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, BorderCollapse::from_keyword) {
+                    style.border_collapse = v;
                 }
             }
             "border-spacing-h" => {
@@ -67,13 +69,13 @@ impl CssPropertyHandler for TableHandler {
                 style.border_spacing_v = px;
             }
             "table-layout" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.table_layout = TableLayout::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, TableLayout::from_keyword) {
+                    style.table_layout = v;
                 }
             }
             "caption-side" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.caption_side = CaptionSide::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, CaptionSide::from_keyword) {
+                    style.caption_side = v;
                 }
             }
             _ => {}

@@ -2,7 +2,7 @@
 //! white-space, color, writing-mode, direction, unicode-bidi, list-style-type).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_length},
+    css_resolve::{keyword_from, parse_length_unit, resolve_keyword_to_enum, resolve_length},
     parse_css_keyword as parse_keyword, ComputedStyle, CssColor, CssPropertyHandler, CssValue,
     Direction, FontStyle, LengthUnit, LineHeight, ListStyleType, ParseError, PropertyDeclaration,
     ResolveContext, TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation,
@@ -119,8 +119,8 @@ impl CssPropertyHandler for TextHandler {
                 resolve_font_weight_value(value, style);
             }
             "font-style" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.font_style = FontStyle::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, FontStyle::from_keyword) {
+                    style.font_style = v;
                 }
             }
             "font-family" => {
@@ -130,18 +130,18 @@ impl CssPropertyHandler for TextHandler {
                 resolve_line_height(value, style, ctx);
             }
             "text-align" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.text_align = TextAlign::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, TextAlign::from_keyword) {
+                    style.text_align = v;
                 }
             }
             "text-transform" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.text_transform = TextTransform::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, TextTransform::from_keyword) {
+                    style.text_transform = v;
                 }
             }
             "white-space" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.white_space = WhiteSpace::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, WhiteSpace::from_keyword) {
+                    style.white_space = v;
                 }
             }
             "letter-spacing" => {
@@ -154,9 +154,8 @@ impl CssPropertyHandler for TextHandler {
                 resolve_text_decoration_line(value, style);
             }
             "text-decoration-style" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.text_decoration_style =
-                        TextDecorationStyle::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, TextDecorationStyle::from_keyword) {
+                    style.text_decoration_style = v;
                 }
             }
             "text-decoration-color" => match value {
@@ -167,28 +166,28 @@ impl CssPropertyHandler for TextHandler {
                 _ => {}
             },
             "writing-mode" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.writing_mode = WritingMode::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, WritingMode::from_keyword) {
+                    style.writing_mode = v;
                 }
             }
             "text-orientation" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.text_orientation = TextOrientation::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, TextOrientation::from_keyword) {
+                    style.text_orientation = v;
                 }
             }
             "direction" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.direction = Direction::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, Direction::from_keyword) {
+                    style.direction = v;
                 }
             }
             "unicode-bidi" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.unicode_bidi = UnicodeBidi::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, UnicodeBidi::from_keyword) {
+                    style.unicode_bidi = v;
                 }
             }
             "list-style-type" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.list_style_type = ListStyleType::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, ListStyleType::from_keyword) {
+                    style.list_style_type = v;
                 }
             }
             _ => {}

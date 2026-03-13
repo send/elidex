@@ -3,7 +3,8 @@
 
 use elidex_plugin::{
     css_resolve::{
-        keyword_from, parse_non_negative_length_or_percentage, resolve_dimension, resolve_to_px,
+        keyword_from, parse_non_negative_length_or_percentage, resolve_dimension,
+        resolve_keyword_to_enum, resolve_to_px,
     },
     parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
     ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
@@ -158,18 +159,18 @@ impl CssPropertyHandler for BoxHandler {
     ) {
         match name {
             "display" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.display = Display::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, Display::from_keyword) {
+                    style.display = v;
                 }
             }
             "position" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.position = Position::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, Position::from_keyword) {
+                    style.position = v;
                 }
             }
             "box-sizing" => {
-                if let CssValue::Keyword(ref k) = value {
-                    style.box_sizing = BoxSizing::from_keyword(k).unwrap_or_default();
+                if let Some(v) = resolve_keyword_to_enum(value, BoxSizing::from_keyword) {
+                    style.box_sizing = v;
                 }
             }
             "overflow" => {
@@ -531,8 +532,8 @@ fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
 
 /// Resolve a border-style keyword into a `BorderStyle` field.
 fn resolve_border_style(value: &CssValue, target: &mut BorderStyle) {
-    if let CssValue::Keyword(ref k) = value {
-        *target = BorderStyle::from_keyword(k).unwrap_or_default();
+    if let Some(v) = resolve_keyword_to_enum(value, BorderStyle::from_keyword) {
+        *target = v;
     }
 }
 
