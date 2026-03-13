@@ -357,6 +357,28 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // CSS Animations Level 1 §4.2: if 0% (from) or 100% (to) keyframes
+    // are missing, synthesize them with empty declarations so the animation
+    // engine interpolates from/to the element's computed values.
+    if !keyframes.iter().any(|k| k.offset == 0.0) {
+        keyframes.insert(
+            0,
+            Keyframe {
+                offset: 0.0,
+                declarations: Vec::new(),
+            },
+        );
+    }
+    if !keyframes
+        .iter()
+        .any(|k| (k.offset - 1.0).abs() < f32::EPSILON)
+    {
+        keyframes.push(Keyframe {
+            offset: 1.0,
+            declarations: Vec::new(),
+        });
+    }
+
     KeyframesRule {
         name: name.to_string(),
         keyframes,
@@ -416,7 +438,8 @@ fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {
         }
         if let Some((prop, val)) = part.split_once(':') {
             let property = prop.trim().to_ascii_lowercase();
-            let value_str = val.trim();
+            // CSS Animations Level 1 §4.1: !important in @keyframes is ignored.
+            let value_str = val.trim().trim_end_matches("!important").trim();
             // Parse value using cssparser
             let mut pi = cssparser::ParserInput::new(value_str);
             let mut parser = cssparser::Parser::new(&mut pi);
@@ -935,5 +958,47 @@ mod tests {
             parse_timing_function(&mut parser).is_err(),
             "steps(1, jump-none) should be rejected: n=1 with jump-none produces 0 intervals"
         );
+    }
+
+    // S4-1: !important in @keyframes should be stripped (CSS Animations §4.1).
+    #[test]
+    fn keyframes_important_stripped() {
+        let rule = parse_keyframes("test", "from { opacity: 0 !important; } to { opacity: 1; }");
+        assert_eq!(rule.keyframes.len(), 2);
+        assert_eq!(
+            rule.keyframes[0].declarations[0].value,
+            CssValue::Number(0.0),
+            "!important should be stripped, leaving just the value"
+        );
+    }
+
+    // S4-2: Missing from/to keyframes should be auto-generated.
+    #[test]
+    fn keyframes_auto_generate_from_to() {
+        let rule = parse_keyframes("test", "50% { opacity: 0.5; }");
+        assert_eq!(rule.keyframes.len(), 3, "should have from, 50%, and to");
+        assert_eq!(rule.keyframes[0].offset, 0.0);
+        assert!(
+            rule.keyframes[0].declarations.is_empty(),
+            "synthesized from should have empty declarations"
+        );
+        assert_eq!(rule.keyframes[1].offset, 0.5);
+        assert_eq!(rule.keyframes[2].offset, 1.0);
+        assert!(
+            rule.keyframes[2].declarations.is_empty(),
+            "synthesized to should have empty declarations"
+        );
+    }
+
+    // S4-2: Existing from/to should not be duplicated.
+    #[test]
+    fn keyframes_no_duplicate_from_to() {
+        let rule = parse_keyframes(
+            "test",
+            "from { opacity: 0; } 50% { opacity: 0.5; } to { opacity: 1; }",
+        );
+        assert_eq!(rule.keyframes.len(), 3);
+        assert!(!rule.keyframes[0].declarations.is_empty());
+        assert!(!rule.keyframes[2].declarations.is_empty());
     }
 }

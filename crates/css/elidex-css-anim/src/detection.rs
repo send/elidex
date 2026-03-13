@@ -34,6 +34,14 @@ pub fn detect_transitions(
     if anim_style.transition_property.is_empty() {
         return Vec::new();
     }
+    // CSS Transitions §2.1: transition-property:none disables all transitions.
+    if anim_style
+        .transition_property
+        .iter()
+        .all(|p| matches!(p, TransitionProperty::None))
+    {
+        return Vec::new();
+    }
 
     let mut detected = Vec::new();
 
@@ -51,7 +59,10 @@ pub fn detect_transitions(
         let duration = get_cyclic(&anim_style.transition_duration, idx)
             .copied()
             .unwrap_or(0.0);
-        if duration <= 0.0 {
+        // CSS Transitions §2.2: negative durations are invalid; skip them.
+        // Zero-duration transitions are allowed — they complete immediately
+        // but still fire transitionrun/transitionstart/transitionend events.
+        if duration < 0.0 {
             continue;
         }
         let delay = get_cyclic(&anim_style.transition_delay, idx)
@@ -148,9 +159,11 @@ mod tests {
         assert!(detected.is_empty());
     }
 
+    // CSS Transitions §2.2: zero-duration transitions are valid and complete
+    // immediately. Negative durations are invalid and should be skipped.
     #[test]
-    fn detect_no_transition_zero_duration() {
-        let style = make_anim_style("opacity", 0.0);
+    fn detect_no_transition_negative_duration() {
+        let style = make_anim_style("opacity", -1.0);
         let changes = vec![(
             "opacity".into(),
             CssValue::Number(1.0),
@@ -211,6 +224,46 @@ mod tests {
         assert_eq!(get_cyclic(&list, 1), Some(&0.5));
         // Wraps around
         assert_eq!(get_cyclic(&list, 2), Some(&0.3));
+    }
+
+    // S4-3: transition-property:none should disable all transitions.
+    #[test]
+    fn transition_property_none_disables_all() {
+        let style = AnimStyle {
+            transition_property: vec![TransitionProperty::None],
+            transition_duration: vec![0.5],
+            transition_timing_function: vec![TimingFunction::Linear],
+            transition_delay: vec![0.0],
+            ..AnimStyle::default()
+        };
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+        )];
+        let detected = detect_transitions(&style, &changes);
+        assert!(
+            detected.is_empty(),
+            "transition-property:none should prevent transitions"
+        );
+    }
+
+    // S4-7: Zero-duration transitions should be detected (not skipped).
+    #[test]
+    fn zero_duration_transition_detected() {
+        let style = make_anim_style("opacity", 0.0);
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+        )];
+        let detected = detect_transitions(&style, &changes);
+        assert_eq!(
+            detected.len(),
+            1,
+            "zero-duration transition should be detected"
+        );
+        assert_eq!(detected[0].duration, 0.0);
     }
 
     #[test]

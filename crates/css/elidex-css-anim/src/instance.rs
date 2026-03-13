@@ -150,15 +150,7 @@ impl AnimationInstance {
             // CSS Animations §3.9: zero-duration animations still respect
             // direction and fill-mode. The final iteration's directed progress
             // determines the output value.
-            let final_iteration = match self.iteration_count {
-                IterationCount::Number(n) => {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                    let iter = (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1);
-                    iter
-                }
-                IterationCount::Infinite => 0,
-            };
-            let directed = self.direction_for_iteration(final_iteration, 1.0);
+            let directed = self.direction_for_iteration(self.final_iteration(), 1.0);
             let transformed = self.timing_function.sample(directed);
             return Some(transformed);
         }
@@ -173,13 +165,7 @@ impl AnimationInstance {
             // Finished
             return match self.fill_mode {
                 AnimationFillMode::Forwards | AnimationFillMode::Both => {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                    let final_iteration = match self.iteration_count {
-                        IterationCount::Number(n) => {
-                            (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1)
-                        }
-                        IterationCount::Infinite => 0,
-                    };
+                    let final_iteration = self.final_iteration();
                     let raw = if n_is_whole(match self.iteration_count {
                         IterationCount::Number(n) => n,
                         IterationCount::Infinite => 1.0,
@@ -205,6 +191,21 @@ impl AnimationInstance {
         let directed = self.direction_for_iteration(iteration, raw_progress);
         let transformed = self.timing_function.sample(directed);
         Some(transformed)
+    }
+
+    /// Compute the final iteration index for a finite animation.
+    ///
+    /// Used by `progress()` in the zero-duration and finished branches.
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation
+    )]
+    fn final_iteration(&self) -> u32 {
+        match self.iteration_count {
+            IterationCount::Number(n) => (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1),
+            IterationCount::Infinite => 0,
+        }
     }
 
     /// Compute direction-adjusted progress for a given iteration.
