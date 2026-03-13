@@ -258,6 +258,40 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
                 },
             );
         }
+        EventPayload::Transition(t) => {
+            init.property(
+                js_string!("propertyName"),
+                JsValue::from(js_string!(t.property_name.as_str())),
+                RO,
+            );
+            init.property(
+                js_string!("elapsedTime"),
+                JsValue::from(f64::from(t.elapsed_time)),
+                RO,
+            );
+            init.property(
+                js_string!("pseudoElement"),
+                JsValue::from(js_string!(t.pseudo_element.as_str())),
+                RO,
+            );
+        }
+        EventPayload::Animation(a) => {
+            init.property(
+                js_string!("animationName"),
+                JsValue::from(js_string!(a.animation_name.as_str())),
+                RO,
+            );
+            init.property(
+                js_string!("elapsedTime"),
+                JsValue::from(f64::from(a.elapsed_time)),
+                RO,
+            );
+            init.property(
+                js_string!("pseudoElement"),
+                JsValue::from(js_string!(a.pseudo_element.as_str())),
+                RO,
+            );
+        }
         EventPayload::None | _ => {}
     }
 }

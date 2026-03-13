@@ -1,5 +1,5 @@
 use super::*;
-use elidex_plugin::{EventPayload, MouseEventInit};
+use elidex_plugin::{AnimationEventInit, EventPayload, MouseEventInit, TransitionEventInit};
 use elidex_render::DisplayItem;
 use elidex_script_session::DispatchEvent;
 
@@ -570,8 +570,7 @@ fn anim_style_populated_from_css() {
         "div { transition: opacity 0.3s ease; }",
     );
 
-    let entity = find_by_id(&result, "div", "animated")
-        .expect("should find div#animated");
+    let entity = find_by_id(&result, "div", "animated").expect("should find div#animated");
     let anim_style = result
         .dom
         .world()
@@ -588,13 +587,9 @@ fn anim_style_populated_from_css() {
 fn anim_style_not_attached_without_animation_props() {
     use elidex_css_anim::style::AnimStyle;
 
-    let result = build_pipeline_interactive(
-        "<div id=\"plain\">Hello</div>",
-        "div { color: red; }",
-    );
+    let result = build_pipeline_interactive("<div id=\"plain\">Hello</div>", "div { color: red; }");
 
-    let entity = find_by_id(&result, "div", "plain")
-        .expect("should find div#plain");
+    let entity = find_by_id(&result, "div", "plain").expect("should find div#plain");
     let anim_result = result.dom.world().get::<&AnimStyle>(entity);
     assert!(
         anim_result.is_err(),
@@ -631,5 +626,77 @@ fn inline_run_produces_single_text_item() {
     assert_eq!(
         text_count, 3,
         "Expected 3 text items for styled inline run, got {text_count}"
+    );
+}
+
+#[test]
+fn transition_event_dispatched_to_js_listener() {
+    let html = r#"<div id="box">test</div>
+<script>
+  var el = document.getElementById("box");
+  el.addEventListener("transitionend", function(e) {
+    console.log("te:" + e.propertyName + ":" + e.elapsedTime + ":" + e.pseudoElement);
+  });
+</script>"#;
+    let css = "div { opacity: 1; transition: opacity 0.3s linear; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let div = find_by_id(&result, "div", "box").unwrap();
+
+    // Dispatch a synthetic transitionend event.
+    let mut event = DispatchEvent::new_composed("transitionend", div);
+    event.cancelable = false;
+    event.payload = EventPayload::Transition(TransitionEventInit {
+        property_name: "opacity".into(),
+        elapsed_time: 0.3,
+        pseudo_element: String::new(),
+    });
+    result.runtime.dispatch_event(
+        &mut event,
+        &mut result.session,
+        &mut result.dom,
+        result.document,
+    );
+
+    let messages = result.runtime.console_output().messages();
+    assert!(
+        messages.iter().any(|m| m.1.starts_with("te:opacity:0.3")),
+        "Expected transitionend with propertyName=opacity, got: {messages:?}"
+    );
+}
+
+#[test]
+fn animation_event_dispatched_to_js_listener() {
+    let html = r#"<div id="box">test</div>
+<script>
+  var el = document.getElementById("box");
+  el.addEventListener("animationend", function(e) {
+    console.log("ae:" + e.animationName + ":" + e.elapsedTime + ":" + e.pseudoElement);
+  });
+</script>"#;
+    let css = "div { opacity: 1; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let div = find_by_id(&result, "div", "box").unwrap();
+
+    // Dispatch a synthetic animationend event.
+    let mut event = DispatchEvent::new_composed("animationend", div);
+    event.cancelable = false;
+    event.payload = EventPayload::Animation(AnimationEventInit {
+        animation_name: "fadeIn".into(),
+        elapsed_time: 1.0,
+        pseudo_element: String::new(),
+    });
+    result.runtime.dispatch_event(
+        &mut event,
+        &mut result.session,
+        &mut result.dom,
+        result.document,
+    );
+
+    let messages = result.runtime.console_output().messages();
+    assert!(
+        messages.iter().any(|m| m.1.starts_with("ae:fadeIn:1:")),
+        "Expected animationend with animationName=fadeIn, got: {messages:?}"
     );
 }

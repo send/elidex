@@ -9,11 +9,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
 
+use elidex_css_anim::engine::AnimationEvent;
 use elidex_ecs::ElementState as DomElementState;
 use elidex_ecs::Entity;
 use elidex_layout::hit_test;
 use elidex_navigation::NavigationController;
-use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
+use elidex_plugin::{
+    AnimationEventInit, EventPayload, KeyboardEventInit, MouseEventInit, TransitionEventInit,
+};
 use elidex_script_session::DispatchEvent;
 
 use crate::app::events::find_link_ancestor;
@@ -210,8 +213,8 @@ fn run_event_loop(state: &mut ContentState) {
         // Tick animation engine if animations are active.
         if state.pipeline.animation_engine.has_active() {
             let dt_secs = dt.as_secs_f64();
-            let _events = state.pipeline.animation_engine.tick(dt_secs);
-            // TODO(M4-3): dispatch animation/transition DOM events from `_events`
+            let events = state.pipeline.animation_engine.tick(dt_secs);
+            dispatch_animation_events(&events, state);
             needs_render = true;
         }
 
@@ -652,6 +655,76 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
             .runtime
             .set_history_length(state.nav_controller.len());
         state.send_navigation_state();
+    }
+}
+
+/// Dispatch animation/transition events from the engine to the DOM.
+///
+/// Converts `AnimationEvent` from `elidex-css-anim` into `DispatchEvent`s
+/// with appropriate event types and payloads (CSS Transitions Level 1 §6,
+/// CSS Animations Level 1 §4.2).
+fn dispatch_animation_events(events: &[(u64, AnimationEvent)], state: &mut ContentState) {
+    use elidex_css_anim::engine::{
+        AnimationEventData, AnimationEventKind, TransitionEventData, TransitionEventKind,
+    };
+
+    for &(entity_bits, ref anim_event) in events {
+        let entity = Entity::from_bits(entity_bits);
+        let Some(entity) = entity else { continue };
+
+        let (event_type, payload) = match anim_event {
+            AnimationEvent::Transition(TransitionEventData {
+                kind,
+                property,
+                elapsed_time,
+            }) => {
+                let name = match kind {
+                    TransitionEventKind::Run => "transitionrun",
+                    TransitionEventKind::Start => "transitionstart",
+                    TransitionEventKind::End => "transitionend",
+                    TransitionEventKind::Cancel => "transitioncancel",
+                };
+                (
+                    name,
+                    EventPayload::Transition(TransitionEventInit {
+                        property_name: property.clone(),
+                        elapsed_time: *elapsed_time,
+                        pseudo_element: String::new(),
+                    }),
+                )
+            }
+            AnimationEvent::Animation(AnimationEventData {
+                kind,
+                name,
+                elapsed_time,
+            }) => {
+                let event_name = match kind {
+                    AnimationEventKind::Start => "animationstart",
+                    AnimationEventKind::End => "animationend",
+                    AnimationEventKind::Iteration => "animationiteration",
+                };
+                (
+                    event_name,
+                    EventPayload::Animation(AnimationEventInit {
+                        animation_name: name.clone(),
+                        elapsed_time: *elapsed_time,
+                        pseudo_element: String::new(),
+                    }),
+                )
+            }
+        };
+
+        // CSS transition/animation events bubble but are not cancelable.
+        let mut dispatch = DispatchEvent::new_composed(event_type, entity);
+        dispatch.cancelable = false;
+        dispatch.payload = payload;
+
+        state.pipeline.runtime.dispatch_event(
+            &mut dispatch,
+            &mut state.pipeline.session,
+            &mut state.pipeline.dom,
+            state.pipeline.document,
+        );
     }
 }
 

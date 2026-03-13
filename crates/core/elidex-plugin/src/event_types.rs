@@ -63,6 +63,28 @@ pub struct KeyboardEventInit {
     pub repeat: bool,
 }
 
+/// Initialization data for CSS transition events (CSS Transitions Level 1 §6).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TransitionEventInit {
+    /// The CSS property name that completed the transition.
+    pub property_name: String,
+    /// The elapsed time of the transition in seconds.
+    pub elapsed_time: f32,
+    /// The `::pseudo-element` selector (empty string if not a pseudo-element).
+    pub pseudo_element: String,
+}
+
+/// Initialization data for CSS animation events (CSS Animations Level 1 §4.2).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimationEventInit {
+    /// The `@keyframes` animation name.
+    pub animation_name: String,
+    /// The elapsed time of the animation in seconds.
+    pub elapsed_time: f32,
+    /// The `::pseudo-element` selector (empty string if not a pseudo-element).
+    pub pseudo_element: String,
+}
+
 /// Payload carried by a DOM event.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -71,6 +93,10 @@ pub enum EventPayload {
     Mouse(MouseEventInit),
     /// Keyboard event data.
     Keyboard(KeyboardEventInit),
+    /// CSS transition event data.
+    Transition(TransitionEventInit),
+    /// CSS animation event data.
+    Animation(AnimationEventInit),
     /// No additional data (e.g. generic events).
     #[default]
     None,
@@ -132,5 +158,41 @@ mod tests {
             ..Default::default()
         });
         assert_ne!(p1, p3);
+    }
+
+    #[test]
+    fn transition_event_init_default() {
+        let t = TransitionEventInit::default();
+        assert!(t.property_name.is_empty());
+        assert!((t.elapsed_time - 0.0).abs() < f32::EPSILON);
+        assert!(t.pseudo_element.is_empty());
+    }
+
+    #[test]
+    fn animation_event_init_default() {
+        let a = AnimationEventInit::default();
+        assert!(a.animation_name.is_empty());
+        assert!((a.elapsed_time - 0.0).abs() < f32::EPSILON);
+        assert!(a.pseudo_element.is_empty());
+    }
+
+    #[test]
+    fn event_payload_transition_variant() {
+        let p = EventPayload::Transition(TransitionEventInit {
+            property_name: "opacity".into(),
+            elapsed_time: 0.5,
+            pseudo_element: String::new(),
+        });
+        assert!(matches!(p, EventPayload::Transition(_)));
+    }
+
+    #[test]
+    fn event_payload_animation_variant() {
+        let p = EventPayload::Animation(AnimationEventInit {
+            animation_name: "fadeIn".into(),
+            elapsed_time: 1.0,
+            pseudo_element: String::new(),
+        });
+        assert!(matches!(p, EventPayload::Animation(_)));
     }
 }
