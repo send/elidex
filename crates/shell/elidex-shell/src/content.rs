@@ -372,10 +372,12 @@ fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
         ..Default::default()
     };
 
+    // DOM spec: click fires only for the primary button (button 0);
+    // auxclick fires for non-primary buttons (UI Events §3.5).
     let event_types: &[&str] = if click.button == 0 {
         &["mousedown", "mouseup", "click"]
     } else {
-        &["mousedown", "mouseup"]
+        &["mousedown", "mouseup", "auxclick"]
     };
 
     let mut click_prevented = false;
@@ -388,7 +390,7 @@ fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
             &mut state.pipeline.dom,
             state.pipeline.document,
         );
-        if *event_type == "click" {
+        if *event_type == "click" || *event_type == "auxclick" {
             click_prevented = prevented;
         }
     }

@@ -96,6 +96,7 @@ pub fn create_event_object(
     // Build composedPath value before borrowing ctx for ObjectInitializer.
     let path_val = composed_path_array
         .unwrap_or_else(|| boa_engine::object::builtins::JsArray::new(ctx).into());
+    let realm = ctx.realm().clone();
 
     let mut init = ObjectInitializer::new(ctx);
 
@@ -116,13 +117,23 @@ pub fn create_event_object(
         JsValue::from(i32::from(event.phase as u8)),
         RO,
     );
-    // TODO(Phase 3): replace with an accessor (live getter) that reads from
-    // prevent_default_flag, so `event.defaultPrevented` reflects the current
-    // state even within the same listener that called `preventDefault()`.
-    init.property(
+    // Live getter: reads from the shared prevent_default flag so that
+    // `event.defaultPrevented` reflects the current state even within
+    // the same listener that called `preventDefault()`.
+    let pd_flag = SharedFlag(Rc::clone(&flags.prevent_default));
+    init.accessor(
         js_string!("defaultPrevented"),
-        JsValue::from(event.flags.default_prevented),
-        RO,
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
+                    Ok(JsValue::from(flag.0.get()))
+                },
+                pd_flag,
+            )
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
     );
     init.property(js_string!("target"), target_wrapper.clone(), RO);
     init.property(
@@ -136,7 +147,22 @@ pub fn create_event_object(
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload);
 
-    register_flag_method(&mut init, "preventDefault", &flags.prevent_default);
+    // preventDefault() only sets the flag when the event is cancelable (DOM §2.5).
+    let pd_shared = SharedFlag(Rc::clone(&flags.prevent_default));
+    let cancelable = event.cancelable;
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, (f, cancel), _ctx| {
+                if *cancel {
+                    f.0.set(true);
+                }
+                Ok(JsValue::undefined())
+            },
+            (pd_shared, cancelable),
+        ),
+        js_string!("preventDefault"),
+        0,
+    );
     register_flag_method(&mut init, "stopPropagation", &flags.stop_propagation);
 
     // stopImmediatePropagation() sets both propagation + immediate flags.

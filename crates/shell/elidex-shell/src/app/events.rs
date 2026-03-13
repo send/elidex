@@ -12,13 +12,11 @@ use super::{winit_button_to_dom, App};
 impl App {
     /// Handle a mouse click event.
     ///
-    /// Phase 2 simplification: mousedown, mouseup, and click are all
+    /// Simplification: mousedown, mouseup, and click/auxclick are all
     /// dispatched synchronously on button press. Per DOM spec, mouseup
     /// should fire on button *release* (which may target a different
     /// element if the cursor moved), and click should only fire if
     /// press and release hit the same element.
-    // TODO(Phase 3): split into handle_mouse_down / handle_mouse_up,
-    // track press target per button, and dispatch mouseup on release.
     pub(super) fn handle_click(&mut self, button: winit::event::MouseButton) {
         // Dispatch events and re-render. Capture values needed after the
         // mutable borrow of `self.interactive` is released.
@@ -71,13 +69,13 @@ impl App {
                 ..Default::default()
             };
 
-            // Dispatch mousedown, mouseup, and (for primary button only) click.
-            // DOM spec: click fires only for the primary button (button 0).
-            // TODO(Phase 3): dispatch auxclick for non-primary buttons.
+            // Dispatch mousedown, mouseup, and click/auxclick.
+            // DOM spec: click fires only for the primary button (button 0);
+            // auxclick fires for non-primary buttons (UI Events §3.5).
             let event_types: &[&str] = if button_num == 0 {
                 &["mousedown", "mouseup", "click"]
             } else {
-                &["mousedown", "mouseup"]
+                &["mousedown", "mouseup", "auxclick"]
             };
             let mut click_prevented = false;
             for event_type in event_types {
@@ -89,7 +87,7 @@ impl App {
                     &mut pipeline.dom,
                     pipeline.document,
                 );
-                if *event_type == "click" {
+                if *event_type == "click" || *event_type == "auxclick" {
                     click_prevented = prevented;
                 }
             }
@@ -140,7 +138,6 @@ impl App {
         let mut event = DispatchEvent::new_composed(event_type, target);
         event.payload = EventPayload::Keyboard(init);
 
-        // TODO(Phase 3): Check default_prevented to suppress default keyboard actions.
         let _default_prevented = pipeline.runtime.dispatch_event(
             &mut event,
             &mut pipeline.session,
