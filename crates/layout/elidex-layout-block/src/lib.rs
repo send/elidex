@@ -91,10 +91,10 @@ pub fn sanitize_edge_values(top: f32, right: f32, bottom: f32, left: f32) -> Edg
 #[must_use]
 pub fn sanitize_padding(style: &ComputedStyle) -> EdgeSizes {
     sanitize_edge_values(
-        style.padding_top,
-        style.padding_right,
-        style.padding_bottom,
-        style.padding_left,
+        style.padding.top,
+        style.padding.right,
+        style.padding.bottom,
+        style.padding.left,
     )
 }
 
@@ -102,10 +102,10 @@ pub fn sanitize_padding(style: &ComputedStyle) -> EdgeSizes {
 #[must_use]
 pub fn sanitize_border(style: &ComputedStyle) -> EdgeSizes {
     sanitize_edge_values(
-        style.border_top_width,
-        style.border_right_width,
-        style.border_bottom_width,
-        style.border_left_width,
+        style.border_top.width,
+        style.border_right.width,
+        style.border_bottom.width,
+        style.border_left.width,
     )
 }
 

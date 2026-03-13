@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::{BorderSide, EdgeSizes};
 
 #[test]
 fn grid_gap_between_items() {
@@ -97,14 +98,11 @@ fn grid_with_padding_border() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: vec![TrackSize::Fr(1.0)],
-                padding_top: 10.0,
-                padding_right: 10.0,
-                padding_bottom: 10.0,
-                padding_left: 10.0,
-                border_top_width: 5.0,
-                border_right_width: 5.0,
-                border_bottom_width: 5.0,
-                border_left_width: 5.0,
+                padding: EdgeSizes::uniform(10.0),
+                border_top: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_right: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_bottom: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_left: BorderSide { width: 5.0, ..BorderSide::NONE },
                 ..Default::default()
             },
         )
@@ -202,10 +200,9 @@ fn grid_box_sizing_border_box() {
                 grid_template_columns: vec![TrackSize::Fr(1.0)],
                 width: Dimension::Length(400.0),
                 box_sizing: elidex_plugin::BoxSizing::BorderBox,
-                padding_left: 20.0,
-                padding_right: 20.0,
-                border_left_width: 5.0,
-                border_right_width: 5.0,
+                padding: EdgeSizes::new(0.0, 20.0, 0.0, 20.0),
+                border_left: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_right: BorderSide { width: 5.0, ..BorderSide::NONE },
                 ..Default::default()
             },
         )

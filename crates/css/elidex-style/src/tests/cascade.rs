@@ -141,17 +141,17 @@ fn empty_element_non_inherited_initial() {
 fn border_style_width_interaction() {
     let (_dom, _div, style) =
         resolve_single("div { border-top-style: solid; border-top-width: 5px; }");
-    assert_eq!(style.border_top_style, BorderStyle::Solid);
-    assert_eq!(style.border_top_width, 5.0);
+    assert_eq!(style.border_top.style, BorderStyle::Solid);
+    assert_eq!(style.border_top.width, 5.0);
     // Other sides have style: none -> width should be 0
-    assert_eq!(style.border_right_width, 0.0);
+    assert_eq!(style.border_right.width, 0.0);
 }
 
 #[test]
 fn currentcolor_border() {
     let (_dom, _div, style) = resolve_single("div { color: red; }");
     // border-*-color initial = currentcolor -> element's color
-    assert_eq!(style.border_top_color, CssColor::RED);
+    assert_eq!(style.border_top.color, CssColor::RED);
 }
 
 #[test]

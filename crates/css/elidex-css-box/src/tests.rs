@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::EdgeSizes;
 
 fn handler() -> BoxHandler {
     BoxHandler
@@ -223,7 +224,7 @@ fn resolve_padding_non_negative() {
         &ctx,
         &mut style,
     );
-    assert_eq!(style.padding_top, 10.0);
+    assert_eq!(style.padding.top, 10.0);
 }
 
 #[test]
@@ -246,7 +247,7 @@ fn resolve_border_color_currentcolor() {
         &mut style,
     );
     assert_eq!(
-        style.border_top_color,
+        style.border_top.color,
         CssColor {
             r: 0,
             g: 128,
@@ -344,7 +345,7 @@ fn get_computed_max_width_none() {
 fn get_computed_padding() {
     let h = handler();
     let style = ComputedStyle {
-        padding_left: 20.0,
+        padding: EdgeSizes::new(0.0, 0.0, 0.0, 20.0),
         ..ComputedStyle::default()
     };
     assert_eq!(

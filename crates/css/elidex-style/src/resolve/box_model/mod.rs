@@ -52,11 +52,11 @@ pub(super) fn resolve_box_dimensions(
     for (prop, setter) in [
         (
             "padding-top",
-            (|s: &mut ComputedStyle, v| s.padding_top = v) as fn(&mut ComputedStyle, f32),
+            (|s: &mut ComputedStyle, v| s.padding.top = v) as fn(&mut ComputedStyle, f32),
         ),
-        ("padding-right", |s, v| s.padding_right = v),
-        ("padding-bottom", |s, v| s.padding_bottom = v),
-        ("padding-left", |s, v| s.padding_left = v),
+        ("padding-right", |s, v| s.padding.right = v),
+        ("padding-bottom", |s, v| s.padding.bottom = v),
+        ("padding-left", |s, v| s.padding.left = v),
     ] {
         resolve_prop(prop, winners, parent_style, px, |v| setter(style, v));
     }
@@ -143,24 +143,24 @@ fn border_side_mut(
 ) -> Option<(&mut BorderStyle, &mut f32, &mut CssColor)> {
     match side {
         0 => Some((
-            &mut style.border_top_style,
-            &mut style.border_top_width,
-            &mut style.border_top_color,
+            &mut style.border_top.style,
+            &mut style.border_top.width,
+            &mut style.border_top.color,
         )),
         1 => Some((
-            &mut style.border_right_style,
-            &mut style.border_right_width,
-            &mut style.border_right_color,
+            &mut style.border_right.style,
+            &mut style.border_right.width,
+            &mut style.border_right.color,
         )),
         2 => Some((
-            &mut style.border_bottom_style,
-            &mut style.border_bottom_width,
-            &mut style.border_bottom_color,
+            &mut style.border_bottom.style,
+            &mut style.border_bottom.width,
+            &mut style.border_bottom.color,
         )),
         3 => Some((
-            &mut style.border_left_style,
-            &mut style.border_left_width,
-            &mut style.border_left_color,
+            &mut style.border_left.style,
+            &mut style.border_left.width,
+            &mut style.border_left.color,
         )),
         _ => None,
     }
@@ -169,10 +169,10 @@ fn border_side_mut(
 /// Get the border-style for a side by index (0=top, 1=right, 2=bottom, 3=left).
 fn border_style_by_side(style: &ComputedStyle, side: usize) -> BorderStyle {
     match side {
-        0 => style.border_top_style,
-        1 => style.border_right_style,
-        2 => style.border_bottom_style,
-        3 => style.border_left_style,
+        0 => style.border_top.style,
+        1 => style.border_right.style,
+        2 => style.border_bottom.style,
+        3 => style.border_left.style,
         _ => BorderStyle::None,
     }
 }

@@ -27,7 +27,7 @@ fn border_width_zero_when_style_none() {
     let width = CssValue::Length(5.0, LengthUnit::Px);
     winners.insert("border-top-width", &width);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.border_top_width, 0.0);
+    assert_eq!(style.border_top.width, 0.0);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn border_width_preserved_when_style_solid() {
     winners.insert("border-top-width", &width);
     winners.insert("border-top-style", &solid);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.border_top_width, 5.0);
+    assert_eq!(style.border_top.width, 5.0);
 }
 
 // --- Display, position, overflow ---
@@ -73,7 +73,7 @@ fn build_style_resolves_padding() {
     winners.insert("padding-top", &padding);
     let ctx = default_ctx();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.padding_top, 10.0);
+    assert_eq!(style.padding.top, 10.0);
 }
 
 #[test]

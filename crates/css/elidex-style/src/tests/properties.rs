@@ -192,8 +192,8 @@ fn box_sizing_border_box_integration() {
         "div { box-sizing: border-box; width: 200px; padding: 10px; border: 2px solid black; }",
     );
     assert_eq!(style.box_sizing, elidex_plugin::BoxSizing::BorderBox);
-    assert_eq!(style.border_top_width, 2.0);
-    assert_eq!(style.border_top_style, BorderStyle::Solid);
+    assert_eq!(style.border_top.width, 2.0);
+    assert_eq!(style.border_top.style, BorderStyle::Solid);
 }
 
 #[test]

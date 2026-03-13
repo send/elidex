@@ -320,7 +320,7 @@ fn currentcolor_resolution() {
     winners.insert("color", &red);
     let style = build_computed_style(&winners, &parent, &ctx);
     // border-*-color initial = currentcolor → should be RED
-    assert_eq!(style.border_top_color, CssColor::RED);
+    assert_eq!(style.border_top.color, CssColor::RED);
 }
 
 // --- Text properties ---

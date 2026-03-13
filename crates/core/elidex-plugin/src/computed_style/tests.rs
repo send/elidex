@@ -43,25 +43,25 @@ fn default_initial_values() {
     assert_eq!(s.margin_left, Dimension::ZERO);
 
     // --- Padding ---
-    assert_eq!(s.padding_top, 0.0);
-    assert_eq!(s.padding_right, 0.0);
-    assert_eq!(s.padding_bottom, 0.0);
-    assert_eq!(s.padding_left, 0.0);
+    assert_eq!(s.padding.top, 0.0);
+    assert_eq!(s.padding.right, 0.0);
+    assert_eq!(s.padding.bottom, 0.0);
+    assert_eq!(s.padding.left, 0.0);
 
     // --- Borders ---
-    assert_eq!(s.border_top_width, 0.0);
-    assert_eq!(s.border_right_width, 0.0);
-    assert_eq!(s.border_bottom_width, 0.0);
-    assert_eq!(s.border_left_width, 0.0);
-    assert_eq!(s.border_top_style, BorderStyle::None);
-    assert_eq!(s.border_right_style, BorderStyle::None);
-    assert_eq!(s.border_bottom_style, BorderStyle::None);
-    assert_eq!(s.border_left_style, BorderStyle::None);
+    assert_eq!(s.border_top.width, 0.0);
+    assert_eq!(s.border_right.width, 0.0);
+    assert_eq!(s.border_bottom.width, 0.0);
+    assert_eq!(s.border_left.width, 0.0);
+    assert_eq!(s.border_top.style, BorderStyle::None);
+    assert_eq!(s.border_right.style, BorderStyle::None);
+    assert_eq!(s.border_bottom.style, BorderStyle::None);
+    assert_eq!(s.border_left.style, BorderStyle::None);
     // currentcolor -> resolved to color (BLACK)
-    assert_eq!(s.border_top_color, CssColor::BLACK);
-    assert_eq!(s.border_right_color, CssColor::BLACK);
-    assert_eq!(s.border_bottom_color, CssColor::BLACK);
-    assert_eq!(s.border_left_color, CssColor::BLACK);
+    assert_eq!(s.border_top.color, CssColor::BLACK);
+    assert_eq!(s.border_right.color, CssColor::BLACK);
+    assert_eq!(s.border_bottom.color, CssColor::BLACK);
+    assert_eq!(s.border_left.color, CssColor::BLACK);
 
     // --- Text decoration ---
     assert_eq!(s.text_decoration_line, TextDecorationLine::default());

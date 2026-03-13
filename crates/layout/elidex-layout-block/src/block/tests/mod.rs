@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use super::*;
 use elidex_ecs::{Attributes, ImageData};
-use elidex_plugin::{BoxSizing, Clear, ComputedStyle, Dimension, Direction, Float};
+use elidex_plugin::{
+    BorderSide, BorderStyle, BoxSizing, Clear, ComputedStyle, Dimension, Direction, EdgeSizes,
+    Float,
+};
 use elidex_text::FontDatabase;
 
 mod float_layout;

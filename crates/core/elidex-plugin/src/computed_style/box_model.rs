@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use crate::CssColor;
+
 keyword_enum! {
     /// The CSS `box-sizing` property.
     BoxSizing {
@@ -45,6 +47,32 @@ pub enum ContentValue {
     None,
     /// One or more content items.
     Items(Vec<ContentItem>),
+}
+
+/// A single border side with width, style, and color.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BorderSide {
+    /// Border width in pixels.
+    pub width: f32,
+    /// Border line style.
+    pub style: BorderStyle,
+    /// Border color.
+    pub color: CssColor,
+}
+
+impl BorderSide {
+    /// A border side with no visible border (width 0, style none).
+    pub const NONE: Self = Self {
+        width: 0.0,
+        style: BorderStyle::None,
+        color: CssColor::BLACK,
+    };
+}
+
+impl Default for BorderSide {
+    fn default() -> Self {
+        Self::NONE
+    }
 }
 
 /// A resolved dimension value: lengths are always in px, percentages in `0..100` range.

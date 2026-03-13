@@ -526,7 +526,7 @@ mod tests {
         winners.insert("border-bottom", &var_val);
         let style = build_computed_style(&winners, &parent, &ctx);
         assert_eq!(
-            style.border_bottom_color,
+            style.border_bottom.color,
             CssColor::new(0x30, 0x36, 0x3d, 255)
         );
     }

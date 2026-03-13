@@ -19,7 +19,7 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderStyle, BoxSizing, CaptionSide,
+    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderSide, BorderStyle, BoxSizing, CaptionSide,
     Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display, FlexDirection,
     FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight, ListStyleType,
     Overflow, Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle,

@@ -195,51 +195,51 @@ impl CssPropertyHandler for BoxHandler {
             "margin-bottom" => style.margin_bottom = resolve_dimension(value, ctx),
             "margin-left" => style.margin_left = resolve_dimension(value, ctx),
 
-            "padding-top" => style.padding_top = resolve_to_px(value, ctx).max(0.0),
-            "padding-right" => style.padding_right = resolve_to_px(value, ctx).max(0.0),
-            "padding-bottom" => style.padding_bottom = resolve_to_px(value, ctx).max(0.0),
-            "padding-left" => style.padding_left = resolve_to_px(value, ctx).max(0.0),
+            "padding-top" => style.padding.top = resolve_to_px(value, ctx).max(0.0),
+            "padding-right" => style.padding.right = resolve_to_px(value, ctx).max(0.0),
+            "padding-bottom" => style.padding.bottom = resolve_to_px(value, ctx).max(0.0),
+            "padding-left" => style.padding.left = resolve_to_px(value, ctx).max(0.0),
 
-            "border-top-width" => style.border_top_width = resolve_to_px(value, ctx).max(0.0),
-            "border-right-width" => style.border_right_width = resolve_to_px(value, ctx).max(0.0),
+            "border-top-width" => style.border_top.width = resolve_to_px(value, ctx).max(0.0),
+            "border-right-width" => style.border_right.width = resolve_to_px(value, ctx).max(0.0),
             "border-bottom-width" => {
-                style.border_bottom_width = resolve_to_px(value, ctx).max(0.0);
+                style.border_bottom.width = resolve_to_px(value, ctx).max(0.0);
             }
-            "border-left-width" => style.border_left_width = resolve_to_px(value, ctx).max(0.0),
+            "border-left-width" => style.border_left.width = resolve_to_px(value, ctx).max(0.0),
 
             "border-top-style" => {
                 resolve_border_style_and_zero_width(
                     value,
-                    &mut style.border_top_style,
-                    &mut style.border_top_width,
+                    &mut style.border_top.style,
+                    &mut style.border_top.width,
                 );
             }
             "border-right-style" => {
                 resolve_border_style_and_zero_width(
                     value,
-                    &mut style.border_right_style,
-                    &mut style.border_right_width,
+                    &mut style.border_right.style,
+                    &mut style.border_right.width,
                 );
             }
             "border-bottom-style" => {
                 resolve_border_style_and_zero_width(
                     value,
-                    &mut style.border_bottom_style,
-                    &mut style.border_bottom_width,
+                    &mut style.border_bottom.style,
+                    &mut style.border_bottom.width,
                 );
             }
             "border-left-style" => {
                 resolve_border_style_and_zero_width(
                     value,
-                    &mut style.border_left_style,
-                    &mut style.border_left_width,
+                    &mut style.border_left.style,
+                    &mut style.border_left.width,
                 );
             }
 
-            "border-top-color" => style.border_top_color = resolve_color(value, style.color),
-            "border-right-color" => style.border_right_color = resolve_color(value, style.color),
-            "border-bottom-color" => style.border_bottom_color = resolve_color(value, style.color),
-            "border-left-color" => style.border_left_color = resolve_color(value, style.color),
+            "border-top-color" => style.border_top.color = resolve_color(value, style.color),
+            "border-right-color" => style.border_right.color = resolve_color(value, style.color),
+            "border-bottom-color" => style.border_bottom.color = resolve_color(value, style.color),
+            "border-left-color" => style.border_left.color = resolve_color(value, style.color),
 
             "border-radius" => style.border_radius = resolve_to_px(value, ctx).max(0.0),
 
@@ -337,25 +337,25 @@ impl CssPropertyHandler for BoxHandler {
             "margin-bottom" => dimension_to_css_value(style.margin_bottom),
             "margin-left" => dimension_to_css_value(style.margin_left),
 
-            "padding-top" => CssValue::Length(style.padding_top, LengthUnit::Px),
-            "padding-right" => CssValue::Length(style.padding_right, LengthUnit::Px),
-            "padding-bottom" => CssValue::Length(style.padding_bottom, LengthUnit::Px),
-            "padding-left" => CssValue::Length(style.padding_left, LengthUnit::Px),
+            "padding-top" => CssValue::Length(style.padding.top, LengthUnit::Px),
+            "padding-right" => CssValue::Length(style.padding.right, LengthUnit::Px),
+            "padding-bottom" => CssValue::Length(style.padding.bottom, LengthUnit::Px),
+            "padding-left" => CssValue::Length(style.padding.left, LengthUnit::Px),
 
-            "border-top-width" => CssValue::Length(style.border_top_width, LengthUnit::Px),
-            "border-right-width" => CssValue::Length(style.border_right_width, LengthUnit::Px),
-            "border-bottom-width" => CssValue::Length(style.border_bottom_width, LengthUnit::Px),
-            "border-left-width" => CssValue::Length(style.border_left_width, LengthUnit::Px),
+            "border-top-width" => CssValue::Length(style.border_top.width, LengthUnit::Px),
+            "border-right-width" => CssValue::Length(style.border_right.width, LengthUnit::Px),
+            "border-bottom-width" => CssValue::Length(style.border_bottom.width, LengthUnit::Px),
+            "border-left-width" => CssValue::Length(style.border_left.width, LengthUnit::Px),
 
-            "border-top-style" => keyword_from(&style.border_top_style),
-            "border-right-style" => keyword_from(&style.border_right_style),
-            "border-bottom-style" => keyword_from(&style.border_bottom_style),
-            "border-left-style" => keyword_from(&style.border_left_style),
+            "border-top-style" => keyword_from(&style.border_top.style),
+            "border-right-style" => keyword_from(&style.border_right.style),
+            "border-bottom-style" => keyword_from(&style.border_bottom.style),
+            "border-left-style" => keyword_from(&style.border_left.style),
 
-            "border-top-color" => CssValue::Color(style.border_top_color),
-            "border-right-color" => CssValue::Color(style.border_right_color),
-            "border-bottom-color" => CssValue::Color(style.border_bottom_color),
-            "border-left-color" => CssValue::Color(style.border_left_color),
+            "border-top-color" => CssValue::Color(style.border_top.color),
+            "border-right-color" => CssValue::Color(style.border_right.color),
+            "border-bottom-color" => CssValue::Color(style.border_bottom.color),
+            "border-left-color" => CssValue::Color(style.border_left.color),
 
             "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
             "opacity" => CssValue::Number(style.opacity),

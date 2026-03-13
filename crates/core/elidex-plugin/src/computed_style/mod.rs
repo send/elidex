@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::CssColor;
+use crate::{CssColor, EdgeSizes};
 
 /// Define a CSS keyword enum with `Default` (first variant), `AsRef<str>`, and
 /// `fmt::Display` implementations.
@@ -82,7 +82,7 @@ mod table;
 mod text;
 mod writing_mode;
 
-pub use box_model::{BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
+pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
 pub use display::{Display, Overflow, Position};
 pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
@@ -168,43 +168,17 @@ pub struct ComputedStyle {
     /// Margin left. Initial: Length(0.0).
     pub margin_left: Dimension,
 
-    // TODO: replace padding_{top,right,bottom,left} with EdgeSizes
-    /// Padding top in pixels. Initial: 0.0.
-    pub padding_top: f32,
-    /// Padding right in pixels. Initial: 0.0.
-    pub padding_right: f32,
-    /// Padding bottom in pixels. Initial: 0.0.
-    pub padding_bottom: f32,
-    /// Padding left in pixels. Initial: 0.0.
-    pub padding_left: f32,
+    /// Padding edges in pixels. Initial: all 0.0.
+    pub padding: EdgeSizes,
 
-    // TODO: replace border_{top,right,bottom,left}_{width,style,color} with BorderSide struct
-    /// Border top width in pixels. Computed initial: 0.0 (medium=3px, but 0 when style=none).
-    pub border_top_width: f32,
-    /// Border right width in pixels. Computed initial: 0.0.
-    pub border_right_width: f32,
-    /// Border bottom width in pixels. Computed initial: 0.0.
-    pub border_bottom_width: f32,
-    /// Border left width in pixels. Computed initial: 0.0.
-    pub border_left_width: f32,
-
-    /// Border top style. Initial: None.
-    pub border_top_style: BorderStyle,
-    /// Border right style. Initial: None.
-    pub border_right_style: BorderStyle,
-    /// Border bottom style. Initial: None.
-    pub border_bottom_style: BorderStyle,
-    /// Border left style. Initial: None.
-    pub border_left_style: BorderStyle,
-
-    /// Border top color. Initial: currentcolor (resolved to `color`).
-    pub border_top_color: CssColor,
-    /// Border right color. Initial: currentcolor (resolved to `color`).
-    pub border_right_color: CssColor,
-    /// Border bottom color. Initial: currentcolor (resolved to `color`).
-    pub border_bottom_color: CssColor,
-    /// Border left color. Initial: currentcolor (resolved to `color`).
-    pub border_left_color: CssColor,
+    /// Top border. Computed initial: width 0.0 (medium=3px, but 0 when style=none).
+    pub border_top: BorderSide,
+    /// Right border.
+    pub border_right: BorderSide,
+    /// Bottom border.
+    pub border_bottom: BorderSide,
+    /// Left border.
+    pub border_left: BorderSide,
 
     // --- Inherited text spacing ---
     /// Letter spacing in pixels. `None` = `normal` (CSS initial value).
@@ -353,28 +327,15 @@ impl Default for ComputedStyle {
             margin_bottom: Dimension::ZERO,
             margin_left: Dimension::ZERO,
 
-            padding_top: 0.0,
-            padding_right: 0.0,
-            padding_bottom: 0.0,
-            padding_left: 0.0,
+            padding: EdgeSizes::default(),
 
             // CSS initial value is `medium` (3px), but computed value is 0
             // when border-style is `none` (the default).
-            border_top_width: 0.0,
-            border_right_width: 0.0,
-            border_bottom_width: 0.0,
-            border_left_width: 0.0,
-
-            border_top_style: BorderStyle::default(),
-            border_right_style: BorderStyle::default(),
-            border_bottom_style: BorderStyle::default(),
-            border_left_style: BorderStyle::default(),
-
-            // currentcolor → resolved to `color` field value
-            border_top_color: color,
-            border_right_color: color,
-            border_bottom_color: color,
-            border_left_color: color,
+            // currentcolor → resolved to `color` field value.
+            border_top: BorderSide { color, ..BorderSide::NONE },
+            border_right: BorderSide { color, ..BorderSide::NONE },
+            border_bottom: BorderSide { color, ..BorderSide::NONE },
+            border_left: BorderSide { color, ..BorderSide::NONE },
 
             // Inherited text spacing
             letter_spacing: None,
