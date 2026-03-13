@@ -10,7 +10,9 @@ use std::fmt;
 /// Used by `transition-timing-function` and `animation-timing-function`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimingFunction {
-    /// `cubic-bezier(x1, y1, x2, y2)`.
+    /// Cubic bezier curve `cubic-bezier(x1, y1, x2, y2)`.
+    /// Per CSS Easing Functions L1 §2.1, x1 and x2 must be in [0, 1].
+    /// Validated at parse time; no runtime check.
     CubicBezier(f32, f32, f32, f32),
     /// `steps(count, position)`.
     Steps(u32, StepPosition),

@@ -51,7 +51,9 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32, property: &str) -> Op
         // Time ↔ Time
         (CssValue::Time(a), CssValue::Time(b)) => Some(CssValue::Time(lerp(*a, *b, t))),
 
-        // Discrete: keyword, string, auto, mismatched types — flip at 50%
+        // Discrete interpolation for non-animatable types (auto, keywords,
+        // strings, mismatched types). Per CSS Transitions L1 §4, these
+        // flip at the 50% point rather than smoothly interpolating.
         _ => Some(discrete(from, to, t)),
     }
 }

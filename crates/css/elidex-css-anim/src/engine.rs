@@ -188,7 +188,7 @@ impl AnimationEngine {
                         AnimationEvent::Transition(TransitionEventData {
                             kind: TransitionEventKind::Run,
                             property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0).min(trans.duration),
+                            elapsed_time: (-trans.delay).max(0.0),
                         }),
                     ));
                 }
@@ -204,7 +204,7 @@ impl AnimationEngine {
                         AnimationEvent::Transition(TransitionEventData {
                             kind: TransitionEventKind::Start,
                             property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0).min(trans.duration),
+                            elapsed_time: (-trans.delay).max(0.0),
                         }),
                     ));
                 }
@@ -268,16 +268,12 @@ impl AnimationEngine {
             return;
         }
         anim.start_event_dispatched = true;
-        let active_dur = match anim.iteration_count() {
-            crate::style::IterationCount::Number(n) => n * anim.duration(),
-            crate::style::IterationCount::Infinite => f32::INFINITY,
-        };
         events.push((
             entity,
             AnimationEvent::Animation(AnimationEventData {
                 kind: AnimationEventKind::Start,
                 name: anim.name().to_string(),
-                elapsed_time: (-anim.delay()).clamp(0.0, active_dur),
+                elapsed_time: (-anim.delay()).max(0.0),
             }),
         ));
     }
@@ -299,10 +295,15 @@ impl AnimationEngine {
         if new_iteration <= anim.current_iteration {
             return;
         }
+        // Cap iteration events per tick to prevent DoS from large dt values.
+        // Per CSS Animations L1 §4.6, all iterations should fire events;
+        // this is a pragmatic limit for safety.
         let emit_start = new_iteration
             .saturating_sub(MAX_ITERATION_EVENTS_PER_TICK)
             .max(anim.current_iteration + 1);
-        for iter in emit_start..=new_iteration {
+        for iter in
+            emit_start..=new_iteration.min(emit_start.saturating_add(MAX_ITERATION_EVENTS_PER_TICK))
+        {
             #[allow(clippy::cast_precision_loss)]
             events.push((
                 entity,
@@ -338,7 +339,7 @@ impl AnimationEngine {
             AnimationEvent::Animation(AnimationEventData {
                 kind: AnimationEventKind::End,
                 name: anim.name().to_string(),
-                elapsed_time: total as f32,
+                elapsed_time: total.clamp(0.0, f64::from(f32::MAX)) as f32,
             }),
         ));
     }

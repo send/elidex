@@ -5,6 +5,9 @@ use crate::style::{AnimStyle, TransitionProperty};
 use crate::timing::TimingFunction;
 use elidex_plugin::CssValue;
 
+/// Maximum number of transitions detected per style change.
+const MAX_DETECTED_TRANSITIONS: usize = 1024;
+
 /// A detected transition that should be started.
 #[derive(Clone, Debug)]
 pub struct DetectedTransition {
@@ -80,6 +83,10 @@ pub fn detect_transitions(
             delay,
             timing_function: timing,
         });
+
+        if detected.len() >= MAX_DETECTED_TRANSITIONS {
+            break;
+        }
     }
 
     detected

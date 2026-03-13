@@ -32,9 +32,17 @@ use elidex_plugin::{
     ComputedStyle, CssPropertyHandler, CssValue, ParseError, PropertyDeclaration, ResolveContext,
 };
 
+// ── Limits ──────────────────────────────────────────────────────────────
 /// Maximum number of items in a comma-separated CSS list value to prevent
 /// unbounded memory growth from malicious or malformed stylesheets.
 pub(crate) const MAX_LIST_ITEMS: usize = 1024;
+
+/// Maximum number of component values in a single `animation` shorthand entry.
+///
+/// The `animation` shorthand has 8 longhands (duration, timing-function, delay,
+/// iteration-count, direction, fill-mode, play-state, name), so we try to parse
+/// at most 8 components per comma-separated entry.
+const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
 
 /// All transition/animation property names handled by this plugin.
 const PROPERTY_NAMES: &[&str] = &[
@@ -176,41 +184,34 @@ fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<Prope
         }
     }
 
-    let names: Vec<String> = specs.iter().map(|s| s.name.clone()).collect();
-    let durations: Vec<f32> = specs.iter().map(|s| s.duration).collect();
-    let timing_fns: Vec<timing::TimingFunction> =
-        specs.iter().map(|s| s.timing_function.clone()).collect();
-    let delays: Vec<f32> = specs.iter().map(|s| s.delay).collect();
-    let iteration_counts: Vec<style::IterationCount> =
-        specs.iter().map(|s| s.iteration_count).collect();
-    let directions: Vec<style::AnimationDirection> = specs.iter().map(|s| s.direction).collect();
-    let fill_modes: Vec<style::AnimationFillMode> = specs.iter().map(|s| s.fill_mode).collect();
-    let play_states: Vec<style::PlayState> = specs.iter().map(|s| s.play_state).collect();
+    let [names, durations, timing_fns, delays, iter_counts, directions, fill_modes, play_states] =
+        extract_animation_lists(&specs);
 
     vec![
-        PropertyDeclaration::new("animation-name", CssValue::String(names.join(", "))),
-        PropertyDeclaration::new("animation-duration", time_list_value(&durations)),
-        PropertyDeclaration::new("animation-timing-function", display_list_value(&timing_fns)),
-        PropertyDeclaration::new("animation-delay", time_list_value(&delays)),
-        PropertyDeclaration::new(
-            "animation-iteration-count",
-            display_list_value(&iteration_counts),
-        ),
-        PropertyDeclaration::new("animation-direction", display_list_value(&directions)),
-        PropertyDeclaration::new("animation-fill-mode", display_list_value(&fill_modes)),
-        PropertyDeclaration::new("animation-play-state", display_list_value(&play_states)),
+        PropertyDeclaration::new("animation-name", names),
+        PropertyDeclaration::new("animation-duration", durations),
+        PropertyDeclaration::new("animation-timing-function", timing_fns),
+        PropertyDeclaration::new("animation-delay", delays),
+        PropertyDeclaration::new("animation-iteration-count", iter_counts),
+        PropertyDeclaration::new("animation-direction", directions),
+        PropertyDeclaration::new("animation-fill-mode", fill_modes),
+        PropertyDeclaration::new("animation-play-state", play_states),
     ]
+}
+
+/// Build a `CssValue` from a list of items (single → unwrapped, multiple → `List`).
+fn list_value<T>(items: &[T], f: impl Fn(&T) -> CssValue) -> CssValue {
+    let v: Vec<CssValue> = items.iter().map(f).collect();
+    if v.len() == 1 {
+        v.into_iter().next().expect("len == 1")
+    } else {
+        CssValue::List(v)
+    }
 }
 
 /// Build a `CssValue` from a time list (single → `Time`, multiple → `List`).
 pub(crate) fn time_list_value(times: &[f32]) -> CssValue {
-    let mut list: Vec<CssValue> = times.iter().map(|t| CssValue::Time(*t)).collect();
-    if list.len() == 1 {
-        // len checked above; pop cannot fail.
-        list.pop().expect("len == 1")
-    } else {
-        CssValue::List(list)
-    }
+    list_value(times, |t| CssValue::Time(*t))
 }
 
 /// Serialize a list of `Display` values as a comma-separated string `CssValue`.
@@ -224,12 +225,25 @@ pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue 
     )
 }
 
-/// Maximum number of component values in a single `animation` shorthand entry.
-///
-/// The `animation` shorthand has 8 longhands (duration, timing-function, delay,
-/// iteration-count, direction, fill-mode, play-state, name), so we try to parse
-/// at most 8 components per comma-separated entry.
-const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
+/// Extract the 8 animation longhand values from parsed shorthand specs.
+fn extract_animation_lists(specs: &[SingleAnimationSpec]) -> [CssValue; 8] {
+    let names: Vec<String> = specs.iter().map(|s| s.name.clone()).collect();
+    [
+        CssValue::String(names.join(", ")),
+        time_list_value(&specs.iter().map(|s| s.duration).collect::<Vec<_>>()),
+        display_list_value(
+            &specs
+                .iter()
+                .map(|s| s.timing_function.clone())
+                .collect::<Vec<_>>(),
+        ),
+        time_list_value(&specs.iter().map(|s| s.delay).collect::<Vec<_>>()),
+        display_list_value(&specs.iter().map(|s| s.iteration_count).collect::<Vec<_>>()),
+        display_list_value(&specs.iter().map(|s| s.direction).collect::<Vec<_>>()),
+        display_list_value(&specs.iter().map(|s| s.fill_mode).collect::<Vec<_>>()),
+        display_list_value(&specs.iter().map(|s| s.play_state).collect::<Vec<_>>()),
+    ]
+}
 
 // Time/timing-function parsing delegated to `parse::TimeAndTiming::try_consume()`,
 // shared with `parse_single_transition` in parse.rs.
@@ -249,11 +263,9 @@ fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimat
         }
         // Try keyword identifiers
         if let Ok(raw_ident) = input.try_parse(|i| -> Result<String, ParseError> {
-            let id = i.expect_ident().map_err(|_| ParseError {
-                property: "animation".into(),
-                input: String::new(),
-                message: "expected ident".into(),
-            })?;
+            let id = i
+                .expect_ident()
+                .map_err(|_| parse::parse_err("animation", "expected ident"))?;
             // Preserve original casing — animation-name is case-sensitive
             // (CSS Animations Level 1 §3.1). Only lowercase for keyword
             // comparison; the original string is kept for the name.

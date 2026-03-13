@@ -37,10 +37,11 @@ pub struct AnimationInstance {
 }
 
 impl AnimationInstance {
-    /// Create a new animation instance from a [`SingleAnimationSpec`] and a
-    /// start time.
+    /// Create a new animation instance from a spec and start time.
+    ///
+    /// Integration with content thread frame loop is deferred to Phase 4+.
+    #[allow(dead_code)]
     #[must_use]
-    #[allow(dead_code)] // Used by tests; production call sites pending integration.
     pub(crate) fn new(spec: &crate::SingleAnimationSpec, start_time: f64) -> Self {
         Self {
             name: spec.name.clone(),
@@ -193,7 +194,15 @@ impl AnimationInstance {
     )]
     fn final_iteration(&self) -> u32 {
         match self.iteration_count {
-            IterationCount::Number(n) => (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1),
+            IterationCount::Number(n) => {
+                if n <= 0.0 {
+                    return 0;
+                }
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                {
+                    (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1)
+                }
+            }
             IterationCount::Infinite => 0,
         }
     }

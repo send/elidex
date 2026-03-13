@@ -27,7 +27,10 @@ fn parse_comma_list<T>(
     Ok(items)
 }
 
-/// Parse a `<time>` value from a cssparser token, returning seconds.
+/// Parse a `<time>` value, returning seconds.
+///
+/// Returns negative values (valid for delays). Use `parse_duration_time()`
+/// for duration properties that reject negative values.
 pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
     let token = input
         .next()
@@ -43,8 +46,9 @@ pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseErr
                 _ => Err(parse_err("time", &format!("unknown unit: {lower}"))),
             }
         }
-        // CSS Values Level 3 §5.1.1: unitless 0 is not valid for <time>,
-        // but all major browsers accept it for backwards compatibility.
+        // Browsers accept unitless 0 for backwards compatibility with
+        // CSS Transitions / Animations, even though CSS Values Level 3 §5.1
+        // strictly requires a unit for <time> values.
         cssparser::Token::Number { value: 0.0, .. } => Ok(0.0),
         _ => Err(parse_err("time", "expected time value")),
     }
@@ -306,8 +310,17 @@ pub struct Keyframe {
 /// Maximum number of keyframe blocks parsed from a single `@keyframes` rule.
 const MAX_KEYFRAMES: usize = 1000;
 
+/// Maximum byte length of `@keyframes` block input accepted for parsing.
+const MAX_KEYFRAMES_INPUT_BYTES: usize = 65_536;
+
 #[must_use]
 pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
+    if block_text.len() > MAX_KEYFRAMES_INPUT_BYTES {
+        return KeyframesRule {
+            name: name.to_string(),
+            keyframes: Vec::new(),
+        };
+    }
     let mut keyframes = Vec::new();
     let mut remaining = block_text.trim();
     let mut count = 0;
@@ -335,13 +348,13 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         let declarations = parse_keyframe_declarations(decl_text);
 
         for offset in offsets {
+            if keyframes.len() >= MAX_KEYFRAMES {
+                break;
+            }
             keyframes.push(Keyframe {
                 offset,
                 declarations: declarations.clone(),
             });
-            if keyframes.len() >= MAX_KEYFRAMES {
-                break;
-            }
         }
 
         if keyframes.len() >= MAX_KEYFRAMES {
@@ -577,7 +590,7 @@ impl TimeAndTiming {
     }
 }
 
-fn parse_err(property: &str, message: &str) -> ParseError {
+pub(crate) fn parse_err(property: &str, message: &str) -> ParseError {
     ParseError {
         property: property.into(),
         input: String::new(),
