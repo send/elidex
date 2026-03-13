@@ -6,6 +6,9 @@ use elidex_plugin::{CssValue, ParseError, PropertyDeclaration};
 
 use crate::MAX_LIST_ITEMS;
 
+/// Maximum length of a single animation-name identifier.
+const MAX_IDENTIFIER_LENGTH: usize = 256;
+
 /// Parse a comma-separated list of items, up to `MAX_LIST_ITEMS`.
 ///
 /// Calls `parse_one` for each item. If `parse_one` returns `Err`, propagates
@@ -199,6 +202,9 @@ pub fn parse_animation_name(
         let ident = i
             .expect_ident()
             .map_err(|_| parse_err("animation-name", "expected identifier"))?;
+        if ident.len() > MAX_IDENTIFIER_LENGTH {
+            return Err(parse_err("animation-name", "identifier too long"));
+        }
         Ok(ident.to_string())
     })?;
     let serialized = names.join(", ");
@@ -458,6 +464,9 @@ fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
                 Some(1.0)
             } else if let Some(pct) = s.strip_suffix('%') {
                 pct.trim().parse::<f32>().ok().and_then(|v| {
+                    if !v.is_finite() {
+                        return None;
+                    }
                     let normalized = v / 100.0;
                     // CSS Animations Level 1 §4.2: reject percentages outside [0%, 100%].
                     if (0.0..=1.0).contains(&normalized) {

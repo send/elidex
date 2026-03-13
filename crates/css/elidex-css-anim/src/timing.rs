@@ -1,7 +1,8 @@
-//! CSS timing functions (CSS Easing Functions Level 1).
+//! CSS easing / timing functions.
 //!
-//! Implements `cubic-bezier()`, `steps()`, and named easing keywords.
-//! Note: The `linear()` function with stop points (Level 2) is not yet implemented.
+//! Cubic-bezier solver uses Newton-Raphson iteration (8 steps) with bisection
+//! fallback, matching browser implementations. `steps()` implements all four
+//! jump positions from CSS Easing Functions Level 2.
 
 use std::fmt;
 

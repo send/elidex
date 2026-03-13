@@ -102,7 +102,7 @@ pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
     let green = lerp(from_g, to_g, t);
     let blue = lerp(from_b, to_b, t);
     // Un-premultiply
-    if alpha < f32::EPSILON {
+    if alpha < 1e-3 {
         CssColor::new(0, 0, 0, 0)
     } else {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

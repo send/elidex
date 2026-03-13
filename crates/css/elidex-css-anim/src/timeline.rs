@@ -33,9 +33,9 @@ impl DocumentTimeline {
 
     /// Set the current time directly (for testing or seeking).
     ///
-    /// No-ops for non-finite values.
+    /// No-ops for non-finite or negative values.
     pub fn set_time(&mut self, time: f64) {
-        if time.is_finite() {
+        if time.is_finite() && time >= 0.0 {
             self.current_time = time;
         }
     }

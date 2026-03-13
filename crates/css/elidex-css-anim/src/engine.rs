@@ -99,7 +99,8 @@ impl AnimationEngine {
                         kind: TransitionEventKind::Cancel,
                         property: t.property.clone(),
                         #[allow(clippy::cast_possible_truncation)]
-                        elapsed_time: (t.elapsed - f64::from(t.delay)).max(0.0) as f32,
+                        elapsed_time: ((t.elapsed - f64::from(t.delay)).max(0.0) as f32)
+                            .min(t.duration),
                     }),
                 ));
                 false
@@ -146,17 +147,7 @@ impl AnimationEngine {
         // Clean up finished animations, but retain those with fill-mode forwards/both
         // so that progress() can continue to report the fill value.
         self.animations.retain(|_, v| {
-            v.retain(|a| {
-                if !a.finished || !a.end_event_dispatched {
-                    return true;
-                }
-                // Keep animations that need to hold their fill value.
-                matches!(
-                    a.fill_mode(),
-                    crate::style::AnimationFillMode::Forwards
-                        | crate::style::AnimationFillMode::Both
-                )
-            });
+            v.retain(should_retain_animation);
             !v.is_empty()
         });
 
@@ -301,16 +292,24 @@ impl AnimationEngine {
         let emit_start = new_iteration
             .saturating_sub(MAX_ITERATION_EVENTS_PER_TICK)
             .max(anim.current_iteration + 1);
-        for iter in
-            emit_start..=new_iteration.min(emit_start.saturating_add(MAX_ITERATION_EVENTS_PER_TICK))
-        {
+        let emit_end = new_iteration.min(emit_start.saturating_add(MAX_ITERATION_EVENTS_PER_TICK));
+        if emit_start > emit_end {
+            return;
+        }
+        for iter in emit_start..=emit_end {
             #[allow(clippy::cast_precision_loss)]
+            let elapsed = (iter as f32) * anim.duration();
+            let elapsed_time = if elapsed.is_finite() {
+                elapsed
+            } else {
+                f32::MAX
+            };
             events.push((
                 entity,
                 AnimationEvent::Animation(AnimationEventData {
                     kind: AnimationEventKind::Iteration,
                     name: anim.name().to_string(),
-                    elapsed_time: iter as f32 * anim.duration(),
+                    elapsed_time,
                 }),
             ));
         }
@@ -386,6 +385,21 @@ impl AnimationEngine {
         self.transitions.clear();
         self.animations.clear();
     }
+}
+
+/// Returns `true` if the animation should be kept in the active list.
+fn should_retain_animation(a: &AnimationInstance) -> bool {
+    if !a.finished {
+        return true;
+    }
+    if !a.end_event_dispatched {
+        return true;
+    }
+    // Keep animations that need to hold their fill value.
+    matches!(
+        a.fill_mode(),
+        crate::style::AnimationFillMode::Forwards | crate::style::AnimationFillMode::Both
+    )
 }
 
 impl Default for AnimationEngine {
