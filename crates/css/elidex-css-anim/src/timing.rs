@@ -94,12 +94,6 @@ impl fmt::Display for TimingFunction {
 /// Returns the keyword name if the control points match a named curve
 /// within epsilon tolerance, or `None` for custom curves.
 fn match_named_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> Option<&'static str> {
-    const NAMED_CURVES: &[(&str, f32, f32, f32, f32)] = &[
-        ("ease", 0.25, 0.1, 0.25, 1.0),
-        ("ease-in", 0.42, 0.0, 1.0, 1.0),
-        ("ease-out", 0.0, 0.0, 0.58, 1.0),
-        ("ease-in-out", 0.42, 0.0, 0.58, 1.0),
-    ];
     for &(name, nx1, ny1, nx2, ny2) in NAMED_CURVES {
         if (x1 - nx1).abs() < f32::EPSILON
             && (y1 - ny1).abs() < f32::EPSILON
@@ -116,6 +110,14 @@ fn match_named_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> Option<&'static str
 //
 // We solve for t on the X curve, then evaluate Y at that t.
 // Uses Newton-Raphson with bisection fallback (matches browser implementations).
+
+/// Named cubic-bezier curves for Display serialization.
+const NAMED_CURVES: &[(&str, f32, f32, f32, f32)] = &[
+    ("ease", 0.25, 0.1, 0.25, 1.0),
+    ("ease-in", 0.42, 0.0, 1.0, 1.0),
+    ("ease-out", 0.0, 0.0, 0.58, 1.0),
+    ("ease-in-out", 0.42, 0.0, 0.58, 1.0),
+];
 
 const NEWTON_ITERATIONS: u32 = 8;
 const NEWTON_MIN_SLOPE: f32 = 0.001;

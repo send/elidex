@@ -249,7 +249,9 @@ impl AnimationEngine {
         }
     }
 
-    /// Emit `animationstart` once the delay has passed.
+    /// Emit `animationstart` when the delay phase ends.
+    /// For negative delays, the animation starts partway into the active phase,
+    /// so elapsedTime = |delay| (not 0.0). Per CSS Animations L1 §4.3.2.
     fn emit_animation_start(
         entity: EntityId,
         anim: &mut AnimationInstance,

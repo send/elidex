@@ -16,17 +16,11 @@ pub fn resolve_transition_property(value: &CssValue) -> Vec<TransitionProperty> 
         CssValue::Keyword(k) => k.as_str(),
         _ => return vec![TransitionProperty::All],
     };
-    s.split(',')
-        .take(MAX_LIST_ITEMS)
-        .map(|p| {
-            let p = p.trim();
-            match p {
-                "none" => TransitionProperty::None,
-                "all" => TransitionProperty::All,
-                _ => TransitionProperty::Property(p.to_string()),
-            }
-        })
-        .collect()
+    split_comma_list(s, |p| match p {
+        "none" => TransitionProperty::None,
+        "all" => TransitionProperty::All,
+        _ => TransitionProperty::Property(p.to_string()),
+    })
 }
 
 /// Resolve a parsed time list (single Time or List of Time) into seconds.
@@ -56,15 +50,11 @@ pub fn resolve_timing_function_list(value: &CssValue) -> Vec<TimingFunction> {
         _ => return vec![TimingFunction::default()],
     };
     // Each entry could be a keyword or a function — re-parse
-    s.split(',')
-        .take(MAX_LIST_ITEMS)
-        .map(|part| {
-            let part = part.trim();
-            let mut pi = cssparser::ParserInput::new(part);
-            let mut parser = cssparser::Parser::new(&mut pi);
-            crate::parse::parse_timing_function(&mut parser).unwrap_or_default()
-        })
-        .collect()
+    split_comma_list(s, |part| {
+        let mut pi = cssparser::ParserInput::new(part);
+        let mut parser = cssparser::Parser::new(&mut pi);
+        crate::parse::parse_timing_function(&mut parser).unwrap_or_default()
+    })
 }
 
 /// Resolve a comma-separated string into animation name list.
@@ -75,10 +65,7 @@ pub fn resolve_animation_names(value: &CssValue) -> Vec<String> {
         CssValue::Keyword(k) => k.as_str(),
         _ => return Vec::new(),
     };
-    s.split(',')
-        .take(MAX_LIST_ITEMS)
-        .map(|s| s.trim().to_string())
-        .collect()
+    split_comma_list(s, str::to_string)
 }
 
 /// Resolve a comma-separated string into iteration count list.
@@ -88,21 +75,17 @@ pub fn resolve_iteration_counts(value: &CssValue) -> Vec<IterationCount> {
         CssValue::String(s) => s.as_str(),
         _ => return vec![IterationCount::default()],
     };
-    s.split(',')
-        .take(MAX_LIST_ITEMS)
-        .map(|part| {
-            let part = part.trim();
-            if part.eq_ignore_ascii_case("infinite") {
-                IterationCount::Infinite
-            } else {
-                part.parse::<f32>()
-                    .ok()
-                    .filter(|n| n.is_finite() && *n >= 0.0)
-                    .map(IterationCount::Number)
-                    .unwrap_or_default()
-            }
-        })
-        .collect()
+    split_comma_list(s, |part| {
+        if part.eq_ignore_ascii_case("infinite") {
+            IterationCount::Infinite
+        } else {
+            part.parse::<f32>()
+                .ok()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(IterationCount::Number)
+                .unwrap_or_default()
+        }
+    })
 }
 
 /// Resolve a comma-separated string into animation direction list.
@@ -139,16 +122,24 @@ pub fn resolve_play_states(value: &CssValue) -> Vec<PlayState> {
     })
 }
 
+/// Split a comma-separated string into items, applying `mapper` to each trimmed part.
+///
+/// Limits the result to `MAX_LIST_ITEMS` entries to prevent unbounded growth.
+fn split_comma_list<T>(input: &str, mapper: impl Fn(&str) -> T) -> Vec<T> {
+    input
+        .split(',')
+        .take(MAX_LIST_ITEMS)
+        .map(|s| mapper(s.trim()))
+        .collect()
+}
+
 fn resolve_keyword_list<T: Default>(value: &CssValue, f: impl Fn(&str) -> T) -> Vec<T> {
     let s = match value {
         CssValue::String(s) => s.as_str(),
         CssValue::Keyword(k) => k.as_str(),
         _ => return vec![T::default()],
     };
-    s.split(',')
-        .take(MAX_LIST_ITEMS)
-        .map(|part| f(part.trim()))
-        .collect()
+    split_comma_list(s, f)
 }
 
 /// Build an `AnimStyle` from resolved property values.

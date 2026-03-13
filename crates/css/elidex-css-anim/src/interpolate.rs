@@ -220,14 +220,13 @@ mod tests {
         let from = CssValue::Color(CssColor::BLACK);
         let to = CssValue::Color(CssColor::WHITE);
         let result = interpolate(&from, &to, 0.5, "");
-        if let Some(CssValue::Color(c)) = result {
-            assert_eq!(c.r, 128);
-            assert_eq!(c.g, 128);
-            assert_eq!(c.b, 128);
-            assert_eq!(c.a, 255);
-        } else {
-            panic!("expected Color");
-        }
+        let Some(CssValue::Color(c)) = result else {
+            panic!("expected Color, got {result:?}");
+        };
+        assert_eq!(c.r, 128);
+        assert_eq!(c.g, 128);
+        assert_eq!(c.b, 128);
+        assert_eq!(c.a, 255);
     }
 
     #[test]

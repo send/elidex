@@ -376,6 +376,13 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Normalize near-equal offsets to canonical values before dedup
+    for i in 1..keyframes.len() {
+        if (keyframes[i].offset - keyframes[i - 1].offset).abs() < 1e-6 {
+            keyframes[i].offset = keyframes[i - 1].offset;
+        }
+    }
+
     // CSS Animations Level 1 §3.2: merge duplicate offsets (last wins per property).
     keyframes.dedup_by(|later, earlier| {
         if (later.offset - earlier.offset).abs() < 1e-6 {
@@ -463,14 +470,10 @@ fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
             } else if s.eq_ignore_ascii_case("to") {
                 Some(1.0)
             } else if let Some(pct) = s.strip_suffix('%') {
+                // CSS Animations Level 1 §4.2: reject percentages outside [0%, 100%].
                 pct.trim().parse::<f32>().ok().and_then(|v| {
-                    if !v.is_finite() {
-                        return None;
-                    }
-                    let normalized = v / 100.0;
-                    // CSS Animations Level 1 §4.2: reject percentages outside [0%, 100%].
-                    if (0.0..=1.0).contains(&normalized) {
-                        Some(normalized)
+                    if v.is_finite() && (0.0..=100.0).contains(&v) {
+                        Some(v / 100.0)
                     } else {
                         None
                     }
