@@ -514,6 +514,54 @@ fn registry_covers_all_handler_properties() {
 }
 
 #[test]
+fn keyframes_registered_in_animation_engine() {
+    let result = build_pipeline_interactive(
+        "<div>Hello</div>",
+        "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } div { display: block; }",
+    );
+    assert!(
+        result.animation_engine.get_keyframes("fadeIn").is_some(),
+        "fadeIn keyframes should be registered in the animation engine"
+    );
+}
+
+#[test]
+fn animation_properties_parsed_from_stylesheet() {
+    // Verify that transition/animation properties are parsed from stylesheets
+    // via the CssPropertyRegistry handler dispatch.
+    let css = "div { animation-name: fadeIn; animation-duration: 1s; \
+               transition-property: opacity; transition-duration: 0.3s; }";
+    let registry = create_css_property_registry();
+    let ss = elidex_css::parse_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    );
+    assert_eq!(ss.rules.len(), 1);
+    let decl_props: Vec<&str> = ss.rules[0]
+        .declarations
+        .iter()
+        .map(|d| d.property.as_str())
+        .collect();
+    assert!(
+        decl_props.contains(&"animation-name"),
+        "animation-name should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"animation-duration"),
+        "animation-duration should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"transition-property"),
+        "transition-property should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"transition-duration"),
+        "transition-duration should be parsed, got: {decl_props:?}"
+    );
+}
+
+#[test]
 fn inline_run_produces_single_text_item() {
     // Verifies that inline text is collected and rendered correctly.
     let html = r"<p>Hello <strong>world</strong>!</p>";

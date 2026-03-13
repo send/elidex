@@ -23,7 +23,10 @@ mod tests;
 use std::rc::Rc;
 
 use elidex_css::Stylesheet;
-use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet};
+use elidex_css_anim::engine::AnimationEngine;
+use elidex_dom_compat::{
+    get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet_with_registry,
+};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_html_parser::parse_html;
@@ -130,6 +133,18 @@ pub struct PipelineResult {
     pub fetch_handle: Rc<FetchHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
     pub registry: elidex_plugin::CssPropertyRegistry,
+    /// CSS animation/transition engine.
+    pub animation_engine: AnimationEngine,
+}
+
+/// Register `@keyframes` rules from parsed stylesheets into the animation engine.
+fn register_keyframes_from_stylesheets(stylesheets: &[Stylesheet], engine: &mut AnimationEngine) {
+    for ss in stylesheets {
+        for (name, body) in &ss.keyframes_raw {
+            let rule = elidex_css_anim::parse::parse_keyframes(name, body);
+            engine.register_keyframes(rule);
+        }
+    }
 }
 
 /// Execute the rendering pipeline and return all state for interactive use.
@@ -146,14 +161,18 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let mut dom = parse_result.dom;
     let document = parse_result.document;
 
-    let stylesheets = vec![parse_compat_stylesheet(css, elidex_css::Origin::Author)];
+    let registry = create_css_property_registry();
+
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let font_db = Rc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
-
-    let registry = create_css_property_registry();
 
     let (session, runtime) = pipeline::run_scripts_and_finalize(
         &mut dom,
@@ -168,6 +187,9 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let display_list = build_display_list(&dom, &font_db);
 
+    let mut animation_engine = AnimationEngine::new();
+    register_keyframes_from_stylesheets(&stylesheets, &mut animation_engine);
+
     PipelineResult {
         display_list,
         dom,
@@ -179,6 +201,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         url: None,
         fetch_handle,
         registry,
+        animation_engine,
     }
 }
 
@@ -233,6 +256,9 @@ pub fn build_pipeline_from_loaded(
 
     let display_list = build_display_list(&dom, &font_db);
 
+    let mut animation_engine = AnimationEngine::new();
+    register_keyframes_from_stylesheets(&stylesheets, &mut animation_engine);
+
     PipelineResult {
         display_list,
         dom,
@@ -244,6 +270,7 @@ pub fn build_pipeline_from_loaded(
         url: Some(url),
         fetch_handle,
         registry,
+        animation_engine,
     }
 }
 

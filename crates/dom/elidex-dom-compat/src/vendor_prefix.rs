@@ -212,3 +212,17 @@ pub fn parse_compat_stylesheet(css: &str, origin: Origin) -> Stylesheet {
     let stripped = strip_vendor_prefixes(css);
     elidex_css::parse_stylesheet(&stripped, origin)
 }
+
+/// Parse a stylesheet with vendor prefix stripping and handler registry.
+///
+/// Like [`parse_compat_stylesheet`], but passes the `registry` to the parser
+/// for plugin-handled property dispatch (e.g. `transition-*`, `animation-*`).
+#[must_use]
+pub fn parse_compat_stylesheet_with_registry(
+    css: &str,
+    origin: Origin,
+    registry: Option<&elidex_plugin::CssPropertyRegistry>,
+) -> Stylesheet {
+    let stripped = strip_vendor_prefixes(css);
+    elidex_css::parse_stylesheet_with_registry(&stripped, origin, registry)
+}

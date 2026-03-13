@@ -2025,6 +2025,7 @@ dependencies = [
  "egui-winit",
  "elidex-a11y",
  "elidex-css",
+ "elidex-css-anim",
  "elidex-dom-compat",
  "elidex-ecs",
  "elidex-html-parser",
