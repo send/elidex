@@ -162,6 +162,9 @@ fn solve_curve_x(x1: f32, x2: f32, x: f32) -> f32 {
     t = x;
     for _ in 0..SUBDIVISION_MAX_ITERATIONS {
         let current_x = bezier_component(x1, x2, t);
+        if !current_x.is_finite() {
+            break;
+        }
         if (current_x - x).abs() < SUBDIVISION_PRECISION {
             break;
         }
@@ -171,8 +174,11 @@ fn solve_curve_x(x1: f32, x2: f32, x: f32) -> f32 {
             hi = t;
         }
         t = lo.midpoint(hi);
+        if !t.is_finite() {
+            break;
+        }
     }
-    t
+    t.clamp(0.0, 1.0)
 }
 
 /// Evaluate `steps()` at progress `t`.

@@ -28,11 +28,7 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
                 "interpolate: mismatched length units {ua:?} vs {ub:?}, \
                  falling back to discrete interpolation"
             );
-            if t < 0.5 {
-                Some(from.clone())
-            } else {
-                Some(to.clone())
-            }
+            Some(discrete(from, to, t))
         }
 
         // Percentage ↔ Percentage
@@ -49,13 +45,16 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
         (CssValue::Time(a), CssValue::Time(b)) => Some(CssValue::Time(lerp(*a, *b, t))),
 
         // Discrete: keyword, string, auto, mismatched types — flip at 50%
-        _ => {
-            if t < 0.5 {
-                Some(from.clone())
-            } else {
-                Some(to.clone())
-            }
-        }
+        _ => Some(discrete(from, to, t)),
+    }
+}
+
+/// Discrete interpolation: returns `from` before 50%, `to` at/after 50%.
+fn discrete(from: &CssValue, to: &CssValue, t: f32) -> CssValue {
+    if t < 0.5 {
+        from.clone()
+    } else {
+        to.clone()
     }
 }
 

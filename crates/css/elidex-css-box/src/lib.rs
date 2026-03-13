@@ -561,8 +561,10 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
             "normal" => *target = ContentValue::Normal,
             "none" => *target = ContentValue::None,
             kw if kw.starts_with("attr(") && kw.ends_with(')') => {
-                let attr_name = &kw[5..kw.len() - 1];
-                *target = ContentValue::Items(vec![ContentItem::Attr(attr_name.to_string())]);
+                if let Some(attr_name) = kw.strip_prefix("attr(").and_then(|s| s.strip_suffix(')'))
+                {
+                    *target = ContentValue::Items(vec![ContentItem::Attr(attr_name.to_string())]);
+                }
             }
             _ => {}
         },
@@ -574,10 +576,10 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
                 .iter()
                 .filter_map(|item| match item {
                     CssValue::String(s) => Some(ContentItem::String(s.clone())),
-                    CssValue::Keyword(kw) if kw.starts_with("attr(") && kw.ends_with(')') => {
-                        let attr_name = &kw[5..kw.len() - 1];
-                        Some(ContentItem::Attr(attr_name.to_string()))
-                    }
+                    CssValue::Keyword(kw) if kw.starts_with("attr(") && kw.ends_with(')') => kw
+                        .strip_prefix("attr(")
+                        .and_then(|s| s.strip_suffix(')'))
+                        .map(|attr_name| ContentItem::Attr(attr_name.to_string())),
                     _ => None,
                 })
                 .collect();

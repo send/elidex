@@ -395,7 +395,7 @@ fn find_matching_brace(text: &str) -> Option<usize> {
     for (i, ch) in text.char_indices() {
         match ch {
             '{' => {
-                depth = depth.checked_add(1)?;
+                depth += 1;
                 if depth > MAX_BRACE_DEPTH {
                     return None;
                 }

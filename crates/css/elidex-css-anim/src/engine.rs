@@ -643,4 +643,58 @@ mod tests {
         let engine = AnimationEngine::default();
         assert!(!engine.has_active());
     }
+
+    #[test]
+    fn engine_tick_nan_dt_is_noop() {
+        let mut engine = AnimationEngine::new();
+        let trans = TransitionInstance::new(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+            1.0,
+            0.0,
+            TimingFunction::Linear,
+        );
+        let _ = engine.add_transition(1, trans);
+        let events = engine.tick(f64::NAN);
+        assert!(events.is_empty(), "NaN dt should produce no events");
+        assert!(engine.has_active(), "transition should still be active");
+    }
+
+    #[test]
+    fn engine_tick_negative_dt_is_noop() {
+        let mut engine = AnimationEngine::new();
+        let trans = TransitionInstance::new(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+            1.0,
+            0.0,
+            TimingFunction::Linear,
+        );
+        let _ = engine.add_transition(1, trans);
+        let events = engine.tick(-0.5);
+        assert!(events.is_empty(), "negative dt should produce no events");
+    }
+
+    #[test]
+    fn engine_animation_limit_enforced() {
+        let mut engine = AnimationEngine::new();
+        for i in 0..=MAX_ANIMATIONS_PER_ENTITY {
+            let anim = AnimationInstance::new(
+                format!("anim{i}"),
+                1.0,
+                TimingFunction::Linear,
+                0.0,
+                crate::style::IterationCount::Number(1.0),
+                crate::style::AnimationDirection::Normal,
+                crate::style::AnimationFillMode::None,
+                crate::style::PlayState::Running,
+                0.0,
+            );
+            engine.add_animation(1, anim);
+        }
+        // Should cap at MAX_ANIMATIONS_PER_ENTITY
+        assert_eq!(engine.active_animations(1).len(), MAX_ANIMATIONS_PER_ENTITY);
+    }
 }
