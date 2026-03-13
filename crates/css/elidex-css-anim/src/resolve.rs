@@ -6,9 +6,7 @@ use crate::style::{
 use crate::timing::TimingFunction;
 use elidex_plugin::CssValue;
 
-/// Maximum number of items in a comma-separated CSS list value to prevent
-/// unbounded memory growth from malicious or malformed stylesheets.
-const MAX_LIST_ITEMS: usize = 1024;
+use crate::MAX_LIST_ITEMS;
 
 /// Resolve a parsed transition-property string into `TransitionProperty` values.
 #[must_use]
@@ -39,6 +37,7 @@ pub fn resolve_time_list(value: &CssValue) -> Vec<f32> {
         CssValue::Number(n) => vec![*n],
         CssValue::List(items) => items
             .iter()
+            .take(MAX_LIST_ITEMS)
             .map(|v| match v {
                 CssValue::Time(t) => *t,
                 CssValue::Number(n) => *n,

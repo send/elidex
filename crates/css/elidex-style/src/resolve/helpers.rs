@@ -7,7 +7,6 @@ use elidex_plugin::{BorderStyle, ComputedStyle, CssValue};
 use crate::inherit::{get_initial_value, is_inherited};
 
 // Re-export core resolve functions from elidex-plugin.
-pub(super) use elidex_plugin::css_resolve::keyword_from;
 pub(crate) use elidex_plugin::css_resolve::{
     resolve_calc_expr, resolve_dimension, resolve_i32, resolve_length, resolve_non_negative_f32,
     resolve_to_px,
@@ -24,11 +23,11 @@ pub(super) fn resolve_keyword(
     parent_style: &ComputedStyle,
 ) -> Option<CssValue> {
     match value {
-        CssValue::Inherit => Some(super::get_computed_as_css_value(property, parent_style)),
+        CssValue::Inherit => Some(crate::get_computed(property, parent_style)),
         CssValue::Initial => Some(get_initial_value(property)),
         CssValue::Unset => {
             if is_inherited(property) {
-                Some(super::get_computed_as_css_value(property, parent_style))
+                Some(crate::get_computed(property, parent_style))
             } else {
                 Some(get_initial_value(property))
             }

@@ -15,6 +15,13 @@ categories = ["web-programming"]
 elidex-ecs.workspace = true
 elidex-css.workspace = true
 elidex-plugin.workspace = true
+elidex-css-box.workspace = true
+elidex-css-text.workspace = true
+elidex-css-flex.workspace = true
+elidex-css-grid.workspace = true
+elidex-css-table.workspace = true
+elidex-css-float.workspace = true
+elidex-css-anim.workspace = true
 rayon = { workspace = true, optional = true }
 
 [features]

@@ -29,6 +29,10 @@ use elidex_plugin::{
     ComputedStyle, CssPropertyHandler, CssValue, ParseError, PropertyDeclaration, ResolveContext,
 };
 
+/// Maximum number of items in a comma-separated CSS list value to prevent
+/// unbounded memory growth from malicious or malformed stylesheets.
+pub(crate) const MAX_LIST_ITEMS: usize = 1024;
+
 /// All transition/animation property names handled by this plugin.
 const PROPERTY_NAMES: &[&str] = &[
     "transition",
@@ -103,7 +107,7 @@ impl CssPropertyHandler for AnimHandler {
 
     fn initial_value(&self, name: &str) -> CssValue {
         match name {
-            "transition-property" => CssValue::Keyword("all".into()),
+            "transition-property" => CssValue::String("all".into()),
             "transition-duration"
             | "transition-delay"
             | "animation-duration"
@@ -154,9 +158,6 @@ pub(crate) struct SingleAnimationSpec {
 /// Syntax: `<duration> || <timing-function> || <delay> || <iteration-count> ||
 ///          <direction> || <fill-mode> || <play-state> || <name>`
 fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<PropertyDeclaration> {
-    /// Maximum number of items in a comma-separated CSS list value.
-    const MAX_LIST_ITEMS: usize = 1024;
-
     let mut specs = Vec::new();
 
     loop {
@@ -223,6 +224,7 @@ pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue 
 /// at most 8 components per comma-separated entry.
 const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
 
+// NOTE: time/timing-function parsing is structurally shared with parse_single_transition.
 fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimationSpec {
     let mut name = "none".to_string();
     let mut duration = 0.0_f32;

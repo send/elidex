@@ -7,7 +7,7 @@ use elidex_plugin::{
 
 use super::*;
 use crate::resolve::helpers::PropertyMap;
-use crate::resolve::{build_computed_style, get_computed_as_css_value, ResolveContext};
+use crate::resolve::{build_computed_style, ResolveContext};
 
 fn default_ctx() -> ResolveContext {
     ResolveContext {
@@ -290,7 +290,7 @@ fn inherited_keyword_enum_computed_value() {
         ),
     ] {
         assert_eq!(
-            get_computed_as_css_value(prop, &style),
+            crate::get_computed(prop, &style),
             CssValue::Keyword(expected_kw.to_string()),
             "{prop}"
         );
@@ -433,7 +433,7 @@ fn letter_spacing_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("letter-spacing", &style),
+        crate::get_computed("letter-spacing", &style),
         CssValue::Length(1.5, LengthUnit::Px)
     );
 }
@@ -442,7 +442,7 @@ fn letter_spacing_computed_value() {
 fn letter_spacing_normal_computed_value() {
     let style = ComputedStyle::default();
     assert_eq!(
-        get_computed_as_css_value("letter-spacing", &style),
+        crate::get_computed("letter-spacing", &style),
         CssValue::Keyword("normal".to_string())
     );
 }
@@ -454,7 +454,7 @@ fn letter_spacing_zero_px_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("letter-spacing", &style),
+        crate::get_computed("letter-spacing", &style),
         CssValue::Length(0.0, LengthUnit::Px)
     );
 }
@@ -491,7 +491,7 @@ fn word_spacing_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("word-spacing", &style),
+        crate::get_computed("word-spacing", &style),
         CssValue::Length(2.0, LengthUnit::Px)
     );
 }
@@ -544,7 +544,7 @@ fn text_decoration_style_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("text-decoration-style", &style),
+        crate::get_computed("text-decoration-style", &style),
         CssValue::Keyword("double".to_string())
     );
 }

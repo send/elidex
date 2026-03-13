@@ -4,9 +4,7 @@ use crate::style::TransitionProperty;
 use crate::timing::{StepPosition, TimingFunction};
 use elidex_plugin::{CssValue, ParseError, PropertyDeclaration};
 
-/// Maximum number of items in a comma-separated CSS list value to prevent
-/// unbounded memory growth from malicious or malformed stylesheets.
-const MAX_LIST_ITEMS: usize = 1024;
+use crate::MAX_LIST_ITEMS;
 
 /// Parse a `<time>` value from a cssparser token, returning seconds.
 pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
@@ -229,7 +227,7 @@ pub fn parse_iteration_count(
             let n = input.expect_number().map_err(|_| {
                 parse_err("animation-iteration-count", "expected number or infinite")
             })?;
-            if n < 0.0 {
+            if n < 0.0 || !n.is_finite() {
                 return Err(parse_err("animation-iteration-count", "negative value"));
             }
             counts.push(n.to_string());
@@ -430,6 +428,7 @@ fn find_matching_brace(text: &str) -> Option<usize> {
 
 fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
     text.split(',')
+        .take(MAX_KEYFRAMES)
         .filter_map(|s| {
             let s = s.trim();
             if s.eq_ignore_ascii_case("from") {
@@ -446,8 +445,9 @@ fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
 }
 
 fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {
+    const MAX_DECLARATIONS_PER_BLOCK: usize = 1024;
     let mut decls = Vec::new();
-    for part in text.split(';') {
+    for part in text.split(';').take(MAX_DECLARATIONS_PER_BLOCK) {
         let part = part.trim();
         if part.is_empty() {
             continue;
@@ -601,6 +601,7 @@ pub fn parse_transition_shorthand(
     ])
 }
 
+// NOTE: time/timing-function parsing is structurally shared with parse_single_animation.
 fn parse_single_transition(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> (String, f32, TimingFunction, f32) {
@@ -622,7 +623,7 @@ fn parse_single_transition(
             if found_duration {
                 delay = t;
             } else {
-                duration = t;
+                duration = t.max(0.0);
                 found_duration = true;
             }
             continue;

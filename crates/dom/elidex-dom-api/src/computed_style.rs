@@ -3,7 +3,7 @@
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, CssValue, JsValue};
 use elidex_script_session::{CssomApiHandler, DomApiError, DomApiErrorKind, SessionCore};
-use elidex_style::get_computed_as_css_value;
+use elidex_style::get_computed;
 
 use crate::util::require_string_arg;
 
@@ -38,7 +38,7 @@ impl CssomApiHandler for GetComputedStyle {
                 kind: DomApiErrorKind::NotFoundError,
                 message: "element has no computed style".into(),
             })?;
-        let css_value = get_computed_as_css_value(&property, &style);
+        let css_value = get_computed(&property, &style);
         Ok(JsValue::String(css_value_to_string(&css_value)))
     }
 }

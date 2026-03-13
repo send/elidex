@@ -150,6 +150,7 @@ pub fn is_animatable(property: &str) -> bool {
             | "bottom"
             | "left"
             | "z-index"
+            | "visibility"
     )
 }
 

@@ -12,22 +12,12 @@ pub(crate) mod helpers;
 mod var_resolution;
 
 use elidex_plugin::{
-    Clear, ComputedStyle, ContentItem, ContentValue, CssValue, Dimension, Direction, Display,
-    Float, LengthUnit, LineHeight, Position, TextOrientation, UnicodeBidi, VerticalAlign,
-    Visibility, WritingMode,
+    Clear, ComputedStyle, CssValue, Dimension, Direction, Display, Float, LengthUnit, Position,
+    TextOrientation, UnicodeBidi, VerticalAlign, Visibility, WritingMode,
 };
 
+use helpers::resolve_dimension;
 pub(crate) use helpers::PropertyMap;
-use helpers::{keyword_from, resolve_dimension};
-
-/// Convert a spacing value (letter-spacing / word-spacing) to its computed CSS value.
-/// `None` → `Keyword("normal")`, `Some(px)` → `Length(px, Px)`.
-fn spacing_to_css_value(value: Option<f32>) -> CssValue {
-    match value {
-        None => CssValue::Keyword("normal".to_string()),
-        Some(v) => CssValue::Length(v, LengthUnit::Px),
-    }
-}
 
 use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
 
@@ -42,240 +32,52 @@ use box_model::{
 };
 
 use flex::resolve_flex_properties;
-use grid::{
-    grid_line_to_css_value, resolve_grid_properties, track_list_to_css_value,
-    track_size_to_css_value,
-};
+use grid::resolve_grid_properties;
 
 /// Context for resolving relative CSS values (re-exported from elidex-plugin).
 pub(crate) type ResolveContext = elidex_plugin::ResolveContext;
 
-/// Extract a property's computed value back into a [`CssValue`] for inheritance.
-///
-/// Also used by `getComputedStyle()` DOM API.
-#[must_use]
-#[allow(clippy::too_many_lines)]
-// Single match dispatcher over CSS property names.
-// TODO(M4-2): remove legacy get_computed_as_css_value arms once all properties
-// are covered by CssPropertyHandler::get_computed().
-pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
-    use crate::inherit::get_initial_value;
-
-    // Custom properties: return the raw token string.
-    if property.starts_with("--") {
-        return match style.custom_properties.get(property) {
-            Some(raw) => CssValue::RawTokens(raw.clone()),
-            None => CssValue::RawTokens(String::new()),
-        };
-    }
-
-    match property {
-        "color" => CssValue::Color(style.color),
-        "font-size" => CssValue::Length(style.font_size, LengthUnit::Px),
-        "font-family" => CssValue::List(
-            style
-                .font_family
-                .iter()
-                .map(|s| CssValue::Keyword(s.clone()))
-                .collect(),
-        ),
-        "font-weight" => CssValue::Number(f32::from(style.font_weight)),
-        "font-style" => keyword_from(&style.font_style),
-        "line-height" => match style.line_height {
-            LineHeight::Normal => CssValue::Keyword("normal".to_string()),
-            LineHeight::Number(n) => CssValue::Number(n),
-            LineHeight::Px(px) => CssValue::Length(px, LengthUnit::Px),
-        },
-        "text-transform" => keyword_from(&style.text_transform),
-        "text-align" => keyword_from(&style.text_align),
-        "white-space" => keyword_from(&style.white_space),
-        "list-style-type" => keyword_from(&style.list_style_type),
-        "direction" => keyword_from(&style.direction),
-        "unicode-bidi" => keyword_from(&style.unicode_bidi),
-        "writing-mode" => keyword_from(&style.writing_mode),
-        "text-orientation" => keyword_from(&style.text_orientation),
-        "text-decoration-line" => {
-            let d = &style.text_decoration_line;
-            let mut parts = Vec::new();
-            if d.underline {
-                parts.push(CssValue::Keyword("underline".to_string()));
-            }
-            if d.overline {
-                parts.push(CssValue::Keyword("overline".to_string()));
-            }
-            if d.line_through {
-                parts.push(CssValue::Keyword("line-through".to_string()));
-            }
-            if parts.len() > 1 {
-                CssValue::List(parts)
-            } else {
-                CssValue::Keyword(d.to_string())
-            }
-        }
-        "text-decoration-style" => keyword_from(&style.text_decoration_style),
-        "text-decoration-color" => match style.text_decoration_color {
-            Some(c) => CssValue::Color(c),
-            None => CssValue::Keyword("currentcolor".to_string()),
-        },
-        "letter-spacing" => spacing_to_css_value(style.letter_spacing),
-        "word-spacing" => spacing_to_css_value(style.word_spacing),
-        "display" => keyword_from(&style.display),
-        "position" => keyword_from(&style.position),
-        "overflow" => keyword_from(&style.overflow),
-        "background-color" => CssValue::Color(style.background_color),
-        "width" => dimension_to_css_value(style.width),
-        "height" => dimension_to_css_value(style.height),
-        "min-width" => dimension_to_css_value(style.min_width),
-        "max-width" => {
-            if style.max_width == Dimension::Auto {
-                CssValue::Keyword("none".to_string())
-            } else {
-                dimension_to_css_value(style.max_width)
-            }
-        }
-        "min-height" => dimension_to_css_value(style.min_height),
-        "max-height" => {
-            if style.max_height == Dimension::Auto {
-                CssValue::Keyword("none".to_string())
-            } else {
-                dimension_to_css_value(style.max_height)
-            }
-        }
-        "margin-top" => dimension_to_css_value(style.margin_top),
-        "margin-right" => dimension_to_css_value(style.margin_right),
-        "margin-bottom" => dimension_to_css_value(style.margin_bottom),
-        "margin-left" => dimension_to_css_value(style.margin_left),
-        "padding-top" => CssValue::Length(style.padding_top, LengthUnit::Px),
-        "padding-right" => CssValue::Length(style.padding_right, LengthUnit::Px),
-        "padding-bottom" => CssValue::Length(style.padding_bottom, LengthUnit::Px),
-        "padding-left" => CssValue::Length(style.padding_left, LengthUnit::Px),
-        "border-top-width" => CssValue::Length(style.border_top_width, LengthUnit::Px),
-        "border-right-width" => CssValue::Length(style.border_right_width, LengthUnit::Px),
-        "border-bottom-width" => CssValue::Length(style.border_bottom_width, LengthUnit::Px),
-        "border-left-width" => CssValue::Length(style.border_left_width, LengthUnit::Px),
-        "border-top-style" => keyword_from(&style.border_top_style),
-        "border-right-style" => keyword_from(&style.border_right_style),
-        "border-bottom-style" => keyword_from(&style.border_bottom_style),
-        "border-left-style" => keyword_from(&style.border_left_style),
-        "border-top-color" => CssValue::Color(style.border_top_color),
-        "border-right-color" => CssValue::Color(style.border_right_color),
-        "border-bottom-color" => CssValue::Color(style.border_bottom_color),
-        "border-left-color" => CssValue::Color(style.border_left_color),
-        "flex-direction" => keyword_from(&style.flex_direction),
-        "flex-wrap" => keyword_from(&style.flex_wrap),
-        "justify-content" => keyword_from(&style.justify_content),
-        "align-items" => keyword_from(&style.align_items),
-        "align-content" => keyword_from(&style.align_content),
-        "align-self" => keyword_from(&style.align_self),
-        "flex-grow" => CssValue::Number(style.flex_grow),
-        "flex-shrink" => CssValue::Number(style.flex_shrink),
-        "flex-basis" => dimension_to_css_value(style.flex_basis),
-        #[allow(clippy::cast_precision_loss)]
-        "order" => CssValue::Number(style.order as f32),
-        "row-gap" => CssValue::Length(style.row_gap, LengthUnit::Px),
-        "column-gap" => CssValue::Length(style.column_gap, LengthUnit::Px),
-        "box-sizing" => keyword_from(&style.box_sizing),
-        "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
-        "opacity" => CssValue::Number(style.opacity),
-        // Grid container
-        "grid-template-columns" => track_list_to_css_value(&style.grid_template_columns),
-        "grid-template-rows" => track_list_to_css_value(&style.grid_template_rows),
-        "grid-auto-flow" => keyword_from(&style.grid_auto_flow),
-        "grid-auto-columns" => track_size_to_css_value(&style.grid_auto_columns),
-        "grid-auto-rows" => track_size_to_css_value(&style.grid_auto_rows),
-        // Grid item
-        "grid-column-start" => grid_line_to_css_value(style.grid_column_start),
-        "grid-column-end" => grid_line_to_css_value(style.grid_column_end),
-        "grid-row-start" => grid_line_to_css_value(style.grid_row_start),
-        "grid-row-end" => grid_line_to_css_value(style.grid_row_end),
-
-        // Table properties
-        "border-collapse" => keyword_from(&style.border_collapse),
-        "border-spacing" => {
-            if (style.border_spacing_h - style.border_spacing_v).abs() < f32::EPSILON {
-                CssValue::Length(style.border_spacing_h, LengthUnit::Px)
-            } else {
-                CssValue::List(vec![
-                    CssValue::Length(style.border_spacing_h, LengthUnit::Px),
-                    CssValue::Length(style.border_spacing_v, LengthUnit::Px),
-                ])
-            }
-        }
-        "border-spacing-h" => CssValue::Length(style.border_spacing_h, LengthUnit::Px),
-        "border-spacing-v" => CssValue::Length(style.border_spacing_v, LengthUnit::Px),
-        "table-layout" => keyword_from(&style.table_layout),
-        "caption-side" => keyword_from(&style.caption_side),
-
-        // Float/clear/visibility
-        "float" => keyword_from(&style.float),
-        "clear" => keyword_from(&style.clear),
-        "visibility" => keyword_from(&style.visibility),
-        "vertical-align" => match &style.vertical_align {
-            VerticalAlign::Length(px) => CssValue::Length(*px, LengthUnit::Px),
-            VerticalAlign::Percentage(pct) => CssValue::Percentage(*pct),
-            other => CssValue::Keyword(other.to_string()),
-        },
-
-        "content" => match &style.content {
-            ContentValue::Normal => CssValue::Keyword("normal".to_string()),
-            ContentValue::None => CssValue::Keyword("none".to_string()),
-            ContentValue::Items(items) => {
-                if items.len() == 1 {
-                    match &items[0] {
-                        ContentItem::String(s) => CssValue::String(s.clone()),
-                        ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
-                    }
-                } else {
-                    CssValue::List(
-                        items
-                            .iter()
-                            .map(|item| match item {
-                                ContentItem::String(s) => CssValue::String(s.clone()),
-                                ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
-                            })
-                            .collect(),
-                    )
-                }
-            }
-        },
-        _ => get_initial_value(property),
-    }
-}
-
 /// Extract a property's computed value using the CSS property registry.
 ///
-/// Tries to find a registered handler for the property and delegates to
-/// `CssPropertyHandler::get_computed`. Falls back to the hardcoded
-/// [`get_computed_as_css_value`] for custom properties and unregistered properties.
-///
-/// This is the preferred entry point when a registry is available (e.g. from
-/// `elidex-shell`'s pipeline).
+/// Delegates to the registered `CssPropertyHandler::get_computed` for known
+/// properties. Custom properties and the `border-spacing` compound shorthand
+/// are handled inline. Falls back to the initial value for unregistered
+/// properties.
 #[must_use]
 pub fn get_computed_with_registry(
     property: &str,
     style: &ComputedStyle,
     registry: &elidex_plugin::CssPropertyRegistry,
 ) -> CssValue {
+    use crate::inherit::get_initial_value;
+
     // Custom properties are not handled by plugin handlers.
     if property.starts_with("--") {
-        return get_computed_as_css_value(property, style);
+        return match style.custom_properties.get(property) {
+            Some(raw) => CssValue::RawTokens(raw.clone()),
+            None => CssValue::RawTokens(String::new()),
+        };
     }
-    // Compound shorthand serializations (border-spacing, text-decoration)
-    // have special multi-value logic that handlers don't cover.
-    if matches!(property, "border-spacing" | "text-decoration") {
-        return get_computed_as_css_value(property, style);
+    // Compound shorthand: border-spacing (two longhands → single/pair value).
+    if property == "border-spacing" {
+        if (style.border_spacing_h - style.border_spacing_v).abs() < f32::EPSILON {
+            return CssValue::Length(style.border_spacing_h, LengthUnit::Px);
+        }
+        return CssValue::List(vec![
+            CssValue::Length(style.border_spacing_h, LengthUnit::Px),
+            CssValue::Length(style.border_spacing_v, LengthUnit::Px),
+        ]);
     }
     if let Some(handler) = registry.resolve(property) {
         return handler.get_computed(property, style);
     }
-    get_computed_as_css_value(property, style)
+    get_initial_value(property)
 }
 
 // Display, Position, and BorderStyle implement AsRef<str> in elidex-plugin,
 // so enum-to-string conversion is handled via .as_ref() directly.
 
 /// Convert a [`Dimension`] back into a [`CssValue`] for CSS serialization.
-// NOTE: also defined in elidex-css-box/src/lib.rs
 pub fn dimension_to_css_value(d: Dimension) -> CssValue {
     match d {
         Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
@@ -495,7 +297,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    use elidex_plugin::{CssValue, Display};
+    use elidex_plugin::{CssValue, Display, LineHeight};
 
     #[test]
     fn get_computed_display() {
@@ -503,7 +305,7 @@ mod tests {
             display: Display::Flex,
             ..ComputedStyle::default()
         };
-        let val = get_computed_as_css_value("display", &style);
+        let val = crate::get_computed("display", &style);
         assert_eq!(val, CssValue::Keyword("flex".to_string()));
     }
 
@@ -517,14 +319,14 @@ mod tests {
             },
             ..ComputedStyle::default()
         };
-        let val = get_computed_as_css_value("--my-color", &style);
+        let val = crate::get_computed("--my-color", &style);
         assert_eq!(val, CssValue::RawTokens("red".to_string()));
     }
 
     #[test]
     fn get_computed_custom_property_undefined() {
         let style = ComputedStyle::default();
-        let val = get_computed_as_css_value("--undefined", &style);
+        let val = crate::get_computed("--undefined", &style);
         assert_eq!(val, CssValue::RawTokens(String::new()));
     }
 
@@ -534,7 +336,7 @@ mod tests {
             font_family: vec!["Arial".to_string(), "sans-serif".to_string()],
             ..ComputedStyle::default()
         };
-        let val = get_computed_as_css_value("font-family", &style);
+        let val = crate::get_computed("font-family", &style);
         assert_eq!(
             val,
             CssValue::List(vec![

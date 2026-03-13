@@ -174,58 +174,6 @@ fn resolve_grid_line(value: &CssValue) -> GridLine {
     }
 }
 
-// --- Serialization helpers (used by get_computed_as_css_value) ---
-
-/// Convert a [`TrackSize`] to a [`CssValue`] for CSS serialization.
-pub(super) fn track_size_to_css_value(ts: &TrackSize) -> CssValue {
-    match ts {
-        TrackSize::Length(px) => CssValue::Length(*px, LengthUnit::Px),
-        TrackSize::Percentage(p) => CssValue::Percentage(*p),
-        TrackSize::Fr(f) => CssValue::Length(*f, LengthUnit::Fr),
-        TrackSize::Auto => CssValue::Auto,
-        TrackSize::MinMax(min, max) => CssValue::List(vec![
-            CssValue::Keyword("minmax".to_string()),
-            track_breadth_to_css_value(min),
-            track_breadth_to_css_value(max),
-        ]),
-    }
-}
-
-/// Convert a [`TrackBreadth`] to a [`CssValue`] for CSS serialization.
-fn track_breadth_to_css_value(tb: &TrackBreadth) -> CssValue {
-    match tb {
-        TrackBreadth::Length(px) => CssValue::Length(*px, LengthUnit::Px),
-        TrackBreadth::Percentage(p) => CssValue::Percentage(*p),
-        TrackBreadth::Fr(f) => CssValue::Length(*f, LengthUnit::Fr),
-        TrackBreadth::MinContent => CssValue::Keyword("min-content".to_string()),
-        TrackBreadth::MaxContent => CssValue::Keyword("max-content".to_string()),
-        TrackBreadth::Auto => CssValue::Auto,
-    }
-}
-
-/// Convert a track list to a [`CssValue`] for CSS serialization.
-pub(super) fn track_list_to_css_value(tracks: &[TrackSize]) -> CssValue {
-    if tracks.is_empty() {
-        CssValue::Keyword("none".to_string())
-    } else {
-        CssValue::List(tracks.iter().map(track_size_to_css_value).collect())
-    }
-}
-
-/// Convert a [`GridLine`] to a [`CssValue`] for CSS serialization.
-pub(super) fn grid_line_to_css_value(gl: GridLine) -> CssValue {
-    match gl {
-        GridLine::Auto => CssValue::Auto,
-        #[allow(clippy::cast_precision_loss)]
-        GridLine::Line(n) => CssValue::Number(n as f32),
-        GridLine::Span(n) => CssValue::List(vec![
-            CssValue::Keyword("span".to_string()),
-            #[allow(clippy::cast_precision_loss)]
-            CssValue::Number(n as f32),
-        ]),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -235,7 +183,7 @@ mod tests {
     };
 
     use crate::resolve::helpers::PropertyMap;
-    use crate::resolve::{build_computed_style, get_computed_as_css_value, ResolveContext};
+    use crate::resolve::{build_computed_style, ResolveContext};
 
     fn default_ctx() -> ResolveContext {
         ResolveContext {
@@ -395,7 +343,7 @@ mod tests {
         winners.insert("grid-row-end", &span_val);
         let style = build_computed_style(&winners, &parent, &ctx);
 
-        let cols = get_computed_as_css_value("grid-template-columns", &style);
+        let cols = crate::get_computed("grid-template-columns", &style);
         assert_eq!(
             cols,
             CssValue::List(vec![
@@ -403,9 +351,9 @@ mod tests {
                 CssValue::Length(2.0, LengthUnit::Fr),
             ])
         );
-        let rs = get_computed_as_css_value("grid-row-start", &style);
+        let rs = crate::get_computed("grid-row-start", &style);
         assert_eq!(rs, CssValue::Number(3.0));
-        let re = get_computed_as_css_value("grid-row-end", &style);
+        let re = crate::get_computed("grid-row-end", &style);
         assert_eq!(
             re,
             CssValue::List(vec![

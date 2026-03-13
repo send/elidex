@@ -453,7 +453,7 @@ fn get_computed_with_registry_matches_hardcoded() {
         ..ComputedStyle::default()
     };
 
-    // Each handler-based result should match the hardcoded get_computed_as_css_value.
+    // Verify that get_computed_with_registry returns expected values.
     let cases = &[
         ("display", CssValue::Keyword("flex".to_string())),
         ("color", CssValue::Color(CssColor::RED)),

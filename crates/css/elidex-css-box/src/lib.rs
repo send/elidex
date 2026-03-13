@@ -299,8 +299,16 @@ impl CssPropertyHandler for BoxHandler {
         false
     }
 
-    fn affects_layout(&self, _name: &str) -> bool {
-        true
+    fn affects_layout(&self, name: &str) -> bool {
+        !matches!(
+            name,
+            "opacity"
+                | "background-color"
+                | "border-top-color"
+                | "border-right-color"
+                | "border-bottom-color"
+                | "border-left-color"
+        )
     }
 
     fn get_computed(&self, name: &str, style: &ComputedStyle) -> CssValue {

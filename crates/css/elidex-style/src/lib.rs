@@ -24,11 +24,44 @@ mod walk;
 #[cfg(test)]
 mod tests;
 
+use std::sync::OnceLock;
+
 use elidex_css::{Declaration, Stylesheet};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, CssPropertyRegistry};
+use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue};
 
-pub use resolve::{dimension_to_css_value, get_computed_as_css_value, get_computed_with_registry};
+pub use resolve::{dimension_to_css_value, get_computed_with_registry};
+
+/// Build the CSS property registry with all standard property handlers.
+#[must_use]
+pub fn create_css_property_registry() -> CssPropertyRegistry {
+    let mut registry = CssPropertyRegistry::new();
+    elidex_css_box::BoxHandler::register(&mut registry);
+    elidex_css_text::TextHandler::register(&mut registry);
+    elidex_css_flex::FlexHandler::register(&mut registry);
+    elidex_css_grid::GridHandler::register(&mut registry);
+    elidex_css_table::TableHandler::register(&mut registry);
+    elidex_css_float::FloatHandler::register(&mut registry);
+    elidex_css_anim::AnimHandler::register(&mut registry);
+    registry
+}
+
+/// Default CSS property registry, lazily initialized.
+static DEFAULT_REGISTRY: OnceLock<CssPropertyRegistry> = OnceLock::new();
+
+/// Returns the default CSS property registry.
+#[must_use]
+pub fn default_css_property_registry() -> &'static CssPropertyRegistry {
+    DEFAULT_REGISTRY.get_or_init(create_css_property_registry)
+}
+
+/// Extract a property's computed value into a [`CssValue`].
+///
+/// Convenience wrapper over [`get_computed_with_registry`] using the default registry.
+#[must_use]
+pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
+    resolve::get_computed_with_registry(property, style, default_css_property_registry())
+}
 
 use resolve::ResolveContext;
 use walk::{find_roots, walk_tree, WalkState};

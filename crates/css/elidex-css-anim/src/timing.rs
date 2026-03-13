@@ -102,10 +102,22 @@ const SUBDIVISION_MAX_ITERATIONS: u32 = 10;
 
 fn cubic_bezier_sample(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
     if t <= 0.0 {
-        return 0.0;
+        // Before phase: extrapolate via tangent at t=0
+        let slope = bezier_component_derivative(y1, y2, 0.0);
+        let x_slope = bezier_component_derivative(x1, x2, 0.0);
+        if x_slope.abs() < f32::EPSILON {
+            return 0.0;
+        }
+        return (slope / x_slope) * t;
     }
     if t >= 1.0 {
-        return 1.0;
+        // After phase: extrapolate via tangent at t=1
+        let slope = bezier_component_derivative(y1, y2, 1.0);
+        let x_slope = bezier_component_derivative(x1, x2, 1.0);
+        if x_slope.abs() < f32::EPSILON {
+            return 1.0;
+        }
+        return 1.0 + (slope / x_slope) * (t - 1.0);
     }
     // Linear case
     if (x1 - y1).abs() < f32::EPSILON && (x2 - y2).abs() < f32::EPSILON {

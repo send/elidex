@@ -6,7 +6,7 @@ use elidex_css::{parse_selector_from_str, parse_stylesheet, Origin};
 use elidex_ecs::{EcsDom, Entity, TagType};
 use elidex_html_parser::parse_html;
 use elidex_plugin::ComputedStyle;
-use elidex_style::{get_computed_as_css_value, resolve_styles};
+use elidex_style::{get_computed, resolve_styles};
 
 /// A single WPT-style test case.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -60,7 +60,7 @@ pub fn run_test_case(test: &WptTestCase) -> WptTestResult {
         };
 
         for (prop, expected_str) in props {
-            let computed = get_computed_as_css_value(prop, &style);
+            let computed = get_computed(prop, &style);
             let computed_str = css_value_to_string(&computed);
             if computed_str != *expected_str {
                 failures.push(format!(

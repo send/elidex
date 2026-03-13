@@ -40,20 +40,10 @@ use app::App;
 
 /// Build the CSS property registry with all standard property handlers.
 ///
-/// Called once per pipeline build and cached in [`PipelineResult`] for
-/// re-renders. The registry is used by property handlers to parse and
-/// resolve CSS values in a pluggable manner.
+/// Delegates to [`elidex_style::create_css_property_registry`].
 #[must_use]
 pub fn create_css_property_registry() -> elidex_plugin::CssPropertyRegistry {
-    let mut registry = elidex_plugin::CssPropertyRegistry::new();
-    elidex_css_box::BoxHandler::register(&mut registry);
-    elidex_css_text::TextHandler::register(&mut registry);
-    elidex_css_flex::FlexHandler::register(&mut registry);
-    elidex_css_grid::GridHandler::register(&mut registry);
-    elidex_css_table::TableHandler::register(&mut registry);
-    elidex_css_float::FloatHandler::register(&mut registry);
-    elidex_css_anim::AnimHandler::register(&mut registry);
-    registry
+    elidex_style::create_css_property_registry()
 }
 
 /// Default viewport width for the initial layout pass.

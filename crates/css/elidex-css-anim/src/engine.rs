@@ -87,7 +87,7 @@ impl AnimationEngine {
                     AnimationEvent::TransitionCancel {
                         property: t.property.clone(),
                         #[allow(clippy::cast_possible_truncation)]
-                        elapsed_time: t.elapsed as f32,
+                        elapsed_time: (t.elapsed as f32 - t.delay).max(0.0),
                     },
                 ));
                 false

@@ -6,7 +6,7 @@ use elidex_plugin::{
 };
 
 use crate::resolve::helpers::PropertyMap;
-use crate::resolve::{build_computed_style, get_computed_as_css_value, ResolveContext};
+use crate::resolve::{build_computed_style, ResolveContext};
 
 fn default_ctx() -> ResolveContext {
     ResolveContext {
@@ -152,15 +152,15 @@ fn get_computed_box_model_properties() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("box-sizing", &style),
+        crate::get_computed("box-sizing", &style),
         CssValue::Keyword("border-box".to_string())
     );
     assert_eq!(
-        get_computed_as_css_value("border-radius", &style),
+        crate::get_computed("border-radius", &style),
         CssValue::Length(10.0, LengthUnit::Px)
     );
     assert_eq!(
-        get_computed_as_css_value("opacity", &style),
+        crate::get_computed("opacity", &style),
         CssValue::Number(0.75)
     );
 }
@@ -197,11 +197,11 @@ fn resolve_gap_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("row-gap", &style),
+        crate::get_computed("row-gap", &style),
         CssValue::Length(8.0, LengthUnit::Px)
     );
     assert_eq!(
-        get_computed_as_css_value("column-gap", &style),
+        crate::get_computed("column-gap", &style),
         CssValue::Length(16.0, LengthUnit::Px)
     );
 }
@@ -251,7 +251,7 @@ fn resolve_overflow_computed_value() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("overflow", &style),
+        crate::get_computed("overflow", &style),
         CssValue::Keyword("hidden".to_string())
     );
 }
@@ -287,7 +287,7 @@ fn resolve_max_width_computed_none() {
         ..ComputedStyle::default()
     };
     assert_eq!(
-        get_computed_as_css_value("max-width", &style),
+        crate::get_computed("max-width", &style),
         CssValue::Keyword("none".to_string())
     );
 }
@@ -409,7 +409,7 @@ fn get_computed_border_spacing_single_value() {
         ..Default::default()
     };
     assert_eq!(
-        get_computed_as_css_value("border-spacing", &style),
+        crate::get_computed("border-spacing", &style),
         CssValue::Length(5.0, LengthUnit::Px)
     );
 }
@@ -425,22 +425,22 @@ fn get_computed_table_properties() {
         ..Default::default()
     };
     assert_eq!(
-        get_computed_as_css_value("border-collapse", &style),
+        crate::get_computed("border-collapse", &style),
         CssValue::Keyword("collapse".into())
     );
     assert_eq!(
-        get_computed_as_css_value("border-spacing", &style),
+        crate::get_computed("border-spacing", &style),
         CssValue::List(vec![
             CssValue::Length(5.0, LengthUnit::Px),
             CssValue::Length(10.0, LengthUnit::Px),
         ])
     );
     assert_eq!(
-        get_computed_as_css_value("table-layout", &style),
+        crate::get_computed("table-layout", &style),
         CssValue::Keyword("fixed".into())
     );
     assert_eq!(
-        get_computed_as_css_value("caption-side", &style),
+        crate::get_computed("caption-side", &style),
         CssValue::Keyword("bottom".into())
     );
 }

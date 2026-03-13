@@ -171,80 +171,20 @@ fn parse_single_track_size(input: &mut cssparser::Parser<'_, '_>) -> Result<CssV
     })
 }
 
-/// Inner helper that returns `Result<CssValue, ()>` for use with `try_parse`.
-fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
+/// Parse a keyword (`auto`/`min-content`/`max-content`) or a dimension/percentage/zero token
+/// into a `CssValue`. Shared by track-size and track-breadth parsing.
+fn parse_track_value_token(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
     // Try keywords: auto, min-content, max-content
     if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(ToString::to_string)) {
-        match ident.to_ascii_lowercase().as_str() {
-            "auto" => return Ok(CssValue::Auto),
-            "min-content" => return Ok(CssValue::Keyword("min-content".to_string())),
-            "max-content" => return Ok(CssValue::Keyword("max-content".to_string())),
-            _ => return Err(()),
-        }
-    }
-
-    // Try minmax(min, max)
-    if let Ok(val) = input.try_parse(|i| {
-        i.expect_function_matching("minmax").map_err(|_| ())?;
-        i.parse_nested_block(|args| {
-            let min =
-                parse_track_breadth_value(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
-            args.expect_comma()
-                .map_err(|_| args.new_custom_error::<_, ()>(()))?;
-            let max =
-                parse_track_breadth_value(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
-            Ok(CssValue::List(vec![
-                CssValue::Keyword("minmax".to_string()),
-                min,
-                max,
-            ]))
-        })
-        .map_err(|_: cssparser::ParseError<'_, ()>| ())
-    }) {
-        return Ok(val);
-    }
-
-    // Try dimension (length or fr) / percentage
-    input.try_parse(|i| {
-        let token = i.next().map_err(|_| ())?;
-        match *token {
-            cssparser::Token::Dimension {
-                value, ref unit, ..
-            } => {
-                let u = if unit.eq_ignore_ascii_case("fr") {
-                    LengthUnit::Fr
-                } else {
-                    parse_length_unit(unit)
-                };
-                Ok(CssValue::Length(value, u))
-            }
-            cssparser::Token::Percentage { unit_value, .. } => {
-                Ok(CssValue::Percentage(unit_value * 100.0))
-            }
-            cssparser::Token::Number { value: 0.0, .. } => {
-                Ok(CssValue::Length(0.0, LengthUnit::Px))
-            }
+        return match ident.to_ascii_lowercase().as_str() {
+            "auto" => Ok(CssValue::Auto),
+            "min-content" => Ok(CssValue::Keyword("min-content".to_string())),
+            "max-content" => Ok(CssValue::Keyword("max-content".to_string())),
             _ => Err(()),
-        }
-    })
-}
-
-/// Parse a track breadth value inside `minmax()`.
-// NOTE: keyword + dimension logic overlaps with parse_single_track_size_inner,
-// but this function is called *from* parse_single_track_size_inner (via minmax),
-// so extracting a shared helper would create a circular dependency.
-fn parse_track_breadth_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
-    // Keywords
-    if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(ToString::to_string)) {
-        match ident.to_ascii_lowercase().as_str() {
-            "auto" => return Ok(CssValue::Auto),
-            "min-content" => return Ok(CssValue::Keyword("min-content".to_string())),
-            "max-content" => return Ok(CssValue::Keyword("max-content".to_string())),
-            _ => return Err(()),
-        }
+        };
     }
 
-    // Dimension / percentage
+    // Dimension (length or fr) / percentage / zero
     let token = input.next().map_err(|_| ())?;
     match *token {
         cssparser::Token::Dimension {
@@ -263,6 +203,33 @@ fn parse_track_breadth_value(input: &mut cssparser::Parser<'_, '_>) -> Result<Cs
         cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(()),
     }
+}
+
+/// Inner helper that returns `Result<CssValue, ()>` for use with `try_parse`.
+fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
+    // Try keyword or dimension
+    if let Ok(v) = input.try_parse(parse_track_value_token) {
+        return Ok(v);
+    }
+
+    // Try minmax(min, max)
+    input.try_parse(|i| {
+        i.expect_function_matching("minmax").map_err(|_| ())?;
+        i.parse_nested_block(|args| {
+            let min =
+                parse_track_value_token(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
+            args.expect_comma()
+                .map_err(|_| args.new_custom_error::<_, ()>(()))?;
+            let max =
+                parse_track_value_token(args).map_err(|()| args.new_custom_error::<_, ()>(()))?;
+            Ok(CssValue::List(vec![
+                CssValue::Keyword("minmax".to_string()),
+                min,
+                max,
+            ]))
+        })
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())
+    })
 }
 
 /// Parse `grid-auto-flow`: `row`, `column`, `row dense`, `column dense`.
