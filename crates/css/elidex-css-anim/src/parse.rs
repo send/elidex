@@ -419,7 +419,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     }
     if !keyframes
         .iter()
-        .any(|k| (k.offset - 1.0).abs() < f32::EPSILON)
+        .any(|k| (k.offset - 1.0).abs() < 1e-6)
     {
         keyframes.push(Keyframe {
             offset: 1.0,

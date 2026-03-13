@@ -112,6 +112,7 @@ fn match_named_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> Option<&'static str
 // Uses Newton-Raphson with bisection fallback (matches browser implementations).
 
 /// Named cubic-bezier curves for Display serialization.
+/// Values must match `TimingFunction::EASE` / `EASE_IN` / `EASE_OUT` / `EASE_IN_OUT`.
 const NAMED_CURVES: &[(&str, f32, f32, f32, f32)] = &[
     ("ease", 0.25, 0.1, 0.25, 1.0),
     ("ease-in", 0.42, 0.0, 1.0, 1.0),
