@@ -33,6 +33,7 @@ use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
+use elidex_plugin::ComputedStyle;
 use elidex_render::{build_display_list, DisplayList};
 use elidex_script_session::SessionCore;
 use elidex_style::resolve_styles_with_compat;
@@ -206,11 +207,26 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 }
 
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
+///
+/// Includes transition detection: saves old computed values for entities with
+/// `AnimStyle`, re-resolves styles, compares old vs new values to detect
+/// transitions, feeds them to the `AnimationEngine`, and applies animated
+/// values to `ComputedStyle` before layout.
 pub(crate) fn re_render(result: &mut PipelineResult) {
     result.session.flush(&mut result.dom);
 
+    // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
+    let old_styles = collect_old_anim_styles(&result.dom);
+
+    // Phase 2: Re-resolve styles.
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
     resolve_with_compat(&mut result.dom, &stylesheet_refs, &result.registry);
+
+    // Phase 3: Detect transitions by comparing old vs new computed values.
+    detect_and_start_transitions(result, &old_styles);
+
+    // Phase 4: Apply animated values from active transitions/animations to ComputedStyle.
+    apply_active_animations(result);
 
     layout_tree(
         &mut result.dom,
@@ -220,6 +236,112 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     );
 
     result.display_list = build_display_list(&result.dom, &result.font_db);
+}
+
+/// Collect old computed styles for entities that have an `AnimStyle` component.
+///
+/// Returns a list of `(entity_bits, property_name, old_value)` tuples for
+/// all animatable properties that the transition detection needs to compare.
+fn collect_old_anim_styles(
+    dom: &EcsDom,
+) -> Vec<(u64, elidex_css_anim::style::AnimStyle, ComputedStyle)> {
+    use elidex_css_anim::style::AnimStyle;
+
+    let mut result = Vec::new();
+    for (entity, (anim_style, computed)) in &mut dom
+        .world()
+        .query::<(Entity, (&AnimStyle, &ComputedStyle))>()
+    {
+        if !anim_style.transition_property.is_empty() {
+            result.push((entity.to_bits().get(), anim_style.clone(), computed.clone()));
+        }
+    }
+    result
+}
+
+/// Compare old vs new computed values to detect transitions, then add them to the engine.
+fn detect_and_start_transitions(
+    result: &mut PipelineResult,
+    old_styles: &[(
+        u64,
+        elidex_css_anim::style::AnimStyle,
+        elidex_plugin::ComputedStyle,
+    )],
+) {
+    use elidex_css_anim::detection::detect_transitions;
+    use elidex_css_anim::instance::TransitionInstance;
+
+    let registry = &result.registry;
+
+    for &(entity_bits, ref anim_style, ref old_computed) in old_styles {
+        // Get the new computed style for this entity.
+        let entity = Entity::from_bits(entity_bits);
+        let Some(entity) = entity else { continue };
+        let Ok(computed_ref) = result.dom.world().get::<&ComputedStyle>(entity) else {
+            continue;
+        };
+        let new_computed = computed_ref.clone();
+
+        // Build changed_properties list by comparing old vs new via get_computed.
+        let mut changed = Vec::new();
+        for prop_name in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+            let old_val =
+                elidex_style::get_computed_with_registry(prop_name, old_computed, registry);
+            let new_val =
+                elidex_style::get_computed_with_registry(prop_name, &new_computed, registry);
+            if old_val != new_val {
+                changed.push((prop_name.to_string(), old_val, new_val));
+            }
+        }
+
+        if changed.is_empty() {
+            continue;
+        }
+
+        let detected = detect_transitions(anim_style, &changed);
+        for dt in detected {
+            let trans = TransitionInstance::new(
+                dt.property,
+                dt.from,
+                dt.to,
+                dt.duration,
+                dt.delay,
+                dt.timing_function,
+            );
+            let _cancel_events = result.animation_engine.add_transition(entity_bits, trans);
+        }
+    }
+}
+
+/// Apply animated values from active transitions/animations to `ComputedStyle`.
+///
+/// Iterates over all entities with active transitions in the engine,
+/// reads the current interpolated value, and overwrites the corresponding
+/// `ComputedStyle` field.
+fn apply_active_animations(result: &mut PipelineResult) {
+    use elidex_css_anim::apply::apply_animated_value;
+
+    // Collect entity IDs that have active transitions (to avoid borrow conflict).
+    let entity_ids: Vec<u64> = result.animation_engine.active_entity_ids().collect();
+
+    for entity_bits in entity_ids {
+        let entity = Entity::from_bits(entity_bits);
+        let Some(entity) = entity else { continue };
+
+        // Read current animated values from transitions.
+        let transitions = result.animation_engine.active_transitions(entity_bits);
+        let animated_values: Vec<(String, elidex_plugin::CssValue)> = transitions
+            .iter()
+            .filter_map(|t| t.current_value().map(|v| (t.property.clone(), v)))
+            .collect();
+
+        // Apply to ComputedStyle.
+        if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
+            for (property, value) in &animated_values {
+                apply_animated_value(&mut style, property, value);
+            }
+        }
+    }
 }
 
 /// Build a pipeline from a pre-loaded document (from [`elidex_navigation::load_document`]).

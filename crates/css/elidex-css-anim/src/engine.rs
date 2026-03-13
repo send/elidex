@@ -371,6 +371,16 @@ impl AnimationEngine {
         !self.transitions.is_empty() || !self.animations.is_empty()
     }
 
+    /// Returns an iterator over all entity IDs that have active transitions or animations.
+    pub fn active_entity_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.transitions
+            .keys()
+            .chain(self.animations.keys())
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+    }
+
     /// Remove all animations and transitions for an entity.
     ///
     /// Must be called when an element is destroyed to prevent memory leaks.

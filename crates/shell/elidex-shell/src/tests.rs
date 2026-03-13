@@ -562,6 +562,61 @@ fn animation_properties_parsed_from_stylesheet() {
 }
 
 #[test]
+fn anim_style_populated_from_css() {
+    use elidex_css_anim::style::{AnimStyle, TransitionProperty};
+
+    let result = build_pipeline_interactive(
+        "<div id=\"animated\">Hello</div>",
+        "div { transition: opacity 0.3s ease; }",
+    );
+
+    let entity = find_by_id(&result, "div", "animated")
+        .expect("should find div#animated");
+    let anim_style = result
+        .dom
+        .world()
+        .get::<&AnimStyle>(entity)
+        .expect("AnimStyle should be attached");
+    assert_eq!(
+        anim_style.transition_property,
+        vec![TransitionProperty::Property("opacity".into())]
+    );
+    assert!((anim_style.transition_duration[0] - 0.3).abs() < f32::EPSILON);
+}
+
+#[test]
+fn anim_style_not_attached_without_animation_props() {
+    use elidex_css_anim::style::AnimStyle;
+
+    let result = build_pipeline_interactive(
+        "<div id=\"plain\">Hello</div>",
+        "div { color: red; }",
+    );
+
+    let entity = find_by_id(&result, "div", "plain")
+        .expect("should find div#plain");
+    let anim_result = result.dom.world().get::<&AnimStyle>(entity);
+    assert!(
+        anim_result.is_err(),
+        "AnimStyle should not be attached when no animation/transition properties are set"
+    );
+}
+
+#[test]
+fn re_render_with_transitions_does_not_panic() {
+    // Verify the full re_render pipeline (including transition detection
+    // and animated value application) doesn't panic with transition CSS.
+    let mut result = build_pipeline_interactive(
+        "<div>Hello</div>",
+        "div { opacity: 1; transition: opacity 0.5s linear; }",
+    );
+
+    // Re-render should succeed without panic.
+    re_render(&mut result);
+    // Just verify re_render completes successfully.
+}
+
+#[test]
 fn inline_run_produces_single_text_item() {
     // Verifies that inline text is collected and rendered correctly.
     let html = r"<p>Hello <strong>world</strong>!</p>";

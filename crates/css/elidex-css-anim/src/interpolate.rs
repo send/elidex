@@ -115,6 +115,57 @@ pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
     }
 }
 
+/// All animatable CSS property names (CSS Transitions Level 1 §3).
+///
+/// Used by the transition detection system to compare old vs new computed values.
+pub const ANIMATABLE_PROPERTIES: &[&str] = &[
+    "opacity",
+    "color",
+    "background-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "width",
+    "height",
+    "min-width",
+    "min-height",
+    "max-width",
+    "max-height",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+    "font-size",
+    "font-weight",
+    "letter-spacing",
+    "word-spacing",
+    "line-height",
+    "border-radius",
+    "row-gap",
+    "column-gap",
+    "border-spacing",
+    "flex-grow",
+    "flex-shrink",
+    "order",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "z-index",
+    "visibility",
+    "text-decoration-color",
+    "vertical-align",
+];
+
 /// Returns `true` if the given CSS property name is animatable.
 ///
 /// Based on CSS Transitions Level 1 §3 animatable properties list.
