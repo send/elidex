@@ -296,7 +296,11 @@ fn parent_child_no_collapse_with_border() {
         ComputedStyle {
             display: Display::Block,
             margin_top: Dimension::Length(10.0),
-            border_top: BorderSide { width: 1.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_top: BorderSide {
+                width: 1.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     );
@@ -331,7 +335,12 @@ fn parent_child_no_collapse_with_padding() {
         ComputedStyle {
             display: Display::Block,
             margin_top: Dimension::Length(10.0),
-            padding: EdgeSizes { top: 5.0, right: 0.0, bottom: 0.0, left: 0.0 },
+            padding: EdgeSizes {
+                top: 5.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
             ..Default::default()
         },
     );

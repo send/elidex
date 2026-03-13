@@ -94,10 +94,26 @@ fn emit_borders_four_sides() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::TRANSPARENT,
-            border_top: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_right: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_bottom: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_left: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
+            border_top: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_right: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_bottom: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_left: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -128,7 +144,11 @@ fn emit_borders_style_none_skipped() {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::TRANSPARENT,
             // Only top border is solid; others are none (default).
-            border_top: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
+            border_top: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -154,7 +174,11 @@ fn emit_borders_zero_width_skipped() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::TRANSPARENT,
-            border_top: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
+            border_top: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -248,10 +272,26 @@ fn border_radius_with_border_known_limitation() {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
             border_radius: 10.0,
-            border_top: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::BLACK },
-            border_right: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::BLACK },
-            border_bottom: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::BLACK },
-            border_left: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::BLACK },
+            border_top: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLACK,
+            },
+            border_right: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLACK,
+            },
+            border_bottom: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLACK,
+            },
+            border_left: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLACK,
+            },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -287,10 +327,26 @@ fn border_corners_no_overlap() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::TRANSPARENT,
-            border_top: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_right: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_bottom: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
-            border_left: elidex_plugin::BorderSide { width: 0.0, style: elidex_plugin::BorderStyle::Solid, color: elidex_plugin::CssColor::RED },
+            border_top: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_right: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_bottom: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_left: elidex_plugin::BorderSide {
+                width: 0.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
             ..Default::default()
         },
         elidex_plugin::LayoutBox {

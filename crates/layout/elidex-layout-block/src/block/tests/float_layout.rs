@@ -160,7 +160,12 @@ fn float_with_nonzero_parent_offset() {
         parent,
         ComputedStyle {
             display: Display::Block,
-            padding: EdgeSizes { top: 10.0, right: 0.0, bottom: 0.0, left: 20.0 },
+            padding: EdgeSizes {
+                top: 10.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 20.0,
+            },
             ..Default::default()
         },
     );

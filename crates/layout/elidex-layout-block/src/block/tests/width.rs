@@ -14,9 +14,20 @@ fn fixed_width_with_padding_border() {
     let style = ComputedStyle {
         display: Display::Block,
         width: Dimension::Length(200.0),
-        padding: EdgeSizes { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 },
-        border_left: BorderSide { width: 2.0, ..BorderSide::NONE },
-        border_right: BorderSide { width: 2.0, ..BorderSide::NONE },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 10.0,
+            bottom: 0.0,
+            left: 10.0,
+        },
+        border_left: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let (mut dom, div) = make_dom_with_block_div(style);
@@ -73,9 +84,20 @@ fn box_sizing_content_box_default() {
     let style = ComputedStyle {
         display: Display::Block,
         width: Dimension::Length(200.0),
-        padding: EdgeSizes { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 },
-        border_left: BorderSide { width: 2.0, ..BorderSide::NONE },
-        border_right: BorderSide { width: 2.0, ..BorderSide::NONE },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 10.0,
+            bottom: 0.0,
+            left: 10.0,
+        },
+        border_left: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let (mut dom, div) = make_dom_with_block_div(style);
@@ -94,9 +116,20 @@ fn box_sizing_border_box_width() {
     let style = ComputedStyle {
         display: Display::Block,
         width: Dimension::Length(200.0),
-        padding: EdgeSizes { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 },
-        border_left: BorderSide { width: 2.0, ..BorderSide::NONE },
-        border_right: BorderSide { width: 2.0, ..BorderSide::NONE },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 10.0,
+            bottom: 0.0,
+            left: 10.0,
+        },
+        border_left: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -116,7 +149,12 @@ fn box_sizing_border_box_percentage_width() {
     let style = ComputedStyle {
         display: Display::Block,
         width: Dimension::Percentage(50.0), // 50% of 800 = 400
-        padding: EdgeSizes { top: 0.0, right: 20.0, bottom: 0.0, left: 20.0 },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 20.0,
+            bottom: 0.0,
+            left: 20.0,
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -134,7 +172,12 @@ fn box_sizing_border_box_auto_width_unchanged() {
     let style = ComputedStyle {
         display: Display::Block,
         width: Dimension::Auto,
-        padding: EdgeSizes { top: 0.0, right: 20.0, bottom: 0.0, left: 20.0 },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 20.0,
+            bottom: 0.0,
+            left: 20.0,
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -295,7 +338,12 @@ fn min_width_border_box_subtracts_padding() {
         width: Dimension::Length(100.0),
         min_width: Dimension::Length(200.0),
         box_sizing: BoxSizing::BorderBox,
-        padding: EdgeSizes { top: 0.0, right: 20.0, bottom: 0.0, left: 20.0 },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 20.0,
+            bottom: 0.0,
+            left: 20.0,
+        },
         ..Default::default()
     };
     let (mut dom, div) = make_dom_with_block_div(style);
@@ -320,7 +368,12 @@ fn max_width_border_box_subtracts_padding() {
         width: Dimension::Length(300.0),
         max_width: Dimension::Length(200.0),
         box_sizing: BoxSizing::BorderBox,
-        padding: EdgeSizes { top: 0.0, right: 20.0, bottom: 0.0, left: 20.0 },
+        padding: EdgeSizes {
+            top: 0.0,
+            right: 20.0,
+            bottom: 0.0,
+            left: 20.0,
+        },
         ..Default::default()
     };
     let (mut dom, div) = make_dom_with_block_div(style);

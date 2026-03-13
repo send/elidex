@@ -10,10 +10,26 @@ fn table_padding_border() {
     let style = ComputedStyle {
         display: Display::Table,
         padding: EdgeSizes::uniform(5.0),
-        border_top: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
-        border_right: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
-        border_bottom: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
-        border_left: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+        border_top: BorderSide {
+            width: 2.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
+        border_bottom: BorderSide {
+            width: 2.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
+        border_left: BorderSide {
+            width: 2.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let (mut dom, table, _) = create_simple_table(1, 2, style);
@@ -269,7 +285,11 @@ fn table_collapse_border_merge() {
     let style = ComputedStyle {
         display: Display::Table,
         border_collapse: BorderCollapse::Collapse,
-        border_right: BorderSide { width: 4.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+        border_right: BorderSide {
+            width: 4.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let mut dom = EcsDom::new();
@@ -292,7 +312,11 @@ fn table_collapse_border_merge() {
         ComputedStyle {
             display: Display::TableCell,
             height: Dimension::Length(20.0),
-            border_right: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_right: BorderSide {
+                width: 2.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     );
@@ -304,7 +328,11 @@ fn table_collapse_border_merge() {
         ComputedStyle {
             display: Display::TableCell,
             height: Dimension::Length(20.0),
-            border_left: BorderSide { width: 6.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_left: BorderSide {
+                width: 6.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     );
@@ -332,7 +360,11 @@ fn table_collapse_outer_border() {
     let style = ComputedStyle {
         display: Display::Table,
         border_collapse: BorderCollapse::Collapse,
-        border_top: BorderSide { width: 3.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+        border_top: BorderSide {
+            width: 3.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let (mut dom, table, _) = create_simple_table(1, 1, style);
@@ -390,17 +422,33 @@ fn collapse_border_numeric_top_bottom() {
     let cells = vec![make_cell(0, 0), make_cell(0, 1)];
     let styles = vec![
         ComputedStyle {
-            border_bottom: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_bottom: BorderSide {
+                width: 2.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
         ComputedStyle {
-            border_top: BorderSide { width: 6.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_top: BorderSide {
+                width: 6.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     ];
     let table_style = ComputedStyle {
-        border_top: BorderSide { width: 4.0, style: BorderStyle::Solid, ..BorderSide::NONE },
-        border_bottom: BorderSide { width: 1.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+        border_top: BorderSide {
+            width: 4.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
+        border_bottom: BorderSide {
+            width: 1.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let result = algo::resolve_collapsed_borders(&cells, &styles, &table_style, 1, 2);
@@ -421,17 +469,33 @@ fn collapse_border_numeric_left_right() {
     let cells = vec![make_cell(0, 0), make_cell(1, 0)];
     let styles = vec![
         ComputedStyle {
-            border_right: BorderSide { width: 3.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_right: BorderSide {
+                width: 3.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
         ComputedStyle {
-            border_left: BorderSide { width: 5.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_left: BorderSide {
+                width: 5.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     ];
     let table_style = ComputedStyle {
-        border_left: BorderSide { width: 2.0, style: BorderStyle::Solid, ..BorderSide::NONE },
-        border_right: BorderSide { width: 7.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+        border_left: BorderSide {
+            width: 2.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 7.0,
+            style: BorderStyle::Solid,
+            ..BorderSide::NONE
+        },
         ..Default::default()
     };
     let result = algo::resolve_collapsed_borders(&cells, &styles, &table_style, 2, 1);
@@ -466,15 +530,27 @@ fn collapse_border_spanning_cell_checks_all_neighbors() {
     ];
     let styles = vec![
         ComputedStyle {
-            border_bottom: BorderSide { width: 1.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_bottom: BorderSide {
+                width: 1.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
         ComputedStyle {
-            border_top: BorderSide { width: 3.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_top: BorderSide {
+                width: 3.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
         ComputedStyle {
-            border_top: BorderSide { width: 8.0, style: BorderStyle::Solid, ..BorderSide::NONE },
+            border_top: BorderSide {
+                width: 8.0,
+                style: BorderStyle::Solid,
+                ..BorderSide::NONE
+            },
             ..Default::default()
         },
     ];

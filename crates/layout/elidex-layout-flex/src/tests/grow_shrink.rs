@@ -282,8 +282,14 @@ fn flex_item_border_box_width() {
         width: Dimension::Length(200.0),
         height: Dimension::Length(50.0),
         padding: EdgeSizes::new(0.0, 10.0, 0.0, 10.0),
-        border_left: BorderSide { width: 2.0, ..BorderSide::NONE },
-        border_right: BorderSide { width: 2.0, ..BorderSide::NONE },
+        border_left: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
+        border_right: BorderSide {
+            width: 2.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };
@@ -315,8 +321,14 @@ fn flex_container_border_box_height() {
         display: Display::Flex,
         height: Dimension::Length(200.0),
         padding: EdgeSizes::new(15.0, 0.0, 15.0, 0.0),
-        border_top: BorderSide { width: 5.0, ..BorderSide::NONE },
-        border_bottom: BorderSide { width: 5.0, ..BorderSide::NONE },
+        border_top: BorderSide {
+            width: 5.0,
+            ..BorderSide::NONE
+        },
+        border_bottom: BorderSide {
+            width: 5.0,
+            ..BorderSide::NONE
+        },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
     };

@@ -672,9 +672,7 @@ mod tests {
     fn compound_var_border_shorthand() {
         // border: var(--bw) solid var(--bc)
         let mut parent = ComputedStyle::default();
-        parent
-            .custom_properties
-            .insert("--bw".into(), "2px".into());
+        parent.custom_properties.insert("--bw".into(), "2px".into());
         parent
             .custom_properties
             .insert("--bc".into(), "#ff0000".into());
@@ -702,33 +700,23 @@ mod tests {
     fn compound_var_margin() {
         // margin: 0 var(--x)
         let mut parent = ComputedStyle::default();
-        parent
-            .custom_properties
-            .insert("--x".into(), "10px".into());
+        parent.custom_properties.insert("--x".into(), "10px".into());
         let ctx = default_ctx();
         let mut winners: PropertyMap = HashMap::new();
         let raw = CssValue::RawTokens("0 var(--x)".into());
         winners.insert("margin", &raw);
         let style = build_computed_style(&winners, &parent, &ctx);
         assert_eq!(style.margin_top, elidex_plugin::Dimension::ZERO);
-        assert_eq!(
-            style.margin_right,
-            elidex_plugin::Dimension::Length(10.0)
-        );
+        assert_eq!(style.margin_right, elidex_plugin::Dimension::Length(10.0));
         assert_eq!(style.margin_bottom, elidex_plugin::Dimension::ZERO);
-        assert_eq!(
-            style.margin_left,
-            elidex_plugin::Dimension::Length(10.0)
-        );
+        assert_eq!(style.margin_left, elidex_plugin::Dimension::Length(10.0));
     }
 
     #[test]
     fn compound_var_border_side() {
         // border-bottom: var(--bw) solid var(--bc)
         let mut parent = ComputedStyle::default();
-        parent
-            .custom_properties
-            .insert("--bw".into(), "1px".into());
+        parent.custom_properties.insert("--bw".into(), "1px".into());
         parent
             .custom_properties
             .insert("--bc".into(), "#30363d".into());

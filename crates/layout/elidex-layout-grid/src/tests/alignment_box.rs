@@ -99,10 +99,22 @@ fn grid_with_padding_border() {
                 display: Display::Grid,
                 grid_template_columns: vec![TrackSize::Fr(1.0)],
                 padding: EdgeSizes::uniform(10.0),
-                border_top: BorderSide { width: 5.0, ..BorderSide::NONE },
-                border_right: BorderSide { width: 5.0, ..BorderSide::NONE },
-                border_bottom: BorderSide { width: 5.0, ..BorderSide::NONE },
-                border_left: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_top: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
+                border_right: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
+                border_bottom: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
+                border_left: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
                 ..Default::default()
             },
         )
@@ -201,8 +213,14 @@ fn grid_box_sizing_border_box() {
                 width: Dimension::Length(400.0),
                 box_sizing: elidex_plugin::BoxSizing::BorderBox,
                 padding: EdgeSizes::new(0.0, 20.0, 0.0, 20.0),
-                border_left: BorderSide { width: 5.0, ..BorderSide::NONE },
-                border_right: BorderSide { width: 5.0, ..BorderSide::NONE },
+                border_left: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
+                border_right: BorderSide {
+                    width: 5.0,
+                    ..BorderSide::NONE
+                },
                 ..Default::default()
             },
         )

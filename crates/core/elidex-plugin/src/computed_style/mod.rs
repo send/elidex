@@ -332,10 +332,22 @@ impl Default for ComputedStyle {
             // CSS initial value is `medium` (3px), but computed value is 0
             // when border-style is `none` (the default).
             // currentcolor → resolved to `color` field value.
-            border_top: BorderSide { color, ..BorderSide::NONE },
-            border_right: BorderSide { color, ..BorderSide::NONE },
-            border_bottom: BorderSide { color, ..BorderSide::NONE },
-            border_left: BorderSide { color, ..BorderSide::NONE },
+            border_top: BorderSide {
+                color,
+                ..BorderSide::NONE
+            },
+            border_right: BorderSide {
+                color,
+                ..BorderSide::NONE
+            },
+            border_bottom: BorderSide {
+                color,
+                ..BorderSide::NONE
+            },
+            border_left: BorderSide {
+                color,
+                ..BorderSide::NONE
+            },
 
             // Inherited text spacing
             letter_spacing: None,
