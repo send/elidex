@@ -93,6 +93,24 @@ pub fn resolve_i32(value: &CssValue, default: i32) -> i32 {
     }
 }
 
+/// Convenience macro for resolving a CSS keyword value into a typed enum field.
+///
+/// Equivalent to:
+/// ```ignore
+/// if let Some(v) = resolve_keyword_to_enum(value, Type::from_keyword) {
+///     field = v;
+/// }
+/// ```
+#[macro_export]
+macro_rules! resolve_keyword {
+    ($value:expr, $field:expr, $type:ty) => {
+        if let Some(v) = $crate::css_resolve::resolve_keyword_to_enum($value, <$type>::from_keyword)
+        {
+            $field = v;
+        }
+    };
+}
+
 /// Resolve a `CssValue::Keyword` to an enum variant via a `from_keyword` function.
 ///
 /// Returns `None` if the value is not a `Keyword` or the keyword is unrecognized.

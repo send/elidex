@@ -2,7 +2,7 @@
 //! white-space, color, writing-mode, direction, unicode-bidi, list-style-type).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_unit, resolve_keyword_to_enum, resolve_length},
+    css_resolve::{keyword_from, parse_length_unit, resolve_length},
     parse_css_keyword as parse_keyword, ComputedStyle, CssColor, CssPropertyHandler, CssValue,
     Direction, FontStyle, LengthUnit, LineHeight, ListStyleType, ParseError, PropertyDeclaration,
     ResolveContext, TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation,
@@ -74,7 +74,7 @@ impl CssPropertyHandler for TextHandler {
             "text-decoration-style" => {
                 parse_keyword(input, &["solid", "double", "dotted", "dashed", "wavy"])?
             }
-            "color" | "text-decoration-color" => parse_css_color(input)?,
+            "color" | "text-decoration-color" => elidex_css::parse_color_with_currentcolor(input)?,
             "writing-mode" => {
                 parse_keyword(input, &["horizontal-tb", "vertical-rl", "vertical-lr"])?
             }
@@ -119,9 +119,7 @@ impl CssPropertyHandler for TextHandler {
                 resolve_font_weight_value(value, style);
             }
             "font-style" => {
-                if let Some(v) = resolve_keyword_to_enum(value, FontStyle::from_keyword) {
-                    style.font_style = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.font_style, FontStyle);
             }
             "font-family" => {
                 resolve_font_family(value, style);
@@ -130,19 +128,13 @@ impl CssPropertyHandler for TextHandler {
                 resolve_line_height(value, style, ctx);
             }
             "text-align" => {
-                if let Some(v) = resolve_keyword_to_enum(value, TextAlign::from_keyword) {
-                    style.text_align = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.text_align, TextAlign);
             }
             "text-transform" => {
-                if let Some(v) = resolve_keyword_to_enum(value, TextTransform::from_keyword) {
-                    style.text_transform = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.text_transform, TextTransform);
             }
             "white-space" => {
-                if let Some(v) = resolve_keyword_to_enum(value, WhiteSpace::from_keyword) {
-                    style.white_space = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.white_space, WhiteSpace);
             }
             "letter-spacing" => {
                 style.letter_spacing = resolve_spacing(value, ctx);
@@ -154,9 +146,11 @@ impl CssPropertyHandler for TextHandler {
                 resolve_text_decoration_line(value, style);
             }
             "text-decoration-style" => {
-                if let Some(v) = resolve_keyword_to_enum(value, TextDecorationStyle::from_keyword) {
-                    style.text_decoration_style = v;
-                }
+                elidex_plugin::resolve_keyword!(
+                    value,
+                    style.text_decoration_style,
+                    TextDecorationStyle
+                );
             }
             "text-decoration-color" => match value {
                 CssValue::Color(c) => style.text_decoration_color = Some(*c),
@@ -166,29 +160,19 @@ impl CssPropertyHandler for TextHandler {
                 _ => {}
             },
             "writing-mode" => {
-                if let Some(v) = resolve_keyword_to_enum(value, WritingMode::from_keyword) {
-                    style.writing_mode = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.writing_mode, WritingMode);
             }
             "text-orientation" => {
-                if let Some(v) = resolve_keyword_to_enum(value, TextOrientation::from_keyword) {
-                    style.text_orientation = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.text_orientation, TextOrientation);
             }
             "direction" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Direction::from_keyword) {
-                    style.direction = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.direction, Direction);
             }
             "unicode-bidi" => {
-                if let Some(v) = resolve_keyword_to_enum(value, UnicodeBidi::from_keyword) {
-                    style.unicode_bidi = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.unicode_bidi, UnicodeBidi);
             }
             "list-style-type" => {
-                if let Some(v) = resolve_keyword_to_enum(value, ListStyleType::from_keyword) {
-                    style.list_style_type = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.list_style_type, ListStyleType);
             }
             _ => {}
         }
@@ -309,10 +293,6 @@ impl CssPropertyHandler for TextHandler {
 // ---------------------------------------------------------------------------
 // Parsing helpers
 // ---------------------------------------------------------------------------
-
-fn parse_css_color(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    elidex_css::parse_color_with_currentcolor(input)
-}
 
 /// CSS absolute font-size keyword values in pixels (CSS Fonts Level 4).
 const FONT_SIZE_KEYWORDS: &[(&str, f32)] = &[

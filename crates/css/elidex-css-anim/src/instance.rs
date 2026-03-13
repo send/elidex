@@ -157,10 +157,11 @@ impl AnimationInstance {
             return match self.fill_mode {
                 AnimationFillMode::Forwards | AnimationFillMode::Both => {
                     let final_iteration = self.final_iteration();
-                    let raw = if n_is_whole(match self.iteration_count {
+                    let iteration_n = match self.iteration_count {
                         IterationCount::Number(n) => n,
                         IterationCount::Infinite => 1.0,
-                    }) {
+                    };
+                    let raw = if (iteration_n - iteration_n.round()).abs() < 1e-6 {
                         1.0
                     } else {
                         ((active_time % dur) / dur) as f32
@@ -215,10 +216,6 @@ impl AnimationInstance {
     }
 }
 
-fn n_is_whole(n: f32) -> bool {
-    (n - n.round()).abs() < f32::EPSILON
-}
-
 /// A running transition instance for a single property.
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)]
@@ -236,15 +233,15 @@ pub struct TransitionInstance {
     /// Delay in seconds.
     pub delay: f32,
     /// Elapsed time since transition start, in seconds.
-    pub elapsed: f64,
+    pub(crate) elapsed: f64,
     /// Whether the transition has completed.
-    pub finished: bool,
+    pub(crate) finished: bool,
     /// Whether the `transitionend` event has been dispatched.
-    pub end_event_dispatched: bool,
+    pub(crate) end_event_dispatched: bool,
     /// Whether the `transitionrun` event has been dispatched.
-    pub run_event_dispatched: bool,
+    pub(crate) run_event_dispatched: bool,
     /// Whether the `transitionstart` event has been dispatched.
-    pub start_event_dispatched: bool,
+    pub(crate) start_event_dispatched: bool,
 }
 
 impl TransitionInstance {

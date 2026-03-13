@@ -2,9 +2,7 @@
 //! caption-side, border-spacing).
 
 use elidex_plugin::{
-    css_resolve::{
-        keyword_from, parse_non_negative_length, resolve_keyword_to_enum, resolve_to_px,
-    },
+    css_resolve::{keyword_from, parse_non_negative_length, resolve_to_px},
     parse_css_keyword as parse_keyword, BorderCollapse, CaptionSide, ComputedStyle,
     CssPropertyHandler, CssValue, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
     TableLayout,
@@ -56,9 +54,7 @@ impl CssPropertyHandler for TableHandler {
     ) {
         match name {
             "border-collapse" => {
-                if let Some(v) = resolve_keyword_to_enum(value, BorderCollapse::from_keyword) {
-                    style.border_collapse = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.border_collapse, BorderCollapse);
             }
             "border-spacing-h" => {
                 let px = resolve_to_px(value, ctx).max(0.0);
@@ -69,14 +65,10 @@ impl CssPropertyHandler for TableHandler {
                 style.border_spacing_v = px;
             }
             "table-layout" => {
-                if let Some(v) = resolve_keyword_to_enum(value, TableLayout::from_keyword) {
-                    style.table_layout = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.table_layout, TableLayout);
             }
             "caption-side" => {
-                if let Some(v) = resolve_keyword_to_enum(value, CaptionSide::from_keyword) {
-                    style.caption_side = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.caption_side, CaptionSide);
             }
             _ => {}
         }

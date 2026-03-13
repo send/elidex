@@ -2,9 +2,7 @@
 //! justify-content, align-items/self/content, flex-grow/shrink/basis, order).
 
 use elidex_plugin::{
-    css_resolve::{
-        keyword_from, parse_length_or_percentage, resolve_dimension, resolve_keyword_to_enum,
-    },
+    css_resolve::{keyword_from, parse_length_or_percentage, resolve_dimension},
     parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, ComputedStyle,
     CssPropertyHandler, CssValue, Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit,
     ParseError, PropertyDeclaration, ResolveContext,
@@ -105,34 +103,22 @@ impl CssPropertyHandler for FlexHandler {
     ) {
         match name {
             "flex-direction" => {
-                if let Some(v) = resolve_keyword_to_enum(value, FlexDirection::from_keyword) {
-                    style.flex_direction = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.flex_direction, FlexDirection);
             }
             "flex-wrap" => {
-                if let Some(v) = resolve_keyword_to_enum(value, FlexWrap::from_keyword) {
-                    style.flex_wrap = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.flex_wrap, FlexWrap);
             }
             "justify-content" => {
-                if let Some(v) = resolve_keyword_to_enum(value, JustifyContent::from_keyword) {
-                    style.justify_content = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.justify_content, JustifyContent);
             }
             "align-items" => {
-                if let Some(v) = resolve_keyword_to_enum(value, AlignItems::from_keyword) {
-                    style.align_items = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.align_items, AlignItems);
             }
             "align-content" => {
-                if let Some(v) = resolve_keyword_to_enum(value, AlignContent::from_keyword) {
-                    style.align_content = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.align_content, AlignContent);
             }
             "align-self" => {
-                if let Some(v) = resolve_keyword_to_enum(value, AlignSelf::from_keyword) {
-                    style.align_self = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.align_self, AlignSelf);
             }
             "flex-grow" => {
                 if let CssValue::Number(n) = value {

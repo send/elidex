@@ -4,7 +4,7 @@
 use elidex_plugin::{
     css_resolve::{
         dimension_to_css_value, keyword_from, parse_non_negative_length_or_percentage,
-        resolve_color, resolve_dimension, resolve_keyword_to_enum, resolve_to_px,
+        resolve_color, resolve_dimension, resolve_to_px,
     },
     parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
     ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
@@ -139,7 +139,7 @@ impl CssPropertyHandler for BoxHandler {
             | "border-right-color"
             | "border-bottom-color"
             | "border-left-color"
-            | "background-color" => parse_color_value(input)?,
+            | "background-color" => elidex_css::parse_color_with_currentcolor(input)?,
 
             "opacity" => parse_opacity(input)?,
             "content" => parse_content(input)?,
@@ -159,19 +159,13 @@ impl CssPropertyHandler for BoxHandler {
     ) {
         match name {
             "display" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Display::from_keyword) {
-                    style.display = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.display, Display);
             }
             "position" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Position::from_keyword) {
-                    style.position = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.position, Position);
             }
             "box-sizing" => {
-                if let Some(v) = resolve_keyword_to_enum(value, BoxSizing::from_keyword) {
-                    style.box_sizing = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.box_sizing, BoxSizing);
             }
             "overflow" => {
                 if let CssValue::Keyword(ref k) = value {
@@ -263,13 +257,13 @@ impl CssPropertyHandler for BoxHandler {
             "display" => CssValue::Keyword("inline".to_string()),
             "position" => CssValue::Keyword("static".to_string()),
 
-            "width" | "height" | "max-width" | "max-height" | "min-width" | "min-height" => {
-                CssValue::Auto
-            }
+            "width" | "height" | "max-width" | "max-height" => CssValue::Auto,
 
-            "margin-top" | "margin-right" | "margin-bottom" | "margin-left" | "padding-top"
-            | "padding-right" | "padding-bottom" | "padding-left" | "border-radius" | "row-gap"
-            | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
+            "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
+            | "margin-left" | "padding-top" | "padding-right" | "padding-bottom"
+            | "padding-left" | "border-radius" | "row-gap" | "column-gap" => {
+                CssValue::Length(0.0, LengthUnit::Px)
+            }
 
             "border-top-width"
             | "border-right-width"
@@ -402,7 +396,7 @@ fn parse_length_percentage_auto(
     if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
         return Ok(CssValue::Auto);
     }
-    parse_length_percentage(input)
+    elidex_plugin::css_resolve::parse_length_or_percentage(input)
 }
 
 /// Parse a length, percentage, `auto`, or `none` (for max-width/max-height).
@@ -415,11 +409,6 @@ fn parse_length_percentage_auto_or_none(
     if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Auto); // `none` maps to Auto (unconstrained)
     }
-    parse_length_percentage(input)
-}
-
-/// Parse a length or percentage value.
-fn parse_length_percentage(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     elidex_plugin::css_resolve::parse_length_or_percentage(input)
 }
 
@@ -439,11 +428,6 @@ fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
         };
     }
     parse_non_negative_length_or_percentage(input)
-}
-
-/// Parse a CSS color value, including the `currentcolor` keyword.
-fn parse_color_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    elidex_css::parse_color_with_currentcolor(input)
 }
 
 /// Parse opacity: a number clamped to 0.0..=1.0.
@@ -527,9 +511,7 @@ fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
 
 /// Resolve a border-style keyword into a `BorderStyle` field.
 fn resolve_border_style(value: &CssValue, target: &mut BorderStyle) {
-    if let Some(v) = resolve_keyword_to_enum(value, BorderStyle::from_keyword) {
-        *target = v;
-    }
+    elidex_plugin::resolve_keyword!(value, *target, BorderStyle);
 }
 
 /// Resolve a border-style value and zero the corresponding width when the

@@ -224,10 +224,16 @@ mod tests {
             get_initial_value("list-style-type"),
             CssValue::Keyword("disc".to_string())
         );
-        // BoxHandler returns Auto for min-width/min-height (CSS spec initial value).
-        assert_eq!(get_initial_value("min-width"), CssValue::Auto);
+        // min-width/min-height: Length(0) matching ComputedStyle default (Dimension::ZERO).
+        assert_eq!(
+            get_initial_value("min-width"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
         assert_eq!(get_initial_value("max-width"), CssValue::Auto);
-        assert_eq!(get_initial_value("min-height"), CssValue::Auto);
+        assert_eq!(
+            get_initial_value("min-height"),
+            CssValue::Length(0.0, LengthUnit::Px)
+        );
         assert_eq!(get_initial_value("max-height"), CssValue::Auto);
     }
 

@@ -87,11 +87,12 @@ impl AnimationEngine {
             if t.property == transition.property && !t.finished {
                 cancel_events.push((
                     entity,
-                    AnimationEvent::TransitionCancel {
+                    AnimationEvent::Transition(TransitionEventData {
+                        kind: TransitionEventKind::Cancel,
                         property: t.property.clone(),
                         #[allow(clippy::cast_possible_truncation)]
-                        elapsed_time: (t.elapsed as f32 - t.delay).max(0.0),
-                    },
+                        elapsed_time: (t.elapsed - f64::from(t.delay)).max(0.0) as f32,
+                    }),
                 ));
                 false
             } else {
@@ -176,10 +177,11 @@ impl AnimationEngine {
                     trans.run_event_dispatched = true;
                     events.push((
                         *entity,
-                        AnimationEvent::TransitionRun {
+                        AnimationEvent::Transition(TransitionEventData {
+                            kind: TransitionEventKind::Run,
                             property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0),
-                        },
+                            elapsed_time: (-trans.delay).max(0.0).min(trans.duration),
+                        }),
                     ));
                 }
 
@@ -191,10 +193,11 @@ impl AnimationEngine {
                     trans.start_event_dispatched = true;
                     events.push((
                         *entity,
-                        AnimationEvent::TransitionStart {
+                        AnimationEvent::Transition(TransitionEventData {
+                            kind: TransitionEventKind::Start,
                             property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0),
-                        },
+                            elapsed_time: (-trans.delay).max(0.0).min(trans.duration),
+                        }),
                     ));
                 }
 
@@ -204,10 +207,11 @@ impl AnimationEngine {
                         trans.end_event_dispatched = true;
                         events.push((
                             *entity,
-                            AnimationEvent::TransitionEnd {
+                            AnimationEvent::Transition(TransitionEventData {
+                                kind: TransitionEventKind::End,
                                 property: trans.property.clone(),
                                 elapsed_time: trans.duration,
-                            },
+                            }),
                         ));
                     }
                 }
@@ -240,7 +244,8 @@ impl AnimationEngine {
                     anim.start_event_dispatched = true;
                     events.push((
                         *entity,
-                        AnimationEvent::AnimationStart {
+                        AnimationEvent::Animation(AnimationEventData {
+                            kind: AnimationEventKind::Start,
                             name: anim.name().to_string(),
                             elapsed_time: {
                                 let active_dur = match anim.iteration_count() {
@@ -249,7 +254,7 @@ impl AnimationEngine {
                                 };
                                 (-anim.delay()).clamp(0.0, active_dur)
                             },
-                        },
+                        }),
                     ));
                 }
 
@@ -276,10 +281,11 @@ impl AnimationEngine {
                             #[allow(clippy::cast_precision_loss)]
                             events.push((
                                 *entity,
-                                AnimationEvent::AnimationIteration {
+                                AnimationEvent::Animation(AnimationEventData {
+                                    kind: AnimationEventKind::Iteration,
                                     name: anim.name().to_string(),
                                     elapsed_time: iter as f32 * anim.duration(),
-                                },
+                                }),
                             ));
                         }
                         anim.current_iteration = new_iteration;
@@ -293,10 +299,11 @@ impl AnimationEngine {
                         #[allow(clippy::cast_possible_truncation)]
                         events.push((
                             *entity,
-                            AnimationEvent::AnimationEnd {
+                            AnimationEvent::Animation(AnimationEventData {
+                                kind: AnimationEventKind::End,
                                 name: anim.name().to_string(),
                                 elapsed_time: total as f32,
-                            },
+                            }),
                         ));
                     }
                 }
@@ -344,55 +351,56 @@ impl Default for AnimationEngine {
 /// An animation/transition event to be dispatched to the DOM.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnimationEvent {
-    /// `transitionrun` event — fired when a transition is queued (before delay).
-    TransitionRun {
-        /// The property that is about to transition.
-        property: String,
-        /// Elapsed time at the point the event fires (always 0 when first queued).
-        elapsed_time: f32,
-    },
-    /// `transitionstart` event — fired when the delay phase ends.
-    TransitionStart {
-        /// The property that started transitioning.
-        property: String,
-        /// Elapsed active time in seconds (0 at the start of the active phase).
-        elapsed_time: f32,
-    },
-    /// `transitioncancel` event — fired when a transition is cancelled.
-    TransitionCancel {
-        /// The property whose transition was cancelled.
-        property: String,
-        /// Elapsed time in seconds at the point of cancellation.
-        elapsed_time: f32,
-    },
-    /// `transitionend` event.
-    TransitionEnd {
-        /// The property that finished transitioning.
-        property: String,
-        /// Duration of the transition in seconds.
-        elapsed_time: f32,
-    },
-    /// `animationstart` event.
-    AnimationStart {
-        /// The `@keyframes` name.
-        name: String,
-        /// Elapsed time in seconds (negative delay offset, clamped to 0).
-        elapsed_time: f32,
-    },
-    /// `animationiteration` event.
-    AnimationIteration {
-        /// The `@keyframes` name.
-        name: String,
-        /// Elapsed time in seconds at the iteration boundary.
-        elapsed_time: f32,
-    },
-    /// `animationend` event.
-    AnimationEnd {
-        /// The `@keyframes` name.
-        name: String,
-        /// Total active duration in seconds.
-        elapsed_time: f32,
-    },
+    /// A CSS transition event.
+    Transition(TransitionEventData),
+    /// A CSS animation event.
+    Animation(AnimationEventData),
+}
+
+/// Data for a CSS transition event.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransitionEventData {
+    /// The kind of transition event.
+    pub kind: TransitionEventKind,
+    /// The property being transitioned.
+    pub property: String,
+    /// Elapsed time in seconds at the point the event fires.
+    pub elapsed_time: f32,
+}
+
+/// The kind of a CSS transition event.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TransitionEventKind {
+    /// `transitionrun` — fired when a transition is queued (before delay).
+    Run,
+    /// `transitionstart` — fired when the delay phase ends.
+    Start,
+    /// `transitionend` — fired when the transition completes.
+    End,
+    /// `transitioncancel` — fired when a transition is cancelled.
+    Cancel,
+}
+
+/// Data for a CSS animation event.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimationEventData {
+    /// The kind of animation event.
+    pub kind: AnimationEventKind,
+    /// The `@keyframes` name.
+    pub name: String,
+    /// Elapsed time in seconds at the point the event fires.
+    pub elapsed_time: f32,
+}
+
+/// The kind of a CSS animation event.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum AnimationEventKind {
+    /// `animationstart` — fired when the animation starts (after delay).
+    Start,
+    /// `animationend` — fired when the animation completes.
+    End,
+    /// `animationiteration` — fired at iteration boundaries.
+    Iteration,
 }
 
 #[cfg(test)]
@@ -440,11 +448,11 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::TransitionRun { property, .. } if property == "opacity"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Run, property, .. }) if property == "opacity"
         ));
         assert!(matches!(
             &events[1].1,
-            AnimationEvent::TransitionStart { property, .. } if property == "opacity"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Start, property, .. }) if property == "opacity"
         ));
         assert_eq!(engine.active_transitions(1).len(), 1);
 
@@ -453,7 +461,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::TransitionEnd { property, .. } if property == "opacity"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::End, property, .. }) if property == "opacity"
         ));
 
         // Transition removed after completion
@@ -478,7 +486,7 @@ mod tests {
         assert_eq!(events.len(), 1, "only transitionrun during delay");
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::TransitionRun { property, .. } if property == "width"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Run, property, .. }) if property == "width"
         ));
 
         // Past delay — transitionstart fires
@@ -486,13 +494,19 @@ mod tests {
         assert_eq!(events.len(), 1, "transitionstart when delay ends");
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::TransitionStart { property, .. } if property == "width"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Start, property, .. }) if property == "width"
         ));
 
         // Complete — transitionend fires
         let events = engine.tick(0.4);
         assert_eq!(events.len(), 1);
-        assert!(matches!(&events[0].1, AnimationEvent::TransitionEnd { .. }));
+        assert!(matches!(
+            &events[0].1,
+            AnimationEvent::Transition(TransitionEventData {
+                kind: TransitionEventKind::End,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -512,7 +526,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::AnimationStart { name, .. } if name == "fadeIn"
+            AnimationEvent::Animation(AnimationEventData { kind: AnimationEventKind::Start, name, .. }) if name == "fadeIn"
         ));
 
         // Second tick completes the animation: emits AnimationEnd.
@@ -520,7 +534,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0].1,
-            AnimationEvent::AnimationEnd { name, .. } if name == "fadeIn"
+            AnimationEvent::Animation(AnimationEventData { kind: AnimationEventKind::End, name, .. }) if name == "fadeIn"
         ));
     }
 
@@ -541,9 +555,13 @@ mod tests {
         for _ in 0..100 {
             let events = engine.tick(0.5);
             assert!(
-                events
-                    .iter()
-                    .all(|(_, e)| !matches!(e, AnimationEvent::AnimationEnd { .. })),
+                events.iter().all(|(_, e)| !matches!(
+                    e,
+                    AnimationEvent::Animation(AnimationEventData {
+                        kind: AnimationEventKind::End,
+                        ..
+                    })
+                )),
                 "infinite animation should never emit AnimationEnd"
             );
         }
@@ -599,7 +617,7 @@ mod tests {
         );
         assert!(matches!(
             &cancel2[0].1,
-            AnimationEvent::TransitionCancel { property, .. } if property == "opacity"
+            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Cancel, property, .. }) if property == "opacity"
         ));
 
         assert_eq!(engine.active_transitions(1).len(), 1);

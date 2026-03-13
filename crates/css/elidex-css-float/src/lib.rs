@@ -1,7 +1,7 @@
 //! CSS float, clear, visibility, and vertical-align property handler.
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, resolve_keyword_to_enum, resolve_length},
+    css_resolve::{keyword_from, resolve_length},
     parse_css_keyword as parse_keyword, Clear, ComputedStyle, CssPropertyHandler, CssValue, Float,
     LengthUnit, ParseError, PropertyDeclaration, ResolveContext, VerticalAlign, Visibility,
 };
@@ -46,19 +46,13 @@ impl CssPropertyHandler for FloatHandler {
     ) {
         match name {
             "float" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Float::from_keyword) {
-                    style.float = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.float, Float);
             }
             "clear" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Clear::from_keyword) {
-                    style.clear = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.clear, Clear);
             }
             "visibility" => {
-                if let Some(v) = resolve_keyword_to_enum(value, Visibility::from_keyword) {
-                    style.visibility = v;
-                }
+                elidex_plugin::resolve_keyword!(value, style.visibility, Visibility);
             }
             "vertical-align" => {
                 style.vertical_align = match value {

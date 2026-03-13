@@ -306,6 +306,7 @@ pub struct Keyframe {
 /// Maximum number of keyframe blocks parsed from a single `@keyframes` rule.
 const MAX_KEYFRAMES: usize = 1000;
 
+#[must_use]
 pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     let mut keyframes = Vec::new();
     let mut remaining = block_text.trim();
@@ -354,6 +355,28 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         a.offset
             .partial_cmp(&b.offset)
             .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // CSS Animations Level 1 §3.2: merge duplicate offsets (last wins per property).
+    keyframes.dedup_by(|later, earlier| {
+        if (later.offset - earlier.offset).abs() < f32::EPSILON {
+            // Merge later's declarations into earlier (earlier is kept by dedup_by).
+            // Later declarations win for same property names.
+            for decl in later.declarations.drain(..) {
+                if let Some(existing) = earlier
+                    .declarations
+                    .iter_mut()
+                    .find(|d| d.property == decl.property)
+                {
+                    *existing = decl;
+                } else {
+                    earlier.declarations.push(decl);
+                }
+            }
+            true // Remove `later`
+        } else {
+            false
+        }
     });
 
     // CSS Animations Level 1 §4.2: if 0% (from) or 100% (to) keyframes
@@ -475,7 +498,7 @@ fn parse_cubic_bezier_args(args: &mut cssparser::Parser<'_, '_>) -> Result<Timin
 
 fn parse_steps_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFunction, ()> {
     let count = args.expect_integer().map_err(|_| ())?;
-    if count < 1 {
+    if !(1..=10_000).contains(&count) {
         return Err(());
     }
     // Per CSS Easing Functions Level 2, steps(n, jump-none) requires n >= 2.

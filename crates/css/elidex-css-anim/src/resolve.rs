@@ -96,6 +96,8 @@ pub fn resolve_iteration_counts(value: &CssValue) -> Vec<IterationCount> {
                 IterationCount::Infinite
             } else {
                 part.parse::<f32>()
+                    .ok()
+                    .filter(|n| n.is_finite() && *n >= 0.0)
                     .map(IterationCount::Number)
                     .unwrap_or_default()
             }

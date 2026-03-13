@@ -229,6 +229,9 @@ fn steps_sample(count: u32, position: StepPosition, t: f32) -> f32 {
     };
 
     let current_step = (t * steps).floor() + start_offset;
+    // NOTE: Clamped to [0, 1] since the animation engine always provides
+    // progress values within [0, 1]. If cubic-bezier overshoot feeding into
+    // steps() is needed in the future, remove this clamp.
     (current_step / intervals).clamp(0.0, 1.0)
 }
 

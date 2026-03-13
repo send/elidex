@@ -108,7 +108,7 @@ pub fn resolve_styles_with_compat(
     hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     viewport_width: f32,
     viewport_height: f32,
-    registry: Option<&CssPropertyRegistry>,
+    _registry: Option<&CssPropertyRegistry>,
 ) {
     let ua = ua::ua_stylesheet();
 
@@ -133,7 +133,6 @@ pub fn resolve_styles_with_compat(
     let default_parent = ComputedStyle::default();
 
     let mut total_shadow_css = 0;
-    let _ = registry; // Registry is accessed via default_css_property_registry().
     let mut state = WalkState {
         ctx,
         hint_generator,

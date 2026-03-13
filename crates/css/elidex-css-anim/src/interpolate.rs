@@ -38,16 +38,6 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32, property: &str) -> Op
             Some(CssValue::Length(lerp(*a, *b, t), *ua))
         }
 
-        // Length ↔ Length (mismatched units) — should not happen after resolve;
-        // all lengths should be normalized to px before interpolation.
-        (CssValue::Length(_, ua), CssValue::Length(_, ub)) => {
-            eprintln!(
-                "interpolate: mismatched length units {ua:?} vs {ub:?}, \
-                 falling back to discrete interpolation"
-            );
-            Some(discrete(from, to, t))
-        }
-
         // Percentage ↔ Percentage
         (CssValue::Percentage(a), CssValue::Percentage(b)) => {
             Some(CssValue::Percentage(lerp(*a, *b, t)))
@@ -77,10 +67,15 @@ fn discrete(from: &CssValue, to: &CssValue, t: f32) -> CssValue {
 
 /// Linear interpolation: `a + (b - a) * t`.
 ///
-/// Assumes input values are in normal CSS ranges. Extreme values near
-/// `f32::MAX` may cause overflow to infinity.
+/// Returns `a` if the result is not finite (NaN or infinity), which can
+/// happen when inputs are NaN or extreme values near `f32::MAX` overflow.
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
+    let result = a + (b - a) * t;
+    if result.is_finite() {
+        result
+    } else {
+        a
+    }
 }
 
 /// Interpolate two RGBA colors component-wise with premultiplied alpha.
