@@ -22,8 +22,11 @@ use crate::app::navigation::resolve_nav_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel, ModifierState};
 use crate::PipelineResult;
 
-/// Default poll interval when no timers are pending.
+/// Default poll interval when no timers or animations are active.
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Target frame interval (~60 fps) for the animation frame loop.
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// State owned by the content thread.
 ///
@@ -168,14 +171,26 @@ fn content_thread_main_url(
 }
 
 fn run_event_loop(state: &mut ContentState) {
+    let mut last_frame = Instant::now();
+
     loop {
-        let timeout = state
-            .pipeline
-            .runtime
-            .next_timer_deadline()
-            .map_or(DEFAULT_POLL_INTERVAL, |d| {
-                d.saturating_duration_since(Instant::now())
-            });
+        let animations_active = state.pipeline.animation_engine.has_active();
+
+        // Determine the poll timeout:
+        // - When animations are running: target ~60 fps (16ms)
+        // - When JS timers are pending: wake at next timer deadline
+        // - Otherwise: idle poll interval (100ms)
+        let timeout = if animations_active {
+            FRAME_INTERVAL.saturating_sub(last_frame.elapsed())
+        } else {
+            state
+                .pipeline
+                .runtime
+                .next_timer_deadline()
+                .map_or(DEFAULT_POLL_INTERVAL, |d| {
+                    d.saturating_duration_since(Instant::now())
+                })
+        };
 
         match state.channel.recv_timeout(timeout) {
             Ok(msg) => {
@@ -183,24 +198,42 @@ fn run_event_loop(state: &mut ContentState) {
                     break; // Shutdown
                 }
             }
-            Err(RecvTimeoutError::Timeout) => {
-                // Only drain timers and re-render if timers are actually ready.
-                if state
-                    .pipeline
-                    .runtime
-                    .next_timer_deadline()
-                    .is_some_and(|d| d <= Instant::now())
-                {
-                    state.pipeline.runtime.drain_timers(
-                        &mut state.pipeline.session,
-                        &mut state.pipeline.dom,
-                        state.pipeline.document,
-                    );
-                    crate::re_render(&mut state.pipeline);
-                    state.send_display_list();
-                }
-            }
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        // --- Frame tick: animations + timers ---
+        let now = Instant::now();
+        let dt = now.duration_since(last_frame);
+        let mut needs_render = false;
+
+        // Tick animation engine if animations are active.
+        if state.pipeline.animation_engine.has_active() {
+            let dt_secs = dt.as_secs_f64();
+            let _events = state.pipeline.animation_engine.tick(dt_secs);
+            // TODO(M4-3): dispatch animation/transition DOM events from `_events`
+            needs_render = true;
+        }
+
+        // Drain JS timers if any are ready.
+        if state
+            .pipeline
+            .runtime
+            .next_timer_deadline()
+            .is_some_and(|d| d <= now)
+        {
+            state.pipeline.runtime.drain_timers(
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            needs_render = true;
+        }
+
+        if needs_render {
+            last_frame = now;
+            crate::re_render(&mut state.pipeline);
+            state.send_display_list();
         }
     }
 }
