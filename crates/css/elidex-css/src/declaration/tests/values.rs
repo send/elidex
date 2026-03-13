@@ -69,6 +69,7 @@ fn parse_keyword_properties() {
         ("overflow", "hidden", "overflow", "hidden"),
         ("overflow", "scroll", "overflow", "hidden"),
         ("overflow", "auto", "overflow", "hidden"),
+        ("overflow", "clip", "overflow", "hidden"),
         // list-style-type
         ("list-style-type", "disc", "list-style-type", "disc"),
         ("list-style-type", "decimal", "list-style-type", "decimal"),
@@ -156,7 +157,7 @@ fn parse_rejected_values() {
         ("border-radius", "50%"),
         ("border-radius", "-5px"),
         ("white-space", "break-spaces"),
-        ("overflow", "clip"),
+        ("overflow", "overlay"),
         ("text-align", "middle"),
         ("min-width", "-10px"),
         ("max-width", "-5px"),

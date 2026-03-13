@@ -15,6 +15,9 @@
 //! - [`timeline`] — Document timeline
 //! - [`detection`] — Transition change detection
 
+/// Entity identifier (mirrors `hecs::Entity` as `u64` bits).
+pub type EntityId = u64;
+
 pub mod detection;
 pub mod engine;
 pub mod instance;

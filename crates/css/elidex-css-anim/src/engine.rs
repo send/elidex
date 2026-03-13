@@ -6,8 +6,7 @@ use crate::instance::{AnimationInstance, TransitionInstance};
 use crate::parse::KeyframesRule;
 use crate::timeline::DocumentTimeline;
 
-/// Entity identifier (mirrors `hecs::Entity` as `u64` bits).
-type EntityId = u64;
+use crate::EntityId;
 
 /// Maximum number of concurrent animations per entity to prevent unbounded memory growth.
 const MAX_ANIMATIONS_PER_ENTITY: usize = 256;
@@ -18,8 +17,17 @@ const MAX_TRANSITIONS_PER_ENTITY: usize = 256;
 /// Maximum total events emitted per `tick()` call across all entities.
 const MAX_EVENTS_PER_TICK: usize = 10_000;
 
+/// Cap iteration events per tick to prevent billions of events when dt is
+/// very large relative to duration.
+const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
+
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
+///
+/// **Important**: Callers must call [`remove_entity()`](Self::remove_entity)
+/// when an element is destroyed to prevent memory leaks. Animations with
+/// `fill-mode: forwards` or `both` are intentionally retained after finishing
+/// (to hold the fill value), so they will accumulate unless explicitly removed.
 #[derive(Debug)]
 pub struct AnimationEngine {
     /// Document timeline.
@@ -239,75 +247,107 @@ impl AnimationEngine {
                     continue;
                 }
 
-                // Dispatch animationstart once the delay has passed.
-                if !anim.start_event_dispatched {
-                    anim.start_event_dispatched = true;
-                    events.push((
-                        *entity,
-                        AnimationEvent::Animation(AnimationEventData {
-                            kind: AnimationEventKind::Start,
-                            name: anim.name().to_string(),
-                            elapsed_time: {
-                                let active_dur = match anim.iteration_count() {
-                                    crate::style::IterationCount::Number(n) => n * anim.duration(),
-                                    crate::style::IterationCount::Infinite => f32::INFINITY,
-                                };
-                                (-anim.delay()).clamp(0.0, active_dur)
-                            },
-                        }),
-                    ));
-                }
+                Self::emit_animation_start(*entity, anim, events);
 
-                let total = match anim.iteration_count() {
-                    crate::style::IterationCount::Number(n) => {
-                        f64::from(n) * f64::from(anim.duration())
-                    }
-                    crate::style::IterationCount::Infinite => f64::INFINITY,
-                };
+                let total = Self::total_active_duration(anim);
 
-                // Detect iteration changes and dispatch animationiteration.
-                let dur = f64::from(anim.duration());
-                if dur > 0.0 && active_time < total {
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let new_iteration = (active_time / dur).floor().min(f64::from(u32::MAX)) as u32;
-                    if new_iteration > anim.current_iteration {
-                        // Cap iteration events per tick to prevent billions of
-                        // events when dt is very large relative to duration.
-                        const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
-                        let emit_start = new_iteration
-                            .saturating_sub(MAX_ITERATION_EVENTS_PER_TICK)
-                            .max(anim.current_iteration + 1);
-                        for iter in emit_start..=new_iteration {
-                            #[allow(clippy::cast_precision_loss)]
-                            events.push((
-                                *entity,
-                                AnimationEvent::Animation(AnimationEventData {
-                                    kind: AnimationEventKind::Iteration,
-                                    name: anim.name().to_string(),
-                                    elapsed_time: iter as f32 * anim.duration(),
-                                }),
-                            ));
-                        }
-                        anim.current_iteration = new_iteration;
-                    }
-                }
+                Self::emit_iteration_events(*entity, anim, active_time, total, events);
 
-                if active_time >= total && total.is_finite() {
-                    anim.finished = true;
-                    if !anim.end_event_dispatched {
-                        anim.end_event_dispatched = true;
-                        #[allow(clippy::cast_possible_truncation)]
-                        events.push((
-                            *entity,
-                            AnimationEvent::Animation(AnimationEventData {
-                                kind: AnimationEventKind::End,
-                                name: anim.name().to_string(),
-                                elapsed_time: total as f32,
-                            }),
-                        ));
-                    }
-                }
+                Self::check_animation_end(*entity, anim, active_time, total, events);
             }
+        }
+    }
+
+    /// Emit `animationstart` once the delay has passed.
+    fn emit_animation_start(
+        entity: EntityId,
+        anim: &mut AnimationInstance,
+        events: &mut Vec<(EntityId, AnimationEvent)>,
+    ) {
+        if anim.start_event_dispatched {
+            return;
+        }
+        anim.start_event_dispatched = true;
+        let active_dur = match anim.iteration_count() {
+            crate::style::IterationCount::Number(n) => n * anim.duration(),
+            crate::style::IterationCount::Infinite => f32::INFINITY,
+        };
+        events.push((
+            entity,
+            AnimationEvent::Animation(AnimationEventData {
+                kind: AnimationEventKind::Start,
+                name: anim.name().to_string(),
+                elapsed_time: (-anim.delay()).clamp(0.0, active_dur),
+            }),
+        ));
+    }
+
+    /// Detect iteration changes and emit `animationiteration` events.
+    fn emit_iteration_events(
+        entity: EntityId,
+        anim: &mut AnimationInstance,
+        active_time: f64,
+        total: f64,
+        events: &mut Vec<(EntityId, AnimationEvent)>,
+    ) {
+        let dur = f64::from(anim.duration());
+        if dur <= 0.0 || active_time >= total {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let new_iteration = (active_time / dur).floor().min(f64::from(u32::MAX)) as u32;
+        if new_iteration <= anim.current_iteration {
+            return;
+        }
+        let emit_start = new_iteration
+            .saturating_sub(MAX_ITERATION_EVENTS_PER_TICK)
+            .max(anim.current_iteration + 1);
+        for iter in emit_start..=new_iteration {
+            #[allow(clippy::cast_precision_loss)]
+            events.push((
+                entity,
+                AnimationEvent::Animation(AnimationEventData {
+                    kind: AnimationEventKind::Iteration,
+                    name: anim.name().to_string(),
+                    elapsed_time: iter as f32 * anim.duration(),
+                }),
+            ));
+        }
+        anim.current_iteration = new_iteration;
+    }
+
+    /// Check if the animation has ended and emit `animationend` if so.
+    fn check_animation_end(
+        entity: EntityId,
+        anim: &mut AnimationInstance,
+        active_time: f64,
+        total: f64,
+        events: &mut Vec<(EntityId, AnimationEvent)>,
+    ) {
+        if active_time < total || !total.is_finite() {
+            return;
+        }
+        anim.finished = true;
+        if anim.end_event_dispatched {
+            return;
+        }
+        anim.end_event_dispatched = true;
+        #[allow(clippy::cast_possible_truncation)]
+        events.push((
+            entity,
+            AnimationEvent::Animation(AnimationEventData {
+                kind: AnimationEventKind::End,
+                name: anim.name().to_string(),
+                elapsed_time: total as f32,
+            }),
+        ));
+    }
+
+    /// Compute the total active duration for an animation.
+    fn total_active_duration(anim: &AnimationInstance) -> f64 {
+        match anim.iteration_count() {
+            crate::style::IterationCount::Number(n) => f64::from(n) * f64::from(anim.duration()),
+            crate::style::IterationCount::Infinite => f64::INFINITY,
         }
     }
 
@@ -330,6 +370,11 @@ impl AnimationEngine {
     }
 
     /// Remove all animations and transitions for an entity.
+    ///
+    /// Must be called when an element is destroyed to prevent memory leaks.
+    /// Animations with `fill-mode: forwards/both` are retained after finishing
+    /// and will not be cleaned up by `tick()`, so this is the only way to
+    /// reclaim their memory.
     pub fn remove_entity(&mut self, entity: EntityId) {
         self.transitions.remove(&entity);
         self.animations.remove(&entity);

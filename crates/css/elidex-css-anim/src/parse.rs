@@ -359,7 +359,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
 
     // CSS Animations Level 1 §3.2: merge duplicate offsets (last wins per property).
     keyframes.dedup_by(|later, earlier| {
-        if (later.offset - earlier.offset).abs() < f32::EPSILON {
+        if (later.offset - earlier.offset).abs() < 1e-6 {
             // Merge later's declarations into earlier (earlier is kept by dedup_by).
             // Later declarations win for same property names.
             for decl in later.declarations.drain(..) {
@@ -382,7 +382,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     // CSS Animations Level 1 §4.2: if 0% (from) or 100% (to) keyframes
     // are missing, synthesize them with empty declarations so the animation
     // engine interpolates from/to the element's computed values.
-    if !keyframes.iter().any(|k| k.offset == 0.0) {
+    if !keyframes.iter().any(|k| k.offset.abs() < 1e-6) {
         keyframes.insert(
             0,
             Keyframe {

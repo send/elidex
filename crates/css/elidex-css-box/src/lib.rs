@@ -3,7 +3,8 @@
 
 use elidex_plugin::{
     css_resolve::{
-        dimension_to_css_value, keyword_from, parse_non_negative_length_or_percentage,
+        dimension_to_css_value, keyword_from, parse_length_percentage_auto,
+        parse_length_percentage_auto_or_none, parse_non_negative_length_or_percentage,
         resolve_color, resolve_dimension, resolve_to_px,
     },
     parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
@@ -388,30 +389,6 @@ impl CssPropertyHandler for BoxHandler {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-/// Parse a length, percentage, or `auto` keyword.
-fn parse_length_percentage_auto(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
-    // Try `auto` keyword first.
-    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
-        return Ok(CssValue::Auto);
-    }
-    elidex_plugin::css_resolve::parse_length_or_percentage(input)
-}
-
-/// Parse a length, percentage, `auto`, or `none` (for max-width/max-height).
-fn parse_length_percentage_auto_or_none(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
-    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
-        return Ok(CssValue::Auto);
-    }
-    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
-        return Ok(CssValue::Auto); // `none` maps to Auto (unconstrained)
-    }
-    elidex_plugin::css_resolve::parse_length_or_percentage(input)
-}
-
 /// Parse a border width value: length or keyword (thin/medium/thick).
 fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keywords first
@@ -537,9 +514,8 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
         CssValue::Keyword(k) => match k.as_str() {
             "normal" => *target = ContentValue::Normal,
             "none" => *target = ContentValue::None,
-            kw if kw.starts_with("attr(") && kw.ends_with(')') => {
-                if let Some(attr_name) = kw.strip_prefix("attr(").and_then(|s| s.strip_suffix(')'))
-                {
+            kw if kw.starts_with("attr:") => {
+                if let Some(attr_name) = kw.strip_prefix("attr:") {
                     *target = ContentValue::Items(vec![ContentItem::Attr(attr_name.to_string())]);
                 }
             }
@@ -553,9 +529,8 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
                 .iter()
                 .filter_map(|item| match item {
                     CssValue::String(s) => Some(ContentItem::String(s.clone())),
-                    CssValue::Keyword(kw) if kw.starts_with("attr(") && kw.ends_with(')') => kw
-                        .strip_prefix("attr(")
-                        .and_then(|s| s.strip_suffix(')'))
+                    CssValue::Keyword(kw) if kw.starts_with("attr:") => kw
+                        .strip_prefix("attr:")
                         .map(|attr_name| ContentItem::Attr(attr_name.to_string())),
                     _ => None,
                 })

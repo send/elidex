@@ -25,7 +25,7 @@ pub struct AnimationInstance {
     /// Elapsed time since the animation started (after delay), in seconds.
     pub(crate) elapsed: f64,
     /// The time at which this animation was started (document time).
-    pub start_time: f64,
+    pub(crate) start_time: f64,
     /// Whether the animation has finished.
     pub(crate) finished: bool,
     /// Whether the `animationend` event has been dispatched.
@@ -108,6 +108,12 @@ impl AnimationInstance {
         self.play_state
     }
 
+    /// The time at which this animation was started (document time).
+    #[must_use]
+    pub fn start_time(&self) -> f64 {
+        self.start_time
+    }
+
     /// Whether the animation has finished.
     #[must_use]
     pub fn is_finished(&self) -> bool {
@@ -129,9 +135,7 @@ impl AnimationInstance {
             return match self.fill_mode {
                 AnimationFillMode::Backwards | AnimationFillMode::Both => {
                     // CSS Animations §3.9: directed progress first, then timing function.
-                    let directed = self.direction_for_iteration(0, 0.0);
-                    let transformed = self.timing_function.sample(directed);
-                    Some(transformed)
+                    Some(self.directed_progress(0, 0.0))
                 }
                 _ => None,
             };
@@ -141,9 +145,7 @@ impl AnimationInstance {
             // CSS Animations §3.9: zero-duration animations still respect
             // direction and fill-mode. The final iteration's directed progress
             // determines the output value.
-            let directed = self.direction_for_iteration(self.final_iteration(), 1.0);
-            let transformed = self.timing_function.sample(directed);
-            return Some(transformed);
+            return Some(self.directed_progress(self.final_iteration(), 1.0));
         }
 
         let dur = f64::from(self.duration);
@@ -167,9 +169,7 @@ impl AnimationInstance {
                         ((active_time % dur) / dur) as f32
                     };
                     // CSS Animations §3.9: apply direction first, then timing function.
-                    let directed = self.direction_for_iteration(final_iteration, raw);
-                    let transformed = self.timing_function.sample(directed);
-                    Some(transformed)
+                    Some(self.directed_progress(final_iteration, raw))
                 }
                 _ => None,
             };
@@ -180,9 +180,7 @@ impl AnimationInstance {
         let raw_progress = ((active_time % dur) / dur) as f32;
         // Per CSS Animations Level 1 §3.9: apply direction first (step 2),
         // then apply timing function (step 3).
-        let directed = self.direction_for_iteration(iteration, raw_progress);
-        let transformed = self.timing_function.sample(directed);
-        Some(transformed)
+        Some(self.directed_progress(iteration, raw_progress))
     }
 
     /// Compute the final iteration index for a finite animation.
@@ -198,6 +196,12 @@ impl AnimationInstance {
             IterationCount::Number(n) => (n.ceil().min(u32::MAX as f32) as u32).saturating_sub(1),
             IterationCount::Infinite => 0,
         }
+    }
+
+    /// Apply direction adjustment and timing function for a given iteration.
+    fn directed_progress(&self, iteration: u32, raw: f32) -> f32 {
+        let directed = self.direction_for_iteration(iteration, raw);
+        self.timing_function.sample(directed)
     }
 
     /// Compute direction-adjusted progress for a given iteration.
@@ -223,15 +227,15 @@ pub struct TransitionInstance {
     /// The property being transitioned.
     pub property: String,
     /// Start value (as CSS computed value).
-    pub from: elidex_plugin::CssValue,
+    pub(crate) from: elidex_plugin::CssValue,
     /// End value (as CSS computed value).
-    pub to: elidex_plugin::CssValue,
+    pub(crate) to: elidex_plugin::CssValue,
     /// Duration in seconds.
-    pub duration: f32,
+    pub(crate) duration: f32,
     /// Timing function.
-    pub timing_function: TimingFunction,
+    pub(crate) timing_function: TimingFunction,
     /// Delay in seconds.
-    pub delay: f32,
+    pub(crate) delay: f32,
     /// Elapsed time since transition start, in seconds.
     pub(crate) elapsed: f64,
     /// Whether the transition has completed.

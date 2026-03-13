@@ -316,7 +316,7 @@ pub(super) fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
         "overflow",
         &[
             (&["visible"], "visible"),
-            (&["hidden", "scroll", "auto"], "hidden"),
+            (&["hidden", "scroll", "auto", "clip"], "hidden"),
         ],
     )
 }

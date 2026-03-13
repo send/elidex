@@ -295,6 +295,9 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Min/max sizing ---
         "min-width" | "min-height" => {
+            if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
+                return single_decl(name, val);
+            }
             parse_value_property(input, name, parse_non_negative_length_or_percentage)
         }
         "max-width" | "max-height" => misc::parse_max_dimension(input, name),
@@ -322,6 +325,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             input,
             name,
             &[
+                "normal",
                 "flex-start",
                 "flex-end",
                 "center",
@@ -351,6 +355,7 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
             input,
             name,
             &[
+                "normal",
                 "stretch",
                 "flex-start",
                 "flex-end",
@@ -423,6 +428,10 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
 
         // --- Content property ---
         "content" => misc::parse_content(input),
+
+        // TODO(M4-1.5): transition-* and animation-* properties should be dispatched
+        // to AnimHandler via the CssPropertyRegistry. Currently parsed only via
+        // inline plugin handlers, not through stylesheet declarations.
 
         // --- Unknown property: silently drop ---
         _ => Vec::new(),

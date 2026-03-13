@@ -115,12 +115,12 @@ macro_rules! resolve_keyword {
 ///
 /// Returns `None` if the value is not a `Keyword` or the keyword is unrecognized.
 #[must_use]
-pub fn resolve_keyword_to_enum<T: Default>(
+pub fn resolve_keyword_to_enum<T>(
     value: &CssValue,
     from_keyword: fn(&str) -> Option<T>,
 ) -> Option<T> {
     match value {
-        CssValue::Keyword(ref k) => Some(from_keyword(k).unwrap_or_default()),
+        CssValue::Keyword(ref k) => from_keyword(k),
         _ => None,
     }
 }
@@ -234,6 +234,40 @@ pub fn parse_non_negative_length(
         cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError::simple("expected length value")),
     }
+}
+
+/// Parse a length, percentage, or `auto` keyword.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if none of the accepted forms is found.
+pub fn parse_length_percentage_auto(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    // Try `auto` keyword first.
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    parse_length_or_percentage(input)
+}
+
+/// Parse a length, percentage, `auto`, or `none` (for max-width/max-height).
+///
+/// `none` maps to `Auto` (unconstrained).
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if none of the accepted forms is found.
+pub fn parse_length_percentage_auto_or_none(
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return Ok(CssValue::Auto); // `none` maps to Auto (unconstrained)
+    }
+    parse_length_or_percentage(input)
 }
 
 /// Convert a [`Dimension`] to a [`CssValue`].
@@ -433,17 +467,17 @@ mod tests {
     }
 
     #[test]
-    fn resolve_keyword_to_enum_unknown_returns_default() {
+    fn resolve_keyword_to_enum_unknown_returns_none() {
         fn from_kw(s: &str) -> Option<u8> {
             match s {
                 "a" => Some(1),
                 _ => None,
             }
         }
-        // Unknown keyword falls back to T::default()
+        // Unknown keyword returns None (declaration should be ignored per CSS spec)
         assert_eq!(
             resolve_keyword_to_enum(&CssValue::Keyword("zzz".into()), from_kw),
-            Some(0)
+            None
         );
     }
 

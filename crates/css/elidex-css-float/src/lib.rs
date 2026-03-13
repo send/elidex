@@ -120,24 +120,7 @@ fn parse_vertical_align(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValu
     }
 
     // Try length/percentage
-    if let Ok(value) = input.try_parse(|i| {
-        let token = i.next().map_err(|_| ())?;
-        match *token {
-            cssparser::Token::Dimension {
-                value, ref unit, ..
-            } => {
-                let unit = elidex_plugin::css_resolve::parse_length_unit(unit);
-                Ok(CssValue::Length(value, unit))
-            }
-            cssparser::Token::Percentage { unit_value, .. } => {
-                Ok(CssValue::Percentage(unit_value * 100.0))
-            }
-            cssparser::Token::Number { value: 0.0, .. } => {
-                Ok(CssValue::Length(0.0, LengthUnit::Px))
-            }
-            _ => Err(()),
-        }
-    }) {
+    if let Ok(value) = input.try_parse(elidex_plugin::css_resolve::parse_length_or_percentage) {
         return Ok(value);
     }
 

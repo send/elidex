@@ -163,6 +163,8 @@ pub fn is_animatable(property: &str) -> bool {
             | "left"
             | "z-index"
             | "visibility"
+            | "text-decoration-color"
+            | "vertical-align"
     )
 }
 
