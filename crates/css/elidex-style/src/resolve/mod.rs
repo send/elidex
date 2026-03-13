@@ -78,12 +78,10 @@ pub fn get_computed_with_registry(
 // so enum-to-string conversion is handled via .as_ref() directly.
 
 /// Convert a [`Dimension`] back into a [`CssValue`] for CSS serialization.
+///
+/// Delegates to [`elidex_plugin::css_resolve::dimension_to_css_value`].
 pub fn dimension_to_css_value(d: Dimension) -> CssValue {
-    match d {
-        Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
-        Dimension::Percentage(p) => CssValue::Percentage(p),
-        Dimension::Auto => CssValue::Auto,
-    }
+    elidex_plugin::css_resolve::dimension_to_css_value(d)
 }
 
 /// Build a [`ComputedStyle`] from the cascade winner map.

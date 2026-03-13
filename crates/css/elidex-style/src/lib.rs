@@ -133,12 +133,12 @@ pub fn resolve_styles_with_compat(
     let default_parent = ComputedStyle::default();
 
     let mut total_shadow_css = 0;
+    let _ = registry; // Registry is accessed via default_css_property_registry().
     let mut state = WalkState {
         ctx,
         hint_generator,
         depth: 0,
         total_shadow_css: &mut total_shadow_css,
-        registry,
     };
     for root in roots {
         state.depth = 0;

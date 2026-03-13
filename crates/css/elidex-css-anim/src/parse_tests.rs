@@ -307,10 +307,10 @@ fn transition_shorthand_multi_value() {
         other => panic!("expected String for timing-function, got {other:?}"),
     };
     // The string contains two entries: the default "ease" for the first
-    // transition and "cubic-bezier(0.42, 0, 1, 1)" (ease-in) for the second.
+    // transition and "ease-in" for the second (named curve serialization).
     assert!(
-        tf_str.contains("cubic-bezier(0.42"),
-        "second timing function should be the ease-in cubic-bezier: {tf_str}"
+        tf_str.contains("ease-in"),
+        "second timing function should be ease-in: {tf_str}"
     );
 }
 

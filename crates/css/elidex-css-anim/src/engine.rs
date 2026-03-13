@@ -15,6 +15,9 @@ const MAX_ANIMATIONS_PER_ENTITY: usize = 256;
 /// Maximum number of concurrent transitions per entity to prevent unbounded memory growth.
 const MAX_TRANSITIONS_PER_ENTITY: usize = 256;
 
+/// Maximum total events emitted per `tick()` call across all entities.
+const MAX_EVENTS_PER_TICK: usize = 10_000;
+
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
 #[derive(Debug)]
@@ -157,8 +160,11 @@ impl AnimationEngine {
         dt: f64,
         events: &mut Vec<(EntityId, AnimationEvent)>,
     ) {
-        for (entity, trans_list) in transitions.iter_mut() {
+        'outer: for (entity, trans_list) in transitions.iter_mut() {
             for trans in trans_list.iter_mut() {
+                if events.len() >= MAX_EVENTS_PER_TICK {
+                    break 'outer;
+                }
                 if trans.finished {
                     continue;
                 }
@@ -172,7 +178,7 @@ impl AnimationEngine {
                         *entity,
                         AnimationEvent::TransitionRun {
                             property: trans.property.clone(),
-                            elapsed_time: 0.0,
+                            elapsed_time: (-trans.delay).max(0.0),
                         },
                     ));
                 }
@@ -187,7 +193,7 @@ impl AnimationEngine {
                         *entity,
                         AnimationEvent::TransitionStart {
                             property: trans.property.clone(),
-                            elapsed_time: 0.0,
+                            elapsed_time: (-trans.delay).max(0.0),
                         },
                     ));
                 }
@@ -215,8 +221,11 @@ impl AnimationEngine {
         dt: f64,
         events: &mut Vec<(EntityId, AnimationEvent)>,
     ) {
-        for (entity, anims) in animations.iter_mut() {
+        'outer: for (entity, anims) in animations.iter_mut() {
             for anim in anims.iter_mut() {
+                if events.len() >= MAX_EVENTS_PER_TICK {
+                    break 'outer;
+                }
                 if anim.finished || anim.play_state == crate::style::PlayState::Paused {
                     continue;
                 }
@@ -393,6 +402,24 @@ mod tests {
     use crate::timing::TimingFunction;
     use elidex_plugin::{CssValue, LengthUnit};
 
+    fn make_anim_spec(
+        name: &str,
+        duration: f32,
+        iteration_count: crate::style::IterationCount,
+        play_state: crate::style::PlayState,
+    ) -> crate::SingleAnimationSpec {
+        crate::SingleAnimationSpec {
+            name: name.into(),
+            duration,
+            timing_function: TimingFunction::Linear,
+            delay: 0.0,
+            iteration_count,
+            direction: crate::style::AnimationDirection::Normal,
+            fill_mode: crate::style::AnimationFillMode::None,
+            play_state,
+        }
+    }
+
     #[test]
     fn engine_add_and_tick_transition() {
         let mut engine = AnimationEngine::new();
@@ -471,17 +498,13 @@ mod tests {
     #[test]
     fn engine_animation_end() {
         let mut engine = AnimationEngine::new();
-        let anim = AnimationInstance::new(
-            "fadeIn".into(),
+        let spec = make_anim_spec(
+            "fadeIn",
             1.0,
-            TimingFunction::Linear,
-            0.0,
             crate::style::IterationCount::Number(1.0),
-            crate::style::AnimationDirection::Normal,
-            crate::style::AnimationFillMode::None,
             crate::style::PlayState::Running,
-            0.0,
         );
+        let anim = AnimationInstance::new(&spec, 0.0);
         engine.add_animation(1, anim);
 
         // First tick past delay: emits AnimationStart (no delay, so starts immediately).
@@ -504,17 +527,13 @@ mod tests {
     #[test]
     fn engine_infinite_animation() {
         let mut engine = AnimationEngine::new();
-        let anim = AnimationInstance::new(
-            "spin".into(),
+        let spec = make_anim_spec(
+            "spin",
             1.0,
-            TimingFunction::Linear,
-            0.0,
             crate::style::IterationCount::Infinite,
-            crate::style::AnimationDirection::Normal,
-            crate::style::AnimationFillMode::None,
             crate::style::PlayState::Running,
-            0.0,
         );
+        let anim = AnimationInstance::new(&spec, 0.0);
         engine.add_animation(1, anim);
 
         // Should never finish; animation start + iteration events are expected but
@@ -534,17 +553,13 @@ mod tests {
     #[test]
     fn engine_paused_animation() {
         let mut engine = AnimationEngine::new();
-        let anim = AnimationInstance::new(
-            "test".into(),
+        let spec = make_anim_spec(
+            "test",
             1.0,
-            TimingFunction::Linear,
-            0.0,
             crate::style::IterationCount::Number(1.0),
-            crate::style::AnimationDirection::Normal,
-            crate::style::AnimationFillMode::None,
             crate::style::PlayState::Paused,
-            0.0,
         );
+        let anim = AnimationInstance::new(&spec, 0.0);
         engine.add_animation(1, anim);
 
         // Paused: should not advance
@@ -707,17 +722,13 @@ mod tests {
     fn engine_animation_limit_enforced() {
         let mut engine = AnimationEngine::new();
         for i in 0..=MAX_ANIMATIONS_PER_ENTITY {
-            let anim = AnimationInstance::new(
-                format!("anim{i}"),
+            let spec = make_anim_spec(
+                &format!("anim{i}"),
                 1.0,
-                TimingFunction::Linear,
-                0.0,
                 crate::style::IterationCount::Number(1.0),
-                crate::style::AnimationDirection::Normal,
-                crate::style::AnimationFillMode::None,
                 crate::style::PlayState::Running,
-                0.0,
             );
+            let anim = AnimationInstance::new(&spec, 0.0);
             engine.add_animation(1, anim);
         }
         // Should cap at MAX_ANIMATIONS_PER_ENTITY

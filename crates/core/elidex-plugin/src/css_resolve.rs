@@ -4,7 +4,7 @@
 //! to absolute pixel values. Used by CSS property handlers during style
 //! resolution.
 
-use crate::{CalcExpr, CssValue, Dimension, LengthUnit, ParseError, ResolveContext};
+use crate::{CalcExpr, CssColor, CssValue, Dimension, LengthUnit, ParseError, ResolveContext};
 
 /// Resolve a CSS length value to pixels.
 ///
@@ -215,6 +215,26 @@ pub fn parse_non_negative_length(
         }
         cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
         _ => Err(ParseError::simple("expected length value")),
+    }
+}
+
+/// Convert a [`Dimension`] to a [`CssValue`].
+#[must_use]
+pub fn dimension_to_css_value(d: Dimension) -> CssValue {
+    match d {
+        Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
+        Dimension::Percentage(p) => CssValue::Percentage(p),
+        Dimension::Auto => CssValue::Auto,
+    }
+}
+
+/// Resolve a color value, with `currentcolor` mapping to the element's `color`.
+#[must_use]
+pub fn resolve_color(value: &CssValue, current_color: CssColor) -> CssColor {
+    match value {
+        CssValue::Color(c) => *c,
+        CssValue::Keyword(k) if k.eq_ignore_ascii_case("currentcolor") => current_color,
+        _ => current_color,
     }
 }
 

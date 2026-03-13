@@ -9,6 +9,13 @@ use super::helpers::PropertyMap;
 /// Maximum recursion depth for resolving `var()` references (cycle protection).
 const MAX_VAR_DEPTH: usize = 32;
 
+/// Maximum length (in bytes) for the output of `substitute_vars()`.
+///
+/// Prevents exponential blowup from patterns like
+/// `--a: var(--b) var(--b); --b: var(--c) var(--c)` which would otherwise
+/// produce 2^depth copies.
+const MAX_SUBSTITUTED_LENGTH: usize = 65_536;
+
 /// Build the custom properties map: inherit all from parent, then override
 /// with any custom properties declared on this element.
 ///
@@ -74,7 +81,8 @@ pub(super) fn resolve_var_references(
             }
             CssValue::RawTokens(raw) if raw.contains("var(") => {
                 // Compound value with var() — substitute and re-parse.
-                if let Some(substituted) = substitute_vars(raw, custom_props, 0) {
+                let mut visited = HashSet::new();
+                if let Some(substituted) = substitute_vars(raw, custom_props, 0, &mut visited) {
                     let decl_text = format!("{name}: {substituted}");
                     let decls = elidex_css::parse_declaration_block(&decl_text);
                     for decl in &decls {
@@ -219,10 +227,14 @@ fn has_var_reference(value: &CssValue) -> bool {
 /// Returns `None` if any `var()` reference is unresolvable (no custom property
 /// value and no fallback), which makes the property "invalid at computed-value
 /// time" per CSS Variables Level 1 §5.
+///
+/// Uses both depth limiting and a visited set for cycle detection, plus an
+/// output size limit ([`MAX_SUBSTITUTED_LENGTH`]) to prevent exponential blowup.
 fn substitute_vars(
     raw: &str,
     custom_props: &HashMap<String, String>,
     depth: usize,
+    visited: &mut HashSet<String>,
 ) -> Option<String> {
     if depth > MAX_VAR_DEPTH {
         return None;
@@ -234,6 +246,8 @@ fn substitute_vars(
     let mut result = String::with_capacity(raw.len());
     let mut remaining = raw;
 
+    // NOTE: Simple string search; does not skip var() inside CSS string literals.
+    // This is acceptable since compound var() in string contexts is rare.
     loop {
         let Some(var_start) = remaining.find("var(") else {
             result.push_str(remaining);
@@ -249,16 +263,29 @@ fn substitute_vars(
 
         // Look up the custom property
         let name = name.trim();
+
+        // Cycle detection: if we've already visited this property, bail out.
+        if visited.contains(name) {
+            return None;
+        }
+
         if let Some(value) = custom_props.get(name) {
             // The value might itself contain var() — recurse.
-            let resolved = substitute_vars(value.trim(), custom_props, depth + 1)?;
+            visited.insert(name.to_string());
+            let resolved = substitute_vars(value.trim(), custom_props, depth + 1, visited)?;
+            visited.remove(name);
             result.push_str(&resolved);
         } else if let Some(fb) = fallback {
             // Use fallback, which might contain var().
-            let resolved = substitute_vars(fb.trim(), custom_props, depth + 1)?;
+            let resolved = substitute_vars(fb.trim(), custom_props, depth + 1, visited)?;
             result.push_str(&resolved);
         } else {
             return None; // Unresolvable — invalid at computed-value time.
+        }
+
+        // Check output size limit after each substitution.
+        if result.len() > MAX_SUBSTITUTED_LENGTH {
+            return None;
         }
 
         remaining = &after_open[consumed..];
@@ -781,24 +808,28 @@ mod tests {
         props.insert("--x".into(), "10px".into());
         props.insert("--color".into(), "red".into());
 
+        let mut visited = HashSet::new();
         assert_eq!(
-            substitute_vars("var(--x) solid var(--color)", &props, 0),
+            substitute_vars("var(--x) solid var(--color)", &props, 0, &mut visited),
             Some("10px solid red".to_string())
         );
         assert_eq!(
-            substitute_vars("0 var(--x)", &props, 0),
+            substitute_vars("0 var(--x)", &props, 0, &mut visited),
             Some("0 10px".to_string())
         );
         // No var() — passthrough.
         assert_eq!(
-            substitute_vars("1px solid red", &props, 0),
+            substitute_vars("1px solid red", &props, 0, &mut visited),
             Some("1px solid red".to_string())
         );
         // Undefined with no fallback — None.
-        assert_eq!(substitute_vars("var(--undefined)", &props, 0), None);
+        assert_eq!(
+            substitute_vars("var(--undefined)", &props, 0, &mut visited),
+            None
+        );
         // Fallback used.
         assert_eq!(
-            substitute_vars("var(--undefined, 5px)", &props, 0),
+            substitute_vars("var(--undefined, 5px)", &props, 0, &mut visited),
             Some("5px".to_string())
         );
     }
@@ -808,8 +839,9 @@ mod tests {
         let mut props = HashMap::new();
         props.insert("--x".into(), "10px".into());
         // Fallback with nested parentheses: var(--undefined, calc(1px + 2px))
+        let mut visited = HashSet::new();
         assert_eq!(
-            substitute_vars("var(--undefined, calc(1px + 2px))", &props, 0),
+            substitute_vars("var(--undefined, calc(1px + 2px))", &props, 0, &mut visited),
             Some("calc(1px + 2px)".to_string())
         );
     }

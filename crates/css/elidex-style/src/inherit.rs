@@ -3,7 +3,7 @@
 //! Provides lookup functions for determining whether a property is inherited
 //! and for retrieving the CSS initial value of any known property.
 
-use elidex_plugin::{CssColor, CssValue, LengthUnit};
+use elidex_plugin::CssValue;
 
 /// Returns `true` if the named CSS property is inherited.
 ///
@@ -25,98 +25,20 @@ pub(crate) fn is_inherited(property: &str) -> bool {
 
 /// Returns the CSS initial value for a known property.
 ///
+/// Delegates to the default CSS property registry so that initial values
+/// have a single source of truth (`CssPropertyHandler::initial_value()`).
 /// Unknown properties return `CssValue::Initial` as a fallback.
 pub(crate) fn get_initial_value(property: &str) -> CssValue {
-    match property {
-        // Inherited
-        "color" => CssValue::Color(CssColor::BLACK),
-        "font-size" => CssValue::Length(16.0, LengthUnit::Px),
-        "font-family" => CssValue::List(vec![CssValue::Keyword("serif".to_string())]),
-
-        // Inherited text / keyword "normal" initial values
-        "font-weight" => CssValue::Number(400.0),
-        "font-style" | "line-height" | "white-space" | "content" | "unicode-bidi"
-        | "letter-spacing" | "word-spacing" => CssValue::Keyword("normal".to_string()),
-        // Non-inherited text decoration style/color
-        "text-decoration-style" => CssValue::Keyword("solid".to_string()),
-        "text-decoration-color" => CssValue::Keyword("currentcolor".to_string()),
-
-        // Keyword "none" initial values
-        "text-transform"
-        | "text-decoration-line"
-        | "border-top-style"
-        | "border-right-style"
-        | "border-bottom-style"
-        | "border-left-style"
-        | "grid-template-columns"
-        | "grid-template-rows"
-        | "float"
-        | "clear" => CssValue::Keyword("none".to_string()),
-        "text-align" => CssValue::Keyword("start".to_string()),
-        "list-style-type" => CssValue::Keyword("disc".to_string()),
-
-        // Writing mode / BiDi
-        "direction" => CssValue::Keyword("ltr".to_string()),
-        "writing-mode" => CssValue::Keyword("horizontal-tb".to_string()),
-        "text-orientation" => CssValue::Keyword("mixed".to_string()),
-
-        // Vertical-align (non-inherited)
-        "vertical-align" => CssValue::Keyword("baseline".to_string()),
-
-        // Display / position
-        "display" => CssValue::Keyword("inline".to_string()),
-        "position" => CssValue::Keyword("static".to_string()),
-
-        // Background
-        "background-color" => CssValue::Color(CssColor::TRANSPARENT),
-
-        // Visibility (inherited) / overflow
-        "visibility" | "overflow" => CssValue::Keyword("visible".to_string()),
-
-        // Sizing (auto)
-        "width" | "height" | "flex-basis" | "max-width" | "max-height" | "grid-auto-columns"
-        | "grid-auto-rows" | "grid-column-start" | "grid-column-end" | "grid-row-start"
-        | "grid-row-end" => CssValue::Auto,
-
-        // Margins, padding, min-width/min-height, border-radius, gap (all initial = 0px)
-        "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
-        | "margin-left" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
-        | "border-radius" | "row-gap" | "column-gap" | "border-spacing" | "border-spacing-h"
-        | "border-spacing-v" => CssValue::Length(0.0, LengthUnit::Px),
-
-        // Border width (CSS initial = medium = 3px)
-        "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
-            CssValue::Length(3.0, LengthUnit::Px)
-        }
-
-        // Border color (currentcolor)
-        "border-top-color" | "border-right-color" | "border-bottom-color" | "border-left-color" => {
-            CssValue::Keyword("currentcolor".to_string())
-        }
-
-        // Table
-        "border-collapse" => CssValue::Keyword("separate".to_string()),
-        "table-layout" | "align-self" => CssValue::Keyword("auto".to_string()),
-        "caption-side" => CssValue::Keyword("top".to_string()),
-
-        // Box model
-        "box-sizing" => CssValue::Keyword("content-box".to_string()),
-
-        // Flex/Grid container
-        "flex-direction" | "grid-auto-flow" => CssValue::Keyword("row".to_string()),
-        "flex-wrap" => CssValue::Keyword("nowrap".to_string()),
-        "justify-content" => CssValue::Keyword("flex-start".to_string()),
-        "align-items" | "align-content" => CssValue::Keyword("stretch".to_string()),
-        "flex-grow" | "order" => CssValue::Number(0.0),
-        "flex-shrink" | "opacity" => CssValue::Number(1.0),
-
-        _ => CssValue::Initial,
-    }
+    let registry = crate::default_css_property_registry();
+    registry
+        .resolve(property)
+        .map_or(CssValue::Initial, |h| h.initial_value(property))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_plugin::{CssColor, LengthUnit};
 
     #[test]
     fn inherited_properties() {
@@ -158,6 +80,7 @@ mod tests {
             get_initial_value("border-top-color"),
             CssValue::Keyword("currentcolor".to_string())
         );
+        // Unknown properties (not in any handler) return CssValue::Initial.
         assert_eq!(get_initial_value("unknown"), CssValue::Initial);
     }
 
@@ -301,15 +224,10 @@ mod tests {
             get_initial_value("list-style-type"),
             CssValue::Keyword("disc".to_string())
         );
-        assert_eq!(
-            get_initial_value("min-width"),
-            CssValue::Length(0.0, LengthUnit::Px)
-        );
+        // BoxHandler returns Auto for min-width/min-height (CSS spec initial value).
+        assert_eq!(get_initial_value("min-width"), CssValue::Auto);
         assert_eq!(get_initial_value("max-width"), CssValue::Auto);
-        assert_eq!(
-            get_initial_value("min-height"),
-            CssValue::Length(0.0, LengthUnit::Px)
-        );
+        assert_eq!(get_initial_value("min-height"), CssValue::Auto);
         assert_eq!(get_initial_value("max-height"), CssValue::Auto);
     }
 
@@ -357,10 +275,9 @@ mod tests {
             get_initial_value("border-collapse"),
             CssValue::Keyword("separate".to_string())
         );
-        assert_eq!(
-            get_initial_value("border-spacing"),
-            CssValue::Length(0.0, LengthUnit::Px)
-        );
+        // border-spacing is a shorthand (not in any handler); longhands are
+        // border-spacing-h and border-spacing-v.
+        assert_eq!(get_initial_value("border-spacing"), CssValue::Initial);
         assert_eq!(
             get_initial_value("border-spacing-h"),
             CssValue::Length(0.0, LengthUnit::Px)

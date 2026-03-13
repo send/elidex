@@ -383,6 +383,10 @@ fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
     let mut click_prevented = false;
     for event_type in event_types {
         let mut event = DispatchEvent::new_composed(*event_type, hit_entity);
+        // UI Events §3.5: auxclick is not cancelable.
+        if *event_type == "auxclick" {
+            event.cancelable = false;
+        }
         event.payload = EventPayload::Mouse(mouse_init.clone());
         let prevented = state.pipeline.runtime.dispatch_event(
             &mut event,
@@ -390,7 +394,7 @@ fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
             &mut state.pipeline.dom,
             state.pipeline.document,
         );
-        if *event_type == "click" || *event_type == "auxclick" {
+        if *event_type == "click" {
             click_prevented = prevented;
         }
     }

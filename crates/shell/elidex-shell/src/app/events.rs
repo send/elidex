@@ -80,6 +80,10 @@ impl App {
             let mut click_prevented = false;
             for event_type in event_types {
                 let mut event = DispatchEvent::new_composed(*event_type, hit_entity);
+                // UI Events §3.5: auxclick is not cancelable.
+                if *event_type == "auxclick" {
+                    event.cancelable = false;
+                }
                 event.payload = EventPayload::Mouse(mouse_init.clone());
                 let prevented = pipeline.runtime.dispatch_event(
                     &mut event,
@@ -87,7 +91,7 @@ impl App {
                     &mut pipeline.dom,
                     pipeline.document,
                 );
-                if *event_type == "click" || *event_type == "auxclick" {
+                if *event_type == "click" {
                     click_prevented = prevented;
                 }
             }

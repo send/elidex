@@ -157,7 +157,8 @@ fn parse_track_list(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
     }
     // Single track: return value directly (avoid double-wrapping minmax).
     if items.len() == 1 {
-        return Ok(items.into_iter().next().unwrap());
+        // len checked above; pop cannot fail.
+        return Ok(items.pop().expect("len == 1"));
     }
     Ok(CssValue::List(items))
 }

@@ -3,8 +3,8 @@
 
 use elidex_plugin::{
     css_resolve::{
-        keyword_from, parse_non_negative_length_or_percentage, resolve_dimension,
-        resolve_keyword_to_enum, resolve_to_px,
+        dimension_to_css_value, keyword_from, parse_non_negative_length_or_percentage,
+        resolve_color, resolve_dimension, resolve_keyword_to_enum, resolve_to_px,
     },
     parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
     ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
@@ -124,7 +124,7 @@ impl CssPropertyHandler for BoxHandler {
             "min-width" | "min-height" => parse_length_percentage_auto(input)?,
 
             "border-radius" | "row-gap" | "column-gap" | "padding-top" | "padding-right"
-            | "padding-bottom" | "padding-left" => parse_non_negative_length_percentage(input)?,
+            | "padding-bottom" | "padding-left" => parse_non_negative_length_or_percentage(input)?,
 
             "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
                 parse_length_percentage_auto(input)?
@@ -366,7 +366,7 @@ impl CssPropertyHandler for BoxHandler {
                 ContentValue::Normal => CssValue::Keyword("normal".to_string()),
                 ContentValue::None => CssValue::Keyword("none".to_string()),
                 ContentValue::Items(items) => {
-                    let parts: Vec<CssValue> = items
+                    let mut parts: Vec<CssValue> = items
                         .iter()
                         .map(|item| match item {
                             ContentItem::String(s) => CssValue::String(s.clone()),
@@ -374,7 +374,8 @@ impl CssPropertyHandler for BoxHandler {
                         })
                         .collect();
                     if parts.len() == 1 {
-                        parts.into_iter().next().unwrap_or(CssValue::Initial)
+                        // len checked above; pop cannot fail.
+                        parts.pop().expect("len == 1")
                     } else {
                         CssValue::List(parts)
                     }
@@ -422,13 +423,6 @@ fn parse_length_percentage(input: &mut cssparser::Parser<'_, '_>) -> Result<CssV
     elidex_plugin::css_resolve::parse_length_or_percentage(input)
 }
 
-/// Parse a non-negative length or percentage value.
-fn parse_non_negative_length_percentage(
-    input: &mut cssparser::Parser<'_, '_>,
-) -> Result<CssValue, ParseError> {
-    parse_non_negative_length_or_percentage(input)
-}
-
 /// Parse a border width value: length or keyword (thin/medium/thick).
 fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keywords first
@@ -444,7 +438,7 @@ fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
             }),
         };
     }
-    parse_non_negative_length_percentage(input)
+    parse_non_negative_length_or_percentage(input)
 }
 
 /// Parse a CSS color value, including the `currentcolor` keyword.
@@ -520,7 +514,8 @@ fn parse_content(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pars
             message: "expected content value".into(),
         })
     } else if items.len() == 1 {
-        Ok(items.into_iter().next().unwrap())
+        // len checked above; pop cannot fail.
+        Ok(items.pop().expect("len == 1"))
     } else {
         Ok(CssValue::List(items))
     }
@@ -551,16 +546,6 @@ fn resolve_max_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
     match value {
         CssValue::Keyword(k) if k == "none" => Dimension::Auto,
         _ => resolve_dimension(value, ctx),
-    }
-}
-
-/// Resolve a color value, with `currentcolor` mapping to the element's `color`.
-// NOTE: similar currentcolor resolution in elidex-style/src/resolve/font.rs
-fn resolve_color(value: &CssValue, current_color: CssColor) -> CssColor {
-    match value {
-        CssValue::Color(c) => *c,
-        CssValue::Keyword(k) if k.eq_ignore_ascii_case("currentcolor") => current_color,
-        _ => current_color,
     }
 }
 
@@ -598,16 +583,6 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
             }
         }
         _ => {}
-    }
-}
-
-/// Convert a [`Dimension`] to a [`CssValue`].
-// NOTE: also defined in elidex-style/src/resolve/mod.rs
-fn dimension_to_css_value(d: Dimension) -> CssValue {
-    match d {
-        Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
-        Dimension::Percentage(p) => CssValue::Percentage(p),
-        Dimension::Auto => CssValue::Auto,
     }
 }
 

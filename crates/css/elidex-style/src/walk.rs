@@ -28,16 +28,6 @@ pub(crate) struct WalkState<'a> {
     pub hint_generator: &'a dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     pub depth: usize,
     pub total_shadow_css: &'a mut usize,
-    /// CSS property registry for plugin-based dispatch.
-    ///
-    /// When `Some`, property handlers are used for `is_inherited()`,
-    /// `initial_value()`, and `get_computed()` queries. When `None`,
-    /// the hardcoded tables in `inherit.rs` and `resolve/mod.rs` are used.
-    ///
-    /// Currently threaded through the walk for access by future resolution
-    /// phases; not yet consumed during the cascade/resolve walk itself.
-    #[allow(dead_code)]
-    pub registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
 }
 
 /// Build a child `ResolveContext` from a resolved entity style.

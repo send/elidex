@@ -37,29 +37,20 @@ pub struct AnimationInstance {
 }
 
 impl AnimationInstance {
-    /// Create a new animation instance starting at `start_time`.
+    /// Create a new animation instance from a [`SingleAnimationSpec`] and a
+    /// start time.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        name: String,
-        duration: f32,
-        timing_function: TimingFunction,
-        delay: f32,
-        iteration_count: IterationCount,
-        direction: AnimationDirection,
-        fill_mode: AnimationFillMode,
-        play_state: PlayState,
-        start_time: f64,
-    ) -> Self {
+    #[allow(dead_code)] // Used by tests; production call sites pending integration.
+    pub(crate) fn new(spec: &crate::SingleAnimationSpec, start_time: f64) -> Self {
         Self {
-            name,
-            duration,
-            timing_function,
-            delay,
-            iteration_count,
-            direction,
-            fill_mode,
-            play_state,
+            name: spec.name.clone(),
+            duration: spec.duration,
+            timing_function: spec.timing_function.clone(),
+            delay: spec.delay,
+            iteration_count: spec.iteration_count,
+            direction: spec.direction,
+            fill_mode: spec.fill_mode,
+            play_state: spec.play_state,
             elapsed: 0.0,
             start_time,
             finished: false,
@@ -298,7 +289,7 @@ impl TransitionInstance {
         }
         let raw_progress = (active_time / dur) as f32;
         let eased = self.timing_function.sample(raw_progress);
-        crate::interpolate::interpolate(&self.from, &self.to, eased)
+        crate::interpolate::interpolate(&self.from, &self.to, eased, &self.property)
     }
 }
 
@@ -316,14 +307,16 @@ mod tests {
         fill: AnimationFillMode,
     ) -> AnimationInstance {
         AnimationInstance::new(
-            "test".into(),
-            duration,
-            TimingFunction::Linear,
-            delay,
-            count,
-            direction,
-            fill,
-            PlayState::Running,
+            &crate::SingleAnimationSpec {
+                name: "test".into(),
+                duration,
+                timing_function: TimingFunction::Linear,
+                delay,
+                iteration_count: count,
+                direction,
+                fill_mode: fill,
+                play_state: PlayState::Running,
+            },
             0.0,
         )
     }

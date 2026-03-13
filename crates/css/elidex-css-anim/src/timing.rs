@@ -67,13 +67,9 @@ impl fmt::Display for TimingFunction {
         match self {
             Self::Linear => f.write_str("linear"),
             Self::CubicBezier(x1, y1, x2, y2) => {
-                // Check named curves
-                if (*x1 - 0.25).abs() < f32::EPSILON
-                    && (*y1 - 0.1).abs() < f32::EPSILON
-                    && (*x2 - 0.25).abs() < f32::EPSILON
-                    && (*y2 - 1.0).abs() < f32::EPSILON
-                {
-                    return f.write_str("ease");
+                // Check named curves using epsilon comparison
+                if let Some(name) = match_named_bezier(*x1, *y1, *x2, *y2) {
+                    return f.write_str(name);
                 }
                 write!(f, "cubic-bezier({x1}, {y1}, {x2}, {y2})")
             }
@@ -88,6 +84,29 @@ impl fmt::Display for TimingFunction {
             }
         }
     }
+}
+
+/// Match a cubic-bezier against named easing keywords.
+///
+/// Returns the keyword name if the control points match a named curve
+/// within epsilon tolerance, or `None` for custom curves.
+fn match_named_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> Option<&'static str> {
+    const NAMED_CURVES: &[(&str, f32, f32, f32, f32)] = &[
+        ("ease", 0.25, 0.1, 0.25, 1.0),
+        ("ease-in", 0.42, 0.0, 1.0, 1.0),
+        ("ease-out", 0.0, 0.0, 0.58, 1.0),
+        ("ease-in-out", 0.42, 0.0, 0.58, 1.0),
+    ];
+    for &(name, nx1, ny1, nx2, ny2) in NAMED_CURVES {
+        if (x1 - nx1).abs() < f32::EPSILON
+            && (y1 - ny1).abs() < f32::EPSILON
+            && (x2 - nx2).abs() < f32::EPSILON
+            && (y2 - ny2).abs() < f32::EPSILON
+        {
+            return Some(name);
+        }
+    }
+    None
 }
 
 // --- Cubic bezier solver ---
@@ -194,8 +213,11 @@ fn solve_curve_x(x1: f32, x2: f32, x: f32) -> f32 {
 }
 
 /// Evaluate `steps()` at progress `t`.
+///
+/// Per CSS Easing Functions Level 1, clamping is applied to the output
+/// rather than the input so that before/after phase calculations work
+/// correctly (e.g. negative output for `jump-start`/`jump-both` when `t < 0`).
 fn steps_sample(count: u32, position: StepPosition, t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
     #[allow(clippy::cast_precision_loss)]
     let steps = count.max(1) as f32;
 

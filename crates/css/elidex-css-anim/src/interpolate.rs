@@ -10,8 +10,25 @@ use elidex_plugin::{CssColor, CssValue};
 /// Continuous interpolation for numeric types (Number, Length, Percentage,
 /// Color, Time). Falls back to discrete interpolation (flip at 50%) for
 /// non-numeric or mismatched types.
+///
+/// The `property` parameter enables property-specific interpolation rules
+/// (e.g. `visibility` uses special interpolation per CSS Transitions Level 1).
 #[must_use]
-pub fn interpolate(from: &CssValue, to: &CssValue, t: f32) -> Option<CssValue> {
+pub fn interpolate(from: &CssValue, to: &CssValue, t: f32, property: &str) -> Option<CssValue> {
+    // CSS Transitions Level 1: visibility has special interpolation.
+    // Any value between `visible` and another value produces `visible`;
+    // it only flips to the non-visible value at the endpoint.
+    if property == "visibility" {
+        if let (CssValue::Keyword(a), CssValue::Keyword(b)) = (from, to) {
+            if a == "visible" && b != "visible" {
+                return Some(if t < 1.0 { from.clone() } else { to.clone() });
+            }
+            if b == "visible" && a != "visible" {
+                return Some(if t > 0.0 { to.clone() } else { from.clone() });
+            }
+        }
+    }
+
     match (from, to) {
         // Number ↔ Number
         (CssValue::Number(a), CssValue::Number(b)) => Some(CssValue::Number(lerp(*a, *b, t))),
@@ -163,7 +180,10 @@ mod tests {
     fn interpolate_numbers() {
         let from = CssValue::Number(0.0);
         let to = CssValue::Number(1.0);
-        assert_eq!(interpolate(&from, &to, 0.5), Some(CssValue::Number(0.5)));
+        assert_eq!(
+            interpolate(&from, &to, 0.5, ""),
+            Some(CssValue::Number(0.5))
+        );
     }
 
     #[test]
@@ -171,7 +191,7 @@ mod tests {
         let from = CssValue::Length(10.0, LengthUnit::Px);
         let to = CssValue::Length(20.0, LengthUnit::Px);
         assert_eq!(
-            interpolate(&from, &to, 0.5),
+            interpolate(&from, &to, 0.5, ""),
             Some(CssValue::Length(15.0, LengthUnit::Px))
         );
     }
@@ -181,7 +201,7 @@ mod tests {
         let from = CssValue::Length(1.0, LengthUnit::Em);
         let to = CssValue::Length(3.0, LengthUnit::Em);
         assert_eq!(
-            interpolate(&from, &to, 0.25),
+            interpolate(&from, &to, 0.25, ""),
             Some(CssValue::Length(1.5, LengthUnit::Em))
         );
     }
@@ -191,7 +211,7 @@ mod tests {
         let from = CssValue::Percentage(0.0);
         let to = CssValue::Percentage(100.0);
         assert_eq!(
-            interpolate(&from, &to, 0.5),
+            interpolate(&from, &to, 0.5, ""),
             Some(CssValue::Percentage(50.0))
         );
     }
@@ -200,7 +220,7 @@ mod tests {
     fn interpolate_colors() {
         let from = CssValue::Color(CssColor::BLACK);
         let to = CssValue::Color(CssColor::WHITE);
-        let result = interpolate(&from, &to, 0.5);
+        let result = interpolate(&from, &to, 0.5, "");
         if let Some(CssValue::Color(c)) = result {
             assert_eq!(c.r, 128);
             assert_eq!(c.g, 128);
@@ -226,7 +246,7 @@ mod tests {
     fn interpolate_time() {
         let from = CssValue::Time(0.0);
         let to = CssValue::Time(1.0);
-        assert_eq!(interpolate(&from, &to, 0.5), Some(CssValue::Time(0.5)));
+        assert_eq!(interpolate(&from, &to, 0.5, ""), Some(CssValue::Time(0.5)));
     }
 
     #[test]
@@ -235,12 +255,12 @@ mod tests {
         let to = CssValue::Keyword("none".into());
         // Before 50%: from
         assert_eq!(
-            interpolate(&from, &to, 0.3),
+            interpolate(&from, &to, 0.3, ""),
             Some(CssValue::Keyword("block".into()))
         );
         // At/after 50%: to
         assert_eq!(
-            interpolate(&from, &to, 0.5),
+            interpolate(&from, &to, 0.5, ""),
             Some(CssValue::Keyword("none".into()))
         );
     }
@@ -249,9 +269,9 @@ mod tests {
     fn interpolate_auto_discrete() {
         let from = CssValue::Auto;
         let to = CssValue::Length(100.0, LengthUnit::Px);
-        assert_eq!(interpolate(&from, &to, 0.3), Some(CssValue::Auto));
+        assert_eq!(interpolate(&from, &to, 0.3, ""), Some(CssValue::Auto));
         assert_eq!(
-            interpolate(&from, &to, 0.7),
+            interpolate(&from, &to, 0.7, ""),
             Some(CssValue::Length(100.0, LengthUnit::Px))
         );
     }

@@ -491,7 +491,8 @@ fn parse_text_decoration_line(
         return Err(ParseError::simple("expected text-decoration-line keyword"));
     }
     if values.len() == 1 {
-        Ok(values.into_iter().next().unwrap())
+        // len checked above; pop cannot fail.
+        Ok(values.pop().expect("len == 1"))
     } else {
         Ok(CssValue::List(values))
     }

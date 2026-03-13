@@ -6,6 +6,27 @@ use elidex_plugin::{CssValue, ParseError, PropertyDeclaration};
 
 use crate::MAX_LIST_ITEMS;
 
+/// Parse a comma-separated list of items, up to `MAX_LIST_ITEMS`.
+///
+/// Calls `parse_one` for each item. If `parse_one` returns `Err`, propagates
+/// the error. Stops when a comma is not found after an item.
+fn parse_comma_list<T>(
+    input: &mut cssparser::Parser<'_, '_>,
+    mut parse_one: impl FnMut(&mut cssparser::Parser<'_, '_>) -> Result<T, ParseError>,
+) -> Result<Vec<T>, ParseError> {
+    let mut items = Vec::new();
+    loop {
+        if items.len() >= MAX_LIST_ITEMS {
+            break;
+        }
+        items.push(parse_one(input)?);
+        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
+            break;
+        }
+    }
+    Ok(items)
+}
+
 /// Parse a `<time>` value from a cssparser token, returning seconds.
 pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
     let token = input
@@ -93,24 +114,21 @@ pub fn parse_timing_function(
 pub fn parse_transition_property(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    let mut props = Vec::new();
-    loop {
-        if props.len() >= MAX_LIST_ITEMS {
-            break;
-        }
-        let ident = input
+    let mut props = parse_comma_list(input, |i| {
+        let ident = i
             .expect_ident()
             .map_err(|_| parse_err("transition-property", "expected identifier"))?;
         let lower = ident.to_ascii_lowercase();
-        let tp = match lower.as_str() {
+        Ok(match lower.as_str() {
             "none" => TransitionProperty::None,
             "all" => TransitionProperty::All,
             _ => TransitionProperty::Property(lower),
-        };
-        props.push(tp);
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
+        })
+    })?;
+    // CSS Transitions Level 1: `none` is a standalone value.  If it appears
+    // anywhere in a multi-value list, treat the whole list as `none`.
+    if props.len() > 1 && props.iter().any(|p| matches!(p, TransitionProperty::None)) {
+        props = vec![TransitionProperty::None];
     }
     // Serialize as a keyword list using CssValue::String for transport
     let serialized = props
@@ -138,20 +156,13 @@ pub fn parse_time_list(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
     let is_duration = name.ends_with("-duration");
-    let mut values = Vec::new();
-    loop {
-        if values.len() >= MAX_LIST_ITEMS {
-            break;
-        }
+    let values = parse_comma_list(input, |i| {
         if is_duration {
-            values.push(parse_duration_time(input)?);
+            parse_duration_time(i)
         } else {
-            values.push(parse_time(input)?);
+            parse_time(i)
         }
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
-    }
+    })?;
     Ok(vec![PropertyDeclaration::new(
         name,
         crate::time_list_value(&values),
@@ -163,16 +174,7 @@ pub fn parse_timing_function_list(
     name: &str,
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    let mut fns = Vec::new();
-    loop {
-        if fns.len() >= MAX_LIST_ITEMS {
-            break;
-        }
-        fns.push(parse_timing_function(input)?);
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
-    }
+    let fns = parse_comma_list(input, parse_timing_function)?;
     // Serialize as string
     let serialized = fns
         .iter()
@@ -189,19 +191,12 @@ pub fn parse_timing_function_list(
 pub fn parse_animation_name(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    let mut names = Vec::new();
-    loop {
-        if names.len() >= MAX_LIST_ITEMS {
-            break;
-        }
-        let ident = input
+    let names = parse_comma_list(input, |i| {
+        let ident = i
             .expect_ident()
             .map_err(|_| parse_err("animation-name", "expected identifier"))?;
-        names.push(ident.to_string());
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
-    }
+        Ok(ident.to_string())
+    })?;
     let serialized = names.join(", ");
     Ok(vec![PropertyDeclaration::new(
         "animation-name",
@@ -213,29 +208,19 @@ pub fn parse_animation_name(
 pub fn parse_iteration_count(
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    let mut counts = Vec::new();
-    loop {
-        if counts.len() >= MAX_LIST_ITEMS {
-            break;
-        }
-        if input
-            .try_parse(|i| i.expect_ident_matching("infinite"))
-            .is_ok()
-        {
-            counts.push("infinite".to_string());
+    let counts = parse_comma_list(input, |i| {
+        if i.try_parse(|i| i.expect_ident_matching("infinite")).is_ok() {
+            Ok("infinite".to_string())
         } else {
-            let n = input.expect_number().map_err(|_| {
+            let n = i.expect_number().map_err(|_| {
                 parse_err("animation-iteration-count", "expected number or infinite")
             })?;
             if n < 0.0 || !n.is_finite() {
                 return Err(parse_err("animation-iteration-count", "negative value"));
             }
-            counts.push(n.to_string());
+            Ok(n.to_string())
         }
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
-    }
+    })?;
     let serialized = counts.join(", ");
     Ok(vec![PropertyDeclaration::new(
         "animation-iteration-count",
@@ -277,23 +262,16 @@ fn parse_keyword_list(
     input: &mut cssparser::Parser<'_, '_>,
     allowed: &[&str],
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-    let mut values = Vec::new();
-    loop {
-        if values.len() >= MAX_LIST_ITEMS {
-            break;
-        }
-        let ident = input
+    let values = parse_comma_list(input, |i| {
+        let ident = i
             .expect_ident()
             .map_err(|_| parse_err(name, "expected keyword"))?;
         let lower = ident.to_ascii_lowercase();
         if !allowed.contains(&lower.as_str()) {
             return Err(parse_err(name, &format!("unexpected keyword: {lower}")));
         }
-        values.push(lower);
-        if input.try_parse(cssparser::Parser::expect_comma).is_err() {
-            break;
-        }
-    }
+        Ok(lower)
+    })?;
     let serialized = values.join(", ");
     Ok(vec![PropertyDeclaration::new(
         name,
@@ -360,6 +338,13 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
                 offset,
                 declarations: declarations.clone(),
             });
+            if keyframes.len() >= MAX_KEYFRAMES {
+                break;
+            }
+        }
+
+        if keyframes.len() >= MAX_KEYFRAMES {
+            break;
         }
 
         remaining = after_brace[brace_end + 1..].trim();
@@ -436,7 +421,15 @@ fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
             } else if s.eq_ignore_ascii_case("to") {
                 Some(1.0)
             } else if let Some(pct) = s.strip_suffix('%') {
-                pct.trim().parse::<f32>().ok().map(|v| v / 100.0)
+                pct.trim().parse::<f32>().ok().and_then(|v| {
+                    let normalized = v / 100.0;
+                    // CSS Animations Level 1 §4.2: reject percentages outside [0%, 100%].
+                    if (0.0..=1.0).contains(&normalized) {
+                        Some(normalized)
+                    } else {
+                        None
+                    }
+                })
             } else {
                 None
             }
@@ -506,6 +499,61 @@ fn parse_steps_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFuncti
     Ok(TimingFunction::Steps(count as u32, position))
 }
 
+/// Accumulated time and timing-function state shared by transition and
+/// animation shorthand parsers.
+pub(crate) struct TimeAndTiming {
+    pub duration: f32,
+    pub delay: f32,
+    pub timing_function: TimingFunction,
+    /// Whether `duration` has been set (first `<time>` = duration, second = delay).
+    found_duration: bool,
+}
+
+impl TimeAndTiming {
+    /// Create with default values (0s duration, ease, 0s delay).
+    pub(crate) fn new() -> Self {
+        Self {
+            duration: 0.0,
+            delay: 0.0,
+            timing_function: TimingFunction::EASE,
+            found_duration: false,
+        }
+    }
+
+    /// Try to consume one `<timing-function>` or `<time>` token from the input.
+    ///
+    /// Returns `true` if a token was consumed. This is the shared core of
+    /// `parse_single_transition` and `parse_single_animation`: both use
+    /// "first `<time>` = duration, second `<time>` = delay" semantics with
+    /// an interleaved `<timing-function>`.
+    ///
+    /// If `reject_negative_duration` is true, a negative first `<time>` value
+    /// returns an error (CSS Transitions §2.1, CSS Animations §3.2).
+    pub(crate) fn try_consume(
+        &mut self,
+        input: &mut cssparser::Parser<'_, '_>,
+        reject_negative_duration: bool,
+    ) -> Result<bool, ParseError> {
+        if let Ok(tf) = input.try_parse(parse_timing_function) {
+            self.timing_function = tf;
+            return Ok(true);
+        }
+        if let Ok(t) = input.try_parse(parse_time) {
+            if self.found_duration {
+                self.delay = t;
+            } else {
+                if reject_negative_duration && t < 0.0 {
+                    return Err(parse_err("duration", "negative duration is invalid"));
+                }
+                self.duration = t;
+                self.found_duration = true;
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
 fn parse_err(property: &str, message: &str) -> ParseError {
     ParseError {
         property: property.into(),
@@ -530,7 +578,7 @@ pub fn parse_transition_shorthand(
         if properties.len() >= MAX_LIST_ITEMS {
             break;
         }
-        let (prop, dur, tf, del) = parse_single_transition(input);
+        let (prop, dur, tf, del) = parse_single_transition(input)?;
         properties.push(prop);
         durations.push(dur);
         timing_fns.push(tf);
@@ -554,31 +602,20 @@ pub fn parse_transition_shorthand(
     ])
 }
 
-// NOTE: time/timing-function parsing is structurally shared with parse_single_animation.
+// Time/timing-function parsing delegated to `TimeAndTiming::try_consume()`,
+// shared with `parse_single_animation` in lib.rs.
 fn parse_single_transition(
     input: &mut cssparser::Parser<'_, '_>,
-) -> (String, f32, TimingFunction, f32) {
+) -> Result<(String, f32, TimingFunction, f32), ParseError> {
     let mut property = "all".to_string();
-    let mut duration = 0.0_f32;
-    let mut timing = TimingFunction::EASE;
-    let mut delay = 0.0_f32;
-    let mut found_duration = false;
+    let mut tnt = TimeAndTiming::new();
 
-    // Up to 4 components in any order
+    // Up to 4 components in any order:
+    // <property> || <duration> || <timing-function> || <delay>
     for _ in 0..4 {
-        // Try timing function first (before ident, since it can start with an ident like "ease")
-        if let Ok(tf) = input.try_parse(parse_timing_function) {
-            timing = tf;
-            continue;
-        }
-        // Try time value
-        if let Ok(t) = input.try_parse(parse_time) {
-            if found_duration {
-                delay = t;
-            } else {
-                duration = t.max(0.0);
-                found_duration = true;
-            }
+        // Try timing function and time values via shared helper.
+        // Reject negative duration per CSS Transitions §2.1.
+        if tnt.try_consume(input, true)? {
             continue;
         }
         // Try property ident
@@ -594,7 +631,7 @@ fn parse_single_transition(
         break;
     }
 
-    (property, duration, timing, delay)
+    Ok((property, tnt.duration, tnt.timing_function, tnt.delay))
 }
 
 #[cfg(test)]

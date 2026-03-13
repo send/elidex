@@ -142,15 +142,18 @@ impl CssPropertyHandler for AnimHandler {
 }
 
 /// Parsed components of a single animation from the `animation` shorthand.
+///
+/// Also used as the parameter type for [`instance::AnimationInstance::new`]
+/// to avoid a 9-parameter constructor.
 pub(crate) struct SingleAnimationSpec {
-    name: String,
-    duration: f32,
-    timing_function: timing::TimingFunction,
-    delay: f32,
-    iteration_count: style::IterationCount,
-    direction: style::AnimationDirection,
-    fill_mode: style::AnimationFillMode,
-    play_state: style::PlayState,
+    pub(crate) name: String,
+    pub(crate) duration: f32,
+    pub(crate) timing_function: timing::TimingFunction,
+    pub(crate) delay: f32,
+    pub(crate) iteration_count: style::IterationCount,
+    pub(crate) direction: style::AnimationDirection,
+    pub(crate) fill_mode: style::AnimationFillMode,
+    pub(crate) play_state: style::PlayState,
 }
 
 /// Parse the `animation` shorthand.
@@ -198,9 +201,10 @@ fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<Prope
 
 /// Build a `CssValue` from a time list (single → `Time`, multiple → `List`).
 pub(crate) fn time_list_value(times: &[f32]) -> CssValue {
-    let list: Vec<CssValue> = times.iter().map(|t| CssValue::Time(*t)).collect();
+    let mut list: Vec<CssValue> = times.iter().map(|t| CssValue::Time(*t)).collect();
     if list.len() == 1 {
-        list.into_iter().next().unwrap()
+        // len checked above; pop cannot fail.
+        list.pop().expect("len == 1")
     } else {
         CssValue::List(list)
     }
@@ -224,32 +228,20 @@ pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue 
 /// at most 8 components per comma-separated entry.
 const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
 
-// NOTE: time/timing-function parsing is structurally shared with parse_single_transition.
+// Time/timing-function parsing delegated to `parse::TimeAndTiming::try_consume()`,
+// shared with `parse_single_transition` in parse.rs.
 fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimationSpec {
     let mut name = "none".to_string();
-    let mut duration = 0.0_f32;
-    let mut timing_function = timing::TimingFunction::EASE;
-    let mut delay = 0.0_f32;
+    let mut tnt = parse::TimeAndTiming::new();
     let mut iteration_count = style::IterationCount::Number(1.0);
     let mut direction = style::AnimationDirection::Normal;
     let mut fill_mode = style::AnimationFillMode::None;
     let mut play_state = style::PlayState::Running;
-    let mut found_duration = false;
 
     for _ in 0..MAX_ANIMATION_SHORTHAND_COMPONENTS {
-        // Try timing function
-        if let Ok(tf) = input.try_parse(parse::parse_timing_function) {
-            timing_function = tf;
-            continue;
-        }
-        // Try time value
-        if let Ok(t) = input.try_parse(parse::parse_time) {
-            if found_duration {
-                delay = t;
-            } else {
-                duration = t;
-                found_duration = true;
-            }
+        // Try timing function and time values via shared helper.
+        // Reject negative duration per CSS Animations §3.2.
+        if tnt.try_consume(input, true).unwrap_or(false) {
             continue;
         }
         // Try keyword identifiers
@@ -286,9 +278,9 @@ fn parse_single_animation(input: &mut cssparser::Parser<'_, '_>) -> SingleAnimat
 
     SingleAnimationSpec {
         name,
-        duration,
-        timing_function,
-        delay,
+        duration: tnt.duration,
+        timing_function: tnt.timing_function,
+        delay: tnt.delay,
         iteration_count,
         direction,
         fill_mode,
