@@ -12,6 +12,9 @@ type EntityId = u64;
 /// Maximum number of concurrent animations per entity to prevent unbounded memory growth.
 const MAX_ANIMATIONS_PER_ENTITY: usize = 256;
 
+/// Maximum number of concurrent transitions per entity to prevent unbounded memory growth.
+const MAX_TRANSITIONS_PER_ENTITY: usize = 256;
+
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
 #[derive(Debug)]
@@ -70,6 +73,9 @@ impl AnimationEngine {
         transition: TransitionInstance,
     ) -> Vec<(EntityId, AnimationEvent)> {
         let transitions = self.transitions.entry(entity).or_default();
+        if transitions.len() >= MAX_TRANSITIONS_PER_ENTITY {
+            return Vec::new();
+        }
         let mut cancel_events = Vec::new();
         // Check for an existing in-progress transition for the same property.
         // Per CSS Transitions §5.3, replacing a running transition fires
@@ -109,7 +115,6 @@ impl AnimationEngine {
     ///
     /// Returns a list of (entity, `event_type`) pairs for events that should
     /// be dispatched (e.g., `transitionend`, `animationend`).
-    #[allow(clippy::too_many_lines)]
     pub fn tick(&mut self, dt: f64) -> Vec<(EntityId, AnimationEvent)> {
         if !dt.is_finite() || dt < 0.0 {
             return Vec::new();
@@ -117,13 +122,43 @@ impl AnimationEngine {
         self.timeline.advance(dt);
         let mut events = Vec::new();
 
-        // The transition and animation tick loops below are intentionally similar
-        // but differ enough (event types, iteration handling, fill-mode semantics)
-        // that merging them into a shared abstraction would reduce clarity.
+        Self::tick_transitions(&mut self.transitions, dt, &mut events);
+        Self::tick_animations(&mut self.animations, dt, &mut events);
 
-        // Tick transitions
-        for (entity, transitions) in &mut self.transitions {
-            for trans in transitions.iter_mut() {
+        // Clean up finished transitions (transitions always hold their final value
+        // via the style system once complete, so they can be removed).
+        self.transitions.retain(|_, v| {
+            v.retain(|t| !(t.finished && t.end_event_dispatched));
+            !v.is_empty()
+        });
+        // Clean up finished animations, but retain those with fill-mode forwards/both
+        // so that progress() can continue to report the fill value.
+        self.animations.retain(|_, v| {
+            v.retain(|a| {
+                if !a.finished || !a.end_event_dispatched {
+                    return true;
+                }
+                // Keep animations that need to hold their fill value.
+                matches!(
+                    a.fill_mode(),
+                    crate::style::AnimationFillMode::Forwards
+                        | crate::style::AnimationFillMode::Both
+                )
+            });
+            !v.is_empty()
+        });
+
+        events
+    }
+
+    /// Tick all transitions, emitting transition events.
+    fn tick_transitions(
+        transitions: &mut HashMap<EntityId, Vec<TransitionInstance>>,
+        dt: f64,
+        events: &mut Vec<(EntityId, AnimationEvent)>,
+    ) {
+        for (entity, trans_list) in transitions.iter_mut() {
+            for trans in trans_list.iter_mut() {
                 if trans.finished {
                     continue;
                 }
@@ -172,9 +207,15 @@ impl AnimationEngine {
                 }
             }
         }
+    }
 
-        // Tick animations
-        for (entity, anims) in &mut self.animations {
+    /// Tick all animations, emitting animation events.
+    fn tick_animations(
+        animations: &mut HashMap<EntityId, Vec<AnimationInstance>>,
+        dt: f64,
+        events: &mut Vec<(EntityId, AnimationEvent)>,
+    ) {
+        for (entity, anims) in animations.iter_mut() {
             for anim in anims.iter_mut() {
                 if anim.finished || anim.play_state == crate::style::PlayState::Paused {
                     continue;
@@ -192,7 +233,13 @@ impl AnimationEngine {
                         *entity,
                         AnimationEvent::AnimationStart {
                             name: anim.name().to_string(),
-                            elapsed_time: (-anim.delay()).max(0.0),
+                            elapsed_time: {
+                                let active_dur = match anim.iteration_count() {
+                                    crate::style::IterationCount::Number(n) => n * anim.duration(),
+                                    crate::style::IterationCount::Infinite => f32::INFINITY,
+                                };
+                                (-anim.delay()).clamp(0.0, active_dur)
+                            },
                         },
                     ));
                 }
@@ -210,9 +257,13 @@ impl AnimationEngine {
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let new_iteration = (active_time / dur).floor().min(f64::from(u32::MAX)) as u32;
                     if new_iteration > anim.current_iteration {
-                        // Dispatch for each iteration boundary crossed, but skip
-                        // the very first iteration start (that's animationstart).
-                        for iter in (anim.current_iteration + 1)..=new_iteration {
+                        // Cap iteration events per tick to prevent billions of
+                        // events when dt is very large relative to duration.
+                        const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
+                        let emit_start = new_iteration
+                            .saturating_sub(MAX_ITERATION_EVENTS_PER_TICK)
+                            .max(anim.current_iteration + 1);
+                        for iter in emit_start..=new_iteration {
                             #[allow(clippy::cast_precision_loss)]
                             events.push((
                                 *entity,
@@ -242,31 +293,6 @@ impl AnimationEngine {
                 }
             }
         }
-
-        // Clean up finished transitions (transitions always hold their final value
-        // via the style system once complete, so they can be removed).
-        self.transitions.retain(|_, v| {
-            v.retain(|t| !(t.finished && t.end_event_dispatched));
-            !v.is_empty()
-        });
-        // Clean up finished animations, but retain those with fill-mode forwards/both
-        // so that progress() can continue to report the fill value.
-        self.animations.retain(|_, v| {
-            v.retain(|a| {
-                if !a.finished || !a.end_event_dispatched {
-                    return true;
-                }
-                // Keep animations that need to hold their fill value.
-                matches!(
-                    a.fill_mode(),
-                    crate::style::AnimationFillMode::Forwards
-                        | crate::style::AnimationFillMode::Both
-                )
-            });
-            !v.is_empty()
-        });
-
-        events
     }
 
     /// Get all currently active transitions for an entity.

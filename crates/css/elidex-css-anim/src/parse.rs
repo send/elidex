@@ -31,6 +31,19 @@ pub fn parse_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseErr
     }
 }
 
+/// Parse a `<time>` value that must be non-negative (for durations).
+///
+/// `transition-duration` and `animation-duration` do not accept negative
+/// values (CSS Transitions §2.1, CSS Animations §3.2). Delays may be
+/// negative and should use [`parse_time`] directly.
+pub fn parse_duration_time(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError> {
+    let t = parse_time(input)?;
+    if t < 0.0 {
+        return Err(parse_err("duration", "negative duration"));
+    }
+    Ok(t)
+}
+
 /// Parse a `<timing-function>` value.
 pub fn parse_timing_function(
     input: &mut cssparser::Parser<'_, '_>,
@@ -117,30 +130,33 @@ pub fn parse_transition_property(
     )])
 }
 
-/// Parse `transition-duration` or `transition-delay` (comma-separated `<time>`).
+/// Parse a comma-separated `<time>` list for duration or delay properties.
+///
+/// Duration properties (`transition-duration`, `animation-duration`) reject
+/// negative values via [`parse_duration_time`]. Delay properties accept
+/// negative values via [`parse_time`].
 pub fn parse_time_list(
     name: &str,
     input: &mut cssparser::Parser<'_, '_>,
 ) -> Result<Vec<PropertyDeclaration>, ParseError> {
+    let is_duration = name.ends_with("-duration");
     let mut values = Vec::new();
     loop {
         if values.len() >= MAX_LIST_ITEMS {
             break;
         }
-        values.push(parse_time(input)?);
+        if is_duration {
+            values.push(parse_duration_time(input)?);
+        } else {
+            values.push(parse_time(input)?);
+        }
         if input.try_parse(cssparser::Parser::expect_comma).is_err() {
             break;
         }
     }
-    // Serialize as comma-separated CssValue::List of Time values
-    let list: Vec<CssValue> = values.iter().map(|t| CssValue::Time(*t)).collect();
     Ok(vec![PropertyDeclaration::new(
         name,
-        if list.len() == 1 {
-            list.into_iter().next().unwrap()
-        } else {
-            CssValue::List(list)
-        },
+        crate::time_list_value(&values),
     )])
 }
 
@@ -558,6 +574,9 @@ pub fn parse_transition_shorthand(
     let mut delays = Vec::new();
 
     loop {
+        if properties.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         let (prop, dur, tf, del) = parse_single_transition(input);
         properties.push(prop);
         durations.push(dur);

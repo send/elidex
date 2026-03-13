@@ -230,6 +230,9 @@ fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Resul
 }
 
 /// Parse a track breadth value inside `minmax()`.
+// NOTE: keyword + dimension logic overlaps with parse_single_track_size_inner,
+// but this function is called *from* parse_single_track_size_inner (via minmax),
+// so extracting a shared helper would create a circular dependency.
 fn parse_track_breadth_value(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
     // Keywords
     if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(ToString::to_string)) {

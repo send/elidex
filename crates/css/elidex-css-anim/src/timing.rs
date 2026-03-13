@@ -50,10 +50,10 @@ impl TimingFunction {
 
     /// Sample the timing function at progress `t` (0.0..=1.0).
     ///
-    /// Returns the output progress (may overshoot for cubic-bezier).
+    /// Returns the output progress (may overshoot for cubic-bezier per CSS
+    /// Easing Functions Level 1 §2.2).
     #[must_use]
     pub fn sample(&self, t: f32) -> f32 {
-        let t = t.clamp(0.0, 1.0);
         match self {
             Self::Linear => t,
             Self::CubicBezier(x1, y1, x2, y2) => cubic_bezier_sample(*x1, *y1, *x2, *y2, t),
@@ -183,6 +183,7 @@ fn solve_curve_x(x1: f32, x2: f32, x: f32) -> f32 {
 
 /// Evaluate `steps()` at progress `t`.
 fn steps_sample(count: u32, position: StepPosition, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
     #[allow(clippy::cast_precision_loss)]
     let steps = count.max(1) as f32;
 
@@ -307,8 +308,17 @@ mod tests {
     }
 
     #[test]
-    fn clamp_out_of_range() {
+    fn linear_passes_through_out_of_range() {
+        // Linear passes t through unchanged (no clamping).
         let tf = TimingFunction::Linear;
+        assert_eq!(tf.sample(-0.5), -0.5);
+        assert_eq!(tf.sample(1.5), 1.5);
+    }
+
+    #[test]
+    fn steps_clamps_out_of_range() {
+        // Steps clamps t to [0, 1] internally.
+        let tf = TimingFunction::Steps(4, StepPosition::JumpEnd);
         assert_eq!(tf.sample(-0.5), 0.0);
         assert_eq!(tf.sample(1.5), 1.0);
     }

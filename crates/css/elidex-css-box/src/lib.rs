@@ -120,10 +120,10 @@ impl CssPropertyHandler for BoxHandler {
                 parse_length_percentage_auto_or_none(input)?
             }
 
-            "min-width" | "min-height" | "border-radius" | "row-gap" | "column-gap"
-            | "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
-                parse_non_negative_length_percentage(input)?
-            }
+            "min-width" | "min-height" => parse_length_percentage_auto(input)?,
+
+            "border-radius" | "row-gap" | "column-gap" | "padding-top" | "padding-right"
+            | "padding-bottom" | "padding-left" => parse_non_negative_length_percentage(input)?,
 
             "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
                 parse_length_percentage_auto(input)?
@@ -262,13 +262,13 @@ impl CssPropertyHandler for BoxHandler {
             "display" => CssValue::Keyword("inline".to_string()),
             "position" => CssValue::Keyword("static".to_string()),
 
-            "width" | "height" | "max-width" | "max-height" => CssValue::Auto,
-
-            "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
-            | "margin-left" | "padding-top" | "padding-right" | "padding-bottom"
-            | "padding-left" | "border-radius" | "row-gap" | "column-gap" => {
-                CssValue::Length(0.0, LengthUnit::Px)
+            "width" | "height" | "max-width" | "max-height" | "min-width" | "min-height" => {
+                CssValue::Auto
             }
+
+            "margin-top" | "margin-right" | "margin-bottom" | "margin-left" | "padding-top"
+            | "padding-right" | "padding-bottom" | "padding-left" | "border-radius" | "row-gap"
+            | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
 
             "border-top-width"
             | "border-right-width"
@@ -546,6 +546,7 @@ fn resolve_max_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
 }
 
 /// Resolve a color value, with `currentcolor` mapping to the element's `color`.
+// NOTE: similar currentcolor resolution in elidex-style/src/resolve/font.rs
 fn resolve_color(value: &CssValue, current_color: CssColor) -> CssColor {
     match value {
         CssValue::Color(c) => *c,
@@ -592,6 +593,7 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
 }
 
 /// Convert a [`Dimension`] to a [`CssValue`].
+// NOTE: also defined in elidex-style/src/resolve/mod.rs
 fn dimension_to_css_value(d: Dimension) -> CssValue {
     match d {
         Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),

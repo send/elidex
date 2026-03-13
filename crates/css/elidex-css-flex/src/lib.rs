@@ -147,9 +147,11 @@ impl CssPropertyHandler for FlexHandler {
             }
             "order" => {
                 if let CssValue::Number(n) = value {
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        style.order = *n as i32;
+                    if n.is_finite() {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+                        {
+                            style.order = n.clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+                        }
                     }
                 }
             }

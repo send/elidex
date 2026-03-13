@@ -238,8 +238,11 @@ impl CssPropertyHandler for TextHandler {
 
     fn affects_layout(&self, name: &str) -> bool {
         // All text/font properties can affect layout except color and
-        // text-decoration-color.
-        !matches!(name, "color" | "text-decoration-color")
+        // text-decoration visual properties.
+        !matches!(
+            name,
+            "color" | "text-decoration-color" | "text-decoration-line" | "text-decoration-style"
+        )
     }
 
     fn get_computed(&self, name: &str, style: &ComputedStyle) -> CssValue {
@@ -365,8 +368,12 @@ fn parse_font_weight(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, 
 }
 
 fn parse_font_family(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
+    const MAX_FONT_FAMILIES: usize = 256;
     let mut families = Vec::new();
     loop {
+        if families.len() >= MAX_FONT_FAMILIES {
+            break;
+        }
         // Try quoted string.
         if let Ok(s) = input.try_parse(|i| i.expect_string().map(std::string::ToString::to_string))
         {

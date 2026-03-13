@@ -108,26 +108,21 @@ impl CssPropertyHandler for FloatHandler {
     }
 }
 
+const VERTICAL_ALIGN_KEYWORDS: &[&str] = &[
+    "baseline",
+    "sub",
+    "super",
+    "top",
+    "text-top",
+    "middle",
+    "bottom",
+    "text-bottom",
+];
+
 fn parse_vertical_align(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     // Try keyword first
-    if input
-        .try_parse(|i| i.expect_ident_matching("baseline"))
-        .is_ok()
-    {
-        return Ok(CssValue::Keyword("baseline".to_string()));
-    }
-    for kw in &[
-        "sub",
-        "super",
-        "top",
-        "text-top",
-        "middle",
-        "bottom",
-        "text-bottom",
-    ] {
-        if input.try_parse(|i| i.expect_ident_matching(kw)).is_ok() {
-            return Ok(CssValue::Keyword((*kw).to_string()));
-        }
+    if let Ok(v) = input.try_parse(|i| parse_keyword(i, VERTICAL_ALIGN_KEYWORDS)) {
+        return Ok(v);
     }
 
     // Try length/percentage

@@ -56,6 +56,8 @@ pub(crate) type ResolveContext = elidex_plugin::ResolveContext;
 #[must_use]
 #[allow(clippy::too_many_lines)]
 // Single match dispatcher over CSS property names.
+// TODO(M4-2): remove legacy get_computed_as_css_value arms once all properties
+// are covered by CssPropertyHandler::get_computed().
 pub fn get_computed_as_css_value(property: &str, style: &ComputedStyle) -> CssValue {
     use crate::inherit::get_initial_value;
 
@@ -273,6 +275,7 @@ pub fn get_computed_with_registry(
 // so enum-to-string conversion is handled via .as_ref() directly.
 
 /// Convert a [`Dimension`] back into a [`CssValue`] for CSS serialization.
+// NOTE: also defined in elidex-css-box/src/lib.rs
 pub fn dimension_to_css_value(d: Dimension) -> CssValue {
     match d {
         Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),

@@ -6,6 +6,10 @@ use crate::style::{
 use crate::timing::TimingFunction;
 use elidex_plugin::CssValue;
 
+/// Maximum number of items in a comma-separated CSS list value to prevent
+/// unbounded memory growth from malicious or malformed stylesheets.
+const MAX_LIST_ITEMS: usize = 1024;
+
 /// Resolve a parsed transition-property string into `TransitionProperty` values.
 #[must_use]
 pub fn resolve_transition_property(value: &CssValue) -> Vec<TransitionProperty> {
@@ -15,6 +19,7 @@ pub fn resolve_transition_property(value: &CssValue) -> Vec<TransitionProperty> 
         _ => return vec![TransitionProperty::All],
     };
     s.split(',')
+        .take(MAX_LIST_ITEMS)
         .map(|p| {
             let p = p.trim();
             match p {
@@ -53,6 +58,7 @@ pub fn resolve_timing_function_list(value: &CssValue) -> Vec<TimingFunction> {
     };
     // Each entry could be a keyword or a function — re-parse
     s.split(',')
+        .take(MAX_LIST_ITEMS)
         .map(|part| {
             let part = part.trim();
             let mut pi = cssparser::ParserInput::new(part);
@@ -70,7 +76,10 @@ pub fn resolve_animation_names(value: &CssValue) -> Vec<String> {
         CssValue::Keyword(k) => k.as_str(),
         _ => return Vec::new(),
     };
-    s.split(',').map(|s| s.trim().to_string()).collect()
+    s.split(',')
+        .take(MAX_LIST_ITEMS)
+        .map(|s| s.trim().to_string())
+        .collect()
 }
 
 /// Resolve a comma-separated string into iteration count list.
@@ -81,6 +90,7 @@ pub fn resolve_iteration_counts(value: &CssValue) -> Vec<IterationCount> {
         _ => return vec![IterationCount::default()],
     };
     s.split(',')
+        .take(MAX_LIST_ITEMS)
         .map(|part| {
             let part = part.trim();
             if part.eq_ignore_ascii_case("infinite") {
@@ -134,7 +144,10 @@ fn resolve_keyword_list<T: Default>(value: &CssValue, f: impl Fn(&str) -> T) -> 
         CssValue::Keyword(k) => k.as_str(),
         _ => return vec![T::default()],
     };
-    s.split(',').map(|part| f(part.trim())).collect()
+    s.split(',')
+        .take(MAX_LIST_ITEMS)
+        .map(|part| f(part.trim()))
+        .collect()
 }
 
 /// Build an `AnimStyle` from resolved property values.

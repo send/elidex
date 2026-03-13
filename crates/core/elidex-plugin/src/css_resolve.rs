@@ -93,6 +93,9 @@ pub fn resolve_i32(value: &CssValue, default: i32) -> i32 {
     }
 }
 
+// TODO: add resolve_keyword_to_enum<T>(value: &CssValue, from_keyword: fn(&str) -> Option<T>) -> Option<T>
+// to DRY the keyword→enum pattern used in all CSS property handlers.
+
 /// Wrap an `AsRef<str>` value in `CssValue::Keyword`.
 #[must_use]
 pub fn keyword_from<T: AsRef<str>>(val: &T) -> CssValue {

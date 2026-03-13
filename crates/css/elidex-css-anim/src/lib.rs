@@ -154,40 +154,45 @@ pub(crate) struct SingleAnimationSpec {
 /// Syntax: `<duration> || <timing-function> || <delay> || <iteration-count> ||
 ///          <direction> || <fill-mode> || <play-state> || <name>`
 fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<PropertyDeclaration> {
-    let mut names = Vec::new();
-    let mut durations = Vec::new();
-    let mut timing_fns = Vec::new();
-    let mut delays = Vec::new();
-    let mut iteration_counts = Vec::new();
-    let mut directions = Vec::new();
-    let mut fill_modes = Vec::new();
-    let mut play_states = Vec::new();
+    /// Maximum number of items in a comma-separated CSS list value.
+    const MAX_LIST_ITEMS: usize = 1024;
+
+    let mut specs = Vec::new();
 
     loop {
-        let spec = parse_single_animation(input);
-        names.push(spec.name);
-        durations.push(spec.duration);
-        timing_fns.push(spec.timing_function);
-        delays.push(spec.delay);
-        iteration_counts.push(spec.iteration_count);
-        directions.push(spec.direction);
-        fill_modes.push(spec.fill_mode);
-        play_states.push(spec.play_state);
+        if specs.len() >= MAX_LIST_ITEMS {
+            break;
+        }
+        specs.push(parse_single_animation(input));
         if input.try_parse(cssparser::Parser::expect_comma).is_err() {
             break;
         }
     }
 
-    build_animation_decls(
-        &names,
-        &durations,
-        &timing_fns,
-        &delays,
-        &iteration_counts,
-        &directions,
-        &fill_modes,
-        &play_states,
-    )
+    let names: Vec<String> = specs.iter().map(|s| s.name.clone()).collect();
+    let durations: Vec<f32> = specs.iter().map(|s| s.duration).collect();
+    let timing_fns: Vec<timing::TimingFunction> =
+        specs.iter().map(|s| s.timing_function.clone()).collect();
+    let delays: Vec<f32> = specs.iter().map(|s| s.delay).collect();
+    let iteration_counts: Vec<style::IterationCount> =
+        specs.iter().map(|s| s.iteration_count).collect();
+    let directions: Vec<style::AnimationDirection> = specs.iter().map(|s| s.direction).collect();
+    let fill_modes: Vec<style::AnimationFillMode> = specs.iter().map(|s| s.fill_mode).collect();
+    let play_states: Vec<style::PlayState> = specs.iter().map(|s| s.play_state).collect();
+
+    vec![
+        PropertyDeclaration::new("animation-name", CssValue::String(names.join(", "))),
+        PropertyDeclaration::new("animation-duration", time_list_value(&durations)),
+        PropertyDeclaration::new("animation-timing-function", display_list_value(&timing_fns)),
+        PropertyDeclaration::new("animation-delay", time_list_value(&delays)),
+        PropertyDeclaration::new(
+            "animation-iteration-count",
+            display_list_value(&iteration_counts),
+        ),
+        PropertyDeclaration::new("animation-direction", display_list_value(&directions)),
+        PropertyDeclaration::new("animation-fill-mode", display_list_value(&fill_modes)),
+        PropertyDeclaration::new("animation-play-state", display_list_value(&play_states)),
+    ]
 }
 
 /// Build a `CssValue` from a time list (single → `Time`, multiple → `List`).
@@ -209,33 +214,6 @@ pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue 
             .collect::<Vec<_>>()
             .join(", "),
     )
-}
-
-/// Build longhand declarations from collected animation shorthand components.
-#[allow(clippy::too_many_arguments)]
-fn build_animation_decls(
-    names: &[String],
-    durations: &[f32],
-    timing_fns: &[timing::TimingFunction],
-    delays: &[f32],
-    iteration_counts: &[style::IterationCount],
-    directions: &[style::AnimationDirection],
-    fill_modes: &[style::AnimationFillMode],
-    play_states: &[style::PlayState],
-) -> Vec<PropertyDeclaration> {
-    vec![
-        PropertyDeclaration::new("animation-name", CssValue::String(names.join(", "))),
-        PropertyDeclaration::new("animation-duration", time_list_value(durations)),
-        PropertyDeclaration::new("animation-timing-function", display_list_value(timing_fns)),
-        PropertyDeclaration::new("animation-delay", time_list_value(delays)),
-        PropertyDeclaration::new(
-            "animation-iteration-count",
-            display_list_value(iteration_counts),
-        ),
-        PropertyDeclaration::new("animation-direction", display_list_value(directions)),
-        PropertyDeclaration::new("animation-fill-mode", display_list_value(fill_modes)),
-        PropertyDeclaration::new("animation-play-state", display_list_value(play_states)),
-    ]
 }
 
 /// Maximum number of component values in a single `animation` shorthand entry.

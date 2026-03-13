@@ -145,6 +145,11 @@ pub fn is_animatable(property: &str) -> bool {
             | "flex-grow"
             | "flex-shrink"
             | "order"
+            | "top"
+            | "right"
+            | "bottom"
+            | "left"
+            | "z-index"
     )
 }
 
