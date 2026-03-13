@@ -686,3 +686,50 @@ fn parse_text_decoration_overline() {
     assert_eq!(decls[0].property, "text-decoration-line");
     assert_eq!(decls[0].value, CssValue::Keyword("overline".into()));
 }
+
+// --- Compound var() in multi-token values (CSS Variables Level 1 §3) ---
+
+#[test]
+fn compound_var_stored_as_raw_tokens() {
+    // A compound value containing var() should be stored as RawTokens.
+    let decls = parse_single("border", "var(--bw) solid var(--bc)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "border");
+    assert!(
+        matches!(&decls[0].value, CssValue::RawTokens(raw) if raw.contains("var(")),
+        "compound var() should be stored as RawTokens, got {:?}",
+        decls[0].value
+    );
+}
+
+#[test]
+fn compound_var_margin_stored_as_raw_tokens() {
+    let decls = parse_single("margin", "0 var(--x)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "margin");
+    assert!(matches!(&decls[0].value, CssValue::RawTokens(_)));
+}
+
+#[test]
+fn whole_value_var_still_parsed_as_var() {
+    // A single var() as the entire value should still use CssValue::Var.
+    let decls = parse_single("color", "var(--x)");
+    assert_eq!(decls.len(), 1);
+    assert!(
+        matches!(&decls[0].value, CssValue::Var(name, _) if name == "--x"),
+        "whole-value var() should use Var variant, got {:?}",
+        decls[0].value
+    );
+}
+
+#[test]
+fn var_with_trailing_tokens_uses_raw_tokens() {
+    // var() followed by extra tokens — not exhaustive, so compound path.
+    let decls = parse_single("border", "var(--bw) solid red");
+    assert_eq!(decls.len(), 1);
+    assert!(
+        matches!(&decls[0].value, CssValue::RawTokens(raw) if raw.contains("var(")),
+        "var() with trailing tokens: {:?}",
+        decls[0].value
+    );
+}

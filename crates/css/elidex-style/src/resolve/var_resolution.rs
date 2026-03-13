@@ -41,7 +41,12 @@ pub(super) fn build_custom_properties(
     props
 }
 
-/// Resolve all `CssValue::Var` references in the winners map.
+/// Resolve all `var()` references in the winners map.
+///
+/// Handles two cases:
+/// 1. `CssValue::Var` — whole-value `var()` (e.g. `color: var(--x)`)
+/// 2. `CssValue::RawTokens` containing `var()` — compound values
+///    (e.g. `border: var(--bw) solid var(--bc)`)
 ///
 /// Returns a map of property name → resolved `CssValue` for properties that
 /// had `var()` references.
@@ -54,17 +59,32 @@ pub(super) fn resolve_var_references(
         if name.starts_with("--") {
             continue; // Custom properties themselves don't get var-resolved here.
         }
-        if let CssValue::Var(..) = value {
-            let mut visited = HashSet::new();
-            if let Some(val) = resolve_var_value(value, custom_props, 0, &mut visited) {
-                // Expand shorthand property names to their longhands so that
-                // downstream resolvers (which only look up longhand keys) can
-                // find the value.  When var() is the entire shorthand value,
-                // parse_property_value stores it under the shorthand name
-                // (e.g. "background") because var() is detected before the
-                // shorthand match.  After resolution we re-key it here.
-                expand_resolved_shorthand(&mut resolved, name, val);
+        match value {
+            CssValue::Var(..) => {
+                let mut visited = HashSet::new();
+                if let Some(val) = resolve_var_value(value, custom_props, 0, &mut visited) {
+                    // Expand shorthand property names to their longhands so that
+                    // downstream resolvers (which only look up longhand keys) can
+                    // find the value.  When var() is the entire shorthand value,
+                    // parse_property_value stores it under the shorthand name
+                    // (e.g. "background") because var() is detected before the
+                    // shorthand match.  After resolution we re-key it here.
+                    expand_resolved_shorthand(&mut resolved, name, val);
+                }
             }
+            CssValue::RawTokens(raw) if raw.contains("var(") => {
+                // Compound value with var() — substitute and re-parse.
+                if let Some(substituted) = substitute_vars(raw, custom_props, 0) {
+                    let decl_text = format!("{name}: {substituted}");
+                    let decls = elidex_css::parse_declaration_block(&decl_text);
+                    for decl in &decls {
+                        resolved.insert(decl.property.clone(), decl.value.clone());
+                    }
+                }
+                // If substitution fails, property is "invalid at computed-value
+                // time" — no entry in resolved, so merge_winners will drop it.
+            }
+            _ => {}
         }
     }
     resolved
@@ -185,6 +205,97 @@ pub(super) fn parse_raw_value(raw: &str) -> CssValue {
     elidex_css::parse_raw_token_value(raw)
 }
 
+/// Check whether a `CssValue` contains an unresolved `var()` reference.
+fn has_var_reference(value: &CssValue) -> bool {
+    match value {
+        CssValue::Var(..) => true,
+        CssValue::RawTokens(raw) => raw.contains("var("),
+        _ => false,
+    }
+}
+
+/// Substitute all `var()` references in a raw CSS value string.
+///
+/// Returns `None` if any `var()` reference is unresolvable (no custom property
+/// value and no fallback), which makes the property "invalid at computed-value
+/// time" per CSS Variables Level 1 §5.
+fn substitute_vars(
+    raw: &str,
+    custom_props: &HashMap<String, String>,
+    depth: usize,
+) -> Option<String> {
+    if depth > MAX_VAR_DEPTH {
+        return None;
+    }
+    if !raw.contains("var(") {
+        return Some(raw.to_string());
+    }
+
+    let mut result = String::with_capacity(raw.len());
+    let mut remaining = raw;
+
+    loop {
+        let Some(var_start) = remaining.find("var(") else {
+            result.push_str(remaining);
+            break;
+        };
+
+        // Copy text before var(
+        result.push_str(&remaining[..var_start]);
+
+        // Parse var() arguments
+        let after_open = &remaining[var_start + 4..];
+        let (name, fallback, consumed) = parse_var_args(after_open)?;
+
+        // Look up the custom property
+        let name = name.trim();
+        if let Some(value) = custom_props.get(name) {
+            // The value might itself contain var() — recurse.
+            let resolved = substitute_vars(value.trim(), custom_props, depth + 1)?;
+            result.push_str(&resolved);
+        } else if let Some(fb) = fallback {
+            // Use fallback, which might contain var().
+            let resolved = substitute_vars(fb.trim(), custom_props, depth + 1)?;
+            result.push_str(&resolved);
+        } else {
+            return None; // Unresolvable — invalid at computed-value time.
+        }
+
+        remaining = &after_open[consumed..];
+    }
+
+    Some(result)
+}
+
+/// Parse `var()` arguments from a string positioned after the opening `var(`.
+///
+/// Returns `(name, optional_fallback, bytes_consumed)` including the closing `)`.
+/// Handles nested parentheses in the fallback value (e.g. `var(--x, calc(1px + 2px))`).
+fn parse_var_args(s: &str) -> Option<(&str, Option<&str>, usize)> {
+    let mut depth: u32 = 1;
+    let mut comma_pos = None;
+
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let name_end = comma_pos.unwrap_or(i);
+                    let name = &s[..name_end];
+                    let fallback = comma_pos.map(|cp| &s[cp + 1..i]);
+                    return Some((name, fallback, i + 1));
+                }
+            }
+            ',' if depth == 1 && comma_pos.is_none() => {
+                comma_pos = Some(i);
+            }
+            _ => {}
+        }
+    }
+    None // Unclosed var()
+}
+
 /// Merge resolved `var()` values back into the winners map.
 pub(super) fn merge_winners<'a>(
     original: &PropertyMap<'a>,
@@ -192,7 +303,7 @@ pub(super) fn merge_winners<'a>(
 ) -> PropertyMap<'a> {
     let mut merged: PropertyMap<'a> = HashMap::new();
     // Copy originals, replacing var()-resolved entries and dropping unresolved
-    // Var values. Unresolved var() should make the property "invalid at
+    // var() references. Unresolved var() should make the property "invalid at
     // computed-value time" (CSS Variables Level 1 §5), which means downstream
     // resolvers see no entry and apply inherited/initial as appropriate.
     for (name, value) in original {
@@ -201,10 +312,11 @@ pub(super) fn merge_winners<'a>(
         }
         if let Some(resolved_val) = resolved.get(*name) {
             merged.insert(name, resolved_val);
-        } else if !matches!(value, CssValue::Var(..)) {
+        } else if !has_var_reference(value) {
             merged.insert(name, value);
         }
-        // Unresolved CssValue::Var is intentionally dropped.
+        // Unresolved var() references (Var or RawTokens with var()) are
+        // intentionally dropped.
     }
     // Include resolved entries with new keys (from shorthand expansion,
     // e.g. "background" → "background-color").
@@ -552,5 +664,186 @@ mod tests {
             "border-spacing-v should be 10, got {}",
             style.border_spacing_v
         );
+    }
+
+    // --- Compound var() in multi-token values (CSS Variables Level 1 §3) ---
+
+    #[test]
+    fn compound_var_border_shorthand() {
+        // border: var(--bw) solid var(--bc)
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--bw".into(), "2px".into());
+        parent
+            .custom_properties
+            .insert("--bc".into(), "#ff0000".into());
+        let ctx = default_ctx();
+        let mut winners: PropertyMap = HashMap::new();
+        let raw = CssValue::RawTokens("var(--bw) solid var(--bc)".into());
+        winners.insert("border", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(
+            (style.border_top.width - 2.0).abs() < f32::EPSILON,
+            "border-top width: {}",
+            style.border_top.width
+        );
+        assert_eq!(style.border_top.style, elidex_plugin::BorderStyle::Solid);
+        assert_eq!(style.border_top.color, CssColor::RED);
+        // All four sides should be set by the border shorthand.
+        assert!(
+            (style.border_left.width - 2.0).abs() < f32::EPSILON,
+            "border-left width: {}",
+            style.border_left.width
+        );
+    }
+
+    #[test]
+    fn compound_var_margin() {
+        // margin: 0 var(--x)
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--x".into(), "10px".into());
+        let ctx = default_ctx();
+        let mut winners: PropertyMap = HashMap::new();
+        let raw = CssValue::RawTokens("0 var(--x)".into());
+        winners.insert("margin", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert_eq!(style.margin_top, elidex_plugin::Dimension::ZERO);
+        assert_eq!(
+            style.margin_right,
+            elidex_plugin::Dimension::Length(10.0)
+        );
+        assert_eq!(style.margin_bottom, elidex_plugin::Dimension::ZERO);
+        assert_eq!(
+            style.margin_left,
+            elidex_plugin::Dimension::Length(10.0)
+        );
+    }
+
+    #[test]
+    fn compound_var_border_side() {
+        // border-bottom: var(--bw) solid var(--bc)
+        let mut parent = ComputedStyle::default();
+        parent
+            .custom_properties
+            .insert("--bw".into(), "1px".into());
+        parent
+            .custom_properties
+            .insert("--bc".into(), "#30363d".into());
+        let ctx = default_ctx();
+        let mut winners: PropertyMap = HashMap::new();
+        let raw = CssValue::RawTokens("var(--bw) solid var(--bc)".into());
+        winners.insert("border-bottom", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(
+            (style.border_bottom.width - 1.0).abs() < f32::EPSILON,
+            "border-bottom width: {}",
+            style.border_bottom.width
+        );
+        assert_eq!(style.border_bottom.style, elidex_plugin::BorderStyle::Solid);
+        assert_eq!(
+            style.border_bottom.color,
+            CssColor::new(0x30, 0x36, 0x3d, 255)
+        );
+    }
+
+    #[test]
+    fn compound_var_with_fallback() {
+        // border: var(--bw, 3px) solid var(--bc, blue)
+        let parent = ComputedStyle::default(); // no custom properties
+        let ctx = default_ctx();
+        let mut winners: PropertyMap = HashMap::new();
+        let raw = CssValue::RawTokens("var(--bw, 3px) solid var(--bc, blue)".into());
+        winners.insert("border", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(
+            (style.border_top.width - 3.0).abs() < f32::EPSILON,
+            "fallback width: {}",
+            style.border_top.width
+        );
+        assert_eq!(style.border_top.style, elidex_plugin::BorderStyle::Solid);
+        assert_eq!(style.border_top.color, CssColor::BLUE);
+    }
+
+    #[test]
+    fn compound_var_unresolvable_drops_property() {
+        // If a var() in a compound value has no value and no fallback,
+        // the entire property is invalid at computed-value time.
+        let parent = ComputedStyle {
+            display: Display::Block,
+            ..ComputedStyle::default()
+        };
+        let ctx = default_ctx();
+        let mut winners: PropertyMap = HashMap::new();
+        let raw = CssValue::RawTokens("var(--undefined) solid red".into());
+        winners.insert("border", &raw);
+        let style = build_computed_style(&winners, &parent, &ctx);
+        // Border should remain at defaults (no border).
+        assert!(
+            style.border_top.width < f32::EPSILON,
+            "unresolvable var should leave border at default"
+        );
+    }
+
+    #[test]
+    fn substitute_vars_unit() {
+        let mut props = HashMap::new();
+        props.insert("--x".into(), "10px".into());
+        props.insert("--color".into(), "red".into());
+
+        assert_eq!(
+            substitute_vars("var(--x) solid var(--color)", &props, 0),
+            Some("10px solid red".to_string())
+        );
+        assert_eq!(
+            substitute_vars("0 var(--x)", &props, 0),
+            Some("0 10px".to_string())
+        );
+        // No var() — passthrough.
+        assert_eq!(
+            substitute_vars("1px solid red", &props, 0),
+            Some("1px solid red".to_string())
+        );
+        // Undefined with no fallback — None.
+        assert_eq!(substitute_vars("var(--undefined)", &props, 0), None);
+        // Fallback used.
+        assert_eq!(
+            substitute_vars("var(--undefined, 5px)", &props, 0),
+            Some("5px".to_string())
+        );
+    }
+
+    #[test]
+    fn substitute_vars_nested_parens() {
+        let mut props = HashMap::new();
+        props.insert("--x".into(), "10px".into());
+        // Fallback with nested parentheses: var(--undefined, calc(1px + 2px))
+        assert_eq!(
+            substitute_vars("var(--undefined, calc(1px + 2px))", &props, 0),
+            Some("calc(1px + 2px)".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_var_args_unit() {
+        // Simple: var(--x) → ("--x", None, consumed)
+        let (name, fb, consumed) = parse_var_args("--x)").unwrap();
+        assert_eq!(name, "--x");
+        assert!(fb.is_none());
+        assert_eq!(consumed, 4);
+
+        // With fallback: var(--x, 10px) → ("--x", Some(" 10px"), consumed)
+        let (name, fb, consumed) = parse_var_args("--x, 10px)").unwrap();
+        assert_eq!(name, "--x");
+        assert_eq!(fb.unwrap().trim(), "10px");
+        assert_eq!(consumed, 10);
+
+        // Nested parens: var(--x, calc(1px + 2px))
+        let (name, fb, consumed) = parse_var_args("--x, calc(1px + 2px))").unwrap();
+        assert_eq!(name, "--x");
+        assert_eq!(fb.unwrap().trim(), "calc(1px + 2px)");
+        assert_eq!(consumed, 21);
     }
 }

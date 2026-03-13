@@ -140,13 +140,31 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
     }
 
     // Check for var() function as the entire value.
-    // NOTE(Phase 3): Only whole-value var() is supported. Multi-token values
-    // like `margin: 0 var(--x)` or `border: var(--bw) solid var(--bc)` are
-    // not handled — the var() within a compound value will cause the
-    // property-specific parser to fail, silently dropping the declaration.
-    // TODO: support var() in any token position (CSS Variables Level 1 §3).
-    if let Ok(var_val) = input.try_parse(parse_var_function) {
+    if let Ok(var_val) = input.try_parse(|i| {
+        let v = parse_var_function(i)?;
+        // Only match when var() is the entire value (exhaustive).
+        if !i.is_exhausted() {
+            return Err(());
+        }
+        Ok(v)
+    }) {
         return single_decl(name, var_val);
+    }
+
+    // CSS Variables Level 1 §3: If the value contains var() references mixed
+    // with other tokens, store the entire value as raw tokens for deferred
+    // substitution at computed-value time.
+    if let Ok(raw) = input.try_parse(|i| -> Result<String, ()> {
+        let start = i.position();
+        while i.next().is_ok() {}
+        let raw = i.slice_from(start).trim().to_string();
+        if raw.contains("var(") {
+            Ok(raw)
+        } else {
+            Err(())
+        }
+    }) {
+        return single_decl(name, CssValue::RawTokens(raw));
     }
 
     match name {
