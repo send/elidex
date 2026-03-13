@@ -483,6 +483,7 @@ mod tests {
 
     #[test]
     fn resolve_keyword_to_enum_non_keyword_returns_none() {
+        #[allow(clippy::unnecessary_wraps)]
         fn from_kw(_s: &str) -> Option<u8> {
             Some(1)
         }

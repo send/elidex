@@ -396,8 +396,10 @@ mod tests {
         dom.append_child(root, div);
 
         // Attach a ComputedStyle with display:none.
-        let mut style = ComputedStyle::default();
-        style.display = Display::None;
+        let style = ComputedStyle {
+            display: Display::None,
+            ..ComputedStyle::default()
+        };
         dom.world_mut().insert_one(div, style).unwrap();
 
         let visible = dom.create_element("p", Attributes::default());
