@@ -248,8 +248,24 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             handle_key(state, "keyup", key, code, repeat, mods);
         }
 
-        BrowserToContent::SetViewport { .. } => {
-            // TODO: update viewport dimensions and re-layout
+        BrowserToContent::SetViewport { width, height } => {
+            state.pipeline.session.flush(&mut state.pipeline.dom);
+            let stylesheet_refs: Vec<&elidex_css::Stylesheet> =
+                state.pipeline.stylesheets.iter().collect();
+            crate::resolve_with_compat(
+                &mut state.pipeline.dom,
+                &stylesheet_refs,
+                &state.pipeline.registry,
+            );
+            elidex_layout::layout_tree(
+                &mut state.pipeline.dom,
+                width,
+                height,
+                &state.pipeline.font_db,
+            );
+            state.pipeline.display_list =
+                elidex_render::build_display_list(&state.pipeline.dom, &state.pipeline.font_db);
+            state.send_display_list();
         }
 
         BrowserToContent::GoBack => {

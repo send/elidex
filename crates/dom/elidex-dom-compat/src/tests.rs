@@ -435,26 +435,24 @@ fn presentational_table_align_center_margins() {
 
 #[test]
 fn presentational_table_align_left_right() {
-    // table[align=left] → margin-left: 0, margin-right: auto (float approximation).
+    // table[align=left] → float: left.
     let mut attrs = Attributes::default();
     attrs.set("align", "left");
     let (dom, el) = setup_element_with_attrs("table", attrs);
     let hints = get_presentational_hints(el, &dom);
     assert_eq!(
-        find_decl(&hints, "margin-left"),
-        Some(&CssValue::Length(0.0, LengthUnit::Px))
+        find_decl(&hints, "float"),
+        Some(&CssValue::Keyword("left".to_string()))
     );
-    assert_eq!(find_decl(&hints, "margin-right"), Some(&CssValue::Auto));
 
-    // table[align=right] → margin-left: auto, margin-right: 0.
+    // table[align=right] → float: right.
     let mut attrs = Attributes::default();
     attrs.set("align", "right");
     let (dom, el) = setup_element_with_attrs("table", attrs);
     let hints = get_presentational_hints(el, &dom);
-    assert_eq!(find_decl(&hints, "margin-left"), Some(&CssValue::Auto));
     assert_eq!(
-        find_decl(&hints, "margin-right"),
-        Some(&CssValue::Length(0.0, LengthUnit::Px))
+        find_decl(&hints, "float"),
+        Some(&CssValue::Keyword("right".to_string()))
     );
 }
 

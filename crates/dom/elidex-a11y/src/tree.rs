@@ -287,7 +287,13 @@ fn is_hidden(dom: &EcsDom, entity: Entity) -> bool {
         }
     }
 
-    // TODO: check display:none from ComputedStyle when available.
+    // Check display:none from ComputedStyle.
+    if let Ok(style) = dom.world().get::<&elidex_plugin::ComputedStyle>(entity) {
+        if style.display == elidex_plugin::Display::None {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -379,6 +385,27 @@ mod tests {
             // Root + visible p only (hidden div skipped).
             assert_eq!(update.nodes.len(), 2, "case: {desc}");
         }
+    }
+
+    #[test]
+    fn display_none_hides_element() {
+        use elidex_plugin::{ComputedStyle, Display};
+
+        let (mut dom, root) = setup_simple_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+
+        // Attach a ComputedStyle with display:none.
+        let mut style = ComputedStyle::default();
+        style.display = Display::None;
+        dom.world_mut().insert_one(div, style).unwrap();
+
+        let visible = dom.create_element("p", Attributes::default());
+        dom.append_child(root, visible);
+
+        let update = build_tree_update(&dom, root, None);
+        // Root + visible p only (display:none div skipped).
+        assert_eq!(update.nodes.len(), 2);
     }
 
     type RoleTestCase = (

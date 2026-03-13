@@ -254,10 +254,6 @@ pub(super) fn resolve_border_properties(
     }
 }
 
-// TODO(Phase 4): float/clear layout (CSS 2.1 §9.5).
-// TODO(Phase 4): visibility: hidden/collapse (CSS 2.1 §11.2).
-// TODO(Phase 4): vertical-align on inline elements (CSS 2.1 §10.8).
-
 // --- Display, position, overflow ---
 
 pub(super) fn resolve_display(

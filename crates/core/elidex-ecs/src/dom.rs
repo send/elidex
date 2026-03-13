@@ -98,6 +98,8 @@ pub const MAX_ANCESTOR_DEPTH: usize = 10_000;
 /// See the module-level documentation for tree invariant guarantees.
 pub struct EcsDom {
     world: World,
+    /// Cached document root entity, set by [`create_document_root()`](Self::create_document_root).
+    document_root: Option<Entity>,
 }
 
 impl EcsDom {
@@ -105,6 +107,7 @@ impl EcsDom {
     pub fn new() -> Self {
         Self {
             world: World::new(),
+            document_root: None,
         }
     }
 
@@ -140,8 +143,19 @@ impl EcsDom {
     /// Create a document root entity (no tag, only tree relations).
     ///
     /// The document root serves as the parent of the `<html>` element.
+    /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
     pub fn create_document_root(&mut self) -> Entity {
-        self.world.spawn((TreeRelation::default(),))
+        let entity = self.world.spawn((TreeRelation::default(),));
+        self.document_root = Some(entity);
+        entity
+    }
+
+    /// Returns the document root entity created by [`create_document_root()`](Self::create_document_root).
+    ///
+    /// Returns `None` if no document root has been created yet.
+    #[must_use]
+    pub fn document_root(&self) -> Option<Entity> {
+        self.document_root
     }
 
     /// Create a text node.

@@ -225,10 +225,13 @@ fn walk_children_parallel(
 
 /// Find root entities to start the tree walk.
 ///
-/// Currently scans all entities.
-/// TODO: track the document root entity directly in `EcsDom`.
+/// Uses the cached document root from `EcsDom` when available (O(1)),
+/// falling back to scanning all entities for backward compatibility.
 pub(crate) fn find_roots(dom: &EcsDom) -> Vec<Entity> {
-    // Collect all entities that have no parent.
+    if let Some(root) = dom.document_root() {
+        return vec![root];
+    }
+    // Fallback: scan all entities that have no parent.
     let mut roots = Vec::new();
     for entity in &mut dom.world().query::<Entity>() {
         if dom.get_parent(entity).is_none() {

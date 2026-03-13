@@ -5,43 +5,22 @@
 
 use elidex_plugin::{CssColor, CssValue, LengthUnit};
 
-/// Inherited properties.
-///
-/// # Maintenance note
-///
-/// TODO: This list has dual maintenance with `CssPropertyHandler::is_inherited()` in
-/// `elidex-plugin/src/handlers/`. The two sources of truth should be unified — ideally
-/// by making the plugin registry the single authority on inheritance metadata and delegating
-/// to it from here. Until then, keep both lists in sync when adding new inherited properties.
-const INHERITED_PROPERTIES: &[&str] = &[
-    "color",
-    "font-size",
-    "font-weight",
-    "font-style",
-    "font-family",
-    "line-height",
-    "text-transform",
-    "text-align",
-    "white-space",
-    "list-style-type",
-    "border-collapse",
-    "border-spacing-h",
-    "border-spacing-v",
-    "caption-side",
-    "direction",
-    "writing-mode",
-    "text-orientation",
-    "visibility",
-    "letter-spacing",
-    "word-spacing",
-];
-
 /// Returns `true` if the named CSS property is inherited.
+///
+/// Delegates to the default CSS property registry so that inheritance metadata
+/// has a single source of truth (`CssPropertyHandler::is_inherited()`).
 ///
 /// Custom properties (`--*`) are always inherited per CSS Variables Level 1.
 /// Unknown properties are treated as non-inherited.
 pub(crate) fn is_inherited(property: &str) -> bool {
-    property.starts_with("--") || INHERITED_PROPERTIES.contains(&property)
+    if property.starts_with("--") {
+        return true;
+    }
+    let registry = crate::default_css_property_registry();
+    if let Some(handler) = registry.resolve(property) {
+        return handler.is_inherited(property);
+    }
+    false
 }
 
 /// Returns the CSS initial value for a known property.

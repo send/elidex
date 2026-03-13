@@ -24,6 +24,7 @@ use crate::CssColor;
 /// ```
 ///
 /// The **first** variant automatically receives `#[default]`.
+#[macro_export]
 macro_rules! keyword_enum {
     (
         $( #[doc = $doc:expr] )*

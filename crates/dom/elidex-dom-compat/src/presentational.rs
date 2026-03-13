@@ -362,8 +362,8 @@ fn push_align_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
 /// Push table align attribute → float or margin auto centering (WHATWG §15.3.10).
 ///
 /// Unlike block elements where align → text-align, on `<table>` the spec maps:
-/// - `align="left"` → `float: left` (approximated with margin until float is supported)
-/// - `align="right"` → `float: right` (approximated with margin until float is supported)
+/// - `align="left"` → `float: left`
+/// - `align="right"` → `float: right`
 /// - `align="center"` → `margin-left: auto; margin-right: auto`
 fn push_table_align_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
     if let Some(val) = attrs.get("align") {
@@ -372,20 +372,16 @@ fn push_table_align_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
                 decls.push(Declaration::new("margin-left", CssValue::Auto));
                 decls.push(Declaration::new("margin-right", CssValue::Auto));
             }
-            // Phase 4 TODO: these should emit `float: left/right` (float not in ComputedStyle).
-            // Margin approximation provides partial alignment behavior for now.
             "left" => {
                 decls.push(Declaration::new(
-                    "margin-left",
-                    CssValue::Length(0.0, LengthUnit::Px),
+                    "float",
+                    CssValue::Keyword("left".to_string()),
                 ));
-                decls.push(Declaration::new("margin-right", CssValue::Auto));
             }
             "right" => {
-                decls.push(Declaration::new("margin-left", CssValue::Auto));
                 decls.push(Declaration::new(
-                    "margin-right",
-                    CssValue::Length(0.0, LengthUnit::Px),
+                    "float",
+                    CssValue::Keyword("right".to_string()),
                 ));
             }
             _ => {}

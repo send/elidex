@@ -74,76 +74,31 @@ impl fmt::Display for IterationCount {
     }
 }
 
-/// `animation-direction` value.
-///
-// TODO: use keyword_enum! once it's exported from elidex-plugin
-/// Note: `elidex_plugin::keyword_enum!` is not `#[macro_export]`, so these
-/// enums retain manual `Display` impls instead of using the macro.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum AnimationDirection {
-    /// `normal`.
-    #[default]
-    Normal,
-    /// `reverse`.
-    Reverse,
-    /// `alternate`.
-    Alternate,
-    /// `alternate-reverse`.
-    AlternateReverse,
-}
-
-impl fmt::Display for AnimationDirection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Normal => f.write_str("normal"),
-            Self::Reverse => f.write_str("reverse"),
-            Self::Alternate => f.write_str("alternate"),
-            Self::AlternateReverse => f.write_str("alternate-reverse"),
-        }
+elidex_plugin::keyword_enum! {
+    /// `animation-direction` value.
+    AnimationDirection {
+        Normal => "normal",
+        Reverse => "reverse",
+        Alternate => "alternate",
+        AlternateReverse => "alternate-reverse",
     }
 }
 
-/// `animation-fill-mode` value.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum AnimationFillMode {
-    /// `none` (default).
-    #[default]
-    None,
-    /// `forwards`.
-    Forwards,
-    /// `backwards`.
-    Backwards,
-    /// `both`.
-    Both,
-}
-
-impl fmt::Display for AnimationFillMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => f.write_str("none"),
-            Self::Forwards => f.write_str("forwards"),
-            Self::Backwards => f.write_str("backwards"),
-            Self::Both => f.write_str("both"),
-        }
+elidex_plugin::keyword_enum! {
+    /// `animation-fill-mode` value.
+    AnimationFillMode {
+        None => "none",
+        Forwards => "forwards",
+        Backwards => "backwards",
+        Both => "both",
     }
 }
 
-/// `animation-play-state` value.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum PlayState {
-    /// `running` (default).
-    #[default]
-    Running,
-    /// `paused`.
-    Paused,
-}
-
-impl fmt::Display for PlayState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Running => f.write_str("running"),
-            Self::Paused => f.write_str("paused"),
-        }
+elidex_plugin::keyword_enum! {
+    /// `animation-play-state` value.
+    PlayState {
+        Running => "running",
+        Paused => "paused",
     }
 }
 
