@@ -9,8 +9,8 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 
-use crate::bridge::HostBridge;
 use super::element::extract_entity;
+use crate::bridge::HostBridge;
 
 /// Convert a JS number (f64) to usize, clamping NaN/negative/infinity to 0.
 #[must_use]
@@ -18,8 +18,14 @@ fn js_number_to_usize(n: f64) -> usize {
     if n.is_nan() || !n.is_finite() || n < 0.0 {
         0
     } else {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
-        { n as usize }
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        {
+            n as usize
+        }
     }
 }
 
@@ -30,12 +36,70 @@ pub(super) fn register_form_accessors(
     realm: &boa_engine::realm::Realm,
 ) {
     register_value_accessor(init, bridge, realm);
-    register_bool_fcs_accessor(init, bridge, realm, "checked", |fcs| fcs.checked, |fcs, v| { fcs.checked = v; }, Some(elidex_ecs::ElementState::CHECKED));
-    register_bool_fcs_accessor(init, bridge, realm, "disabled", |fcs| fcs.disabled, |fcs, v| { fcs.disabled = v; }, Some(elidex_ecs::ElementState::DISABLED));
-    register_bool_fcs_accessor(init, bridge, realm, "required", |fcs| fcs.required, |fcs, v| { fcs.required = v; }, Some(elidex_ecs::ElementState::REQUIRED));
-    register_bool_fcs_accessor(init, bridge, realm, "readOnly", |fcs| fcs.readonly, |fcs, v| { fcs.readonly = v; }, Some(elidex_ecs::ElementState::READ_ONLY));
-    register_string_fcs_accessor(init, bridge, realm, "name", |fcs| fcs.name.clone(), |fcs, v| { fcs.name = v; });
-    register_string_fcs_accessor(init, bridge, realm, "defaultValue", |fcs| fcs.default_value.clone(), |fcs, v| { fcs.default_value = v; });
+    register_bool_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "checked",
+        |fcs| fcs.checked,
+        |fcs, v| {
+            fcs.checked = v;
+        },
+        Some(elidex_ecs::ElementState::CHECKED),
+    );
+    register_bool_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "disabled",
+        |fcs| fcs.disabled,
+        |fcs, v| {
+            fcs.disabled = v;
+        },
+        Some(elidex_ecs::ElementState::DISABLED),
+    );
+    register_bool_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "required",
+        |fcs| fcs.required,
+        |fcs, v| {
+            fcs.required = v;
+        },
+        Some(elidex_ecs::ElementState::REQUIRED),
+    );
+    register_bool_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "readOnly",
+        |fcs| fcs.readonly,
+        |fcs, v| {
+            fcs.readonly = v;
+        },
+        Some(elidex_ecs::ElementState::READ_ONLY),
+    );
+    register_string_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "name",
+        |fcs| fcs.name.clone(),
+        |fcs, v| {
+            fcs.name = v;
+        },
+    );
+    register_string_fcs_accessor(
+        init,
+        bridge,
+        realm,
+        "defaultValue",
+        |fcs| fcs.default_value.clone(),
+        |fcs, v| {
+            fcs.default_value = v;
+        },
+    );
     register_type_accessor(init, bridge, realm);
     register_selected_index_accessor(init, bridge, realm);
     register_selection_accessors(init, bridge, realm);
@@ -343,7 +407,9 @@ fn register_selected_index_accessor(
                         -1
                     } else {
                         #[allow(clippy::cast_possible_truncation)]
-                        { n.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32 }
+                        {
+                            n.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+                        }
                     }
                 });
             bridge.with(|_session, dom| {
@@ -454,7 +520,9 @@ fn register_selection_accessors(
         realm,
         "selectionStart",
         |fcs| fcs.selection_start,
-        |fcs, v| { fcs.selection_start = v; },
+        |fcs, v| {
+            fcs.selection_start = v;
+        },
     );
     register_usize_fcs_accessor(
         init,
@@ -462,7 +530,9 @@ fn register_selection_accessors(
         realm,
         "selectionEnd",
         |fcs| fcs.selection_end,
-        |fcs, v| { fcs.selection_end = v; },
+        |fcs, v| {
+            fcs.selection_end = v;
+        },
     );
 }
 
@@ -489,7 +559,8 @@ fn register_check_validity_method(init: &mut ObjectInitializer<'_>, bridge: &Hos
                         .is_none_or(|fcs| elidex_form::validate_control(&fcs).is_valid());
                     if !valid {
                         // WHATWG §4.10.15.5: fire "invalid" event (cancelable, not composed).
-                        let mut event = elidex_script_session::DispatchEvent::new("invalid", entity);
+                        let mut event =
+                            elidex_script_session::DispatchEvent::new("invalid", entity);
                         event.cancelable = true;
                         elidex_script_session::dispatch_event(dom, &mut event, &mut |_, _, _| {});
                     }
@@ -557,8 +628,10 @@ fn register_set_selection_range_method(init: &mut ObjectInitializer<'_>, bridge:
                     {
                         let byte_start = elidex_form::util::utf16_to_byte_offset(&fcs.value, start);
                         let byte_end = elidex_form::util::utf16_to_byte_offset(&fcs.value, end);
-                        fcs.selection_start = elidex_form::util::snap_to_char_boundary(&fcs.value, byte_start);
-                        fcs.selection_end = elidex_form::util::snap_to_char_boundary(&fcs.value, byte_end);
+                        fcs.selection_start =
+                            elidex_form::util::snap_to_char_boundary(&fcs.value, byte_start);
+                        fcs.selection_end =
+                            elidex_form::util::snap_to_char_boundary(&fcs.value, byte_end);
                         // HTML spec §4.10.5.2.10: if direction is omitted (undefined),
                         // preserve the existing direction. Only reset to None when
                         // explicitly set to "none".

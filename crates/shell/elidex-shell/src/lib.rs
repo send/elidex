@@ -146,8 +146,7 @@ impl PipelineResult {
     /// Remove animation/transition state for entities that no longer exist in the DOM.
     pub(crate) fn prune_dead_animation_entities(&mut self) {
         self.animation_engine.prune_dead_entities(&|entity_id| {
-            Entity::from_bits(entity_id)
-                .is_some_and(|entity| self.dom.world().contains(entity))
+            Entity::from_bits(entity_id).is_some_and(|entity| self.dom.world().contains(entity))
         });
     }
 }

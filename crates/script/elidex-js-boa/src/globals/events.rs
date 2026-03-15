@@ -216,12 +216,12 @@ fn set_modifier_keys(init: &mut ObjectInitializer<'_>, keys: &ModifierKeys) {
 }
 
 /// Set `elapsedTime` and `pseudoElement` properties shared by transition/animation events.
-fn set_elapsed_and_pseudo(init: &mut ObjectInitializer<'_>, elapsed_time: f64, pseudo_element: &str) {
-    init.property(
-        js_string!("elapsedTime"),
-        JsValue::from(elapsed_time),
-        RO,
-    );
+fn set_elapsed_and_pseudo(
+    init: &mut ObjectInitializer<'_>,
+    elapsed_time: f64,
+    pseudo_element: &str,
+) {
+    init.property(js_string!("elapsedTime"), JsValue::from(elapsed_time), RO);
     init.property(
         js_string!("pseudoElement"),
         JsValue::from(js_string!(pseudo_element)),
@@ -303,11 +303,7 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
                     .map_or(JsValue::null(), |d| JsValue::from(js_string!(d))),
                 RO,
             );
-            init.property(
-                js_string!("isComposing"),
-                JsValue::from(i.is_composing),
-                RO,
-            );
+            init.property(js_string!("isComposing"), JsValue::from(i.is_composing), RO);
         }
         EventPayload::Clipboard(c) => {
             init.property(

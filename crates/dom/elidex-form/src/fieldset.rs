@@ -81,10 +81,7 @@ fn disable_descendants(
             continue;
         }
         // If the child is a form control, disable it.
-        let has_fcs = dom
-            .world()
-            .get::<&FormControlState>(child)
-            .is_ok();
+        let has_fcs = dom.world().get::<&FormControlState>(child).is_ok();
         if has_fcs {
             if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(child) {
                 fcs.disabled = true;
@@ -116,8 +113,17 @@ mod tests {
 
         propagate_fieldset_disabled(&mut dom);
 
-        assert!(dom.world().get::<&FormControlState>(input).unwrap().disabled);
-        assert!(dom.world().get::<&ElementState>(input).unwrap().contains(ElementState::DISABLED));
+        assert!(
+            dom.world()
+                .get::<&FormControlState>(input)
+                .unwrap()
+                .disabled
+        );
+        assert!(dom
+            .world()
+            .get::<&ElementState>(input)
+            .unwrap()
+            .contains(ElementState::DISABLED));
     }
 
     #[test]
@@ -130,22 +136,36 @@ mod tests {
         let input_in_legend = dom.create_element("input", Attributes::default());
         let fcs = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input_in_legend, fcs);
-        let _ = dom.world_mut().insert_one(input_in_legend, ElementState::default());
+        let _ = dom
+            .world_mut()
+            .insert_one(input_in_legend, ElementState::default());
         let _ = dom.append_child(legend, input_in_legend);
         let _ = dom.append_child(fs, legend);
 
         let input_outside = dom.create_element("input", Attributes::default());
         let fcs2 = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input_outside, fcs2);
-        let _ = dom.world_mut().insert_one(input_outside, ElementState::default());
+        let _ = dom
+            .world_mut()
+            .insert_one(input_outside, ElementState::default());
         let _ = dom.append_child(fs, input_outside);
 
         propagate_fieldset_disabled(&mut dom);
 
         // Input in legend should NOT be disabled.
-        assert!(!dom.world().get::<&FormControlState>(input_in_legend).unwrap().disabled);
+        assert!(
+            !dom.world()
+                .get::<&FormControlState>(input_in_legend)
+                .unwrap()
+                .disabled
+        );
         // Input outside legend should be disabled.
-        assert!(dom.world().get::<&FormControlState>(input_outside).unwrap().disabled);
+        assert!(
+            dom.world()
+                .get::<&FormControlState>(input_outside)
+                .unwrap()
+                .disabled
+        );
     }
 
     #[test]
@@ -159,7 +179,12 @@ mod tests {
         let _ = dom.append_child(fs, input);
 
         propagate_fieldset_disabled(&mut dom);
-        assert!(!dom.world().get::<&FormControlState>(input).unwrap().disabled);
+        assert!(
+            !dom.world()
+                .get::<&FormControlState>(input)
+                .unwrap()
+                .disabled
+        );
     }
 
     #[test]
@@ -212,6 +237,11 @@ mod tests {
         let _ = dom.append_child(fs, div);
 
         propagate_fieldset_disabled(&mut dom);
-        assert!(dom.world().get::<&FormControlState>(input).unwrap().disabled);
+        assert!(
+            dom.world()
+                .get::<&FormControlState>(input)
+                .unwrap()
+                .disabled
+        );
     }
 }

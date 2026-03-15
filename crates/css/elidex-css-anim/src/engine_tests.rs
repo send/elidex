@@ -304,8 +304,7 @@ fn engine_remove_entity() {
 #[test]
 fn engine_register_keyframes() {
     let mut engine = AnimationEngine::new();
-    let rule =
-        crate::parse::parse_keyframes("fadeIn", "from { opacity: 0; } to { opacity: 1; }");
+    let rule = crate::parse::parse_keyframes("fadeIn", "from { opacity: 0; } to { opacity: 1; }");
     engine.register_keyframes(rule);
     assert!(engine.get_keyframes("fadeIn").is_some());
     assert!(engine.get_keyframes("nonexistent").is_none());

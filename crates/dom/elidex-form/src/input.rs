@@ -220,7 +220,6 @@ fn handle_readonly_navigation(state: &mut FormControlState, key: &str) -> bool {
     navigate_cursor(state, key) == KeyAction::Consumed
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

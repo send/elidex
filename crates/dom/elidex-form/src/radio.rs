@@ -64,11 +64,7 @@ enum FormFilter {
 /// (each radio requires `find_form_ancestor` walk when using `FormFilter::Scoped`).
 /// TODO(M4-3.7): reduce to O(n) with `AncestorCache` (cached form owner per entity,
 /// invalidated on DOM mutation via `MutationObserver`).
-fn find_radio_group_impl(
-    dom: &EcsDom,
-    name: &str,
-    filter: FormFilter,
-) -> Vec<Entity> {
+fn find_radio_group_impl(dom: &EcsDom, name: &str, filter: FormFilter) -> Vec<Entity> {
     let mut group: Vec<Entity> = dom
         .world()
         .query::<(Entity, &FormControlState)>()
@@ -125,11 +121,7 @@ pub fn is_radio_group_satisfied(group: &[&FormControlState]) -> bool {
 ///
 /// Returns the entity to focus next, if any.
 #[must_use]
-pub fn radio_arrow_navigate(
-    dom: &EcsDom,
-    current: Entity,
-    forward: bool,
-) -> Option<Entity> {
+pub fn radio_arrow_navigate(dom: &EcsDom, current: Entity, forward: bool) -> Option<Entity> {
     let name = dom
         .world()
         .get::<&FormControlState>(current)
@@ -327,8 +319,18 @@ mod tests {
         assert!(toggle_radio(&mut dom, r_formless));
 
         // Both should remain checked (different form scopes).
-        assert!(dom.world().get::<&FormControlState>(r_in_form).unwrap().checked);
-        assert!(dom.world().get::<&FormControlState>(r_formless).unwrap().checked);
+        assert!(
+            dom.world()
+                .get::<&FormControlState>(r_in_form)
+                .unwrap()
+                .checked
+        );
+        assert!(
+            dom.world()
+                .get::<&FormControlState>(r_formless)
+                .unwrap()
+                .checked
+        );
     }
 
     #[test]

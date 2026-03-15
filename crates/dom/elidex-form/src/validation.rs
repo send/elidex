@@ -740,7 +740,10 @@ mod tests {
             ..FormControlState::default()
         };
         let v = validate_control(&state);
-        assert!(v.value_missing, "placeholder option with empty value should be value_missing");
+        assert!(
+            v.value_missing,
+            "placeholder option with empty value should be value_missing"
+        );
 
         state.options[0].value = "real_value".to_string();
         state.value = "real_value".to_string();
@@ -775,7 +778,10 @@ mod tests {
             ..FormControlState::default()
         };
         let v = validate_control(&state);
-        assert!(v.type_mismatch, "URL exceeding MAX_URL_INPUT_LENGTH should be type_mismatch");
+        assert!(
+            v.type_mismatch,
+            "URL exceeding MAX_URL_INPUT_LENGTH should be type_mismatch"
+        );
     }
 
     #[test]

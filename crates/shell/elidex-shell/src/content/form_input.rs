@@ -15,10 +15,7 @@ use super::ContentState;
 ///
 /// Returns `true` if the checkbox was actually toggled (enabled checkbox).
 /// HTML spec §4.10.5.4: disabled controls do not respond to user interaction.
-pub(super) fn toggle_checkbox_if_needed(
-    dom: &mut elidex_ecs::EcsDom,
-    entity: Entity,
-) -> bool {
+pub(super) fn toggle_checkbox_if_needed(dom: &mut elidex_ecs::EcsDom, entity: Entity) -> bool {
     let is_enabled_checkbox = dom
         .world()
         .get::<&FormControlState>(entity)
@@ -77,9 +74,7 @@ pub(super) fn handle_label_click(
 
     // If the target is a checkbox, toggle it (unless already toggled by direct click
     // or the synthetic click was prevented).
-    if !already_toggled
-        && !prevented
-        && toggle_checkbox_if_needed(&mut state.pipeline.dom, target)
+    if !already_toggled && !prevented && toggle_checkbox_if_needed(&mut state.pipeline.dom, target)
     {
         dispatch_state_change_events(state, target);
     }
@@ -154,8 +149,7 @@ pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
     );
 
     if !prevented {
-        let submission =
-            elidex_form::build_form_submission(&state.pipeline.dom, form_entity, None);
+        let submission = elidex_form::build_form_submission(&state.pipeline.dom, form_entity, None);
         // WHATWG §4.10.15.3 step 7: empty action → current document URL.
         let action = if submission.action.is_empty() {
             state
@@ -185,16 +179,17 @@ fn build_submission_url(
     submission: &elidex_form::FormSubmission,
     action: &str,
 ) -> Option<url::Url> {
-    let resolved = crate::app::navigation::resolve_nav_url(
-        state.pipeline.url.as_ref(),
-        action,
-    )?;
+    let resolved = crate::app::navigation::resolve_nav_url(state.pipeline.url.as_ref(), action)?;
     let encoded = elidex_form::encode_form_urlencoded(&submission.data);
 
     if submission.method == "get" {
         let mut target_url = resolved;
         // WHATWG §4.10.15.3: GET replaces the query entirely (no appending).
-        target_url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
+        target_url.set_query(if encoded.is_empty() {
+            None
+        } else {
+            Some(&encoded)
+        });
         // WHATWG §4.10.15.3 step 11: fragment is preserved from the action URL.
         Some(target_url)
     } else {

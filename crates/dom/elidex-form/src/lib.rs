@@ -523,11 +523,13 @@ impl FormControlState {
             name: attrs.get("name").unwrap_or("").to_string(),
             required: attrs.contains("required"),
             multiple,
-            size: attrs.get("size").and_then(|v| v.parse().ok()).unwrap_or(default_size),
+            size: attrs
+                .get("size")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(default_size),
             ..Self::default()
         }
     }
-
 }
 
 #[cfg(test)]

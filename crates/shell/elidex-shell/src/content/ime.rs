@@ -40,13 +40,14 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 .world()
                 .get::<&FormControlState>(target)
                 .ok()
-                .map_or((false, false), |fcs| (
-                    fcs.kind.is_text_control() && !fcs.disabled,
-                    fcs.composition_text.is_some(),
-                ));
+                .map_or((false, false), |fcs| {
+                    (
+                        fcs.kind.is_text_control() && !fcs.disabled,
+                        fcs.composition_text.is_some(),
+                    )
+                });
 
             if is_text_control {
-
                 if let Ok(mut fcs) = state
                     .pipeline
                     .dom
@@ -95,9 +96,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 // Dispatch compositionupdate event.
                 let mut event = DispatchEvent::new_composed("compositionupdate", target);
                 event.cancelable = false;
-                event.payload = EventPayload::Composition(CompositionEventInit {
-                    data: text,
-                });
+                event.payload = EventPayload::Composition(CompositionEventInit { data: text });
                 state.pipeline.runtime.dispatch_event(
                     &mut event,
                     &mut state.pipeline.session,
@@ -151,9 +150,8 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 // Dispatch compositionend event.
                 let mut end_event = DispatchEvent::new_composed("compositionend", target);
                 end_event.cancelable = false;
-                end_event.payload = EventPayload::Composition(CompositionEventInit {
-                    data: text.clone(),
-                });
+                end_event.payload =
+                    EventPayload::Composition(CompositionEventInit { data: text.clone() });
                 state.pipeline.runtime.dispatch_event(
                     &mut end_event,
                     &mut state.pipeline.session,

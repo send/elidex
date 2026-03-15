@@ -192,7 +192,7 @@ fn safe_selection_range_multibyte_boundary() {
     let attrs = Attributes::default();
     let mut state = FormControlState::from_element("input", &attrs).unwrap();
     state.value = "あい".to_string(); // 6 bytes
-    // Set selection_start to mid-char boundary (byte 1 of 'あ')
+                                      // Set selection_start to mid-char boundary (byte 1 of 'あ')
     state.selection_start = 1;
     state.selection_end = 4; // byte 4 is mid-char of 'い'
     let (start, end) = state.safe_selection_range();
@@ -249,7 +249,10 @@ fn text_like_types_are_text_controls() {
         FormControlKind::Search,
     ] {
         assert!(kind.is_text_control(), "{kind:?} should be a text control");
-        assert!(kind.supports_selection(), "{kind:?} should support selection");
+        assert!(
+            kind.supports_selection(),
+            "{kind:?} should support selection"
+        );
     }
 }
 
@@ -264,7 +267,10 @@ fn non_text_like_types_not_text_controls() {
         FormControlKind::File,
         FormControlKind::Hidden,
     ] {
-        assert!(!kind.is_text_control(), "{kind:?} should not be a text control");
+        assert!(
+            !kind.is_text_control(),
+            "{kind:?} should not be a text control"
+        );
     }
 }
 
@@ -342,7 +348,10 @@ fn from_type_str_round_trip() {
     for kind in kinds {
         let s = kind.as_str();
         let round_tripped = FormControlKind::from_type_str(s);
-        assert_eq!(round_tripped, kind, "from_type_str({s:?}) should return {kind:?}");
+        assert_eq!(
+            round_tripped, kind,
+            "from_type_str({s:?}) should return {kind:?}"
+        );
     }
 }
 

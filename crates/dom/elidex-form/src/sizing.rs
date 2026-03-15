@@ -56,10 +56,14 @@ pub fn form_intrinsic_size(state: &FormControlState) -> (f32, f32) {
             if state.options.is_empty() {
                 return (SELECT_WIDTH, SELECT_HEIGHT);
             }
-            let max_len = state.options.iter().map(|o| o.text.chars().count()).max().unwrap_or(0);
+            let max_len = state
+                .options
+                .iter()
+                .map(|o| o.text.chars().count())
+                .max()
+                .unwrap_or(0);
             #[allow(clippy::cast_precision_loss)]
-            let w = ((max_len as f32) * SELECT_CHAR_WIDTH + SELECT_ARROW_WIDTH)
-                .max(SELECT_WIDTH);
+            let w = ((max_len as f32) * SELECT_CHAR_WIDTH + SELECT_ARROW_WIDTH).max(SELECT_WIDTH);
             (w, SELECT_HEIGHT)
         }
         // Hidden inputs have no visual footprint.

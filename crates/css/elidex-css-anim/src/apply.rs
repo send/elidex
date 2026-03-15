@@ -63,7 +63,11 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
         }
         "font-weight" => {
             if let CssValue::Number(v) = value {
-                let clamped = if v.is_finite() { v.clamp(1.0, 1000.0) } else { 400.0 };
+                let clamped = if v.is_finite() {
+                    v.clamp(1.0, 1000.0)
+                } else {
+                    400.0
+                };
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 {
                     style.font_weight = clamped as u16;

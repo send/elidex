@@ -141,9 +141,9 @@ pub(crate) fn form_control_role(kind: FormControlKind) -> Role {
         FormControlKind::Checkbox => Role::CheckBox,
         FormControlKind::Radio => Role::RadioButton,
         FormControlKind::Select => Role::ComboBox,
-        FormControlKind::SubmitButton
-        | FormControlKind::ResetButton
-        | FormControlKind::Button => Role::Button,
+        FormControlKind::SubmitButton | FormControlKind::ResetButton | FormControlKind::Button => {
+            Role::Button
+        }
         FormControlKind::Hidden => Role::GenericContainer,
         FormControlKind::Output => Role::Status,
         FormControlKind::Meter => Role::Meter,

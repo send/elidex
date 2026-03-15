@@ -82,10 +82,7 @@ pub fn read_form_attrs(dom: &EcsDom, form_entity: Entity) -> FormAttrs {
             },
             |attrs| FormAttrs {
                 action: attrs.get("action").unwrap_or("").to_string(),
-                method: attrs
-                    .get("method")
-                    .unwrap_or("get")
-                    .to_ascii_lowercase(),
+                method: attrs.get("method").unwrap_or("get").to_ascii_lowercase(),
                 enctype: attrs
                     .get("enctype")
                     .unwrap_or("application/x-www-form-urlencoded")
@@ -141,10 +138,7 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     let mut current = Some(entity);
     for _ in 0..MAX_ANCESTOR_DEPTH {
         let e = current?;
-        let is_form = dom
-            .world()
-            .get::<&TagType>(e)
-            .is_ok_and(|t| t.0 == "form");
+        let is_form = dom.world().get::<&TagType>(e).is_ok_and(|t| t.0 == "form");
         if is_form {
             return Some(e);
         }
@@ -162,9 +156,14 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
 pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry> {
     let mut entries = Vec::new();
     // Collect descendants.
-    walk_form_descendants(dom, form_entity, &mut |c| {
-        collect_control_entry(dom, c, &mut entries);
-    }, 0);
+    walk_form_descendants(
+        dom,
+        form_entity,
+        &mut |c| {
+            collect_control_entry(dom, c, &mut entries);
+        },
+        0,
+    );
     // Collect controls associated via `form` attribute (HTML §4.10.15.3).
     let form_id = dom
         .world()
@@ -187,11 +186,7 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
 }
 
 /// Collect a single control's form data entry.
-fn collect_control_entry(
-    dom: &EcsDom,
-    entity: Entity,
-    entries: &mut Vec<FormDataEntry>,
-) {
+fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDataEntry>) {
     let Ok(fcs) = dom.world().get::<&FormControlState>(entity) else {
         return;
     };
@@ -271,9 +266,14 @@ pub fn reset_form(dom: &mut EcsDom, form_entity: Entity) {
 
 fn collect_form_entities(dom: &EcsDom, entity: Entity) -> Vec<Entity> {
     let mut result = Vec::new();
-    walk_form_descendants(dom, entity, &mut |c| {
-        result.push(c);
-    }, 0);
+    walk_form_descendants(
+        dom,
+        entity,
+        &mut |c| {
+            result.push(c);
+        },
+        0,
+    );
     result
 }
 
@@ -315,7 +315,8 @@ mod tests {
             let mut a = Attributes::default();
             a.set("name", "q");
             a
-        }).unwrap();
+        })
+        .unwrap();
         let _ = dom.world_mut().insert_one(input, fcs);
         let _ = dom.append_child(div, input);
         let _ = dom.append_child(form, div);
@@ -588,9 +589,27 @@ mod tests {
             name: "colors".to_string(),
             multiple: true,
             options: vec![
-                crate::SelectOption { text: "R".into(), value: "r".into(), disabled: false, group: None, selected: true },
-                crate::SelectOption { text: "G".into(), value: "g".into(), disabled: false, group: None, selected: false },
-                crate::SelectOption { text: "B".into(), value: "b".into(), disabled: false, group: None, selected: true },
+                crate::SelectOption {
+                    text: "R".into(),
+                    value: "r".into(),
+                    disabled: false,
+                    group: None,
+                    selected: true,
+                },
+                crate::SelectOption {
+                    text: "G".into(),
+                    value: "g".into(),
+                    disabled: false,
+                    group: None,
+                    selected: false,
+                },
+                crate::SelectOption {
+                    text: "B".into(),
+                    value: "b".into(),
+                    disabled: false,
+                    group: None,
+                    selected: true,
+                },
             ],
             ..FormControlState::default()
         };
@@ -620,7 +639,10 @@ mod tests {
         let _ = dom.append_child(form, btn);
         let submission = build_form_submission(&dom, form, Some(btn));
         // Submit buttons are not in the normal data, but the submitter is added.
-        assert!(submission.data.iter().any(|e| e.name == "action" && e.value == "save"));
+        assert!(submission
+            .data
+            .iter()
+            .any(|e| e.name == "action" && e.value == "save"));
     }
 
     #[test]

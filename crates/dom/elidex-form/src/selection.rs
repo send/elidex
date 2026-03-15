@@ -63,7 +63,6 @@ pub fn replace_selection(state: &mut FormControlState, text: &str) {
     state.update_char_count();
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

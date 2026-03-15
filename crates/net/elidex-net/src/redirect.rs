@@ -202,7 +202,10 @@ mod tests {
             let mut buf = vec![0u8; 4096];
             let n = stream.read(&mut buf).await.unwrap();
             let req = String::from_utf8_lossy(&buf[..n]);
-            assert!(req.starts_with("HEAD"), "expected HEAD preserved, got: {req}");
+            assert!(
+                req.starts_with("HEAD"),
+                "expected HEAD preserved, got: {req}"
+            );
             let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             stream.write_all(response).await.unwrap();
         });

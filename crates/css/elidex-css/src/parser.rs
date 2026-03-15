@@ -107,16 +107,25 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
         if name.eq_ignore_ascii_case("keyframes") || name.eq_ignore_ascii_case("-webkit-keyframes")
         {
             // CSS Animations Level 1 §3: <keyframes-name> = <custom-ident> | <string>
-            let keyframes_name = if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(|s| s.as_ref().to_string())) {
+            let keyframes_name = if let Ok(ident) =
+                input.try_parse(|i| i.expect_ident().map(|s| s.as_ref().to_string()))
+            {
                 ident
             } else {
                 // Fallback: accept quoted string names (e.g. @keyframes "my-anim" {})
-                input.expect_string().map_err(ParseError::from)?.as_ref().to_string()
+                input
+                    .expect_string()
+                    .map_err(ParseError::from)?
+                    .as_ref()
+                    .to_string()
             };
             // CSS Animations Level 1 §3: CSS-wide keywords and `none` are
             // invalid as @keyframes names.
             let lower = keyframes_name.to_ascii_lowercase();
-            if matches!(lower.as_str(), "initial" | "inherit" | "unset" | "revert" | "revert-layer" | "none") {
+            if matches!(
+                lower.as_str(),
+                "initial" | "inherit" | "unset" | "revert" | "revert-layer" | "none"
+            ) {
                 return Err(input.new_custom_error(()));
             }
             Ok(keyframes_name)

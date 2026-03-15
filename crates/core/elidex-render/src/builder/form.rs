@@ -14,7 +14,11 @@ use super::{families_as_refs, place_glyphs};
 /// Return scroll offset clamped to a finite, non-negative value.
 fn safe_scroll_offset(fcs: &FormControlState) -> f32 {
     let v = fcs.scroll_offset_x;
-    if v.is_finite() { v.max(0.0) } else { 0.0 }
+    if v.is_finite() {
+        v.max(0.0)
+    } else {
+        0.0
+    }
 }
 
 /// Placeholder text color (grey).
@@ -81,10 +85,28 @@ pub(crate) fn emit_form_control(
         | FormControlKind::Tel
         | FormControlKind::Search
         | FormControlKind::Number => {
-            emit_text_input(lb, fcs, style, font_db, font_cache, dl, is_focused, caret_visible);
+            emit_text_input(
+                lb,
+                fcs,
+                style,
+                font_db,
+                font_cache,
+                dl,
+                is_focused,
+                caret_visible,
+            );
         }
         FormControlKind::Password => {
-            emit_password(lb, fcs, style, font_db, font_cache, dl, is_focused, caret_visible);
+            emit_password(
+                lb,
+                fcs,
+                style,
+                font_db,
+                font_cache,
+                dl,
+                is_focused,
+                caret_visible,
+            );
         }
         FormControlKind::Checkbox => {
             emit_check_indicator(lb, fcs, style, dl, CHECKBOX_INSET_FACTOR);
@@ -114,10 +136,7 @@ pub(crate) fn emit_form_control(
 }
 
 /// Query font and return (`font_id`, ascent).
-fn query_font(
-    style: &ComputedStyle,
-    font_db: &FontDatabase,
-) -> Option<(fontdb::ID, f32)> {
+fn query_font(style: &ComputedStyle, font_db: &FontDatabase) -> Option<(fontdb::ID, f32)> {
     let families = families_as_refs(&style.font_family);
     let font_style = to_fontdb_style(style.font_style);
     let font_id = font_db.query(&families, style.font_weight, font_style)?;
@@ -209,7 +228,9 @@ fn emit_text_input(
     };
 
     // Placeholder takes priority when value is empty and no composition active.
-    if emit_placeholder(content, fcs, style, font_db, font_id, font_cache, dl, ascent) {
+    if emit_placeholder(
+        content, fcs, style, font_db, font_id, font_cache, dl, ascent,
+    ) {
         return;
     }
 
@@ -246,7 +267,9 @@ fn emit_text_input(
                     break; // Clip lines outside content box.
                 }
                 if !line.is_empty() {
-                    emit_shaped_text(line, text_x, baseline_y, style, font_db, font_id, font_cache, dl, color);
+                    emit_shaped_text(
+                        line, text_x, baseline_y, style, font_db, font_id, font_cache, dl, color,
+                    );
                 }
             }
         } else {
@@ -254,7 +277,17 @@ fn emit_text_input(
             let baseline_y = content.y + ascent;
             let text_x = content.x - safe_scroll_offset(fcs);
             if !display_text.is_empty() {
-                emit_shaped_text(&display_text, text_x, baseline_y, style, font_db, font_id, font_cache, dl, color);
+                emit_shaped_text(
+                    &display_text,
+                    text_x,
+                    baseline_y,
+                    style,
+                    font_db,
+                    font_id,
+                    font_cache,
+                    dl,
+                    color,
+                );
             }
         }
 
@@ -268,7 +301,13 @@ fn emit_text_input(
                 let comp_x = if start == 0 {
                     text_base_x
                 } else {
-                    shaped_text_x_offset(&display_text[..start], text_base_x, font_db, font_id, style.font_size)
+                    shaped_text_x_offset(
+                        &display_text[..start],
+                        text_base_x,
+                        font_db,
+                        font_id,
+                        style.font_size,
+                    )
                 };
                 if let Some(shaped) = shape_text(font_db, font_id, style.font_size, comp_text) {
                     let w: f32 = text_width(&shaped.glyphs);
@@ -305,7 +344,9 @@ fn emit_password(
     };
 
     // Placeholder rendering (shared with text input).
-    if emit_placeholder(content, fcs, style, font_db, font_id, font_cache, dl, ascent) {
+    if emit_placeholder(
+        content, fcs, style, font_db, font_id, font_cache, dl, ascent,
+    ) {
         return;
     }
 
@@ -321,7 +362,17 @@ fn emit_password(
         let color = apply_opacity(style.color, style.opacity);
         // Draw a sequence of mask glyphs using repeated single-char shaping.
         let mask: String = PASSWORD_MASK_STR.repeat(total_chars);
-        emit_shaped_text(&mask, content.x, content.y + ascent, style, font_db, font_id, font_cache, dl, color);
+        emit_shaped_text(
+            &mask,
+            content.x,
+            content.y + ascent,
+            style,
+            font_db,
+            font_id,
+            font_cache,
+            dl,
+            color,
+        );
         let _ = mask_width; // width available for future clipping
     }
 
@@ -432,12 +483,32 @@ fn emit_select(
     };
 
     if !selected_text.is_empty() {
-        emit_shaped_text(selected_text, content.x, baseline_y, style, font_db, font_id, font_cache, dl, color);
+        emit_shaped_text(
+            selected_text,
+            content.x,
+            baseline_y,
+            style,
+            font_db,
+            font_id,
+            font_cache,
+            dl,
+            color,
+        );
     }
 
     // Dropdown arrow at the right edge.
     let arrow_x = content.x + content.width - DROPDOWN_ARROW_OFFSET;
-    emit_shaped_text(DROPDOWN_ARROW, arrow_x, baseline_y, style, font_db, font_id, font_cache, dl, color);
+    emit_shaped_text(
+        DROPDOWN_ARROW,
+        arrow_x,
+        baseline_y,
+        style,
+        font_db,
+        font_id,
+        font_cache,
+        dl,
+        color,
+    );
 }
 
 /// Emit shaped text at a position.
@@ -482,7 +553,13 @@ fn emit_caret(
     let content = &lb.content;
     let caret_pos = fcs.safe_cursor_pos();
     let text_base_x = content.x - safe_scroll_offset(fcs);
-    let caret_x = shaped_text_x_offset(&fcs.value[..caret_pos], text_base_x, font_db, font_id, style.font_size);
+    let caret_x = shaped_text_x_offset(
+        &fcs.value[..caret_pos],
+        text_base_x,
+        font_db,
+        font_id,
+        style.font_size,
+    );
     let caret_color = apply_opacity(style.color, style.opacity);
     dl.push(DisplayItem::SolidRect {
         rect: Rect::new(caret_x, content.y, CARET_WIDTH, content.height),
@@ -503,8 +580,20 @@ fn emit_selection_highlight(
     let (sel_start, sel_end) = fcs.safe_selection_range();
     let text_base_x = content.x - safe_scroll_offset(fcs);
 
-    let start_x = shaped_text_x_offset(&fcs.value[..sel_start], text_base_x, font_db, font_id, style.font_size);
-    let end_x = shaped_text_x_offset(&fcs.value[..sel_end], text_base_x, font_db, font_id, style.font_size);
+    let start_x = shaped_text_x_offset(
+        &fcs.value[..sel_start],
+        text_base_x,
+        font_db,
+        font_id,
+        style.font_size,
+    );
+    let end_x = shaped_text_x_offset(
+        &fcs.value[..sel_end],
+        text_base_x,
+        font_db,
+        font_id,
+        style.font_size,
+    );
 
     let width = (end_x - start_x).max(0.0);
     if width > 0.0 {

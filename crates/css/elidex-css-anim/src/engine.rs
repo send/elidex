@@ -189,7 +189,13 @@ impl AnimationEngine {
                 // first ticked (CSS Transitions §6.1).
                 if !trans.run_event_dispatched {
                     trans.run_event_dispatched = true;
-                    push_transition_event(events, *entity, TransitionEventKind::Run, &trans.property, delay_elapsed);
+                    push_transition_event(
+                        events,
+                        *entity,
+                        TransitionEventKind::Run,
+                        &trans.property,
+                        delay_elapsed,
+                    );
                 }
 
                 let active_time = trans.elapsed - f64::from(trans.delay);
@@ -198,14 +204,26 @@ impl AnimationEngine {
                 // (active_time >= 0), i.e., the transition is actually running.
                 if active_time >= 0.0 && !trans.start_event_dispatched {
                     trans.start_event_dispatched = true;
-                    push_transition_event(events, *entity, TransitionEventKind::Start, &trans.property, delay_elapsed);
+                    push_transition_event(
+                        events,
+                        *entity,
+                        TransitionEventKind::Start,
+                        &trans.property,
+                        delay_elapsed,
+                    );
                 }
 
                 if active_time >= f64::from(trans.duration) {
                     trans.finished = true;
                     if !trans.end_event_dispatched {
                         trans.end_event_dispatched = true;
-                        push_transition_event(events, *entity, TransitionEventKind::End, &trans.property, f64::from(trans.duration));
+                        push_transition_event(
+                            events,
+                            *entity,
+                            TransitionEventKind::End,
+                            &trans.property,
+                            f64::from(trans.duration),
+                        );
                     }
                 }
             }
@@ -257,9 +275,7 @@ impl AnimationEngine {
         anim.start_event_dispatched = true;
         // CSS Animations L1 §4.2: elapsedTime = max(min(-delay, active_duration), 0).
         let active_duration = Self::total_active_duration(anim);
-        let start_elapsed = f64::from(-anim.delay())
-            .min(active_duration)
-            .max(0.0);
+        let start_elapsed = f64::from(-anim.delay()).min(active_duration).max(0.0);
         events.push((
             entity,
             AnimationEvent::Animation(AnimationEventData {
@@ -444,7 +460,11 @@ impl AnimationEngine {
         } else {
             let t = (p - before.offset) / range;
             // Guard against NaN/Infinity from near-zero division.
-            if t.is_finite() { t.clamp(0.0, 1.0) } else { 1.0 }
+            if t.is_finite() {
+                t.clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
         };
 
         // Build a lookup from `before` declarations for O(1) access.

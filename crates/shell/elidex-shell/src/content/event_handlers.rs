@@ -13,7 +13,7 @@ use crate::ipc::ModifierState;
 
 use super::focus::set_focus;
 use super::form_input::{
-    dispatch_state_change_events, dispatch_input_event, dispatch_input_event_typed,
+    dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
 };
 use super::navigation::{handle_navigate, process_pending_actions};
@@ -309,7 +309,9 @@ fn update_scroll_offset(state: &mut ContentState, target: elidex_ecs::Entity) {
         let w = state.pipeline.dom.world();
         w.get::<&LayoutBox>(target).ok().and_then(|lb| {
             let content_w = lb.content.width;
-            w.get::<&ComputedStyle>(target).ok().map(|cs| (content_w, cs.font_size))
+            w.get::<&ComputedStyle>(target)
+                .ok()
+                .map(|cs| (content_w, cs.font_size))
         })
     };
 
@@ -348,10 +350,7 @@ fn update_scroll_offset(state: &mut ContentState, target: elidex_ecs::Entity) {
 /// Per HTML §6.6.3: elements with positive tabindex come first (in tabindex
 /// order, then DOM order), followed by tabindex=0 elements in DOM order.
 /// Uses a cached focusable list; cache is invalidated on DOM changes.
-fn find_next_focusable(
-    state: &mut ContentState,
-    forward: bool,
-) -> Option<elidex_ecs::Entity> {
+fn find_next_focusable(state: &mut ContentState, forward: bool) -> Option<elidex_ecs::Entity> {
     use elidex_ecs::Entity;
 
     // Build cache if not present.

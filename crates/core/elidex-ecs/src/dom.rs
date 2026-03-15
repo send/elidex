@@ -492,10 +492,7 @@ impl EcsDom {
     /// Returns the tag name of an entity, or `None` for text nodes.
     #[must_use]
     pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
-        self.world
-            .get::<&TagType>(entity)
-            .ok()
-            .map(|t| t.0.clone())
+        self.world.get::<&TagType>(entity).ok().map(|t| t.0.clone())
     }
 
     /// Check if `ancestor` is an ancestor of `descendant` (or is `descendant` itself).

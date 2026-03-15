@@ -130,10 +130,7 @@ fn form_element_state(entity: Entity, dom: &EcsDom) -> Option<ElementState> {
     if !is_form_element(entity, dom) {
         return None;
     }
-    dom.world()
-        .get::<&ElementState>(entity)
-        .ok()
-        .map(|s| *s)
+    dom.world().get::<&ElementState>(entity).ok().map(|s| *s)
 }
 
 /// Check if an entity can match `:required`/`:optional` (constraint validation candidates).
@@ -170,10 +167,8 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
             state_flag_for_pseudo(name).is_some_and(|flag| state.contains(flag))
         }
         // Form-related pseudo-classes delegated to a separate function.
-        "disabled" | "enabled" | "indeterminate" | "valid" | "invalid" | "checked"
-        | "required" | "optional" | "read-only" | "read-write" => {
-            match_form_pseudo_class(name, entity, dom)
-        }
+        "disabled" | "enabled" | "indeterminate" | "valid" | "invalid" | "checked" | "required"
+        | "optional" | "read-only" | "read-write" => match_form_pseudo_class(name, entity, dom),
         _ => false,
     }
 }
@@ -211,8 +206,7 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
         // :checked matches <input type=checkbox|radio> AND <option selected>.
         "checked" => {
             if is_checkable_element(entity, dom) {
-                form_element_state(entity, dom)
-                    .is_some_and(|s| s.contains(ElementState::CHECKED))
+                form_element_state(entity, dom).is_some_and(|s| s.contains(ElementState::CHECKED))
             } else {
                 dom.world()
                     .get::<&TagType>(entity)
@@ -312,15 +306,19 @@ fn state_flag_for_pseudo(name: &str) -> Option<u16> {
 
 /// Check if an entity is a form element that can be disabled/enabled.
 fn is_form_element(entity: Entity, dom: &EcsDom) -> bool {
-    dom.world()
-        .get::<&TagType>(entity)
-        .is_ok_and(|t| {
-            matches!(
-                t.0.as_str(),
-                "input" | "button" | "textarea" | "select" | "fieldset"
-                    | "progress" | "meter" | "output"
-            )
-        })
+    dom.world().get::<&TagType>(entity).is_ok_and(|t| {
+        matches!(
+            t.0.as_str(),
+            "input"
+                | "button"
+                | "textarea"
+                | "select"
+                | "fieldset"
+                | "progress"
+                | "meter"
+                | "output"
+        )
+    })
 }
 
 /// Check if an entity is a checkable form element (`<input type=checkbox|radio>`).
