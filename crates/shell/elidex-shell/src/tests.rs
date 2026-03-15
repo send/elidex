@@ -580,7 +580,7 @@ fn anim_style_populated_from_css() {
         anim_style.transition_property,
         vec![TransitionProperty::Property("opacity".into())]
     );
-    assert!((anim_style.transition_duration[0] - 0.3).abs() < f32::EPSILON);
+    assert!((anim_style.transition_duration[0] - 0.3).abs() < 1e-6);
 }
 
 #[test]

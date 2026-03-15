@@ -321,11 +321,14 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
         }
         EventPayload::Focus(_f) => {
             // UI Events §5.2: relatedTarget is the EventTarget losing/gaining focus.
-            // We set null here because resolving entity bits to a JS object requires
-            // HostBridge access which is not available in this context.  The entity
-            // bits are preserved in the payload for future use when the bridge is
-            // threaded through event dispatch.
-            init.property(js_string!("relatedTarget"), JsValue::null(), RO);
+            // Initialized as null here; JsRuntime::dispatch_event resolves the entity
+            // bits to a JS wrapper and overwrites via obj.set().  Must be writable +
+            // configurable so the runtime assignment succeeds.
+            init.property(
+                js_string!("relatedTarget"),
+                JsValue::null(),
+                Attribute::WRITABLE | Attribute::CONFIGURABLE,
+            );
         }
         EventPayload::None | _ => {}
     }

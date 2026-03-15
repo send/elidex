@@ -245,6 +245,8 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.prune_dead_animation_entities();
 
     // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
+    // TODO(M4-3.7): also snapshot ComputedStyle for entities that gain AnimStyle in this
+    // render (newly added transition-* properties), so transitions start on first change.
     let old_styles = collect_old_anim_styles(&result.dom);
 
     // Phase 2: Re-resolve styles.
