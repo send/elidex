@@ -80,6 +80,8 @@ fn find_radio_group_impl(dom: &EcsDom, name: &str, filter: FormFilter) -> Vec<En
         .map(|(e, _)| e)
         .collect();
     // Sort by entity bits to ensure consistent DOM-order traversal.
+    // TODO(M4-3.7): sort by document tree order instead of entity allocation order,
+    // which can diverge from DOM order after mutations.
     group.sort_by_key(|e| e.to_bits());
     group
 }

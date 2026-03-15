@@ -209,6 +209,10 @@ fn walk_children_parallel(
                 owned_map.iter().map(|(k, v)| (k.as_str(), v)).collect();
             if let Some(anim_style) = build_anim_style_from_winners(&anim_winners) {
                 let _ = dom.world_mut().insert_one(child, anim_style);
+            } else {
+                let _ = dom
+                    .world_mut()
+                    .remove_one::<elidex_css_anim::style::AnimStyle>(child);
             }
 
             if styles[idx].display != Display::None {
@@ -321,9 +325,14 @@ fn resolve_and_attach_style(
     // Attach ComputedStyle to the entity.
     let _ = dom.world_mut().insert_one(entity, style.clone());
 
-    // Attach AnimStyle if any animation/transition properties are set.
+    // Attach AnimStyle if any animation/transition properties are set,
+    // or remove stale AnimStyle so transition detection stops running.
     if let Some(anim_style) = build_anim_style_from_winners(&winners) {
         let _ = dom.world_mut().insert_one(entity, anim_style);
+    } else {
+        let _ = dom
+            .world_mut()
+            .remove_one::<elidex_css_anim::style::AnimStyle>(entity);
     }
 
     // Only generate pseudo-elements for visible elements.

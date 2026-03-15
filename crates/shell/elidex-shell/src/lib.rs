@@ -303,7 +303,7 @@ fn detect_and_start_transitions(
     use elidex_css_anim::detection::detect_transitions;
     use elidex_css_anim::engine::{AnimationEvent, TransitionEventData, TransitionEventKind};
     use elidex_css_anim::instance::TransitionInstance;
-    use elidex_css_anim::style::TransitionProperty;
+    use elidex_css_anim::style::{AnimStyle, TransitionProperty};
     use elidex_plugin::{EventPayload, TransitionEventInit};
     use elidex_script_session::DispatchEvent;
 
@@ -312,7 +312,7 @@ fn detect_and_start_transitions(
     // Collect all cancel events for batch dispatch after detection.
     let mut cancel_dispatches = Vec::new();
 
-    for &(entity_bits, ref anim_style, ref old_computed) in old_styles {
+    for &(entity_bits, ref old_anim_style, ref old_computed) in old_styles {
         // Get the new computed style for this entity.
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
@@ -323,19 +323,34 @@ fn detect_and_start_transitions(
             ComputedStyle::clone(&computed_ref)
         };
 
-        // Determine which properties to compare based on transition-property list.
-        let has_all = anim_style
+        // Per CSS Transitions §3, transition parameters (duration, delay, timing)
+        // come from the "after-change style".  Use old AnimStyle only for determining
+        // which properties to compare (so we detect all previously-monitored changes),
+        // but pass the new AnimStyle to detect_transitions for parameter extraction.
+        let new_anim_style = result
+            .dom
+            .world()
+            .get::<&AnimStyle>(entity)
+            .ok()
+            .map(|a| AnimStyle::clone(&a));
+
+        // Use the union of old and new transition-property lists for change detection
+        // (old: catches properties being removed, new: catches properties being added).
+        let anim_for_comparison = new_anim_style.as_ref().unwrap_or(old_anim_style);
+        let has_all = old_anim_style
             .transition_property
             .iter()
+            .chain(anim_for_comparison.transition_property.iter())
             .any(|p| matches!(p, TransitionProperty::All));
 
         // Pre-collect named properties into a set for O(1) lookup (avoids O(n²)).
         let named_props: std::collections::HashSet<&str> = if has_all {
             std::collections::HashSet::new()
         } else {
-            anim_style
+            old_anim_style
                 .transition_property
                 .iter()
+                .chain(anim_for_comparison.transition_property.iter())
                 .filter_map(|p| match p {
                     TransitionProperty::Property(name) => Some(name.as_str()),
                     _ => None,
@@ -363,7 +378,9 @@ fn detect_and_start_transitions(
             continue;
         }
 
-        let detected = detect_transitions(anim_style, &changed);
+        // Use after-change AnimStyle for transition parameters (duration/delay/timing).
+        let params_style = new_anim_style.as_ref().unwrap_or(old_anim_style);
+        let detected = detect_transitions(params_style, &changed);
         for dt in detected {
             let trans = TransitionInstance::new(
                 dt.property,

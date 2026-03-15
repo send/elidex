@@ -257,7 +257,10 @@ fn run_event_loop(state: &mut ContentState) {
         // Guard against zero-dt (no elapsed time) but allow sub-millisecond ticks
         // for smooth playback on high-refresh (120Hz+) displays.
         if state.pipeline.animation_engine.has_active() && dt > Duration::ZERO {
-            let dt_secs = dt.as_secs_f64();
+            // Cap dt to prevent idle→active spike: when the engine was idle,
+            // last_frame may be far in the past.  Without capping, newly started
+            // transitions would instantly complete on the first tick.
+            let dt_secs = dt.min(FRAME_INTERVAL * 2).as_secs_f64();
             let events = state.pipeline.animation_engine.tick(dt_secs);
             animation::dispatch_animation_events(&events, state);
             // Only update last_frame when animations are ticked, not on caret-only

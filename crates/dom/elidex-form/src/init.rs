@@ -60,6 +60,7 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
     };
 
     finalize_control(dom, entity, &mut state);
+    // TODO(M4-3.7): check ancestor fieldset disabled state and propagate to this control.
     let _ = dom.world_mut().insert_one(entity, state);
     true
 }

@@ -49,8 +49,8 @@ pub fn delete_selection(state: &mut FormControlState) -> String {
     let (start, end) = state.safe_selection_range();
     let deleted: String = state.value.drain(start..end).collect();
     state.cursor_pos = start;
-    state.selection_start = 0;
-    state.selection_end = 0;
+    state.selection_start = start;
+    state.selection_end = start;
     state.update_char_count();
     deleted
 }

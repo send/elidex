@@ -362,8 +362,10 @@ fn char_count_tracks_value() {
     let state = FormControlState::from_element("input", &attrs).unwrap();
     assert_eq!(state.char_count, 5);
 
-    let mut state = FormControlState::default();
-    state.value = "あいう".to_string();
+    let mut state = FormControlState {
+        value: "あいう".to_string(),
+        ..FormControlState::default()
+    };
     state.update_char_count();
     assert_eq!(state.char_count, 3);
 }

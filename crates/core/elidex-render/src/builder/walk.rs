@@ -94,7 +94,9 @@ pub(crate) fn walk(
                             .get::<&elidex_ecs::ElementState>(entity)
                             .ok()
                             .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
-                        true, // caret_visible (always true in display list builder; shell controls blink)
+                        // TODO(M4-3.7): thread caret_visible from ContentState into display list
+                        // builder so caret blink actually hides the caret in the rendered output.
+                        true,
                     );
                 }
             }

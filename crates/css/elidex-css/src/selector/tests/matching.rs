@@ -628,10 +628,10 @@ fn read_write_matches_div_with_contenteditable() {
     let mut attrs = Attributes::default();
     attrs.set("contenteditable", "true");
     let div = dom.create_element("div", attrs);
-    let sel_rw = parse_sel(":read-write").unwrap();
-    let sel_ro = parse_sel(":read-only").unwrap();
-    assert!(sel_rw.matches(div, &dom));
-    assert!(!sel_ro.matches(div, &dom));
+    let read_write = parse_sel(":read-write").unwrap();
+    let read_only = parse_sel(":read-only").unwrap();
+    assert!(read_write.matches(div, &dom));
+    assert!(!read_only.matches(div, &dom));
 }
 
 #[test]
