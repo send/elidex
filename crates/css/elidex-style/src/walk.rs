@@ -49,15 +49,17 @@ fn build_anim_style_from_winners(
         }
     }
 
-    if found { Some(style) } else { None }
+    if found {
+        Some(style)
+    } else {
+        None
+    }
 }
 
 /// Variant for the parallel path that takes `OwnedPropertyMap` directly,
 /// avoiding an intermediate `HashMap<&str, &CssValue>` allocation.
 #[cfg(feature = "parallel")]
-fn build_anim_style_from_owned(
-    owned: &super::parallel::OwnedPropertyMap,
-) -> Option<AnimStyle> {
+fn build_anim_style_from_owned(owned: &super::parallel::OwnedPropertyMap) -> Option<AnimStyle> {
     let mut style = AnimStyle::default();
     let mut found = false;
 
@@ -68,7 +70,11 @@ fn build_anim_style_from_owned(
         }
     }
 
-    if found { Some(style) } else { None }
+    if found {
+        Some(style)
+    } else {
+        None
+    }
 }
 
 /// Build a child `ResolveContext` from a resolved entity style.

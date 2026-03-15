@@ -231,10 +231,8 @@ impl JsRuntime {
                 if let Some(related_bits) = f.related_target {
                     if let Some(related_entity) = Entity::from_bits(related_bits) {
                         let wrapper = bridge.with(|session, _dom| {
-                            let obj_ref = session.get_or_create_wrapper(
-                                related_entity,
-                                ComponentKind::Element,
-                            );
+                            let obj_ref = session
+                                .get_or_create_wrapper(related_entity, ComponentKind::Element);
                             crate::globals::element::create_element_wrapper(
                                 related_entity,
                                 &bridge,
