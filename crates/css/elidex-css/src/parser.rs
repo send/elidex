@@ -106,8 +106,20 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
     ) -> Result<Self::Prelude, ParseError<'i, ()>> {
         if name.eq_ignore_ascii_case("keyframes") || name.eq_ignore_ascii_case("-webkit-keyframes")
         {
-            let ident = input.expect_ident().map_err(ParseError::from)?;
-            Ok(ident.as_ref().to_string())
+            // CSS Animations Level 1 §3: <keyframes-name> = <custom-ident> | <string>
+            let keyframes_name = if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(|s| s.as_ref().to_string())) {
+                ident
+            } else {
+                // Fallback: accept quoted string names (e.g. @keyframes "my-anim" {})
+                input.expect_string().map_err(ParseError::from)?.as_ref().to_string()
+            };
+            // CSS Animations Level 1 §3: CSS-wide keywords and `none` are
+            // invalid as @keyframes names.
+            let lower = keyframes_name.to_ascii_lowercase();
+            if matches!(lower.as_str(), "initial" | "inherit" | "unset" | "revert" | "revert-layer" | "none") {
+                return Err(input.new_custom_error(()));
+            }
+            Ok(keyframes_name)
         } else {
             Err(input.new_custom_error(()))
         }
@@ -339,5 +351,33 @@ mod tests {
         let ss = parse_stylesheet("div { color: red !important; }", Origin::Author);
         assert_eq!(ss.rules.len(), 1);
         assert!(ss.rules[0].declarations[0].important);
+    }
+
+    #[test]
+    fn keyframes_quoted_name() {
+        let css = r#"@keyframes "quoted-name" { from { opacity: 0; } to { opacity: 1; } }"#;
+        let ss = parse_stylesheet(css, Origin::Author);
+        assert_eq!(ss.keyframes_raw.len(), 1);
+        assert_eq!(ss.keyframes_raw[0].0, "quoted-name");
+    }
+
+    #[test]
+    fn keyframes_none_rejected() {
+        let css = "@keyframes none { from { opacity: 0; } to { opacity: 1; } }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        assert!(
+            ss.keyframes_raw.is_empty(),
+            "@keyframes none should be rejected"
+        );
+    }
+
+    #[test]
+    fn keyframes_initial_rejected() {
+        let css = "@keyframes initial { from { opacity: 0; } to { opacity: 1; } }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        assert!(
+            ss.keyframes_raw.is_empty(),
+            "@keyframes initial should be rejected"
+        );
     }
 }

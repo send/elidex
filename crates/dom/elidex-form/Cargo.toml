@@ -1,0 +1,21 @@
+[package]
+name = "elidex-form"
+description = "Form control state and input handling for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+keywords = ["browser-engine", "forms", "input"]
+categories = ["web-programming"]
+
+[dependencies]
+elidex-plugin.workspace = true
+elidex-ecs.workspace = true
+regex.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

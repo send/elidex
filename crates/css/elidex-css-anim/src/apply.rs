@@ -16,7 +16,9 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
     match property {
         "opacity" => {
             if let CssValue::Number(n) = value {
-                style.opacity = n.clamp(0.0, 1.0);
+                if n.is_finite() {
+                    style.opacity = n.clamp(0.0, 1.0);
+                }
             }
         }
         "color" => {
@@ -53,62 +55,59 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
         "border-left-width" => apply_px(&mut style.border_left.width, value),
         "font-size" => {
             if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
-                style.font_size = v.max(0.0);
+                if v.is_finite() {
+                    // CSS Fonts §4: font-size must be non-negative.
+                    style.font_size = v.max(0.0);
+                }
             }
         }
         "font-weight" => {
             if let CssValue::Number(v) = value {
+                let clamped = if v.is_finite() { v.clamp(1.0, 1000.0) } else { 400.0 };
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 {
-                    style.font_weight = (*v as u16).clamp(1, 1000);
+                    style.font_weight = clamped as u16;
                 }
             }
         }
-        "letter-spacing" => {
-            if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
-                style.letter_spacing = Some(*v);
-            }
-        }
-        "word-spacing" => {
-            if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
-                style.word_spacing = Some(*v);
-            }
-        }
+        "letter-spacing" => apply_optional_px(&mut style.letter_spacing, value),
+        "word-spacing" => apply_optional_px(&mut style.word_spacing, value),
         "line-height" => {
             if let CssValue::Length(v, LengthUnit::Px) = value {
-                style.line_height = LineHeight::Px(*v);
+                if v.is_finite() {
+                    style.line_height = LineHeight::Px(*v);
+                }
             } else if let CssValue::Number(v) = value {
-                style.line_height = LineHeight::Number(*v);
+                if v.is_finite() {
+                    style.line_height = LineHeight::Number(*v);
+                }
             }
         }
+        // TODO(M4-3.7): per-corner border-radius requires ComputedStyle struct change
+        // + CSS shorthand parsing + render integration.
         "border-radius" => {
             if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
-                style.border_radius = v.max(0.0);
+                if v.is_finite() {
+                    style.border_radius = v.max(0.0);
+                }
             }
         }
         "row-gap" => apply_px(&mut style.row_gap, value),
         "column-gap" => apply_px(&mut style.column_gap, value),
-        "flex-grow" => {
-            if let CssValue::Number(v) = value {
-                style.flex_grow = v.max(0.0);
-            }
-        }
-        "flex-shrink" => {
-            if let CssValue::Number(v) = value {
-                style.flex_shrink = v.max(0.0);
-            }
-        }
+        "flex-grow" => apply_non_negative_number(&mut style.flex_grow, value),
+        "flex-shrink" => apply_non_negative_number(&mut style.flex_shrink, value),
         "order" => {
             if let CssValue::Number(v) = value {
-                #[allow(clippy::cast_possible_truncation)]
-                {
-                    style.order = *v as i32;
+                if v.is_finite() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        style.order = *v as i32;
+                    }
                 }
             }
         }
-        // top/right/bottom/left position offsets and z-index are not currently
-        // stored in ComputedStyle (they are resolved during layout). Animation
-        // of these properties is deferred to a future phase.
+        // TODO(M4-3.7): top/right/bottom/left position offsets and z-index require
+        // positioned layout support in ComputedStyle + layout engine.
         "visibility" => {
             if let CssValue::Keyword(kw) = value {
                 if let Some(v) = Visibility::from_keyword(kw) {
@@ -141,10 +140,14 @@ fn apply_color(field: &mut CssColor, value: &CssValue) {
 fn apply_dimension(field: &mut Dimension, value: &CssValue) {
     match value {
         CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => {
-            *field = Dimension::Length(*v);
+            if v.is_finite() {
+                *field = Dimension::Length(*v);
+            }
         }
         CssValue::Percentage(p) => {
-            *field = Dimension::Percentage(*p);
+            if p.is_finite() {
+                *field = Dimension::Percentage(*p);
+            }
         }
         CssValue::Auto => {
             *field = Dimension::Auto;
@@ -155,7 +158,25 @@ fn apply_dimension(field: &mut Dimension, value: &CssValue) {
 
 fn apply_px(field: &mut f32, value: &CssValue) {
     if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
-        *field = v.max(0.0);
+        if v.is_finite() {
+            *field = v.max(0.0);
+        }
+    }
+}
+
+fn apply_optional_px(field: &mut Option<f32>, value: &CssValue) {
+    if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
+        if v.is_finite() {
+            *field = Some(*v);
+        }
+    }
+}
+
+fn apply_non_negative_number(field: &mut f32, value: &CssValue) {
+    if let CssValue::Number(v) = value {
+        if v.is_finite() {
+            *field = v.max(0.0);
+        }
     }
 }
 
@@ -241,6 +262,126 @@ mod tests {
         let mut style = ComputedStyle::default();
         apply_animated_value(&mut style, "flex-grow", &CssValue::Number(2.0));
         assert!((style.flex_grow - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_font_weight_non_finite_defaults_to_400() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(&mut style, "font-weight", &CssValue::Number(f32::NAN));
+        assert_eq!(style.font_weight, 400);
+        apply_animated_value(&mut style, "font-weight", &CssValue::Number(f32::INFINITY));
+        assert_eq!(style.font_weight, 400);
+        apply_animated_value(
+            &mut style,
+            "font-weight",
+            &CssValue::Number(f32::NEG_INFINITY),
+        );
+        assert_eq!(style.font_weight, 400);
+    }
+
+    #[test]
+    fn apply_font_weight_clamps() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(&mut style, "font-weight", &CssValue::Number(1500.0));
+        assert_eq!(style.font_weight, 1000);
+        apply_animated_value(&mut style, "font-weight", &CssValue::Number(-10.0));
+        assert_eq!(style.font_weight, 1);
+    }
+
+    #[test]
+    fn apply_flex_grow_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.flex_grow = 1.0;
+        apply_animated_value(&mut style, "flex-grow", &CssValue::Number(f32::NAN));
+        assert!((style.flex_grow - 1.0).abs() < f32::EPSILON);
+        apply_animated_value(&mut style, "flex-grow", &CssValue::Number(f32::INFINITY));
+        assert!((style.flex_grow - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_letter_spacing_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.letter_spacing = Some(1.0);
+        apply_animated_value(
+            &mut style,
+            "letter-spacing",
+            &CssValue::Length(f32::NAN, LengthUnit::Px),
+        );
+        assert_eq!(style.letter_spacing, Some(1.0));
+    }
+
+    #[test]
+    fn apply_opacity_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.opacity = 0.5;
+        apply_animated_value(&mut style, "opacity", &CssValue::Number(f32::NAN));
+        assert!((style.opacity - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_font_size_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.font_size = 16.0;
+        apply_animated_value(
+            &mut style,
+            "font-size",
+            &CssValue::Length(f32::NAN, LengthUnit::Px),
+        );
+        assert!((style.font_size - 16.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_line_height_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.line_height = LineHeight::Px(20.0);
+        apply_animated_value(
+            &mut style,
+            "line-height",
+            &CssValue::Length(f32::NAN, LengthUnit::Px),
+        );
+        assert_eq!(style.line_height, LineHeight::Px(20.0));
+
+        apply_animated_value(&mut style, "line-height", &CssValue::Number(f32::INFINITY));
+        assert_eq!(style.line_height, LineHeight::Px(20.0));
+    }
+
+    #[test]
+    fn apply_padding_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.padding.top = 10.0;
+        apply_animated_value(
+            &mut style,
+            "padding-top",
+            &CssValue::Length(f32::NAN, LengthUnit::Px),
+        );
+        assert!((style.padding.top - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_width_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.width = Dimension::Length(100.0);
+        apply_animated_value(
+            &mut style,
+            "width",
+            &CssValue::Length(f32::NAN, LengthUnit::Px),
+        );
+        assert_eq!(style.width, Dimension::Length(100.0));
+    }
+
+    #[test]
+    fn apply_width_percentage_nan_ignored() {
+        let mut style = ComputedStyle::default();
+        style.width = Dimension::Percentage(50.0);
+        apply_animated_value(&mut style, "width", &CssValue::Percentage(f32::INFINITY));
+        assert_eq!(style.width, Dimension::Percentage(50.0));
+    }
+
+    #[test]
+    fn apply_letter_spacing_number() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(&mut style, "letter-spacing", &CssValue::Number(2.0));
+        assert_eq!(style.letter_spacing, Some(2.0));
     }
 
     #[test]

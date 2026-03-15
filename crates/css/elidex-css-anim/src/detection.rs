@@ -94,10 +94,14 @@ pub fn detect_transitions(
 
 /// Find the index of a property in the transition-property list.
 ///
+/// Uses `rposition` to find the **last** matching entry, since CSS list cycling
+/// uses the index to select duration/delay/timing-function values, and duplicate
+/// property names should use the last occurrence's parameters.
+///
 /// Returns `Some(index)` when the property matches (either via `all` or a specific name),
 /// or `None` when it is not covered by any entry in the list.
 fn find_transition_index(props: &[TransitionProperty], property: &str) -> Option<usize> {
-    props.iter().position(|p| match p {
+    props.iter().rposition(|p| match p {
         TransitionProperty::All => true,
         TransitionProperty::Property(name) => name == property,
         TransitionProperty::None => false,
@@ -271,6 +275,32 @@ mod tests {
             "zero-duration transition should be detected"
         );
         assert_eq!(detected[0].duration, 0.0);
+    }
+
+    #[test]
+    fn duplicate_transition_property_uses_last() {
+        // When a property appears multiple times in transition-property,
+        // the last occurrence's parameters should be used (rposition).
+        let style = AnimStyle {
+            transition_property: vec![
+                TransitionProperty::Property("opacity".into()),
+                TransitionProperty::Property("opacity".into()),
+            ],
+            transition_duration: vec![0.3, 0.7],
+            transition_timing_function: vec![TimingFunction::Linear, TimingFunction::EASE],
+            transition_delay: vec![0.0, 0.1],
+            ..AnimStyle::default()
+        };
+        let changes = vec![(
+            "opacity".into(),
+            CssValue::Number(1.0),
+            CssValue::Number(0.0),
+        )];
+        let detected = detect_transitions(&style, &changes);
+        assert_eq!(detected.len(), 1);
+        // Should use index 1 (the last match): duration=0.7, delay=0.1
+        assert_eq!(detected[0].duration, 0.7);
+        assert_eq!(detected[0].delay, 0.1);
     }
 
     #[test]

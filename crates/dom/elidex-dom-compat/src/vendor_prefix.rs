@@ -209,8 +209,7 @@ fn skip_comment(result: &mut String, chars: &mut std::iter::Peekable<std::str::C
 /// before passing it to `elidex_css::parse_stylesheet()`.
 #[must_use]
 pub fn parse_compat_stylesheet(css: &str, origin: Origin) -> Stylesheet {
-    let stripped = strip_vendor_prefixes(css);
-    elidex_css::parse_stylesheet(&stripped, origin)
+    parse_compat_stylesheet_with_registry(css, origin, None)
 }
 
 /// Parse a stylesheet with vendor prefix stripping and handler registry.

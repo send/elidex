@@ -14,6 +14,7 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-text.workspace = true
+elidex-form.workspace = true
 
 [lints]
 workspace = true

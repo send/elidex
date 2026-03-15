@@ -1,12 +1,14 @@
 //! Pre-order tree walk for display list building.
 
 use elidex_ecs::{EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH};
+use elidex_form::FormControlState;
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow, Visibility};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::font_cache::FontCache;
 
+use super::form::emit_form_control;
 use super::{
     emit_background, emit_borders, emit_image, emit_inline_run, emit_list_marker_with_counter,
 };
@@ -77,6 +79,23 @@ pub(crate) fn walk(
                     if style.opacity > 0.0 {
                         emit_image(&lb, &image_data, style.opacity, dl);
                     }
+                }
+
+                // Emit form control rendering.
+                if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
+                    emit_form_control(
+                        &lb,
+                        &fcs,
+                        style,
+                        font_db,
+                        font_cache,
+                        dl,
+                        dom.world()
+                            .get::<&elidex_ecs::ElementState>(entity)
+                            .ok()
+                            .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
+                        true, // caret_visible (always true in display list builder; shell controls blink)
+                    );
                 }
             }
 

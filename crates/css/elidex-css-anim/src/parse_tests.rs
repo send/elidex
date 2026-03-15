@@ -370,3 +370,29 @@ fn keyframes_no_duplicate_from_to() {
     assert!(!rule.keyframes[0].declarations.is_empty());
     assert!(!rule.keyframes[2].declarations.is_empty());
 }
+
+#[test]
+fn find_matching_brace_with_string_containing_brace() {
+    // content: "}" should not be treated as the closing brace.
+    let text = r#"content: "}"; opacity: 1; }"#;
+    let pos = find_matching_brace(text);
+    assert_eq!(pos, Some(text.len() - 1));
+}
+
+#[test]
+fn find_matching_brace_with_escaped_quote_in_string() {
+    // content: "\"}" should handle escaped quote correctly.
+    let text = r#"content: "\"}" ; }"#;
+    let pos = find_matching_brace(text);
+    assert_eq!(pos, Some(text.len() - 1));
+}
+
+#[test]
+fn keyframes_with_content_brace_in_string() {
+    let rule = parse_keyframes(
+        "test",
+        r#"from { content: "}"; opacity: 0; } to { opacity: 1; }"#,
+    );
+    assert_eq!(rule.keyframes.len(), 2);
+    assert!(!rule.keyframes[0].declarations.is_empty());
+}

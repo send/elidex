@@ -107,8 +107,26 @@ pub enum BrowserToContent {
     GoForward,
     /// Reload the current page.
     Reload,
+    /// IME event.
+    Ime {
+        /// The IME event kind.
+        kind: ImeKind,
+    },
     /// Shut down the content thread.
     Shutdown,
+}
+
+/// IME event kinds.
+#[derive(Clone, Debug)]
+pub enum ImeKind {
+    /// IME composition started or text updated.
+    Preedit(String),
+    /// IME composition committed.
+    Commit(String),
+    /// IME enabled.
+    Enabled,
+    /// IME disabled.
+    Disabled,
 }
 
 /// Messages sent from the content thread to the browser thread.

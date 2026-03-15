@@ -215,6 +215,22 @@ fn set_modifier_keys(init: &mut ObjectInitializer<'_>, keys: &ModifierKeys) {
     init.property(js_string!("shiftKey"), JsValue::from(keys.shift), RO);
 }
 
+/// Set `elapsedTime` and `pseudoElement` properties shared by transition/animation events.
+fn set_elapsed_and_pseudo(init: &mut ObjectInitializer<'_>, elapsed_time: f64, pseudo_element: &str) {
+    init.property(
+        js_string!("elapsedTime"),
+        JsValue::from(elapsed_time),
+        RO,
+    );
+    init.property(
+        js_string!("pseudoElement"),
+        JsValue::from(js_string!(pseudo_element)),
+        RO,
+    );
+}
+
+// TODO(M4-3.7): extract per-variant helpers (set_input_payload, set_clipboard_payload, etc.).
+#[allow(clippy::too_many_lines)]
 fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPayload) {
     match payload {
         EventPayload::Mouse(m) => {
@@ -259,38 +275,61 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
             );
         }
         EventPayload::Transition(t) => {
+            set_elapsed_and_pseudo(init, t.elapsed_time, &t.pseudo_element);
             init.property(
                 js_string!("propertyName"),
                 JsValue::from(js_string!(t.property_name.as_str())),
                 RO,
             );
-            init.property(
-                js_string!("elapsedTime"),
-                JsValue::from(f64::from(t.elapsed_time)),
-                RO,
-            );
-            init.property(
-                js_string!("pseudoElement"),
-                JsValue::from(js_string!(t.pseudo_element.as_str())),
-                RO,
-            );
         }
         EventPayload::Animation(a) => {
+            set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
             init.property(
                 js_string!("animationName"),
                 JsValue::from(js_string!(a.animation_name.as_str())),
                 RO,
             );
+        }
+        EventPayload::Input(i) => {
             init.property(
-                js_string!("elapsedTime"),
-                JsValue::from(f64::from(a.elapsed_time)),
+                js_string!("inputType"),
+                JsValue::from(js_string!(i.input_type.as_str())),
                 RO,
             );
             init.property(
-                js_string!("pseudoElement"),
-                JsValue::from(js_string!(a.pseudo_element.as_str())),
+                js_string!("data"),
+                i.data
+                    .as_deref()
+                    .map_or(JsValue::null(), |d| JsValue::from(js_string!(d))),
                 RO,
             );
+            init.property(
+                js_string!("isComposing"),
+                JsValue::from(i.is_composing),
+                RO,
+            );
+        }
+        EventPayload::Clipboard(c) => {
+            init.property(
+                js_string!("clipboardData"),
+                JsValue::from(js_string!(c.data.as_str())),
+                RO,
+            );
+        }
+        EventPayload::Composition(c) => {
+            init.property(
+                js_string!("data"),
+                JsValue::from(js_string!(c.data.as_str())),
+                RO,
+            );
+        }
+        EventPayload::Focus(_f) => {
+            // UI Events §5.2: relatedTarget is the EventTarget losing/gaining focus.
+            // We set null here because resolving entity bits to a JS object requires
+            // HostBridge access which is not available in this context.  The entity
+            // bits are preserved in the payload for future use when the bridge is
+            // threaded through event dispatch.
+            init.property(js_string!("relatedTarget"), JsValue::null(), RO);
         }
         EventPayload::None | _ => {}
     }

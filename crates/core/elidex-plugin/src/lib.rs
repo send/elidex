@@ -28,8 +28,8 @@ pub use computed_style::{
 };
 pub use error::ParseError;
 pub use event_types::{
-    AnimationEventInit, EventPayload, EventPhase, KeyboardEventInit, MouseEventInit,
-    TransitionEventInit,
+    AnimationEventInit, ClipboardEventInit, CompositionEventInit, EventPayload, EventPhase,
+    FocusEventInit, InputEventInit, KeyboardEventInit, MouseEventInit, TransitionEventInit,
 };
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};

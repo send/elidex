@@ -118,6 +118,10 @@ pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
 /// All animatable CSS property names (CSS Transitions Level 1 §3).
 ///
 /// Used by the transition detection system to compare old vs new computed values.
+/// Only includes properties that have a corresponding `apply_animated_value` implementation.
+///
+/// TODO(M4-3.7): add transform, filter, clip-path, background-position/size,
+/// outline-*, perspective, rotate/scale/translate (~25 properties).
 pub const ANIMATABLE_PROPERTIES: &[&str] = &[
     "opacity",
     "color",
@@ -152,15 +156,9 @@ pub const ANIMATABLE_PROPERTIES: &[&str] = &[
     "border-radius",
     "row-gap",
     "column-gap",
-    "border-spacing",
     "flex-grow",
     "flex-shrink",
     "order",
-    "top",
-    "right",
-    "bottom",
-    "left",
-    "z-index",
     "visibility",
     "text-decoration-color",
     "vertical-align",
@@ -171,54 +169,7 @@ pub const ANIMATABLE_PROPERTIES: &[&str] = &[
 /// Based on CSS Transitions Level 1 §3 animatable properties list.
 #[must_use]
 pub fn is_animatable(property: &str) -> bool {
-    matches!(
-        property,
-        "opacity"
-            | "color"
-            | "background-color"
-            | "border-top-color"
-            | "border-right-color"
-            | "border-bottom-color"
-            | "border-left-color"
-            | "width"
-            | "height"
-            | "min-width"
-            | "min-height"
-            | "max-width"
-            | "max-height"
-            | "margin-top"
-            | "margin-right"
-            | "margin-bottom"
-            | "margin-left"
-            | "padding-top"
-            | "padding-right"
-            | "padding-bottom"
-            | "padding-left"
-            | "border-top-width"
-            | "border-right-width"
-            | "border-bottom-width"
-            | "border-left-width"
-            | "font-size"
-            | "font-weight"
-            | "letter-spacing"
-            | "word-spacing"
-            | "line-height"
-            | "border-radius"
-            | "row-gap"
-            | "column-gap"
-            | "border-spacing"
-            | "flex-grow"
-            | "flex-shrink"
-            | "order"
-            | "top"
-            | "right"
-            | "bottom"
-            | "left"
-            | "z-index"
-            | "visibility"
-            | "text-decoration-color"
-            | "vertical-align"
-    )
+    ANIMATABLE_PROPERTIES.contains(&property)
 }
 
 #[cfg(test)]
@@ -334,6 +285,22 @@ mod tests {
         assert!(!is_animatable("display"));
         assert!(!is_animatable("position"));
         assert!(!is_animatable("text-align"));
+    }
+
+    #[test]
+    fn is_animatable_matches_constant() {
+        // Verify is_animatable() returns true for every entry in ANIMATABLE_PROPERTIES
+        // and false for known non-animatable properties.
+        for &prop in ANIMATABLE_PROPERTIES {
+            assert!(is_animatable(prop), "{prop} should be animatable");
+        }
+        assert!(!is_animatable("display"));
+        assert!(!is_animatable("position"));
+        assert!(!is_animatable("text-align"));
+        // Removed properties should not be animatable.
+        assert!(!is_animatable("border-spacing"));
+        assert!(!is_animatable("top"));
+        assert!(!is_animatable("z-index"));
     }
 
     #[test]

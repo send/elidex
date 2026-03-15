@@ -1,5 +1,5 @@
 use super::*;
-use crate::ipc::{self, BrowserToContent, ContentToBrowser};
+use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use std::time::Duration;
 
 #[test]
@@ -186,7 +186,7 @@ fn content_thread_keyboard() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let handle = spawn_content_thread(
         content,
-        "<div id=\"box\" style=\"width: 100px; height: 100px;\">Key</div>\
+        "<div id=\"box\" tabindex=\"0\" style=\"width: 100px; height: 100px;\">Key</div>\
          <script>\
            document.getElementById('box').addEventListener('keydown', function(e) {\
              console.log('key=' + e.key);\

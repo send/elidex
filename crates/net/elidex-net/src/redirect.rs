@@ -38,14 +38,14 @@ pub async fn follow_redirects(
     loop {
         let response = transport.send(&request).await?;
 
-        if !is_redirect(response.status) || redirects >= max_redirects {
-            if is_redirect(response.status) && redirects >= max_redirects {
-                return Err(NetError::new(
-                    NetErrorKind::TooManyRedirects,
-                    format!("exceeded {max_redirects} redirects"),
-                ));
-            }
+        if !is_redirect(response.status) {
             return Ok(response);
+        }
+        if redirects >= max_redirects {
+            return Err(NetError::new(
+                NetErrorKind::TooManyRedirects,
+                format!("exceeded {max_redirects} redirects"),
+            ));
         }
 
         redirects += 1;
@@ -81,16 +81,38 @@ pub async fn follow_redirects(
             elidex_plugin::url_security::validate_url(&next_url)?;
         }
 
-        // Determine method/body for redirected request
-        let (method, body) = if changes_to_get(response.status) {
+        // Determine method/body for redirected request.
+        //
+        // RFC 9110 §15.4:
+        // - 303: always change to GET
+        // - 301, 302: change POST to GET (browser behavior), preserve other methods
+        // - 307, 308: preserve method and body
+        let changes_method = matches!(
+            (response.status, request.method.as_str()),
+            (303, _) | (301 | 302, "POST")
+        );
+        let (method, body) = if changes_method {
             ("GET".to_string(), Bytes::new())
         } else {
             (request.method.clone(), request.body.clone())
         };
 
+        let mut headers = filter_headers_for_redirect(&request.headers, &request.url, &next_url);
+
+        // RFC 9110 §15.4: when changing method to GET, strip request body headers.
+        if changes_method {
+            headers.retain(|(k, _)| {
+                let lower = k.to_ascii_lowercase();
+                lower != "content-type"
+                    && lower != "content-length"
+                    && lower != "content-encoding"
+                    && lower != "transfer-encoding"
+            });
+        }
+
         request = Request {
             method,
-            headers: filter_headers_for_redirect(&request.headers, &request.url, &next_url),
+            headers,
             url: next_url,
             body,
         };
@@ -100,15 +122,6 @@ pub async fn follow_redirects(
 /// Check if a status code is a redirect.
 fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
-}
-
-/// Check if a redirect status changes the method to GET.
-///
-/// Includes 301: although RFC 9110 says the method SHOULD be preserved for 301,
-/// all major browsers historically change POST to GET on 301 redirects.
-/// We match browser behavior here.
-fn changes_to_get(status: u16) -> bool {
-    matches!(status, 301..=303)
 }
 
 /// Filter headers for redirect — strip sensitive headers on cross-origin.
@@ -161,13 +174,53 @@ mod tests {
         assert!(!is_redirect(500));
     }
 
-    #[test]
-    fn changes_to_get_status() {
-        assert!(changes_to_get(301));
-        assert!(changes_to_get(302));
-        assert!(changes_to_get(303));
-        assert!(!changes_to_get(307));
-        assert!(!changes_to_get(308));
+    #[tokio::test]
+    async fn head_301_preserves_method() {
+        use crate::transport::TransportConfig;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let port = addr.port();
+
+        tokio::spawn(async move {
+            // First request: 301 redirect
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = stream.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+            assert!(req.starts_with("HEAD"), "expected HEAD request, got: {req}");
+            let response = format!(
+                "HTTP/1.1 301 Moved\r\nLocation: http://127.0.0.1:{port}/dest\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            drop(stream);
+
+            // Second request: should still be HEAD (not GET)
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = stream.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+            assert!(req.starts_with("HEAD"), "expected HEAD preserved, got: {req}");
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(response).await.unwrap();
+        });
+
+        let transport = HttpTransport::with_config(TransportConfig {
+            allow_private_ips: true,
+            ..Default::default()
+        });
+
+        let request = Request {
+            method: "HEAD".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/src")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+        };
+
+        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        assert_eq!(response.status, 200);
     }
 
     #[tokio::test]

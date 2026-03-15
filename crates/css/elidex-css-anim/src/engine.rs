@@ -21,6 +21,9 @@ const MAX_EVENTS_PER_TICK: usize = 10_000;
 /// very large relative to duration.
 const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
 
+/// Epsilon for comparing keyframe offsets (floating-point tolerance).
+const KEYFRAME_OFFSET_EPSILON: f32 = 1e-6;
+
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
 ///
@@ -78,6 +81,9 @@ impl AnimationEngine {
     /// transition, the caller should use the **current animated value** (from
     /// `current_value()`) as the `from` value of the new `TransitionInstance`,
     /// not the original computed value. This ensures smooth reversal.
+    /// **Caller responsibility**: the returned cancel events contain entity IDs
+    /// that must be validated against the live DOM before dispatch (the entity
+    /// may have been destroyed between transition start and replacement).
     pub fn add_transition(
         &mut self,
         entity: EntityId,
@@ -98,9 +104,9 @@ impl AnimationEngine {
                     AnimationEvent::Transition(TransitionEventData {
                         kind: TransitionEventKind::Cancel,
                         property: t.property.clone(),
-                        #[allow(clippy::cast_possible_truncation)]
-                        elapsed_time: ((t.elapsed - f64::from(t.delay)).max(0.0) as f32)
-                            .min(t.duration),
+                        elapsed_time: (t.elapsed - f64::from(t.delay))
+                            .max(0.0)
+                            .min(f64::from(t.duration)),
                     }),
                 ));
                 false
@@ -114,11 +120,15 @@ impl AnimationEngine {
 
     /// Add an animation instance for an entity.
     ///
-    /// Silently drops the animation if the entity already has
+    /// Drops the animation with a warning if the entity already has
     /// 256 animations, preventing unbounded growth.
     pub fn add_animation(&mut self, entity: EntityId, animation: AnimationInstance) {
         let anims = self.animations.entry(entity).or_default();
         if anims.len() >= MAX_ANIMATIONS_PER_ENTITY {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "elidex-css-anim: animation limit ({MAX_ANIMATIONS_PER_ENTITY}) reached for entity {entity}, dropping new animation"
+            );
             return;
         }
         anims.push(animation);
@@ -170,18 +180,16 @@ impl AnimationEngine {
                 }
                 trans.elapsed += dt;
 
+                // CSS Transitions L2 §6.1: elapsedTime = max(min(-delay, duration), 0).
+                let delay_elapsed = f64::from(-trans.delay)
+                    .min(f64::from(trans.duration))
+                    .max(0.0);
+
                 // Dispatch transitionrun once — fired when the transition is
                 // first ticked (CSS Transitions §6.1).
                 if !trans.run_event_dispatched {
                     trans.run_event_dispatched = true;
-                    events.push((
-                        *entity,
-                        AnimationEvent::Transition(TransitionEventData {
-                            kind: TransitionEventKind::Run,
-                            property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0),
-                        }),
-                    ));
+                    push_transition_event(events, *entity, TransitionEventKind::Run, &trans.property, delay_elapsed);
                 }
 
                 let active_time = trans.elapsed - f64::from(trans.delay);
@@ -190,28 +198,14 @@ impl AnimationEngine {
                 // (active_time >= 0), i.e., the transition is actually running.
                 if active_time >= 0.0 && !trans.start_event_dispatched {
                     trans.start_event_dispatched = true;
-                    events.push((
-                        *entity,
-                        AnimationEvent::Transition(TransitionEventData {
-                            kind: TransitionEventKind::Start,
-                            property: trans.property.clone(),
-                            elapsed_time: (-trans.delay).max(0.0),
-                        }),
-                    ));
+                    push_transition_event(events, *entity, TransitionEventKind::Start, &trans.property, delay_elapsed);
                 }
 
                 if active_time >= f64::from(trans.duration) {
                     trans.finished = true;
                     if !trans.end_event_dispatched {
                         trans.end_event_dispatched = true;
-                        events.push((
-                            *entity,
-                            AnimationEvent::Transition(TransitionEventData {
-                                kind: TransitionEventKind::End,
-                                property: trans.property.clone(),
-                                elapsed_time: trans.duration,
-                            }),
-                        ));
+                        push_transition_event(events, *entity, TransitionEventKind::End, &trans.property, f64::from(trans.duration));
                     }
                 }
             }
@@ -251,7 +245,7 @@ impl AnimationEngine {
 
     /// Emit `animationstart` when the delay phase ends.
     /// For negative delays, the animation starts partway into the active phase,
-    /// so elapsedTime = |delay| (not 0.0). Per CSS Animations L1 §4.3.2.
+    /// so `elapsedTime = min(|delay|, active_duration)`. Per CSS Animations L1 §4.3.2.
     fn emit_animation_start(
         entity: EntityId,
         anim: &mut AnimationInstance,
@@ -261,12 +255,17 @@ impl AnimationEngine {
             return;
         }
         anim.start_event_dispatched = true;
+        // CSS Animations L1 §4.2: elapsedTime = max(min(-delay, active_duration), 0).
+        let active_duration = Self::total_active_duration(anim);
+        let start_elapsed = f64::from(-anim.delay())
+            .min(active_duration)
+            .max(0.0);
         events.push((
             entity,
             AnimationEvent::Animation(AnimationEventData {
                 kind: AnimationEventKind::Start,
                 name: anim.name().to_string(),
-                elapsed_time: (-anim.delay()).max(0.0),
+                elapsed_time: start_elapsed,
             }),
         ));
     }
@@ -299,12 +298,11 @@ impl AnimationEngine {
             return;
         }
         for iter in emit_start..=emit_end {
-            #[allow(clippy::cast_precision_loss)]
-            let elapsed = (iter as f32) * anim.duration();
+            let elapsed = f64::from(iter) * f64::from(anim.duration());
             let elapsed_time = if elapsed.is_finite() {
                 elapsed
             } else {
-                f32::MAX
+                f64::MAX
             };
             events.push((
                 entity,
@@ -334,13 +332,12 @@ impl AnimationEngine {
             return;
         }
         anim.end_event_dispatched = true;
-        #[allow(clippy::cast_possible_truncation)]
         events.push((
             entity,
             AnimationEvent::Animation(AnimationEventData {
                 kind: AnimationEventKind::End,
                 name: anim.name().to_string(),
-                elapsed_time: total.clamp(0.0, f64::from(f32::MAX)) as f32,
+                elapsed_time: total.max(0.0),
             }),
         ));
     }
@@ -365,20 +362,124 @@ impl AnimationEngine {
         self.animations.get(&entity).map_or(&[], Vec::as_slice)
     }
 
-    /// Returns `true` if any animations or transitions are running.
+    /// Returns `true` if any animations or transitions exist (including finished with fill).
     #[must_use]
     pub fn has_active(&self) -> bool {
         !self.transitions.is_empty() || !self.animations.is_empty()
     }
 
+    /// Returns `true` if any animations or transitions are still running (not finished).
+    ///
+    /// Unlike [`has_active`](Self::has_active), this returns `false` when all remaining
+    /// entries are finished (e.g. fill-mode:forwards holding final values), preventing
+    /// the frame loop from spinning at 60fps indefinitely.
+    // TODO(M4-3.7): cache result in tick() and invalidate on add/remove for O(1).
+    #[must_use]
+    pub fn has_running(&self) -> bool {
+        self.transitions
+            .values()
+            .any(|v| v.iter().any(|t| !t.finished))
+            || self
+                .animations
+                .values()
+                .any(|v| v.iter().any(|a| !a.finished))
+    }
+
     /// Returns an iterator over all entity IDs that have active transitions or animations.
+    ///
+    /// May contain duplicates; callers that apply values idempotently (like
+    /// `apply_animated_value`) do not need deduplication.
     pub fn active_entity_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.transitions
             .keys()
             .chain(self.animations.keys())
             .copied()
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
+    }
+
+    /// Look up keyframe values for a named animation at a given progress.
+    ///
+    /// Finds the surrounding keyframes and interpolates each declared property.
+    /// Returns an empty `Vec` if the animation name is not registered.
+    /// May return duplicate property names if both keyframes declare them; callers
+    /// apply last-wins so this is safe but wasteful.
+    // TODO(M4-3.7): deduplicate result by property name.
+    // TODO(M4-3.7): per-keyframe-interval timing functions (CSS Animations L1 §3.9.1).
+    //   Currently the animation-level timing function is applied globally to progress
+    //   before keyframe lookup. Per spec, the timing function should apply per-interval
+    //   using the `animation-timing-function` declared in each keyframe block.
+    //   Requires: Keyframe struct stores optional TimingFunction, progress() returns
+    //   raw directed progress, and local_t is eased per-interval.
+    #[must_use]
+    pub fn keyframe_values(
+        &self,
+        name: &str,
+        progress: f64,
+    ) -> Vec<(String, elidex_plugin::CssValue)> {
+        let Some(rule) = self.keyframes.get(name) else {
+            return Vec::new();
+        };
+        if rule.keyframes.is_empty() {
+            return Vec::new();
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let p = progress.clamp(0.0, 1.0) as f32;
+
+        // Find surrounding keyframes.
+        let (before, after) = find_surrounding_keyframes(&rule.keyframes, p);
+
+        // If same keyframe, just return its declarations directly.
+        if (before.offset - after.offset).abs() < KEYFRAME_OFFSET_EPSILON {
+            return before
+                .declarations
+                .iter()
+                .map(|d| (d.property.clone(), d.value.clone()))
+                .collect();
+        }
+
+        // Interpolate between surrounding keyframes.
+        let range = after.offset - before.offset;
+        let local_t = if range.abs() < KEYFRAME_OFFSET_EPSILON {
+            1.0
+        } else {
+            let t = (p - before.offset) / range;
+            // Guard against NaN/Infinity from near-zero division.
+            if t.is_finite() { t.clamp(0.0, 1.0) } else { 1.0 }
+        };
+
+        // Build a lookup from `before` declarations for O(1) access.
+        let before_map: std::collections::HashMap<&str, &elidex_plugin::CssValue> = before
+            .declarations
+            .iter()
+            .map(|d| (d.property.as_str(), &d.value))
+            .collect();
+
+        let mut result = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        // For each property declared in `after`, try to find matching `from` in `before`.
+        for decl in &after.declarations {
+            seen.insert(decl.property.as_str());
+            if let Some(from) = before_map.get(decl.property.as_str()) {
+                if let Some(interp) =
+                    crate::interpolate::interpolate(from, &decl.value, local_t, &decl.property)
+                {
+                    result.push((decl.property.clone(), interp));
+                }
+            } else {
+                result.push((decl.property.clone(), decl.value.clone()));
+            }
+        }
+        // Also include properties only in `before` (they hold their value).
+        // TODO(M4-3.7): CSS Animations L1 §5 — properties in `before` but not `after`
+        // should interpolate toward the element's underlying computed value, not hold.
+        // This requires passing the non-animated ComputedStyle into keyframe_values().
+        for decl in &before.declarations {
+            if !seen.contains(decl.property.as_str()) {
+                result.push((decl.property.clone(), decl.value.clone()));
+            }
+        }
+
+        result
     }
 
     /// Remove all animations and transitions for an entity.
@@ -392,11 +493,92 @@ impl AnimationEngine {
         self.animations.remove(&entity);
     }
 
+    /// Remove all animation/transition state for entities that no longer exist.
+    ///
+    /// Call this after DOM mutations (e.g. `session.flush()`) to prevent memory
+    /// leaks from destroyed entities whose animations/transitions would
+    /// otherwise persist indefinitely.
+    pub fn prune_dead_entities(&mut self, alive: &dyn Fn(EntityId) -> bool) {
+        self.transitions.retain(|id, _| alive(*id));
+        self.animations.retain(|id, _| alive(*id));
+    }
+
+    /// Cancel all running animations for an entity, emitting `animationcancel` events.
+    ///
+    /// Returns cancel events for all non-finished animations. Used when
+    /// `display: none` is set or `animation-name` changes.
+    pub fn cancel_animations(&mut self, entity: EntityId) -> Vec<(EntityId, AnimationEvent)> {
+        let mut events = Vec::new();
+        if let Some(anims) = self.animations.remove(&entity) {
+            for anim in &anims {
+                if anim.finished {
+                    continue;
+                }
+                let active_duration = Self::total_active_duration(anim);
+                let active_time = anim.elapsed - f64::from(anim.delay());
+                let elapsed_time = if active_time.is_finite() {
+                    active_time.min(active_duration).max(0.0)
+                } else {
+                    0.0
+                };
+                events.push((
+                    entity,
+                    AnimationEvent::Animation(AnimationEventData {
+                        kind: AnimationEventKind::Cancel,
+                        name: anim.name().to_string(),
+                        elapsed_time,
+                    }),
+                ));
+            }
+        }
+        events
+    }
+
     /// Clear all state.
     pub fn clear(&mut self) {
         self.transitions.clear();
         self.animations.clear();
     }
+}
+
+/// Find the surrounding keyframes for a given progress value.
+///
+/// Returns `(before, after)` where `before.offset <= progress <= after.offset`.
+/// Assumes keyframes are sorted by offset.
+fn find_surrounding_keyframes(
+    keyframes: &[crate::parse::Keyframe],
+    progress: f32,
+) -> (&crate::parse::Keyframe, &crate::parse::Keyframe) {
+    debug_assert!(
+        !keyframes.is_empty(),
+        "find_surrounding_keyframes called with empty keyframes"
+    );
+    let last = keyframes.len().saturating_sub(1);
+    // Find the first keyframe with offset > progress.
+    let after_idx = keyframes
+        .iter()
+        .position(|k| k.offset > progress + KEYFRAME_OFFSET_EPSILON)
+        .unwrap_or(last);
+    let before_idx = if after_idx > 0 { after_idx - 1 } else { 0 };
+    (&keyframes[before_idx], &keyframes[after_idx.min(last)])
+}
+
+/// Push a transition event to the events list.
+fn push_transition_event(
+    events: &mut Vec<(EntityId, AnimationEvent)>,
+    entity: EntityId,
+    kind: TransitionEventKind,
+    property: &str,
+    elapsed_time: f64,
+) {
+    events.push((
+        entity,
+        AnimationEvent::Transition(TransitionEventData {
+            kind,
+            property: property.to_string(),
+            elapsed_time,
+        }),
+    ));
 }
 
 /// Returns `true` if the animation should be kept in the active list.
@@ -437,7 +619,7 @@ pub struct TransitionEventData {
     /// The property being transitioned.
     pub property: String,
     /// Elapsed time in seconds at the point the event fires.
-    pub elapsed_time: f32,
+    pub elapsed_time: f64,
 }
 
 /// The kind of a CSS transition event.
@@ -461,7 +643,7 @@ pub struct AnimationEventData {
     /// The `@keyframes` name.
     pub name: String,
     /// Elapsed time in seconds at the point the event fires.
-    pub elapsed_time: f32,
+    pub elapsed_time: f64,
 }
 
 /// The kind of a CSS animation event.
@@ -473,355 +655,11 @@ pub enum AnimationEventKind {
     End,
     /// `animationiteration` — fired at iteration boundaries.
     Iteration,
+    /// `animationcancel` — fired when an animation is aborted
+    /// (e.g., display:none, animation-name change).
+    Cancel,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::instance::TransitionInstance;
-    use crate::timing::TimingFunction;
-    use elidex_plugin::{CssValue, LengthUnit};
-
-    fn make_anim_spec(
-        name: &str,
-        duration: f32,
-        iteration_count: crate::style::IterationCount,
-        play_state: crate::style::PlayState,
-    ) -> crate::SingleAnimationSpec {
-        crate::SingleAnimationSpec {
-            name: name.into(),
-            duration,
-            timing_function: TimingFunction::Linear,
-            delay: 0.0,
-            iteration_count,
-            direction: crate::style::AnimationDirection::Normal,
-            fill_mode: crate::style::AnimationFillMode::None,
-            play_state,
-        }
-    }
-
-    #[test]
-    fn engine_add_and_tick_transition() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            0.3,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let cancel_events = engine.add_transition(1, trans);
-        assert!(cancel_events.is_empty(), "no existing transition to cancel");
-        assert!(engine.has_active());
-
-        // Tick halfway — emits transitionrun + transitionstart (no delay)
-        let events = engine.tick(0.15);
-        assert_eq!(events.len(), 2);
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Run, property, .. }) if property == "opacity"
-        ));
-        assert!(matches!(
-            &events[1].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Start, property, .. }) if property == "opacity"
-        ));
-        assert_eq!(engine.active_transitions(1).len(), 1);
-
-        // Tick to completion — emits only transitionend (run/start already dispatched)
-        let events = engine.tick(0.2);
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::End, property, .. }) if property == "opacity"
-        ));
-
-        // Transition removed after completion
-        assert!(!engine.has_active());
-    }
-
-    #[test]
-    fn engine_transition_with_delay() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "width".into(),
-            CssValue::Length(100.0, LengthUnit::Px),
-            CssValue::Length(200.0, LengthUnit::Px),
-            0.5,
-            0.2,
-            TimingFunction::Linear,
-        );
-        engine.add_transition(1, trans);
-
-        // During delay — transitionrun fires on first tick, but not transitionstart yet
-        let events = engine.tick(0.1);
-        assert_eq!(events.len(), 1, "only transitionrun during delay");
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Run, property, .. }) if property == "width"
-        ));
-
-        // Past delay — transitionstart fires
-        let events = engine.tick(0.3);
-        assert_eq!(events.len(), 1, "transitionstart when delay ends");
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Start, property, .. }) if property == "width"
-        ));
-
-        // Complete — transitionend fires
-        let events = engine.tick(0.4);
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Transition(TransitionEventData {
-                kind: TransitionEventKind::End,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn engine_animation_end() {
-        let mut engine = AnimationEngine::new();
-        let spec = make_anim_spec(
-            "fadeIn",
-            1.0,
-            crate::style::IterationCount::Number(1.0),
-            crate::style::PlayState::Running,
-        );
-        let anim = AnimationInstance::new(&spec, 0.0);
-        engine.add_animation(1, anim);
-
-        // First tick past delay: emits AnimationStart (no delay, so starts immediately).
-        let events = engine.tick(0.5);
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Animation(AnimationEventData { kind: AnimationEventKind::Start, name, .. }) if name == "fadeIn"
-        ));
-
-        // Second tick completes the animation: emits AnimationEnd.
-        let events = engine.tick(0.6);
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            &events[0].1,
-            AnimationEvent::Animation(AnimationEventData { kind: AnimationEventKind::End, name, .. }) if name == "fadeIn"
-        ));
-    }
-
-    #[test]
-    fn engine_infinite_animation() {
-        let mut engine = AnimationEngine::new();
-        let spec = make_anim_spec(
-            "spin",
-            1.0,
-            crate::style::IterationCount::Infinite,
-            crate::style::PlayState::Running,
-        );
-        let anim = AnimationInstance::new(&spec, 0.0);
-        engine.add_animation(1, anim);
-
-        // Should never finish; animation start + iteration events are expected but
-        // no AnimationEnd should ever be emitted.
-        for _ in 0..100 {
-            let events = engine.tick(0.5);
-            assert!(
-                events.iter().all(|(_, e)| !matches!(
-                    e,
-                    AnimationEvent::Animation(AnimationEventData {
-                        kind: AnimationEventKind::End,
-                        ..
-                    })
-                )),
-                "infinite animation should never emit AnimationEnd"
-            );
-        }
-        assert!(engine.has_active());
-    }
-
-    #[test]
-    fn engine_paused_animation() {
-        let mut engine = AnimationEngine::new();
-        let spec = make_anim_spec(
-            "test",
-            1.0,
-            crate::style::IterationCount::Number(1.0),
-            crate::style::PlayState::Paused,
-        );
-        let anim = AnimationInstance::new(&spec, 0.0);
-        engine.add_animation(1, anim);
-
-        // Paused: should not advance
-        let events = engine.tick(2.0);
-        assert!(events.is_empty());
-        assert!(engine.has_active());
-    }
-
-    #[test]
-    fn engine_replace_transition_same_property() {
-        let mut engine = AnimationEngine::new();
-        let t1 = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            1.0,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let cancel1 = engine.add_transition(1, t1);
-        assert!(cancel1.is_empty(), "no previous transition to cancel");
-
-        // Replace with new transition for same property — should emit TransitionCancel
-        let t2 = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(0.5),
-            CssValue::Number(0.0),
-            0.5,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let cancel2 = engine.add_transition(1, t2);
-        assert_eq!(
-            cancel2.len(),
-            1,
-            "one cancel event for the replaced transition"
-        );
-        assert!(matches!(
-            &cancel2[0].1,
-            AnimationEvent::Transition(TransitionEventData { kind: TransitionEventKind::Cancel, property, .. }) if property == "opacity"
-        ));
-
-        assert_eq!(engine.active_transitions(1).len(), 1);
-    }
-
-    #[test]
-    fn engine_replace_finished_transition_no_cancel() {
-        let mut engine = AnimationEngine::new();
-        let mut t1 = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            0.1,
-            0.0,
-            TimingFunction::Linear,
-        );
-        // Mark as already finished — should not produce TransitionCancel
-        t1.finished = true;
-        let _ = engine.add_transition(1, t1);
-
-        let t2 = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(0.5),
-            CssValue::Number(0.0),
-            0.5,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let cancel = engine.add_transition(1, t2);
-        assert!(
-            cancel.is_empty(),
-            "finished transition does not fire TransitionCancel"
-        );
-    }
-
-    #[test]
-    fn engine_remove_entity() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            1.0,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let _ = engine.add_transition(42, trans);
-        assert!(engine.has_active());
-
-        engine.remove_entity(42);
-        assert!(!engine.has_active());
-    }
-
-    #[test]
-    fn engine_register_keyframes() {
-        let mut engine = AnimationEngine::new();
-        let rule =
-            crate::parse::parse_keyframes("fadeIn", "from { opacity: 0; } to { opacity: 1; }");
-        engine.register_keyframes(rule);
-        assert!(engine.get_keyframes("fadeIn").is_some());
-        assert!(engine.get_keyframes("nonexistent").is_none());
-    }
-
-    #[test]
-    fn engine_clear() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            1.0,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let _ = engine.add_transition(1, trans);
-        engine.clear();
-        assert!(!engine.has_active());
-    }
-
-    #[test]
-    fn engine_default() {
-        let engine = AnimationEngine::default();
-        assert!(!engine.has_active());
-    }
-
-    #[test]
-    fn engine_tick_nan_dt_is_noop() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            1.0,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let _ = engine.add_transition(1, trans);
-        let events = engine.tick(f64::NAN);
-        assert!(events.is_empty(), "NaN dt should produce no events");
-        assert!(engine.has_active(), "transition should still be active");
-    }
-
-    #[test]
-    fn engine_tick_negative_dt_is_noop() {
-        let mut engine = AnimationEngine::new();
-        let trans = TransitionInstance::new(
-            "opacity".into(),
-            CssValue::Number(1.0),
-            CssValue::Number(0.0),
-            1.0,
-            0.0,
-            TimingFunction::Linear,
-        );
-        let _ = engine.add_transition(1, trans);
-        let events = engine.tick(-0.5);
-        assert!(events.is_empty(), "negative dt should produce no events");
-    }
-
-    #[test]
-    fn engine_animation_limit_enforced() {
-        let mut engine = AnimationEngine::new();
-        for i in 0..=MAX_ANIMATIONS_PER_ENTITY {
-            let spec = make_anim_spec(
-                &format!("anim{i}"),
-                1.0,
-                crate::style::IterationCount::Number(1.0),
-                crate::style::PlayState::Running,
-            );
-            let anim = AnimationInstance::new(&spec, 0.0);
-            engine.add_animation(1, anim);
-        }
-        // Should cap at MAX_ANIMATIONS_PER_ENTITY
-        assert_eq!(engine.active_animations(1).len(), MAX_ANIMATIONS_PER_ENTITY);
-    }
-}
+#[path = "engine_tests.rs"]
+mod tests;

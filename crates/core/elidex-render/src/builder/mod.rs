@@ -8,6 +8,7 @@
 //! to a single space. Whitespace-only text is discarded.
 
 mod bidi;
+mod form;
 mod glyph;
 mod inline;
 mod paint;

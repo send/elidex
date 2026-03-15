@@ -136,6 +136,20 @@ pub struct PipelineResult {
     pub registry: elidex_plugin::CssPropertyRegistry,
     /// CSS animation/transition engine.
     pub animation_engine: AnimationEngine,
+    /// Current viewport width for layout.
+    pub viewport_width: f32,
+    /// Current viewport height for layout.
+    pub viewport_height: f32,
+}
+
+impl PipelineResult {
+    /// Remove animation/transition state for entities that no longer exist in the DOM.
+    pub(crate) fn prune_dead_animation_entities(&mut self) {
+        self.animation_engine.prune_dead_entities(&|entity_id| {
+            Entity::from_bits(entity_id)
+                .is_some_and(|entity| self.dom.world().contains(entity))
+        });
+    }
 }
 
 /// Register `@keyframes` rules from parsed stylesheets into the animation engine.
@@ -146,6 +160,13 @@ fn register_keyframes_from_stylesheets(stylesheets: &[Stylesheet], engine: &mut 
             engine.register_keyframes(rule);
         }
     }
+}
+
+/// Create and initialize an `AnimationEngine` with `@keyframes` from stylesheets.
+fn create_animation_engine(stylesheets: &[Stylesheet]) -> AnimationEngine {
+    let mut engine = AnimationEngine::new();
+    register_keyframes_from_stylesheets(stylesheets, &mut engine);
+    engine
 }
 
 /// Execute the rendering pipeline and return all state for interactive use.
@@ -161,6 +182,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     }
     let mut dom = parse_result.dom;
     let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
 
     let registry = create_css_property_registry();
 
@@ -188,8 +211,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let mut animation_engine = AnimationEngine::new();
-    register_keyframes_from_stylesheets(&stylesheets, &mut animation_engine);
+    let animation_engine = create_animation_engine(&stylesheets);
 
     PipelineResult {
         display_list,
@@ -203,6 +225,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         fetch_handle,
         registry,
         animation_engine,
+        viewport_width: DEFAULT_VIEWPORT_WIDTH,
+        viewport_height: DEFAULT_VIEWPORT_HEIGHT,
     }
 }
 
@@ -213,7 +237,13 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 /// transitions, feeds them to the `AnimationEngine`, and applies animated
 /// values to `ComputedStyle` before layout.
 pub(crate) fn re_render(result: &mut PipelineResult) {
+    // Flush applies buffered mutations to the DOM; return value unused (pruning is unconditional).
     result.session.flush(&mut result.dom);
+
+    // Prune animations/transitions for destroyed entities unconditionally.
+    // JS event handlers may destroy entities without generating style mutations,
+    // so conditional pruning could leak animation state.
+    result.prune_dead_animation_entities();
 
     // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
     let old_styles = collect_old_anim_styles(&result.dom);
@@ -230,8 +260,8 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
 
     layout_tree(
         &mut result.dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
+        result.viewport_width,
+        result.viewport_height,
         &result.font_db,
     );
 
@@ -240,8 +270,8 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
 
 /// Collect old computed styles for entities that have an `AnimStyle` component.
 ///
-/// Returns a list of `(entity_bits, property_name, old_value)` tuples for
-/// all animatable properties that the transition detection needs to compare.
+/// Returns a list of `(entity_bits, AnimStyle, ComputedStyle)` tuples for
+/// entities with transition properties, used by transition detection.
 fn collect_old_anim_styles(
     dom: &EcsDom,
 ) -> Vec<(u64, elidex_css_anim::style::AnimStyle, ComputedStyle)> {
@@ -260,6 +290,9 @@ fn collect_old_anim_styles(
 }
 
 /// Compare old vs new computed values to detect transitions, then add them to the engine.
+///
+/// Only compares properties listed in the entity's `transition-property` (or all
+/// animatable properties when `transition-property: all`).
 fn detect_and_start_transitions(
     result: &mut PipelineResult,
     old_styles: &[(
@@ -269,22 +302,55 @@ fn detect_and_start_transitions(
     )],
 ) {
     use elidex_css_anim::detection::detect_transitions;
+    use elidex_css_anim::engine::{AnimationEvent, TransitionEventData, TransitionEventKind};
     use elidex_css_anim::instance::TransitionInstance;
+    use elidex_css_anim::style::TransitionProperty;
+    use elidex_plugin::{EventPayload, TransitionEventInit};
+    use elidex_script_session::DispatchEvent;
 
     let registry = &result.registry;
+
+    // Collect all cancel events for batch dispatch after detection.
+    let mut cancel_dispatches = Vec::new();
 
     for &(entity_bits, ref anim_style, ref old_computed) in old_styles {
         // Get the new computed style for this entity.
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
-        let Ok(computed_ref) = result.dom.world().get::<&ComputedStyle>(entity) else {
-            continue;
+        let new_computed = {
+            let Ok(computed_ref) = result.dom.world().get::<&ComputedStyle>(entity) else {
+                continue;
+            };
+            ComputedStyle::clone(&computed_ref)
         };
-        let new_computed = computed_ref.clone();
+
+        // Determine which properties to compare based on transition-property list.
+        let has_all = anim_style
+            .transition_property
+            .iter()
+            .any(|p| matches!(p, TransitionProperty::All));
+
+        // Pre-collect named properties into a set for O(1) lookup (avoids O(n²)).
+        let named_props: std::collections::HashSet<&str> = if has_all {
+            std::collections::HashSet::new()
+        } else {
+            anim_style
+                .transition_property
+                .iter()
+                .filter_map(|p| match p {
+                    TransitionProperty::Property(name) => Some(name.as_str()),
+                    _ => None,
+                })
+                .collect()
+        };
 
         // Build changed_properties list by comparing old vs new via get_computed.
         let mut changed = Vec::new();
         for prop_name in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+            // When transition-property is not `all`, only compare listed properties.
+            if !has_all && !named_props.contains(prop_name) {
+                continue;
+            }
             let old_val =
                 elidex_style::get_computed_with_registry(prop_name, old_computed, registry);
             let new_val =
@@ -308,37 +374,83 @@ fn detect_and_start_transitions(
                 dt.delay,
                 dt.timing_function,
             );
-            let _cancel_events = result.animation_engine.add_transition(entity_bits, trans);
+            let cancel_events = result.animation_engine.add_transition(entity_bits, trans);
+            cancel_dispatches.extend(cancel_events);
+        }
+    }
+
+    // Batch dispatch transitioncancel events after all detection is complete.
+    // TODO(M4-3.7): extract dispatch_cancel_event() helper (shared with animationcancel).
+    for (eid, event) in cancel_dispatches {
+        let entity = Entity::from_bits(eid);
+        let Some(entity) = entity else { continue };
+        if !result.dom.world().contains(entity) {
+            continue;
+        }
+        if let AnimationEvent::Transition(TransitionEventData {
+            kind: TransitionEventKind::Cancel,
+            ref property,
+            elapsed_time,
+        }) = event
+        {
+            let mut dispatch = DispatchEvent::new_composed("transitioncancel", entity);
+            dispatch.cancelable = false;
+            dispatch.payload = EventPayload::Transition(TransitionEventInit {
+                property_name: property.clone(),
+                elapsed_time,
+                pseudo_element: String::new(),
+            });
+            result.runtime.dispatch_event(
+                &mut dispatch,
+                &mut result.session,
+                &mut result.dom,
+                result.document,
+            );
         }
     }
 }
 
-/// Apply animated values from active transitions/animations to `ComputedStyle`.
+/// Apply animated values from active transitions and animations to `ComputedStyle`.
 ///
-/// Iterates over all entities with active transitions in the engine,
-/// reads the current interpolated value, and overwrites the corresponding
-/// `ComputedStyle` field.
+/// Iterates over all entities with active transitions and animations in the engine,
+/// reads the current interpolated values, and overwrites the corresponding
+/// `ComputedStyle` fields.
 fn apply_active_animations(result: &mut PipelineResult) {
     use elidex_css_anim::apply::apply_animated_value;
 
-    // Collect entity IDs that have active transitions (to avoid borrow conflict).
+    // Collect entity IDs that have active transitions/animations (to avoid borrow conflict).
+    // Animations are applied after transitions so they take priority when both affect
+    // the same property (CSS Animations L1 §4.1). Duplicates are safe (last write wins).
     let entity_ids: Vec<u64> = result.animation_engine.active_entity_ids().collect();
 
     for entity_bits in entity_ids {
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
 
-        // Read current animated values from transitions.
+        // Collect animated values from transitions.
         let transitions = result.animation_engine.active_transitions(entity_bits);
-        let animated_values: Vec<(String, elidex_plugin::CssValue)> = transitions
+        let mut animated_values: Vec<(String, elidex_plugin::CssValue)> = transitions
             .iter()
             .filter_map(|t| t.current_value().map(|v| (t.property.clone(), v)))
             .collect();
 
+        // Collect animated values from keyframe animations.
+        let animations = result.animation_engine.active_animations(entity_bits);
+        for anim in animations {
+            if let Some(progress) = anim.progress() {
+                let kf_values = result
+                    .animation_engine
+                    .keyframe_values(anim.name(), f64::from(progress));
+                animated_values.extend(kf_values);
+            }
+        }
+
         // Apply to ComputedStyle.
-        if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
-            for (property, value) in &animated_values {
-                apply_animated_value(&mut style, property, value);
+        if !animated_values.is_empty() {
+            if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
+                for (property, value) in &animated_values {
+                    apply_animated_value(&mut style, property, value);
+                }
             }
         }
     }
@@ -361,6 +473,8 @@ pub fn build_pipeline_from_loaded(
         url,
     } = loaded;
 
+    elidex_form::init_form_controls(&mut dom);
+
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
     let registry = create_css_property_registry();
@@ -378,8 +492,7 @@ pub fn build_pipeline_from_loaded(
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let mut animation_engine = AnimationEngine::new();
-    register_keyframes_from_stylesheets(&stylesheets, &mut animation_engine);
+    let animation_engine = create_animation_engine(&stylesheets);
 
     PipelineResult {
         display_list,
@@ -393,6 +506,8 @@ pub fn build_pipeline_from_loaded(
         fetch_handle,
         registry,
         animation_engine,
+        viewport_width: DEFAULT_VIEWPORT_WIDTH,
+        viewport_height: DEFAULT_VIEWPORT_HEIGHT,
     }
 }
 
@@ -403,7 +518,7 @@ pub fn build_pipeline_from_url(
     url: &url::Url,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-    let loaded = elidex_navigation::load_document(url, &fetch_handle)?;
+    let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
     let font_db = Rc::new(FontDatabase::new());
     Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
 }

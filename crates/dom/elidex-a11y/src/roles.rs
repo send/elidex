@@ -4,6 +4,7 @@
 //! per the HTML-AAM specification (simplified).
 
 use accesskit::Role;
+use elidex_form::FormControlKind;
 
 /// Map an HTML tag name to an AccessKit Role.
 ///
@@ -130,6 +131,37 @@ pub(crate) fn heading_level(tag: &str) -> Option<usize> {
     }
 }
 
+/// Map a `FormControlKind` to an AccessKit Role per HTML-AAM.
+#[must_use]
+pub(crate) fn form_control_role(kind: FormControlKind) -> Role {
+    match kind {
+        FormControlKind::TextArea => Role::MultilineTextInput,
+        FormControlKind::Number => Role::SpinButton,
+        FormControlKind::Range => Role::Slider,
+        FormControlKind::Checkbox => Role::CheckBox,
+        FormControlKind::Radio => Role::RadioButton,
+        FormControlKind::Select => Role::ComboBox,
+        FormControlKind::SubmitButton
+        | FormControlKind::ResetButton
+        | FormControlKind::Button => Role::Button,
+        FormControlKind::Hidden => Role::GenericContainer,
+        FormControlKind::Output => Role::Status,
+        FormControlKind::Meter => Role::Meter,
+        FormControlKind::Progress => Role::ProgressIndicator,
+        // All text-like inputs map to TextInput.
+        FormControlKind::TextInput
+        | FormControlKind::Password
+        | FormControlKind::Email
+        | FormControlKind::Url
+        | FormControlKind::Tel
+        | FormControlKind::Search
+        | FormControlKind::Color
+        | FormControlKind::Date
+        | FormControlKind::DatetimeLocal
+        | FormControlKind::File => Role::TextInput,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +254,30 @@ mod tests {
 
         for (role_str, expected) in cases {
             assert_eq!(aria_role_from_str(role_str), expected, "role: {role_str:?}");
+        }
+    }
+
+    #[test]
+    fn form_control_role_mapping() {
+        let cases = [
+            (FormControlKind::TextInput, Role::TextInput),
+            (FormControlKind::Password, Role::TextInput),
+            (FormControlKind::TextArea, Role::MultilineTextInput),
+            (FormControlKind::Checkbox, Role::CheckBox),
+            (FormControlKind::Radio, Role::RadioButton),
+            (FormControlKind::Select, Role::ComboBox),
+            (FormControlKind::SubmitButton, Role::Button),
+            (FormControlKind::ResetButton, Role::Button),
+            (FormControlKind::Button, Role::Button),
+            (FormControlKind::Number, Role::SpinButton),
+            (FormControlKind::Range, Role::Slider),
+            (FormControlKind::Hidden, Role::GenericContainer),
+            (FormControlKind::Output, Role::Status),
+            (FormControlKind::Meter, Role::Meter),
+            (FormControlKind::Progress, Role::ProgressIndicator),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(form_control_role(kind), expected, "kind: {kind:?}");
         }
     }
 }

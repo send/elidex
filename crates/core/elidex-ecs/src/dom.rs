@@ -125,6 +125,31 @@ impl EcsDom {
         self.world.contains(entity)
     }
 
+    /// Check if an entity is editable via `contenteditable`, considering ancestor inheritance.
+    ///
+    /// Per HTML §6.6.1: `contenteditable` is inherited. An element with
+    /// `contenteditable="true"` (or empty string) makes itself and its descendants
+    /// editable. `contenteditable="false"` overrides the inherited state.
+    #[must_use]
+    pub fn is_contenteditable(&self, entity: Entity) -> bool {
+        let mut current = Some(entity);
+        for _ in 0..MAX_ANCESTOR_DEPTH {
+            let Some(e) = current else { break };
+            let attr = self
+                .world
+                .get::<&Attributes>(e)
+                .ok()
+                .and_then(|a| a.get("contenteditable").map(String::from));
+            match attr.as_deref() {
+                Some("true" | "") => return true,
+                Some("false") => return false,
+                _ => {}
+            }
+            current = self.get_parent(e);
+        }
+        false
+    }
+
     /// Provides mutable access to the underlying `hecs::World`.
     ///
     /// **Warning:** Tree mutations (parent/child/sibling links) **must** go
@@ -462,6 +487,15 @@ impl EcsDom {
             .get::<&TagType>(entity)
             .ok()
             .is_some_and(|t| t.0 == tag)
+    }
+
+    /// Returns the tag name of an entity, or `None` for text nodes.
+    #[must_use]
+    pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
+        self.world
+            .get::<&TagType>(entity)
+            .ok()
+            .map(|t| t.0.clone())
     }
 
     /// Check if `ancestor` is an ancestor of `descendant` (or is `descendant` itself).

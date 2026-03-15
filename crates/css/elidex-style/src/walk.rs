@@ -1,7 +1,7 @@
 //! DOM tree walking for style resolution.
 
 use elidex_css::{parse_stylesheet, Declaration, Origin, PseudoElement, Stylesheet};
-use elidex_css_anim::resolve::resolve_anim_property;
+use elidex_css_anim::resolve::{resolve_anim_property, ANIM_LONGHAND_NAMES};
 use elidex_css_anim::style::AnimStyle;
 use elidex_ecs::{
     Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowHost, ShadowRoot,
@@ -31,22 +31,6 @@ pub(crate) struct WalkState<'a> {
     pub depth: usize,
     pub total_shadow_css: &'a mut usize,
 }
-
-/// Animation/transition longhand property names that may appear in cascade winners.
-const ANIM_LONGHAND_NAMES: &[&str] = &[
-    "transition-property",
-    "transition-duration",
-    "transition-timing-function",
-    "transition-delay",
-    "animation-name",
-    "animation-duration",
-    "animation-timing-function",
-    "animation-delay",
-    "animation-iteration-count",
-    "animation-direction",
-    "animation-fill-mode",
-    "animation-play-state",
-];
 
 /// Build an `AnimStyle` from cascade winners if any animation/transition properties are set.
 ///

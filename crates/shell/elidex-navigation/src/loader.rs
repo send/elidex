@@ -113,12 +113,17 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
 /// 6. Extracts, fetches, and decodes images (`<img src="...">`).
 ///
 /// Sub-resource fetch errors are logged and skipped (the page still loads).
+///
+/// When `request` is `Some`, that request is sent instead of a default GET.
+/// This enables POST form submissions.
 pub fn load_document(
     url: &url::Url,
     fetch_handle: &FetchHandle,
+    request: Option<elidex_net::Request>,
 ) -> Result<LoadedDocument, LoadError> {
     // 1. Fetch the HTML document.
-    let response = fetch_handle.send_blocking(make_get_request(url.clone()))?;
+    let req = request.unwrap_or_else(|| make_get_request(url.clone()));
+    let response = fetch_handle.send_blocking(req)?;
     if !(200..300).contains(&response.status) {
         tracing::warn!("HTTP {}: {}", response.status, url);
     }

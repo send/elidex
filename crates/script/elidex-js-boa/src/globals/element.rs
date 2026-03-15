@@ -106,6 +106,7 @@ fn build_element_object(
     register_event_listener_methods(&mut init, bridge);
     register_shadow_dom_methods(&mut init, bridge, &realm);
     register_canvas_method(&mut init, bridge);
+    super::element_form::register_form_accessors(&mut init, bridge, &realm);
 
     init.build()
 }

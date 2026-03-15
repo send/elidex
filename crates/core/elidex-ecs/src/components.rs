@@ -99,31 +99,47 @@ pub struct PseudoElementMarker;
 ///
 /// Tracks whether an element is hovered, focused, active, or a link.
 /// Used by the selector engine to match `:hover`, `:focus`, `:active`,
-/// `:link`, and `:visited` pseudo-classes.
+/// `:link`, `:visited`, and form-related pseudo-classes.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct ElementState(pub u8);
+pub struct ElementState(pub u16);
 
 impl ElementState {
-    pub const HOVER: u8 = 0b0000_0001;
-    pub const FOCUS: u8 = 0b0000_0010;
-    pub const ACTIVE: u8 = 0b0000_0100;
-    pub const LINK: u8 = 0b0000_1000;
-    pub const VISITED: u8 = 0b0001_0000;
+    pub const HOVER: u16 = 0x0001;
+    pub const FOCUS: u16 = 0x0002;
+    pub const ACTIVE: u16 = 0x0004;
+    pub const LINK: u16 = 0x0008;
+    pub const VISITED: u16 = 0x0010;
+    pub const DISABLED: u16 = 0x0020;
+    pub const CHECKED: u16 = 0x0040;
+    pub const REQUIRED: u16 = 0x0080;
+    pub const VALID: u16 = 0x0100;
+    pub const INVALID: u16 = 0x0200;
+    pub const READ_ONLY: u16 = 0x0400;
+    pub const INDETERMINATE: u16 = 0x0800;
 
     /// Returns `true` if the given flag is set.
     #[must_use]
-    pub fn contains(self, flag: u8) -> bool {
+    pub fn contains(self, flag: u16) -> bool {
         self.0 & flag != 0
     }
 
     /// Set the given flag.
-    pub fn insert(&mut self, flag: u8) {
+    pub fn insert(&mut self, flag: u16) {
         self.0 |= flag;
     }
 
     /// Clear the given flag.
-    pub fn remove(&mut self, flag: u8) {
+    pub fn remove(&mut self, flag: u16) {
         self.0 &= !flag;
+    }
+
+    /// Set or clear the given flag based on `value`.
+    pub fn set(&mut self, flag: u16, value: bool) {
+        if value {
+            self.insert(flag);
+        } else {
+            self.remove(flag);
+        }
     }
 
     /// Returns `true` if no flags are set.
