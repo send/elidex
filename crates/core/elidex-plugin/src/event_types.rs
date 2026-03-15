@@ -63,6 +63,62 @@ pub struct KeyboardEventInit {
     pub repeat: bool,
 }
 
+/// Initialization data for CSS transition events (CSS Transitions Level 1 §6).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TransitionEventInit {
+    /// The CSS property name that completed the transition.
+    pub property_name: String,
+    /// The elapsed time of the transition in seconds.
+    pub elapsed_time: f64,
+    /// The `::pseudo-element` selector (empty string if not a pseudo-element).
+    pub pseudo_element: String,
+}
+
+/// Initialization data for CSS animation events (CSS Animations Level 1 §4.2).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimationEventInit {
+    /// The `@keyframes` animation name.
+    pub animation_name: String,
+    /// The elapsed time of the animation in seconds.
+    pub elapsed_time: f64,
+    /// The `::pseudo-element` selector (empty string if not a pseudo-element).
+    pub pseudo_element: String,
+}
+
+/// Initialization data for input events (HTML §4.10.5.5).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputEventInit {
+    /// The type of input (e.g. "insertText", "deleteContentBackward").
+    pub input_type: String,
+    /// The data being inserted (if any).
+    pub data: Option<String>,
+    /// Whether an IME composition is in progress.
+    pub is_composing: bool,
+}
+
+/// Initialization data for clipboard events (HTML §6.4.6).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClipboardEventInit {
+    /// The clipboard data type (e.g. "text/plain").
+    pub data_type: String,
+    /// The clipboard data.
+    pub data: String,
+}
+
+/// Initialization data for composition events (HTML §6.5).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CompositionEventInit {
+    /// The composition data (text being composed).
+    pub data: String,
+}
+
+/// Initialization data for focus events (UI Events §5.2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FocusEventInit {
+    /// The entity that is losing/gaining focus (the "other" target).
+    pub related_target: Option<u64>,
+}
+
 /// Payload carried by a DOM event.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -71,6 +127,18 @@ pub enum EventPayload {
     Mouse(MouseEventInit),
     /// Keyboard event data.
     Keyboard(KeyboardEventInit),
+    /// CSS transition event data.
+    Transition(TransitionEventInit),
+    /// CSS animation event data.
+    Animation(AnimationEventInit),
+    /// Input event data (text editing).
+    Input(InputEventInit),
+    /// Clipboard event data.
+    Clipboard(ClipboardEventInit),
+    /// Composition event data (IME).
+    Composition(CompositionEventInit),
+    /// Focus event data (focus/blur/focusin/focusout).
+    Focus(FocusEventInit),
     /// No additional data (e.g. generic events).
     #[default]
     None,
@@ -132,5 +200,41 @@ mod tests {
             ..Default::default()
         });
         assert_ne!(p1, p3);
+    }
+
+    #[test]
+    fn transition_event_init_default() {
+        let t = TransitionEventInit::default();
+        assert!(t.property_name.is_empty());
+        assert!((t.elapsed_time - 0.0).abs() < f64::EPSILON);
+        assert!(t.pseudo_element.is_empty());
+    }
+
+    #[test]
+    fn animation_event_init_default() {
+        let a = AnimationEventInit::default();
+        assert!(a.animation_name.is_empty());
+        assert!((a.elapsed_time - 0.0).abs() < f64::EPSILON);
+        assert!(a.pseudo_element.is_empty());
+    }
+
+    #[test]
+    fn event_payload_transition_variant() {
+        let p = EventPayload::Transition(TransitionEventInit {
+            property_name: "opacity".into(),
+            elapsed_time: 0.5,
+            pseudo_element: String::new(),
+        });
+        assert!(matches!(p, EventPayload::Transition(_)));
+    }
+
+    #[test]
+    fn event_payload_animation_variant() {
+        let p = EventPayload::Animation(AnimationEventInit {
+            animation_name: "fadeIn".into(),
+            elapsed_time: 1.0,
+            pseudo_element: String::new(),
+        });
+        assert!(matches!(p, EventPayload::Animation(_)));
     }
 }

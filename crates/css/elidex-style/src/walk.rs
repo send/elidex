@@ -1,11 +1,13 @@
 //! DOM tree walking for style resolution.
 
 use elidex_css::{parse_stylesheet, Declaration, Origin, PseudoElement, Stylesheet};
+use elidex_css_anim::resolve::{resolve_anim_property, ANIM_LONGHAND_NAMES};
+use elidex_css_anim::style::AnimStyle;
 use elidex_ecs::{
     Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowHost, ShadowRoot,
     SlotAssignment, TagType, TemplateContent, TextContent, MAX_ANCESTOR_DEPTH,
 };
-use elidex_plugin::{ComputedStyle, Display};
+use elidex_plugin::{ComputedStyle, CssValue, Display};
 
 use crate::cascade::{collect_and_cascade, get_inline_declarations, ShadowCascade};
 use crate::pseudo::{generate_pseudo_entity, remove_pseudo_entities};
@@ -28,6 +30,51 @@ pub(crate) struct WalkState<'a> {
     pub hint_generator: &'a dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     pub depth: usize,
     pub total_shadow_css: &'a mut usize,
+}
+
+/// Build an `AnimStyle` from cascade winners if any animation/transition properties are set.
+///
+/// Returns `Some(AnimStyle)` when at least one animation/transition property was found
+/// in the winners map, `None` otherwise (to avoid inserting empty ECS components).
+fn build_anim_style_from_winners(
+    winners: &std::collections::HashMap<&str, &CssValue>,
+) -> Option<AnimStyle> {
+    let mut style = AnimStyle::default();
+    let mut found = false;
+
+    for &name in ANIM_LONGHAND_NAMES {
+        if let Some(&value) = winners.get(name) {
+            resolve_anim_property(name, value, &mut style);
+            found = true;
+        }
+    }
+
+    if found {
+        Some(style)
+    } else {
+        None
+    }
+}
+
+/// Variant for the parallel path that takes `OwnedPropertyMap` directly,
+/// avoiding an intermediate `HashMap<&str, &CssValue>` allocation.
+#[cfg(feature = "parallel")]
+fn build_anim_style_from_owned(owned: &super::parallel::OwnedPropertyMap) -> Option<AnimStyle> {
+    let mut style = AnimStyle::default();
+    let mut found = false;
+
+    for &name in ANIM_LONGHAND_NAMES {
+        if let Some(value) = owned.get(name) {
+            resolve_anim_property(name, value, &mut style);
+            found = true;
+        }
+    }
+
+    if found {
+        Some(style)
+    } else {
+        None
+    }
 }
 
 /// Build a child `ResolveContext` from a resolved entity style.
@@ -177,6 +224,16 @@ fn walk_children_parallel(
             // Element: attach parallel-resolved style (single clone).
             let _ = dom.world_mut().insert_one(child, styles[idx].clone());
 
+            // Attach AnimStyle if any animation/transition properties exist.
+            let owned_map = &cascade_inputs[idx];
+            if let Some(anim_style) = build_anim_style_from_owned(owned_map) {
+                let _ = dom.world_mut().insert_one(child, anim_style);
+            } else {
+                let _ = dom
+                    .world_mut()
+                    .remove_one::<elidex_css_anim::style::AnimStyle>(child);
+            }
+
             if styles[idx].display != Display::None {
                 generate_pseudo_entity(
                     dom,
@@ -286,6 +343,16 @@ fn resolve_and_attach_style(
 
     // Attach ComputedStyle to the entity.
     let _ = dom.world_mut().insert_one(entity, style.clone());
+
+    // Attach AnimStyle if any animation/transition properties are set,
+    // or remove stale AnimStyle so transition detection stops running.
+    if let Some(anim_style) = build_anim_style_from_winners(&winners) {
+        let _ = dom.world_mut().insert_one(entity, anim_style);
+    } else {
+        let _ = dom
+            .world_mut()
+            .remove_one::<elidex_css_anim::style::AnimStyle>(entity);
+    }
 
     // Only generate pseudo-elements for visible elements.
     if style.display != Display::None {

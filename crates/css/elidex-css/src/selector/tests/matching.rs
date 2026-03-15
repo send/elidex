@@ -398,7 +398,7 @@ fn match_child_first_child_combined() {
 
 #[test]
 fn dynamic_pseudo_class_matches_when_state_set() {
-    let cases: &[(&str, &str, u8)] = &[
+    let cases: &[(&str, &str, u16)] = &[
         ("div", ":hover", ElementState::HOVER),
         ("input", ":focus", ElementState::FOCUS),
         ("button", ":active", ElementState::ACTIVE),
@@ -608,4 +608,212 @@ fn not_host_function_matches_host_without_class() {
     dom.attach_shadow(host2, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
     assert!(!sel.matches(host2, &dom));
+}
+
+// --- Form pseudo-class matching tests (M4-3.5 R2) ---
+
+#[test]
+fn read_only_matches_div_without_contenteditable() {
+    // Non-form elements without contenteditable are :read-only per HTML spec.
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let sel = parse_sel(":read-only").unwrap();
+    assert!(sel.matches(div, &dom));
+}
+
+#[test]
+fn read_write_matches_div_with_contenteditable() {
+    // contenteditable elements are :read-write per HTML spec.
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("contenteditable", "true");
+    let div = dom.create_element("div", attrs);
+    let read_write = parse_sel(":read-write").unwrap();
+    let read_only = parse_sel(":read-only").unwrap();
+    assert!(read_write.matches(div, &dom));
+    assert!(!read_only.matches(div, &dom));
+}
+
+#[test]
+fn checked_matches_option_with_selected() {
+    // :checked matches <option> elements with the selected attribute.
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("selected", "");
+    let option = dom.create_element("option", attrs);
+    let sel = parse_sel(":checked").unwrap();
+    assert!(sel.matches(option, &dom));
+}
+
+#[test]
+fn checked_does_not_match_option_without_selected() {
+    let mut dom = EcsDom::new();
+    let option = elem(&mut dom, "option");
+    let sel = parse_sel(":checked").unwrap();
+    assert!(!sel.matches(option, &dom));
+}
+
+#[test]
+fn required_does_not_match_fieldset() {
+    // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
+    let mut dom = EcsDom::new();
+    let fs = dom.create_element("fieldset", Attributes::default());
+    let mut es = ElementState::default();
+    es.insert(ElementState::REQUIRED);
+    let _ = dom.world_mut().insert_one(fs, es);
+    let sel = parse_sel(":required").unwrap();
+    assert!(!sel.matches(fs, &dom));
+}
+
+#[test]
+fn optional_does_not_match_fieldset() {
+    // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
+    let mut dom = EcsDom::new();
+    let fs = dom.create_element("fieldset", Attributes::default());
+    let _ = dom.world_mut().insert_one(fs, ElementState::default());
+    let sel = parse_sel(":optional").unwrap();
+    assert!(!sel.matches(fs, &dom));
+}
+
+#[test]
+fn required_does_not_match_button() {
+    // :required only applies to input/select/textarea, not <button>.
+    let mut dom = EcsDom::new();
+    let btn = dom.create_element("button", Attributes::default());
+    let mut es = ElementState::default();
+    es.insert(ElementState::REQUIRED);
+    let _ = dom.world_mut().insert_one(btn, es);
+    let sel = parse_sel(":required").unwrap();
+    assert!(!sel.matches(btn, &dom));
+}
+
+#[test]
+fn read_write_inherited_contenteditable() {
+    // :read-write should match descendants of contenteditable elements.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_element("html", Attributes::default());
+    let mut attrs = Attributes::default();
+    attrs.set("contenteditable", "true");
+    let parent = dom.create_element("div", attrs);
+    let child = dom.create_element("span", Attributes::default());
+    assert!(dom.append_child(doc, parent));
+    assert!(dom.append_child(parent, child));
+    let sel = parse_sel(":read-write").unwrap();
+    assert!(sel.matches(child, &dom));
+    // And :read-only should NOT match it.
+    let sel_ro = parse_sel(":read-only").unwrap();
+    assert!(!sel_ro.matches(child, &dom));
+}
+
+#[test]
+fn valid_matches_output_element() {
+    // <output> is always valid per HTML §4.10.18.7.
+    let mut dom = EcsDom::new();
+    let output = dom.create_element("output", Attributes::default());
+    let sel_valid = parse_sel(":valid").unwrap();
+    let sel_invalid = parse_sel(":invalid").unwrap();
+    assert!(sel_valid.matches(output, &dom));
+    assert!(!sel_invalid.matches(output, &dom));
+}
+
+#[test]
+fn optional_does_not_match_button() {
+    // :optional only applies to input/select/textarea, not <button>.
+    let mut dom = EcsDom::new();
+    let btn = dom.create_element("button", Attributes::default());
+    let _ = dom.world_mut().insert_one(btn, ElementState::default());
+    let sel = parse_sel(":optional").unwrap();
+    assert!(!sel.matches(btn, &dom));
+}
+
+#[test]
+fn enabled_disabled_does_not_match_fieldset() {
+    // Per HTML §4.10.18.5: <fieldset> is NOT in the set of "actually disableable"
+    // elements. :enabled/:disabled do not match <fieldset>.
+    let mut dom = EcsDom::new();
+    let fs = dom.create_element("fieldset", Attributes::default());
+    let _ = dom.world_mut().insert_one(fs, ElementState::default());
+    let sel_enabled = parse_sel(":enabled").unwrap();
+    let sel_disabled = parse_sel(":disabled").unwrap();
+    assert!(!sel_enabled.matches(fs, &dom));
+    assert!(!sel_disabled.matches(fs, &dom));
+
+    // Disabled fieldset still doesn't match :enabled/:disabled.
+    let mut es = ElementState::default();
+    es.insert(ElementState::DISABLED);
+    let _ = dom.world_mut().insert_one(fs, es);
+    assert!(!sel_enabled.matches(fs, &dom));
+    assert!(!sel_disabled.matches(fs, &dom));
+}
+
+#[test]
+fn checked_does_not_match_non_checkbox_radio() {
+    // :checked only matches <input type=checkbox|radio> and <option selected>,
+    // not arbitrary form elements with CHECKED flag.
+    let mut dom = EcsDom::new();
+    let btn = dom.create_element("button", Attributes::default());
+    let mut es = ElementState::default();
+    es.insert(ElementState::CHECKED);
+    let _ = dom.world_mut().insert_one(btn, es);
+    let sel = parse_sel(":checked").unwrap();
+    assert!(!sel.matches(btn, &dom));
+
+    // <input type=text> with CHECKED also should not match.
+    let text_input = dom.create_element("input", Attributes::default());
+    let _ = dom.world_mut().insert_one(text_input, es);
+    assert!(!sel.matches(text_input, &dom));
+}
+
+#[test]
+fn checked_matches_checkbox_input() {
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("type", "checkbox");
+    let cb = dom.create_element("input", attrs);
+    let mut es = ElementState::default();
+    es.insert(ElementState::CHECKED);
+    let _ = dom.world_mut().insert_one(cb, es);
+    let sel = parse_sel(":checked").unwrap();
+    assert!(sel.matches(cb, &dom));
+}
+
+#[test]
+fn indeterminate_does_not_match_non_candidate() {
+    // :indeterminate only matches checkbox, radio, and progress per HTML §4.10.18.3.
+    let mut dom = EcsDom::new();
+    let btn = dom.create_element("button", Attributes::default());
+    let mut es = ElementState::default();
+    es.insert(ElementState::INDETERMINATE);
+    let _ = dom.world_mut().insert_one(btn, es);
+    let sel = parse_sel(":indeterminate").unwrap();
+    assert!(!sel.matches(btn, &dom));
+
+    // <input type=text> with INDETERMINATE should not match.
+    let text_input = dom.create_element("input", Attributes::default());
+    let _ = dom.world_mut().insert_one(text_input, es);
+    assert!(!sel.matches(text_input, &dom));
+}
+
+#[test]
+fn indeterminate_matches_checkbox() {
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("type", "checkbox");
+    let cb = dom.create_element("input", attrs);
+    let mut es = ElementState::default();
+    es.insert(ElementState::INDETERMINATE);
+    let _ = dom.world_mut().insert_one(cb, es);
+    let sel = parse_sel(":indeterminate").unwrap();
+    assert!(sel.matches(cb, &dom));
+}
+
+#[test]
+fn indeterminate_matches_progress() {
+    let mut dom = EcsDom::new();
+    let progress = dom.create_element("progress", Attributes::default());
+    let mut es = ElementState::default();
+    es.insert(ElementState::INDETERMINATE);
+    let _ = dom.world_mut().insert_one(progress, es);
+    let sel = parse_sel(":indeterminate").unwrap();
+    assert!(sel.matches(progress, &dom));
 }

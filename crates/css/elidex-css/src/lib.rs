@@ -11,7 +11,7 @@ mod values;
 
 pub use color::parse_color;
 pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
-pub use parser::{parse_stylesheet, CssRule, Stylesheet};
+pub use parser::{parse_stylesheet, parse_stylesheet_with_registry, CssRule, Stylesheet};
 pub use selector::{
     parse_selector_from_str, parse_selector_list, PseudoElement, Selector, SelectorComponent,
     Specificity,

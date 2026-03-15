@@ -12,11 +12,14 @@ keywords = ["browser-engine", "window", "event-loop"]
 categories = ["web-programming"]
 
 [dependencies]
+arboard.workspace = true
+bytes.workspace = true
 elidex-ecs.workspace = true
 elidex-plugin.workspace = true
 elidex-render.workspace = true
 elidex-html-parser.workspace = true
 elidex-css.workspace = true
+elidex-css-anim.workspace = true
 elidex-dom-compat.workspace = true
 elidex-style.workspace = true
 elidex-layout.workspace = true
@@ -26,6 +29,7 @@ elidex-script-session.workspace = true
 elidex-navigation.workspace = true
 elidex-net.workspace = true
 elidex-a11y.workspace = true
+elidex-form.workspace = true
 accesskit.workspace = true
 accesskit_winit.workspace = true
 crossbeam-channel.workspace = true
@@ -36,6 +40,7 @@ pollster.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
 egui-winit.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

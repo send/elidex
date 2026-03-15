@@ -1708,6 +1708,7 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "elidex-ecs",
+ "elidex-form",
  "elidex-plugin",
 ]
 
@@ -1836,6 +1837,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-form"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-plugin",
+ "regex",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "elidex-html-parser"
 version = "0.1.0"
 dependencies = [
@@ -1862,6 +1874,7 @@ dependencies = [
  "bytes",
  "elidex-dom-api",
  "elidex-ecs",
+ "elidex-form",
  "elidex-navigation",
  "elidex-net",
  "elidex-plugin",
@@ -1893,6 +1906,7 @@ name = "elidex-layout-block"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-form",
  "elidex-plugin",
  "elidex-text",
 ]
@@ -1988,9 +2002,11 @@ name = "elidex-render"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-form",
  "elidex-layout-block",
  "elidex-plugin",
  "elidex-text",
+ "fontdb",
  "vello",
  "wgpu",
 ]
@@ -2019,14 +2035,18 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "arboard",
+ "bytes",
  "crossbeam-channel",
  "egui",
  "egui-wgpu",
  "egui-winit",
  "elidex-a11y",
  "elidex-css",
+ "elidex-css-anim",
  "elidex-dom-compat",
  "elidex-ecs",
+ "elidex-form",
  "elidex-html-parser",
  "elidex-js-boa",
  "elidex-layout",
@@ -2038,6 +2058,7 @@ dependencies = [
  "elidex-style",
  "elidex-text",
  "pollster",
+ "tracing",
  "url",
  "wgpu",
  "winit",

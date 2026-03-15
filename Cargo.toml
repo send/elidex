@@ -18,6 +18,7 @@ members = [
     "crates/dom/elidex-dom-api",
     "crates/dom/elidex-dom-compat",
     "crates/dom/elidex-a11y",
+    "crates/dom/elidex-form",
     "crates/layout/elidex-layout",
     "crates/layout/elidex-layout-block",
     "crates/layout/elidex-layout-flex",
@@ -49,6 +50,7 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+arboard = "3"
 cssparser = "0.36"
 encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
@@ -110,6 +112,7 @@ elidex-dom-api = { path = "crates/dom/elidex-dom-api" }
 elidex-dom-compat = { path = "crates/dom/elidex-dom-compat" }
 elidex-shell = { path = "crates/shell/elidex-shell" }
 elidex-a11y = { path = "crates/dom/elidex-a11y" }
+elidex-form = { path = "crates/dom/elidex-form" }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
 egui = "0.33"
@@ -125,6 +128,7 @@ accesskit_winit = "0.32"
 wasmtime = "42"
 wat = "1"
 rayon = "1"
+regex = "1"
 criterion = { version = "0.8", default-features = false }
 elidex-wpt = { path = "crates/tools/elidex-wpt" }
 

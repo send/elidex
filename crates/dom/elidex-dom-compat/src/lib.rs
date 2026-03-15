@@ -41,4 +41,6 @@ mod tests;
 
 pub use legacy_ua::legacy_ua_stylesheet;
 pub use presentational::get_presentational_hints;
-pub use vendor_prefix::{parse_compat_stylesheet, strip_vendor_prefixes};
+pub use vendor_prefix::{
+    parse_compat_stylesheet, parse_compat_stylesheet_with_registry, strip_vendor_prefixes,
+};

@@ -688,5 +688,17 @@ fn binary_op_from_token(tok: &TokenKind) -> BinaryOp {
 }
 
 #[cfg(test)]
-#[path = "expr_tests.rs"]
-mod tests;
+#[path = "expr_tests_core.rs"]
+mod expr_tests_core;
+
+#[cfg(test)]
+#[path = "expr_tests_operators.rs"]
+mod expr_tests_operators;
+
+#[cfg(test)]
+#[path = "expr_tests_special.rs"]
+mod expr_tests_special;
+
+#[cfg(test)]
+#[path = "expr_tests_validation.rs"]
+mod expr_tests_validation;

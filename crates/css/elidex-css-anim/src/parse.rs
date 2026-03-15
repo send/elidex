@@ -432,13 +432,32 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
 
 /// Find the position of the matching `}` for an opening `{`, handling nesting.
 ///
+/// Skips braces inside string literals (`"..."` and `'...'`) to handle cases
+/// like `content: "}"` correctly. Backslash escapes inside strings are handled.
+///
 /// Returns `None` if no matching brace is found or nesting exceeds 128 levels.
 fn find_matching_brace(text: &str) -> Option<usize> {
     /// Maximum nesting depth for braces in `@keyframes` blocks.
     const MAX_BRACE_DEPTH: u32 = 128;
     let mut depth = 0u32;
-    for (i, ch) in text.char_indices() {
+    let mut chars = text.char_indices();
+    while let Some((i, ch)) = chars.next() {
         match ch {
+            '"' | '\'' => {
+                // Skip string literal contents (braces inside don't count).
+                let quote = ch;
+                loop {
+                    match chars.next() {
+                        Some((_, '\\')) => {
+                            // Skip the escaped character.
+                            chars.next();
+                        }
+                        Some((_, c)) if c == quote => break,
+                        Some(_) => {}
+                        None => break,
+                    }
+                }
+            }
             '{' => {
                 depth += 1;
                 if depth > MAX_BRACE_DEPTH {

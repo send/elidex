@@ -9,7 +9,7 @@ use elidex_ecs::{Attributes, EcsDom, TextContent, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::LayoutBox;
 
 use crate::names::compute_accessible_name;
-use crate::roles::{aria_role_from_str, heading_level, tag_to_role};
+use crate::roles::{aria_role_from_str, form_control_role, heading_level, tag_to_role};
 
 /// Convert a `hecs::Entity` to an AccessKit `NodeId`.
 ///
@@ -212,6 +212,11 @@ fn determine_role(dom: &EcsDom, entity: Entity, tag: &str) -> Role {
             return Role::GenericContainer;
         }
         _ => {}
+    }
+
+    // FormControlKind → more precise role (M-9).
+    if let Ok(fcs) = dom.world().get::<&elidex_form::FormControlState>(entity) {
+        return form_control_role(fcs.kind);
     }
 
     tag_to_role(tag)

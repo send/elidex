@@ -209,6 +209,19 @@ fn skip_comment(result: &mut String, chars: &mut std::iter::Peekable<std::str::C
 /// before passing it to `elidex_css::parse_stylesheet()`.
 #[must_use]
 pub fn parse_compat_stylesheet(css: &str, origin: Origin) -> Stylesheet {
+    parse_compat_stylesheet_with_registry(css, origin, None)
+}
+
+/// Parse a stylesheet with vendor prefix stripping and handler registry.
+///
+/// Like [`parse_compat_stylesheet`], but passes the `registry` to the parser
+/// for plugin-handled property dispatch (e.g. `transition-*`, `animation-*`).
+#[must_use]
+pub fn parse_compat_stylesheet_with_registry(
+    css: &str,
+    origin: Origin,
+    registry: Option<&elidex_plugin::CssPropertyRegistry>,
+) -> Stylesheet {
     let stripped = strip_vendor_prefixes(css);
-    elidex_css::parse_stylesheet(&stripped, origin)
+    elidex_css::parse_stylesheet_with_registry(&stripped, origin, registry)
 }

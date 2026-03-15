@@ -18,6 +18,7 @@
 /// Entity identifier (mirrors `hecs::Entity` as `u64` bits).
 pub type EntityId = u64;
 
+pub mod apply;
 pub mod detection;
 pub mod engine;
 pub mod instance;

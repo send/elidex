@@ -4,6 +4,7 @@ pub mod canvas;
 pub mod console;
 pub mod document;
 pub mod element;
+pub(crate) mod element_form;
 pub mod events;
 pub mod fetch;
 pub mod history;

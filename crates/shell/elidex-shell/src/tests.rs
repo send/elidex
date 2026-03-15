@@ -1,5 +1,5 @@
 use super::*;
-use elidex_plugin::{EventPayload, MouseEventInit};
+use elidex_plugin::{AnimationEventInit, EventPayload, MouseEventInit, TransitionEventInit};
 use elidex_render::DisplayItem;
 use elidex_script_session::DispatchEvent;
 
@@ -514,6 +514,104 @@ fn registry_covers_all_handler_properties() {
 }
 
 #[test]
+fn keyframes_registered_in_animation_engine() {
+    let result = build_pipeline_interactive(
+        "<div>Hello</div>",
+        "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } div { display: block; }",
+    );
+    assert!(
+        result.animation_engine.get_keyframes("fadeIn").is_some(),
+        "fadeIn keyframes should be registered in the animation engine"
+    );
+}
+
+#[test]
+fn animation_properties_parsed_from_stylesheet() {
+    // Verify that transition/animation properties are parsed from stylesheets
+    // via the CssPropertyRegistry handler dispatch.
+    let css = "div { animation-name: fadeIn; animation-duration: 1s; \
+               transition-property: opacity; transition-duration: 0.3s; }";
+    let registry = create_css_property_registry();
+    let ss = elidex_css::parse_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    );
+    assert_eq!(ss.rules.len(), 1);
+    let decl_props: Vec<&str> = ss.rules[0]
+        .declarations
+        .iter()
+        .map(|d| d.property.as_str())
+        .collect();
+    assert!(
+        decl_props.contains(&"animation-name"),
+        "animation-name should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"animation-duration"),
+        "animation-duration should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"transition-property"),
+        "transition-property should be parsed, got: {decl_props:?}"
+    );
+    assert!(
+        decl_props.contains(&"transition-duration"),
+        "transition-duration should be parsed, got: {decl_props:?}"
+    );
+}
+
+#[test]
+fn anim_style_populated_from_css() {
+    use elidex_css_anim::style::{AnimStyle, TransitionProperty};
+
+    let result = build_pipeline_interactive(
+        "<div id=\"animated\">Hello</div>",
+        "div { transition: opacity 0.3s ease; }",
+    );
+
+    let entity = find_by_id(&result, "div", "animated").expect("should find div#animated");
+    let anim_style = result
+        .dom
+        .world()
+        .get::<&AnimStyle>(entity)
+        .expect("AnimStyle should be attached");
+    assert_eq!(
+        anim_style.transition_property,
+        vec![TransitionProperty::Property("opacity".into())]
+    );
+    assert!((anim_style.transition_duration[0] - 0.3).abs() < 1e-6);
+}
+
+#[test]
+fn anim_style_not_attached_without_animation_props() {
+    use elidex_css_anim::style::AnimStyle;
+
+    let result = build_pipeline_interactive("<div id=\"plain\">Hello</div>", "div { color: red; }");
+
+    let entity = find_by_id(&result, "div", "plain").expect("should find div#plain");
+    let anim_result = result.dom.world().get::<&AnimStyle>(entity);
+    assert!(
+        anim_result.is_err(),
+        "AnimStyle should not be attached when no animation/transition properties are set"
+    );
+}
+
+#[test]
+fn re_render_with_transitions_does_not_panic() {
+    // Verify the full re_render pipeline (including transition detection
+    // and animated value application) doesn't panic with transition CSS.
+    let mut result = build_pipeline_interactive(
+        "<div>Hello</div>",
+        "div { opacity: 1; transition: opacity 0.5s linear; }",
+    );
+
+    // Re-render should succeed without panic.
+    re_render(&mut result);
+    // Just verify re_render completes successfully.
+}
+
+#[test]
 fn inline_run_produces_single_text_item() {
     // Verifies that inline text is collected and rendered correctly.
     let html = r"<p>Hello <strong>world</strong>!</p>";
@@ -528,5 +626,77 @@ fn inline_run_produces_single_text_item() {
     assert_eq!(
         text_count, 3,
         "Expected 3 text items for styled inline run, got {text_count}"
+    );
+}
+
+#[test]
+fn transition_event_dispatched_to_js_listener() {
+    let html = r#"<div id="box">test</div>
+<script>
+  var el = document.getElementById("box");
+  el.addEventListener("transitionend", function(e) {
+    console.log("te:" + e.propertyName + ":" + e.elapsedTime + ":" + e.pseudoElement);
+  });
+</script>"#;
+    let css = "div { opacity: 1; transition: opacity 0.3s linear; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let div = find_by_id(&result, "div", "box").unwrap();
+
+    // Dispatch a synthetic transitionend event.
+    let mut event = DispatchEvent::new_composed("transitionend", div);
+    event.cancelable = false;
+    event.payload = EventPayload::Transition(TransitionEventInit {
+        property_name: "opacity".into(),
+        elapsed_time: 0.3,
+        pseudo_element: String::new(),
+    });
+    result.runtime.dispatch_event(
+        &mut event,
+        &mut result.session,
+        &mut result.dom,
+        result.document,
+    );
+
+    let messages = result.runtime.console_output().messages();
+    assert!(
+        messages.iter().any(|m| m.1.starts_with("te:opacity:0.3")),
+        "Expected transitionend with propertyName=opacity, got: {messages:?}"
+    );
+}
+
+#[test]
+fn animation_event_dispatched_to_js_listener() {
+    let html = r#"<div id="box">test</div>
+<script>
+  var el = document.getElementById("box");
+  el.addEventListener("animationend", function(e) {
+    console.log("ae:" + e.animationName + ":" + e.elapsedTime + ":" + e.pseudoElement);
+  });
+</script>"#;
+    let css = "div { opacity: 1; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let div = find_by_id(&result, "div", "box").unwrap();
+
+    // Dispatch a synthetic animationend event.
+    let mut event = DispatchEvent::new_composed("animationend", div);
+    event.cancelable = false;
+    event.payload = EventPayload::Animation(AnimationEventInit {
+        animation_name: "fadeIn".into(),
+        elapsed_time: 1.0,
+        pseudo_element: String::new(),
+    });
+    result.runtime.dispatch_event(
+        &mut event,
+        &mut result.session,
+        &mut result.dom,
+        result.document,
+    );
+
+    let messages = result.runtime.console_output().messages();
+    assert!(
+        messages.iter().any(|m| m.1.starts_with("ae:fadeIn:1:")),
+        "Expected animationend with animationName=fadeIn, got: {messages:?}"
     );
 }

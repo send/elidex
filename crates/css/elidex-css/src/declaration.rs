@@ -5,7 +5,7 @@
 //! longhand equivalents.
 
 use cssparser::{Parser, ParserInput, Token};
-use elidex_plugin::CssValue;
+use elidex_plugin::{CssPropertyRegistry, CssValue};
 
 use crate::color::parse_color;
 use crate::values::{
@@ -73,7 +73,7 @@ pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
                 .as_ref()
                 .to_ascii_lowercase();
             i.expect_colon().map_err(|_| ())?;
-            let mut decls = parse_property_value(&name, i);
+            let mut decls = parse_property_value(&name, i, None);
             // Check for !important (browsers support this in inline styles).
             if i.try_parse(cssparser::parse_important).is_ok() {
                 for d in &mut decls {
@@ -114,13 +114,20 @@ fn skip_to_semicolon(input: &mut Parser) {
 /// All returned declarations have `important: false`; callers must set
 /// `important` after checking for `!important`.
 ///
+/// When `registry` is `Some`, properties not handled by the built-in match
+/// are dispatched to the matching [`CssPropertyHandler`] for parsing.
+///
 /// **Contract:** Returns an empty `Vec` for both unknown properties and
 /// known properties with unparseable values. The caller (e.g.
 /// `DeclarationListParser`) treats an empty result as an error, which
 /// triggers cssparser's standard error recovery (skip the declaration).
 #[allow(clippy::too_many_lines)]
 // Single match dispatcher over token/AST variants.
-pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declaration> {
+pub(crate) fn parse_property_value(
+    name: &str,
+    input: &mut Parser,
+    registry: Option<&CssPropertyRegistry>,
+) -> Vec<Declaration> {
     // Custom properties (--*): store the entire value as raw tokens.
     if name.starts_with("--") {
         let raw = collect_remaining_tokens(input);
@@ -429,12 +436,20 @@ pub(crate) fn parse_property_value(name: &str, input: &mut Parser) -> Vec<Declar
         // --- Content property ---
         "content" => misc::parse_content(input),
 
-        // TODO(M4-1.5): transition-* and animation-* properties should be dispatched
-        // to AnimHandler via the CssPropertyRegistry. Currently parsed only via
-        // inline plugin handlers, not through stylesheet declarations.
-
-        // --- Unknown property: silently drop ---
-        _ => Vec::new(),
+        // --- Fallback: dispatch to plugin handler registry ---
+        _ => {
+            if let Some(reg) = registry {
+                if let Some(handler) = reg.resolve(name) {
+                    if let Ok(decls) = handler.parse(name, input) {
+                        return decls
+                            .into_iter()
+                            .map(|d| Declaration::new(&d.property, d.value))
+                            .collect();
+                    }
+                }
+            }
+            Vec::new()
+        }
     }
 }
 

@@ -27,7 +27,10 @@ pub use computed_style::{
     VerticalAlign, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
-pub use event_types::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
+pub use event_types::{
+    AnimationEventInit, ClipboardEventInit, CompositionEventInit, EventPayload, EventPhase,
+    FocusEventInit, InputEventInit, KeyboardEventInit, MouseEventInit, TransitionEventInit,
+};
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};

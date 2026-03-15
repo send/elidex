@@ -1,0 +1,391 @@
+//! Content thread: owns the DOM, JS runtime, and rendering pipeline.
+//!
+//! The content thread runs a message loop, processing events from the browser
+//! thread and sending back display list updates.
+
+mod animation;
+mod event_handlers;
+pub(crate) mod focus;
+mod form_input;
+mod ime;
+mod navigation;
+
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use crossbeam_channel::RecvTimeoutError;
+
+use elidex_ecs::Entity;
+use elidex_navigation::NavigationController;
+
+use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
+use crate::PipelineResult;
+
+/// Default poll interval when no timers or animations are active.
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Target frame interval (~60 fps) for the animation frame loop.
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+/// Caret blink interval (500ms per HTML spec recommendation).
+const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// State owned by the content thread.
+///
+/// `hover_chain` and `active_chain` are bounded by [`elidex_ecs::MAX_ANCESTOR_DEPTH`]
+/// (the depth limit enforced by [`collect_hover_chain`](crate::app::hover::collect_hover_chain)).
+struct ContentState {
+    pipeline: PipelineResult,
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    nav_controller: NavigationController,
+    hover_chain: Vec<Entity>,
+    active_chain: Vec<Entity>,
+    focus_target: Option<Entity>,
+    /// Value of the focused text control when it gained focus (for change event on blur).
+    focus_initial_value: Option<String>,
+    /// Whether the caret is currently visible (toggles every 500ms).
+    caret_visible: bool,
+    /// Last time the caret toggled visibility.
+    caret_last_toggle: Instant,
+    /// Cached list of focusable entities for Tab navigation (invalidated on DOM changes).
+    focusable_cache: Option<Vec<Entity>>,
+}
+
+impl ContentState {
+    /// Send the current display list to the browser thread.
+    fn send_display_list(&self) {
+        let _ = self.channel.send(ContentToBrowser::DisplayListReady(
+            self.pipeline.display_list.clone(),
+        ));
+    }
+
+    /// Send current navigation state (`can_go_back`/`can_go_forward`) to the browser thread.
+    fn send_navigation_state(&self) {
+        let _ = self.channel.send(ContentToBrowser::NavigationState {
+            can_go_back: self.nav_controller.can_go_back(),
+            can_go_forward: self.nav_controller.can_go_forward(),
+        });
+    }
+
+    /// Send URL change notification to the browser thread.
+    fn send_url_changed(&self, url: &url::Url) {
+        let _ = self.channel.send(ContentToBrowser::UrlChanged(url.clone()));
+    }
+
+    /// Send all post-navigation notifications to the browser thread
+    /// (title, URL, navigation state, display list).
+    fn notify_navigation(&self, url: &url::Url) {
+        let title = format!("elidex \u{2014} {url}");
+        let _ = self.channel.send(ContentToBrowser::TitleChanged(title));
+        self.send_url_changed(url);
+        self.send_navigation_state();
+        self.send_display_list();
+    }
+
+    /// Push or replace a URL in the navigation controller.
+    fn push_or_replace(&mut self, url: url::Url, replace: bool) {
+        if replace {
+            self.nav_controller.replace(url);
+        } else {
+            self.nav_controller.push(url);
+        }
+    }
+
+    /// Create a new `ContentState` from an initialized pipeline and channel.
+    fn new(
+        channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+        nav_controller: NavigationController,
+        pipeline: PipelineResult,
+    ) -> Self {
+        Self {
+            channel,
+            nav_controller,
+            hover_chain: Vec::new(),
+            active_chain: Vec::new(),
+            focus_target: None,
+            focus_initial_value: None,
+            caret_visible: true,
+            caret_last_toggle: Instant::now(),
+            focusable_cache: None,
+            pipeline,
+        }
+    }
+
+    /// Reset caret blink timer (call on key input to keep caret visible).
+    fn reset_caret_blink(&mut self) {
+        self.caret_visible = true;
+        self.caret_last_toggle = Instant::now();
+    }
+
+    /// Update caret blink state. Returns true if visibility changed.
+    ///
+    /// Only blinks for editable text controls (not buttons/checkboxes/links)
+    /// to avoid unnecessary 500ms re-render loops for non-text focus.
+    fn update_caret_blink(&mut self) -> bool {
+        let is_text_focused = self.focus_target.is_some_and(|target| {
+            self.pipeline
+                .dom
+                .world()
+                .get::<&elidex_form::FormControlState>(target)
+                .ok()
+                .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
+        });
+        if !is_text_focused {
+            return false;
+        }
+        if self.caret_last_toggle.elapsed() >= CARET_BLINK_INTERVAL {
+            self.caret_visible = !self.caret_visible;
+            self.caret_last_toggle = Instant::now();
+            return true;
+        }
+        false
+    }
+}
+
+/// Spawn the content thread with initial HTML/CSS.
+///
+/// Returns a `JoinHandle` for the thread. The thread will run until it
+/// receives `Shutdown` or the channel disconnects.
+pub(crate) fn spawn_content_thread(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    html: String,
+    css: String,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        content_thread_main(channel, &html, &css);
+    })
+}
+
+/// Spawn the content thread with a URL to load.
+///
+/// Returns a `JoinHandle` for the thread.
+pub(crate) fn spawn_content_thread_url(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    url: url::Url,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        content_thread_main_url(channel, &url);
+    })
+}
+
+/// Spawn a blank new-tab content thread.
+///
+/// Renders a minimal "New Tab" page.
+pub(crate) fn spawn_content_thread_blank(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        content_thread_main(channel, crate::BLANK_TAB_HTML, crate::BLANK_TAB_CSS);
+    })
+}
+
+fn content_thread_main(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    html: &str,
+    css: &str,
+) {
+    let pipeline = crate::build_pipeline_interactive(html, css);
+    let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
+    state.send_display_list();
+    run_event_loop(&mut state);
+}
+
+fn content_thread_main_url(
+    channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    url: &url::Url,
+) {
+    let pipeline = match crate::build_pipeline_from_url(url) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Content thread: failed to load {url}: {e}");
+            let _ = channel.send(ContentToBrowser::NavigationFailed {
+                url: url.clone(),
+                error: format!("{e}"),
+            });
+            return;
+        }
+    };
+
+    let mut nav_controller = NavigationController::new();
+    nav_controller.push(url.clone());
+
+    let mut state = ContentState::new(channel, nav_controller, pipeline);
+    state.notify_navigation(url);
+    run_event_loop(&mut state);
+}
+
+fn run_event_loop(state: &mut ContentState) {
+    let mut last_frame = Instant::now();
+
+    loop {
+        let animations_running = state.pipeline.animation_engine.has_running();
+
+        // Determine the poll timeout:
+        // - When animations are running: target ~60 fps (16ms) using absolute deadline
+        // - When JS timers are pending: wake at next timer deadline
+        // - Otherwise: idle poll interval (100ms)
+        // Use absolute frame deadline to avoid jitter from elapsed-time subtraction.
+        let now_for_timeout = Instant::now();
+        let timer_timeout = state
+            .pipeline
+            .runtime
+            .next_timer_deadline()
+            .map(|d| d.saturating_duration_since(now_for_timeout));
+        let timeout = if animations_running {
+            let next_frame = last_frame + FRAME_INTERVAL;
+            // Minimum 1ms sleep to prevent CPU spin when frame deadline has passed.
+            let frame_remaining = next_frame
+                .saturating_duration_since(now_for_timeout)
+                .max(Duration::from_millis(1));
+            // Wake at whichever comes first: next frame or next timer.
+            timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
+        } else {
+            timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
+        };
+
+        match state.channel.recv_timeout(timeout) {
+            Ok(msg) => {
+                if !handle_message(msg, state) {
+                    break; // Shutdown
+                }
+                // Event handlers may destroy DOM elements with running animations.
+                // Prune stale animation state to prevent unbounded memory growth.
+                if state.pipeline.animation_engine.has_active() {
+                    state.pipeline.prune_dead_animation_entities();
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        // --- Frame tick: animations + timers ---
+        let now = Instant::now();
+        let dt = now.duration_since(last_frame);
+        let mut needs_render = false;
+
+        // Tick animation engine if animations have active state (including fill values).
+        // Use has_active() here (not has_running()) so fill-mode values are applied.
+        // Guard against zero-dt (no elapsed time) but allow sub-millisecond ticks
+        // for smooth playback on high-refresh (120Hz+) displays.
+        if state.pipeline.animation_engine.has_active() && dt > Duration::ZERO {
+            // Cap dt to prevent idle→active spike: when the engine was idle,
+            // last_frame may be far in the past.  Without capping, newly started
+            // transitions would instantly complete on the first tick.
+            let dt_secs = dt.min(FRAME_INTERVAL * 2).as_secs_f64();
+            let events = state.pipeline.animation_engine.tick(dt_secs);
+            animation::dispatch_animation_events(&events, state);
+            // Only update last_frame when animations are ticked, not on caret-only
+            // renders, to avoid animation timing drift.
+            last_frame = now;
+            needs_render = true;
+        }
+
+        // Drain JS timers if any are ready.
+        if state
+            .pipeline
+            .runtime
+            .next_timer_deadline()
+            .is_some_and(|d| d <= now)
+        {
+            state.pipeline.runtime.drain_timers(
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            needs_render = true;
+        }
+
+        // Caret blink update.
+        if state.update_caret_blink() {
+            needs_render = true;
+        }
+
+        if needs_render {
+            // JS timers or event handlers may have mutated the DOM.
+            state.focusable_cache = None;
+            crate::re_render(&mut state.pipeline);
+            state.send_display_list();
+        }
+    }
+}
+
+/// Handle a single message. Returns `false` for Shutdown.
+fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
+    match msg {
+        BrowserToContent::Shutdown => return false,
+
+        BrowserToContent::Navigate(url) => {
+            navigation::handle_navigate(state, &url, false, None);
+        }
+
+        BrowserToContent::MouseClick(ref click) => {
+            event_handlers::handle_click(state, click);
+        }
+
+        BrowserToContent::MouseRelease { button: _ } => {
+            event_handlers::handle_mouse_release(state);
+        }
+
+        BrowserToContent::MouseMove { x, y, .. } => {
+            event_handlers::handle_mouse_move(state, x, y);
+        }
+
+        BrowserToContent::CursorLeft => {
+            event_handlers::handle_cursor_left(state);
+        }
+
+        BrowserToContent::KeyDown {
+            ref key,
+            ref code,
+            repeat,
+            mods,
+        } => {
+            event_handlers::handle_key(state, "keydown", key, code, repeat, mods);
+        }
+
+        BrowserToContent::KeyUp {
+            ref key,
+            ref code,
+            repeat,
+            mods,
+        } => {
+            event_handlers::handle_key(state, "keyup", key, code, repeat, mods);
+        }
+
+        BrowserToContent::SetViewport { width, height } => {
+            if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
+                state.pipeline.viewport_width = width;
+                state.pipeline.viewport_height = height;
+                crate::re_render(&mut state.pipeline);
+                state.send_display_list();
+            }
+        }
+
+        BrowserToContent::GoBack => {
+            if let Some(url) = state.nav_controller.go_back().cloned() {
+                navigation::handle_navigate(state, &url, true, None);
+            }
+        }
+
+        BrowserToContent::GoForward => {
+            if let Some(url) = state.nav_controller.go_forward().cloned() {
+                navigation::handle_navigate(state, &url, true, None);
+            }
+        }
+
+        BrowserToContent::Reload => {
+            if let Some(url) = state.pipeline.url.clone() {
+                navigation::handle_navigate(state, &url, true, None);
+            }
+        }
+
+        BrowserToContent::Ime { kind } => {
+            ime::handle_ime(state, kind);
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+#[path = "../content_tests.rs"]
+mod content_tests;

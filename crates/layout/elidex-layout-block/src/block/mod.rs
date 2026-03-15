@@ -148,11 +148,24 @@ pub fn layout_block_inner(
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
 
     // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
+    // Also check for form controls with intrinsic dimensions.
+    // TODO(R7): form_intrinsic_size returns f32 while ImageData uses u32.
+    // Unify intrinsic size API to a common type when reworking replaced element sizing.
     let intrinsic = dom
         .world()
         .get::<&ImageData>(entity)
         .ok()
-        .map(|img| (img.width, img.height));
+        .map(|img| (img.width, img.height))
+        .or_else(|| {
+            dom.world()
+                .get::<&elidex_form::FormControlState>(entity)
+                .ok()
+                .map(|fcs| {
+                    let (w, h) = elidex_form::form_intrinsic_size(&fcs);
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                    (w.max(0.0) as u32, h.max(0.0) as u32)
+                })
+        });
 
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);

@@ -12,6 +12,7 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-ecs.workspace = true
+elidex-form.workspace = true
 elidex-plugin.workspace = true
 accesskit.workspace = true
 
