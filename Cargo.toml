@@ -56,7 +56,7 @@ encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 hecs = "0.11"
-html5ever = "0.38"
+html5ever = "0.39"
 markup5ever_rcdom = "0.38"
 reqwest = { version = "0.13", features = ["gzip", "brotli", "rustls"] }
 serde = { version = "1", features = ["derive"] }
@@ -119,7 +119,7 @@ egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"
 vello = "0.7"
-wgpu = "27"
+wgpu = "28"
 winit = "0.30"
 pollster = "0.4"
 tiny-skia = "0.12"
