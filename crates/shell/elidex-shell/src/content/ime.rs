@@ -48,26 +48,31 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 });
 
             if is_text_control {
+                // Cap composition text once, reuse for both storage and event dispatch.
+                const MAX_COMPOSITION_LEN: usize = 10_000;
+                let capped_text = if text.len() > MAX_COMPOSITION_LEN {
+                    text.chars().take(MAX_COMPOSITION_LEN).collect::<String>()
+                } else {
+                    text
+                };
+
                 if let Ok(mut fcs) = state
                     .pipeline
                     .dom
                     .world_mut()
                     .get::<&mut FormControlState>(target)
                 {
-                    const MAX_COMPOSITION_LEN: usize = 10_000;
-                    fcs.composition_text = if text.is_empty() {
+                    fcs.composition_text = if capped_text.is_empty() {
                         None
-                    } else if text.len() > MAX_COMPOSITION_LEN {
-                        Some(text.chars().take(MAX_COMPOSITION_LEN).collect())
                     } else {
-                        Some(text.clone())
+                        Some(capped_text.clone())
                     };
                 }
 
                 // Dispatch compositionstart when entering composition (M-5).
                 // Per UI Events §5.7.2: compositionstart is cancelable.
                 // The data property contains the currently selected text (S7).
-                if !was_composing && !text.is_empty() {
+                if !was_composing && !capped_text.is_empty() {
                     let selected_text = state
                         .pipeline
                         .dom
@@ -96,7 +101,8 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 // Dispatch compositionupdate event.
                 let mut event = DispatchEvent::new_composed("compositionupdate", target);
                 event.cancelable = false;
-                event.payload = EventPayload::Composition(CompositionEventInit { data: text });
+                event.payload =
+                    EventPayload::Composition(CompositionEventInit { data: capped_text });
                 state.pipeline.runtime.dispatch_event(
                     &mut event,
                     &mut state.pipeline.session,
