@@ -3,8 +3,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use boa_engine::{Context, JsValue, Source};
+use boa_engine::{js_string, Context, JsValue, Source};
 use elidex_ecs::{EcsDom, Entity};
+use elidex_plugin::EventPayload;
 use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
 
 use elidex_net::FetchHandle;
@@ -224,6 +225,29 @@ impl JsRuntime {
                 composed_path_array,
                 ctx,
             );
+
+            // UI Events §5.2: resolve relatedTarget for focus events.
+            if let EventPayload::Focus(ref f) = ev.payload {
+                if let Some(related_bits) = f.related_target {
+                    if let Some(related_entity) = Entity::from_bits(related_bits) {
+                        let wrapper = bridge.with(|session, _dom| {
+                            let obj_ref = session.get_or_create_wrapper(
+                                related_entity,
+                                ComponentKind::Element,
+                            );
+                            crate::globals::element::create_element_wrapper(
+                                related_entity,
+                                &bridge,
+                                obj_ref,
+                                ctx,
+                            )
+                        });
+                        if let Some(obj) = event_obj.as_object() {
+                            let _ = obj.set(js_string!("relatedTarget"), wrapper, false, ctx);
+                        }
+                    }
+                }
+            }
 
             // Call the listener function with `this` = currentTarget.
             if let Err(err) = js_func.call(&current_target_wrapper, &[event_obj], ctx) {

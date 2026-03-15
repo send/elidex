@@ -49,11 +49,26 @@ fn build_anim_style_from_winners(
         }
     }
 
-    if found {
-        Some(style)
-    } else {
-        None
+    if found { Some(style) } else { None }
+}
+
+/// Variant for the parallel path that takes `OwnedPropertyMap` directly,
+/// avoiding an intermediate `HashMap<&str, &CssValue>` allocation.
+#[cfg(feature = "parallel")]
+fn build_anim_style_from_owned(
+    owned: &super::parallel::OwnedPropertyMap,
+) -> Option<AnimStyle> {
+    let mut style = AnimStyle::default();
+    let mut found = false;
+
+    for &name in ANIM_LONGHAND_NAMES {
+        if let Some(value) = owned.get(name) {
+            resolve_anim_property(name, value, &mut style);
+            found = true;
+        }
     }
+
+    if found { Some(style) } else { None }
 }
 
 /// Build a child `ResolveContext` from a resolved entity style.
@@ -205,9 +220,7 @@ fn walk_children_parallel(
 
             // Attach AnimStyle if any animation/transition properties exist.
             let owned_map = &cascade_inputs[idx];
-            let anim_winners: std::collections::HashMap<&str, &CssValue> =
-                owned_map.iter().map(|(k, v)| (k.as_str(), v)).collect();
-            if let Some(anim_style) = build_anim_style_from_winners(&anim_winners) {
+            if let Some(anim_style) = build_anim_style_from_owned(owned_map) {
                 let _ = dom.world_mut().insert_one(child, anim_style);
             } else {
                 let _ = dom

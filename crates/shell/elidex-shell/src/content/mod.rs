@@ -118,8 +118,19 @@ impl ContentState {
     }
 
     /// Update caret blink state. Returns true if visibility changed.
+    ///
+    /// Only blinks for editable text controls (not buttons/checkboxes/links)
+    /// to avoid unnecessary 500ms re-render loops for non-text focus.
     fn update_caret_blink(&mut self) -> bool {
-        if self.focus_target.is_none() {
+        let is_text_focused = self.focus_target.is_some_and(|target| {
+            self.pipeline
+                .dom
+                .world()
+                .get::<&elidex_form::FormControlState>(target)
+                .ok()
+                .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
+        });
+        if !is_text_focused {
             return false;
         }
         if self.caret_last_toggle.elapsed() >= CARET_BLINK_INTERVAL {
