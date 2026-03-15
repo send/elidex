@@ -75,6 +75,7 @@ fn finalize_control(dom: &mut EcsDom, entity: Entity, state: &mut FormControlSta
             state.cursor_pos = text.len();
             state.default_value.clone_from(&text);
             state.value = text;
+            state.update_char_count();
         }
     }
     // For <select>, walk child <option>/<optgroup> elements.

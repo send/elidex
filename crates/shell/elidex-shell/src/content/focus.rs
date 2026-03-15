@@ -142,11 +142,15 @@ pub(super) fn is_focusable(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
     if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
         return !fcs.disabled && fcs.kind != FormControlKind::Hidden;
     }
-    // Check for tabindex attribute or <a> with href.
+    // Check for tabindex attribute, contenteditable, or <a> with href.
     let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) else {
         return false;
     };
     if attrs.contains("tabindex") {
+        return true;
+    }
+    // HTML §6.6.3: contenteditable elements are focusable.
+    if dom.is_contenteditable(entity) {
         return true;
     }
     let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) else {
