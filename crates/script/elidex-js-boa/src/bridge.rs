@@ -11,10 +11,13 @@
 //! - `HostBridge` is `!Send` (via `Rc`)
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use boa_engine::JsObject;
+use elidex_api_observers::intersection::IntersectionObserverRegistry;
+use elidex_api_observers::mutation::MutationObserverRegistry;
+use elidex_api_observers::resize::ResizeObserverRegistry;
 use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_navigation::{HistoryAction, NavigationRequest};
@@ -36,6 +39,8 @@ struct HostBridgeInner {
     session_ptr: *mut SessionCore,
     dom_ptr: *mut EcsDom,
     document_entity: Option<Entity>,
+    /// Re-entrancy guard: true while inside a `with()` closure.
+    in_with: bool,
     /// Cache: `JsObjectRef` → boa `JsObject` for element identity preservation.
     js_object_cache: HashMap<JsObjectRef, JsObject>,
     /// Event listener JS function storage: `ListenerId` → boa `JsObject`.
@@ -50,6 +55,19 @@ struct HostBridgeInner {
     history_length: usize,
     /// Canvas 2D rendering contexts, keyed by entity bits.
     canvas_contexts: HashMap<u64, Canvas2dContext>,
+    /// Entity bits of canvases modified since the last per-frame sync.
+    dirty_canvases: HashSet<u64>,
+    // --- Observer API ---
+    /// `MutationObserver` registry.
+    mutation_observers: MutationObserverRegistry,
+    /// `ResizeObserver` registry.
+    resize_observers: ResizeObserverRegistry,
+    /// `IntersectionObserver` registry.
+    intersection_observers: IntersectionObserverRegistry,
+    /// Observer ID → JS callback function.
+    observer_callbacks: HashMap<u64, JsObject>,
+    /// Observer ID → JS observer wrapper object (for passing as 2nd arg to callback).
+    observer_objects: HashMap<u64, JsObject>,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -63,6 +81,7 @@ impl HostBridge {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
+                in_with: false,
                 js_object_cache: HashMap::new(),
                 listener_store: HashMap::new(),
                 current_url: None,
@@ -70,6 +89,12 @@ impl HostBridge {
                 pending_history: None,
                 history_length: 0,
                 canvas_contexts: HashMap::new(),
+                dirty_canvases: HashSet::new(),
+                mutation_observers: MutationObserverRegistry::new(),
+                resize_observers: ResizeObserverRegistry::new(),
+                intersection_observers: IntersectionObserverRegistry::new(),
+                observer_callbacks: HashMap::new(),
+                observer_objects: HashMap::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -122,23 +147,29 @@ impl HostBridge {
         // the closure can call borrow()/borrow_mut() on the inner RefCell
         // (e.g. cache_js_object, get_cached_js_object).
         let (session_ptr, dom_ptr) = {
-            let inner = self.inner.borrow();
+            let mut inner = self.inner.borrow_mut();
             assert!(
                 !inner.session_ptr.is_null(),
                 "HostBridge::with() called while unbound"
             );
+            assert!(
+                !inner.in_with,
+                "HostBridge::with() called re-entrantly — would create aliased &mut"
+            );
+            inner.in_with = true;
             (inner.session_ptr, inner.dom_ptr)
         };
         // Safety: pointers are valid for the duration of eval (bind/unbind bracket).
         // The RefCell borrow is dropped above, so no borrow conflicts.
-        // Re-entrancy of with() is NOT safe (would create aliased &mut);
-        // current call structure ensures no nesting.
+        // The in_with guard prevents re-entrancy (aliased &mut).
         #[allow(unsafe_code)]
-        unsafe {
+        let result = unsafe {
             let session = &mut *session_ptr;
             let dom = &mut *dom_ptr;
             f(session, dom)
-        }
+        };
+        self.inner.borrow_mut().in_with = false;
+        result
     }
 
     /// Returns the document root entity.
@@ -279,6 +310,99 @@ impl HostBridge {
         inner.canvas_contexts.get_mut(&entity_bits).map(f)
     }
 
+    /// Mark a canvas as dirty (modified since last frame sync).
+    pub fn mark_canvas_dirty(&self, entity_bits: u64) {
+        self.inner.borrow_mut().dirty_canvases.insert(entity_bits);
+    }
+
+    /// Sync all dirty canvas pixel buffers to their ECS `ImageData` components.
+    ///
+    /// Called once per frame from the content thread loop, replacing per-draw-call syncs.
+    /// Takes `&mut EcsDom` directly so this can be called outside of JS eval context
+    /// (no `bind()` required).
+    pub fn sync_dirty_canvases(&self, dom: &mut EcsDom) {
+        let dirty: Vec<u64> = {
+            let mut inner = self.inner.borrow_mut();
+            inner.dirty_canvases.drain().collect()
+        };
+        for entity_bits in dirty {
+            let Some((width, height, pixels)) = self.with_canvas(entity_bits, |ctx| {
+                (ctx.width(), ctx.height(), ctx.to_rgba8_straight())
+            }) else {
+                continue;
+            };
+            let image_data = elidex_ecs::ImageData {
+                pixels: std::sync::Arc::new(pixels),
+                width,
+                height,
+            };
+            let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
+                continue;
+            };
+            let _ = dom.world_mut().insert_one(entity, image_data);
+        }
+    }
+
+    // --- Observer API ---
+
+    /// Access the mutation observer registry mutably.
+    pub fn with_mutation_observers<R>(
+        &self,
+        f: impl FnOnce(&mut MutationObserverRegistry) -> R,
+    ) -> R {
+        f(&mut self.inner.borrow_mut().mutation_observers)
+    }
+
+    /// Access the resize observer registry mutably.
+    pub fn with_resize_observers<R>(&self, f: impl FnOnce(&mut ResizeObserverRegistry) -> R) -> R {
+        f(&mut self.inner.borrow_mut().resize_observers)
+    }
+
+    /// Access the intersection observer registry mutably.
+    pub fn with_intersection_observers<R>(
+        &self,
+        f: impl FnOnce(&mut IntersectionObserverRegistry) -> R,
+    ) -> R {
+        f(&mut self.inner.borrow_mut().intersection_observers)
+    }
+
+    /// Store a JS callback for an observer.
+    pub fn store_observer_callback(
+        &self,
+        observer_id: u64,
+        callback: JsObject,
+        observer_obj: JsObject,
+    ) {
+        let mut inner = self.inner.borrow_mut();
+        inner.observer_callbacks.insert(observer_id, callback);
+        inner.observer_objects.insert(observer_id, observer_obj);
+    }
+
+    /// Get the JS callback for an observer.
+    pub fn get_observer_callback(&self, observer_id: u64) -> Option<JsObject> {
+        self.inner
+            .borrow()
+            .observer_callbacks
+            .get(&observer_id)
+            .cloned()
+    }
+
+    /// Get the JS observer wrapper object.
+    pub fn get_observer_object(&self, observer_id: u64) -> Option<JsObject> {
+        self.inner
+            .borrow()
+            .observer_objects
+            .get(&observer_id)
+            .cloned()
+    }
+
+    /// Remove an observer's callback and wrapper.
+    pub fn remove_observer(&self, observer_id: u64) {
+        let mut inner = self.inner.borrow_mut();
+        inner.observer_callbacks.remove(&observer_id);
+        inner.observer_objects.remove(&observer_id);
+    }
+
     // --- Entity cleanup ---
 
     /// Clean up resources associated with a destroyed entity.
@@ -304,6 +428,11 @@ impl HostBridge {
         for id in listener_ids {
             inner.listener_store.remove(id);
         }
+
+        // Remove entity from observer target lists.
+        inner.mutation_observers.remove_entity(entity);
+        inner.resize_observers.remove_entity(entity);
+        inner.intersection_observers.remove_entity(entity);
     }
 }
 
@@ -328,6 +457,12 @@ unsafe impl boa_gc::Trace for HostBridge {
             mark(obj);
         }
         for obj in inner.listener_store.values() {
+            mark(obj);
+        }
+        for obj in inner.observer_callbacks.values() {
+            mark(obj);
+        }
+        for obj in inner.observer_objects.values() {
             mark(obj);
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only

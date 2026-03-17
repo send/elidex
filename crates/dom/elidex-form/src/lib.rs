@@ -4,6 +4,7 @@
 //! of HTML form controls (`<input>`, `<button>`, `<textarea>`, `<label>`).
 //! The `.value` property is distinct from the `value` HTML attribute per spec.
 
+pub mod ancestor_cache;
 mod clipboard;
 mod fieldset;
 mod init;
@@ -17,8 +18,11 @@ mod submit;
 pub mod util;
 mod validation;
 
+pub use ancestor_cache::AncestorCache;
 pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
-pub use fieldset::{first_legend_child, is_in_first_legend, propagate_fieldset_disabled};
+pub use fieldset::{
+    first_legend_child, is_fieldset_disabled, is_in_first_legend, propagate_fieldset_disabled,
+};
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{form_control_key_input, form_control_key_input_action, KeyAction};
 pub use label::{find_label_target, is_label, resolve_label_for};
@@ -253,7 +257,7 @@ pub struct FormControlState {
     /// The kind of form control.
     pub kind: FormControlKind,
     /// Current value (text content for inputs/textareas, label for buttons).
-    pub value: String,
+    pub(crate) value: String,
     /// Whether the control is checked (only meaningful for checkboxes/radios).
     pub checked: bool,
     /// Whether the control is disabled.
@@ -261,7 +265,7 @@ pub struct FormControlState {
     /// Placeholder text (displayed when value is empty).
     pub placeholder: String,
     /// Cursor position within the value string (byte offset).
-    pub cursor_pos: usize,
+    pub(crate) cursor_pos: usize,
     /// Whether the control is read-only (text controls only).
     pub readonly: bool,
     /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.7).
@@ -273,7 +277,7 @@ pub struct FormControlState {
     /// Default value (for form reset).
     pub default_value: String,
     /// Whether the user has modified the value (dirty flag).
-    pub dirty_value: bool,
+    pub(crate) dirty_value: bool,
     /// Default checked state (for form reset).
     pub default_checked: bool,
     /// Whether the control is required.
@@ -297,9 +301,9 @@ pub struct FormControlState {
     /// Autocomplete hint (`autocomplete` attribute).
     pub autocomplete: String,
     /// Selection start (byte offset, for text controls).
-    pub selection_start: usize,
+    pub(crate) selection_start: usize,
     /// Selection end (byte offset, for text controls).
-    pub selection_end: usize,
+    pub(crate) selection_end: usize,
     /// Selection direction.
     pub selection_direction: SelectionDirection,
     /// Composition text from IME (if active).
@@ -310,10 +314,8 @@ pub struct FormControlState {
     pub options: Vec<SelectOption>,
     /// Whether the dropdown is open (for `<select>` controls).
     pub dropdown_open: bool,
-    /// Cached character count — **must** be kept in sync with `value` via
-    /// [`update_char_count()`](Self::update_char_count) after every mutation.
-    /// Used by maxlength enforcement and validation (O(1) instead of O(n)).
-    pub char_count: usize,
+    /// Cached character count (O(1)).  Kept in sync with `value` by editing methods.
+    pub(crate) char_count: usize,
     /// Minimum value constraint (`min` attribute, for number/range/date types).
     pub min: Option<String>,
     /// Maximum value constraint (`max` attribute, for number/range/date types).
@@ -372,9 +374,7 @@ impl Default for FormControlState {
 
 impl FormControlState {
     /// Update the cached `char_count` from the current value.
-    ///
-    /// Call this after any mutation of `self.value`.
-    pub fn update_char_count(&mut self) {
+    pub(crate) fn update_char_count(&mut self) {
         self.char_count = self.value.chars().count();
     }
 
@@ -400,6 +400,160 @@ impl FormControlState {
         let start = util::snap_to_char_boundary(&self.value, start);
         let end = util::snap_to_char_boundary(&self.value, end);
         (start, end)
+    }
+
+    // ---- Read accessors (public API for external crates) ----
+
+    /// Returns the current value.
+    #[must_use]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    /// Returns the cached character count.
+    #[must_use]
+    pub fn char_count(&self) -> usize {
+        self.char_count
+    }
+
+    /// Returns whether the value has been modified by the user.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty_value
+    }
+
+    /// Returns the cursor position (byte offset).
+    #[must_use]
+    pub fn cursor_pos(&self) -> usize {
+        self.cursor_pos
+    }
+
+    /// Returns the selection start (byte offset).
+    #[must_use]
+    pub fn selection_start(&self) -> usize {
+        self.selection_start
+    }
+
+    /// Returns the selection end (byte offset).
+    #[must_use]
+    pub fn selection_end(&self) -> usize {
+        self.selection_end
+    }
+
+    // ---- High-level editing methods ----
+
+    /// Set the value (marks as dirty, moves cursor to end).
+    ///
+    /// Per HTML §4.10.7.4 step 5: selection is set to the end of the new value.
+    pub fn set_value(&mut self, text: String) {
+        self.cursor_pos = text.len();
+        self.selection_start = text.len();
+        self.selection_end = text.len();
+        self.value = text;
+        self.dirty_value = true;
+        self.update_char_count();
+    }
+
+    /// Set the value during initialization (`dirty_value` stays false).
+    ///
+    /// Also sets `default_value` for form reset.
+    /// Per HTML §4.10.7.4 step 5: selection is set to the end of the value.
+    pub fn set_value_initial(&mut self, text: String) {
+        self.cursor_pos = text.len();
+        self.selection_start = text.len();
+        self.selection_end = text.len();
+        self.default_value.clone_from(&text);
+        self.value = text;
+        self.update_char_count();
+    }
+
+    /// Reset to default value (form reset behavior).
+    ///
+    /// Restores `default_value`, clears dirty flag, resets cursor/selection/checked.
+    pub fn reset_value(&mut self) {
+        let dv = self.default_value.clone();
+        self.value = dv;
+        self.cursor_pos = self.value.len();
+        self.selection_start = self.value.len();
+        self.selection_end = self.value.len();
+        self.dirty_value = false;
+        self.checked = self.default_checked;
+        self.update_char_count();
+    }
+
+    /// Insert text at the current cursor position (marks as dirty).
+    pub fn insert_at_cursor(&mut self, text: &str) {
+        let pos = self.safe_cursor_pos();
+        self.value.insert_str(pos, text);
+        self.cursor_pos = pos + text.len();
+        self.dirty_value = true;
+        self.update_char_count();
+    }
+
+    /// Delete the character before the cursor (Backspace). Returns `true` if deleted.
+    pub fn delete_backward(&mut self) -> bool {
+        let pos = self.safe_cursor_pos();
+        if pos > 0 {
+            let prev = util::prev_char_boundary(&self.value, pos);
+            self.value.drain(prev..pos);
+            self.cursor_pos = prev;
+            self.dirty_value = true;
+            self.update_char_count();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Delete the character after the cursor (Delete key). Returns `true` if deleted.
+    pub fn delete_forward(&mut self) -> bool {
+        let pos = self.safe_cursor_pos();
+        if pos < self.value.len() {
+            let next = util::next_char_boundary(&self.value, pos);
+            self.value.drain(pos..next);
+            self.dirty_value = true;
+            self.update_char_count();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Replace the current selection with the given text (marks as dirty).
+    ///
+    /// If there is no selection, inserts at the cursor position.
+    pub fn replace_selection(&mut self, text: &str) {
+        let (start, end) = self.safe_selection_range();
+        if start != end {
+            self.value.drain(start..end);
+        }
+        self.value.insert_str(start, text);
+        self.cursor_pos = start + text.len();
+        self.selection_start = self.cursor_pos;
+        self.selection_end = self.cursor_pos;
+        self.dirty_value = true;
+        self.update_char_count();
+    }
+
+    /// Set the cursor position (snapped to char boundary).
+    pub fn set_cursor(&mut self, pos: usize) {
+        self.cursor_pos = util::snap_to_char_boundary(&self.value, pos);
+    }
+
+    /// Set the selection range (snapped to char boundaries).
+    pub fn set_selection(&mut self, start: usize, end: usize) {
+        self.selection_start = util::snap_to_char_boundary(&self.value, start);
+        self.selection_end = util::snap_to_char_boundary(&self.value, end);
+    }
+
+    /// Set the selection start (snapped to char boundary).
+    pub fn set_selection_start(&mut self, pos: usize) {
+        self.selection_start = util::snap_to_char_boundary(&self.value, pos);
+    }
+
+    /// Set the selection end (snapped to char boundary).
+    pub fn set_selection_end(&mut self, pos: usize) {
+        self.selection_end = util::snap_to_char_boundary(&self.value, pos);
     }
 
     /// Create a `FormControlState` from an element's tag name and attributes.

@@ -7,11 +7,15 @@
 pub mod block;
 pub mod inline;
 
+use std::cell::RefCell;
+
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
     AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox,
 };
 use elidex_text::FontDatabase;
+
+use crate::block::float::FloatContext;
 
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +32,12 @@ pub struct LayoutInput<'a> {
     pub font_db: &'a FontDatabase,
     /// Recursion depth guard.
     pub depth: u32,
+    /// Float context from the nearest ancestor BFC.
+    ///
+    /// Non-BFC blocks forward this to children for float propagation
+    /// (CSS 2.1 §9.5). BFC-establishing elements create their own
+    /// `FloatContext` and ignore this field.
+    pub float_ctx: Option<&'a RefCell<FloatContext>>,
 }
 
 /// Callback type for dispatching child layout by display type.
@@ -87,15 +97,44 @@ pub fn sanitize_edge_values(top: f32, right: f32, bottom: f32, left: f32) -> Edg
     }
 }
 
+/// Resolve padding from a computed style against the containing block width.
+///
+/// CSS 2.1 §8.4: padding percentages (including top/bottom) refer to the
+/// **width** of the containing block. The result is clamped to non-negative.
+#[must_use]
+pub fn resolve_padding(style: &ComputedStyle, containing_width: f32) -> EdgeSizes {
+    EdgeSizes {
+        top: sanitize_non_negative(resolve_dimension_value(
+            style.padding.top,
+            containing_width,
+            0.0,
+        )),
+        right: sanitize_non_negative(resolve_dimension_value(
+            style.padding.right,
+            containing_width,
+            0.0,
+        )),
+        bottom: sanitize_non_negative(resolve_dimension_value(
+            style.padding.bottom,
+            containing_width,
+            0.0,
+        )),
+        left: sanitize_non_negative(resolve_dimension_value(
+            style.padding.left,
+            containing_width,
+            0.0,
+        )),
+    }
+}
+
 /// Sanitize padding from a computed style (non-negative, finite).
+///
+/// Backward-compatible helper that resolves percentages against 0
+/// (i.e. treats percentages as 0). Prefer [`resolve_padding`] when
+/// the containing block width is available.
 #[must_use]
 pub fn sanitize_padding(style: &ComputedStyle) -> EdgeSizes {
-    sanitize_edge_values(
-        style.padding.top,
-        style.padding.right,
-        style.padding.bottom,
-        style.padding.left,
-    )
+    resolve_padding(style, 0.0)
 }
 
 /// Sanitize border widths from a computed style (non-negative, finite).

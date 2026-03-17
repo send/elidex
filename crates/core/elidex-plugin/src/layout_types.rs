@@ -1,5 +1,7 @@
 //! Layout types for the box model and layout algorithms.
 
+use crate::computed_style::Dimension;
+
 /// An axis-aligned rectangle.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -23,16 +25,41 @@ pub struct Size {
 }
 
 /// Edge sizes for padding, border, and margin.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct EdgeSizes {
-    /// Top edge size in pixels.
-    pub top: f32,
-    /// Right edge size in pixels.
-    pub right: f32,
-    /// Bottom edge size in pixels.
-    pub bottom: f32,
-    /// Left edge size in pixels.
-    pub left: f32,
+///
+/// The default type parameter `f32` is used for used/layout values.
+/// `EdgeSizes<Dimension>` stores computed values that may contain percentages.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeSizes<T = f32> {
+    /// Top edge size.
+    pub top: T,
+    /// Right edge size.
+    pub right: T,
+    /// Bottom edge size.
+    pub bottom: T,
+    /// Left edge size.
+    pub left: T,
+}
+
+impl Default for EdgeSizes<f32> {
+    fn default() -> Self {
+        Self {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        }
+    }
+}
+
+impl Default for EdgeSizes<Dimension> {
+    fn default() -> Self {
+        Self {
+            top: Dimension::ZERO,
+            right: Dimension::ZERO,
+            bottom: Dimension::ZERO,
+            left: Dimension::ZERO,
+        }
+    }
 }
 
 impl EdgeSizes {
@@ -176,7 +203,7 @@ mod tests {
 
     #[test]
     fn edge_sizes_default() {
-        let e = EdgeSizes::default();
+        let e = EdgeSizes::<f32>::default();
         assert_eq!(e.top, 0.0);
         assert_eq!(e.right, 0.0);
         assert_eq!(e.bottom, 0.0);

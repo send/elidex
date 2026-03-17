@@ -201,7 +201,7 @@ fn background_with_border_radius_emits_rounded_rect() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 10.0,
+            border_radii: [10.0; 4],
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -213,7 +213,7 @@ fn background_with_border_radius_emits_rounded_rect() {
     let dl = build_display_list(&dom, &font_db);
     assert_eq!(dl.0.len(), 1);
     assert!(
-        matches!(&dl.0[0], crate::display_list::DisplayItem::RoundedRect { radius, .. } if (*radius - 10.0).abs() < f32::EPSILON)
+        matches!(&dl.0[0], crate::display_list::DisplayItem::RoundedRect { radii, .. } if (radii[0] - 10.0).abs() < f32::EPSILON)
     );
 }
 
@@ -223,7 +223,7 @@ fn background_without_border_radius_emits_solid_rect() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 0.0,
+            border_radii: [0.0; 4],
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -271,7 +271,7 @@ fn border_radius_with_border_known_limitation() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 10.0,
+            border_radii: [10.0; 4],
             border_top: elidex_plugin::BorderSide {
                 width: 0.0,
                 style: elidex_plugin::BorderStyle::Solid,
@@ -401,6 +401,9 @@ fn apply_text_transform_cases() {
         ("hello", TextTransform::Uppercase, "HELLO"),
         ("HELLO", TextTransform::Lowercase, "hello"),
         ("hello world", TextTransform::Capitalize, "Hello World"),
+        // UAX #29: punctuation-adjacent word boundaries.
+        ("hello-world", TextTransform::Capitalize, "Hello-World"),
+        ("it's a test", TextTransform::Capitalize, "It's A Test"),
         ("Hello", TextTransform::None, "Hello"),
     ];
     for (input, transform, expected) in cases {
@@ -447,13 +450,13 @@ fn image_data_emits_image_item() {
     assert_eq!(image_items.len(), 1);
     match &image_items[0] {
         crate::display_list::DisplayItem::Image {
-            rect,
+            painting_area,
             image_width,
             image_height,
             ..
         } => {
-            assert!((rect.width - 200.0).abs() < f32::EPSILON);
-            assert!((rect.height - 100.0).abs() < f32::EPSILON);
+            assert!((painting_area.width - 200.0).abs() < f32::EPSILON);
+            assert!((painting_area.height - 100.0).abs() < f32::EPSILON);
             assert_eq!(*image_width, 1);
             assert_eq!(*image_height, 1);
         }

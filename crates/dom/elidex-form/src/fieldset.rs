@@ -56,6 +56,44 @@ pub fn is_in_first_legend(dom: &EcsDom, entity: Entity, first_legend: Entity) ->
     false
 }
 
+/// Check if an entity is inside a disabled `<fieldset>` ancestor.
+///
+/// Per HTML §4.10.19.2, a form control is disabled if it is a descendant of a
+/// disabled `<fieldset>` element AND is not a descendant of that fieldset's
+/// first `<legend>` child.
+#[must_use]
+pub fn is_fieldset_disabled(entity: Entity, dom: &EcsDom) -> bool {
+    let mut current = dom.get_parent(entity);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let Some(ancestor) = current else {
+            return false;
+        };
+        let is_disabled_fieldset = dom
+            .world()
+            .get::<&TagType>(ancestor)
+            .is_ok_and(|t| t.0 == "fieldset")
+            && dom
+                .world()
+                .get::<&Attributes>(ancestor)
+                .is_ok_and(|a| a.contains("disabled"));
+        if is_disabled_fieldset {
+            // Check first-legend exemption: if the entity is inside the first
+            // <legend> child of this fieldset, it is NOT disabled.
+            let first_legend = first_legend_child(dom, ancestor);
+            if let Some(legend) = first_legend {
+                if is_in_first_legend(dom, entity, legend) {
+                    // Exempt — but keep walking; an outer fieldset may still disable it.
+                    current = dom.get_parent(ancestor);
+                    continue;
+                }
+            }
+            return true;
+        }
+        current = dom.get_parent(ancestor);
+    }
+    false
+}
+
 fn disable_descendants(
     dom: &mut EcsDom,
     entity: Entity,

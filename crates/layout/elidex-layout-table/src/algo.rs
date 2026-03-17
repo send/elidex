@@ -110,14 +110,16 @@ pub fn auto_column_widths(
 
 /// Distribute available width among columns using the fixed table layout algorithm.
 ///
-/// Uses widths from the first row's cells. Columns without an explicit width
-/// share the remaining space equally.
+/// Per CSS 2.1 §17.5.2.1, `<col>`/`<colgroup>` widths are applied first
+/// (highest priority), then first-row cell widths fill in any remaining columns.
+/// Columns without an explicit width share the remaining space equally.
 #[must_use]
 #[allow(clippy::cast_precision_loss)] // column/span counts are small integers
 pub fn fixed_column_widths(
     num_cols: usize,
     first_row_cells: &[CellInfo],
     first_row_explicit_widths: &[Option<f32>],
+    col_element_widths: &[Option<f32>],
     available: f32,
 ) -> Vec<f32> {
     if num_cols == 0 {
@@ -127,13 +129,23 @@ pub fn fixed_column_widths(
     let available = sanitize_f32(available);
     let mut widths = vec![None::<f32>; num_cols];
 
-    // TODO(Phase 4): Per CSS 2.1 §17.5.2.1, <col>/<colgroup> element widths
-    // should be applied first with higher priority than first-row cell widths.
-    // Assign explicit widths from first row cells.
+    // Step 1: Apply <col>/<colgroup> widths (highest priority, CSS 2.1 §17.5.2.1).
+    for (col, col_w) in col_element_widths.iter().enumerate() {
+        if col < num_cols {
+            if let Some(w) = col_w {
+                widths[col] = Some(*w);
+            }
+        }
+    }
+
+    // Step 2: Apply first-row cell widths for columns not already set by col elements.
     for (cell, explicit) in first_row_cells.iter().zip(first_row_explicit_widths.iter()) {
         if let Some(w) = explicit {
             if cell.colspan == 1 {
-                widths[cell.col] = Some(*w);
+                // Only apply cell width if no col element width was set.
+                if widths[cell.col].is_none() {
+                    widths[cell.col] = Some(*w);
+                }
             } else {
                 // Distribute explicit width across spanned columns.
                 let per_col = w / cell.colspan as f32;

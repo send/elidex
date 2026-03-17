@@ -6,13 +6,12 @@
 //!
 //! # Phase 4 TODO
 //!
-//! - `valign` attribute → `vertical-align` (not in `ComputedStyle`)
-//! - `background` attribute → `background-image: url()` (image pipeline)
 //! - `<font size="+2">` relative sizes (needs parent reference in cascade)
 //! - `cellpadding` nested table propagation
 
+use elidex_bidi::{first_strong_direction, ParagraphLevel};
 use elidex_css::Declaration;
-use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TextContent};
 use elidex_plugin::{CssColor, CssValue, LengthUnit};
 
 /// CSS box sides, used for border and padding property generation.
@@ -59,7 +58,7 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
 
     // dir attribute → direction CSS property (WHATWG §15.3.6).
     // Applies to all HTML elements, not just specific tags.
-    push_dir_attr(&attrs, &mut decls);
+    push_dir_attr(&attrs, entity, dom, &mut decls);
 
     // Fast path: skip tags that never have other presentational hints.
     if !matches!(
@@ -122,6 +121,16 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
         "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th" | "body"
     ) {
         push_color_attr(&attrs, "bgcolor", "background-color", &mut decls);
+        // background attribute → background-image: url(...) (WHATWG §15.3.10)
+        if let Some(url) = attrs.get("background") {
+            let trimmed = url.trim();
+            if !trimmed.is_empty() {
+                decls.push(Declaration::new(
+                    "background-image",
+                    CssValue::Url(trimmed.to_string()),
+                ));
+            }
+        }
     }
 
     // align on block elements → text-align (WHATWG §15.3.2)
@@ -168,6 +177,11 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
     // <font> attributes
     if tag == "font" {
         push_font_attrs(&attrs, &mut decls);
+    }
+
+    // valign on table cells → vertical-align (WHATWG §15.3.10)
+    if matches!(tag, "td" | "th" | "thead" | "tbody" | "tfoot" | "tr") {
+        push_valign_attr(&attrs, &mut decls);
     }
 
     // cellpadding: td/th inherits padding from parent table's cellpadding attribute
@@ -258,17 +272,22 @@ fn push_color_attr(
     }
 }
 
-/// Parse an HTML color value (named colors + hex).
+/// Parse a legacy HTML color value (WHATWG §2.4.6).
 ///
-/// Handles `#RRGGBB`, `#RGB`, bare hex (`RRGGBB`/`RGB`), and 16 named colors.
-/// This is a subset of the HTML spec's "rules for parsing a legacy colour value"
-/// (§2.4.6) which also handles arbitrary-length hex, non-hex → 0, etc. The exotic
-/// cases (e.g. `bgcolor="chucknorris"`) are extremely rare in practice.
-/// Phase 4 TODO: full legacy color parsing algorithm if compat testing reveals gaps.
+/// Implements the full "rules for parsing a legacy colour value" algorithm:
+/// 1. Named CSS colors (case-insensitive)
+/// 2. Standard `#RGB` / `#RRGGBB` hex
+/// 3. Legacy algorithm: strip `#`, replace non-hex chars with `0`, pad to
+///    multiple of 3, split into R/G/B, strip leading zeros, take first 2 hex
+///    digits of each. Handles exotic cases like `bgcolor="chucknorris"` → `#c00000`.
 #[must_use]
 fn parse_html_color(value: &str) -> Option<CssColor> {
     let trimmed = value.trim();
-    // Named colors (most common subset) — case-insensitive without allocation.
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("transparent") {
+        return None;
+    }
+
+    // Step 4: try named CSS colors first.
     let named = [
         ("black", CssColor::BLACK),
         ("white", CssColor::WHITE),
@@ -289,6 +308,7 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
         ("teal", CssColor::new(0, 128, 128, 255)),
         ("navy", CssColor::new(0, 0, 128, 255)),
         ("orange", CssColor::new(255, 165, 0, 255)),
+        ("lime", CssColor::new(0, 255, 0, 255)),
     ];
     for (name, color) in &named {
         if trimmed.eq_ignore_ascii_case(name) {
@@ -296,39 +316,131 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
         }
     }
 
-    // Hex color (#RGB or #RRGGBB)
-    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
-    if !hex.is_ascii() {
-        return None;
-    }
-    match hex.len() {
-        3 => {
+    // Step 5: try standard #RGB / #RRGGBB hex.
+    if let Some(hex) = trimmed.strip_prefix('#') {
+        if hex.len() == 3 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
             let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
             let g = u8::from_str_radix(&hex[1..2], 16).ok()?;
             let b = u8::from_str_radix(&hex[2..3], 16).ok()?;
-            Some(CssColor::new(r * 17, g * 17, b * 17, 255))
+            return Some(CssColor::new(r * 17, g * 17, b * 17, 255));
         }
-        6 => {
+        if hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
             let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
             let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
             let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            Some(CssColor::new(r, g, b, 255))
+            return Some(CssColor::new(r, g, b, 255));
         }
-        _ => None,
     }
+
+    // Steps 6-11: full legacy colour value algorithm.
+    legacy_color_algorithm(trimmed)
+}
+
+/// WHATWG §2.4.6 steps 7-20: the legacy "any string → color" algorithm.
+///
+/// This handles arbitrary strings like `"chucknorris"` by:
+/// - Replacing code points > U+FFFF with "00", truncating to 128 chars
+/// - Stripping leading `#`, replacing non-hex with `0`
+/// - Padding to multiple of 3, splitting into 3 components
+/// - Truncating to 8 if longer, stripping leading zeros (simultaneously),
+///   then taking the first 2 hex digits of each as R, G, B
+fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
+    // Step 7: replace non-BMP code points with "00".
+    let mut s = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch as u32 > 0xFFFF {
+            s.push_str("00");
+        } else {
+            s.push(ch);
+        }
+    }
+
+    // Step 8: truncate to 128 characters.
+    if s.len() > 128 {
+        s.truncate(128);
+    }
+
+    // Step 9: remove leading '#'.
+    let s = s.strip_prefix('#').unwrap_or(&s);
+    if s.is_empty() {
+        return None;
+    }
+
+    // Step 10: replace non-ASCII-hex with '0'.
+    let mut digits: Vec<u8> = s
+        .bytes()
+        .map(|b| if b.is_ascii_hexdigit() { b } else { b'0' })
+        .collect();
+
+    // Step 11: pad to multiple of 3 (min 3).
+    while digits.len() < 3 || !digits.len().is_multiple_of(3) {
+        digits.push(b'0');
+    }
+
+    // Step 12: split into 3 equal components.
+    let mut comp_len = digits.len() / 3;
+    let mut r_start = 0;
+    let mut g_start = comp_len;
+    let mut b_start = comp_len * 2;
+
+    // Step 13: if component length > 8, remove leading chars to leave 8.
+    if comp_len > 8 {
+        let excess = comp_len - 8;
+        r_start += excess;
+        g_start += excess;
+        b_start += excess;
+        comp_len = 8;
+    }
+
+    // Step 14: while length > 2 and all 3 components start with '0',
+    // remove that leading character from each.
+    while comp_len > 2
+        && digits[r_start] == b'0'
+        && digits[g_start] == b'0'
+        && digits[b_start] == b'0'
+    {
+        r_start += 1;
+        g_start += 1;
+        b_start += 1;
+        comp_len -= 1;
+    }
+
+    // Step 15: if length > 2, truncate to first 2 characters.
+    let take = comp_len.min(2);
+
+    let parse2 = |start: usize| -> u8 {
+        let slice = &digits[start..start + take];
+        let hex_str = std::str::from_utf8(slice).unwrap_or("00");
+        u8::from_str_radix(hex_str, 16).unwrap_or(0)
+    };
+
+    Some(CssColor::new(
+        parse2(r_start),
+        parse2(g_start),
+        parse2(b_start),
+        255,
+    ))
 }
 
 /// Push dir attribute → direction + unicode-bidi CSS declarations (WHATWG §15.3.6).
 ///
 /// `dir="ltr"` → `direction: ltr; unicode-bidi: isolate`,
-/// `dir="rtl"` → `direction: rtl; unicode-bidi: isolate`.
-fn push_dir_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
+/// `dir="rtl"` → `direction: rtl; unicode-bidi: isolate`,
+/// `dir="auto"` → first-strong-character algorithm determines direction.
+fn push_dir_attr(attrs: &Attributes, entity: Entity, dom: &EcsDom, decls: &mut Vec<Declaration>) {
     if let Some(val) = attrs.get("dir") {
         let dir = match val.trim().to_ascii_lowercase().as_str() {
             "ltr" => "ltr",
             "rtl" => "rtl",
-            // TODO(Phase 4): `dir="auto"` requires the first-strong-character
-            // algorithm (HTML §15.3.6) to determine direction from content.
+            "auto" => {
+                // WHATWG §15.3.6: determine direction from descendant text content
+                // using the first-strong-character algorithm (UAX #9 P2/P3).
+                let text = collect_descendant_text(entity, dom);
+                match first_strong_direction(&text) {
+                    ParagraphLevel::Rtl => "rtl",
+                    ParagraphLevel::Ltr => "ltr",
+                }
+            }
             _ => return,
         };
         decls.push(Declaration::new(
@@ -339,6 +451,31 @@ fn push_dir_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
             "unicode-bidi",
             CssValue::Keyword("isolate".to_string()),
         ));
+    }
+}
+
+/// Collect all descendant text content for first-strong-character detection.
+///
+/// Walks the subtree in pre-order, concatenating `TextContent` values.
+/// Stops at a reasonable depth to avoid pathological cases.
+fn collect_descendant_text(entity: Entity, dom: &EcsDom) -> String {
+    let mut text = String::new();
+    collect_text_recursive(entity, dom, &mut text, 0);
+    text
+}
+
+/// Recursive helper for descendant text collection (depth-limited to 100).
+fn collect_text_recursive(entity: Entity, dom: &EcsDom, out: &mut String, depth: u32) {
+    if depth > 100 {
+        return;
+    }
+    if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+        out.push_str(&tc.0);
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        collect_text_recursive(c, dom, out, depth + 1);
+        child = dom.get_next_sibling(c);
     }
 }
 
@@ -354,6 +491,25 @@ fn push_align_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
         };
         decls.push(Declaration::new(
             "text-align",
+            CssValue::Keyword(css_val.to_string()),
+        ));
+    }
+}
+
+/// Push valign attribute → vertical-align CSS declaration (WHATWG §15.3.10).
+///
+/// Maps `top`/`middle`/`bottom`/`baseline` to the corresponding `vertical-align` keyword.
+fn push_valign_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
+    if let Some(val) = attrs.get("valign") {
+        let css_val = match val.trim().to_ascii_lowercase().as_str() {
+            "top" => "top",
+            "middle" => "middle",
+            "bottom" => "bottom",
+            "baseline" => "baseline",
+            _ => return,
+        };
+        decls.push(Declaration::new(
+            "vertical-align",
             CssValue::Keyword(css_val.to_string()),
         ));
     }
@@ -490,20 +646,26 @@ fn push_font_attrs(attrs: &Attributes, decls: &mut Vec<Declaration>) {
         }
     }
 
-    // size → font-size keyword (absolute only; relative "+N"/"-N" is Phase 4)
+    // size → font-size keyword (absolute or relative +N/-N)
+    // WHATWG §15.3.1: absolute sizes are [1,7], relative sizes adjust from base 3.
     if let Some(size_str) = attrs.get("size") {
         let trimmed = size_str.trim();
-        // Phase 4 TODO: handle relative sizes (+N, -N)
-        if !trimmed.starts_with('+') && !trimmed.starts_with('-') {
-            if let Ok(n) = trimmed.parse::<usize>() {
-                // WHATWG §15.3.1: clamp to [1, 7].
-                let clamped = n.clamp(1, 7);
-                let keyword = FONT_SIZE_KEYWORDS[clamped - 1];
-                decls.push(Declaration::new(
-                    "font-size",
-                    CssValue::Keyword(keyword.to_string()),
-                ));
-            }
+        let size_val = if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            // Relative size: +N or -N adjusts from base 3.
+            #[allow(clippy::cast_sign_loss)] // clamp(1, 7) guarantees positive
+            trimmed
+                .parse::<i32>()
+                .ok()
+                .map(|delta| (3 + delta).clamp(1, 7) as usize)
+        } else {
+            trimmed.parse::<usize>().ok().map(|n| n.clamp(1, 7))
+        };
+        if let Some(clamped) = size_val {
+            let keyword = FONT_SIZE_KEYWORDS[clamped - 1];
+            decls.push(Declaration::new(
+                "font-size",
+                CssValue::Keyword(keyword.to_string()),
+            ));
         }
     }
 }
@@ -553,10 +715,13 @@ mod tests {
 
     #[test]
     fn parse_html_color_non_ascii_no_panic() {
-        // 3-byte UTF-8 chars that make byte len 3 or 6 but are not ASCII hex.
-        assert!(parse_html_color("あ").is_none()); // 3 bytes
-        assert!(parse_html_color("ああ").is_none()); // 6 bytes
-        assert!(parse_html_color("🔥").is_none()); // 4 bytes
+        // Non-ASCII characters are replaced with '0' by the legacy algorithm.
+        // Per WHATWG §2.4.6, any string produces a color (non-hex → 0).
+        assert!(parse_html_color("あ").is_some());
+        assert!(parse_html_color("ああ").is_some());
+        assert!(parse_html_color("🔥").is_some());
+        // All should produce black (all zeros).
+        assert_eq!(parse_html_color("あ"), Some(CssColor::new(0, 0, 0, 255)));
     }
 
     #[test]
@@ -575,6 +740,53 @@ mod tests {
     fn parse_html_color_named() {
         assert_eq!(parse_html_color("red"), Some(CssColor::RED));
         assert_eq!(parse_html_color("WHITE"), Some(CssColor::WHITE));
+    }
+
+    #[test]
+    fn parse_html_color_legacy_algorithm() {
+        // "chucknorris" → replace non-hex: "c00c0000000" (11) → pad to 12: "c00c00000000"
+        // split 3×4: "c00c"/"0000"/"0000"
+        // step 14: first chars c/0/0 — not all '0', stop
+        // step 15: len=4 > 2, truncate to first 2: "c0"/"00"/"00" → #c00000
+        assert_eq!(
+            parse_html_color("chucknorris"),
+            Some(CssColor::new(0xc0, 0x00, 0x00, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_bare_hex() {
+        // Bare hex without '#' is handled by legacy algorithm.
+        assert_eq!(
+            parse_html_color("ff0000"),
+            Some(CssColor::new(0xff, 0x00, 0x00, 255))
+        );
+        assert_eq!(
+            parse_html_color("00ff00"),
+            Some(CssColor::new(0x00, 0xff, 0x00, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_transparent_returns_none() {
+        assert!(parse_html_color("transparent").is_none());
+        assert!(parse_html_color("TRANSPARENT").is_none());
+    }
+
+    #[test]
+    fn parse_html_color_empty_returns_none() {
+        assert!(parse_html_color("").is_none());
+        assert!(parse_html_color("   ").is_none());
+    }
+
+    #[test]
+    fn parse_html_color_single_char() {
+        // "f" → "f00" (pad to 3) → split 1/1/1: "f"/"0"/"0"
+        // len=1, not > 2, so take as-is → 0x0f/0x00/0x00
+        assert_eq!(
+            parse_html_color("f"),
+            Some(CssColor::new(0x0f, 0x00, 0x00, 255))
+        );
     }
 
     // --- parse_dimension_value NaN/Infinity ---

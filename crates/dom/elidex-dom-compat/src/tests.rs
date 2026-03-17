@@ -371,6 +371,59 @@ fn vendor_prefix_handles_string_escapes() {
 }
 
 #[test]
+fn vendor_prefix_drops_nonstandard_properties() {
+    let input = "div { -webkit-font-smoothing: antialiased; color: red; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("font-smoothing"));
+    assert!(!output.contains("antialiased"));
+    assert!(output.contains("color: red"));
+}
+
+#[test]
+fn vendor_prefix_drops_text_size_adjust() {
+    let input =
+        "body { -webkit-text-size-adjust: 100%; -moz-text-size-adjust: 100%; font-size: 16px; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("text-size-adjust"));
+    assert!(output.contains("font-size: 16px"));
+}
+
+#[test]
+fn vendor_prefix_drops_tap_highlight_color() {
+    let input = "a { -webkit-tap-highlight-color: transparent; text-decoration: none; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("tap-highlight"));
+    assert!(!output.contains("transparent"));
+    assert!(output.contains("text-decoration: none"));
+}
+
+#[test]
+fn vendor_prefix_drops_osx_font_smoothing() {
+    let input = "div { -moz-osx-font-smoothing: grayscale; margin: 0; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("osx-font-smoothing"));
+    assert!(output.contains("margin: 0"));
+}
+
+#[test]
+fn vendor_prefix_drop_at_end_of_block() {
+    // Drop property is the last declaration before `}`.
+    let input = "div { color: red; -webkit-font-smoothing: antialiased }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("font-smoothing"));
+    assert!(output.contains("color: red"));
+}
+
+#[test]
+fn vendor_prefix_drop_only_declaration() {
+    // Drop property is the only declaration in the block.
+    let input = "div { -webkit-font-smoothing: antialiased; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("font-smoothing"));
+    assert!(output.contains("div {"));
+}
+
+#[test]
 fn presentational_ignored_values() {
     for (tag, attr_name, attr_val, prop) in [
         ("img", "width", "", "width"),
@@ -569,6 +622,146 @@ fn presentational_hr_width_hint() {
         find_decl(&hints, "width"),
         Some(&CssValue::Percentage(80.0))
     );
+}
+
+// === -webkit-box-* legacy flexbox mapping tests ===
+
+#[test]
+fn webkit_box_orient_horizontal() {
+    let input = "div { -webkit-box-orient: horizontal; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-direction: row;"), "got: {output}");
+    assert!(!output.contains("-webkit-box-orient"));
+}
+
+#[test]
+fn webkit_box_orient_vertical() {
+    let input = "div { -webkit-box-orient: vertical; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-direction: column;"), "got: {output}");
+}
+
+#[test]
+fn webkit_box_direction_reverse() {
+    let input = "div { -webkit-box-direction: reverse; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(
+        output.contains("flex-direction: row-reverse;"),
+        "got: {output}"
+    );
+}
+
+#[test]
+fn webkit_box_pack_values() {
+    for (val, expected) in [
+        ("start", "flex-start"),
+        ("end", "flex-end"),
+        ("center", "center"),
+        ("justify", "space-between"),
+    ] {
+        let input = format!("div {{ -webkit-box-pack: {val}; }}");
+        let output = strip_vendor_prefixes(&input);
+        assert!(
+            output.contains(&format!("justify-content: {expected};")),
+            "-webkit-box-pack: {val} → got: {output}"
+        );
+    }
+}
+
+#[test]
+fn webkit_box_align_values() {
+    for (val, expected) in [
+        ("start", "flex-start"),
+        ("end", "flex-end"),
+        ("center", "center"),
+        ("stretch", "stretch"),
+        ("baseline", "baseline"),
+    ] {
+        let input = format!("div {{ -webkit-box-align: {val}; }}");
+        let output = strip_vendor_prefixes(&input);
+        assert!(
+            output.contains(&format!("align-items: {expected};")),
+            "-webkit-box-align: {val} → got: {output}"
+        );
+    }
+}
+
+#[test]
+fn webkit_box_flex_numeric() {
+    let input = "div { -webkit-box-flex: 1; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-grow: 1;"), "got: {output}");
+
+    let input = "div { -webkit-box-flex: 2.5; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-grow: 2.5;"), "got: {output}");
+}
+
+#[test]
+fn webkit_box_ordinal_group() {
+    let input = "div { -webkit-box-ordinal-group: 2; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("order: 2;"), "got: {output}");
+}
+
+#[test]
+fn webkit_box_lines() {
+    let input = "div { -webkit-box-lines: multiple; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-wrap: wrap;"), "got: {output}");
+
+    let input = "div { -webkit-box-lines: single; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("flex-wrap: nowrap;"), "got: {output}");
+}
+
+#[test]
+fn display_webkit_box() {
+    let input = "div { display: -webkit-box; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(
+        output.contains("display: flex;"),
+        "display: -webkit-box → got: {output}"
+    );
+    assert!(!output.contains("-webkit-box"));
+}
+
+#[test]
+fn display_webkit_inline_box() {
+    let input = "div { display: -webkit-inline-box; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(
+        output.contains("display: inline-flex;"),
+        "display: -webkit-inline-box → got: {output}"
+    );
+}
+
+#[test]
+fn webkit_box_combined_declarations() {
+    let input = "div { display: -webkit-box; -webkit-box-orient: vertical; -webkit-box-pack: center; color: red; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(output.contains("display: flex;"), "display → got: {output}");
+    assert!(
+        output.contains("flex-direction: column;"),
+        "orient → got: {output}"
+    );
+    assert!(
+        output.contains("justify-content: center;"),
+        "pack → got: {output}"
+    );
+    assert!(
+        output.contains("color: red;"),
+        "normal prop preserved → got: {output}"
+    );
+}
+
+#[test]
+fn webkit_box_invalid_value_dropped() {
+    // Invalid values should be silently dropped (no output for that declaration).
+    let input = "div { -webkit-box-orient: diagonal; color: red; }";
+    let output = strip_vendor_prefixes(input);
+    assert!(!output.contains("flex-direction"));
+    assert!(output.contains("color: red"));
 }
 
 // === Additional presentational hints tests ===

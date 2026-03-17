@@ -274,11 +274,14 @@ pub(crate) fn place_items(
     let grid_rows = grid.rows;
 
     // Phase 3: Auto-place remaining items.
-    // TODO(Phase 4): Per CSS Grid §8.5, the auto-placement cursor should
-    // advance past semi-definite items placed in Phase 2, so that auto-placed
-    // items don't unnecessarily backfill occupied positions.
-    let mut cursor_row: usize = 0;
-    let mut cursor_col: usize = 0;
+    // CSS Grid §8.5: In sparse mode, the auto-placement cursor must advance
+    // past items placed in Phases 1-2 so auto-placed items don't backfill
+    // gaps before semi-definite items.
+    let (mut cursor_row, mut cursor_col) = if dense {
+        (0, 0)
+    } else {
+        initial_cursor_after_placed(items, column_flow, grid_cols, grid_rows)
+    };
 
     for item in items.iter_mut() {
         if is_definite(item.grid_row_start, item.grid_row_end)
@@ -317,6 +320,60 @@ pub(crate) fn place_items(
             cursor_col = c;
         }
     }
+}
+
+/// Compute the initial auto-placement cursor position after Phases 1-2.
+///
+/// CSS Grid §8.5: In sparse mode, auto-placed items must not backfill
+/// gaps before items that were placed with definite or semi-definite
+/// positions. The cursor starts just past the last placed item in flow order.
+fn initial_cursor_after_placed(
+    items: &[GridItem],
+    column_flow: bool,
+    max_cols: usize,
+    max_rows: usize,
+) -> (usize, usize) {
+    let mut best_row: usize = 0;
+    let mut best_col: usize = 0;
+
+    for item in items {
+        let row_def = is_definite(item.grid_row_start, item.grid_row_end);
+        let col_def = is_definite(item.grid_column_start, item.grid_column_end);
+        if !row_def && !col_def {
+            continue; // Skip fully auto items (not yet placed).
+        }
+        // Advance cursor past the end of each placed item in flow order.
+        if column_flow {
+            // Column-major: rows are the minor axis, columns are the major axis.
+            let end_row = item.row_start + item.row_span;
+            let end_col = item.col_start;
+            if (end_col, end_row) > (best_col, best_row) {
+                best_col = end_col;
+                best_row = end_row;
+            }
+        } else {
+            // Row-major: columns are the minor axis, rows are the major axis.
+            let end_col = item.col_start + item.col_span;
+            let end_row = item.row_start;
+            if (end_row, end_col) > (best_row, best_col) {
+                best_row = end_row;
+                best_col = end_col;
+            }
+        }
+    }
+
+    // Wrap cursor if it exceeds the fixed axis.
+    if column_flow {
+        if best_row >= max_rows && max_rows > 0 {
+            best_row = 0;
+            best_col += 1;
+        }
+    } else if best_col >= max_cols && max_cols > 0 {
+        best_col = 0;
+        best_row += 1;
+    }
+
+    (best_row, best_col)
 }
 
 /// Find the first column where `cspan` consecutive cells are free in rows [row..row+rspan].

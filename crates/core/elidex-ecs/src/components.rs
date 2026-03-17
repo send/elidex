@@ -4,9 +4,46 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use hecs::Entity;
+use indexmap::IndexMap;
 
 /// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
 macro_rules! impl_string_map {
+    ($type:ty, $field:ident, $key_label:literal) => {
+        impl $type {
+            #[doc = concat!("Get a ", $key_label, " value by name.")]
+            pub fn get(&self, name: &str) -> Option<&str> {
+                self.$field.get(name).map(String::as_str)
+            }
+
+            #[doc = concat!("Set a ", $key_label, " value. Returns the previous value if present.")]
+            pub fn set(
+                &mut self,
+                name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Option<String> {
+                self.$field.insert(name.into(), value.into())
+            }
+
+            #[doc = concat!("Remove a ", $key_label, " by name. Returns the removed value if present.")]
+            pub fn remove(&mut self, name: &str) -> Option<String> {
+                self.$field.shift_remove(name)
+            }
+
+            #[doc = concat!("Returns `true` if the ", $key_label, " exists.")]
+            pub fn contains(&self, name: &str) -> bool {
+                self.$field.contains_key(name)
+            }
+
+            #[doc = concat!("Iterate over all ", $key_label, " name-value pairs.")]
+            pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+                self.$field.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+            }
+        }
+    };
+}
+
+/// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
+macro_rules! impl_hash_string_map {
     ($type:ty, $field:ident, $key_label:literal) => {
         impl $type {
             #[doc = concat!("Get a ", $key_label, " value by name.")]
@@ -46,12 +83,35 @@ macro_rules! impl_string_map {
 pub struct TagType(pub String);
 
 /// Key-value attribute map for an element.
+///
+/// Uses `IndexMap` to preserve insertion order, matching the WHATWG DOM spec
+/// requirement that `getAttributeNames()` returns attributes in insertion order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Attributes {
-    map: HashMap<String, String>,
+    map: IndexMap<String, String>,
 }
 
 impl_string_map!(Attributes, map, "attribute");
+
+impl Attributes {
+    /// Returns the number of attributes.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Returns `true` if there are no attributes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Returns attribute names in insertion order.
+    #[must_use]
+    pub fn keys(&self) -> Vec<&str> {
+        self.map.keys().map(String::as_str).collect()
+    }
+}
 
 /// Tree structure relationships linking entities into a DOM tree.
 ///
@@ -70,6 +130,10 @@ pub struct TreeRelation {
     pub(crate) last_child: Option<Entity>,
     pub(crate) next_sibling: Option<Entity>,
     pub(crate) prev_sibling: Option<Entity>,
+    /// Monotonically increasing version counter for live collection cache invalidation.
+    /// Bumped on any mutation (child add/remove, attribute change) that affects
+    /// the subtree rooted at this entity. Propagated to ancestors via `rev_version()`.
+    pub(crate) inclusive_descendants_version: u64,
 }
 
 /// Text content for text nodes.
@@ -85,7 +149,7 @@ pub struct InlineStyle {
     properties: HashMap<String, String>,
 }
 
-impl_string_map!(InlineStyle, properties, "style property");
+impl_hash_string_map!(InlineStyle, properties, "style property");
 
 /// Marker component for pseudo-element entities (`::before`, `::after`).
 ///
@@ -158,21 +222,30 @@ pub enum ShadowRootMode {
     Closed,
 }
 
+/// Slot assignment mode for shadow roots (WHATWG DOM §4.8).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SlotAssignmentMode {
+    /// Slots are assigned by matching `<slot name>` attributes (default).
+    #[default]
+    Named,
+    /// Slots are assigned manually via `slot.assign()`.
+    Manual,
+}
+
 /// Marker: this entity is a shadow root.
 ///
 /// A shadow root is a document fragment attached to a host element.
-/// It provides style encapsulation and DOM isolation.
-///
-// TODO(L2): WHATWG DOM §4.8 specifies additional fields:
-// - `delegatesFocus: bool` (focus delegation to first focusable element)
-// - `slotAssignment: "manual" | "named"` (slot assignment mode)
-// Currently omitted because no consumer exists.
+/// It provides style encapsulation and DOM isolation (WHATWG DOM §4.8).
 #[derive(Clone, Copy, Debug)]
 pub struct ShadowRoot {
     /// Open or closed mode.
     pub mode: ShadowRootMode,
     /// The host element that owns this shadow root.
     pub host: Entity,
+    /// Whether focus is delegated to the first focusable element in the shadow tree.
+    pub delegates_focus: bool,
+    /// How slots are assigned to light DOM children.
+    pub slot_assignment: SlotAssignmentMode,
 }
 
 /// Marker: this element hosts a shadow root.
@@ -223,4 +296,98 @@ pub struct ImageData {
     pub width: u32,
     /// Image height in pixels.
     pub height: u32,
+}
+
+/// Decoded background image layers for CSS `background-image`.
+///
+/// Each entry corresponds to a background layer. `None` entries indicate
+/// layers that are not URL-based (e.g. gradients, or `none`).
+#[derive(Debug, Clone)]
+pub struct BackgroundImages {
+    /// Per-layer decoded image data. `None` = gradient or none.
+    pub layers: Vec<Option<Arc<ImageData>>>,
+}
+
+/// The kind of DOM node (WHATWG DOM §4.4 Node.nodeType).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NodeKind {
+    /// Element node (nodeType = 1).
+    Element,
+    /// Attribute node (nodeType = 2).
+    Attribute,
+    /// Text node (nodeType = 3).
+    Text,
+    /// CDATA section node (nodeType = 4).
+    CdataSection,
+    /// Processing instruction node (nodeType = 7).
+    ProcessingInstruction,
+    /// Comment node (nodeType = 8).
+    Comment,
+    /// Document node (nodeType = 9).
+    Document,
+    /// Document type node (nodeType = 10).
+    DocumentType,
+    /// Document fragment node (nodeType = 11).
+    DocumentFragment,
+}
+
+impl NodeKind {
+    /// Returns the WHATWG `Node.nodeType` numeric value.
+    #[must_use]
+    pub fn node_type(self) -> u32 {
+        match self {
+            Self::Element => 1,
+            Self::Attribute => 2,
+            Self::Text => 3,
+            Self::CdataSection => 4,
+            Self::ProcessingInstruction => 7,
+            Self::Comment => 8,
+            Self::Document => 9,
+            Self::DocumentType => 10,
+            Self::DocumentFragment => 11,
+        }
+    }
+
+    /// Create a `NodeKind` from a WHATWG `Node.nodeType` numeric value.
+    #[must_use]
+    pub fn from_node_type(node_type: u32) -> Option<Self> {
+        match node_type {
+            1 => Some(Self::Element),
+            2 => Some(Self::Attribute),
+            3 => Some(Self::Text),
+            4 => Some(Self::CdataSection),
+            7 => Some(Self::ProcessingInstruction),
+            8 => Some(Self::Comment),
+            9 => Some(Self::Document),
+            10 => Some(Self::DocumentType),
+            11 => Some(Self::DocumentFragment),
+            _ => None,
+        }
+    }
+}
+
+/// Data for a comment node (`<!-- ... -->`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentData(pub String);
+
+/// Data for a document type node (`<!DOCTYPE ...>`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DocTypeData {
+    /// The `name` part of the doctype (e.g. `"html"`).
+    pub name: String,
+    /// The `publicId` part of the doctype.
+    pub public_id: String,
+    /// The `systemId` part of the doctype.
+    pub system_id: String,
+}
+
+/// Data for an Attr node (WHATWG DOM §4.9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttrData {
+    /// The attribute's local name.
+    pub local_name: String,
+    /// The attribute's value.
+    pub value: String,
+    /// The element that owns this attribute, if any.
+    pub owner_element: Option<Entity>,
 }

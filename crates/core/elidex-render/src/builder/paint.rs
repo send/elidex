@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use elidex_ecs::{EcsDom, Entity, ImageData};
+use elidex_ecs::{BackgroundImages, EcsDom, Entity};
+use elidex_plugin::background::{BackgroundImage, BgRepeat, BgRepeatAxis};
 use elidex_plugin::{BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Rect};
 use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
 
@@ -33,27 +34,132 @@ pub(crate) fn apply_opacity(color: CssColor, opacity: f32) -> CssColor {
     }
 }
 
-/// Emit a background rect (solid or rounded) with opacity applied.
+/// Emit background color + image layers with opacity applied.
 pub(crate) fn emit_background(
     lb: &LayoutBox,
     bg: CssColor,
-    border_radius: f32,
+    border_radii: [f32; 4],
     opacity: f32,
+    bg_images: Option<&BackgroundImages>,
+    style: &ComputedStyle,
     dl: &mut DisplayList,
 ) {
+    // 1. Background color
     let color = apply_opacity(bg, opacity);
-    if color.a == 0 {
-        return; // transparent
+    if color.a > 0 {
+        let rect = lb.border_box();
+        let has_radius = border_radii.iter().any(|r| *r > 0.0);
+        if has_radius {
+            dl.push(DisplayItem::RoundedRect {
+                rect,
+                radii: border_radii,
+                color,
+            });
+        } else {
+            dl.push(DisplayItem::SolidRect { rect, color });
+        }
     }
-    let rect = lb.border_box();
-    if border_radius > 0.0 {
-        dl.push(DisplayItem::RoundedRect {
-            rect,
-            radius: border_radius,
-            color,
-        });
-    } else {
-        dl.push(DisplayItem::SolidRect { rect, color });
+
+    // 2. Background image layers (bottom-most first, CSS Backgrounds §2.11.1)
+    let Some(ref layers) = style.background_layers else {
+        return;
+    };
+    let painting_area = lb.padding_box();
+
+    for (i, layer) in layers.iter().enumerate() {
+        emit_bg_layer(&layer.image, i, painting_area, opacity, bg_images, dl);
+    }
+}
+
+/// Emit a single background image layer.
+fn emit_bg_layer(
+    image: &BackgroundImage,
+    index: usize,
+    painting_area: Rect,
+    opacity: f32,
+    bg_images: Option<&BackgroundImages>,
+    dl: &mut DisplayList,
+) {
+    match image {
+        BackgroundImage::Url(_) => {
+            if let Some(bg_imgs) = bg_images {
+                if let Some(Some(img_data)) = bg_imgs.layers.get(index) {
+                    if img_data.width > 0 && img_data.height > 0 {
+                        dl.push(DisplayItem::Image {
+                            painting_area,
+                            pixels: Arc::clone(&img_data.pixels),
+                            image_width: img_data.width,
+                            image_height: img_data.height,
+                            position: (0.0, 0.0),
+                            size: (painting_area.width, painting_area.height),
+                            repeat: BgRepeat {
+                                x: BgRepeatAxis::NoRepeat,
+                                y: BgRepeatAxis::NoRepeat,
+                            },
+                            opacity,
+                        });
+                    }
+                }
+            }
+        }
+        BackgroundImage::LinearGradient(lg) => {
+            let stops: Vec<(f32, CssColor)> = lg
+                .stops
+                .iter()
+                .map(|s| (s.position, apply_opacity(s.color, opacity)))
+                .collect();
+            dl.push(DisplayItem::LinearGradient {
+                painting_area,
+                angle: lg.angle,
+                stops,
+                repeating: lg.repeating,
+                opacity,
+            });
+        }
+        BackgroundImage::RadialGradient(rg) => {
+            let cx = painting_area.x + painting_area.width * rg.center.0 / 100.0;
+            let cy = painting_area.y + painting_area.height * rg.center.1 / 100.0;
+            let rx = if rg.radii.0 > 0.0 {
+                rg.radii.0
+            } else {
+                let dx = painting_area.width.max(0.0);
+                let dy = painting_area.height.max(0.0);
+                (dx * dx + dy * dy).sqrt() / 2.0
+            };
+            let ry = if rg.radii.1 > 0.0 { rg.radii.1 } else { rx };
+            let stops: Vec<(f32, CssColor)> = rg
+                .stops
+                .iter()
+                .map(|s| (s.position, apply_opacity(s.color, opacity)))
+                .collect();
+            dl.push(DisplayItem::RadialGradient {
+                painting_area,
+                center: (cx, cy),
+                radii: (rx, ry),
+                stops,
+                repeating: rg.repeating,
+                opacity,
+            });
+        }
+        BackgroundImage::ConicGradient(cg) => {
+            let cx = painting_area.x + painting_area.width * cg.center.0 / 100.0;
+            let cy = painting_area.y + painting_area.height * cg.center.1 / 100.0;
+            let stops: Vec<(f32, CssColor)> = cg
+                .stops
+                .iter()
+                .map(|s| (s.position, apply_opacity(s.color, opacity)))
+                .collect();
+            dl.push(DisplayItem::ConicGradient {
+                painting_area,
+                center: (cx, cy),
+                start_angle: cg.start_angle,
+                end_angle: cg.end_angle,
+                stops,
+                repeating: cg.repeating,
+                opacity,
+            });
+        }
+        BackgroundImage::None | _ => {}
     }
 }
 
@@ -113,27 +219,6 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     }
 }
 
-/// Emit a `DisplayItem::Image` for a replaced element.
-///
-/// The image is drawn within the content rect of the layout box.
-pub(crate) fn emit_image(
-    lb: &LayoutBox,
-    image_data: &ImageData,
-    opacity: f32,
-    dl: &mut DisplayList,
-) {
-    if image_data.width == 0 || image_data.height == 0 {
-        return;
-    }
-    dl.push(DisplayItem::Image {
-        rect: lb.content,
-        pixels: Arc::clone(&image_data.pixels),
-        image_width: image_data.width,
-        image_height: image_data.height,
-        opacity,
-    });
-}
-
 /// Emit a list marker for a `display: list-item` element.
 ///
 /// - `disc`/`circle`/`square`: small shape rendered to the left of the content box.
@@ -168,16 +253,18 @@ pub(crate) fn emit_list_marker_with_counter(
 
     match style.list_style_type {
         ListStyleType::Disc => {
+            let r = marker_size / 2.0;
             dl.push(DisplayItem::RoundedRect {
                 rect: marker_rect,
-                radius: marker_size / 2.0,
+                radii: [r, r, r, r],
                 color,
             });
         }
         ListStyleType::Circle => {
+            let r = marker_size / 2.0;
             dl.push(DisplayItem::StrokedRoundedRect {
                 rect: marker_rect,
-                radius: marker_size / 2.0,
+                radii: [r, r, r, r],
                 stroke_width: 1.0,
                 color,
             });

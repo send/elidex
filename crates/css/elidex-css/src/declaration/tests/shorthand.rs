@@ -99,9 +99,13 @@ fn global_keyword_expands_text_decoration_shorthand() {
 #[test]
 fn global_keyword_expands_background_shorthand() {
     let decls = parse_single("background", "inherit");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 8);
     assert_eq!(decls[0].property, "background-color");
     assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "background-image");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+    assert_eq!(decls[7].property, "background-attachment");
+    assert_eq!(decls[7].value, CssValue::Inherit);
 }
 
 #[test]
@@ -324,6 +328,140 @@ fn parse_list_style_shorthand_with_important() {
     assert_eq!(decls[0].property, "list-style-type");
     assert_eq!(decls[0].value, CssValue::Keyword("disc".into()));
     assert!(decls[0].important);
+}
+
+// --- Font shorthand ---
+
+#[test]
+fn font_shorthand_size_and_family() {
+    let decls = parse_single("font", "16px Arial");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[1].property, "font-weight");
+    assert_eq!(decls[1].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[2].property, "font-size");
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].property, "line-height");
+    assert_eq!(decls[3].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("Arial".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_full() {
+    let decls = parse_single("font", r#"italic bold 16px/1.5 "Times New Roman", serif"#);
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Keyword("italic".into()));
+    assert_eq!(decls[1].property, "font-weight");
+    assert_eq!(decls[1].value, CssValue::Keyword("bold".into()));
+    assert_eq!(decls[2].property, "font-size");
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].property, "line-height");
+    assert_eq!(decls[3].value, CssValue::Number(1.5));
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![
+            CssValue::String("Times New Roman".into()),
+            CssValue::Keyword("serif".into()),
+        ])
+    );
+}
+
+#[test]
+fn font_shorthand_weight_only() {
+    let decls = parse_single("font", "bold 14px sans-serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into())); // style
+    assert_eq!(decls[1].value, CssValue::Keyword("bold".into())); // weight
+    assert_eq!(decls[2].value, CssValue::Length(14.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_numeric_weight() {
+    let decls = parse_single("font", "300 12px monospace");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into())); // style
+    assert_eq!(decls[1].value, CssValue::Number(300.0)); // weight
+    assert_eq!(decls[2].value, CssValue::Length(12.0, LengthUnit::Px));
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("monospace".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_style_and_numeric_weight() {
+    let decls = parse_single("font", "italic 700 20px Georgia");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("italic".into()));
+    assert_eq!(decls[1].value, CssValue::Number(700.0));
+    assert_eq!(decls[2].value, CssValue::Length(20.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_line_height_length() {
+    let decls = parse_single("font", "16px/24px Arial");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].value, CssValue::Length(24.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_keyword_size() {
+    let decls = parse_single("font", "small serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[2].value, CssValue::Keyword("small".into()));
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("serif".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_multi_word_family() {
+    let decls = parse_single("font", "16px Times New Roman");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("Times New Roman".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_multiple_families() {
+    let decls = parse_single("font", "16px Arial, Helvetica, sans-serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![
+            CssValue::Keyword("Arial".into()),
+            CssValue::Keyword("Helvetica".into()),
+            CssValue::Keyword("sans-serif".into()),
+        ])
+    );
+}
+
+#[test]
+fn font_shorthand_global_keyword_expand() {
+    let decls = parse_single("font", "inherit");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(decls[4].value, CssValue::Inherit);
+}
+
+#[test]
+fn font_shorthand_invalid_missing_family() {
+    // font-size without font-family is invalid.
+    let decls = parse_single("font", "16px");
+    assert!(decls.is_empty());
 }
 
 // --- Background shorthand ---

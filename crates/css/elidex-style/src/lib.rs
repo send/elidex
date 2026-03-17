@@ -43,6 +43,7 @@ pub fn create_css_property_registry() -> CssPropertyRegistry {
     elidex_css_table::TableHandler::register(&mut registry);
     elidex_css_float::FloatHandler::register(&mut registry);
     elidex_css_anim::AnimHandler::register(&mut registry);
+    elidex_css_background::BackgroundHandler::register(&mut registry);
     registry
 }
 

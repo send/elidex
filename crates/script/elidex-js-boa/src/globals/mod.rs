@@ -9,6 +9,7 @@ pub mod events;
 pub mod fetch;
 pub mod history;
 pub mod location;
+pub mod observers;
 pub mod timers;
 pub mod wasm;
 pub mod window;
@@ -65,6 +66,29 @@ pub(crate) fn invoke_dom_handler(
     })
 }
 
+/// Invoke a DOM API handler by name and resolve `ObjectRef` results to element wrappers.
+///
+/// Use this for handlers that return entity references (tree navigation, cloneNode, etc.).
+#[must_use = "DOM handler result must be returned to the JS caller"]
+pub(crate) fn invoke_dom_handler_ref(
+    name: &str,
+    entity: Entity,
+    args: &[ElidexJsValue],
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    let handler = bridge
+        .dom_registry()
+        .resolve(name)
+        .ok_or_else(|| JsNativeError::typ().with_message(format!("Unknown DOM method: {name}")))?;
+    let result = bridge.with(|session, dom| {
+        handler
+            .invoke(entity, args, session, dom)
+            .map_err(dom_error_to_js_error)
+    })?;
+    Ok(element::resolve_object_ref(&result, bridge, ctx))
+}
+
 /// Invoke a DOM API handler by name via the registry, ignoring the return value.
 #[must_use = "DOM handler result must be returned to the JS caller"]
 pub(crate) fn invoke_dom_handler_void(
@@ -83,6 +107,42 @@ pub(crate) fn invoke_dom_handler_void(
             .map_err(dom_error_to_js_error)?;
         Ok(JsValue::undefined())
     })
+}
+
+/// Convert a boa JS value to an elidex `JsValue` for entity-accepting handlers.
+///
+/// If the value is an element object, extracts its entity and creates an `ObjectRef`.
+/// If it's a string, returns a `String` value. Otherwise, converts to string.
+pub(crate) fn boa_arg_to_elidex(
+    arg: &JsValue,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<ElidexJsValue> {
+    if arg.is_null() || arg.is_undefined() {
+        return Ok(ElidexJsValue::Null);
+    }
+    if let Ok(entity) = element::extract_entity(arg, ctx) {
+        let ref_val = bridge.with(|session, _dom| {
+            let ref_ = session
+                .get_or_create_wrapper(entity, elidex_script_session::ComponentKind::Element);
+            ElidexJsValue::ObjectRef(ref_.to_raw())
+        });
+        return Ok(ref_val);
+    }
+    // Fall back to string conversion.
+    let s = arg.to_string(ctx)?.to_std_string_escaped();
+    Ok(ElidexJsValue::String(s))
+}
+
+/// Convert a slice of boa args to elidex values (for variadic Node/String methods).
+pub(crate) fn boa_args_to_elidex(
+    args: &[JsValue],
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<Vec<ElidexJsValue>> {
+    args.iter()
+        .map(|a| boa_arg_to_elidex(a, bridge, ctx))
+        .collect()
 }
 
 /// Extract the `capture` flag from the third argument of addEventListener/removeEventListener.
@@ -205,7 +265,7 @@ pub fn register_all_globals(
     timers::register_timers(ctx, timer_queue);
     fetch::register_fetch(ctx, fetch_handle);
     wasm::register_wasm(ctx, bridge);
-
+    observers::register_observers(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

@@ -41,13 +41,14 @@ impl ResolvedTrack {
 /// Resolve a list of `TrackSize` definitions to pixel sizes.
 ///
 /// `available` is the total available space on this axis (content width or height).
-/// `gap` is the gap between tracks. `item_sizes` is a map of (`track_index` → max content size)
-/// for intrinsic sizing of `auto` tracks.
+/// `gap` is the gap between tracks. `min_sizes` and `max_sizes` are per-track
+/// min-content and max-content intrinsic sizes respectively (CSS Grid §12.3).
 pub(crate) fn resolve_tracks(
     definitions: &[TrackSize],
     available: f32,
     gap: f32,
-    item_sizes: &[f32],
+    min_sizes: &[f32],
+    max_sizes: &[f32],
 ) -> Vec<ResolvedTrack> {
     if definitions.is_empty() {
         return Vec::new();
@@ -57,7 +58,12 @@ pub(crate) fn resolve_tracks(
         .iter()
         .enumerate()
         .map(|(i, def)| {
-            resolve_single_track(def, available, item_sizes.get(i).copied().unwrap_or(0.0))
+            resolve_single_track(
+                def,
+                available,
+                min_sizes.get(i).copied().unwrap_or(0.0),
+                max_sizes.get(i).copied().unwrap_or(0.0),
+            )
         })
         .collect();
 
@@ -78,7 +84,15 @@ pub(crate) fn resolve_tracks(
 }
 
 /// Resolve a single `TrackSize` to base/limit/fr values.
-fn resolve_single_track(def: &TrackSize, available: f32, content_size: f32) -> ResolvedTrack {
+///
+/// `min_content` is the min-content intrinsic size (from narrow-probe layout).
+/// `max_content` is the max-content intrinsic size (from full-width layout).
+fn resolve_single_track(
+    def: &TrackSize,
+    available: f32,
+    min_content: f32,
+    max_content: f32,
+) -> ResolvedTrack {
     match def {
         TrackSize::Length(px) => ResolvedTrack {
             base: *px,
@@ -102,14 +116,14 @@ fn resolve_single_track(def: &TrackSize, available: f32, content_size: f32) -> R
             size: 0.0, // Will be set by distribute_fr.
         },
         TrackSize::Auto => ResolvedTrack {
-            base: content_size,
-            limit: content_size.max(0.0),
+            base: min_content,
+            limit: max_content.max(0.0),
             fr: 0.0,
-            size: content_size,
+            size: max_content,
         },
         TrackSize::MinMax(min_breadth, max_breadth) => {
-            let min_val = resolve_breadth_as_min(min_breadth, available, content_size);
-            let max_val = resolve_breadth_as_max(max_breadth, available, content_size);
+            let min_val = resolve_breadth_as_min(min_breadth, available, min_content, max_content);
+            let max_val = resolve_breadth_as_max(max_breadth, available, min_content, max_content);
             let fr_val = match **max_breadth {
                 elidex_plugin::TrackBreadth::Fr(f) => f,
                 _ => 0.0,
@@ -121,47 +135,50 @@ fn resolve_single_track(def: &TrackSize, available: f32, content_size: f32) -> R
                 size: if fr_val > 0.0 {
                     0.0
                 } else {
-                    min_val.max(max_val.min(min_val.max(content_size)))
+                    min_val.max(max_val.min(min_val.max(max_content)))
                 },
             }
         }
     }
 }
 
-/// Resolve a `TrackBreadth` as a minimum value.
+/// Resolve a `TrackBreadth` as a minimum value (CSS Grid §12.3).
 ///
-/// TODO(Phase 4): `MinContent` and `MaxContent` currently use the same
-/// `content_size` (which is max-content). A proper implementation should
-/// compute min-content sizes separately (CSS Grid §12.3) so that
-/// `minmax(min-content, ...)` uses the actual min-content contribution.
+/// `min_content` is the min-content intrinsic size.
+/// `max_content` is the max-content intrinsic size.
 fn resolve_breadth_as_min(
     breadth: &elidex_plugin::TrackBreadth,
     available: f32,
-    content_size: f32,
+    min_content: f32,
+    max_content: f32,
 ) -> f32 {
     use elidex_plugin::TrackBreadth;
     match breadth {
         TrackBreadth::Length(px) => *px,
         TrackBreadth::Percentage(pct) => available * pct / 100.0,
-        TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent => content_size,
-        // TODO(Phase 4): Per CSS Grid §7.2.1, `<flex>` values in the min position
-        // of `minmax()` should be treated as `auto` (i.e., min-content), not 0.
-        TrackBreadth::Fr(_) => 0.0,
+        // CSS Grid §7.2.1: `<flex>` in the min position of `minmax()` is treated
+        // as `auto` (resolved to min-content).
+        TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::Fr(_) => min_content,
+        TrackBreadth::MaxContent => max_content,
     }
 }
 
-/// Resolve a `TrackBreadth` as a maximum value.
+/// Resolve a `TrackBreadth` as a maximum value (CSS Grid §12.3).
+///
+/// `min_content` is the min-content intrinsic size.
+/// `max_content` is the max-content intrinsic size.
 fn resolve_breadth_as_max(
     breadth: &elidex_plugin::TrackBreadth,
     available: f32,
-    content_size: f32,
+    min_content: f32,
+    max_content: f32,
 ) -> f32 {
     use elidex_plugin::TrackBreadth;
     match breadth {
         TrackBreadth::Length(px) => *px,
         TrackBreadth::Percentage(pct) => available * pct / 100.0,
-        TrackBreadth::Auto | TrackBreadth::MaxContent => content_size.max(0.0),
-        TrackBreadth::MinContent => content_size,
+        TrackBreadth::Auto | TrackBreadth::MaxContent => max_content.max(0.0),
+        TrackBreadth::MinContent => min_content.max(0.0),
         TrackBreadth::Fr(f) => {
             // fr as max — size is determined by fr distribution.
             // Return infinity to signal this.

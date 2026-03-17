@@ -42,8 +42,13 @@ pub fn resolve_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
 
 /// Resolve a [`CssValue`] to a pixel value (for padding/border-width).
 ///
-/// Percentage values resolve to `0.0` (Phase 4 TODO: resolve against
-/// containing block).
+/// # Percentage handling
+///
+/// Percentage values (e.g. `padding: 10%`) resolve to `0.0` here because
+/// they refer to the containing block width (CSS 2.1 §8.4), which is only
+/// known at layout time. Correct percentage resolution requires changing
+/// `EdgeSizes` from `f32` to `Dimension` so the layout engine can resolve
+/// them against the actual containing block.
 #[must_use]
 pub fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     match value {

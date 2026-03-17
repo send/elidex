@@ -12,22 +12,55 @@
 //! [`DomApiHandler`]: elidex_script_session::DomApiHandler
 //! [`CssomApiHandler`]: elidex_script_session::CssomApiHandler
 
+pub mod char_data;
+pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
 pub mod document;
 pub mod element;
+pub mod live_collection;
+pub mod node_methods;
 pub mod registry;
 pub mod style;
+pub mod tree_nav;
 pub(crate) mod util;
 
 // Re-export handlers for convenient access.
-pub use class_list::{ClassListAdd, ClassListContains, ClassListRemove, ClassListToggle};
+pub use char_data::{
+    AppendData, CreateAttribute as CreateAttributeHandler, CreateComment as CreateCommentHandler,
+    CreateDocumentFragment as CreateDocumentFragmentHandler, DeleteData, GetAttrName,
+    GetAttrSpecified, GetAttrValue, GetAttributeNode, GetBody, GetCharacterSet, GetCompatMode,
+    GetData, GetDoctype, GetDoctypeName, GetDoctypePublicId, GetDoctypeSystemId,
+    GetDocumentElement, GetDocumentUrl, GetHead, GetLength, GetOwnerElement, GetReadyState,
+    GetTitle, InsertData, RemoveAttributeNode, ReplaceData, SetAttrValue, SetAttributeNode,
+    SetData, SetTitle, SplitText, SubstringData,
+};
+pub use child_node::{
+    After, Append, Before, ChildNodeRemove, Closest, Matches, Prepend, ReplaceChildren, ReplaceWith,
+};
+pub use class_list::{
+    ClassListAdd, ClassListContains, ClassListItem, ClassListLength, ClassListRemove,
+    ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
+};
 pub use computed_style::GetComputedStyle;
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
 pub use element::{
-    collect_text_content, serialize_inner_html, AppendChild, GetAttribute, GetInnerHtml,
-    GetTextContent, InsertBefore, RemoveAttribute, RemoveChild, SetAttribute, SetTextContent,
+    camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,
+    validate_attribute_name, AppendChild, DatasetDelete, DatasetGet, DatasetKeys, DatasetSet,
+    GetAttribute, GetAttributeNames, GetClassName, GetId, GetInnerHtml, HasAttribute,
+    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
+    SetAttribute, SetClassName, SetId, ToggleAttribute,
+};
+pub use node_methods::{
+    CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
+    IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
+pub use tree_nav::{
+    GetChildElementCount, GetFirstChild, GetFirstElementChild, GetLastChild, GetLastElementChild,
+    GetNextElementSibling, GetNextSibling, GetNodeName, GetNodeType, GetNodeValue,
+    GetParentElement, GetParentNode, GetPrevElementSibling, GetPrevSibling, GetTagName,
+    HasChildNodes,
+};

@@ -12,8 +12,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     adjust_min_max_for_border_box, block::resolve_margin, clamp_min_max, effective_align,
     horizontal_pb, resolve_explicit_height, resolve_min_max, sanitize, sanitize_border,
-    sanitize_padding, vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
@@ -68,6 +67,7 @@ fn resolve_flex_basis(
     style: &ComputedStyle,
     direction: FlexDirection,
     containing_main: f32,
+    containing_width: f32,
 ) -> Option<f32> {
     let raw = match style.flex_basis {
         Dimension::Length(px) => Some(px),
@@ -88,7 +88,7 @@ fn resolve_flex_basis(
     let px = raw?;
     // Adjust for box-sizing: border-box — convert from border-box to content size.
     if style.box_sizing == BoxSizing::BorderBox {
-        let p = sanitize_padding(style);
+        let p = elidex_layout_block::resolve_padding(style, containing_width);
         let b = sanitize_border(style);
         let pb = if is_main_horizontal(direction) {
             horizontal_pb(&p, &b)
@@ -200,7 +200,7 @@ pub fn layout_flex(
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
-    let padding = sanitize_padding(&style);
+    let padding = elidex_layout_block::resolve_padding(&style, containing_width);
     let border = sanitize_border(&style);
     let margin_top = resolve_margin(style.margin_top, containing_width);
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
@@ -242,16 +242,13 @@ pub fn layout_flex(
     // Resolve gap: row-gap applies between rows, column-gap between columns.
     // For flex-direction: row, main axis is horizontal → gap_main = column_gap, gap_cross = row_gap.
     // For flex-direction: column, main axis is vertical → gap_main = row_gap, gap_cross = column_gap.
+    let resolve_gap = |dim: elidex_plugin::Dimension| {
+        elidex_layout_block::resolve_dimension_value(dim, content_width, 0.0).max(0.0)
+    };
     let (gap_main, gap_cross) = if horizontal {
-        (
-            sanitize(style.column_gap).max(0.0),
-            sanitize(style.row_gap).max(0.0),
-        )
+        (resolve_gap(style.column_gap), resolve_gap(style.row_gap))
     } else {
-        (
-            sanitize(style.row_gap).max(0.0),
-            sanitize(style.column_gap).max(0.0),
-        )
+        (resolve_gap(style.row_gap), resolve_gap(style.column_gap))
     };
 
     // Container's own definite height for children's percentage height resolution.
@@ -355,7 +352,7 @@ fn collect_flex_items(
             continue;
         }
 
-        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal);
+        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.containing_width);
         let (margin_main, margin_cross) =
             compute_margins(&child_style, ctx.horizontal, ctx.containing_width);
 
@@ -366,7 +363,12 @@ fn collect_flex_items(
             matches!(child_style.width, Dimension::Auto)
         };
 
-        let basis = resolve_flex_basis(&child_style, ctx.direction, ctx.container_main);
+        let basis = resolve_flex_basis(
+            &child_style,
+            ctx.direction,
+            ctx.container_main,
+            ctx.containing_width,
+        );
         let hypo_main = if let Some(px) = basis {
             sanitize(px).max(0.0)
         } else {
@@ -377,6 +379,7 @@ fn collect_flex_items(
                 offset_y: 0.0,
                 font_db: env.font_db,
                 depth: env.depth + 1,
+                float_ctx: None,
             };
             let child_lb = (env.layout_child)(dom, child, &child_input);
             if ctx.horizontal {
@@ -434,8 +437,8 @@ fn collect_flex_items(
     items
 }
 
-fn compute_pb(style: &ComputedStyle, horizontal: bool) -> (f32, f32) {
-    let p = sanitize_padding(style);
+fn compute_pb(style: &ComputedStyle, horizontal: bool, containing_width: f32) -> (f32, f32) {
+    let p = elidex_layout_block::resolve_padding(style, containing_width);
     let b = sanitize_border(style);
     let h = horizontal_pb(&p, &b);
     let v = vertical_pb(&p, &b);

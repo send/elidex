@@ -11,6 +11,7 @@ keywords = ["browser-engine", "compat", "html"]
 categories = ["web-programming"]
 
 [dependencies]
+elidex-bidi.workspace = true
 elidex-css.workspace = true
 elidex-ecs.workspace = true
 elidex-plugin.workspace = true

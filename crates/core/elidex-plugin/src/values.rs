@@ -42,6 +42,68 @@ pub enum CssValue {
     Calc(Box<CalcExpr>),
     /// A time value (e.g. `0.3s`, `200ms`). Stored in seconds.
     Time(f32),
+    /// A CSS `url()` value. Stores the URL string as-is (relative or absolute).
+    Url(String),
+    /// An angle value in degrees (e.g. `45deg`, `0.5turn`).
+    Angle(f32),
+    /// A gradient value (linear, radial, or conic).
+    Gradient(Box<GradientValue>),
+}
+
+/// A parsed CSS gradient value before resolution.
+#[derive(Clone, Debug, PartialEq)]
+pub enum GradientValue {
+    /// `linear-gradient()` or `repeating-linear-gradient()`.
+    Linear {
+        /// Direction: angle or `to <side-or-corner>`.
+        direction: AngleOrDirection,
+        /// Color stops with optional positions.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-linear-gradient()`.
+        repeating: bool,
+    },
+    /// `radial-gradient()` or `repeating-radial-gradient()`.
+    Radial {
+        /// Shape: `circle` or `ellipse`.
+        shape: Option<String>,
+        /// Size keyword or explicit lengths.
+        size: Option<String>,
+        /// Center position.
+        position: Option<Vec<CssValue>>,
+        /// Color stops with optional positions.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-radial-gradient()`.
+        repeating: bool,
+    },
+    /// `conic-gradient()` or `repeating-conic-gradient()`.
+    Conic {
+        /// Start angle in degrees.
+        from_angle: Option<f32>,
+        /// Center position.
+        position: Option<Vec<CssValue>>,
+        /// Angular color stops.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-conic-gradient()`.
+        repeating: bool,
+    },
+}
+
+/// A color stop in a CSS gradient.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CssColorStop {
+    /// The color value.
+    pub color: CssValue,
+    /// Optional position (length or percentage).
+    pub position: Option<CssValue>,
+}
+
+/// Direction for a linear gradient.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AngleOrDirection {
+    /// An explicit angle in degrees.
+    Angle(f32),
+    /// A `to <side-or-corner>` direction (e.g. `["top"]`, `["top", "right"]`).
+    To(Vec<String>),
 }
 
 /// A node in a `calc()` expression tree.

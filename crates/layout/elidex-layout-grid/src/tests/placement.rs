@@ -597,3 +597,73 @@ fn grid_extreme_span_capped() {
         lb.content.width
     );
 }
+
+#[test]
+fn auto_placement_cursor_advances_past_semi_definite() {
+    // CSS Grid §8.5: In sparse mode, auto-placed items should not backfill
+    // before semi-definite items placed in Phase 2.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                ],
+                // Default: row flow, sparse (not dense).
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Item 1: semi-definite — placed in column 2 (0-based index 1).
+    let c1 = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(container, c1);
+    dom.world_mut()
+        .insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(40.0),
+                grid_column_start: GridLine::Line(2), // column index 1
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Item 2: fully auto — should be placed AFTER c1 in sparse mode.
+    let c2 = make_grid_child(&mut dom, container, 40.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+    let lb2 = get_layout(&dom, c2);
+
+    // c1 is at column 1 (x=100). In sparse mode, c2 should be placed
+    // at column 2 or later (x >= 200), not backfilling column 0.
+    assert!(
+        approx_eq(lb1.content.x, 100.0),
+        "c1 should be at x=100, got {}",
+        lb1.content.x
+    );
+    assert!(
+        lb2.content.x >= 200.0 - 0.5,
+        "c2 should be at x >= 200 (after c1), got {}",
+        lb2.content.x
+    );
+}

@@ -12,21 +12,67 @@ use super::{single_decl, Declaration};
 
 // --- Border radius parsing ---
 
-/// Parse `border-radius` as a non-negative `<length>`.
+/// Parse `border-radius` shorthand into 4 longhand declarations.
 ///
-/// TODO(Phase 4): Support multi-value shorthand (per-corner radii) and
-/// percentage values (CSS Backgrounds and Borders Level 3 §5.3).
-/// Percentages require box dimensions for resolution.
+/// CSS Backgrounds and Borders Level 3 §5.3:
+/// - 1 value: all corners
+/// - 2 values: top-left+bottom-right / top-right+bottom-left
+/// - 3 values: top-left / top-right+bottom-left / bottom-right
+/// - 4 values: top-left / top-right / bottom-right / bottom-left
+///
+/// Percentages are rejected (require box dimensions for resolution).
 /// Negative values are rejected per spec.
 pub(super) fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_non_negative_length_or_percentage(i)?;
-            // Reject percentages — cannot resolve without box dimensions.
-            if matches!(val, CssValue::Percentage(_)) {
+            let mut values = Vec::with_capacity(4);
+            for _ in 0..4 {
+                match i.try_parse(parse_non_negative_length_or_percentage) {
+                    Ok(val) => {
+                        if matches!(val, CssValue::Percentage(_)) {
+                            return Err(());
+                        }
+                        values.push(val);
+                    }
+                    Err(()) => break,
+                }
+            }
+            if values.is_empty() {
                 return Err(());
             }
-            Ok(single_decl("border-radius", val))
+            // Expand 1-4 values per CSS shorthand rules.
+            let (tl, tr, br, bl) = match values.len() {
+                1 => (
+                    values[0].clone(),
+                    values[0].clone(),
+                    values[0].clone(),
+                    values[0].clone(),
+                ),
+                2 => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[0].clone(),
+                    values[1].clone(),
+                ),
+                3 => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[2].clone(),
+                    values[1].clone(),
+                ),
+                _ => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[2].clone(),
+                    values[3].clone(),
+                ),
+            };
+            Ok(vec![
+                Declaration::new("border-top-left-radius", tl),
+                Declaration::new("border-top-right-radius", tr),
+                Declaration::new("border-bottom-right-radius", br),
+                Declaration::new("border-bottom-left-radius", bl),
+            ])
         })
         .unwrap_or_default()
 }
@@ -262,9 +308,6 @@ fn parse_mapped_keyword(
 // --- Text-align ---
 
 /// Parse `text-align` (CSS Text Level 3 §7.1).
-///
-// TODO(Phase 4): `justify` is mapped to `start` because full inter-word
-// justification (CSS Text 3 §7.1) is not yet implemented.
 pub(super) fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
     parse_mapped_keyword(
         input,
@@ -275,7 +318,7 @@ pub(super) fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
             (&["left"], "left"),
             (&["center"], "center"),
             (&["right"], "right"),
-            (&["justify"], "start"),
+            (&["justify"], "justify"),
         ],
     )
 }
@@ -481,12 +524,12 @@ pub(super) fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Background shorthand ---
 
-/// Parse the `background` shorthand, extracting only `background-color`.
+/// Parse the `background` shorthand, extracting `background-color`.
 ///
-/// TODO(Phase 4): Support full `background` shorthand (CSS Backgrounds Level 3 §3.10):
-/// background-image, background-position, background-size, background-repeat,
-/// background-origin, background-clip, background-attachment, and multi-layer values.
-/// For now, try to parse the value as a color and emit `background-color`.
+/// Currently extracts only the color layer from the shorthand (CSS Backgrounds
+/// Level 3 §3.10). Full multi-layer support (background-image, -position, -size,
+/// -repeat, -origin, -clip, -attachment) is not yet implemented — those layers
+/// are silently discarded when the value is parsed as a single color.
 pub(super) fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
     parse_color_property(input, "background-color")
 }

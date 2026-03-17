@@ -1,5 +1,6 @@
 //! Element wrapper objects for boa — provides DOM methods on element instances.
 
+use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
@@ -9,7 +10,10 @@ use elidex_script_session::{ComponentKind, JsObjectRef};
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
-use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_string_arg};
+use crate::globals::{
+    boa_arg_to_elidex, boa_args_to_elidex, invoke_dom_handler, invoke_dom_handler_ref,
+    invoke_dom_handler_void, require_js_string_arg,
+};
 use crate::value_conv;
 
 /// Hidden property key storing the entity bits on element wrapper objects.
@@ -23,6 +27,9 @@ const CLASSLIST_CACHE_KEY: &str = "__elidex_classList__";
 
 /// Hidden property key for caching the context2d object on a canvas element.
 const CONTEXT2D_CACHE_KEY: &str = "__elidex_ctx2d__";
+
+/// Hidden property key for caching the `dataset` object on an element wrapper.
+const DATASET_CACHE_KEY: &str = "__elidex_dataset__";
 
 /// Extract the entity from a JS value that has an `__elidex_entity__` property.
 ///
@@ -107,6 +114,15 @@ fn build_element_object(
     register_shadow_dom_methods(&mut init, bridge, &realm);
     register_canvas_method(&mut init, bridge);
     super::element_form::register_form_accessors(&mut init, bridge, &realm);
+    register_tree_nav_accessors(&mut init, bridge, &realm);
+    register_node_info_accessors(&mut init, bridge, &realm);
+    register_node_methods(&mut init, bridge);
+    register_child_parent_mixin_methods(&mut init, bridge);
+    register_element_extra_methods(&mut init, bridge);
+    register_element_extra_accessors(&mut init, bridge, &realm);
+    register_dataset_accessor(&mut init, bridge, &realm);
+    register_char_data_methods(&mut init, bridge, &realm);
+    register_attr_node_methods(&mut init, bridge);
 
     init.build()
 }
@@ -403,9 +419,9 @@ fn register_shadow_dom_methods(
 
                 let (sr_entity, sr_ref) = bridge.with(|session, dom| -> JsResult<_> {
                     // WHATWG DOM §4.2.14: should throw NotSupportedError (DOMException).
-                    // TODO(L12): boa 0.20 lacks DOMException — we emulate via TypeError
-                    // with a spec-compliant name prefix for feature detection. Replace
-                    // with proper DOMException when boa adds WebIDL exception support.
+                    // Boa 0.21 lacks DOMException / WebIDL exception support, so we
+                    // use TypeError with the DOMException name prefix. JS code can
+                    // detect the error type via `e.message.startsWith("NotSupportedError")`.
                     dom.attach_shadow(entity, mode).map_err(|()| {
                         JsNativeError::typ()
                             .with_message("NotSupportedError: Failed to execute 'attachShadow' on 'Element': This element does not support attachShadow")
@@ -533,6 +549,657 @@ fn register_canvas_method(init: &mut ObjectInitializer<'_>, bridge: &HostBridge)
     );
 }
 
+// ---------------------------------------------------------------------------
+// Helper for read-only ref-returning accessors (tree navigation)
+// ---------------------------------------------------------------------------
+
+/// Register a read-only accessor that returns an element ref (or null) via `invoke_dom_handler_ref`.
+fn reg_ref_accessor(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+    js_name: &str,
+    handler: &'static str,
+) {
+    let b = bridge.clone();
+    let getter = NativeFunction::from_copy_closure_with_captures(
+        move |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler_ref(handler, entity, &[], bridge, ctx)
+        },
+        b,
+    )
+    .to_js_function(realm);
+    init.accessor(
+        js_string!(js_name),
+        Some(getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
+/// Register a read-only accessor that returns a value (string/number/bool) via `invoke_dom_handler`.
+fn reg_val_accessor(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+    js_name: &str,
+    handler: &'static str,
+) {
+    let b = bridge.clone();
+    let getter = NativeFunction::from_copy_closure_with_captures(
+        move |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler(handler, entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+    init.accessor(
+        js_string!(js_name),
+        Some(getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Tree navigation accessors
+// ---------------------------------------------------------------------------
+
+/// Register 10 read-only tree navigation accessors (parentNode, firstChild, etc.).
+fn register_tree_nav_accessors(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    static NAV_PROPS: &[(&str, &str)] = &[
+        ("parentNode", "parentNode.get"),
+        ("parentElement", "parentElement.get"),
+        ("firstChild", "firstChild.get"),
+        ("lastChild", "lastChild.get"),
+        ("nextSibling", "nextSibling.get"),
+        ("previousSibling", "previousSibling.get"),
+        ("firstElementChild", "firstElementChild.get"),
+        ("lastElementChild", "lastElementChild.get"),
+        ("nextElementSibling", "nextElementSibling.get"),
+        ("previousElementSibling", "previousElementSibling.get"),
+    ];
+    for &(js_name, handler) in NAV_PROPS {
+        reg_ref_accessor(init, bridge, realm, js_name, handler);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Node info accessors
+// ---------------------------------------------------------------------------
+
+/// Register node info accessors (tagName, nodeName, nodeType, etc.) and hasChildNodes method.
+#[allow(clippy::similar_names)] // Getter/setter pairs (e.g., tag_getter/tag_setter) intentionally similar
+fn register_node_info_accessors(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    // Read-only value accessors.
+    reg_val_accessor(init, bridge, realm, "tagName", "tagName.get");
+    reg_val_accessor(init, bridge, realm, "nodeName", "nodeName.get");
+    reg_val_accessor(init, bridge, realm, "nodeType", "nodeType.get");
+    reg_val_accessor(
+        init,
+        bridge,
+        realm,
+        "childElementCount",
+        "childElementCount.get",
+    );
+    reg_val_accessor(init, bridge, realm, "isConnected", "isConnected.get");
+
+    // ownerDocument — returns ref.
+    reg_ref_accessor(init, bridge, realm, "ownerDocument", "ownerDocument.get");
+
+    // nodeValue getter/setter.
+    let b = bridge.clone();
+    let nv_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("nodeValue.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    let b = bridge.clone();
+    let nv_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let text = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void(
+                "nodeValue.set",
+                entity,
+                &[ElidexJsValue::String(text)],
+                bridge,
+            )
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("nodeValue"),
+        Some(nv_getter),
+        Some(nv_setter),
+        Attribute::CONFIGURABLE,
+    );
+
+    // hasChildNodes() method.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler("hasChildNodes", entity, &[], bridge)
+            },
+            b,
+        ),
+        js_string!("hasChildNodes"),
+        0,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Node methods (contains, compareDocumentPosition, cloneNode, etc.)
+// ---------------------------------------------------------------------------
+
+/// Register node methods that take entity arguments.
+#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
+fn register_node_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+    // contains(other)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let other =
+                    boa_arg_to_elidex(args.first().unwrap_or(&JsValue::null()), bridge, ctx)?;
+                invoke_dom_handler("contains", entity, &[other], bridge)
+            },
+            b,
+        ),
+        js_string!("contains"),
+        1,
+    );
+
+    // compareDocumentPosition(other)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let other =
+                    boa_arg_to_elidex(args.first().unwrap_or(&JsValue::null()), bridge, ctx)?;
+                invoke_dom_handler("compareDocumentPosition", entity, &[other], bridge)
+            },
+            b,
+        ),
+        js_string!("compareDocumentPosition"),
+        1,
+    );
+
+    // cloneNode(deep?)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let deep = args.first().is_some_and(JsValue::to_boolean);
+                invoke_dom_handler_ref(
+                    "cloneNode",
+                    entity,
+                    &[ElidexJsValue::Bool(deep)],
+                    bridge,
+                    ctx,
+                )
+            },
+            b,
+        ),
+        js_string!("cloneNode"),
+        1,
+    );
+
+    // normalize()
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_void("normalize", entity, &[], bridge)
+            },
+            b,
+        ),
+        js_string!("normalize"),
+        0,
+    );
+
+    // getRootNode()
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_ref("getRootNode", entity, &[], bridge, ctx)
+            },
+            b,
+        ),
+        js_string!("getRootNode"),
+        0,
+    );
+
+    // isSameNode(other)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let other =
+                    boa_arg_to_elidex(args.first().unwrap_or(&JsValue::null()), bridge, ctx)?;
+                invoke_dom_handler("isSameNode", entity, &[other], bridge)
+            },
+            b,
+        ),
+        js_string!("isSameNode"),
+        1,
+    );
+
+    // isEqualNode(other)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let other =
+                    boa_arg_to_elidex(args.first().unwrap_or(&JsValue::null()), bridge, ctx)?;
+                invoke_dom_handler("isEqualNode", entity, &[other], bridge)
+            },
+            b,
+        ),
+        js_string!("isEqualNode"),
+        1,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ChildNode / ParentNode mixin methods
+// ---------------------------------------------------------------------------
+
+/// Register variadic ChildNode/ParentNode mixin methods (before, after, remove, etc.).
+fn register_child_parent_mixin_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+    // Variadic methods: before, after, replaceWith, prepend, append, replaceChildren.
+    static VARIADIC_METHODS: &[&str] = &[
+        "before",
+        "after",
+        "replaceWith",
+        "prepend",
+        "append",
+        "replaceChildren",
+    ];
+    for &method_name in VARIADIC_METHODS {
+        let b = bridge.clone();
+        init.function(
+            NativeFunction::from_copy_closure_with_captures(
+                move |this, args, bridge, ctx| {
+                    let entity = extract_entity(this, ctx)?;
+                    let elidex_args = boa_args_to_elidex(args, bridge, ctx)?;
+                    invoke_dom_handler_void(method_name, entity, &elidex_args, bridge)
+                },
+                b,
+            ),
+            js_string!(method_name),
+            0,
+        );
+    }
+
+    // remove() — no args.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_void("remove", entity, &[], bridge)
+            },
+            b,
+        ),
+        js_string!("remove"),
+        0,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Element extra methods
+// ---------------------------------------------------------------------------
+
+/// Register additional Element methods (matches, closest, insertAdjacent*, etc.).
+#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
+fn register_element_extra_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+    // matches(selector)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let sel = require_js_string_arg(args, 0, "matches", ctx)?;
+                invoke_dom_handler("matches", entity, &[ElidexJsValue::String(sel)], bridge)
+            },
+            b,
+        ),
+        js_string!("matches"),
+        1,
+    );
+
+    // closest(selector)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let sel = require_js_string_arg(args, 0, "closest", ctx)?;
+                invoke_dom_handler_ref(
+                    "closest",
+                    entity,
+                    &[ElidexJsValue::String(sel)],
+                    bridge,
+                    ctx,
+                )
+            },
+            b,
+        ),
+        js_string!("closest"),
+        1,
+    );
+
+    // insertAdjacentElement(position, element)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let position = require_js_string_arg(args, 0, "insertAdjacentElement", ctx)?;
+                let elem = boa_arg_to_elidex(args.get(1).unwrap_or(&JsValue::null()), bridge, ctx)?;
+                invoke_dom_handler_ref(
+                    "insertAdjacentElement",
+                    entity,
+                    &[ElidexJsValue::String(position), elem],
+                    bridge,
+                    ctx,
+                )
+            },
+            b,
+        ),
+        js_string!("insertAdjacentElement"),
+        2,
+    );
+
+    // insertAdjacentText(position, text)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let position = require_js_string_arg(args, 0, "insertAdjacentText", ctx)?;
+                let text = require_js_string_arg(args, 1, "insertAdjacentText", ctx)?;
+                invoke_dom_handler_void(
+                    "insertAdjacentText",
+                    entity,
+                    &[ElidexJsValue::String(position), ElidexJsValue::String(text)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("insertAdjacentText"),
+        2,
+    );
+
+    // hasAttribute(name)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = require_js_string_arg(args, 0, "hasAttribute", ctx)?;
+                invoke_dom_handler(
+                    "hasAttribute",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("hasAttribute"),
+        1,
+    );
+
+    // toggleAttribute(name, force?)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = require_js_string_arg(args, 0, "toggleAttribute", ctx)?;
+                let mut elidex_args = vec![ElidexJsValue::String(name)];
+                if let Some(v) = args.get(1) {
+                    elidex_args.push(ElidexJsValue::Bool(v.to_boolean()));
+                }
+                invoke_dom_handler("toggleAttribute", entity, &elidex_args, bridge)
+            },
+            b,
+        ),
+        js_string!("toggleAttribute"),
+        1,
+    );
+
+    // getAttributeNames()
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let result = invoke_dom_handler("getAttributeNames", entity, &[], bridge)?;
+                let s = result.to_string(ctx)?.to_std_string_escaped();
+                let array = JsArray::new(ctx);
+                if !s.is_empty() {
+                    for name in s.split('\0') {
+                        array.push(JsValue::from(js_string!(name)), ctx)?;
+                    }
+                }
+                Ok(array.into())
+            },
+            b,
+        ),
+        js_string!("getAttributeNames"),
+        0,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Element extra accessors (className, id)
+// ---------------------------------------------------------------------------
+
+/// Register className and id getter/setter accessors.
+#[allow(clippy::similar_names)] // Getter/setter pairs (e.g., cls_getter/cls_setter) intentionally similar
+fn register_element_extra_accessors(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    // className getter/setter.
+    let b = bridge.clone();
+    let cn_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("className.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    let b = bridge.clone();
+    let cn_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void(
+                "className.set",
+                entity,
+                &[ElidexJsValue::String(val)],
+                bridge,
+            )
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("className"),
+        Some(cn_getter),
+        Some(cn_setter),
+        Attribute::CONFIGURABLE,
+    );
+
+    // id getter/setter.
+    let b = bridge.clone();
+    let id_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("id.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    let b = bridge.clone();
+    let id_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void("id.set", entity, &[ElidexJsValue::String(val)], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("id"),
+        Some(id_getter),
+        Some(id_setter),
+        Attribute::CONFIGURABLE,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Dataset accessor
+// ---------------------------------------------------------------------------
+
+/// Register the `dataset` cached accessor.
+fn register_dataset_accessor(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    register_cached_accessor(
+        init,
+        realm,
+        bridge,
+        "dataset",
+        DATASET_CACHE_KEY,
+        create_dataset_object,
+    );
+}
+
+/// Create a dataset proxy object with get/set/delete methods.
+fn create_dataset_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
+    let entity_bits = entity_bits_as_f64(entity);
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!(ENTITY_KEY),
+        JsValue::from(entity_bits),
+        Attribute::empty(),
+    );
+
+    // get(key)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let key = require_js_string_arg(args, 0, "dataset.get", ctx)?;
+                invoke_dom_handler("dataset.get", entity, &[ElidexJsValue::String(key)], bridge)
+            },
+            b,
+        ),
+        js_string!("get"),
+        1,
+    );
+
+    // set(key, value)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let key = require_js_string_arg(args, 0, "dataset.set", ctx)?;
+                let value = require_js_string_arg(args, 1, "dataset.set", ctx)?;
+                invoke_dom_handler_void(
+                    "dataset.set",
+                    entity,
+                    &[ElidexJsValue::String(key), ElidexJsValue::String(value)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("set"),
+        2,
+    );
+
+    // delete(key)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let key = require_js_string_arg(args, 0, "dataset.delete", ctx)?;
+                invoke_dom_handler_void(
+                    "dataset.delete",
+                    entity,
+                    &[ElidexJsValue::String(key)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("delete"),
+        1,
+    );
+
+    init.build().into()
+}
+
 /// Register a cached read-only accessor (style, classList) on an element object.
 ///
 /// The accessor returns a cached sub-object on subsequent accesses (identity
@@ -575,6 +1242,7 @@ fn register_cached_accessor(
     );
 }
 
+#[allow(clippy::too_many_lines, clippy::similar_names)] // classList registration boilerplate + getter/setter pairs
 fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity_bits_as_f64(entity);
 
@@ -664,6 +1332,547 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
         js_string!("contains"),
         1,
     );
+
+    // replace(oldClass, newClass)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let old = require_js_string_arg(args, 0, "classList.replace", ctx)?;
+                let new = require_js_string_arg(args, 1, "classList.replace", ctx)?;
+                invoke_dom_handler(
+                    "classList.replace",
+                    entity,
+                    &[ElidexJsValue::String(old), ElidexJsValue::String(new)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("replace"),
+        2,
+    );
+
+    // item(index)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let index = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                invoke_dom_handler(
+                    "classList.item",
+                    entity,
+                    &[ElidexJsValue::Number(index)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("item"),
+        1,
+    );
+
+    // supports() — throws (not supported for classList)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler("classList.supports", entity, &[], bridge)
+            },
+            b,
+        ),
+        js_string!("supports"),
+        1,
+    );
+
+    // value accessor (getter/setter).
+    let realm = init.context().realm().clone();
+
+    let b = bridge.clone();
+    let val_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("classList.value.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(&realm);
+
+    let b = bridge.clone();
+    let val_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void(
+                "classList.value.set",
+                entity,
+                &[ElidexJsValue::String(val)],
+                bridge,
+            )
+        },
+        b,
+    )
+    .to_js_function(&realm);
+
+    init.accessor(
+        js_string!("value"),
+        Some(val_getter),
+        Some(val_setter),
+        Attribute::CONFIGURABLE,
+    );
+
+    // length accessor (read-only).
+    let b = bridge.clone();
+    let len_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("classList.length", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(&realm);
+
+    init.accessor(
+        js_string!("length"),
+        Some(len_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    init.build().into()
+}
+
+// ---------------------------------------------------------------------------
+// CharacterData methods (data, length, substringData, appendData, etc.)
+// ---------------------------------------------------------------------------
+
+/// Register `CharacterData` interface methods on the node wrapper.
+///
+/// Registered on all node wrappers (including Elements). On non-`CharacterData`
+/// nodes (i.e., anything other than Text/Comment), the handler layer returns
+/// `InvalidStateError`, matching browser behavior where `CharacterData`
+/// methods exist on the prototype chain but throw on incorrect node types.
+#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
+fn register_char_data_methods(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    // data getter
+    let b = bridge.clone();
+    let data_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("data.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    // data setter
+    let b = bridge.clone();
+    let data_set_fn = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let text = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void("data.set", entity, &[ElidexJsValue::String(text)], bridge)
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("data"),
+        Some(data_getter),
+        Some(data_set_fn),
+        Attribute::CONFIGURABLE,
+    );
+
+    // length getter (read-only)
+    reg_val_accessor(init, bridge, realm, "length", "length.get");
+
+    // substringData(offset, count)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let offset = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let count = args
+                    .get(1)
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                invoke_dom_handler(
+                    "substringData",
+                    entity,
+                    &[ElidexJsValue::Number(offset), ElidexJsValue::Number(count)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("substringData"),
+        2,
+    );
+
+    // appendData(data)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let data = require_js_string_arg(args, 0, "appendData", ctx)?;
+                invoke_dom_handler_void(
+                    "appendData",
+                    entity,
+                    &[ElidexJsValue::String(data)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("appendData"),
+        1,
+    );
+
+    // insertData(offset, data)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let offset = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let data = require_js_string_arg(args, 1, "insertData", ctx)?;
+                invoke_dom_handler_void(
+                    "insertData",
+                    entity,
+                    &[ElidexJsValue::Number(offset), ElidexJsValue::String(data)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("insertData"),
+        2,
+    );
+
+    // deleteData(offset, count)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let offset = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let count = args
+                    .get(1)
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                invoke_dom_handler_void(
+                    "deleteData",
+                    entity,
+                    &[ElidexJsValue::Number(offset), ElidexJsValue::Number(count)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("deleteData"),
+        2,
+    );
+
+    // replaceData(offset, count, data)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let offset = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let count = args
+                    .get(1)
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let data = require_js_string_arg(args, 2, "replaceData", ctx)?;
+                invoke_dom_handler_void(
+                    "replaceData",
+                    entity,
+                    &[
+                        ElidexJsValue::Number(offset),
+                        ElidexJsValue::Number(count),
+                        ElidexJsValue::String(data),
+                    ],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("replaceData"),
+        3,
+    );
+
+    // splitText(offset) — Text nodes only
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let offset = args
+                    .first()
+                    .map(|v| v.to_number(ctx))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                invoke_dom_handler_ref(
+                    "splitText",
+                    entity,
+                    &[ElidexJsValue::Number(offset)],
+                    bridge,
+                    ctx,
+                )
+            },
+            b,
+        ),
+        js_string!("splitText"),
+        1,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Attr node methods (getAttributeNode, setAttributeNode, removeAttributeNode)
+// ---------------------------------------------------------------------------
+
+/// Register Attr-related element methods.
+fn register_attr_node_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+    // getAttributeNode(name) → Attr object or null
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = require_js_string_arg(args, 0, "getAttributeNode", ctx)?;
+                let result = invoke_dom_handler_ref(
+                    "getAttributeNode",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                    ctx,
+                )?;
+                // Wrap the returned ObjectRef as an Attr object if not null.
+                if result.is_null() || result.is_undefined() {
+                    return Ok(JsValue::null());
+                }
+                // The result is already an element wrapper via invoke_dom_handler_ref.
+                // Re-wrap it as an Attr-specific object by building attr accessors.
+                if let Some(obj) = result.as_object() {
+                    let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                    if !entity_val.is_undefined() {
+                        let attr_entity = extract_entity(&result, ctx)?;
+                        return Ok(create_attr_object(attr_entity, bridge, ctx));
+                    }
+                }
+                Ok(result)
+            },
+            b,
+        ),
+        js_string!("getAttributeNode"),
+        1,
+    );
+
+    // setAttributeNode(attr) → old Attr or null
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let attr_arg = args.first().ok_or_else(|| {
+                    JsNativeError::typ().with_message("setAttributeNode requires an Attr argument")
+                })?;
+                let attr_elidex = boa_arg_to_elidex(attr_arg, bridge, ctx)?;
+                invoke_dom_handler_ref("setAttributeNode", entity, &[attr_elidex], bridge, ctx)
+            },
+            b,
+        ),
+        js_string!("setAttributeNode"),
+        1,
+    );
+
+    // removeAttributeNode(attr) → removed Attr
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let attr_arg = args.first().ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("removeAttributeNode requires an Attr argument")
+                })?;
+                let attr_elidex = boa_arg_to_elidex(attr_arg, bridge, ctx)?;
+                invoke_dom_handler_ref("removeAttributeNode", entity, &[attr_elidex], bridge, ctx)
+            },
+            b,
+        ),
+        js_string!("removeAttributeNode"),
+        1,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Attr wrapper object
+// ---------------------------------------------------------------------------
+
+/// Create a JS wrapper object for an `Attr` node entity.
+///
+/// Provides `name` (getter), `value` (getter/setter), `ownerElement` (getter),
+/// and `specified` (getter) — matching the WHATWG `Attr` interface.
+pub(crate) fn create_attr_object(
+    entity: Entity,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsValue {
+    let entity_bits = entity_bits_as_f64(entity);
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!(ENTITY_KEY),
+        JsValue::from(entity_bits),
+        Attribute::empty(),
+    );
+
+    let realm = init.context().realm().clone();
+
+    // name (getter)
+    reg_val_accessor(&mut init, bridge, &realm, "name", "attr.name.get");
+
+    // value (getter/setter)
+    let b = bridge.clone();
+    let val_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            invoke_dom_handler("attr.value.get", entity, &[], bridge)
+        },
+        b,
+    )
+    .to_js_function(&realm);
+
+    let b = bridge.clone();
+    let val_set_fn = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            invoke_dom_handler_void(
+                "attr.value.set",
+                entity,
+                &[ElidexJsValue::String(val)],
+                bridge,
+            )
+        },
+        b,
+    )
+    .to_js_function(&realm);
+
+    init.accessor(
+        js_string!("value"),
+        Some(val_getter),
+        Some(val_set_fn),
+        Attribute::CONFIGURABLE,
+    );
+
+    // ownerElement (getter) — returns element ref or null
+    reg_ref_accessor(
+        &mut init,
+        bridge,
+        &realm,
+        "ownerElement",
+        "attr.ownerElement.get",
+    );
+
+    // specified (getter) — always true per modern spec
+    reg_val_accessor(&mut init, bridge, &realm, "specified", "attr.specified.get");
+
+    init.build().into()
+}
+
+// ---------------------------------------------------------------------------
+// DocumentType wrapper object
+// ---------------------------------------------------------------------------
+
+/// Create a JS wrapper object for a `DocumentType` node entity.
+///
+/// Provides `name`, `publicId`, and `systemId` getters — matching the
+/// WHATWG `DocumentType` interface.
+#[allow(dead_code)] // M4-3.10: Will be used when resolving DocumentType entity wrappers in iframe/multi-Document support.
+pub(crate) fn create_doctype_object(
+    entity: Entity,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsValue {
+    let entity_bits = entity_bits_as_f64(entity);
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!(ENTITY_KEY),
+        JsValue::from(entity_bits),
+        Attribute::empty(),
+    );
+
+    let realm = init.context().realm().clone();
+
+    reg_val_accessor(&mut init, bridge, &realm, "name", "doctype.name.get");
+    reg_val_accessor(
+        &mut init,
+        bridge,
+        &realm,
+        "publicId",
+        "doctype.publicId.get",
+    );
+    reg_val_accessor(
+        &mut init,
+        bridge,
+        &realm,
+        "systemId",
+        "doctype.systemId.get",
+    );
+
+    // Also register tree nav + node info so DocumentType nodes are navigable.
+    register_tree_nav_accessors(&mut init, bridge, &realm);
+    register_node_info_accessors(&mut init, bridge, &realm);
 
     init.build().into()
 }

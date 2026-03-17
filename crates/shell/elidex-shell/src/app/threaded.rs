@@ -138,10 +138,24 @@ impl App {
             }
         };
 
-        // TODO(Phase 4): Update accessibility tree in threaded mode.
-        // The DOM lives on the content thread, so we can't call
-        // `a11y_adapter.update_if_active()` here (unlike legacy mode).
-        // Requires a new IPC message (e.g. ContentToBrowser::A11yTreeReady).
+        // Accessibility tree update in threaded mode:
+        //
+        // In legacy (single-thread) mode, the a11y tree is built directly from
+        // the ECS DOM via `elidex_a11y::build_tree_update()` and pushed to the
+        // platform adapter. In threaded mode, the DOM lives on the content thread
+        // and cannot be accessed from the browser thread.
+        //
+        // To support this, the content thread should:
+        // 1. Build the `accesskit::TreeUpdate` after each layout pass
+        //    (using `elidex_a11y::build_tree_update()`)
+        // 2. Send it via a new `ContentToBrowser::A11yTreeReady(TreeUpdate)` message
+        // 3. The browser thread receives it in `drain_content_messages()` and calls
+        //    `a11y_adapter.update_if_active(|| tree_update)`
+        //
+        // This mirrors the existing `DisplayListReady` pattern. The `TreeUpdate`
+        // type is `Send` (it contains only owned data), so it can cross threads.
+        // Implementation deferred until accessibility testing infrastructure is
+        // available.
 
         let mut needs_redraw = false;
         for action in chrome_actions {

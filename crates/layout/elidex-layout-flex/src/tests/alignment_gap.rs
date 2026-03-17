@@ -163,7 +163,7 @@ fn align_items_stretch() {
 fn column_gap_row_direction() {
     let style = ComputedStyle {
         display: Display::Flex,
-        column_gap: 20.0,
+        column_gap: Dimension::Length(20.0),
         ..Default::default()
     };
     let (mut dom, container, items) =
@@ -193,7 +193,7 @@ fn row_gap_column_direction() {
     let style = ComputedStyle {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
-        row_gap: 10.0,
+        row_gap: Dimension::Length(10.0),
         ..Default::default()
     };
     let (mut dom, container, items) =
@@ -240,7 +240,7 @@ fn gap_affects_flex_grow() {
     ];
     let style = ComputedStyle {
         display: Display::Flex,
-        column_gap: 100.0,
+        column_gap: Dimension::Length(100.0),
         ..Default::default()
     };
     let (mut dom, container, items) = make_flex_dom(style, &items_styles);
@@ -297,8 +297,8 @@ fn gap_with_wrap_cross_axis() {
         display: Display::Flex,
         flex_wrap: FlexWrap::Wrap,
         width: Dimension::Length(300.0),
-        column_gap: 10.0,
-        row_gap: 20.0,
+        column_gap: Dimension::Length(10.0),
+        row_gap: Dimension::Length(20.0),
         ..Default::default()
     };
     let (mut dom, container, items) =
@@ -332,7 +332,7 @@ fn gap_with_wrap_cross_axis() {
 fn gap_single_item_no_effect() {
     let style = ComputedStyle {
         display: Display::Flex,
-        column_gap: 20.0,
+        column_gap: Dimension::Length(20.0),
         ..Default::default()
     };
     let (mut dom, container, items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
@@ -360,7 +360,7 @@ fn gap_with_justify_space_between() {
     let style = ComputedStyle {
         display: Display::Flex,
         justify_content: JustifyContent::SpaceBetween,
-        column_gap: 10.0,
+        column_gap: Dimension::Length(10.0),
         ..Default::default()
     };
     let (mut dom, container, items) =
@@ -393,7 +393,7 @@ fn gap_with_row_reverse() {
     let style = ComputedStyle {
         display: Display::Flex,
         flex_direction: FlexDirection::RowReverse,
-        column_gap: 20.0,
+        column_gap: Dimension::Length(20.0),
         ..Default::default()
     };
     let (mut dom, container, items) =
@@ -425,7 +425,7 @@ fn gap_with_row_reverse() {
 fn gap_with_flex_shrink() {
     let style = ComputedStyle {
         display: Display::Flex,
-        column_gap: 20.0,
+        column_gap: Dimension::Length(20.0),
         ..Default::default()
     };
     // Two items each 200px wide + 20px gap = 420px. Container = 400px.

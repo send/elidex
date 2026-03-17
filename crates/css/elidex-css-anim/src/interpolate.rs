@@ -118,50 +118,88 @@ pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
 /// All animatable CSS property names (CSS Transitions Level 1 §3).
 ///
 /// Used by the transition detection system to compare old vs new computed values.
-/// Only includes properties that have a corresponding `apply_animated_value` implementation.
+/// Includes all properties that can be interpolated with the current `CssValue` types
+/// (lengths, colors, numbers, percentages, keywords).
 ///
-/// TODO(M4-3.7): add transform, filter, clip-path, background-position/size,
-/// outline-*, perspective, rotate/scale/translate (~25 properties).
+/// Properties requiring new `ComputedStyle` fields not yet implemented:
+/// transform, filter, clip-path, background-position, background-size,
+/// perspective, rotate, scale, translate.
 pub const ANIMATABLE_PROPERTIES: &[&str] = &[
+    // Opacity & color
     "opacity",
     "color",
     "background-color",
+    "background-position",
+    "background-size",
+    // Border colors
     "border-top-color",
     "border-right-color",
     "border-bottom-color",
     "border-left-color",
+    // Sizing
     "width",
     "height",
     "min-width",
     "min-height",
     "max-width",
     "max-height",
+    // Margins
     "margin-top",
     "margin-right",
     "margin-bottom",
     "margin-left",
+    // Padding
     "padding-top",
     "padding-right",
     "padding-bottom",
     "padding-left",
+    // Border widths
     "border-top-width",
     "border-right-width",
     "border-bottom-width",
     "border-left-width",
+    // Border radius
+    "border-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    // Outline (color and width can be interpolated with current types)
+    "outline-color",
+    "outline-width",
+    "outline-offset",
+    // Typography
     "font-size",
     "font-weight",
+    "font-style",
     "letter-spacing",
     "word-spacing",
     "line-height",
-    "border-radius",
-    "row-gap",
-    "column-gap",
+    "text-indent",
+    "text-decoration-color",
+    // Positioning
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "z-index",
+    // Flex
+    "flex-basis",
     "flex-grow",
     "flex-shrink",
     "order",
+    // Grid / gap
+    "row-gap",
+    "column-gap",
+    // Miscellaneous
+    "list-style-type",
     "visibility",
-    "text-decoration-color",
     "vertical-align",
+    "column-count",
+    "column-width",
+    "column-rule-color",
+    "column-rule-width",
+    "tab-size",
 ];
 
 /// Returns `true` if the given CSS property name is animatable.
@@ -282,6 +320,23 @@ mod tests {
         assert!(is_animatable("color"));
         assert!(is_animatable("width"));
         assert!(is_animatable("margin-top"));
+        assert!(is_animatable("flex-basis"));
+        assert!(is_animatable("font-style"));
+        assert!(is_animatable("list-style-type"));
+        assert!(is_animatable("top"));
+        assert!(is_animatable("z-index"));
+        assert!(is_animatable("border-top-left-radius"));
+        // Newly added properties
+        assert!(is_animatable("outline-color"));
+        assert!(is_animatable("outline-width"));
+        assert!(is_animatable("outline-offset"));
+        assert!(is_animatable("text-indent"));
+        assert!(is_animatable("column-count"));
+        assert!(is_animatable("column-width"));
+        assert!(is_animatable("column-rule-color"));
+        assert!(is_animatable("column-rule-width"));
+        assert!(is_animatable("tab-size"));
+        // Non-animatable
         assert!(!is_animatable("display"));
         assert!(!is_animatable("position"));
         assert!(!is_animatable("text-align"));
@@ -297,10 +352,13 @@ mod tests {
         assert!(!is_animatable("display"));
         assert!(!is_animatable("position"));
         assert!(!is_animatable("text-align"));
-        // Removed properties should not be animatable.
         assert!(!is_animatable("border-spacing"));
-        assert!(!is_animatable("top"));
-        assert!(!is_animatable("z-index"));
+        // Verify specific properties are animatable.
+        assert!(is_animatable("top"));
+        assert!(is_animatable("z-index"));
+        assert!(is_animatable("border-top-left-radius"));
+        assert!(is_animatable("outline-color"));
+        assert!(is_animatable("column-rule-color"));
     }
 
     #[test]

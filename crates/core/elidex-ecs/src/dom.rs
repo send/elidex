@@ -16,8 +16,8 @@
 //!   mutate the tree.
 
 use crate::components::{
-    Attributes, ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment, TagType, TextContent,
-    TreeRelation,
+    AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowHost, ShadowRoot,
+    ShadowRootMode, SlotAssignment, SlotAssignmentMode, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -161,8 +161,12 @@ impl EcsDom {
 
     /// Create an element node with the given tag and attributes.
     pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
-        self.world
-            .spawn((TagType(tag.into()), attrs, TreeRelation::default()))
+        self.world.spawn((
+            TagType(tag.into()),
+            attrs,
+            TreeRelation::default(),
+            NodeKind::Element,
+        ))
     }
 
     /// Create a document root entity (no tag, only tree relations).
@@ -170,7 +174,9 @@ impl EcsDom {
     /// The document root serves as the parent of the `<html>` element.
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
     pub fn create_document_root(&mut self) -> Entity {
-        let entity = self.world.spawn((TreeRelation::default(),));
+        let entity = self
+            .world
+            .spawn((TreeRelation::default(), NodeKind::Document));
         self.document_root = Some(entity);
         entity
     }
@@ -185,8 +191,56 @@ impl EcsDom {
 
     /// Create a text node.
     pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
+        self.world.spawn((
+            TextContent(text.into()),
+            TreeRelation::default(),
+            NodeKind::Text,
+        ))
+    }
+
+    /// Create a document fragment node (WHATWG DOM §4.5).
+    pub fn create_document_fragment(&mut self) -> Entity {
         self.world
-            .spawn((TextContent(text.into()), TreeRelation::default()))
+            .spawn((TreeRelation::default(), NodeKind::DocumentFragment))
+    }
+
+    /// Create a comment node.
+    pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
+        self.world.spawn((
+            CommentData(data.into()),
+            TreeRelation::default(),
+            NodeKind::Comment,
+        ))
+    }
+
+    /// Create a document type node.
+    pub fn create_document_type(
+        &mut self,
+        name: impl Into<String>,
+        public_id: impl Into<String>,
+        system_id: impl Into<String>,
+    ) -> Entity {
+        self.world.spawn((
+            DocTypeData {
+                name: name.into(),
+                public_id: public_id.into(),
+                system_id: system_id.into(),
+            },
+            TreeRelation::default(),
+            NodeKind::DocumentType,
+        ))
+    }
+
+    /// Create an attribute node (WHATWG DOM §4.9).
+    pub fn create_attribute(&mut self, local_name: impl Into<String>) -> Entity {
+        self.world.spawn((
+            AttrData {
+                local_name: local_name.into(),
+                value: String::new(),
+                owner_element: None,
+            },
+            NodeKind::Attribute,
+        ))
     }
 
     /// Append `child` as the last child of `parent`.
@@ -212,6 +266,7 @@ impl EcsDom {
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
         self.link_node(parent, child, last_child, None);
+        self.rev_version(parent);
 
         true
     }
@@ -229,6 +284,7 @@ impl EcsDom {
             return false;
         }
         self.detach(child);
+        self.rev_version(parent);
         true
     }
 
@@ -259,6 +315,7 @@ impl EcsDom {
         // if new_child was an adjacent sibling).
         let ref_prev = self.read_rel(ref_child, |rel| rel.prev_sibling);
         self.link_node(parent, new_child, ref_prev, Some(ref_child));
+        self.rev_version(parent);
 
         true
     }
@@ -301,6 +358,7 @@ impl EcsDom {
 
         // Clear old_child's tree links.
         self.clear_rel(old_child);
+        self.rev_version(parent);
 
         true
     }
@@ -340,6 +398,9 @@ impl EcsDom {
             let _ = self.world.remove_one::<ShadowRoot>(sr);
         }
 
+        // Capture parent for version bump before detach.
+        let parent = self.get_parent(entity);
+
         self.detach(entity);
 
         // Orphan all children: clear their parent and sibling links so they
@@ -353,6 +414,12 @@ impl EcsDom {
         }
 
         let _ = self.world.despawn(entity);
+
+        // Bump version on parent after successful removal.
+        if let Some(p) = parent {
+            self.rev_version(p);
+        }
+
         true
     }
 
@@ -383,6 +450,79 @@ impl EcsDom {
         } else {
             self.update_rel(parent, |rel| rel.last_child = Some(node));
         }
+    }
+
+    // ---- Version tracking ----
+
+    /// Bump the `inclusive_descendants_version` on `entity` and propagate to all ancestors.
+    ///
+    /// This is the Servo-style version cache invalidation mechanism: any tree
+    /// mutation on `entity` (child add/remove, text content change, attribute change
+    /// via `elidex-dom-api` handlers) sets the same new version counter on `entity`
+    /// and all its ancestors up to the root.
+    ///
+    /// The new version is computed as `max(entity_version, doc_root_version) + 1`,
+    /// ensuring a globally monotonic value across the entire tree.
+    pub fn rev_version(&mut self, entity: Entity) {
+        // Compute a single new version: max of entity and doc_root versions + 1.
+        let entity_ver = self.read_rel(entity, |rel| rel.inclusive_descendants_version);
+        let doc_root_ver = self.document_root.map_or(0, |dr| {
+            self.read_rel(dr, |rel| rel.inclusive_descendants_version)
+        });
+        let new_version = entity_ver.max(doc_root_ver).wrapping_add(1);
+
+        // Set the same version on entity and all ancestors.
+        // When the parent chain ends at a ShadowRoot (no parent), jump to the
+        // shadow host and continue propagating, so that LiveCollections rooted
+        // at the host see the version change.
+        let mut current = Some(entity);
+        let mut depth = 0;
+        while let Some(e) = current {
+            self.update_rel(e, |rel| {
+                rel.inclusive_descendants_version = new_version;
+            });
+            let parent = self
+                .world
+                .get::<&TreeRelation>(e)
+                .ok()
+                .and_then(|rel| rel.parent);
+            current = if parent.is_some() {
+                parent
+            } else {
+                // No parent — if this is a ShadowRoot, jump to host.
+                self.world.get::<&ShadowRoot>(e).ok().map(|sr| sr.host)
+            };
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+        }
+    }
+
+    /// Returns the `inclusive_descendants_version` for an entity.
+    ///
+    /// Returns 0 if the entity does not exist or has no `TreeRelation`.
+    #[must_use]
+    pub fn inclusive_descendants_version(&self, entity: Entity) -> u64 {
+        self.read_rel(entity, |rel| rel.inclusive_descendants_version)
+    }
+
+    /// Returns `true` if the entity is an element node.
+    ///
+    /// Checks `NodeKind` first, falls back to `TagType` presence for
+    /// backwards compatibility with entities created before `NodeKind` was added.
+    #[must_use]
+    pub fn is_element(&self, entity: Entity) -> bool {
+        if let Ok(kind) = self.world.get::<&NodeKind>(entity) {
+            return *kind == NodeKind::Element;
+        }
+        self.world.get::<&TagType>(entity).is_ok()
+    }
+
+    /// Returns the `NodeKind` of an entity, if it has one.
+    #[must_use]
+    pub fn node_kind(&self, entity: Entity) -> Option<NodeKind> {
+        self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
 
     // ---- Internal helpers ----
@@ -495,12 +635,121 @@ impl EcsDom {
         self.world.get::<&TagType>(entity).ok().map(|t| t.0.clone())
     }
 
+    /// Compare two entities by tree order (pre-order depth-first traversal).
+    ///
+    /// Walks ancestor chains to find the lowest common ancestor, then compares
+    /// sibling order. Handles the case where one node is an ancestor of the other.
+    /// Falls back to entity bits comparison if the nodes are in different trees.
+    #[must_use]
+    pub fn tree_order_cmp(&self, a: Entity, b: Entity) -> std::cmp::Ordering {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        // Build ancestor chains (child → root order).
+        let chain_a = self.ancestor_chain(a);
+        let chain_b = self.ancestor_chain(b);
+        // Find the lowest common ancestor by walking from the root end.
+        // chain[last] is the root.
+        let mut ia = chain_a.len();
+        let mut ib = chain_b.len();
+        // If roots differ, nodes are in different trees — fall back to entity bits.
+        if chain_a.last() != chain_b.last() {
+            return a.to_bits().cmp(&b.to_bits());
+        }
+        // Walk from root toward leaves, finding where paths diverge.
+        loop {
+            if ia == 0 {
+                // `a` is an ancestor of `b` → `a` comes first.
+                return std::cmp::Ordering::Less;
+            }
+            if ib == 0 {
+                // `b` is an ancestor of `a` → `b` comes first.
+                return std::cmp::Ordering::Greater;
+            }
+            ia -= 1;
+            ib -= 1;
+            if chain_a[ia] != chain_b[ib] {
+                // These are siblings under the same parent — compare sibling order.
+                return self.sibling_order(chain_a[ia], chain_b[ib]);
+            }
+        }
+    }
+
+    /// Build the ancestor chain from entity to root (entity first, root last).
+    fn ancestor_chain(&self, entity: Entity) -> Vec<Entity> {
+        let mut chain = vec![entity];
+        let mut current = entity;
+        let mut depth = 0;
+        while let Some(parent) = self.get_parent(current) {
+            chain.push(parent);
+            current = parent;
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+        }
+        chain
+    }
+
+    /// Compare sibling order: walk from `first_child` of their parent.
+    /// Returns `Less` if `a` appears before `b`, `Greater` otherwise.
+    fn sibling_order(&self, a: Entity, b: Entity) -> std::cmp::Ordering {
+        // Walk from `a` forward; if we find `b`, then a < b.
+        let mut cursor = self.get_next_sibling(a);
+        let mut steps = 0;
+        while let Some(sib) = cursor {
+            if sib == b {
+                return std::cmp::Ordering::Less;
+            }
+            cursor = self.get_next_sibling(sib);
+            steps += 1;
+            if steps > 100_000 {
+                break;
+            }
+        }
+        // `b` was not found after `a`, so `b` must come before `a`.
+        std::cmp::Ordering::Greater
+    }
+
     /// Check if `ancestor` is an ancestor of `descendant` (or is `descendant` itself).
     ///
     /// Uses a depth counter to prevent infinite loops on corrupted trees.
     #[must_use]
     pub fn is_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
         self.is_ancestor(ancestor, descendant)
+    }
+
+    /// Like `is_ancestor_or_self`, but when the walk reaches a `ShadowRoot`,
+    /// it jumps to the host element and continues upward (host-including
+    /// inclusive ancestor per WHATWG DOM §4.2.1).
+    #[must_use]
+    pub fn is_host_including_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
+        if ancestor == descendant {
+            return true;
+        }
+        let mut current = descendant;
+        let mut depth = 0;
+        loop {
+            if let Some(parent) = self.get_parent(current) {
+                if parent == ancestor {
+                    return true;
+                }
+                current = parent;
+            } else if let Ok(sr) = self.world.get::<&ShadowRoot>(current) {
+                let host = sr.host;
+                drop(sr);
+                if host == ancestor {
+                    return true;
+                }
+                current = host;
+            } else {
+                return false;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return false;
+            }
+        }
     }
 
     /// Find the tree root of an entity.
@@ -527,6 +776,27 @@ impl EcsDom {
             }
         }
         current
+    }
+
+    /// Like `find_tree_root`, but when reaching a `ShadowRoot`, jumps to
+    /// the host and continues upward (composed tree root).
+    #[must_use]
+    pub fn find_tree_root_composed(&self, entity: Entity) -> Entity {
+        let mut current = entity;
+        let mut depth = 0;
+        loop {
+            if let Some(parent) = self.get_parent(current) {
+                current = parent;
+            } else if let Ok(sr) = self.world.get::<&ShadowRoot>(current) {
+                current = sr.host;
+            } else {
+                return current;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return current;
+            }
+        }
     }
 
     /// Collect all direct children of `parent` in order.
@@ -626,9 +896,16 @@ impl EcsDom {
         }
 
         // Create shadow root entity.
-        let shadow_root_entity = self
-            .world
-            .spawn((ShadowRoot { mode, host }, TreeRelation::default()));
+        let shadow_root_entity = self.world.spawn((
+            ShadowRoot {
+                mode,
+                host,
+                delegates_focus: false,
+                slot_assignment: SlotAssignmentMode::default(),
+            },
+            TreeRelation::default(),
+            NodeKind::DocumentFragment,
+        ));
 
         // Attach shadow root as child of host.
         if !self.append_child(host, shadow_root_entity) {

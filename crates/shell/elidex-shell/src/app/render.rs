@@ -107,14 +107,29 @@ impl accesskit::ActivationHandler for NoopActivationHandler {
     }
 }
 
-/// Stub action handler — logs requests but doesn't act on them (MVP).
+/// Stub action handler for assistive technology action requests.
 ///
-/// TODO(Phase 4): Handle Focus and other action requests from ATs.
+/// `AccessKit` forwards AT requests (e.g. `VoiceOver`, NVDA) as `ActionRequest`s.
+/// The actions that need handling for full accessibility support are:
+///
+/// - `Focus`: Move DOM focus to the target node (requires sending a
+///   `BrowserToContent::FocusNode(entity)` message in threaded mode).
+/// - `Default` (activate): Simulate a click on the target node.
+/// - `ScrollIntoView`: Scroll the viewport to make the target visible.
+/// - `SetValue`: Update the value of form controls (input, textarea).
+/// - `SetTextSelection`: Set the text cursor/selection range.
+/// - `Increment`/`Decrement`: Adjust range inputs, spinners.
+///
+/// These require routing from the browser thread to the content thread
+/// (similar to keyboard/mouse events via `BrowserToContent` IPC). Currently
+/// all requests are silently ignored since the DOM focus and scroll systems
+/// are not yet accessible from this handler's context.
 struct NoopActionHandler;
 
 impl accesskit::ActionHandler for NoopActionHandler {
     fn do_action(&mut self, _request: ActionRequest) {
-        // MVP: ignore AT action requests.
+        // AT action requests are not yet routed to the content thread.
+        // See struct-level doc comment for the required implementation plan.
     }
 }
 

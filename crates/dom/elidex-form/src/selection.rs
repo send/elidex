@@ -4,6 +4,8 @@ use crate::util::{next_char_boundary, prev_char_boundary};
 use crate::FormControlState;
 
 /// Extend selection in the given direction.
+///
+/// Per HTML §4.10.5.2.10: updates `selectionDirection` to "forward" or "backward".
 pub fn extend_selection(state: &mut FormControlState, forward: bool) {
     if forward {
         if state.cursor_pos < state.value.len() {
@@ -11,10 +13,14 @@ pub fn extend_selection(state: &mut FormControlState, forward: bool) {
             state.cursor_pos = next;
             state.selection_end = next;
         }
+        state.selection_direction = crate::SelectionDirection::Forward;
     } else if state.cursor_pos > 0 {
         let prev = prev_char_boundary(&state.value, state.cursor_pos);
         state.cursor_pos = prev;
         state.selection_end = prev;
+        state.selection_direction = crate::SelectionDirection::Backward;
+    } else {
+        state.selection_direction = crate::SelectionDirection::Backward;
     }
 }
 

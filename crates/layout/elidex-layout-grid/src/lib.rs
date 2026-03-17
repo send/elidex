@@ -26,8 +26,8 @@ mod tests;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    effective_align, horizontal_pb, resolve_explicit_height, sanitize, sanitize_border,
-    sanitize_padding, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
+    effective_align, horizontal_pb, resolve_explicit_height, sanitize_border, ChildLayoutFn,
+    EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
@@ -69,9 +69,12 @@ struct GridItem {
     height_auto: bool,
     /// Whether the item's width is `auto` (for stretch).
     width_auto: bool,
-    /// Content size from initial layout.
+    /// Max-content size from initial layout (at container width).
     content_width: f32,
     content_height: f32,
+    /// Min-content size from narrow-probe layout.
+    min_content_width: f32,
+    min_content_height: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +99,7 @@ pub fn layout_grid(
     let style = elidex_layout_block::get_style(dom, entity);
 
     // --- 1. Container box model resolution ---
-    let padding = sanitize_padding(&style);
+    let padding = elidex_layout_block::resolve_padding(&style, containing_width);
     let border = sanitize_border(&style);
     let margin_top = resolve_margin(style.margin_top, containing_width);
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
@@ -114,8 +117,10 @@ pub fn layout_grid(
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
 
-    let gap_col = sanitize(style.column_gap).max(0.0);
-    let gap_row = sanitize(style.row_gap).max(0.0);
+    let gap_col =
+        elidex_layout_block::resolve_dimension_value(style.column_gap, content_width, 0.0).max(0.0);
+    let gap_row =
+        elidex_layout_block::resolve_dimension_value(style.row_gap, content_width, 0.0).max(0.0);
 
     // --- Early return for empty containers ---
     let children = elidex_layout_block::composed_children_flat(dom, entity);
@@ -186,9 +191,9 @@ pub fn layout_grid(
         layout_child,
     );
 
-    // --- Build per-track max content sizes for intrinsic sizing ---
-    let col_content_sizes = compute_max_content_per_track(&items, actual_cols, true);
-    let row_content_sizes = compute_max_content_per_track(&items, actual_rows, false);
+    // --- Build per-track intrinsic sizes (min-content + max-content) ---
+    let (col_min_sizes, col_max_sizes) = compute_content_per_track(&items, actual_cols, true);
+    let (row_min_sizes, row_max_sizes) = compute_content_per_track(&items, actual_rows, false);
 
     // --- 9. Resolve column tracks ---
     let col_defs = build_track_definitions(
@@ -196,7 +201,13 @@ pub fn layout_grid(
         &style.grid_auto_columns,
         actual_cols,
     );
-    let col_tracks = track::resolve_tracks(&col_defs, content_width, gap_col, &col_content_sizes);
+    let col_tracks = track::resolve_tracks(
+        &col_defs,
+        content_width,
+        gap_col,
+        &col_min_sizes,
+        &col_max_sizes,
+    );
 
     // --- 10. Resolve row tracks ---
     let available_height = resolve_explicit_height(&style, containing_height);
@@ -216,7 +227,8 @@ pub fn layout_grid(
         &row_defs,
         available_height.unwrap_or(0.0),
         gap_row,
-        &row_content_sizes,
+        &row_min_sizes,
+        &row_max_sizes,
     );
 
     // --- 11. Compute track positions ---
@@ -292,6 +304,8 @@ fn collect_grid_items(
             width_auto: child_style.width == Dimension::Auto,
             content_width: 0.0,
             content_height: 0.0,
+            min_content_width: 0.0,
+            min_content_height: 0.0,
         });
     }
     items
@@ -313,7 +327,7 @@ fn measure_item_content(
 ) {
     for item in items.iter_mut() {
         let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let padding = sanitize_padding(&child_style);
+        let padding = elidex_layout_block::resolve_padding(&child_style, container_width);
         let border = sanitize_border(&child_style);
         item.pb = EdgeSizes::new(
             padding.top + border.top,
@@ -328,56 +342,118 @@ fn measure_item_content(
             resolve_margin(child_style.margin_left, container_width),
         );
 
-        // Preliminary layout at container width to get intrinsic sizes.
-        let child_input = LayoutInput {
+        // Min-content probe: layout at near-zero width (CSS Grid §12.3).
+        // Save descendant styles first — layout probes can mutate styles
+        // (e.g. flex's relayout_item_at_position overwrites child widths).
+        let saved_styles = save_descendant_styles(dom, item.entity);
+        let min_input = LayoutInput {
+            containing_width: 1.0,
+            containing_height,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            font_db,
+            depth: depth + 1,
+            float_ctx: None,
+        };
+        let min_lb = layout_child(dom, item.entity, &min_input);
+        item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
+        item.min_content_height = min_lb.content.height + item.pb.top + item.pb.bottom;
+        // Restore styles corrupted by the min-content probe.
+        restore_descendant_styles(dom, &saved_styles);
+
+        // Max-content probe: layout at container width.
+        let max_input = LayoutInput {
             containing_width: container_width,
             containing_height,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
-        let lb = layout_child(dom, item.entity, &child_input);
-        item.content_width = lb.content.width + item.pb.left + item.pb.right;
-        item.content_height = lb.content.height + item.pb.top + item.pb.bottom;
+        let max_lb = layout_child(dom, item.entity, &max_input);
+        item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
+        item.content_height = max_lb.content.height + item.pb.top + item.pb.bottom;
     }
 }
 
-/// Compute the maximum content size per track for intrinsic sizing.
+/// Save `ComputedStyle` for all descendants of `entity` (excluding `entity` itself).
 ///
+/// Layout probes (e.g. min-content at `containing_width: 1.0`) can mutate
+/// descendant styles via flex/grid `position_items`. This function captures
+/// the styles so they can be restored after the probe.
+fn save_descendant_styles(dom: &EcsDom, entity: Entity) -> Vec<(Entity, ComputedStyle)> {
+    let mut result = Vec::new();
+    let mut stack = Vec::new();
+    // Push direct children.
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        stack.push(c);
+        child = dom.get_next_sibling(c);
+    }
+    while let Some(e) = stack.pop() {
+        if let Ok(style) = dom.world().get::<&ComputedStyle>(e) {
+            result.push((e, (*style).clone()));
+        }
+        // Push children of e.
+        let mut c = dom.get_first_child(e);
+        while let Some(ch) = c {
+            stack.push(ch);
+            c = dom.get_next_sibling(ch);
+        }
+    }
+    result
+}
+
+/// Restore previously saved `ComputedStyle` components.
+fn restore_descendant_styles(dom: &mut EcsDom, saved: &[(Entity, ComputedStyle)]) {
+    for (entity, style) in saved {
+        let _ = dom.world_mut().insert_one(*entity, style.clone());
+    }
+}
+
+/// Compute intrinsic content sizes per track.
+///
+/// Returns `(min_content_sizes, max_content_sizes)` per track.
 /// For items spanning a single track, contribute their full size.
 /// For multi-span items, distribute proportionally.
 #[allow(clippy::cast_precision_loss)]
-fn compute_max_content_per_track(
+fn compute_content_per_track(
     items: &[GridItem],
     track_count: usize,
     is_column: bool,
-) -> Vec<f32> {
-    let mut sizes = vec![0.0_f32; track_count];
+) -> (Vec<f32>, Vec<f32>) {
+    let mut min_sizes = vec![0.0_f32; track_count];
+    let mut max_sizes = vec![0.0_f32; track_count];
     for item in items {
-        let (start, span, content_size) = if is_column {
+        let (start, span, min_content, max_content) = if is_column {
             (
                 item.col_start,
                 item.col_span,
+                item.min_content_width + item.margin.left + item.margin.right,
                 item.content_width + item.margin.left + item.margin.right,
             )
         } else {
             (
                 item.row_start,
                 item.row_span,
+                item.min_content_height + item.margin.top + item.margin.bottom,
                 item.content_height + item.margin.top + item.margin.bottom,
             )
         };
         if span == 1 && start < track_count {
-            sizes[start] = sizes[start].max(content_size);
+            min_sizes[start] = min_sizes[start].max(min_content);
+            max_sizes[start] = max_sizes[start].max(max_content);
         } else if span > 1 {
-            let per_track = content_size / span as f32;
-            for size in sizes.iter_mut().skip(start).take(span) {
-                *size = size.max(per_track);
+            let min_per = min_content / span as f32;
+            let max_per = max_content / span as f32;
+            for i in start..(start + span).min(track_count) {
+                min_sizes[i] = min_sizes[i].max(min_per);
+                max_sizes[i] = max_sizes[i].max(max_per);
             }
         }
     }
-    sizes
+    (min_sizes, max_sizes)
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +563,7 @@ fn position_items(
             offset_y: 0.0,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let prelim_lb = layout_child(dom, item.entity, &prelim_input);
 
@@ -525,6 +602,7 @@ fn position_items(
             offset_y: margin_box_y,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let final_lb = layout_child(dom, item.entity, &final_input);
 

@@ -47,22 +47,28 @@ pub(super) fn resolve_box_dimensions(
     ] {
         resolve_prop(prop, winners, parent_style, dim, |d| setter(style, d));
     }
-    // CSS Box Model §4: padding cannot be negative.
-    let px = |v: &CssValue| resolve_to_px(v, ctx).max(0.0);
+    // CSS Box Model §4: padding cannot be negative. Preserve percentages for
+    // layout-time resolution (CSS 2.1 §8.4: % refers to containing block width).
+    let dim_nn = |v: &CssValue| match resolve_dimension(v, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO, // padding cannot be auto
+    };
     for (prop, setter) in [
         (
             "padding-top",
-            (|s: &mut ComputedStyle, v| s.padding.top = v) as fn(&mut ComputedStyle, f32),
+            (|s: &mut ComputedStyle, d| s.padding.top = d) as fn(&mut ComputedStyle, Dimension),
         ),
-        ("padding-right", |s, v| s.padding.right = v),
-        ("padding-bottom", |s, v| s.padding.bottom = v),
-        ("padding-left", |s, v| s.padding.left = v),
+        ("padding-right", |s, d| s.padding.right = d),
+        ("padding-bottom", |s, d| s.padding.bottom = d),
+        ("padding-left", |s, d| s.padding.left = d),
     ] {
-        resolve_prop(prop, winners, parent_style, px, |v| setter(style, v));
+        resolve_prop(prop, winners, parent_style, dim_nn, |d| setter(style, d));
     }
 }
 
 /// Resolve box-sizing, border-radius, and opacity.
+#[allow(clippy::needless_borrows_for_generic_args)]
 pub(super) fn resolve_box_model_extras(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
@@ -77,9 +83,34 @@ pub(super) fn resolve_box_model_extras(
         BoxSizing::from_keyword
     );
     let px = |v: &CssValue| resolve_to_px(v, ctx);
-    resolve_prop("border-radius", winners, parent_style, px, |v| {
-        style.border_radius = v.max(0.0);
+    resolve_prop("border-radius", winners, parent_style, &px, |v| {
+        let r = v.max(0.0);
+        style.border_radii = [r; 4];
     });
+    resolve_prop("border-top-left-radius", winners, parent_style, &px, |v| {
+        style.border_radii[0] = v.max(0.0);
+    });
+    resolve_prop("border-top-right-radius", winners, parent_style, &px, |v| {
+        style.border_radii[1] = v.max(0.0);
+    });
+    resolve_prop(
+        "border-bottom-right-radius",
+        winners,
+        parent_style,
+        &px,
+        |v| {
+            style.border_radii[2] = v.max(0.0);
+        },
+    );
+    resolve_prop(
+        "border-bottom-left-radius",
+        winners,
+        parent_style,
+        &px,
+        |v| {
+            style.border_radii[3] = v.max(0.0);
+        },
+    );
     resolve_prop(
         "opacity",
         winners,
@@ -94,21 +125,24 @@ pub(super) fn resolve_box_model_extras(
 
 /// Resolve row-gap and column-gap.
 ///
-/// NOTE: gap percentages resolve to 0 because `resolve_to_px` has no
-/// containing block width. Proper percentage gap requires layout-time
-/// resolution with Dimension storage (Phase 4).
+/// Preserves percentages for layout-time resolution against the containing
+/// block size (CSS Box Alignment §6).
 pub(super) fn resolve_gap_properties(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
-    let px = |v: &CssValue| resolve_to_px(v, ctx);
-    resolve_prop("row-gap", winners, parent_style, px, |v| {
-        style.row_gap = v.max(0.0);
+    let dim_nn = |v: &CssValue| match resolve_dimension(v, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO,
+    };
+    resolve_prop("row-gap", winners, parent_style, dim_nn, |d| {
+        style.row_gap = d;
     });
-    resolve_prop("column-gap", winners, parent_style, px, |v| {
-        style.column_gap = v.max(0.0);
+    resolve_prop("column-gap", winners, parent_style, dim_nn, |d| {
+        style.column_gap = d;
     });
 }
 
@@ -283,6 +317,29 @@ pub(super) fn resolve_position(
         style.position,
         Position::from_keyword
     );
+}
+
+/// Resolve position offset properties (top/right/bottom/left) and z-index.
+#[allow(clippy::needless_borrows_for_generic_args)]
+pub(super) fn resolve_position_offsets(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    let dim = |v: &CssValue| resolve_dimension(v, ctx);
+    resolve_prop("top", winners, parent_style, &dim, |d| style.top = d);
+    resolve_prop("right", winners, parent_style, &dim, |d| style.right = d);
+    resolve_prop("bottom", winners, parent_style, &dim, |d| style.bottom = d);
+    resolve_prop("left", winners, parent_style, &dim, |d| style.left = d);
+    if let Some(CssValue::Number(n)) = get_resolved_winner("z-index", winners, parent_style) {
+        if n.is_finite() {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                style.z_index = Some(n as i32);
+            }
+        }
+    }
 }
 
 pub(super) fn resolve_overflow(

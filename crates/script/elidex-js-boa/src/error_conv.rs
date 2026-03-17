@@ -15,6 +15,18 @@ pub fn dom_error_to_js_error(err: DomApiError) -> JsNativeError {
         DomApiErrorKind::InvalidStateError => {
             JsNativeError::typ().with_message(format!("InvalidStateError: {}", err.message))
         }
+        DomApiErrorKind::IndexSizeError => {
+            JsNativeError::range().with_message(format!("IndexSizeError: {}", err.message))
+        }
+        DomApiErrorKind::InvalidCharacterError => {
+            JsNativeError::typ().with_message(format!("InvalidCharacterError: {}", err.message))
+        }
+        DomApiErrorKind::InUseAttributeError => {
+            JsNativeError::typ().with_message(format!("InUseAttributeError: {}", err.message))
+        }
+        DomApiErrorKind::NotSupportedError => {
+            JsNativeError::typ().with_message(format!("NotSupportedError: {}", err.message))
+        }
         DomApiErrorKind::Other | _ => JsNativeError::error().with_message(err.message),
     }
 }

@@ -1,7 +1,11 @@
 //! Block child stacking, shifting, and height resolution.
 
+use std::cell::RefCell;
+
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{BoxSizing, Clear, ComputedStyle, Dimension, EdgeSizes, Float, LayoutBox};
+use elidex_plugin::{
+    BoxSizing, Clear, ComputedStyle, Dimension, Display, EdgeSizes, Float, LayoutBox,
+};
 
 use crate::{
     adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, vertical_pb, LayoutInput,
@@ -29,43 +33,90 @@ pub struct StackResult {
 ///
 /// Floated children (CSS 2.1 §9.5) are removed from normal flow and
 /// placed via the float context. Cleared children advance past floats.
+///
+/// Consecutive non-block children (text nodes and inline elements) are
+/// wrapped in anonymous block boxes per CSS 2.1 §9.2.1.1 — their inline
+/// content is laid out via [`layout_inline_context`](crate::inline::layout_inline_context).
+#[allow(clippy::too_many_lines)]
 pub fn stack_block_children(
     dom: &mut EcsDom,
     children: &[Entity],
     input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
     is_bfc: bool,
+    parent_entity: Entity,
 ) -> StackResult {
     let mut cursor_y = input.offset_y;
     let mut prev_margin_bottom: Option<f32> = None;
     let mut first_child_margin_top: Option<f32> = None;
     let mut last_child_margin_bottom: Option<f32> = None;
-    // TODO(Phase 4): CSS 2.1 §9.5 — floats in non-BFC blocks should
-    // propagate to the nearest ancestor BFC. Currently each block creates
-    // a fresh FloatContext, so floats are scoped to their immediate parent.
-    // Proper propagation requires threading the float context through the
-    // layout tree.
-    let mut float_ctx = FloatContext::new(input.containing_width);
+    // CSS 2.1 §9.5: BFC-establishing elements create their own FloatContext.
+    // Non-BFC blocks forward the ancestor's FloatContext (via RefCell) so
+    // that floats inside non-BFC children are visible to the enclosing BFC.
+    let local_ctx = RefCell::new(FloatContext::new(input.containing_width));
+    let float_ctx: &RefCell<FloatContext> = if let Some(ancestor_ctx) = input.float_ctx {
+        if is_bfc {
+            &local_ctx
+        } else {
+            ancestor_ctx
+        }
+    } else {
+        &local_ctx
+    };
+    let mut inline_run: Vec<Entity> = Vec::new();
 
     for &child in children {
-        let Some(child_style) = crate::try_get_style(dom, child) else {
-            continue; // text node in block context: skip
-        };
-        let child_display = child_style.display;
+        let child_style = crate::try_get_style(dom, child);
+
+        // Skip display: none entirely.
+        if child_style
+            .as_ref()
+            .is_some_and(|s| s.display == Display::None)
+        {
+            continue;
+        }
+
+        let is_block = child_style
+            .as_ref()
+            .is_some_and(|s| is_block_level(s.display));
+
+        if !is_block {
+            // Text node or inline element — collect for anonymous block box.
+            inline_run.push(child);
+            continue;
+        }
+
+        // Flush any pending inline run before this block child (CSS 2.1 §9.2.1.1).
+        if !inline_run.is_empty() {
+            let h = flush_inline_run(
+                dom,
+                &inline_run,
+                parent_entity,
+                input,
+                cursor_y,
+                layout_child,
+            );
+            cursor_y += h;
+            // Anonymous block box has zero margins.
+            if first_child_margin_top.is_none() {
+                first_child_margin_top = Some(0.0);
+            }
+            prev_margin_bottom = Some(0.0);
+            last_child_margin_bottom = Some(0.0);
+            inline_run.clear();
+        }
+
+        let child_style = child_style.unwrap();
         let child_float = child_style.float;
         let child_clear = child_style.clear;
         let child_margin_top_dim = child_style.margin_top;
-
-        if !is_block_level(child_display) {
-            continue;
-        }
 
         // --- Clear: advance past floats (CSS 2.1 §9.5.2) ---
         // Applied to both floated and non-floated children.
         let has_clearance = if child_clear == Clear::None {
             false
         } else {
-            let new_y = float_ctx.clear_y(child_clear, cursor_y);
+            let new_y = float_ctx.borrow().clear_y(child_clear, cursor_y);
             let cleared = new_y > cursor_y;
             cursor_y = new_y;
             cleared
@@ -77,7 +128,7 @@ pub fn stack_block_children(
                 dom,
                 child,
                 child_float,
-                &mut float_ctx,
+                float_ctx,
                 input,
                 cursor_y,
                 layout_child,
@@ -107,6 +158,7 @@ pub fn stack_block_children(
         // based on the child's display type).
         let child_input = LayoutInput {
             offset_y: cursor_y,
+            float_ctx: Some(float_ctx),
             ..*input
         };
         let child_box = layout_child(dom, child, &child_input);
@@ -115,11 +167,28 @@ pub fn stack_block_children(
         last_child_margin_bottom = Some(child_box.margin.bottom);
     }
 
+    // Flush trailing inline run (CSS 2.1 §9.2.1.1).
+    if !inline_run.is_empty() {
+        let h = flush_inline_run(
+            dom,
+            &inline_run,
+            parent_entity,
+            input,
+            cursor_y,
+            layout_child,
+        );
+        cursor_y += h;
+        if first_child_margin_top.is_none() {
+            first_child_margin_top = Some(0.0);
+        }
+        last_child_margin_bottom = Some(0.0);
+    }
+
     // CSS 2.1 §10.6.7: Only elements that establish a BFC have their
     // height increased to contain floats. Non-BFC blocks let floats overflow.
     let normal_height = cursor_y - input.offset_y;
     let height = if is_bfc {
-        let float_bottom = float_ctx.float_bottom();
+        let float_bottom = float_ctx.borrow().float_bottom();
         let float_extend = if float_bottom > 0.0 {
             (float_bottom - input.offset_y).max(0.0)
         } else {
@@ -137,6 +206,122 @@ pub fn stack_block_children(
     }
 }
 
+/// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
+///
+/// Lays out consecutive inline/text children via the inline formatting
+/// context and returns the total height consumed.
+fn flush_inline_run(
+    dom: &mut EcsDom,
+    inline_children: &[Entity],
+    parent_entity: Entity,
+    input: &LayoutInput<'_>,
+    cursor_y: f32,
+    layout_child: crate::ChildLayoutFn,
+) -> f32 {
+    let parent_style = crate::get_style(dom, parent_entity);
+    let content_origin = (input.offset_x, cursor_y);
+    crate::inline::layout_inline_context(
+        dom,
+        inline_children,
+        input.containing_width,
+        &parent_style,
+        input.font_db,
+        parent_entity,
+        content_origin,
+        layout_child,
+    )
+}
+
+/// Compute the max-content width of an element for shrink-to-fit sizing.
+///
+/// Recursively walks block and inline children. Block children contribute
+/// their own max-content width (or explicit width if set). Inline children
+/// contribute the sum of text widths without line breaking.
+/// Capped at [`crate::MAX_LAYOUT_DEPTH`] recursion depth.
+fn max_content_width(
+    dom: &EcsDom,
+    entity: Entity,
+    font_db: &elidex_text::FontDatabase,
+    depth: u32,
+) -> f32 {
+    if depth >= crate::MAX_LAYOUT_DEPTH {
+        return 0.0;
+    }
+    let style = crate::get_style(dom, entity);
+    let children = crate::composed_children_flat(dom, entity);
+    if children.is_empty() {
+        return 0.0;
+    }
+
+    let has_block = children
+        .iter()
+        .any(|&c| crate::try_get_style(dom, c).is_some_and(|s| is_block_level(s.display)));
+
+    if has_block {
+        // Mixed or all-block children: take max of each child's contribution.
+        let mut max_w = 0.0_f32;
+        let mut inline_run: Vec<Entity> = Vec::new();
+
+        for &child in &children {
+            let child_style = crate::try_get_style(dom, child);
+            if child_style
+                .as_ref()
+                .is_some_and(|s| s.display == Display::None)
+            {
+                continue;
+            }
+            let child_is_block = child_style
+                .as_ref()
+                .is_some_and(|s| is_block_level(s.display));
+            if !child_is_block {
+                inline_run.push(child);
+                continue;
+            }
+            // Flush inline run before block child.
+            if !inline_run.is_empty() {
+                let inline_w = crate::inline::max_content_inline_size(
+                    dom,
+                    &inline_run,
+                    &style,
+                    entity,
+                    font_db,
+                );
+                max_w = max_w.max(inline_w);
+                inline_run.clear();
+            }
+            let cs = child_style.unwrap();
+            let cp = crate::sanitize_padding(&cs);
+            let cb = crate::sanitize_border(&cs);
+            let child_h_pb = crate::horizontal_pb(&cp, &cb);
+            let child_w = match cs.width {
+                Dimension::Length(px) if px.is_finite() => {
+                    if cs.box_sizing == BoxSizing::BorderBox {
+                        px.max(0.0)
+                    } else {
+                        px + child_h_pb
+                    }
+                }
+                Dimension::Percentage(_) => {
+                    // Percentage width is indeterminate for max-content; use content.
+                    max_content_width(dom, child, font_db, depth + 1) + child_h_pb
+                }
+                _ => max_content_width(dom, child, font_db, depth + 1) + child_h_pb,
+            };
+            max_w = max_w.max(child_w);
+        }
+        // Flush trailing inline run.
+        if !inline_run.is_empty() {
+            let inline_w =
+                crate::inline::max_content_inline_size(dom, &inline_run, &style, entity, font_db);
+            max_w = max_w.max(inline_w);
+        }
+        max_w
+    } else {
+        // All inline children — sum of text widths without line breaking.
+        crate::inline::max_content_inline_size(dom, &children, &style, entity, font_db)
+    }
+}
+
 /// Layout a floated child and place it via the float context.
 ///
 /// Floated elements use shrink-to-fit width: they do not expand to fill
@@ -145,7 +330,7 @@ fn layout_float(
     dom: &mut EcsDom,
     child: Entity,
     float_side: Float,
-    float_ctx: &mut FloatContext,
+    float_ctx: &RefCell<FloatContext>,
     input: &LayoutInput<'_>,
     cursor_y: f32,
     layout_child: crate::ChildLayoutFn,
@@ -159,7 +344,7 @@ fn layout_float(
     let margin_bottom = resolve_margin(child_style.margin_bottom, containing_width);
     let margin_left = resolve_margin(child_style.margin_left, containing_width);
 
-    let padding = crate::sanitize_padding(&child_style);
+    let padding = crate::resolve_padding(&child_style, containing_width);
     let border = crate::sanitize_border(&child_style);
     let h_pb = crate::horizontal_pb(&padding, &border);
 
@@ -183,11 +368,13 @@ fn layout_float(
                 resolved
             }
         }
-        // TODO(Phase 4): CSS 2.1 §10.3.5 — float with auto width should use
-        // shrink-to-fit: min(max(preferred_min_width, available), preferred_width).
-        // Currently uses available width as a fallback until intrinsic sizing is
-        // implemented.
-        _ => containing_width - margin_left - margin_right - h_pb,
+        // CSS 2.1 §10.3.5: shrink-to-fit width for auto-width floats.
+        // preferred = max-content width, available = containing - margins - pb.
+        _ => {
+            let available = (containing_width - margin_left - margin_right - h_pb).max(0.0);
+            let preferred = max_content_width(dom, child, input.font_db, input.depth);
+            preferred.min(available).max(0.0)
+        }
     };
 
     // Layout the float's contents at a temporary position.
@@ -198,6 +385,7 @@ fn layout_float(
         offset_y: 0.0,
         font_db: input.font_db,
         depth: input.depth + 1,
+        float_ctx: None,
     };
     let child_box = layout_child(dom, child, &temp_input);
     let content_width = child_box.content.width;
@@ -209,8 +397,12 @@ fn layout_float(
         content_height + crate::vertical_pb(&padding, &border) + margin_top + margin_bottom;
 
     // Place the float via FloatContext.
-    let (float_x, float_y) =
-        float_ctx.place_float(float_side, margin_box_width, margin_box_height, cursor_y);
+    let (float_x, float_y) = float_ctx.borrow_mut().place_float(
+        float_side,
+        margin_box_width,
+        margin_box_height,
+        cursor_y,
+    );
 
     // Reposition the float's LayoutBox to the placed position.
     // float_x is relative to the containing block; add parent offset for absolute position.

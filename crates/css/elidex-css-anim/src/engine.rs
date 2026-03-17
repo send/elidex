@@ -41,6 +41,8 @@ pub struct AnimationEngine {
     animations: HashMap<EntityId, Vec<AnimationInstance>>,
     /// Registered `@keyframes` rules by name.
     keyframes: HashMap<String, KeyframesRule>,
+    /// Cached result of `has_running()`. `None` means invalidated (needs recomputation).
+    has_running_cache: Option<bool>,
 }
 
 impl AnimationEngine {
@@ -52,6 +54,7 @@ impl AnimationEngine {
             transitions: HashMap::new(),
             animations: HashMap::new(),
             keyframes: HashMap::new(),
+            has_running_cache: None,
         }
     }
 
@@ -84,11 +87,13 @@ impl AnimationEngine {
     /// **Caller responsibility**: the returned cancel events contain entity IDs
     /// that must be validated against the live DOM before dispatch (the entity
     /// may have been destroyed between transition start and replacement).
+    #[must_use]
     pub fn add_transition(
         &mut self,
         entity: EntityId,
         transition: TransitionInstance,
     ) -> Vec<(EntityId, AnimationEvent)> {
+        self.has_running_cache = None;
         let transitions = self.transitions.entry(entity).or_default();
         if transitions.len() >= MAX_TRANSITIONS_PER_ENTITY {
             return Vec::new();
@@ -123,6 +128,7 @@ impl AnimationEngine {
     /// Drops the animation with a warning if the entity already has
     /// 256 animations, preventing unbounded growth.
     pub fn add_animation(&mut self, entity: EntityId, animation: AnimationInstance) {
+        self.has_running_cache = None;
         let anims = self.animations.entry(entity).or_default();
         if anims.len() >= MAX_ANIMATIONS_PER_ENTITY {
             #[cfg(debug_assertions)]
@@ -142,6 +148,7 @@ impl AnimationEngine {
         if !dt.is_finite() || dt < 0.0 {
             return Vec::new();
         }
+        self.has_running_cache = None;
         self.timeline.advance(dt);
         let mut events = Vec::new();
 
@@ -389,16 +396,25 @@ impl AnimationEngine {
     /// Unlike [`has_active`](Self::has_active), this returns `false` when all remaining
     /// entries are finished (e.g. fill-mode:forwards holding final values), preventing
     /// the frame loop from spinning at 60fps indefinitely.
-    // TODO(M4-3.7): cache result in tick() and invalidate on add/remove for O(1).
+    ///
+    /// Uses an internal cache that is invalidated by mutating methods (`tick`,
+    /// `add_transition`, `add_animation`, `remove_entity`, `cancel_animations`,
+    /// `clear`) for amortized O(1) lookups.
     #[must_use]
-    pub fn has_running(&self) -> bool {
-        self.transitions
+    pub fn has_running(&mut self) -> bool {
+        if let Some(cached) = self.has_running_cache {
+            return cached;
+        }
+        let result = self
+            .transitions
             .values()
             .any(|v| v.iter().any(|t| !t.finished))
             || self
                 .animations
                 .values()
-                .any(|v| v.iter().any(|a| !a.finished))
+                .any(|v| v.iter().any(|a| !a.finished));
+        self.has_running_cache = Some(result);
+        result
     }
 
     /// Returns an iterator over all entity IDs that have active transitions or animations.
@@ -416,20 +432,22 @@ impl AnimationEngine {
     ///
     /// Finds the surrounding keyframes and interpolates each declared property.
     /// Returns an empty `Vec` if the animation name is not registered.
-    /// May return duplicate property names if both keyframes declare them; callers
-    /// apply last-wins so this is safe but wasteful.
-    // TODO(M4-3.7): deduplicate result by property name.
-    // TODO(M4-3.7): per-keyframe-interval timing functions (CSS Animations L1 §3.9.1).
-    //   Currently the animation-level timing function is applied globally to progress
-    //   before keyframe lookup. Per spec, the timing function should apply per-interval
-    //   using the `animation-timing-function` declared in each keyframe block.
-    //   Requires: Keyframe struct stores optional TimingFunction, progress() returns
-    //   raw directed progress, and local_t is eased per-interval.
+    ///
+    /// `anim_timing` is the animation-level timing function, used as fallback
+    /// when a keyframe does not declare its own `animation-timing-function`.
+    /// Per CSS Animations L1 §3.9.1, per-keyframe timing functions apply to
+    /// the interval starting at the `before` keyframe.
+    ///
+    /// `underlying_values`, when provided, supplies the element's non-animated
+    /// computed values. Properties declared only in the `before` keyframe will
+    /// interpolate toward the underlying value per CSS Animations L1 §5.
     #[must_use]
     pub fn keyframe_values(
         &self,
         name: &str,
         progress: f64,
+        anim_timing: Option<&crate::timing::TimingFunction>,
+        underlying_values: Option<&std::collections::HashMap<String, elidex_plugin::CssValue>>,
     ) -> Vec<(String, elidex_plugin::CssValue)> {
         let Some(rule) = self.keyframes.get(name) else {
             return Vec::new();
@@ -455,7 +473,7 @@ impl AnimationEngine {
 
         // Interpolate between surrounding keyframes.
         let range = after.offset - before.offset;
-        let local_t = if range.abs() < KEYFRAME_OFFSET_EPSILON {
+        let raw_local_t = if range.abs() < KEYFRAME_OFFSET_EPSILON {
             1.0
         } else {
             let t = (p - before.offset) / range;
@@ -465,6 +483,15 @@ impl AnimationEngine {
             } else {
                 1.0
             }
+        };
+
+        // CSS Animations L1 §3.9.1: apply per-keyframe timing function if present,
+        // otherwise fall back to the animation's overall timing function.
+        let interval_timing = before.timing_function.as_ref().or(anim_timing);
+        let local_t = if let Some(tf) = interval_timing {
+            tf.sample(raw_local_t)
+        } else {
+            raw_local_t
         };
 
         // Build a lookup from `before` declarations for O(1) access.
@@ -489,15 +516,30 @@ impl AnimationEngine {
                 result.push((decl.property.clone(), decl.value.clone()));
             }
         }
-        // Also include properties only in `before` (they hold their value).
-        // TODO(M4-3.7): CSS Animations L1 §5 — properties in `before` but not `after`
-        // should interpolate toward the element's underlying computed value, not hold.
-        // This requires passing the non-animated ComputedStyle into keyframe_values().
+        // CSS Animations L1 §5: properties only in `before` interpolate
+        // toward the underlying (non-animated) computed value.
         for decl in &before.declarations {
             if !seen.contains(decl.property.as_str()) {
-                result.push((decl.property.clone(), decl.value.clone()));
+                if let Some(underlying) = underlying_values.and_then(|uv| uv.get(&decl.property)) {
+                    if let Some(interp) = crate::interpolate::interpolate(
+                        &decl.value,
+                        underlying,
+                        local_t,
+                        &decl.property,
+                    ) {
+                        result.push((decl.property.clone(), interp));
+                    } else {
+                        result.push((decl.property.clone(), decl.value.clone()));
+                    }
+                } else {
+                    result.push((decl.property.clone(), decl.value.clone()));
+                }
             }
         }
+
+        // Deduplicate by property name (last wins), in case the same property
+        // appears multiple times within a single keyframe's declarations.
+        deduplicate_by_property(&mut result);
 
         result
     }
@@ -509,6 +551,7 @@ impl AnimationEngine {
     /// and will not be cleaned up by `tick()`, so this is the only way to
     /// reclaim their memory.
     pub fn remove_entity(&mut self, entity: EntityId) {
+        self.has_running_cache = None;
         self.transitions.remove(&entity);
         self.animations.remove(&entity);
     }
@@ -519,6 +562,7 @@ impl AnimationEngine {
     /// leaks from destroyed entities whose animations/transitions would
     /// otherwise persist indefinitely.
     pub fn prune_dead_entities(&mut self, alive: &dyn Fn(EntityId) -> bool) {
+        self.has_running_cache = None;
         self.transitions.retain(|id, _| alive(*id));
         self.animations.retain(|id, _| alive(*id));
     }
@@ -527,7 +571,9 @@ impl AnimationEngine {
     ///
     /// Returns cancel events for all non-finished animations. Used when
     /// `display: none` is set or `animation-name` changes.
+    #[must_use]
     pub fn cancel_animations(&mut self, entity: EntityId) -> Vec<(EntityId, AnimationEvent)> {
+        self.has_running_cache = None;
         let mut events = Vec::new();
         if let Some(anims) = self.animations.remove(&entity) {
             for anim in &anims {
@@ -556,8 +602,25 @@ impl AnimationEngine {
 
     /// Clear all state.
     pub fn clear(&mut self) {
+        self.has_running_cache = None;
         self.transitions.clear();
         self.animations.clear();
+    }
+}
+
+/// Deduplicate property values by name, keeping the last occurrence (last wins).
+fn deduplicate_by_property(values: &mut Vec<(String, elidex_plugin::CssValue)>) {
+    if values.len() <= 1 {
+        return;
+    }
+    let mut seen = std::collections::HashSet::new();
+    // Walk from the end so the last occurrence is kept.
+    let mut i = values.len();
+    while i > 0 {
+        i -= 1;
+        if !seen.insert(values[i].0.clone()) {
+            values.remove(i);
+        }
     }
 }
 

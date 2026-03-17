@@ -336,10 +336,10 @@ fn parent_child_no_collapse_with_padding() {
             display: Display::Block,
             margin_top: Dimension::Length(10.0),
             padding: EdgeSizes {
-                top: 5.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
+                top: Dimension::Length(5.0),
+                right: Dimension::ZERO,
+                bottom: Dimension::ZERO,
+                left: Dimension::ZERO,
             },
             ..Default::default()
         },

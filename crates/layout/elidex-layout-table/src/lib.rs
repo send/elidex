@@ -16,7 +16,7 @@
 //! Current simplifications (Phase 4 deferred):
 //! - `vertical-align` treated as `top`
 //! - `InlineTable` treated as block-level
-//! - `TableColumn`/`TableColumnGroup` recognized but width propagation skipped
+//! - `<col>` span attribute not read (always treated as span=1)
 //! - `empty-cells` always `show`
 //! - `baseline` alignment treated as `start`
 //! - Anonymous row DOM mutation is not idempotent across re-layouts (needs layout caching)
@@ -31,8 +31,7 @@ mod tests;
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_layout_block::{
-    horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    horizontal_pb, sanitize_border, vertical_pb, ChildLayoutFn, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     BorderCollapse, CaptionSide, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
@@ -62,6 +61,85 @@ fn box_total_height(lb: &LayoutBox) -> f32 {
         + lb.padding.bottom
         + lb.border.bottom
         + lb.margin.bottom
+}
+
+/// Collect per-column widths from `<col>` and `<colgroup>` elements.
+///
+/// Walks the table's children, expanding `<colgroup>` into its child `<col>`
+/// elements. Returns a vec of `Option<f32>` indexed by column, where `None`
+/// means no col-specified width for that column.
+#[must_use]
+fn collect_col_widths(
+    dom: &EcsDom,
+    children: &[Entity],
+    num_cols: usize,
+    available_for_cols: f32,
+) -> Vec<Option<f32>> {
+    let mut result = vec![None::<f32>; num_cols];
+    let mut col_idx = 0;
+
+    for &child in children {
+        if col_idx >= num_cols {
+            break;
+        }
+        let child_style = elidex_layout_block::get_style(dom, child);
+        match child_style.display {
+            Display::TableColumnGroup => {
+                // Expand colgroup: walk its <col> children.
+                let mut col_child = dom.get_first_child(child);
+                while let Some(cc) = col_child {
+                    if col_idx >= num_cols {
+                        break;
+                    }
+                    let cc_style = elidex_layout_block::get_style(dom, cc);
+                    if cc_style.display == Display::TableColumn {
+                        let span = col_span_count(&cc_style);
+                        let w = resolve_col_width(&cc_style, available_for_cols)
+                            .or_else(|| resolve_col_width(&child_style, available_for_cols));
+                        for _ in 0..span {
+                            if col_idx < num_cols {
+                                if result[col_idx].is_none() {
+                                    result[col_idx] = w;
+                                }
+                                col_idx += 1;
+                            }
+                        }
+                    }
+                    col_child = dom.get_next_sibling(cc);
+                }
+            }
+            Display::TableColumn => {
+                let span = col_span_count(&child_style);
+                let w = resolve_col_width(&child_style, available_for_cols);
+                for _ in 0..span {
+                    if col_idx < num_cols {
+                        if result[col_idx].is_none() {
+                            result[col_idx] = w;
+                        }
+                        col_idx += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    result
+}
+
+/// Resolve a `<col>` or `<colgroup>` element's width to pixels.
+fn resolve_col_width(style: &ComputedStyle, available: f32) -> Option<f32> {
+    match style.width {
+        Dimension::Length(px) if px.is_finite() && px > 0.0 => Some(px),
+        Dimension::Percentage(pct) if pct > 0.0 => Some(available * pct / 100.0),
+        _ => None,
+    }
+}
+
+/// Get the `span` count for a `<col>` element (defaults to 1).
+fn col_span_count(_style: &ComputedStyle) -> usize {
+    // CSS does not have a dedicated ComputedStyle field for col span;
+    // the HTML `span` attribute is typically 1. Future: read from Attributes.
+    1
 }
 
 /// Cell width adjusted for the collapsed border half-width model.
@@ -111,7 +189,7 @@ pub fn layout_table(
     let padding = if is_collapse {
         EdgeSizes::default()
     } else {
-        sanitize_padding(&style)
+        elidex_layout_block::resolve_padding(&style, containing_width)
     };
     // CSS 2.1 §17.6.2: in the collapsing border model, the table's own border
     // is not rendered — borders exist only as collapsed edges between cells and
@@ -157,7 +235,9 @@ pub fn layout_table(
             }
             Display::TableRow => direct_rows.push(child),
             Display::TableCell => direct_cells.push(child),
-            Display::TableColumn | Display::TableColumnGroup | Display::None => {}
+            Display::TableColumn | Display::TableColumnGroup | Display::None => {
+                // Col/colgroup widths are extracted separately below.
+            }
             _ => {
                 // Treat unknown children as if they were in an anonymous cell.
                 direct_cells.push(child);
@@ -182,6 +262,7 @@ pub fn layout_table(
             offset_y: cursor_y,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input);
         caption_top_height += box_total_height(&cap_lb);
@@ -262,12 +343,16 @@ pub fn layout_table(
         vec![CollapsedBorders::default(); cells.len()]
     };
 
+    // Extract <col>/<colgroup> widths (CSS 2.1 §17.5.2.1).
+    let col_element_widths = collect_col_widths(dom, &children, num_cols, available_for_cols);
+
     // Determine column widths.
     let col_input = TableColumnInput {
         style: &style,
         cells: &cells,
         cell_styles: &cell_styles,
         collapsed_borders: &collapsed_borders,
+        col_element_widths: &col_element_widths,
         num_cols,
         available_for_cols,
         content_width,
@@ -294,6 +379,7 @@ pub fn layout_table(
             offset_y: 0.0, // temporary y
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_input);
 
@@ -375,6 +461,7 @@ pub fn layout_table(
             offset_y: cell_y,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input);
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
@@ -393,6 +480,7 @@ pub fn layout_table(
             offset_y: cursor_y,
             font_db,
             depth: depth + 1,
+            float_ctx: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input);
         caption_bottom_height += box_total_height(&cap_lb);
@@ -462,6 +550,9 @@ struct TableColumnInput<'a> {
     cells: &'a [CellInfo],
     cell_styles: &'a [ComputedStyle],
     collapsed_borders: &'a [CollapsedBorders],
+    /// Per-column widths from `<col>`/`<colgroup>` elements (CSS 2.1 §17.5.2.1).
+    /// `None` means the column has no col-specified width.
+    col_element_widths: &'a [Option<f32>],
     num_cols: usize,
     available_for_cols: f32,
     content_width: f32,
@@ -517,12 +608,19 @@ fn compute_column_widths(
                 rowspan: c.rowspan,
             })
             .collect();
-        fixed_column_widths(
+        let mut widths = fixed_column_widths(
             num_cols,
             &first_row_cell_infos,
             &first_row_explicit,
+            params.col_element_widths,
             available_for_cols,
-        )
+        );
+        // Col element widths are already applied inside fixed_column_widths.
+        // Clamp negative widths.
+        for w in &mut widths {
+            *w = w.max(0.0);
+        }
+        widths
     } else {
         // Auto table layout: measure cell intrinsic widths.
         let cell_widths: Vec<(f32, f32)> = cells
@@ -537,6 +635,7 @@ fn compute_column_widths(
                     offset_y: 0.0,
                     font_db,
                     depth: depth + 1,
+                    float_ctx: None,
                 };
                 let min_lb = layout_child(dom, cell.entity, &min_input);
                 let max_input = LayoutInput {
@@ -546,10 +645,11 @@ fn compute_column_widths(
                     offset_y: 0.0,
                     font_db,
                     depth: depth + 1,
+                    float_ctx: None,
                 };
                 let max_lb = layout_child(dom, cell.entity, &max_input);
                 let cs = elidex_layout_block::get_style(dom, cell.entity);
-                let p = sanitize_padding(&cs);
+                let p = elidex_layout_block::resolve_padding(&cs, available_for_cols);
                 let b = sanitize_border(&cs);
                 let cell_h_pb = horizontal_pb(&p, &b);
                 // min-content = content width from narrow probe + cell pb
@@ -559,7 +659,14 @@ fn compute_column_widths(
                 (min_w.max(0.0), max_w.max(min_w))
             })
             .collect();
-        auto_column_widths(num_cols, cells, &cell_widths, available_for_cols)
+        let mut widths = auto_column_widths(num_cols, cells, &cell_widths, available_for_cols);
+        // Apply col element widths as minimum constraints (CSS 2.1 §17.5.2.2).
+        for (col, w) in widths.iter_mut().enumerate() {
+            if let Some(Some(col_w)) = params.col_element_widths.get(col) {
+                *w = w.max(*col_w);
+            }
+        }
+        widths
     }
 }
 

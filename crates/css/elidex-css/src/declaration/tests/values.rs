@@ -56,8 +56,7 @@ fn parse_keyword_properties() {
         ("text-align", "right", "text-align", "right"),
         ("text-align", "start", "text-align", "start"),
         ("text-align", "end", "text-align", "end"),
-        // text-align: justify → start (full justification deferred)
-        ("text-align", "justify", "text-align", "start"),
+        ("text-align", "justify", "text-align", "justify"),
         // white-space
         ("white-space", "normal", "white-space", "normal"),
         ("white-space", "pre", "white-space", "pre"),
@@ -190,8 +189,6 @@ fn parse_length_properties() {
         ("margin-top", "10px", 10.0, LengthUnit::Px),
         ("padding-bottom", "5px", 5.0, LengthUnit::Px),
         ("border-top-width", "2px", 2.0, LengthUnit::Px),
-        ("border-radius", "5px", 5.0, LengthUnit::Px),
-        ("border-radius", "0", 0.0, LengthUnit::Px),
         ("row-gap", "10px", 10.0, LengthUnit::Px),
         ("column-gap", "20px", 20.0, LengthUnit::Px),
         ("grid-auto-columns", "50px", 50.0, LengthUnit::Px),
@@ -209,6 +206,43 @@ fn parse_length_properties() {
             CssValue::Length(num, unit),
             "{prop}: {input}"
         );
+    }
+}
+
+#[test]
+fn parse_border_radius_shorthand() {
+    // 1 value → all 4 corners
+    let decls = parse_single("border-radius", "5px");
+    assert_eq!(decls.len(), 4);
+    for d in &decls {
+        assert_eq!(d.value, CssValue::Length(5.0, LengthUnit::Px));
+    }
+    assert_eq!(decls[0].property, "border-top-left-radius");
+    assert_eq!(decls[1].property, "border-top-right-radius");
+    assert_eq!(decls[2].property, "border-bottom-right-radius");
+    assert_eq!(decls[3].property, "border-bottom-left-radius");
+
+    // 2 values → TL+BR / TR+BL
+    let decls = parse_single("border-radius", "10px 20px");
+    assert_eq!(decls.len(), 4);
+    assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px)); // TL
+    assert_eq!(decls[1].value, CssValue::Length(20.0, LengthUnit::Px)); // TR
+    assert_eq!(decls[2].value, CssValue::Length(10.0, LengthUnit::Px)); // BR
+    assert_eq!(decls[3].value, CssValue::Length(20.0, LengthUnit::Px)); // BL
+
+    // 4 values → TL / TR / BR / BL
+    let decls = parse_single("border-radius", "1px 2px 3px 4px");
+    assert_eq!(decls.len(), 4);
+    assert_eq!(decls[0].value, CssValue::Length(1.0, LengthUnit::Px));
+    assert_eq!(decls[1].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[2].value, CssValue::Length(3.0, LengthUnit::Px));
+    assert_eq!(decls[3].value, CssValue::Length(4.0, LengthUnit::Px));
+
+    // 0 → all corners zero
+    let decls = parse_single("border-radius", "0");
+    assert_eq!(decls.len(), 4);
+    for d in &decls {
+        assert_eq!(d.value, CssValue::Length(0.0, LengthUnit::Px));
     }
 }
 

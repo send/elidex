@@ -149,7 +149,27 @@ pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
     );
 
     if !prevented {
-        let submission = elidex_form::build_form_submission(&state.pipeline.dom, form_entity, None);
+        let mut submission =
+            elidex_form::build_form_submission(&state.pipeline.dom, form_entity, Some(target));
+        // WHATWG §4.10.15.3 step 5: submitter formaction/formmethod override.
+        if let Ok(attrs) = state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(target)
+        {
+            if let Some(fa) = attrs.get("formaction") {
+                if !fa.is_empty() {
+                    submission.action = fa.to_string();
+                }
+            }
+            if let Some(fm) = attrs.get("formmethod") {
+                let fm_lower = fm.to_ascii_lowercase();
+                if fm_lower == "get" || fm_lower == "post" {
+                    submission.method = fm_lower;
+                }
+            }
+        }
         // WHATWG §4.10.15.3 step 7: empty action → current document URL.
         let action = if submission.action.is_empty() {
             state
@@ -214,7 +234,6 @@ fn execute_submission(
                 "multipart/form-data enctype not yet supported, falling back to urlencoded"
             );
         }
-        // TODO(L11): formaction/formmethod attributes on submitter elements — M4-3.7+.
         let encoded = elidex_form::encode_form_urlencoded(&submission.data);
         tracing::debug!(
             action = %submission.action,

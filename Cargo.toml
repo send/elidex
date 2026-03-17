@@ -13,12 +13,14 @@ members = [
     "crates/css/elidex-css-table",
     "crates/css/elidex-css-float",
     "crates/css/elidex-css-anim",
+    "crates/css/elidex-css-background",
     "crates/css/elidex-style",
     "crates/dom/elidex-html-parser",
     "crates/dom/elidex-dom-api",
     "crates/dom/elidex-dom-compat",
     "crates/dom/elidex-a11y",
     "crates/dom/elidex-form",
+    "crates/dom/elidex-api-observers",
     "crates/layout/elidex-layout",
     "crates/layout/elidex-layout-block",
     "crates/layout/elidex-layout-flex",
@@ -72,6 +74,7 @@ rustybuzz = "0.20"
 bytes = "1"
 cookie = "0.18"
 crossbeam-channel = "0.5"
+psl = "2"
 http = "1"
 http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -94,6 +97,7 @@ elidex-css-grid = { path = "crates/css/elidex-css-grid" }
 elidex-css-table = { path = "crates/css/elidex-css-table" }
 elidex-css-float = { path = "crates/css/elidex-css-float" }
 elidex-css-anim = { path = "crates/css/elidex-css-anim" }
+elidex-css-background = { path = "crates/css/elidex-css-background" }
 elidex-style = { path = "crates/css/elidex-style" }
 elidex-navigation = { path = "crates/shell/elidex-navigation" }
 elidex-net = { path = "crates/net/elidex-net" }
@@ -102,6 +106,7 @@ elidex-layout-block = { path = "crates/layout/elidex-layout-block" }
 elidex-layout-flex = { path = "crates/layout/elidex-layout-flex" }
 elidex-layout-grid = { path = "crates/layout/elidex-layout-grid" }
 elidex-layout-table = { path = "crates/layout/elidex-layout-table" }
+elidex-bidi = { path = "crates/text/elidex-bidi" }
 elidex-text = { path = "crates/text/elidex-text" }
 elidex-script-session = { path = "crates/script/elidex-script-session" }
 elidex-js = { path = "crates/script/elidex-js" }
@@ -113,6 +118,7 @@ elidex-dom-compat = { path = "crates/dom/elidex-dom-compat" }
 elidex-shell = { path = "crates/shell/elidex-shell" }
 elidex-a11y = { path = "crates/dom/elidex-a11y" }
 elidex-form = { path = "crates/dom/elidex-form" }
+elidex-api-observers = { path = "crates/dom/elidex-api-observers" }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
 egui = "0.33"
@@ -128,6 +134,8 @@ accesskit_winit = "0.32"
 wasmtime = "42"
 wat = "1"
 rayon = "1"
+unicode-segmentation = "1"
+unicode-linebreak = "0.1"
 regex = "1"
 criterion = { version = "0.8", default-features = false }
 elidex-wpt = { path = "crates/tools/elidex-wpt" }

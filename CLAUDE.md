@@ -59,8 +59,10 @@ crates/
 ### Common Commands
 
 ```sh
-mise run ci          # Run all CI checks locally (lint + test + deny)
-mise run test        # cargo test --workspace
+mise run ci          # Run all CI checks locally (lint + test-all + deny)
+mise run test        # cargo nextest run --workspace (no doc-tests, fast)
+mise run test-all    # nextest + doc-tests (full)
+mise run test-doc    # doc-tests only
 mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 cargo doc --workspace --no-deps  # Build docs

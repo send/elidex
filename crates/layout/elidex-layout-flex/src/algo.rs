@@ -1,13 +1,13 @@
 //! Flexbox algorithm phases: line splitting, flexible length resolution,
 //! cross-size resolution, and positioning.
 
-use elidex_ecs::EcsDom;
+use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, ComputedStyle, Dimension, Direction, FlexWrap, JustifyContent,
-    LayoutBox, Rect,
+    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, FlexWrap,
+    JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
 
@@ -201,10 +201,10 @@ pub(crate) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 // Cross-size resolution & stretching
 // ---------------------------------------------------------------------------
 
-// TODO: Each flex item is laid out up to 3 times (collect_flex_items
-// for content sizing, layout_items_cross for cross-size, position_items for
-// final placement). Consider caching intrinsic sizes to reduce redundant work
-// for items with deep subtrees.
+// Each flex item is laid out up to 3 times (collect_flex_items for content
+// sizing, layout_items_cross for cross-size, position_items for final
+// placement). Items with explicit cross sizes skip the layout call here,
+// reducing redundant work for deep subtrees.
 pub(crate) fn layout_items_cross(
     dom: &mut EcsDom,
     items: &mut [FlexItem],
@@ -212,6 +212,12 @@ pub(crate) fn layout_items_cross(
     env: &LayoutEnv<'_>,
 ) {
     for item in items.iter_mut() {
+        // Optimization: skip layout if the item has an explicit cross size.
+        // The cross size is known without layout, avoiding a redundant pass.
+        if let Some(explicit_cross) = resolve_explicit_cross(dom, item.entity, ctx) {
+            item.final_cross = explicit_cross + item.pb_cross;
+            continue;
+        }
         let child_containing = if ctx.horizontal {
             item.final_main
         } else {
@@ -224,6 +230,7 @@ pub(crate) fn layout_items_cross(
             offset_y: 0.0,
             font_db: env.font_db,
             depth: env.depth + 1,
+            float_ctx: None,
         };
         let child_lb = (env.layout_child)(dom, item.entity, &child_input);
         item.final_cross = if ctx.horizontal {
@@ -233,6 +240,59 @@ pub(crate) fn layout_items_cross(
         };
         // child_lb is used only for cross-size computation above; descendants
         // will be re-laid out at the final position in position_items.
+    }
+}
+
+/// Try to resolve the cross-axis content size from the item's explicit style,
+/// avoiding a layout call. Returns `None` if the cross size depends on content.
+fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Option<f32> {
+    let style = elidex_layout_block::get_style(dom, entity);
+    let dim = if ctx.horizontal {
+        style.height
+    } else {
+        style.width
+    };
+    match dim {
+        Dimension::Length(px) if px.is_finite() => {
+            let pb = if ctx.horizontal {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.top + b.top + p.bottom + b.bottom
+            } else {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.left + b.left + p.right + b.right
+            };
+            if style.box_sizing == BoxSizing::BorderBox {
+                Some((px - pb).max(0.0))
+            } else {
+                Some(px.max(0.0))
+            }
+        }
+        Dimension::Percentage(pct) => {
+            // Percentage cross size needs a definite containing size.
+            let containing = if ctx.horizontal {
+                ctx.container_definite_height?
+            } else {
+                ctx.containing_width
+            };
+            let resolved = containing * pct / 100.0;
+            let pb = if ctx.horizontal {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.top + b.top + p.bottom + b.bottom
+            } else {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.left + b.left + p.right + b.right
+            };
+            if style.box_sizing == BoxSizing::BorderBox {
+                Some((resolved - pb).max(0.0))
+            } else {
+                Some(resolved.max(0.0))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -359,6 +419,7 @@ fn relayout_item_at_position(
         offset_y: margin_box_y,
         font_db: env.font_db,
         depth: env.depth + 1,
+        float_ctx: None,
     };
     let child_lb = (env.layout_child)(dom, item.entity, &child_input);
 

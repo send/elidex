@@ -62,10 +62,10 @@ fn box_sizing_border_box_height() {
         display: Display::Block,
         height: Dimension::Length(100.0),
         padding: EdgeSizes {
-            top: 10.0,
-            right: 0.0,
-            bottom: 10.0,
-            left: 0.0,
+            top: Dimension::Length(10.0),
+            right: Dimension::ZERO,
+            bottom: Dimension::Length(10.0),
+            left: Dimension::ZERO,
         },
         border_top: BorderSide {
             width: 2.0,
@@ -162,10 +162,10 @@ fn replaced_element_border_box() {
         width: Dimension::Length(220.0),
         height: Dimension::Length(120.0),
         padding: EdgeSizes {
-            top: 10.0,
-            right: 10.0,
-            bottom: 10.0,
-            left: 10.0,
+            top: Dimension::Length(10.0),
+            right: Dimension::Length(10.0),
+            bottom: Dimension::Length(10.0),
+            left: Dimension::Length(10.0),
         },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()

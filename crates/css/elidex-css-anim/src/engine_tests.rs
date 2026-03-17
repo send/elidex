@@ -381,3 +381,129 @@ fn engine_animation_limit_enforced() {
     // Should cap at MAX_ANIMATIONS_PER_ENTITY
     assert_eq!(engine.active_animations(1).len(), MAX_ANIMATIONS_PER_ENTITY);
 }
+
+#[test]
+fn keyframe_values_per_keyframe_timing() {
+    // Per CSS Animations L1 §3.9.1: animation-timing-function inside a
+    // keyframe block applies to the interval starting at that keyframe.
+    let mut engine = AnimationEngine::new();
+    let rule = crate::parse::parse_keyframes(
+        "test",
+        "from { opacity: 0; animation-timing-function: steps(1, end); } to { opacity: 1; }",
+    );
+    // Verify the from keyframe has a per-keyframe timing function.
+    assert!(
+        rule.keyframes[0].timing_function.is_some(),
+        "from keyframe should have per-keyframe timing function"
+    );
+    engine.register_keyframes(rule);
+
+    // With steps(1, end), the interval [0%, 100%) maps to 0.0 and at 100% maps to 1.0.
+    // At progress=0.5 (halfway), steps(1, end) should output 0.0 (step hasn't fired yet).
+    let values = engine.keyframe_values("test", 0.5, Some(&TimingFunction::Linear), None);
+    let opacity_val = values.iter().find(|(p, _)| p == "opacity");
+    assert!(opacity_val.is_some(), "should have opacity value");
+    let (_, val) = opacity_val.unwrap();
+    // steps(1, end) at t=0.5 → 0.0, so interpolated opacity = 0 + (1-0)*0.0 = 0.0
+    match val {
+        CssValue::Number(n) => assert!(
+            (*n - 0.0).abs() < 0.01,
+            "expected ~0.0 with steps(1, end) at t=0.5, got {n}"
+        ),
+        CssValue::Length(n, _) => assert!(
+            (*n - 0.0).abs() < 0.01,
+            "expected ~0.0 with steps(1, end) at t=0.5, got {n}"
+        ),
+        other => panic!("unexpected value type: {other:?}"),
+    }
+}
+
+#[test]
+fn keyframe_values_fallback_to_anim_timing() {
+    // When keyframe has no per-keyframe timing, the animation's timing applies.
+    let mut engine = AnimationEngine::new();
+    let rule = crate::parse::parse_keyframes("test", "from { opacity: 0; } to { opacity: 1; }");
+    assert!(
+        rule.keyframes[0].timing_function.is_none(),
+        "from keyframe should have no per-keyframe timing"
+    );
+    engine.register_keyframes(rule);
+
+    // With steps(1, end) as the animation-level timing, at progress=0.5 opacity should be 0.
+    let values = engine.keyframe_values(
+        "test",
+        0.5,
+        Some(&TimingFunction::Steps(
+            1,
+            crate::timing::StepPosition::JumpEnd,
+        )),
+        None,
+    );
+    let opacity_val = values.iter().find(|(p, _)| p == "opacity");
+    assert!(opacity_val.is_some());
+    let (_, val) = opacity_val.unwrap();
+    match val {
+        CssValue::Number(n) => assert!(
+            (*n - 0.0).abs() < 0.01,
+            "expected ~0.0 with steps(1, end) anim timing at t=0.5, got {n}"
+        ),
+        CssValue::Length(n, _) => assert!((*n - 0.0).abs() < 0.01, "expected ~0.0, got {n}"),
+        other => panic!("unexpected value type: {other:?}"),
+    }
+}
+
+#[test]
+fn keyframe_values_no_timing_uses_linear() {
+    // When no timing function is provided at all, raw progress is used (linear).
+    let mut engine = AnimationEngine::new();
+    let rule = crate::parse::parse_keyframes("test", "from { width: 0px; } to { width: 100px; }");
+    engine.register_keyframes(rule);
+
+    let values = engine.keyframe_values("test", 0.5, None, None);
+    let width_val = values.iter().find(|(p, _)| p == "width");
+    assert!(width_val.is_some());
+    let (_, val) = width_val.unwrap();
+    match val {
+        CssValue::Length(n, _) => assert!(
+            (*n - 50.0).abs() < 0.5,
+            "expected ~50.0 with no timing (linear), got {n}"
+        ),
+        other => panic!("unexpected value type: {other:?}"),
+    }
+}
+
+#[test]
+fn has_running_cache_invalidated() {
+    let mut engine = AnimationEngine::new();
+    assert!(!engine.has_running());
+
+    let trans = TransitionInstance::new(
+        "opacity".into(),
+        CssValue::Number(0.0),
+        CssValue::Number(1.0),
+        1.0,
+        0.0,
+        TimingFunction::Linear,
+    );
+    let _ = engine.add_transition(1, trans);
+    // Cache should be invalidated by add_transition.
+    assert!(engine.has_running());
+
+    // Tick past completion.
+    engine.tick(2.0);
+    assert!(!engine.has_running());
+
+    // add_animation invalidates.
+    let spec = make_anim_spec(
+        "test",
+        0.5,
+        crate::style::IterationCount::Number(1.0),
+        crate::style::PlayState::Running,
+    );
+    engine.add_animation(2, AnimationInstance::new(&spec, 0.0));
+    assert!(engine.has_running());
+
+    // remove_entity invalidates.
+    engine.remove_entity(2);
+    assert!(!engine.has_running());
+}

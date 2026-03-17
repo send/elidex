@@ -383,3 +383,137 @@ fn grid_percentage_row_indefinite_height() {
     assert!(approx_eq(lb.content.height, 80.0));
     assert!(approx_eq(clb.content.height, 80.0));
 }
+
+#[test]
+fn grid_minmax_min_content_uses_narrow_size() {
+    // minmax(min-content, 1fr) should use min-content for the base size,
+    // not max-content. With a child that has a fixed width, min-content
+    // and max-content are the same, so we test with a small fixed child
+    // to verify the base is not inflated.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: vec![
+                    TrackSize::MinMax(
+                        Box::new(TrackBreadth::MinContent),
+                        Box::new(TrackBreadth::Fr(1.0)),
+                    ),
+                    TrackSize::Length(200.0),
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Child in first column has a small fixed width.
+    let c1 = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(container, c1);
+    dom.world_mut()
+        .insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                width: Dimension::Length(50.0),
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let _c2 = make_grid_child(&mut dom, container, 30.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+
+    // minmax(min-content, 1fr): base = min-content (50px child width),
+    // max = 1fr gets remaining space (600 - 200 = 400px).
+    // Since 1fr resolves to 400px and that's > base, track size = 400.
+    // The child itself has explicit width 50px, so check via grid area position.
+    // c1 is at x=0, c2 starts at x=400 (track1 position).
+    let lb2_entity = dom.composed_children(container)[1];
+    let lb2 = get_layout(&dom, lb2_entity);
+    assert!(
+        approx_eq(lb2.content.x, 400.0),
+        "c2 should start at x=400 (track 0 = 400px), got {}",
+        lb2.content.x
+    );
+}
+
+#[test]
+fn grid_minmax_max_content_in_max() {
+    // minmax(100px, max-content) should use max-content for the limit.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: vec![
+                    TrackSize::MinMax(
+                        Box::new(TrackBreadth::Length(100.0)),
+                        Box::new(TrackBreadth::MaxContent),
+                    ),
+                    TrackSize::Fr(1.0),
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Child in first column has a medium fixed width (150px).
+    let c1 = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(container, c1);
+    dom.world_mut()
+        .insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                width: Dimension::Length(150.0),
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let _c2 = make_grid_child(&mut dom, container, 30.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        600.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+
+    // minmax(100px, max-content): base=100, limit=max-content(150).
+    // Track size = max(base, min(limit, max(base, content))) = max(100, min(150, 150)) = 150.
+    assert!(
+        approx_eq(lb1.content.width, 150.0),
+        "expected 150px (max-content limit), got {}",
+        lb1.content.width
+    );
+}

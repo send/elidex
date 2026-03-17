@@ -135,7 +135,7 @@ impl AnimationInstance {
             // In delay phase
             return match self.fill_mode {
                 AnimationFillMode::Backwards | AnimationFillMode::Both => {
-                    // CSS Animations §3.9: directed progress first, then timing function.
+                    // CSS Animations §3.9: directed progress (timing applied per-interval).
                     Some(self.directed_progress(0, 0.0))
                 }
                 _ => None,
@@ -169,7 +169,7 @@ impl AnimationInstance {
                     } else {
                         ((active_time % dur) / dur) as f32
                     };
-                    // CSS Animations §3.9: apply direction first, then timing function.
+                    // CSS Animations §3.9: directed progress (timing applied per-interval).
                     Some(self.directed_progress(final_iteration, raw))
                 }
                 _ => None,
@@ -179,8 +179,8 @@ impl AnimationInstance {
         #[allow(clippy::cast_sign_loss)]
         let iteration = (active_time / dur).floor().min(f64::from(u32::MAX)) as u32;
         let raw_progress = ((active_time % dur) / dur) as f32;
-        // Per CSS Animations Level 1 §3.9: apply direction first (step 2),
-        // then apply timing function (step 3).
+        // Per CSS Animations Level 1 §3.9: apply direction (step 2).
+        // Timing function (step 3) is applied per-interval in keyframe_values().
         Some(self.directed_progress(iteration, raw_progress))
     }
 
@@ -207,10 +207,13 @@ impl AnimationInstance {
         }
     }
 
-    /// Apply direction adjustment and timing function for a given iteration.
+    /// Apply direction adjustment for a given iteration.
+    ///
+    /// Returns the directed progress without applying the timing function.
+    /// Per CSS Animations L1 §3.9.1, the timing function is applied per-keyframe
+    /// interval in `AnimationEngine::keyframe_values()`, not globally here.
     fn directed_progress(&self, iteration: u32, raw: f32) -> f32 {
-        let directed = self.direction_for_iteration(iteration, raw);
-        self.timing_function.sample(directed)
+        self.direction_for_iteration(iteration, raw)
     }
 
     /// Compute direction-adjusted progress for a given iteration.

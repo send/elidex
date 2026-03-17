@@ -1,7 +1,12 @@
 //! Pre-order tree walk for display list building.
 
-use elidex_ecs::{EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH};
+use std::sync::Arc;
+
+use elidex_ecs::{
+    BackgroundImages, EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH,
+};
 use elidex_form::FormControlState;
+use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow, Visibility};
 use elidex_text::FontDatabase;
 
@@ -9,9 +14,7 @@ use crate::display_list::{DisplayItem, DisplayList};
 use crate::font_cache::FontCache;
 
 use super::form::emit_form_control;
-use super::{
-    emit_background, emit_borders, emit_image, emit_inline_run, emit_list_marker_with_counter,
-};
+use super::{emit_background, emit_borders, emit_inline_run, emit_list_marker_with_counter};
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
 ///
@@ -21,6 +24,7 @@ use super::{
 /// recursed into normally.
 ///
 /// Recursion is capped at `MAX_ANCESTOR_DEPTH` to prevent stack overflow.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn walk(
     dom: &EcsDom,
     entity: Entity,
@@ -28,6 +32,7 @@ pub(crate) fn walk(
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
     depth: usize,
+    caret_visible: bool,
 ) {
     if depth > MAX_ANCESTOR_DEPTH {
         return;
@@ -65,19 +70,34 @@ pub(crate) fn walk(
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
         if let Some(ref style) = style_ref {
             if is_visible {
+                let bg_images = dom.world().get::<&BackgroundImages>(entity).ok();
                 emit_background(
                     &lb,
                     style.background_color,
-                    style.border_radius,
+                    style.border_radii,
                     style.opacity,
+                    bg_images.as_deref(),
+                    style,
                     dl,
                 );
                 emit_borders(&lb, style, dl);
 
                 // Emit image for replaced elements with decoded pixel data.
                 if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
-                    if style.opacity > 0.0 {
-                        emit_image(&lb, &image_data, style.opacity, dl);
+                    if style.opacity > 0.0 && image_data.width > 0 && image_data.height > 0 {
+                        dl.push(DisplayItem::Image {
+                            painting_area: lb.content,
+                            pixels: Arc::clone(&image_data.pixels),
+                            image_width: image_data.width,
+                            image_height: image_data.height,
+                            position: (0.0, 0.0),
+                            size: (lb.content.width, lb.content.height),
+                            repeat: BgRepeat {
+                                x: BgRepeatAxis::NoRepeat,
+                                y: BgRepeatAxis::NoRepeat,
+                            },
+                            opacity: style.opacity,
+                        });
                     }
                 }
 
@@ -94,9 +114,7 @@ pub(crate) fn walk(
                             .get::<&elidex_ecs::ElementState>(entity)
                             .ok()
                             .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
-                        // TODO(M4-3.7): thread caret_visible from ContentState into display list
-                        // builder so caret blink actually hides the caret in the rendered output.
-                        true,
+                        caret_visible,
                     );
                 }
             }
@@ -104,7 +122,10 @@ pub(crate) fn walk(
             // overflow: hidden → clip children to padding box (CSS Overflow §3).
             if style.overflow == Overflow::Hidden {
                 let pb = lb.padding_box();
-                dl.push(DisplayItem::PushClip { rect: pb });
+                dl.push(DisplayItem::PushClip {
+                    rect: pb,
+                    radii: [0.0; 4],
+                });
                 has_clip = true;
             }
         }
@@ -150,7 +171,15 @@ pub(crate) fn walk(
             }
 
             // Recurse into block child.
-            walk(dom, child, font_db, font_cache, dl, depth + 1);
+            walk(
+                dom,
+                child,
+                font_db,
+                font_cache,
+                dl,
+                depth + 1,
+                caret_visible,
+            );
         } else {
             // Text node or inline element — add to current run.
             inline_run.push(child);
@@ -167,10 +196,45 @@ pub(crate) fn walk(
     }
 }
 
-/// Check whether a child entity is a block-level child (has a `LayoutBox`).
+/// Check whether a child entity is a block-level child.
 ///
 /// Block children are recursed into separately; non-block children (text
 /// nodes and inline elements) are collected into inline runs.
+///
+/// An entity is block-level if it has a `LayoutBox` AND a block-level
+/// display type. Inline elements may also have a `LayoutBox` (assigned
+/// during inline layout for background/border rendering) but should
+/// still be treated as part of an inline run.
 pub(crate) fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
-    dom.world().get::<&LayoutBox>(entity).is_ok()
+    if dom.world().get::<&LayoutBox>(entity).is_err() {
+        return false;
+    }
+    // Check display type — inline elements with LayoutBox are NOT block children.
+    dom.world()
+        .get::<&ComputedStyle>(entity)
+        .ok()
+        .is_some_and(|style| is_block_display(style.display))
+}
+
+/// Returns `true` for display values that generate block-level boxes.
+///
+/// Atomic inline-level boxes (`inline-block`, `inline-flex`, etc.) return
+/// `false` — they participate in inline runs and are rendered inline.
+fn is_block_display(display: Display) -> bool {
+    matches!(
+        display,
+        Display::Block
+            | Display::Flex
+            | Display::Grid
+            | Display::ListItem
+            | Display::Table
+            | Display::TableRow
+            | Display::TableRowGroup
+            | Display::TableHeaderGroup
+            | Display::TableFooterGroup
+            | Display::TableCell
+            | Display::TableColumn
+            | Display::TableColumnGroup
+            | Display::TableCaption
+    )
 }

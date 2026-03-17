@@ -8,18 +8,14 @@ use crate::{horizontal_pb, resolve_dimension_value, sanitize, vertical_pb};
 ///
 /// CSS 2.1 §10.3.2: replaced elements with `width: auto` use intrinsic width.
 /// When only height is specified, width is computed from the aspect ratio.
-#[allow(clippy::cast_precision_loss)]
 pub(super) fn resolve_replaced_width(
     style: &ComputedStyle,
     containing_width: f32,
-    intrinsic_w: u32,
-    intrinsic_h: u32,
+    iw: f32,
+    ih: f32,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
-    let iw = intrinsic_w as f32;
-    let ih = intrinsic_h as f32;
-
     if style.width == Dimension::Auto {
         match style.height {
             Dimension::Length(h) if h.is_finite() && ih > 0.0 => {
@@ -47,18 +43,14 @@ pub(super) fn resolve_replaced_width(
 ///
 /// CSS 2.1 §10.6.2: replaced elements with `height: auto` use intrinsic height.
 /// When only width is specified, height is computed from the aspect ratio.
-#[allow(clippy::cast_precision_loss)]
 pub(super) fn resolve_replaced_height(
     style: &ComputedStyle,
     used_width: f32,
-    intrinsic_w: u32,
-    intrinsic_h: u32,
+    iw: f32,
+    ih: f32,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
-    let iw = intrinsic_w as f32;
-    let ih = intrinsic_h as f32;
-
     match style.height {
         Dimension::Auto => {
             if !matches!(style.width, Dimension::Auto) && iw > 0.0 {

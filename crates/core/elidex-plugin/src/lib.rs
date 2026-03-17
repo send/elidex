@@ -3,6 +3,7 @@
 //! This crate defines the core plugin traits, spec-level enums, and the
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
+pub mod background;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -41,7 +42,9 @@ pub use traits::{
     ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware, ParseBehavior,
     PropertyDeclaration, ResolveContext,
 };
-pub use values::{CalcExpr, CssColor, CssValue, LengthUnit};
+pub use values::{
+    AngleOrDirection, CalcExpr, CssColor, CssColorStop, CssValue, GradientValue, LengthUnit,
+};
 
 // ---------------------------------------------------------------------------
 // Process model

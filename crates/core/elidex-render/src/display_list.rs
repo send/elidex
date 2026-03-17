@@ -34,8 +34,8 @@ pub enum DisplayItem {
     RoundedRect {
         /// The rectangle to fill.
         rect: Rect,
-        /// Uniform corner radius in pixels.
-        radius: f32,
+        /// Per-corner radii `[top-left, top-right, bottom-right, bottom-left]` in pixels.
+        radii: [f32; 4],
         /// The fill color.
         color: CssColor,
     },
@@ -43,8 +43,8 @@ pub enum DisplayItem {
     StrokedRoundedRect {
         /// The rectangle to stroke.
         rect: Rect,
-        /// Uniform corner radius in pixels.
-        radius: f32,
+        /// Per-corner radii `[top-left, top-right, bottom-right, bottom-left]` in pixels.
+        radii: [f32; 4],
         /// Stroke line width in pixels.
         stroke_width: f32,
         /// The stroke color.
@@ -52,21 +52,75 @@ pub enum DisplayItem {
     },
     /// Draw a decoded image.
     Image {
-        /// The destination rectangle (position and size).
-        rect: Rect,
+        /// The painting area (clip boundary).
+        painting_area: Rect,
         /// Decoded RGBA8 pixel data.
         pixels: Arc<Vec<u8>>,
         /// Image width in pixels.
         image_width: u32,
         /// Image height in pixels.
         image_height: u32,
+        /// Position within the painting area `(x, y)`.
+        position: (f32, f32),
+        /// Rendered size `(width, height)` in pixels.
+        size: (f32, f32),
+        /// Repeat mode for tiling.
+        repeat: elidex_plugin::background::BgRepeat,
         /// Element opacity (0.0–1.0).
         opacity: f32,
     },
-    /// Begin a clip region (for `overflow: hidden`).
+    /// Draw a linear gradient.
+    LinearGradient {
+        /// The painting area.
+        painting_area: Rect,
+        /// Gradient line angle in degrees (0 = to top, 90 = to right).
+        angle: f32,
+        /// Resolved color stops with normalized positions (0.0–1.0).
+        stops: Vec<(f32, CssColor)>,
+        /// Whether this is a repeating gradient.
+        repeating: bool,
+        /// Element opacity (0.0–1.0).
+        opacity: f32,
+    },
+    /// Draw a radial gradient.
+    RadialGradient {
+        /// The painting area.
+        painting_area: Rect,
+        /// Center position `(x, y)` in pixels relative to painting area.
+        center: (f32, f32),
+        /// Ellipse radii `(rx, ry)` in pixels.
+        radii: (f32, f32),
+        /// Resolved color stops with normalized positions (0.0–1.0).
+        stops: Vec<(f32, CssColor)>,
+        /// Whether this is a repeating gradient.
+        repeating: bool,
+        /// Element opacity (0.0–1.0).
+        opacity: f32,
+    },
+    /// Draw a conic gradient.
+    ConicGradient {
+        /// The painting area.
+        painting_area: Rect,
+        /// Center position `(x, y)` in pixels relative to painting area.
+        center: (f32, f32),
+        /// Start angle in degrees.
+        start_angle: f32,
+        /// End angle in degrees.
+        end_angle: f32,
+        /// Resolved angular color stops with positions in degrees.
+        stops: Vec<(f32, CssColor)>,
+        /// Whether this is a repeating gradient.
+        repeating: bool,
+        /// Element opacity (0.0–1.0).
+        opacity: f32,
+    },
+    /// Begin a clip region (for `overflow: hidden` or background-clip).
     PushClip {
         /// The clipping rectangle.
         rect: Rect,
+        /// Per-corner radii `[top-left, top-right, bottom-right, bottom-left]`.
+        /// `[0.0; 4]` = rectangular clip.
+        radii: [f32; 4],
     },
     /// End a clip region.
     PopClip,

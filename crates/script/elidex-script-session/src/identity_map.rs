@@ -172,7 +172,7 @@ mod tests {
 
         map.get_or_create(e, ComponentKind::Element);
         map.get_or_create(e, ComponentKind::Style);
-        map.get_or_create(e, ComponentKind::Attributes);
+        map.get_or_create(e, ComponentKind::Attribute);
         assert_eq!(map.len(), 3);
 
         let count = map.release_entity(e);

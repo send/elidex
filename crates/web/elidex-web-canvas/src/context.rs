@@ -518,13 +518,20 @@ impl Canvas2dContext {
 
     /// Measure text width using a rough per-character estimate.
     ///
-    /// This is a simplified implementation that estimates text width
-    /// based on a fixed character width. Full text measurement requires
-    /// font shaping infrastructure (Phase 4: `fillText`/`strokeText`).
+    /// Returns an approximate width based on the default 10px sans-serif font
+    /// at `ESTIMATED_CHAR_WIDTH` (6px) per character. This is sufficient for
+    /// basic layout calculations but will not match browser `measureText()`
+    /// output for variable-width fonts, CJK text, or non-default font sizes.
+    ///
+    /// Integrating with `elidex-shaping` for accurate font metrics requires:
+    /// 1. Tracking the current canvas font (via `ctx.font = "..."` parsing)
+    /// 2. Resolving the font against `FontDatabase` (same as CSS text layout)
+    /// 3. Calling `measure_text()` from `elidex-shaping` with the resolved face
+    ///
+    /// This is blocked on `fillText`/`strokeText` implementation, which needs
+    /// the same font resolution pipeline. Both will be addressed together.
     #[must_use]
     pub fn measure_text(&self, text: &str) -> f32 {
-        // TODO(Phase 4): integrate with elidex-shaping for actual font metrics.
-        // For MVP, return a rough estimate based on 10px default font.
         let char_count = text.chars().count();
         #[allow(clippy::cast_precision_loss)]
         let width = char_count as f32 * ESTIMATED_CHAR_WIDTH;

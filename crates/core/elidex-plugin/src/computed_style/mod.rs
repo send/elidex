@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use crate::background::BackgroundLayer;
 use crate::{CssColor, EdgeSizes};
 
 /// Define a CSS keyword enum with `Default` (first variant), `AsRef<str>`, and
@@ -142,6 +143,9 @@ pub struct ComputedStyle {
     pub unicode_bidi: UnicodeBidi,
     /// Background color. Initial: transparent.
     pub background_color: CssColor,
+    /// Background image layers (CSS Backgrounds Level 3).
+    /// `None` = no background images (zero-cost default).
+    pub background_layers: Option<Box<[BackgroundLayer]>>,
 
     /// Overflow behavior. Initial: Visible.
     pub overflow: Overflow,
@@ -168,8 +172,8 @@ pub struct ComputedStyle {
     /// Margin left. Initial: Length(0.0).
     pub margin_left: Dimension,
 
-    /// Padding edges in pixels. Initial: all 0.0.
-    pub padding: EdgeSizes,
+    /// Padding edges (computed value — may contain percentages). Initial: all 0.
+    pub padding: EdgeSizes<Dimension>,
 
     /// Top border. Computed initial: width 0.0 (medium=3px, but 0 when style=none).
     pub border_top: BorderSide,
@@ -199,16 +203,17 @@ pub struct ComputedStyle {
     // --- Box model (non-inherited) ---
     /// Box sizing model. Initial: content-box.
     pub box_sizing: BoxSizing,
-    /// Border radius (uniform, all corners) in pixels. Initial: 0.0.
-    pub border_radius: f32,
+    /// Per-corner border radii in pixels `[top-left, top-right, bottom-right, bottom-left]`.
+    /// Initial: `[0.0; 4]`.
+    pub border_radii: [f32; 4],
     /// Opacity (0.0–1.0). Initial: 1.0.
     pub opacity: f32,
 
     // --- Flex gap properties (non-inherited) ---
-    /// Row gap in pixels. Initial: 0.0.
-    pub row_gap: f32,
-    /// Column gap in pixels. Initial: 0.0.
-    pub column_gap: f32,
+    /// Row gap (computed value — may contain percentages). Initial: 0.
+    pub row_gap: Dimension,
+    /// Column gap (computed value — may contain percentages). Initial: 0.
+    pub column_gap: Dimension,
 
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
@@ -268,6 +273,18 @@ pub struct ComputedStyle {
     /// Caption placement. Initial: `Top`. **Inherited.**
     pub caption_side: CaptionSide,
 
+    // --- Position offsets (non-inherited) ---
+    /// Top offset. Initial: Auto.
+    pub top: Dimension,
+    /// Right offset. Initial: Auto.
+    pub right: Dimension,
+    /// Bottom offset. Initial: Auto.
+    pub bottom: Dimension,
+    /// Left offset. Initial: Auto.
+    pub left: Dimension,
+    /// Stacking order. Initial: `None` (auto).
+    pub z_index: Option<i32>,
+
     // --- Float/clear properties (non-inherited) ---
     /// Float positioning. Initial: `None`.
     pub float: Float,
@@ -313,6 +330,7 @@ impl Default for ComputedStyle {
             position: Position::default(),
             unicode_bidi: UnicodeBidi::default(),
             background_color: CssColor::TRANSPARENT,
+            background_layers: None,
             overflow: Overflow::default(),
 
             width: Dimension::Auto,
@@ -327,7 +345,7 @@ impl Default for ComputedStyle {
             margin_bottom: Dimension::ZERO,
             margin_left: Dimension::ZERO,
 
-            padding: EdgeSizes::default(),
+            padding: EdgeSizes::<Dimension>::default(),
 
             // CSS initial value is `medium` (3px), but computed value is 0
             // when border-style is `none` (the default).
@@ -360,12 +378,12 @@ impl Default for ComputedStyle {
 
             // Box model
             box_sizing: BoxSizing::default(),
-            border_radius: 0.0,
+            border_radii: [0.0; 4],
             opacity: 1.0,
 
             // Flex gap
-            row_gap: 0.0,
-            column_gap: 0.0,
+            row_gap: Dimension::ZERO,
+            column_gap: Dimension::ZERO,
 
             // Flex container
             flex_direction: FlexDirection::default(),
@@ -400,6 +418,13 @@ impl Default for ComputedStyle {
             border_spacing_v: 0.0,
             table_layout: TableLayout::default(),
             caption_side: CaptionSide::default(),
+
+            // Position offsets
+            top: Dimension::Auto,
+            right: Dimension::Auto,
+            bottom: Dimension::Auto,
+            left: Dimension::Auto,
+            z_index: None,
 
             // Float/clear
             float: Float::default(),

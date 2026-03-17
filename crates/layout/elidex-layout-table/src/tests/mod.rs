@@ -55,6 +55,7 @@ fn do_layout_table(
         offset_y,
         font_db,
         depth,
+        float_ctx: None,
     };
     layout_table(dom, entity, &input, layout_child)
 }

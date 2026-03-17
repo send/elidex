@@ -114,6 +114,13 @@ fn expand_resolved_shorthand(resolved: &mut HashMap<String, CssValue>, name: &st
             resolved.insert("border-spacing-h".to_string(), val.clone());
             resolved.insert("border-spacing-v".to_string(), val);
         }
+        "border-radius" => {
+            // border-radius shorthand → 4 longhands (same value for all corners).
+            resolved.insert("border-top-left-radius".to_string(), val.clone());
+            resolved.insert("border-top-right-radius".to_string(), val.clone());
+            resolved.insert("border-bottom-right-radius".to_string(), val.clone());
+            resolved.insert("border-bottom-left-radius".to_string(), val);
+        }
         "border-top" | "border-right" | "border-bottom" | "border-left" => {
             // The resolved value is a single color/keyword — treat it as the
             // most common case: `border-side: <width> <style> <color>` where

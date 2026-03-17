@@ -186,7 +186,7 @@ fn emit_placeholder(
     dl: &mut DisplayList,
     ascent: f32,
 ) -> bool {
-    if !fcs.value.is_empty() || fcs.placeholder.is_empty() {
+    if !fcs.value().is_empty() || fcs.placeholder.is_empty() {
         return false;
     }
     // For text inputs, also skip if composition is active.
@@ -242,17 +242,17 @@ fn emit_text_input(
         let comp_range: Option<(usize, usize)>;
         if let Some(ref comp) = fcs.composition_text {
             let pos = fcs.safe_cursor_pos();
-            let mut buf = fcs.value.clone();
+            let mut buf = fcs.value().to_string();
             buf.insert_str(pos, comp);
             comp_range = Some((pos, pos + comp.len()));
             display_text = buf;
         } else {
-            display_text = fcs.value.clone();
+            display_text = fcs.value().to_string();
             comp_range = None;
         }
 
         // Emit selection highlight.
-        if fcs.selection_start != fcs.selection_end {
+        if fcs.selection_start() != fcs.selection_end() {
             emit_selection_highlight(lb, fcs, style, font_db, font_id, dl);
         }
 
@@ -354,9 +354,9 @@ fn emit_password(
     let single_advance = shape_text(font_db, font_id, style.font_size, PASSWORD_MASK_STR)
         .map_or(style.font_size * 0.6, |s| text_width(&s.glyphs));
 
-    if !fcs.value.is_empty() {
+    if !fcs.value().is_empty() {
         // Cap rendered mask characters — visual display is clipped to content box anyway.
-        let total_chars = fcs.char_count.min(MAX_MASK_RENDER_CHARS);
+        let total_chars = fcs.char_count().min(MAX_MASK_RENDER_CHARS);
         #[allow(clippy::cast_precision_loss)]
         let mask_width = single_advance * total_chars as f32;
         let color = apply_opacity(style.color, style.opacity);
@@ -378,7 +378,7 @@ fn emit_password(
 
     if is_focused && caret_visible {
         let caret_pos = fcs.safe_cursor_pos();
-        let char_count = fcs.value[..caret_pos].chars().count();
+        let char_count = fcs.value()[..caret_pos].chars().count();
         #[allow(clippy::cast_precision_loss)]
         let caret_x = content.x + single_advance * char_count as f32;
         let caret_color = apply_opacity(style.color, style.opacity);
@@ -424,7 +424,7 @@ fn emit_button(
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
-    let label = &fcs.value;
+    let label = fcs.value();
     if label.is_empty() {
         return;
     }
@@ -554,7 +554,7 @@ fn emit_caret(
     let caret_pos = fcs.safe_cursor_pos();
     let text_base_x = content.x - safe_scroll_offset(fcs);
     let caret_x = shaped_text_x_offset(
-        &fcs.value[..caret_pos],
+        &fcs.value()[..caret_pos],
         text_base_x,
         font_db,
         font_id,
@@ -581,14 +581,14 @@ fn emit_selection_highlight(
     let text_base_x = content.x - safe_scroll_offset(fcs);
 
     let start_x = shaped_text_x_offset(
-        &fcs.value[..sel_start],
+        &fcs.value()[..sel_start],
         text_base_x,
         font_db,
         font_id,
         style.font_size,
     );
     let end_x = shaped_text_x_offset(
-        &fcs.value[..sel_end],
+        &fcs.value()[..sel_end],
         text_base_x,
         font_db,
         font_id,

@@ -23,7 +23,7 @@ mod tests;
 use std::rc::Rc;
 
 use elidex_css::Stylesheet;
-use elidex_css_anim::engine::AnimationEngine;
+use elidex_css_anim::engine::{AnimationEngine, AnimationEvent};
 use elidex_dom_compat::{
     get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet_with_registry,
 };
@@ -33,9 +33,9 @@ use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
-use elidex_plugin::ComputedStyle;
-use elidex_render::{build_display_list, DisplayList};
-use elidex_script_session::SessionCore;
+use elidex_plugin::{AnimationEventInit, ComputedStyle, EventPayload, TransitionEventInit};
+use elidex_render::{build_display_list, build_display_list_with_caret, DisplayList};
+use elidex_script_session::{DispatchEvent, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
@@ -140,6 +140,12 @@ pub struct PipelineResult {
     pub viewport_width: f32,
     /// Current viewport height for layout.
     pub viewport_height: f32,
+    /// Whether the text input caret should be visible in the display list.
+    ///
+    /// Set by the content thread's caret blink timer. Defaults to `true`.
+    pub caret_visible: bool,
+    /// Cached form ancestor lookups (invalidated on DOM mutation).
+    pub ancestor_cache: elidex_form::AncestorCache,
 }
 
 impl PipelineResult {
@@ -226,6 +232,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         animation_engine,
         viewport_width: DEFAULT_VIEWPORT_WIDTH,
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
     }
 }
 
@@ -235,9 +243,18 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 /// `AnimStyle`, re-resolves styles, compares old vs new values to detect
 /// transitions, feeds them to the `AnimationEngine`, and applies animated
 /// values to `ComputedStyle` before layout.
-pub(crate) fn re_render(result: &mut PipelineResult) {
-    // Flush applies buffered mutations to the DOM; return value unused (pruning is unconditional).
-    result.session.flush(&mut result.dom);
+///
+/// Returns the mutation records from the flush, for observer dispatch.
+pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_session::MutationRecord> {
+    // Flush applies buffered mutations to the DOM.
+    let raw_records = result.session.flush(&mut result.dom);
+    let mutation_records: Vec<elidex_script_session::MutationRecord> =
+        raw_records.into_iter().flatten().collect();
+
+    // Invalidate ancestor cache when DOM mutations occurred.
+    if !mutation_records.is_empty() {
+        result.ancestor_cache.invalidate_all();
+    }
 
     // Prune animations/transitions for destroyed entities unconditionally.
     // JS event handlers may destroy entities without generating style mutations,
@@ -245,16 +262,18 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     result.prune_dead_animation_entities();
 
     // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
-    // TODO(M4-3.7): also snapshot ComputedStyle for entities that gain AnimStyle in this
-    // render (newly added transition-* properties), so transitions start on first change.
+    // Also snapshot entities without AnimStyle but with ComputedStyle, so that
+    // entities gaining AnimStyle in this render cycle have a baseline for transitions.
     let old_styles = collect_old_anim_styles(&result.dom);
+    let old_computed_no_anim = collect_computed_without_anim(&result.dom);
 
     // Phase 2: Re-resolve styles.
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
     resolve_with_compat(&mut result.dom, &stylesheet_refs, &result.registry);
 
     // Phase 3: Detect transitions by comparing old vs new computed values.
-    detect_and_start_transitions(result, &old_styles);
+    // Includes entities that newly gained AnimStyle (transition-* properties).
+    detect_and_start_transitions(result, &old_styles, &old_computed_no_anim);
 
     // Phase 4: Apply animated values from active transitions/animations to ComputedStyle.
     apply_active_animations(result);
@@ -266,7 +285,10 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
         &result.font_db,
     );
 
-    result.display_list = build_display_list(&result.dom, &result.font_db);
+    result.display_list =
+        build_display_list_with_caret(&result.dom, &result.font_db, result.caret_visible);
+
+    mutation_records
 }
 
 /// Collect old computed styles for entities that have an `AnimStyle` component.
@@ -290,6 +312,30 @@ fn collect_old_anim_styles(
     result
 }
 
+/// Collect computed styles for entities that have `ComputedStyle` but no `AnimStyle`.
+///
+/// Used as baseline for entities that gain `AnimStyle` (transition-* properties)
+/// during style re-resolution, so their first transition has a correct "from" value.
+fn collect_computed_without_anim(dom: &EcsDom) -> std::collections::HashMap<u64, ComputedStyle> {
+    use elidex_css_anim::style::AnimStyle;
+
+    let has_anim: std::collections::HashSet<u64> = dom
+        .world()
+        .query::<(Entity, &AnimStyle)>()
+        .iter()
+        .map(|(e, _)| e.to_bits().get())
+        .collect();
+
+    let mut result = std::collections::HashMap::new();
+    for (entity, computed) in &mut dom.world().query::<(Entity, &ComputedStyle)>() {
+        let bits = entity.to_bits().get();
+        if !has_anim.contains(&bits) {
+            result.insert(bits, computed.clone());
+        }
+    }
+    result
+}
+
 /// Compare old vs new computed values to detect transitions, then add them to the engine.
 ///
 /// Only compares properties listed in the entity's `transition-property` (or all
@@ -301,34 +347,23 @@ fn detect_and_start_transitions(
         elidex_css_anim::style::AnimStyle,
         elidex_plugin::ComputedStyle,
     )],
+    old_computed_no_anim: &std::collections::HashMap<u64, ComputedStyle>,
 ) {
-    use elidex_css_anim::detection::detect_transitions;
-    use elidex_css_anim::engine::{AnimationEvent, TransitionEventData, TransitionEventKind};
-    use elidex_css_anim::instance::TransitionInstance;
     use elidex_css_anim::style::{AnimStyle, TransitionProperty};
-    use elidex_plugin::{EventPayload, TransitionEventInit};
-    use elidex_script_session::DispatchEvent;
 
     let registry = &result.registry;
-
-    // Collect all cancel events for batch dispatch after detection.
     let mut cancel_dispatches = Vec::new();
 
     for &(entity_bits, ref old_anim_style, ref old_computed) in old_styles {
-        // Get the new computed style for this entity.
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
         let new_computed = {
-            let Ok(computed_ref) = result.dom.world().get::<&ComputedStyle>(entity) else {
+            let Ok(r) = result.dom.world().get::<&ComputedStyle>(entity) else {
                 continue;
             };
-            ComputedStyle::clone(&computed_ref)
+            ComputedStyle::clone(&r)
         };
 
-        // Per CSS Transitions §3, transition parameters (duration, delay, timing)
-        // come from the "after-change style".  Use old AnimStyle only for determining
-        // which properties to compare (so we detect all previously-monitored changes),
-        // but pass the new AnimStyle to detect_transitions for parameter extraction.
         let new_anim_style = result
             .dom
             .world()
@@ -336,94 +371,196 @@ fn detect_and_start_transitions(
             .ok()
             .map(|a| AnimStyle::clone(&a));
 
-        // Use the union of old and new transition-property lists for change detection
-        // (old: catches properties being removed, new: catches properties being added).
-        let anim_for_comparison = new_anim_style.as_ref().unwrap_or(old_anim_style);
-        let has_all = old_anim_style
-            .transition_property
-            .iter()
-            .chain(anim_for_comparison.transition_property.iter())
-            .any(|p| matches!(p, TransitionProperty::All));
+        // Union of old and new transition-property lists for change detection.
+        let comparison = new_anim_style.as_ref().unwrap_or(old_anim_style);
+        let prop_sources: &[&[TransitionProperty]] = &[
+            &old_anim_style.transition_property,
+            &comparison.transition_property,
+        ];
+        let params_style = new_anim_style.as_ref().unwrap_or(old_anim_style);
 
-        // Pre-collect named properties into a set for O(1) lookup (avoids O(n²)).
-        let named_props: std::collections::HashSet<&str> = if has_all {
-            std::collections::HashSet::new()
-        } else {
-            old_anim_style
-                .transition_property
-                .iter()
-                .chain(anim_for_comparison.transition_property.iter())
-                .filter_map(|p| match p {
-                    TransitionProperty::Property(name) => Some(name.as_str()),
-                    _ => None,
-                })
-                .collect()
-        };
+        detect_changed_and_add(
+            entity_bits,
+            old_computed,
+            &new_computed,
+            prop_sources,
+            params_style,
+            registry,
+            &mut result.animation_engine,
+            &mut cancel_dispatches,
+        );
+    }
 
-        // Build changed_properties list by comparing old vs new via get_computed.
-        let mut changed = Vec::new();
-        for prop_name in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
-            // When transition-property is not `all`, only compare listed properties.
-            if !has_all && !named_props.contains(prop_name) {
-                continue;
-            }
-            let old_val =
-                elidex_style::get_computed_with_registry(prop_name, old_computed, registry);
-            let new_val =
-                elidex_style::get_computed_with_registry(prop_name, &new_computed, registry);
-            if old_val != new_val {
-                changed.push((prop_name.to_string(), old_val, new_val));
-            }
-        }
-
-        if changed.is_empty() {
+    // Handle entities that newly gained AnimStyle (were not in old_styles).
+    let old_bits: std::collections::HashSet<u64> =
+        old_styles.iter().map(|&(bits, _, _)| bits).collect();
+    for (entity, new_anim_style) in &mut result.dom.world().query::<(Entity, &AnimStyle)>() {
+        let bits = entity.to_bits().get();
+        if old_bits.contains(&bits) || new_anim_style.transition_property.is_empty() {
             continue;
         }
+        let Some(old_computed) = old_computed_no_anim.get(&bits) else {
+            continue;
+        };
+        let new_computed = {
+            let Ok(c) = result.dom.world().get::<&ComputedStyle>(entity) else {
+                continue;
+            };
+            ComputedStyle::clone(&c)
+        };
+        let prop_sources: &[&[TransitionProperty]] = &[&new_anim_style.transition_property];
 
-        // Use after-change AnimStyle for transition parameters (duration/delay/timing).
-        let params_style = new_anim_style.as_ref().unwrap_or(old_anim_style);
-        let detected = detect_transitions(params_style, &changed);
-        for dt in detected {
-            let trans = TransitionInstance::new(
-                dt.property,
-                dt.from,
-                dt.to,
-                dt.duration,
-                dt.delay,
-                dt.timing_function,
-            );
-            let cancel_events = result.animation_engine.add_transition(entity_bits, trans);
-            cancel_dispatches.extend(cancel_events);
+        detect_changed_and_add(
+            bits,
+            old_computed,
+            &new_computed,
+            prop_sources,
+            new_anim_style,
+            registry,
+            &mut result.animation_engine,
+            &mut cancel_dispatches,
+        );
+    }
+
+    dispatch_anim_events(&cancel_dispatches, result);
+}
+
+/// Compare old vs new computed values for the given transition-property lists,
+/// detect transitions, and add them to the engine.
+#[allow(clippy::too_many_arguments)]
+fn detect_changed_and_add(
+    entity_bits: u64,
+    old_computed: &ComputedStyle,
+    new_computed: &ComputedStyle,
+    prop_sources: &[&[elidex_css_anim::style::TransitionProperty]],
+    params_style: &elidex_css_anim::style::AnimStyle,
+    registry: &elidex_plugin::CssPropertyRegistry,
+    engine: &mut elidex_css_anim::engine::AnimationEngine,
+    cancel_dispatches: &mut Vec<(u64, elidex_css_anim::engine::AnimationEvent)>,
+) {
+    use elidex_css_anim::detection::detect_transitions;
+    use elidex_css_anim::instance::TransitionInstance;
+    use elidex_css_anim::style::TransitionProperty;
+
+    let has_all = prop_sources
+        .iter()
+        .flat_map(|s| s.iter())
+        .any(|p| matches!(p, TransitionProperty::All));
+
+    let named_props: std::collections::HashSet<&str> = if has_all {
+        std::collections::HashSet::new()
+    } else {
+        prop_sources
+            .iter()
+            .flat_map(|s| s.iter())
+            .filter_map(|p| match p {
+                TransitionProperty::Property(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let mut changed = Vec::new();
+    for prop_name in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+        if !has_all && !named_props.contains(prop_name) {
+            continue;
+        }
+        let old_val = elidex_style::get_computed_with_registry(prop_name, old_computed, registry);
+        let new_val = elidex_style::get_computed_with_registry(prop_name, new_computed, registry);
+        if old_val != new_val {
+            changed.push((prop_name.to_string(), old_val, new_val));
         }
     }
 
-    // Batch dispatch transitioncancel events after all detection is complete.
-    // TODO(M4-3.7): extract dispatch_cancel_event() helper (shared with animationcancel).
-    for (eid, event) in cancel_dispatches {
+    if changed.is_empty() {
+        return;
+    }
+
+    let detected = detect_transitions(params_style, &changed);
+    for dt in detected {
+        let trans = TransitionInstance::new(
+            dt.property,
+            dt.from,
+            dt.to,
+            dt.duration,
+            dt.delay,
+            dt.timing_function,
+        );
+        let events = engine.add_transition(entity_bits, trans);
+        cancel_dispatches.extend(events);
+    }
+}
+
+/// Dispatch animation/transition events to the DOM via `PipelineResult`.
+///
+/// Shared by `re_render` (cancel events during transition detection) and
+/// `content/animation.rs` (all event kinds from engine tick).
+pub(crate) fn dispatch_anim_events(events: &[(u64, AnimationEvent)], result: &mut PipelineResult) {
+    for &(eid, ref event) in events {
         let entity = Entity::from_bits(eid);
         let Some(entity) = entity else { continue };
         if !result.dom.world().contains(entity) {
             continue;
         }
-        if let AnimationEvent::Transition(TransitionEventData {
-            kind: TransitionEventKind::Cancel,
+        let (event_type, payload) = anim_event_to_payload(event);
+        let mut dispatch = DispatchEvent::new_composed(event_type, entity);
+        dispatch.cancelable = false;
+        dispatch.payload = payload;
+        result.runtime.dispatch_event(
+            &mut dispatch,
+            &mut result.session,
+            &mut result.dom,
+            result.document,
+        );
+    }
+}
+
+/// Convert an `AnimationEvent` to its DOM event type string and payload.
+pub(crate) fn anim_event_to_payload(event: &AnimationEvent) -> (&'static str, EventPayload) {
+    use elidex_css_anim::engine::{
+        AnimationEventData, AnimationEventKind, TransitionEventData, TransitionEventKind,
+    };
+
+    match event {
+        AnimationEvent::Transition(TransitionEventData {
+            kind,
             ref property,
             elapsed_time,
-        }) = event
-        {
-            let mut dispatch = DispatchEvent::new_composed("transitioncancel", entity);
-            dispatch.cancelable = false;
-            dispatch.payload = EventPayload::Transition(TransitionEventInit {
-                property_name: property.clone(),
-                elapsed_time,
-                pseudo_element: String::new(),
-            });
-            result.runtime.dispatch_event(
-                &mut dispatch,
-                &mut result.session,
-                &mut result.dom,
-                result.document,
-            );
+        }) => {
+            let name = match kind {
+                TransitionEventKind::Run => "transitionrun",
+                TransitionEventKind::Start => "transitionstart",
+                TransitionEventKind::End => "transitionend",
+                TransitionEventKind::Cancel => "transitioncancel",
+            };
+            (
+                name,
+                EventPayload::Transition(TransitionEventInit {
+                    property_name: property.clone(),
+                    elapsed_time: *elapsed_time,
+                    pseudo_element: String::new(),
+                }),
+            )
+        }
+        AnimationEvent::Animation(AnimationEventData {
+            kind,
+            ref name,
+            elapsed_time,
+        }) => {
+            let event_name = match kind {
+                AnimationEventKind::Start => "animationstart",
+                AnimationEventKind::End => "animationend",
+                AnimationEventKind::Iteration => "animationiteration",
+                AnimationEventKind::Cancel => "animationcancel",
+            };
+            (
+                event_name,
+                EventPayload::Animation(AnimationEventInit {
+                    animation_name: name.clone(),
+                    elapsed_time: *elapsed_time,
+                    pseudo_element: String::new(),
+                }),
+            )
         }
     }
 }
@@ -453,12 +590,34 @@ fn apply_active_animations(result: &mut PipelineResult) {
             .collect();
 
         // Collect animated values from keyframe animations.
+        // CSS Animations L1 §5: read underlying computed values before applying
+        // animation, so before-only keyframe properties interpolate correctly.
+        let underlying_values: Option<std::collections::HashMap<String, elidex_plugin::CssValue>> =
+            result
+                .dom
+                .world()
+                .get::<&ComputedStyle>(entity)
+                .ok()
+                .map(|style| {
+                    let mut map = std::collections::HashMap::new();
+                    for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+                        let v = elidex_style::get_computed(prop, &style);
+                        if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
+                            map.insert((*prop).to_string(), v);
+                        }
+                    }
+                    map
+                });
+
         let animations = result.animation_engine.active_animations(entity_bits);
         for anim in animations {
             if let Some(progress) = anim.progress() {
-                let kf_values = result
-                    .animation_engine
-                    .keyframe_values(anim.name(), f64::from(progress));
+                let kf_values = result.animation_engine.keyframe_values(
+                    anim.name(),
+                    f64::from(progress),
+                    Some(anim.timing_function()),
+                    underlying_values.as_ref(),
+                );
                 animated_values.extend(kf_values);
             }
         }
@@ -526,6 +685,8 @@ pub fn build_pipeline_from_loaded(
         animation_engine,
         viewport_width: DEFAULT_VIEWPORT_WIDTH,
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
     }
 }
 

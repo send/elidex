@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::Overflow;
 
 #[test]
 fn left_float_positioned_at_left_edge() {
@@ -161,10 +162,10 @@ fn float_with_nonzero_parent_offset() {
         ComputedStyle {
             display: Display::Block,
             padding: EdgeSizes {
-                top: 10.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 20.0,
+                top: Dimension::Length(10.0),
+                right: Dimension::ZERO,
+                bottom: Dimension::ZERO,
+                left: Dimension::Length(20.0),
             },
             ..Default::default()
         },
@@ -186,5 +187,108 @@ fn float_with_nonzero_parent_offset() {
         (float_box.content.y - 10.0).abs() < f32::EPSILON,
         "expected y=10.0, got {}",
         float_box.content.y
+    );
+}
+
+#[test]
+fn float_auto_width_shrinks_to_content() {
+    // A float with auto width should shrink to fit its text content,
+    // not expand to the full available width.
+    let font_db = FontDatabase::new();
+
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        parent,
+        ComputedStyle {
+            display: Display::Block,
+            overflow: Overflow::Hidden, // BFC
+            ..Default::default()
+        },
+    );
+
+    // Create float with auto width containing short text.
+    let floated = dom.create_element("div", Attributes::default());
+    dom.append_child(parent, floated);
+    dom.world_mut().insert_one(
+        floated,
+        ComputedStyle {
+            display: Display::Block,
+            float: Float::Left,
+            width: Dimension::Auto,
+            height: Dimension::Length(30.0),
+            ..Default::default()
+        },
+    );
+    let text = dom.create_text("Hi");
+    dom.append_child(floated, text);
+
+    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+    let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
+    // Auto-width float should be narrower than the 800px containing block.
+    assert!(
+        float_box.content.width < 780.0,
+        "expected shrink-to-fit width < 780, got {}",
+        float_box.content.width
+    );
+    assert!(
+        float_box.content.width > 0.0,
+        "expected positive width, got {}",
+        float_box.content.width
+    );
+}
+
+#[test]
+fn float_explicit_width_unchanged() {
+    // A float with explicit width should use that width, not shrink.
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(parent, block_style());
+    let floated = make_float_child(&mut dom, parent, Float::Left, 300.0, 50.0);
+
+    let font_db = FontDatabase::new();
+    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+
+    let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
+    assert!(
+        (float_box.content.width - 300.0).abs() < f32::EPSILON,
+        "expected explicit width 300, got {}",
+        float_box.content.width
+    );
+}
+
+#[test]
+fn float_propagates_through_non_bfc() {
+    // A float inside a non-BFC child should be visible to the ancestor
+    // BFC for height containment.
+    let mut dom = EcsDom::new();
+    let bfc_parent = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        bfc_parent,
+        ComputedStyle {
+            display: Display::Block,
+            overflow: Overflow::Hidden, // establishes BFC
+            ..Default::default()
+        },
+    );
+
+    // Non-BFC intermediate block.
+    let wrapper = dom.create_element("div", Attributes::default());
+    dom.append_child(bfc_parent, wrapper);
+    dom.world_mut().insert_one(wrapper, block_style());
+
+    // Float inside the non-BFC wrapper.
+    let _floated = make_float_child(&mut dom, wrapper, Float::Left, 200.0, 150.0);
+
+    let font_db = FontDatabase::new();
+    let parent_box = layout_block(&mut dom, bfc_parent, 800.0, 0.0, 0.0, &font_db);
+
+    // The BFC parent should expand to contain the float (150px)
+    // even though the float is inside the non-BFC wrapper.
+    assert!(
+        parent_box.content.height >= 150.0 - f32::EPSILON,
+        "expected BFC parent height >= 150 (float containment), got {}",
+        parent_box.content.height
     );
 }

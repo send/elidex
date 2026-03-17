@@ -28,7 +28,7 @@ use font::{
 use box_model::{
     resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,
     resolve_display, resolve_gap_properties, resolve_overflow, resolve_position,
-    resolve_table_properties,
+    resolve_position_offsets, resolve_table_properties,
 };
 
 use flex::resolve_flex_properties;
@@ -117,6 +117,7 @@ pub(crate) fn build_computed_style(
     // Phase 5: Display, positioning, overflow.
     resolve_display(&mut style, &winners, parent_style);
     resolve_position(&mut style, &winners, parent_style);
+    resolve_position_offsets(&mut style, &winners, parent_style, &elem_ctx);
     resolve_overflow(&mut style, &winners, parent_style);
 
     // Phase 6: Box model — dimensions, margin, padding, border, extras.
@@ -141,6 +142,9 @@ pub(crate) fn build_computed_style(
 
     // Phase 11: Float, clear, visibility, vertical-align.
     resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 12: Background layers (CSS Backgrounds Level 3).
+    resolve_background_layers(&winners, &mut style);
 
     style
 }
@@ -288,6 +292,107 @@ fn resolve_writing_mode_properties(
         parent_style.text_orientation,
         TextOrientation::from_keyword,
     );
+}
+
+/// Resolve background layer properties from the winning property map.
+///
+/// Reads `background-image`, `background-position`, `background-size`,
+/// `background-repeat`, `background-origin`, `background-clip`, and
+/// `background-attachment` from `winners` and assembles resolved
+/// `BackgroundLayer` values into `style.background_layers`.
+///
+/// If all layers have `background-image: none`, the field is set to `None`
+/// (zero-cost default).
+fn resolve_background_layers(winners: &PropertyMap<'_>, style: &mut ComputedStyle) {
+    use elidex_plugin::background::{BackgroundImage, BackgroundLayer};
+
+    let image_value = winners.get("background-image").copied();
+    let Some(img_val) = image_value else {
+        return;
+    };
+
+    // Build image list
+    let images: Vec<BackgroundImage> = match img_val {
+        CssValue::List(items) => items
+            .iter()
+            .map(elidex_css_background::resolve_bg_image)
+            .collect(),
+        other => vec![elidex_css_background::resolve_bg_image(other)],
+    };
+
+    // If all images are None, no layers needed.
+    if images.iter().all(|i| *i == BackgroundImage::None) {
+        style.background_layers = None;
+        return;
+    }
+
+    // Helper: get per-layer values from a winning property, cycling as needed.
+    let get_list = |prop: &str| -> Vec<&CssValue> {
+        match winners.get(prop).copied() {
+            Some(CssValue::List(items)) => items.iter().collect(),
+            Some(v) => vec![v],
+            None => vec![],
+        }
+    };
+
+    let positions = get_list("background-position");
+    let sizes = get_list("background-size");
+    let repeats = get_list("background-repeat");
+    let origins = get_list("background-origin");
+    let clips = get_list("background-clip");
+    let attachments = get_list("background-attachment");
+
+    let layers: Vec<BackgroundLayer> = images
+        .into_iter()
+        .enumerate()
+        .map(|(i, image)| {
+            let position = positions
+                .get(i % positions.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_position(v)
+                });
+            let size = sizes
+                .get(i % sizes.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_size(v)
+                });
+            let repeat = repeats
+                .get(i % repeats.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_repeat(v)
+                });
+            let origin = origins
+                .get(i % origins.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_box_area_keyword(v)
+                });
+            let clip = clips.get(i % clips.len().max(1)).map_or_else(
+                || elidex_plugin::background::BoxArea::BorderBox,
+                |v| elidex_css_background::resolve_box_area_keyword(v),
+            );
+            let attachment = attachments
+                .get(i % attachments.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_attachment(v)
+                });
+
+            BackgroundLayer {
+                image,
+                position,
+                size,
+                repeat,
+                origin,
+                clip,
+                attachment,
+            }
+        })
+        .collect();
+
+    style.background_layers = if layers.is_empty() {
+        None
+    } else {
+        Some(layers.into_boxed_slice())
+    };
 }
 
 #[cfg(test)]

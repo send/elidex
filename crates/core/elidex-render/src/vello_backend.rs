@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use vello::kurbo::{Affine, Rect as VelloRect, Stroke};
 use vello::peniko::{
-    Blob, Color, Fill, FontData, ImageAlphaType, ImageData as PenikoImageData, ImageFormat, Mix,
+    Blob, Color, Extend, Fill, FontData, Gradient, ImageAlphaType, ImageData as PenikoImageData,
+    ImageFormat, Mix,
 };
 use vello::{AaConfig, AaSupport, Glyph, RenderParams, Renderer, RendererOptions, Scene};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages};
@@ -128,6 +129,45 @@ fn convert_color(c: CssColor) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
 
+/// Convert per-corner radii `[tl, tr, br, bl]` to a Vello-compatible tuple.
+#[must_use]
+fn to_vello_radii(radii: &[f32; 4]) -> (f64, f64, f64, f64) {
+    (
+        f64::from(radii[0]),
+        f64::from(radii[1]),
+        f64::from(radii[2]),
+        f64::from(radii[3]),
+    )
+}
+
+/// Compute gradient line start and end points from an angle and painting area.
+///
+/// CSS Images Level 3 §3.4.1: The gradient line passes through the center of
+/// the painting area at the given angle, extending to the corners.
+#[must_use]
+fn gradient_line_from_angle(
+    angle_deg: f32,
+    area: &Rect,
+) -> (vello::kurbo::Point, vello::kurbo::Point) {
+    use std::f64::consts::PI;
+    let cx = f64::from(area.x + area.width / 2.0);
+    let cy = f64::from(area.y + area.height / 2.0);
+    let w = f64::from(area.width);
+    let h = f64::from(area.height);
+
+    // CSS angle: 0deg = to top, 90deg = to right (clockwise from top)
+    let rad = f64::from(angle_deg) * PI / 180.0;
+    let sin = rad.sin();
+    let cos = rad.cos();
+
+    // Half-length of gradient line (extends to box corners)
+    let half_len = f64::midpoint(w * sin.abs(), h * cos.abs());
+
+    let start = vello::kurbo::Point::new(cx - sin * half_len, cy + cos * half_len);
+    let end = vello::kurbo::Point::new(cx + sin * half_len, cy - cos * half_len);
+    (start, end)
+}
+
 /// Convert a [`DisplayList`] into a Vello [`Scene`].
 ///
 /// The `font_cache` maps `Arc<Vec<u8>>` pointer identity to Vello `FontData`.
@@ -170,39 +210,38 @@ pub(crate) fn build_scene(
                     &vello_rect,
                 );
             }
-            DisplayItem::RoundedRect {
-                rect,
-                radius,
-                color,
-            } => {
+            DisplayItem::RoundedRect { rect, radii, color } => {
                 let vello_rect = to_vello_rect(rect);
-                let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
+                let rounded = vello_rect.to_rounded_rect(to_vello_radii(radii));
                 let vello_color = convert_color(*color);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
             }
             DisplayItem::StrokedRoundedRect {
                 rect,
-                radius,
+                radii,
                 stroke_width,
                 color,
             } => {
                 let vello_rect = to_vello_rect(rect);
-                let rounded = vello_rect.to_rounded_rect(f64::from(*radius));
+                let rounded = vello_rect.to_rounded_rect(to_vello_radii(radii));
                 let vello_color = convert_color(*color);
                 let stroke = Stroke::new(f64::from(*stroke_width));
                 scene.stroke(&stroke, Affine::IDENTITY, vello_color, None, &rounded);
             }
             DisplayItem::Image {
-                rect,
+                painting_area,
                 pixels,
                 image_width,
                 image_height,
+                position,
+                size,
+                repeat: _repeat,
                 opacity,
             } => {
-                if *image_width > 0 && *image_height > 0 {
+                if *image_width > 0 && *image_height > 0 && size.0 > 0.0 && size.1 > 0.0 {
                     let needs_layer = *opacity < 1.0;
                     if needs_layer {
-                        let clip = to_vello_rect(rect);
+                        let clip = to_vello_rect(painting_area);
                         scene.push_layer(
                             Fill::NonZero,
                             Mix::Normal,
@@ -219,9 +258,12 @@ pub(crate) fn build_scene(
                         width: *image_width,
                         height: *image_height,
                     };
-                    let scale_x = f64::from(rect.width) / f64::from(*image_width);
-                    let scale_y = f64::from(rect.height) / f64::from(*image_height);
-                    let transform = Affine::translate((f64::from(rect.x), f64::from(rect.y)))
+                    // TODO (Phase B): tiling for repeat modes
+                    let draw_x = f64::from(painting_area.x + position.0);
+                    let draw_y = f64::from(painting_area.y + position.1);
+                    let scale_x = f64::from(size.0) / f64::from(*image_width);
+                    let scale_y = f64::from(size.1) / f64::from(*image_height);
+                    let transform = Affine::translate((draw_x, draw_y))
                         * Affine::scale_non_uniform(scale_x, scale_y);
                     scene.draw_image(&image, transform);
                     if needs_layer {
@@ -229,9 +271,139 @@ pub(crate) fn build_scene(
                     }
                 }
             }
-            DisplayItem::PushClip { rect } => {
+            DisplayItem::LinearGradient {
+                painting_area,
+                angle,
+                stops,
+                repeating,
+                opacity,
+            } => {
+                let rect = to_vello_rect(painting_area);
+                let (start, end) = gradient_line_from_angle(*angle, painting_area);
+                let vello_stops: Vec<(f32, Color)> =
+                    stops.iter().map(|(p, c)| (*p, convert_color(*c))).collect();
+                let mut grad = Gradient::new_linear(start, end).with_stops(vello_stops.as_slice());
+                if *repeating {
+                    grad = grad.with_extend(Extend::Repeat);
+                }
+                let needs_layer = *opacity < 1.0;
+                if needs_layer {
+                    scene.push_layer(
+                        Fill::NonZero,
+                        Mix::Normal,
+                        *opacity,
+                        Affine::IDENTITY,
+                        &rect,
+                    );
+                }
+                scene.fill(Fill::NonZero, Affine::IDENTITY, &grad, None, &rect);
+                if needs_layer {
+                    scene.pop_layer();
+                }
+            }
+            DisplayItem::RadialGradient {
+                painting_area,
+                center,
+                radii,
+                stops,
+                repeating,
+                opacity,
+            } => {
+                let rect = to_vello_rect(painting_area);
+                let cx = f64::from(center.0);
+                let cy = f64::from(center.1);
+                let rx = f64::from(radii.0).max(0.001);
+                let ry = f64::from(radii.1).max(0.001);
+                let vello_stops: Vec<(f32, Color)> =
+                    stops.iter().map(|(p, c)| (*p, convert_color(*c))).collect();
+                // Use circular gradient with aspect transform for ellipses
+                #[allow(clippy::cast_possible_truncation)]
+                let r = rx as f32;
+                let mut grad = Gradient::new_radial((cx, cy), r).with_stops(vello_stops.as_slice());
+                if *repeating {
+                    grad = grad.with_extend(Extend::Repeat);
+                }
+                let needs_layer = *opacity < 1.0;
+                if needs_layer {
+                    scene.push_layer(
+                        Fill::NonZero,
+                        Mix::Normal,
+                        *opacity,
+                        Affine::IDENTITY,
+                        &rect,
+                    );
+                }
+                // Apply aspect ratio transform for ellipse
+                let aspect = ry / rx;
+                let transform = Affine::translate((cx, cy))
+                    * Affine::scale_non_uniform(1.0, aspect)
+                    * Affine::translate((-cx, -cy));
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    &grad,
+                    Some(transform),
+                    &rect,
+                );
+                if needs_layer {
+                    scene.pop_layer();
+                }
+            }
+            DisplayItem::ConicGradient {
+                painting_area,
+                center,
+                start_angle,
+                end_angle,
+                stops,
+                repeating,
+                opacity,
+            } => {
+                let rect = to_vello_rect(painting_area);
+                let cx = f64::from(center.0);
+                let cy = f64::from(center.1);
+                // Convert degrees to turns for vello sweep gradient
+                let vello_stops: Vec<(f32, Color)> = stops
+                    .iter()
+                    .map(|(p, c)| {
+                        // p is in degrees; normalize to 0.0-1.0 within start..end range
+                        let range = end_angle - start_angle;
+                        let t = if range > 0.0 {
+                            (p - start_angle) / range
+                        } else {
+                            0.0
+                        };
+                        (t, convert_color(*c))
+                    })
+                    .collect();
+                let mut grad = Gradient::new_sweep((cx, cy), *start_angle, *end_angle)
+                    .with_stops(vello_stops.as_slice());
+                if *repeating {
+                    grad = grad.with_extend(Extend::Repeat);
+                }
+                let needs_layer = *opacity < 1.0;
+                if needs_layer {
+                    scene.push_layer(
+                        Fill::NonZero,
+                        Mix::Normal,
+                        *opacity,
+                        Affine::IDENTITY,
+                        &rect,
+                    );
+                }
+                scene.fill(Fill::NonZero, Affine::IDENTITY, &grad, None, &rect);
+                if needs_layer {
+                    scene.pop_layer();
+                }
+            }
+            DisplayItem::PushClip { rect, radii } => {
                 let clip = to_vello_rect(rect);
-                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &clip);
+                let all_zero = radii.iter().all(|r| *r == 0.0);
+                if all_zero {
+                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &clip);
+                } else {
+                    let rounded = clip.to_rounded_rect(to_vello_radii(radii));
+                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &rounded);
+                }
             }
             DisplayItem::PopClip => {
                 scene.pop_layer();
@@ -299,13 +471,20 @@ mod tests {
 
     #[test]
     fn image_builds_scene() {
+        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
         let mut scene = Scene::new();
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::Image {
-            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
+            painting_area: Rect::new(10.0, 20.0, 100.0, 50.0),
             pixels: Arc::new(vec![255u8; 4 * 2 * 2]), // 2×2 white
             image_width: 2,
             image_height: 2,
+            position: (0.0, 0.0),
+            size: (100.0, 50.0),
+            repeat: BgRepeat {
+                x: BgRepeatAxis::NoRepeat,
+                y: BgRepeatAxis::NoRepeat,
+            },
             opacity: 1.0,
         }]);
         build_scene(&mut scene, &dl, &mut fc);
@@ -318,7 +497,7 @@ mod tests {
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::RoundedRect {
             rect: Rect::new(10.0, 20.0, 100.0, 50.0),
-            radius: 8.0,
+            radii: [8.0, 8.0, 8.0, 8.0],
             color: CssColor::BLUE,
         }]);
         build_scene(&mut scene, &dl, &mut fc);
@@ -331,7 +510,7 @@ mod tests {
         let mut fc = HashMap::new();
         let dl = DisplayList(vec![DisplayItem::StrokedRoundedRect {
             rect: Rect::new(10.0, 20.0, 8.0, 8.0),
-            radius: 4.0,
+            radii: [4.0, 4.0, 4.0, 4.0],
             stroke_width: 1.0,
             color: CssColor::BLACK,
         }]);
@@ -346,6 +525,7 @@ mod tests {
         let dl = DisplayList(vec![
             DisplayItem::PushClip {
                 rect: Rect::new(0.0, 0.0, 200.0, 100.0),
+                radii: [0.0; 4],
             },
             DisplayItem::SolidRect {
                 rect: Rect::new(10.0, 10.0, 50.0, 50.0),

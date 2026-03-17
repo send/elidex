@@ -570,3 +570,129 @@ fn auto_col_widths_spanning_cell() {
     assert!(approx_eq(widths[0], 150.0));
     assert!(approx_eq(widths[1], 150.0));
 }
+
+// ---------------------------------------------------------------------------
+// <col>/<colgroup> width tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn col_width_overrides_cell_width_in_fixed_layout() {
+    // Col width (150px) should override first-row cell width (200px).
+    let cells = vec![make_cell(0, 0), make_cell(1, 0)];
+    let cell_widths = vec![Some(200.0), None];
+    let col_widths: Vec<Option<f32>> = vec![Some(150.0), None];
+    let widths = algo::fixed_column_widths(2, &cells, &cell_widths, &col_widths, 400.0);
+    // Col 0: 150 (from col element), Col 1: 400-150 = 250 (auto).
+    assert!(approx_eq(widths[0], 150.0));
+    assert!(approx_eq(widths[1], 250.0));
+}
+
+#[test]
+fn col_width_in_fixed_layout_no_col() {
+    // No col widths: falls back to cell widths.
+    let cells = vec![make_cell(0, 0), make_cell(1, 0)];
+    let cell_widths = vec![Some(100.0), Some(200.0)];
+    let col_widths: Vec<Option<f32>> = vec![None, None];
+    let widths = algo::fixed_column_widths(2, &cells, &cell_widths, &col_widths, 400.0);
+    assert!(approx_eq(widths[0], 100.0));
+    assert!(approx_eq(widths[1], 200.0));
+}
+
+#[test]
+fn col_element_width_integrated() {
+    // Full integration: table with <col> elements specifying widths.
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    dom.world_mut().insert_one(
+        table,
+        ComputedStyle {
+            display: Display::Table,
+            table_layout: TableLayout::Fixed,
+            width: Dimension::Length(400.0),
+            ..Default::default()
+        },
+    );
+
+    // <col style="width: 150px">
+    let col1 = dom.create_element("col", Attributes::default());
+    dom.world_mut().insert_one(
+        col1,
+        ComputedStyle {
+            display: Display::TableColumn,
+            width: Dimension::Length(150.0),
+            ..Default::default()
+        },
+    );
+    dom.append_child(table, col1);
+
+    // <col> (no explicit width)
+    let col2 = dom.create_element("col", Attributes::default());
+    dom.world_mut().insert_one(
+        col2,
+        ComputedStyle {
+            display: Display::TableColumn,
+            ..Default::default()
+        },
+    );
+    dom.append_child(table, col2);
+
+    // <tr> with 2 cells
+    let tr = dom.create_element("tr", Attributes::default());
+    dom.world_mut().insert_one(
+        tr,
+        ComputedStyle {
+            display: Display::TableRow,
+            ..Default::default()
+        },
+    );
+    dom.append_child(table, tr);
+
+    let td1 = dom.create_element("td", Attributes::default());
+    dom.world_mut().insert_one(
+        td1,
+        ComputedStyle {
+            display: Display::TableCell,
+            height: Dimension::Length(20.0),
+            ..Default::default()
+        },
+    );
+    dom.append_child(tr, td1);
+
+    let td2 = dom.create_element("td", Attributes::default());
+    dom.world_mut().insert_one(
+        td2,
+        ComputedStyle {
+            display: Display::TableCell,
+            height: Dimension::Length(20.0),
+            ..Default::default()
+        },
+    );
+    dom.append_child(tr, td2);
+
+    let font_db = FontDatabase::new();
+    do_layout_table(
+        &mut dom,
+        table,
+        400.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        test_layout_child,
+    );
+
+    let lb1 = get_layout(&dom, td1);
+    let lb2 = get_layout(&dom, td2);
+    // Col 0: 150px from <col>, Col 1: remaining space.
+    assert!(
+        approx_eq(lb1.content.width, 150.0),
+        "td1 width {} expected 150",
+        lb1.content.width
+    );
+    assert!(
+        lb2.content.width > 100.0,
+        "td2 width {} should be > 100 (auto from remaining space)",
+        lb2.content.width
+    );
+}

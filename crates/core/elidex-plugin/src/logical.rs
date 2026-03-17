@@ -36,10 +36,13 @@ impl WritingModeContext {
     }
 
     /// Returns `true` if the block direction is reversed
-    /// (`vertical-rl` has block progression right-to-left).
+    /// (`vertical-rl` and `sideways-rl` have block progression right-to-left).
     #[must_use]
     pub fn is_block_reversed(&self) -> bool {
-        matches!(self.writing_mode, WritingMode::VerticalRl)
+        matches!(
+            self.writing_mode,
+            WritingMode::VerticalRl | WritingMode::SidewaysRl
+        )
     }
 }
 
@@ -102,23 +105,31 @@ pub struct LogicalRect {
 impl LogicalRect {
     /// Convert a physical `Rect` to logical coordinates.
     ///
-    // TODO(Phase 4): For RTL direction, `inline_start` should be computed as
-    // `rect.x + rect.width` (the right edge) in horizontal mode, or
-    // `rect.y + rect.height` (the bottom edge) in vertical mode, so that
-    // `inline_start` truly represents the inline-start position.
-    // Currently this only swaps axes but does not flip for RTL.
+    /// For RTL direction, `inline_start` is the inline-end physical edge
+    /// (right edge in horizontal, bottom edge in vertical) so that it
+    /// represents the true inline-start position.
     #[must_use]
     pub fn from_physical(rect: Rect, ctx: WritingModeContext) -> Self {
         if ctx.is_horizontal() {
+            let inline_start = if ctx.is_inline_reversed() {
+                rect.x + rect.width // RTL: inline-start is right edge
+            } else {
+                rect.x
+            };
             Self {
-                inline_start: rect.x,
+                inline_start,
                 block_start: rect.y,
                 inline_size: rect.width,
                 block_size: rect.height,
             }
         } else {
+            let inline_start = if ctx.is_inline_reversed() {
+                rect.y + rect.height // vertical RTL: inline-start is bottom edge
+            } else {
+                rect.y
+            };
             Self {
-                inline_start: rect.y,
+                inline_start,
                 block_start: rect.x,
                 inline_size: rect.height,
                 block_size: rect.width,
@@ -130,19 +141,19 @@ impl LogicalRect {
     #[must_use]
     pub fn to_physical(self, ctx: WritingModeContext) -> Rect {
         if ctx.is_horizontal() {
-            Rect::new(
-                self.inline_start,
-                self.block_start,
-                self.inline_size,
-                self.block_size,
-            )
+            let x = if ctx.is_inline_reversed() {
+                self.inline_start - self.inline_size // RTL: left edge = right edge - width
+            } else {
+                self.inline_start
+            };
+            Rect::new(x, self.block_start, self.inline_size, self.block_size)
         } else {
-            Rect::new(
-                self.block_start,
-                self.inline_start,
-                self.block_size,
-                self.inline_size,
-            )
+            let y = if ctx.is_inline_reversed() {
+                self.inline_start - self.inline_size // vertical RTL: top = bottom - height
+            } else {
+                self.inline_start
+            };
+            Rect::new(self.block_start, y, self.block_size, self.inline_size)
         }
     }
 }
@@ -183,19 +194,19 @@ impl LogicalEdges {
             }
         } else {
             // vertical: inline = top/bottom, block = left/right
-            // TODO(Phase 4): For vertical + RTL, inline_start should be
-            // edges.bottom (bottom-to-top inline direction). Currently
-            // inline_start is always edges.top regardless of direction.
-            // The roundtrip test passes because from_physical/to_physical
-            // have matching bugs that cancel out.
+            let (inline_start, inline_end) = if ctx.is_inline_reversed() {
+                (edges.bottom, edges.top) // RTL: inline-start is bottom
+            } else {
+                (edges.top, edges.bottom)
+            };
             let (block_start, block_end) = if ctx.is_block_reversed() {
                 (edges.right, edges.left) // vertical-rl: block starts at right
             } else {
                 (edges.left, edges.right) // vertical-lr: block starts at left
             };
             Self {
-                inline_start: edges.top,
-                inline_end: edges.bottom,
+                inline_start,
+                inline_end,
                 block_start,
                 block_end,
             }
@@ -227,10 +238,15 @@ impl LogicalEdges {
             } else {
                 (self.block_start, self.block_end)
             };
+            let (top, bottom) = if ctx.is_inline_reversed() {
+                (self.inline_end, self.inline_start) // RTL: top = inline-end
+            } else {
+                (self.inline_start, self.inline_end)
+            };
             EdgeSizes {
-                top: self.inline_start,
+                top,
                 right,
-                bottom: self.inline_end,
+                bottom,
                 left,
             }
         }
@@ -263,6 +279,13 @@ mod tests {
         WritingModeContext {
             writing_mode: WritingMode::VerticalLr,
             direction: Direction::Ltr,
+        }
+    }
+
+    fn vertical_rl_rtl() -> WritingModeContext {
+        WritingModeContext {
+            writing_mode: WritingMode::VerticalRl,
+            direction: Direction::Rtl,
         }
     }
 
@@ -352,7 +375,7 @@ mod tests {
     #[test]
     fn logical_edges_vertical_roundtrip() {
         let edges = EdgeSizes::new(1.0, 2.0, 3.0, 4.0);
-        for ctx in [vertical_rl(), vertical_lr()] {
+        for ctx in [vertical_rl(), vertical_lr(), vertical_rl_rtl()] {
             let logical = LogicalEdges::from_physical(edges, ctx);
             assert_eq!(
                 logical.to_physical(ctx),
@@ -360,5 +383,38 @@ mod tests {
                 "roundtrip failed for {ctx:?}"
             );
         }
+    }
+
+    #[test]
+    fn logical_rect_rtl_horizontal_inline_start() {
+        let phys = Rect::new(10.0, 20.0, 100.0, 50.0);
+        let ctx = rtl_horizontal();
+        let logical = LogicalRect::from_physical(phys, ctx);
+        // RTL: inline_start = right edge = 10 + 100 = 110
+        assert_eq!(logical.inline_start, 110.0);
+        assert_eq!(logical.inline_size, 100.0);
+        assert_eq!(logical.to_physical(ctx), phys);
+    }
+
+    #[test]
+    fn logical_rect_vertical_rtl_inline_start() {
+        let phys = Rect::new(10.0, 20.0, 100.0, 50.0);
+        let ctx = vertical_rl_rtl();
+        let logical = LogicalRect::from_physical(phys, ctx);
+        // Vertical RTL: inline_start = bottom edge = 20 + 50 = 70
+        assert_eq!(logical.inline_start, 70.0);
+        assert_eq!(logical.inline_size, 50.0);
+        assert_eq!(logical.to_physical(ctx), phys);
+    }
+
+    #[test]
+    fn logical_edges_vertical_rtl_inline_swap() {
+        let edges = EdgeSizes::new(1.0, 2.0, 3.0, 4.0);
+        let ctx = vertical_rl_rtl();
+        let logical = LogicalEdges::from_physical(edges, ctx);
+        // Vertical RTL: inline_start = bottom (3.0), inline_end = top (1.0)
+        assert_eq!(logical.inline_start, 3.0);
+        assert_eq!(logical.inline_end, 1.0);
+        assert_eq!(logical.to_physical(ctx), edges);
     }
 }

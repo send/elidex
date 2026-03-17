@@ -2,9 +2,10 @@
 
 use elidex_ecs::{EcsDom, Entity};
 
+use crate::event_queue::{EventQueue, QueuedEvent};
 use crate::identity_map::IdentityMap;
 use crate::mutation::{apply_mutation, Mutation, MutationRecord};
-use crate::types::{ComponentKind, JsObjectRef};
+use crate::types::{ComponentKind, JsObjectRef, ReadyState};
 
 /// Central session state for a single script execution context.
 ///
@@ -18,6 +19,9 @@ use crate::types::{ComponentKind, JsObjectRef};
 pub struct SessionCore {
     identity: IdentityMap,
     pending: Vec<Mutation>,
+    event_queue: EventQueue,
+    /// Current document ready state.
+    pub document_ready_state: ReadyState,
 }
 
 impl SessionCore {
@@ -26,6 +30,8 @@ impl SessionCore {
         Self {
             identity: IdentityMap::new(),
             pending: Vec::new(),
+            event_queue: EventQueue::new(),
+            document_ready_state: ReadyState::default(),
         }
     }
 
@@ -47,6 +53,17 @@ impl SessionCore {
     pub fn flush(&mut self, dom: &mut EcsDom) -> Vec<Option<MutationRecord>> {
         let mutations = std::mem::take(&mut self.pending);
         mutations.iter().map(|m| apply_mutation(m, dom)).collect()
+    }
+
+    /// Enqueue an event for deferred dispatch after the current JS execution.
+    pub fn enqueue_event(&mut self, event: QueuedEvent) {
+        self.event_queue.enqueue(event);
+    }
+
+    /// Drain all queued events, returning them in FIFO order.
+    #[must_use]
+    pub fn drain_event_queue(&mut self) -> Vec<QueuedEvent> {
+        self.event_queue.drain()
     }
 
     /// Release all JS object references for the given entity.
@@ -73,7 +90,7 @@ impl Default for SessionCore {
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
@@ -192,6 +209,29 @@ mod tests {
         let count = session.release(e);
         assert_eq!(count, 2);
         assert!(session.identity_map().is_empty());
+    }
+
+    #[test]
+    fn enqueue_and_drain_events() {
+        let session_core = &mut SessionCore::new();
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "input");
+
+        session_core.enqueue_event(crate::event_queue::QueuedEvent {
+            event_type: "invalid".to_string(),
+            target: e,
+            bubbles: false,
+            cancelable: true,
+            payload: elidex_plugin::EventPayload::default(),
+        });
+
+        let events = session_core.drain_event_queue();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "invalid");
+
+        // Drain again — should be empty.
+        let events2 = session_core.drain_event_queue();
+        assert!(events2.is_empty());
     }
 
     #[test]

@@ -27,15 +27,15 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `writing-mode` property (CSS Writing Modes Level 3 §3.1).
+    /// The CSS `writing-mode` property (CSS Writing Modes Level 4 §3.1).
     ///
     /// Inherited. Determines the block flow direction and inline base direction.
-    // TODO(Phase 4): CSS Writing Modes Level 4 §3.1 adds `sideways-rl` and
-    // `sideways-lr` keywords (currently only implemented by Firefox).
     WritingMode {
         HorizontalTb => "horizontal-tb",
         VerticalRl => "vertical-rl",
         VerticalLr => "vertical-lr",
+        SidewaysRl => "sideways-rl",
+        SidewaysLr => "sideways-lr",
     }
 }
 

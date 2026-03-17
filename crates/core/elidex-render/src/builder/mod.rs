@@ -30,7 +30,7 @@ pub(super) use bidi::bidi_visual_order;
 pub(super) use glyph::{families_as_refs, place_glyphs, place_glyphs_vertical};
 pub(super) use inline::{emit_inline_run, StyledTextSegment};
 pub(super) use paint::{
-    apply_opacity, emit_background, emit_borders, emit_image, emit_list_marker_with_counter,
+    apply_opacity, emit_background, emit_borders, emit_list_marker_with_counter,
     find_nearest_layout_box,
 };
 pub(super) use text::{compute_text_align_offset, query_segment_font, resolve_text_align};
@@ -103,12 +103,34 @@ pub(super) const OVERLINE_POSITION_FACTOR: f32 = 1.0;
 /// every visible element has a [`LayoutBox`](elidex_plugin::LayoutBox) component.
 #[must_use]
 pub fn build_display_list(dom: &EcsDom, font_db: &FontDatabase) -> DisplayList {
+    build_display_list_with_caret(dom, font_db, true)
+}
+
+/// Build a display list with explicit caret visibility control.
+///
+/// Like [`build_display_list`], but allows the caller to control whether
+/// the text input caret is rendered. Used by the content thread to
+/// implement caret blink (toggling visibility every 500ms).
+#[must_use]
+pub fn build_display_list_with_caret(
+    dom: &EcsDom,
+    font_db: &FontDatabase,
+    caret_visible: bool,
+) -> DisplayList {
     let mut dl = DisplayList::default();
     let mut font_cache = FontCache::new();
 
     let roots = find_roots(dom);
     for root in roots {
-        walk(dom, root, font_db, &mut font_cache, &mut dl, 0);
+        walk(
+            dom,
+            root,
+            font_db,
+            &mut font_cache,
+            &mut dl,
+            0,
+            caret_visible,
+        );
     }
 
     dl

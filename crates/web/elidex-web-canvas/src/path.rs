@@ -30,8 +30,8 @@ pub(crate) fn arc_to_beziers(
         return;
     }
 
-    // TODO(Phase 4): per Canvas 2D spec, negative radius should throw an
-    // IndexSizeError DOMException. Currently treated as a no-op (same as radius == 0).
+    // Negative radius throws IndexSizeError at the JS binding level (canvas.rs).
+    // Here we only guard non-finite and zero (degenerate arc).
     if !radius.is_finite() || radius <= 0.0 {
         return;
     }

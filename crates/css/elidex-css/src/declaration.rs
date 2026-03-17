@@ -252,7 +252,8 @@ pub(crate) fn parse_property_value(
             box_model::parse_border_width_property(input, name)
         }
 
-        // TODO(Phase 4): `font` shorthand property (CSS Fonts Level 3 §4).
+        // --- Font shorthand ---
+        "font" => font::parse_font_shorthand(input),
 
         // --- Font properties ---
         "font-size" => font::parse_font_size(input),
@@ -266,6 +267,12 @@ pub(crate) fn parse_property_value(
         // --- Box model ---
         "box-sizing" => parse_keyword_property(input, name, &["content-box", "border-box"]),
         "border-radius" => misc::parse_border_radius(input),
+        "border-top-left-radius"
+        | "border-top-right-radius"
+        | "border-bottom-right-radius"
+        | "border-bottom-left-radius" => {
+            parse_value_property(input, name, parse_non_negative_length_or_percentage)
+        }
         "opacity" => misc::parse_opacity(input),
 
         // --- Text alignment ---
@@ -419,6 +426,20 @@ pub(crate) fn parse_property_value(
         ),
         "text-orientation" => {
             parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
+        }
+
+        // --- Position offsets ---
+        "top" | "right" | "bottom" | "left" => {
+            if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
+                return single_decl(name, val);
+            }
+            parse_value_property(input, name, parse_length_or_percentage)
+        }
+        "z-index" => {
+            if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
+                return single_decl(name, val);
+            }
+            flex::parse_integer_property(input, name)
         }
 
         // --- Float/clear/visibility ---
@@ -626,7 +647,23 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         ],
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
-        "background" => vec!["background-color".to_string()],
+        "font" => vec![
+            "font-style".to_string(),
+            "font-weight".to_string(),
+            "font-size".to_string(),
+            "line-height".to_string(),
+            "font-family".to_string(),
+        ],
+        "background" => vec![
+            "background-color".to_string(),
+            "background-image".to_string(),
+            "background-position".to_string(),
+            "background-size".to_string(),
+            "background-repeat".to_string(),
+            "background-origin".to_string(),
+            "background-clip".to_string(),
+            "background-attachment".to_string(),
+        ],
         "border-spacing" => vec![
             "border-spacing-h".to_string(),
             "border-spacing-v".to_string(),

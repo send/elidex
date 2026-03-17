@@ -24,7 +24,7 @@ use crate::inline::layout_inline_context;
 use crate::sanitize;
 use crate::{
     adjust_min_max_for_border_box, clamp_min_max, horizontal_pb, resolve_dimension_value,
-    resolve_min_max, sanitize_border, sanitize_padding, LayoutInput, MAX_LAYOUT_DEPTH,
+    resolve_min_max, sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
 pub use children::{resolve_block_height, stack_block_children, StackResult};
@@ -35,20 +35,19 @@ use margin::{apply_margin_auto_centering, collapse_margins};
 use replaced::{resolve_replaced_height, resolve_replaced_width};
 
 /// Returns `true` if the display value establishes a block-level box.
-// TODO: InlineBlock should participate in inline formatting
-// context (CSS 2.1 §9.2.2), not force block context.
+///
+/// Atomic inline-level boxes (`inline-block`, `inline-flex`, `inline-grid`,
+/// `inline-table`) are NOT block-level — they participate in inline
+/// formatting context (CSS 2.1 §9.2.2) and are laid out as atomic units
+/// within inline flow.
 pub fn is_block_level(display: Display) -> bool {
     matches!(
         display,
         Display::Block
-            | Display::InlineBlock
             | Display::Flex
-            | Display::InlineFlex
             | Display::Grid
-            | Display::InlineGrid
             | Display::ListItem
             | Display::Table
-            | Display::InlineTable
             | Display::TableCaption
             | Display::TableRowGroup
             | Display::TableHeaderGroup
@@ -62,10 +61,9 @@ pub fn is_block_level(display: Display) -> bool {
 
 /// Returns `true` if any child is block-level (block formatting context).
 ///
-/// When this returns `true` and inline children are also present, inline
-/// content is currently skipped. CSS 2.1 §9.2.1.1 requires wrapping
-/// consecutive inline runs in anonymous block boxes.
-// TODO: generate anonymous block boxes for mixed block/inline content.
+/// When this returns `true` and inline children are also present,
+/// [`stack_block_children`] wraps consecutive inline runs in anonymous
+/// block boxes (CSS 2.1 §9.2.1.1).
 fn children_are_block(dom: &EcsDom, children: &[Entity]) -> bool {
     children
         .iter()
@@ -88,6 +86,7 @@ pub fn layout_block(
         offset_y,
         font_db,
         depth: 0,
+        float_ctx: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -112,6 +111,7 @@ pub fn layout_block_with_height(
         offset_y,
         font_db,
         depth: 0,
+        float_ctx: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -137,9 +137,11 @@ pub fn layout_block_inner(
     let depth = input.depth;
 
     let style = crate::get_style(dom, entity);
+    let is_vertical = !matches!(style.writing_mode, WritingMode::HorizontalTb);
 
-    // --- Sanitize padding and border (protect against NaN/infinity/negative) ---
-    let padding = sanitize_padding(&style);
+    // --- Resolve padding and border (protect against NaN/infinity/negative) ---
+    // CSS 2.1 §8.4: padding % refers to containing block width.
+    let padding = crate::resolve_padding(&style, containing_width);
     let border = sanitize_border(&style);
     let h_pb = horizontal_pb(&padding, &border);
 
@@ -149,21 +151,19 @@ pub fn layout_block_inner(
 
     // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
     // Also check for form controls with intrinsic dimensions.
-    // TODO(R7): form_intrinsic_size returns f32 while ImageData uses u32.
-    // Unify intrinsic size API to a common type when reworking replaced element sizing.
-    let intrinsic = dom
+    #[allow(clippy::cast_precision_loss)]
+    let intrinsic: Option<(f32, f32)> = dom
         .world()
         .get::<&ImageData>(entity)
         .ok()
-        .map(|img| (img.width, img.height))
+        .map(|img| (img.width as f32, img.height as f32))
         .or_else(|| {
             dom.world()
                 .get::<&elidex_form::FormControlState>(entity)
                 .ok()
                 .map(|fcs| {
                     let (w, h) = elidex_form::form_intrinsic_size(&fcs);
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    (w.max(0.0) as u32, h.max(0.0) as u32)
+                    (w.max(0.0), h.max(0.0))
                 })
         });
 
@@ -224,6 +224,11 @@ pub fn layout_block_inner(
     // Compute the definite height of this element (if any) for children's percentage heights.
     let child_containing_height = crate::resolve_explicit_height(&style, containing_height);
 
+    // CSS Writing Modes Level 3 §3.1: In vertical modes, the block-axis result
+    // from inline layout is the total column width (physical width), not height.
+    // This variable captures the override when an axis swap is needed.
+    let mut vertical_width_override: Option<f32> = None;
+
     let content_height = if let Some((iw, ih)) = intrinsic {
         // Replaced element: use intrinsic/CSS height, no child layout.
         resolve_replaced_height(&style, content_width, iw, ih, &padding, &border)
@@ -237,9 +242,11 @@ pub fn layout_block_inner(
             offset_y: content_y,
             font_db,
             depth: depth + 1,
+            float_ctx: input.float_ctx,
         };
         let is_bfc = establishes_bfc(&style);
-        let result = stack_block_children(dom, &children, &child_input, layout_child, is_bfc);
+        let result =
+            stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's top margin collapses with parent's top margin
@@ -274,18 +281,41 @@ pub fn layout_block_inner(
     } else {
         // Inline context: the first argument is the available inline-axis space.
         // Horizontal: inline axis = X (width). Vertical: inline axis = Y (height).
-        // TODO(Phase 4): full axis swap for vertical writing modes.
-        let inline_size = if matches!(
-            style.writing_mode,
-            WritingMode::VerticalRl | WritingMode::VerticalLr
-        ) {
-            // Use containing height if known; otherwise use content_width as fallback.
+        let inline_size = if is_vertical {
+            // CSS Writing Modes Level 3 §3.1: In vertical modes, the inline axis
+            // is vertical (height). Use containing height when known.
             containing_height.unwrap_or(content_width)
         } else {
             content_width
         };
-        layout_inline_context(dom, &children, inline_size, &style, font_db)
+        let block_result = layout_inline_context(
+            dom,
+            &children,
+            inline_size,
+            &style,
+            font_db,
+            entity,
+            (content_x, content_y),
+            layout_child,
+        );
+        if is_vertical {
+            // block_result = total column width (block-axis in vertical mode).
+            // Store it to override content_width below. Return the inline-axis
+            // size (physical height) as content_height for resolve_block_height.
+            vertical_width_override = Some(block_result);
+            inline_size
+        } else {
+            block_result
+        }
     };
+
+    // CSS Writing Modes Level 3 §3.1: Apply vertical axis swap.
+    // In vertical modes, inline layout's block-axis result is the physical width.
+    if let Some(vw) = vertical_width_override {
+        if matches!(style.width, Dimension::Auto) {
+            content_width = vw;
+        }
+    }
 
     let height = resolve_block_height(
         &style,

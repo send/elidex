@@ -13,8 +13,8 @@ pub use fontdb::Style as FontStyle;
 pub use fontdb::ID as FontId;
 pub use measurement::{measure_text, TextMeasureParams, TextMetrics};
 pub use shaping::{
-    shape_text, shape_text_vertical, shape_text_with_fallback, ShapedGlyph, ShapedRun, ShapedText,
-    ShapedTextWithFonts,
+    shape_text, shape_text_vertical, shape_text_vertical_sideways, shape_text_with_fallback,
+    ShapedGlyph, ShapedRun, ShapedText, ShapedTextWithFonts,
 };
 pub use unicode::is_word_separator;
 

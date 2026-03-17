@@ -1,5 +1,5 @@
 use super::*;
-use elidex_plugin::{BorderSide, EdgeSizes};
+use elidex_plugin::{BorderSide, Dimension, EdgeSizes};
 
 // ---------------------------------------------------------------------------
 // Table padding / border tests
@@ -9,7 +9,12 @@ use elidex_plugin::{BorderSide, EdgeSizes};
 fn table_padding_border() {
     let style = ComputedStyle {
         display: Display::Table,
-        padding: EdgeSizes::uniform(5.0),
+        padding: EdgeSizes {
+            top: Dimension::Length(5.0),
+            right: Dimension::Length(5.0),
+            bottom: Dimension::Length(5.0),
+            left: Dimension::Length(5.0),
+        },
         border_top: BorderSide {
             width: 2.0,
             style: BorderStyle::Solid,
@@ -73,7 +78,12 @@ fn table_cell_padding() {
         td,
         ComputedStyle {
             display: Display::TableCell,
-            padding: EdgeSizes::uniform(5.0),
+            padding: EdgeSizes {
+                top: Dimension::Length(5.0),
+                right: Dimension::Length(5.0),
+                bottom: Dimension::Length(5.0),
+                left: Dimension::Length(5.0),
+            },
             height: Dimension::Length(20.0),
             ..Default::default()
         },

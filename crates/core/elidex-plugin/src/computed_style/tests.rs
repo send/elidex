@@ -43,10 +43,10 @@ fn default_initial_values() {
     assert_eq!(s.margin_left, Dimension::ZERO);
 
     // --- Padding ---
-    assert_eq!(s.padding.top, 0.0);
-    assert_eq!(s.padding.right, 0.0);
-    assert_eq!(s.padding.bottom, 0.0);
-    assert_eq!(s.padding.left, 0.0);
+    assert_eq!(s.padding.top, Dimension::ZERO);
+    assert_eq!(s.padding.right, Dimension::ZERO);
+    assert_eq!(s.padding.bottom, Dimension::ZERO);
+    assert_eq!(s.padding.left, Dimension::ZERO);
 
     // --- Borders ---
     assert_eq!(s.border_top.width, 0.0);
@@ -68,12 +68,12 @@ fn default_initial_values() {
 
     // --- Box model ---
     assert_eq!(s.box_sizing, BoxSizing::ContentBox);
-    assert_eq!(s.border_radius, 0.0);
+    assert_eq!(s.border_radii, [0.0; 4]);
     assert_eq!(s.opacity, 1.0);
 
     // --- Flex gap ---
-    assert_eq!(s.row_gap, 0.0);
-    assert_eq!(s.column_gap, 0.0);
+    assert_eq!(s.row_gap, Dimension::ZERO);
+    assert_eq!(s.column_gap, Dimension::ZERO);
 
     // --- Flex container ---
     assert_eq!(s.flex_direction, FlexDirection::Row);

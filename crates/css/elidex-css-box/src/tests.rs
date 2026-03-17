@@ -1,5 +1,5 @@
 use super::*;
-use elidex_plugin::EdgeSizes;
+use elidex_plugin::{CssColor, Dimension, EdgeSizes};
 
 fn handler() -> BoxHandler {
     BoxHandler
@@ -126,20 +126,6 @@ fn parse_opacity_clamp() {
 }
 
 #[test]
-fn parse_background_color() {
-    let decls = parse("background-color", "red");
-    assert_eq!(
-        decls[0].value,
-        CssValue::Color(CssColor {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 255
-        })
-    );
-}
-
-#[test]
 fn parse_content_string() {
     let decls = parse("content", "\"hello\"");
     assert_eq!(decls[0].value, CssValue::String("hello".to_string()));
@@ -224,7 +210,7 @@ fn resolve_padding_non_negative() {
         &ctx,
         &mut style,
     );
-    assert_eq!(style.padding.top, 10.0);
+    assert_eq!(style.padding.top, Dimension::Length(10.0));
 }
 
 #[test]
@@ -297,10 +283,6 @@ fn initial_values() {
         CssValue::Length(3.0, LengthUnit::Px)
     );
     assert_eq!(h.initial_value("opacity"), CssValue::Number(1.0));
-    assert_eq!(
-        h.initial_value("background-color"),
-        CssValue::Color(CssColor::TRANSPARENT)
-    );
 }
 
 // --- Inheritance ---
@@ -345,7 +327,12 @@ fn get_computed_max_width_none() {
 fn get_computed_padding() {
     let h = handler();
     let style = ComputedStyle {
-        padding: EdgeSizes::new(0.0, 0.0, 0.0, 20.0),
+        padding: EdgeSizes {
+            top: Dimension::ZERO,
+            right: Dimension::ZERO,
+            bottom: Dimension::ZERO,
+            left: Dimension::Length(20.0),
+        },
         ..ComputedStyle::default()
     };
     assert_eq!(

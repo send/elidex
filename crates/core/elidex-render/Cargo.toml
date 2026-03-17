@@ -20,6 +20,7 @@ elidex-layout-block.workspace = true
 elidex-form.workspace = true
 vello.workspace = true
 wgpu.workspace = true
+unicode-segmentation.workspace = true
 
 [lints]
 workspace = true

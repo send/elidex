@@ -58,16 +58,15 @@ pub fn dispatch_layout_child(
 ///
 /// `elidex_style::resolve_styles()` must have been called first so that
 /// every element has a [`ComputedStyle`] component.
-// TODO: use viewport_height for vh units and root percentage heights.
 pub fn layout_tree(
     dom: &mut EcsDom,
     viewport_width: f32,
-    _viewport_height: f32,
+    viewport_height: f32,
     font_db: &FontDatabase,
 ) {
     let roots = find_roots(dom);
     for root in roots {
-        layout_root(dom, root, viewport_width, font_db);
+        layout_root(dom, root, viewport_width, viewport_height, font_db);
     }
 }
 
@@ -86,7 +85,13 @@ fn find_roots(dom: &EcsDom) -> Vec<Entity> {
 /// If the root has a `ComputedStyle` (is an element), layout it directly
 /// via the display-type dispatcher. Otherwise (document root), layout its
 /// children as block-level elements.
-fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &FontDatabase) {
+fn layout_root(
+    dom: &mut EcsDom,
+    root: Entity,
+    viewport_width: f32,
+    viewport_height: f32,
+    font_db: &FontDatabase,
+) {
     let root_display = dom
         .world()
         .get::<&ComputedStyle>(root)
@@ -95,11 +100,12 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
 
     let root_input = LayoutInput {
         containing_width: viewport_width,
-        containing_height: None,
+        containing_height: Some(viewport_height),
         offset_x: 0.0,
         offset_y: 0.0,
         font_db,
         depth: 0,
+        float_ctx: None,
     };
 
     if let Some(display) = root_display {
@@ -110,7 +116,14 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
             // display: contents at root — skip box, layout children directly.
             let children = elidex_layout_block::composed_children_flat(dom, root);
             // Root-level always establishes a BFC.
-            let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child, true);
+            let _ = stack_block_children(
+                dom,
+                &children,
+                &root_input,
+                dispatch_layout_child,
+                true,
+                root,
+            );
             return;
         }
         dispatch_layout_child(dom, root, &root_input);
@@ -120,7 +133,14 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport_width: f32, font_db: &Fo
     // Document root: layout children as top-level blocks with margin collapse.
     // Root always establishes a BFC.
     let children = elidex_layout_block::composed_children_flat(dom, root);
-    let _ = stack_block_children(dom, &children, &root_input, dispatch_layout_child, true);
+    let _ = stack_block_children(
+        dom,
+        &children,
+        &root_input,
+        dispatch_layout_child,
+        true,
+        root,
+    );
 }
 
 #[cfg(test)]
@@ -251,9 +271,13 @@ mod tests {
         layout_tree(&mut dom, 800.0, 600.0, &font_db);
 
         let body_lb = get_layout(&dom, body);
-        // Block context (div is block). Text node skipped in block context.
-        // Body height = div height (50) only.
-        assert!((body_lb.content.height - 50.0).abs() < f32::EPSILON);
+        // Block context (div is block). Text node is wrapped in an anonymous
+        // block box (CSS 2.1 §9.2.1.1). Body height ≥ div height (50).
+        assert!(
+            body_lb.content.height >= 50.0,
+            "body height should be at least div height (50), got {}",
+            body_lb.content.height
+        );
     }
 
     #[test]
@@ -487,7 +511,8 @@ mod tests {
     #[test]
     fn table_is_block_level() {
         assert!(elidex_layout_block::block::is_block_level(Display::Table));
-        assert!(elidex_layout_block::block::is_block_level(
+        // InlineTable is an atomic inline-level box, not block-level.
+        assert!(!elidex_layout_block::block::is_block_level(
             Display::InlineTable
         ));
         assert!(elidex_layout_block::block::is_block_level(
@@ -612,5 +637,27 @@ mod tests {
         // Should be laid out as grid (2 columns of 300px each).
         assert!(approx_eq(container_lb.content.width, 600.0));
         assert!(approx_eq(c1_lb.content.width, 300.0));
+    }
+
+    #[test]
+    fn viewport_height_enables_root_percentage_height() {
+        // Root element with height: 50% should resolve against viewport height.
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        dom.world_mut().insert_one(
+            root,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Percentage(50.0),
+                ..Default::default()
+            },
+        );
+
+        let font_db = FontDatabase::new();
+        layout_tree(&mut dom, 800.0, 600.0, &font_db);
+
+        let lb = get_layout(&dom, root);
+        // 50% of viewport height 600 = 300.
+        assert!(approx_eq(lb.content.height, 300.0));
     }
 }
