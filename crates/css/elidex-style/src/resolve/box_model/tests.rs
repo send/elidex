@@ -60,7 +60,8 @@ fn overflow_defaults_to_visible() {
     let winners: PropertyMap = HashMap::new();
     let ctx = default_ctx();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.overflow, Overflow::Visible);
+    assert_eq!(style.overflow_x, Overflow::Visible);
+    assert_eq!(style.overflow_y, Overflow::Visible);
 }
 
 // --- Box model ---
@@ -231,21 +232,81 @@ fn resolve_overflow_keyword() {
     let parent = ComputedStyle::default();
     let mut winners: PropertyMap = HashMap::new();
     let val = CssValue::Keyword("hidden".to_string());
-    winners.insert("overflow", &val);
+    winners.insert("overflow-x", &val);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.overflow, Overflow::Hidden);
+    assert_eq!(style.overflow_x, Overflow::Hidden);
 }
 
 #[test]
 fn resolve_overflow_computed_value() {
     let style = ComputedStyle {
-        overflow: Overflow::Hidden,
+        overflow_x: Overflow::Hidden,
+        overflow_y: Overflow::Hidden,
         ..ComputedStyle::default()
     };
     assert_eq!(
         crate::get_computed("overflow", &style),
         CssValue::Keyword("hidden".to_string())
     );
+}
+
+#[test]
+fn resolve_overflow_normalization_visible_to_auto() {
+    // CSS Overflow L3 §3.2: visible + scroll → auto + scroll
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let visible = CssValue::Keyword("visible".to_string());
+    let scroll = CssValue::Keyword("scroll".to_string());
+    winners.insert("overflow-x", &visible);
+    winners.insert("overflow-y", &scroll);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Auto);
+    assert_eq!(style.overflow_y, Overflow::Scroll);
+}
+
+#[test]
+fn resolve_overflow_normalization_clip_to_hidden() {
+    // CSS Overflow L3 §3.2: clip + scroll → hidden + scroll
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let clip = CssValue::Keyword("clip".to_string());
+    let scroll = CssValue::Keyword("scroll".to_string());
+    winners.insert("overflow-x", &clip);
+    winners.insert("overflow-y", &scroll);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Hidden);
+    assert_eq!(style.overflow_y, Overflow::Scroll);
+}
+
+#[test]
+fn resolve_overflow_normalization_both_visible_no_change() {
+    // Both visible → no normalization needed
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let visible = CssValue::Keyword("visible".to_string());
+    winners.insert("overflow-x", &visible);
+    winners.insert("overflow-y", &visible);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Visible);
+    assert_eq!(style.overflow_y, Overflow::Visible);
+}
+
+#[test]
+fn resolve_overflow_normalization_clip_and_visible_no_change() {
+    // clip + visible → both are visible/clip group, no normalization
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let clip = CssValue::Keyword("clip".to_string());
+    let visible = CssValue::Keyword("visible".to_string());
+    winners.insert("overflow-x", &clip);
+    winners.insert("overflow-y", &visible);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Clip);
+    assert_eq!(style.overflow_y, Overflow::Visible);
 }
 
 // --- min/max width/height ---

@@ -152,6 +152,11 @@ fn expand_resolved_shorthand(resolved: &mut HashMap<String, CssValue>, name: &st
                 }
             }
         }
+        "overflow" => {
+            // overflow shorthand → same value for both axes.
+            resolved.insert("overflow-x".to_string(), val.clone());
+            resolved.insert("overflow-y".to_string(), val);
+        }
         _ => {
             resolved.insert((*name).to_string(), val);
         }

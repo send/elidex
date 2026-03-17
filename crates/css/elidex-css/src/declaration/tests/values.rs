@@ -63,12 +63,13 @@ fn parse_keyword_properties() {
         ("white-space", "nowrap", "white-space", "nowrap"),
         ("white-space", "pre-wrap", "white-space", "pre-wrap"),
         ("white-space", "pre-line", "white-space", "pre-line"),
-        // overflow (scroll/auto map to hidden)
-        ("overflow", "visible", "overflow", "visible"),
-        ("overflow", "hidden", "overflow", "hidden"),
-        ("overflow", "scroll", "overflow", "hidden"),
-        ("overflow", "auto", "overflow", "hidden"),
-        ("overflow", "clip", "overflow", "hidden"),
+        // overflow-x / overflow-y longhands
+        ("overflow-x", "visible", "overflow-x", "visible"),
+        ("overflow-x", "hidden", "overflow-x", "hidden"),
+        ("overflow-x", "scroll", "overflow-x", "scroll"),
+        ("overflow-x", "auto", "overflow-x", "auto"),
+        ("overflow-x", "clip", "overflow-x", "clip"),
+        ("overflow-y", "hidden", "overflow-y", "hidden"),
         // list-style-type
         ("list-style-type", "disc", "list-style-type", "disc"),
         ("list-style-type", "decimal", "list-style-type", "decimal"),
@@ -767,4 +768,52 @@ fn var_with_trailing_tokens_uses_raw_tokens() {
         "var() with trailing tokens: {:?}",
         decls[0].value
     );
+}
+
+// =============================================================================
+// Overflow shorthand → longhand expansion
+// =============================================================================
+
+fn assert_decls(css: &str, expected: &[(&str, &str)]) {
+    let (prop, val) = css.split_once(": ").unwrap();
+    let decls = parse_single(prop, val);
+    assert_eq!(
+        decls.len(),
+        expected.len(),
+        "decl count mismatch for `{css}`"
+    );
+    for (d, (ep, ev)) in decls.iter().zip(expected) {
+        assert_eq!(&d.property, ep, "property mismatch for `{css}`");
+        assert_eq!(
+            d.value,
+            CssValue::Keyword(ev.to_string()),
+            "value mismatch for `{css}` property `{ep}`"
+        );
+    }
+}
+
+#[test]
+fn parse_overflow_shorthand_one_value() {
+    assert_decls(
+        "overflow: hidden",
+        &[("overflow-x", "hidden"), ("overflow-y", "hidden")],
+    );
+    assert_decls(
+        "overflow: scroll",
+        &[("overflow-x", "scroll"), ("overflow-y", "scroll")],
+    );
+}
+
+#[test]
+fn parse_overflow_shorthand_two_values() {
+    assert_decls(
+        "overflow: hidden scroll",
+        &[("overflow-x", "hidden"), ("overflow-y", "scroll")],
+    );
+}
+
+#[test]
+fn parse_overflow_shorthand_invalid() {
+    let decls = parse_single("overflow", "overlay");
+    assert!(decls.is_empty());
 }

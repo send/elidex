@@ -26,7 +26,8 @@ fn default_initial_values() {
     assert_eq!(s.position, Position::Static);
     assert_eq!(s.unicode_bidi, UnicodeBidi::Normal);
     assert_eq!(s.background_color, CssColor::TRANSPARENT);
-    assert_eq!(s.overflow, Overflow::Visible);
+    assert_eq!(s.overflow_x, Overflow::Visible);
+    assert_eq!(s.overflow_y, Overflow::Visible);
 
     // --- Dimensions ---
     assert_eq!(s.width, Dimension::Auto);
@@ -117,6 +118,18 @@ fn default_initial_values() {
     assert_eq!(s.float, Float::None);
     assert_eq!(s.clear, Clear::None);
     assert_eq!(s.vertical_align, VerticalAlign::Baseline);
+
+    // --- Stacking context flags ---
+    assert!(!s.has_transform);
+    assert!(!s.has_filter);
+    assert!(!s.has_backdrop_filter);
+    assert!(!s.has_clip_path);
+    assert!(!s.has_mask);
+    assert!(!s.has_perspective);
+    assert!(!s.will_change_stacking);
+    assert!(!s.isolation_isolate);
+    assert!(!s.has_mix_blend);
+    assert!(!s.contain_stacking);
 
     // --- Custom properties ---
     assert!(s.custom_properties.is_empty());
@@ -326,7 +339,7 @@ fn from_keyword_case_insensitive() {
 fn from_keyword_unknown_returns_none() {
     assert_eq!(Display::from_keyword("unknown"), None);
     assert_eq!(Position::from_keyword(""), None);
-    assert_eq!(Overflow::from_keyword("scroll"), None);
+    assert_eq!(Overflow::from_keyword("overlay"), None);
 }
 
 #[test]
@@ -386,7 +399,13 @@ fn from_keyword_roundtrip() {
         Position::from_keyword,
     );
     assert_roundtrips(
-        &[Overflow::Visible, Overflow::Hidden],
+        &[
+            Overflow::Visible,
+            Overflow::Hidden,
+            Overflow::Scroll,
+            Overflow::Auto,
+            Overflow::Clip,
+        ],
         Overflow::from_keyword,
     );
     assert_roundtrips(
@@ -598,4 +617,190 @@ fn vertical_align_display() {
     assert_eq!(VerticalAlign::TextBottom.to_string(), "text-bottom");
     assert_eq!(VerticalAlign::Length(5.0).to_string(), "5px");
     assert_eq!(VerticalAlign::Percentage(50.0).to_string(), "50%");
+}
+
+// --- Stacking context ---
+
+#[test]
+fn stacking_context_default_false() {
+    let s = ComputedStyle::default();
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_absolute() {
+    let mut s = ComputedStyle::default();
+    s.position = Position::Absolute;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_fixed() {
+    let mut s = ComputedStyle::default();
+    s.position = Position::Fixed;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_relative_with_z_index() {
+    let mut s = ComputedStyle::default();
+    s.position = Position::Relative;
+    s.z_index = Some(1);
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_relative_auto_z_index() {
+    let mut s = ComputedStyle::default();
+    s.position = Position::Relative;
+    s.z_index = None;
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_opacity() {
+    let mut s = ComputedStyle::default();
+    s.opacity = 0.5;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_overflow_hidden() {
+    let mut s = ComputedStyle::default();
+    s.overflow_x = Overflow::Hidden;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_overflow_clip() {
+    let mut s = ComputedStyle::default();
+    s.overflow_y = Overflow::Clip;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_transform() {
+    let mut s = ComputedStyle::default();
+    s.has_transform = true;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_filter() {
+    let mut s = ComputedStyle::default();
+    s.has_filter = true;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_will_change() {
+    let mut s = ComputedStyle::default();
+    s.will_change_stacking = true;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_isolation() {
+    let mut s = ComputedStyle::default();
+    s.isolation_isolate = true;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_mix_blend() {
+    let mut s = ComputedStyle::default();
+    s.has_mix_blend = true;
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_masking() {
+    let mut s = ComputedStyle::default();
+    s.has_clip_path = true;
+    assert!(s.creates_stacking_context());
+    s.has_clip_path = false;
+    assert!(!s.creates_stacking_context());
+    s.has_mask = true;
+    assert!(s.creates_stacking_context());
+}
+
+// --- ViewportOverflow ---
+
+#[test]
+fn viewport_overflow_default_auto() {
+    let vp = ViewportOverflow::default();
+    assert_eq!(vp.overflow_x, Overflow::Auto);
+    assert_eq!(vp.overflow_y, Overflow::Auto);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_visible_to_auto() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Visible, Overflow::Visible);
+    assert_eq!(vp.overflow_x, Overflow::Auto);
+    assert_eq!(vp.overflow_y, Overflow::Auto);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_clip_to_hidden() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Clip, Overflow::Clip);
+    assert_eq!(vp.overflow_x, Overflow::Hidden);
+    assert_eq!(vp.overflow_y, Overflow::Hidden);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_passthrough() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Scroll, Overflow::Hidden);
+    assert_eq!(vp.overflow_x, Overflow::Scroll);
+    assert_eq!(vp.overflow_y, Overflow::Hidden);
+}
+
+// --- Overflow helpers ---
+
+#[test]
+fn overflow_is_scroll_container() {
+    assert!(!Overflow::Visible.is_scroll_container());
+    assert!(!Overflow::Hidden.is_scroll_container());
+    assert!(Overflow::Scroll.is_scroll_container());
+    assert!(Overflow::Auto.is_scroll_container());
+    assert!(!Overflow::Clip.is_scroll_container());
+}
+
+#[test]
+fn overflow_allows_programmatic_scroll() {
+    assert!(!Overflow::Visible.allows_programmatic_scroll());
+    assert!(Overflow::Hidden.allows_programmatic_scroll());
+    assert!(Overflow::Scroll.allows_programmatic_scroll());
+    assert!(Overflow::Auto.allows_programmatic_scroll());
+    assert!(!Overflow::Clip.allows_programmatic_scroll());
+}
+
+#[test]
+fn overflow_clips() {
+    assert!(!Overflow::Visible.clips());
+    assert!(Overflow::Hidden.clips());
+    assert!(Overflow::Scroll.clips());
+    assert!(Overflow::Auto.clips());
+    assert!(Overflow::Clip.clips());
+}
+
+#[test]
+fn computed_style_is_scroll_container() {
+    let mut s = ComputedStyle::default();
+    assert!(!s.is_scroll_container());
+    s.overflow_x = Overflow::Scroll;
+    assert!(s.is_scroll_container());
+    s.overflow_x = Overflow::Visible;
+    s.overflow_y = Overflow::Auto;
+    assert!(s.is_scroll_container());
+}
+
+#[test]
+fn computed_style_clips_overflow() {
+    let mut s = ComputedStyle::default();
+    assert!(!s.clips_overflow());
+    s.overflow_x = Overflow::Hidden;
+    assert!(s.clips_overflow());
+    s.overflow_x = Overflow::Visible;
+    s.overflow_y = Overflow::Clip;
+    assert!(s.clips_overflow());
 }

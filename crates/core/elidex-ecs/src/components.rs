@@ -381,6 +381,64 @@ pub struct DocTypeData {
     pub system_id: String,
 }
 
+/// Scroll state for elements with `overflow: scroll | auto | hidden`.
+///
+/// Tracks the current scroll position and content/client dimensions
+/// for scroll containers (CSS Overflow L3 §3).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScrollState {
+    /// Current horizontal scroll offset in CSS pixels.
+    pub scroll_x: f32,
+    /// Current vertical scroll offset in CSS pixels.
+    pub scroll_y: f32,
+    /// Total scrollable content width.
+    pub scroll_width: f32,
+    /// Total scrollable content height.
+    pub scroll_height: f32,
+    /// Visible client area width (padding box minus scrollbar).
+    pub client_width: f32,
+    /// Visible client area height (padding box minus scrollbar).
+    pub client_height: f32,
+}
+
+impl ScrollState {
+    /// Create a new `ScrollState` with the given dimensions.
+    #[must_use]
+    pub fn new(
+        scroll_width: f32,
+        scroll_height: f32,
+        client_width: f32,
+        client_height: f32,
+    ) -> Self {
+        Self {
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            scroll_width,
+            scroll_height,
+            client_width,
+            client_height,
+        }
+    }
+
+    /// Maximum horizontal scroll offset (clamped to 0).
+    #[must_use]
+    pub fn max_scroll_x(&self) -> f32 {
+        (self.scroll_width - self.client_width).max(0.0)
+    }
+
+    /// Maximum vertical scroll offset (clamped to 0).
+    #[must_use]
+    pub fn max_scroll_y(&self) -> f32 {
+        (self.scroll_height - self.client_height).max(0.0)
+    }
+
+    /// Clamp scroll offsets to valid range.
+    pub fn clamp_scroll(&mut self) {
+        self.scroll_x = self.scroll_x.clamp(0.0, self.max_scroll_x());
+        self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll_y());
+    }
+}
+
 /// Data for an Attr node (WHATWG DOM §4.9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttrData {
@@ -390,4 +448,41 @@ pub struct AttrData {
     pub value: String,
     /// The element that owns this attribute, if any.
     pub owner_element: Option<Entity>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scroll_state_new_and_defaults() {
+        let s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
+        assert_eq!(s.scroll_x, 0.0);
+        assert_eq!(s.scroll_y, 0.0);
+        assert_eq!(s.scroll_width, 500.0);
+        assert_eq!(s.scroll_height, 1000.0);
+        assert_eq!(s.client_width, 300.0);
+        assert_eq!(s.client_height, 400.0);
+
+        let d = ScrollState::default();
+        assert_eq!(d.scroll_x, 0.0);
+        assert_eq!(d.scroll_width, 0.0);
+    }
+
+    #[test]
+    fn scroll_state_clamp() {
+        let mut s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
+        s.scroll_x = 999.0;
+        s.scroll_y = -10.0;
+        s.clamp_scroll();
+        assert!((s.scroll_x - 200.0).abs() < f32::EPSILON);
+        assert_eq!(s.scroll_y, 0.0);
+    }
+
+    #[test]
+    fn scroll_state_max_scroll_zero_content() {
+        let s = ScrollState::new(100.0, 50.0, 200.0, 100.0);
+        assert_eq!(s.max_scroll_x(), 0.0);
+        assert_eq!(s.max_scroll_y(), 0.0);
+    }
 }

@@ -84,7 +84,7 @@ mod text;
 mod writing_mode;
 
 pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
-pub use display::{Display, Overflow, Position};
+pub use display::{Display, Overflow, Position, ViewportOverflow};
 pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use grid::{AutoRepeatMode, GridAutoFlow, GridLine, GridTrackList, TrackBreadth, TrackSize};
@@ -103,6 +103,7 @@ mod tests;
 /// Attached as an ECS component by `elidex_style::resolve_styles()`.
 /// All relative units have been resolved to absolute pixel values.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // Stacking context flags are independent CSS conditions.
 pub struct ComputedStyle {
     // --- Inherited properties ---
     /// Foreground color. Initial: black.
@@ -147,8 +148,10 @@ pub struct ComputedStyle {
     /// `None` = no background images (zero-cost default).
     pub background_layers: Option<Box<[BackgroundLayer]>>,
 
-    /// Overflow behavior. Initial: Visible.
-    pub overflow: Overflow,
+    /// Overflow behavior on the x-axis. Initial: Visible.
+    pub overflow_x: Overflow,
+    /// Overflow behavior on the y-axis. Initial: Visible.
+    pub overflow_y: Overflow,
 
     /// Content width. Initial: Auto.
     pub width: Dimension,
@@ -297,6 +300,30 @@ pub struct ComputedStyle {
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
 
+    // --- Stacking context flags (non-inherited) ---
+    // Set by CSS property handlers when resolved; default = initial value (no stacking context).
+    // Parsing/resolution of these CSS properties is deferred to future milestones.
+    /// `true` when `transform` is not `none` (CSS Transforms L1 §2).
+    pub has_transform: bool,
+    /// `true` when `filter` is not `none` (CSS Filter Effects L1 §2).
+    pub has_filter: bool,
+    /// `true` when `backdrop-filter` is not `none` (CSS Filter Effects L2).
+    pub has_backdrop_filter: bool,
+    /// `true` when `clip-path` is not `none` (CSS Masking L1 §3.1).
+    pub has_clip_path: bool,
+    /// `true` when `mask`/`mask-image` is not `none` (CSS Masking L1 §3.1).
+    pub has_mask: bool,
+    /// `true` when `perspective` is not `none` (CSS Transforms L2 §3.1).
+    pub has_perspective: bool,
+    /// `true` when `will-change` specifies a stacking-context-creating property (CSS Will Change L1 §2.2).
+    pub will_change_stacking: bool,
+    /// `true` when `isolation` is `isolate` (CSS Compositing L1 §3).
+    pub isolation_isolate: bool,
+    /// `true` when `mix-blend-mode` is not `normal` (CSS Compositing L1 §3).
+    pub has_mix_blend: bool,
+    /// `true` when `contain` includes `paint`, `layout`, `strict`, or `content` (CSS Containment L2 §3).
+    pub contain_stacking: bool,
+
     // --- Custom properties (CSS Variables) ---
     /// Custom property values (e.g. `--bg: #0d1117`).
     ///
@@ -306,6 +333,7 @@ pub struct ComputedStyle {
 }
 
 impl Default for ComputedStyle {
+    #[allow(clippy::too_many_lines)] // All CSS initial values need explicit initialization.
     fn default() -> Self {
         let color = CssColor::BLACK;
         Self {
@@ -331,7 +359,8 @@ impl Default for ComputedStyle {
             unicode_bidi: UnicodeBidi::default(),
             background_color: CssColor::TRANSPARENT,
             background_layers: None,
-            overflow: Overflow::default(),
+            overflow_x: Overflow::default(),
+            overflow_y: Overflow::default(),
 
             width: Dimension::Auto,
             height: Dimension::Auto,
@@ -434,8 +463,82 @@ impl Default for ComputedStyle {
             // Generated content
             content: ContentValue::Normal,
 
+            // Stacking context flags
+            has_transform: false,
+            has_filter: false,
+            has_backdrop_filter: false,
+            has_clip_path: false,
+            has_mask: false,
+            has_perspective: false,
+            will_change_stacking: false,
+            isolation_isolate: false,
+            has_mix_blend: false,
+            contain_stacking: false,
+
             // Custom properties
             custom_properties: HashMap::new(),
         }
+    }
+}
+
+impl ComputedStyle {
+    /// Returns `true` if this element is a scroll container on either axis.
+    #[must_use]
+    pub fn is_scroll_container(&self) -> bool {
+        self.overflow_x.is_scroll_container() || self.overflow_y.is_scroll_container()
+    }
+
+    /// Returns `true` if overflow is clipped on either axis.
+    #[must_use]
+    pub fn clips_overflow(&self) -> bool {
+        self.overflow_x.clips() || self.overflow_y.clips()
+    }
+
+    /// Returns `true` if this element creates a stacking context.
+    ///
+    /// Full condition list per current CSS specifications:
+    /// - CSS Positioned Layout L3 §3: position absolute/fixed (any z-index)
+    /// - CSS 2.1 §9.9.1: position relative/sticky with z-index != auto
+    /// - CSS Color L4: opacity < 1.0
+    /// - CSS Overflow L3 §3: overflow != visible on either axis
+    /// - CSS Transforms L1 §2: transform != none
+    /// - CSS Filter Effects L1 §2: filter != none
+    /// - CSS Filter Effects L2: backdrop-filter != none
+    /// - CSS Transforms L2 §3.1: perspective != none
+    /// - CSS Will Change L1 §2.2: will-change creates stacking context
+    /// - CSS Compositing L1 §3: isolation: isolate
+    /// - CSS Compositing L1 §3: mix-blend-mode != normal
+    /// - CSS Masking L1 §3.1: clip-path != none
+    /// - CSS Masking L1 §3.1: mask/mask-image != none
+    /// - CSS Containment L2 §3: contain includes paint/layout/strict/content
+    #[must_use]
+    pub fn creates_stacking_context(&self) -> bool {
+        // Positioned elements
+        if matches!(self.position, Position::Absolute | Position::Fixed) {
+            return true;
+        }
+        if matches!(self.position, Position::Relative | Position::Sticky) && self.z_index.is_some()
+        {
+            return true;
+        }
+        // Visual effects
+        if self.opacity < 1.0 {
+            return true;
+        }
+        // Overflow
+        if self.overflow_x != Overflow::Visible || self.overflow_y != Overflow::Visible {
+            return true;
+        }
+        // Transform, filter, masking, compositing, containment
+        self.has_transform
+            || self.has_filter
+            || self.has_backdrop_filter
+            || self.has_clip_path
+            || self.has_mask
+            || self.has_perspective
+            || self.will_change_stacking
+            || self.isolation_isolate
+            || self.has_mix_blend
+            || self.contain_stacking
     }
 }

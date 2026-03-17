@@ -306,6 +306,11 @@ pub(crate) fn parse_property_value(
 
         // --- Overflow ---
         "overflow" => misc::parse_overflow(input),
+        "overflow-x" | "overflow-y" => parse_keyword_property(
+            input,
+            name,
+            &["visible", "hidden", "scroll", "auto", "clip"],
+        ),
 
         // --- Min/max sizing ---
         "min-width" | "min-height" => {

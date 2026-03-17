@@ -348,7 +348,8 @@ pub fn layout_block_inner(
 fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
     style.float != Float::None
         || matches!(style.position, Position::Absolute | Position::Fixed)
-        || style.overflow != Overflow::Visible
+        || style.overflow_x != Overflow::Visible
+        || style.overflow_y != Overflow::Visible
         || matches!(
             style.display,
             Display::InlineBlock

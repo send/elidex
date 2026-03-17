@@ -95,6 +95,8 @@ const BOX_PROPERTIES: &[&str] = &[
     "border-bottom-left-radius",
     "opacity",
     "overflow",
+    "overflow-x",
+    "overflow-y",
     "content",
     "row-gap",
     "column-gap",
@@ -119,7 +121,7 @@ impl CssPropertyHandler for BoxHandler {
             "display" => parse_keyword(input, DISPLAY_KEYWORDS)?,
             "position" => parse_keyword(input, POSITION_KEYWORDS)?,
             "box-sizing" => parse_keyword(input, BOX_SIZING_KEYWORDS)?,
-            "overflow" => parse_keyword(input, OVERFLOW_KEYWORDS)?,
+            "overflow-x" | "overflow-y" => parse_keyword(input, OVERFLOW_KEYWORDS)?,
 
             "border-top-style"
             | "border-right-style"
@@ -152,6 +154,9 @@ impl CssPropertyHandler for BoxHandler {
             "opacity" => parse_opacity(input)?,
             "content" => parse_content(input)?,
 
+            // "overflow" shorthand is expanded into overflow-x/y by elidex-css
+            // before reaching this handler. It remains in BOX_PROPERTIES for
+            // get_computed() / initial_value() shorthand queries.
             _ => return Ok(vec![]),
         };
         Ok(vec![PropertyDeclaration::new(name, value)])
@@ -175,13 +180,14 @@ impl CssPropertyHandler for BoxHandler {
             "box-sizing" => {
                 elidex_plugin::resolve_keyword!(value, style.box_sizing, BoxSizing);
             }
-            "overflow" => {
+            "overflow-x" => {
                 if let CssValue::Keyword(ref k) = value {
-                    // scroll, auto, clip all map to Hidden
-                    style.overflow = match k.as_str() {
-                        "visible" => Overflow::Visible,
-                        _ => Overflow::Hidden,
-                    };
+                    style.overflow_x = Overflow::from_keyword(k).unwrap_or_default();
+                }
+            }
+            "overflow-y" => {
+                if let CssValue::Keyword(ref k) = value {
+                    style.overflow_y = Overflow::from_keyword(k).unwrap_or_default();
                 }
             }
 
@@ -330,7 +336,7 @@ impl CssPropertyHandler for BoxHandler {
 
             "box-sizing" => CssValue::Keyword("content-box".to_string()),
             "opacity" => CssValue::Number(1.0),
-            "overflow" => CssValue::Keyword("visible".to_string()),
+            "overflow" | "overflow-x" | "overflow-y" => CssValue::Keyword("visible".to_string()),
             "content" => CssValue::Keyword("normal".to_string()),
 
             _ => CssValue::Initial,
@@ -357,7 +363,15 @@ impl CssPropertyHandler for BoxHandler {
             "display" => keyword_from(&style.display),
             "position" => keyword_from(&style.position),
             "box-sizing" => keyword_from(&style.box_sizing),
-            "overflow" => keyword_from(&style.overflow),
+            "overflow" => {
+                if style.overflow_x == style.overflow_y {
+                    keyword_from(&style.overflow_x)
+                } else {
+                    CssValue::Keyword(format!("{} {}", style.overflow_x, style.overflow_y))
+                }
+            }
+            "overflow-x" => keyword_from(&style.overflow_x),
+            "overflow-y" => keyword_from(&style.overflow_y),
 
             "width" => dimension_to_css_value(style.width),
             "height" => dimension_to_css_value(style.height),

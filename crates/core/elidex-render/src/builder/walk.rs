@@ -7,7 +7,7 @@ use elidex_ecs::{
 };
 use elidex_form::FormControlState;
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Overflow, Visibility};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Visibility};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -119,8 +119,8 @@ pub(crate) fn walk(
                 }
             }
 
-            // overflow: hidden → clip children to padding box (CSS Overflow §3).
-            if style.overflow == Overflow::Hidden {
+            // overflow clipping → clip children to padding box (CSS Overflow §3).
+            if style.clips_overflow() {
                 let pb = lb.padding_box();
                 dl.push(DisplayItem::PushClip {
                     rect: pb,

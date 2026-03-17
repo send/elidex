@@ -352,16 +352,43 @@ pub(super) fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Overflow parsing ---
 
-/// Parse `overflow`. Maps `scroll`/`auto` to `hidden` (Phase 3 simplification).
+/// Parse `overflow` shorthand into `overflow-x`/`overflow-y` longhands.
+///
+/// Accepts 1 or 2 values: `overflow: <x> [<y>]`.
+/// If only one value is given, it applies to both axes.
 pub(super) fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
-    parse_mapped_keyword(
-        input,
-        "overflow",
-        &[
-            (&["visible"], "visible"),
-            (&["hidden", "scroll", "auto", "clip"], "hidden"),
-        ],
-    )
+    const KEYWORDS: &[&str] = &["visible", "hidden", "scroll", "auto", "clip"];
+    let first = input.try_parse(|i| -> Result<String, cssparser::ParseError<'_, ()>> {
+        let tok = i.expect_ident()?;
+        let lower = tok.as_ref().to_ascii_lowercase();
+        if KEYWORDS.contains(&lower.as_str()) {
+            Ok(lower)
+        } else {
+            Err(i.new_custom_error(()))
+        }
+    });
+    let Ok(first) = first else {
+        return vec![];
+    };
+    let second = input
+        .try_parse(|i| -> Result<String, cssparser::ParseError<'_, ()>> {
+            let tok = i.expect_ident()?;
+            let lower = tok.as_ref().to_ascii_lowercase();
+            if KEYWORDS.contains(&lower.as_str()) {
+                Ok(lower)
+            } else {
+                Err(i.new_custom_error(()))
+            }
+        })
+        .ok();
+    let y_decl = Declaration::new(
+        "overflow-y",
+        CssValue::Keyword(second.unwrap_or_else(|| first.clone())),
+    );
+    vec![
+        Declaration::new("overflow-x", CssValue::Keyword(first)),
+        y_decl,
+    ]
 }
 
 // --- Max dimension parsing ---

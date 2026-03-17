@@ -70,7 +70,7 @@ fn resolve_with_compat(
     registry: &elidex_plugin::CssPropertyRegistry,
 ) {
     let legacy_ua = legacy_ua_stylesheet();
-    resolve_styles_with_compat(
+    let _vp_overflow = resolve_styles_with_compat(
         dom,
         author_stylesheets,
         &[legacy_ua],

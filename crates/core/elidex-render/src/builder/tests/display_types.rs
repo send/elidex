@@ -169,7 +169,8 @@ fn overflow_hidden_emits_clip() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            overflow: elidex_plugin::Overflow::Hidden,
+            overflow_x: elidex_plugin::Overflow::Hidden,
+            overflow_y: elidex_plugin::Overflow::Hidden,
             background_color: elidex_plugin::CssColor::WHITE,
             ..Default::default()
         },
@@ -195,7 +196,8 @@ fn overflow_visible_no_clip() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            overflow: elidex_plugin::Overflow::Visible,
+            overflow_x: elidex_plugin::Overflow::Visible,
+            overflow_y: elidex_plugin::Overflow::Visible,
             background_color: elidex_plugin::CssColor::RED,
             ..Default::default()
         },
@@ -227,7 +229,8 @@ fn nested_overflow_hidden_balanced_clips() {
             entity,
             elidex_plugin::ComputedStyle {
                 display: elidex_plugin::Display::Block,
-                overflow: elidex_plugin::Overflow::Hidden,
+                overflow_x: elidex_plugin::Overflow::Hidden,
+                overflow_y: elidex_plugin::Overflow::Hidden,
                 background_color: elidex_plugin::CssColor::WHITE,
                 ..Default::default()
             },

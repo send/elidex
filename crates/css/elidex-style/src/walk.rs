@@ -7,7 +7,7 @@ use elidex_ecs::{
     Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowHost, ShadowRoot,
     SlotAssignment, TagType, TemplateContent, TextContent, MAX_ANCESTOR_DEPTH,
 };
-use elidex_plugin::{ComputedStyle, CssValue, Display};
+use elidex_plugin::{ComputedStyle, CssValue, Display, Overflow, ViewportOverflow};
 
 use crate::cascade::{collect_and_cascade, get_inline_declarations, ShadowCascade};
 use crate::pseudo::{generate_pseudo_entity, remove_pseudo_entities};
@@ -707,4 +707,96 @@ fn is_link_element(dom: &EcsDom, entity: Entity) -> bool {
         .get::<&Attributes>(entity)
         .ok()
         .is_some_and(|attrs| attrs.get("href").is_some())
+}
+
+// ---------------------------------------------------------------------------
+// Root overflow propagation (CSS Overflow L3 §3.1)
+// ---------------------------------------------------------------------------
+
+/// Find the `<html>` element entity among the roots.
+fn find_html_entity(dom: &EcsDom) -> Option<Entity> {
+    let roots = find_roots(dom);
+    for root in roots {
+        // The root itself might be <html>.
+        if dom.has_tag(root, "html") {
+            return Some(root);
+        }
+        // Or <html> might be a child of the document root.
+        for child in dom.children(root) {
+            if dom.has_tag(child, "html") {
+                return Some(child);
+            }
+        }
+    }
+    None
+}
+
+/// Find the first `<body>` child of `html`.
+fn find_body_child(dom: &EcsDom, html: Entity) -> Option<Entity> {
+    dom.children(html)
+        .into_iter()
+        .find(|&child| dom.has_tag(child, "body"))
+}
+
+/// Propagate root element overflow to the viewport (CSS Overflow L3 §3.1).
+///
+/// The algorithm:
+/// 1. Find `<html>` element.
+/// 2. If html has non-visible overflow → propagate html's overflow to viewport, reset html to visible.
+/// 3. If html is visible on both axes → check first `<body>` child:
+///    - If body has non-visible overflow → propagate body's overflow, reset body to visible.
+/// 4. Otherwise → default viewport overflow (auto/auto).
+///
+/// Viewport normalization: `visible` → `auto`, `clip` → `hidden`.
+pub(crate) fn propagate_root_overflow(dom: &mut EcsDom) -> ViewportOverflow {
+    let Some(html) = find_html_entity(dom) else {
+        return ViewportOverflow::default();
+    };
+
+    // Read html's computed style.
+    let (html_display, html_over_x, html_over_y) = match dom.world().get::<&ComputedStyle>(html) {
+        Ok(s) => (s.display, s.overflow_x, s.overflow_y),
+        Err(_) => return ViewportOverflow::default(),
+    };
+
+    // CSS Overflow L3 §3.1: no propagation when root element has display:none.
+    if html_display == Display::None {
+        return ViewportOverflow::default();
+    }
+
+    // If html has non-visible overflow on either axis, propagate from html.
+    if html_over_x != Overflow::Visible || html_over_y != Overflow::Visible {
+        // Reset html's overflow to visible.
+        if let Ok(mut s) = dom.world_mut().get::<&mut ComputedStyle>(html) {
+            s.overflow_x = Overflow::Visible;
+            s.overflow_y = Overflow::Visible;
+        }
+        return ViewportOverflow::from_propagated(html_over_x, html_over_y);
+    }
+
+    // html is visible on both axes — check body.
+    // CSS Overflow L3 §3.1: body must have display not none for fallback.
+    let Some(body) = find_body_child(dom, html) else {
+        return ViewportOverflow::default();
+    };
+
+    let (body_display, body_over_x, body_over_y) = match dom.world().get::<&ComputedStyle>(body) {
+        Ok(s) => (s.display, s.overflow_x, s.overflow_y),
+        Err(_) => return ViewportOverflow::default(),
+    };
+
+    if body_display == Display::None {
+        return ViewportOverflow::default();
+    }
+
+    if body_over_x != Overflow::Visible || body_over_y != Overflow::Visible {
+        // Reset body's overflow to visible.
+        if let Ok(mut s) = dom.world_mut().get::<&mut ComputedStyle>(body) {
+            s.overflow_x = Overflow::Visible;
+            s.overflow_y = Overflow::Visible;
+        }
+        return ViewportOverflow::from_propagated(body_over_x, body_over_y);
+    }
+
+    ViewportOverflow::default()
 }

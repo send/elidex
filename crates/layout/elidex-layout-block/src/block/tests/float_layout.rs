@@ -96,7 +96,8 @@ fn float_extends_bfc_parent_height() {
         parent,
         ComputedStyle {
             display: Display::Block,
-            overflow: elidex_plugin::Overflow::Hidden, // establishes BFC
+            overflow_x: elidex_plugin::Overflow::Hidden, // establishes BFC
+            overflow_y: elidex_plugin::Overflow::Hidden,
             ..Default::default()
         },
     );
@@ -202,7 +203,8 @@ fn float_auto_width_shrinks_to_content() {
         parent,
         ComputedStyle {
             display: Display::Block,
-            overflow: Overflow::Hidden, // BFC
+            overflow_x: Overflow::Hidden, // BFC
+            overflow_y: Overflow::Hidden,
             ..Default::default()
         },
     );
@@ -268,7 +270,8 @@ fn float_propagates_through_non_bfc() {
         bfc_parent,
         ComputedStyle {
             display: Display::Block,
-            overflow: Overflow::Hidden, // establishes BFC
+            overflow_x: Overflow::Hidden, // establishes BFC
+            overflow_y: Overflow::Hidden,
             ..Default::default()
         },
     );

@@ -3,9 +3,10 @@
 use super::*;
 use elidex_css::{parse_stylesheet, Declaration, Origin};
 use elidex_ecs::{Attributes, ElementState, PseudoElementMarker, ShadowRootMode, TextContent};
-use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Position};
+use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Overflow, Position};
 
 mod cascade;
+mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;
 mod shadow_compat;

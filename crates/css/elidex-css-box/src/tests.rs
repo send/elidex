@@ -155,7 +155,7 @@ fn parse_box_sizing() {
 #[test]
 fn parse_overflow_keywords() {
     for kw in OVERFLOW_KEYWORDS {
-        let decls = parse("overflow", kw);
+        let decls = parse("overflow-x", kw);
         assert_eq!(decls[0].value, CssValue::Keyword(kw.to_string()));
     }
 }
@@ -361,17 +361,17 @@ fn get_computed_content_items() {
 }
 
 #[test]
-fn resolve_overflow_scroll_maps_to_hidden() {
+fn resolve_overflow_scroll() {
     let h = handler();
     let ctx = default_ctx();
     let mut style = ComputedStyle::default();
     h.resolve(
-        "overflow",
+        "overflow-x",
         &CssValue::Keyword("scroll".into()),
         &ctx,
         &mut style,
     );
-    assert_eq!(style.overflow, Overflow::Hidden);
+    assert_eq!(style.overflow_x, Overflow::Scroll);
 }
 
 #[test]

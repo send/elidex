@@ -30,6 +30,7 @@ use elidex_css::{Declaration, Stylesheet};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue};
 
+pub use elidex_plugin::ViewportOverflow;
 pub use resolve::{dimension_to_css_value, get_computed_with_registry};
 
 /// Build the CSS property registry with all standard property handlers.
@@ -83,7 +84,7 @@ pub fn resolve_styles(
     author_stylesheets: &[&Stylesheet],
     viewport_width: f32,
     viewport_height: f32,
-) {
+) -> ViewportOverflow {
     resolve_styles_with_compat(
         dom,
         author_stylesheets,
@@ -92,7 +93,7 @@ pub fn resolve_styles(
         viewport_width,
         viewport_height,
         None,
-    );
+    )
 }
 
 /// Extended style resolution accepting compat layer data.
@@ -110,7 +111,7 @@ pub fn resolve_styles_with_compat(
     viewport_width: f32,
     viewport_height: f32,
     _registry: Option<&CssPropertyRegistry>,
-) {
+) -> ViewportOverflow {
     let ua = ua::ua_stylesheet();
 
     // Build the full stylesheet list: UA first, then extra UA, then author.
@@ -144,4 +145,7 @@ pub fn resolve_styles_with_compat(
         state.depth = 0;
         walk_tree(dom, root, &all_sheets, &default_parent, &mut state);
     }
+
+    // Propagate root overflow to viewport (CSS Overflow L3 §3.1).
+    walk::propagate_root_overflow(dom)
 }

@@ -25,12 +25,13 @@ pub use computed_style::{
     Display, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, GridTrackList,
     JustifyContent, LineHeight, ListStyleType, Overflow, Position, TableLayout, TextAlign,
     TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth,
-    TrackSize, UnicodeBidi, VerticalAlign, Visibility, WhiteSpace, WritingMode,
+    TrackSize, UnicodeBidi, VerticalAlign, ViewportOverflow, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{
     AnimationEventInit, ClipboardEventInit, CompositionEventInit, EventPayload, EventPhase,
     FocusEventInit, InputEventInit, KeyboardEventInit, MouseEventInit, TransitionEventInit,
+    WheelEventInit,
 };
 pub use js_value::JsValue;
 pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};

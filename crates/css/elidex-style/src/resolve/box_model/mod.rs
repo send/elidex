@@ -348,12 +348,35 @@ pub(super) fn resolve_overflow(
     parent_style: &ComputedStyle,
 ) {
     resolve_keyword_enum_prop!(
-        "overflow",
+        "overflow-x",
         winners,
         parent_style,
-        style.overflow,
+        style.overflow_x,
         Overflow::from_keyword
     );
+    resolve_keyword_enum_prop!(
+        "overflow-y",
+        winners,
+        parent_style,
+        style.overflow_y,
+        Overflow::from_keyword
+    );
+
+    // CSS Overflow L3 §3.2: If one axis is `visible` or `clip` and the other
+    // is neither `visible` nor `clip`, then `visible` computes to `auto` and
+    // `clip` computes to `hidden`.
+    let (ox, oy) = (style.overflow_x, style.overflow_y);
+    let other_is_scrollable = |o: Overflow| o != Overflow::Visible && o != Overflow::Clip;
+    if ox == Overflow::Visible && other_is_scrollable(oy) {
+        style.overflow_x = Overflow::Auto;
+    } else if ox == Overflow::Clip && other_is_scrollable(oy) {
+        style.overflow_x = Overflow::Hidden;
+    }
+    if oy == Overflow::Visible && other_is_scrollable(ox) {
+        style.overflow_y = Overflow::Auto;
+    } else if oy == Overflow::Clip && other_is_scrollable(ox) {
+        style.overflow_y = Overflow::Hidden;
+    }
 }
 
 // --- Content property resolution ---
