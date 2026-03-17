@@ -600,6 +600,53 @@ impl AnimationEngine {
         events
     }
 
+    /// Cancel animations by name for an entity, emitting `animationcancel` events.
+    ///
+    /// Only cancels animations whose name is in `names_to_cancel`. Returns cancel
+    /// events. Animations not in the set are retained.
+    #[must_use]
+    pub fn cancel_animations_by_name(
+        &mut self,
+        entity: EntityId,
+        names_to_cancel: &std::collections::HashSet<&str>,
+    ) -> Vec<(EntityId, AnimationEvent)> {
+        self.has_running_cache = None;
+        let mut events = Vec::new();
+        if let Some(anims) = self.animations.get_mut(&entity) {
+            let mut i = 0;
+            while i < anims.len() {
+                if names_to_cancel.contains(anims[i].name()) {
+                    let anim = anims.remove(i);
+                    // Only emit animationcancel for non-finished animations.
+                    // Finished animations completed naturally (animationend already fired).
+                    if !anim.finished {
+                        let active_duration = Self::total_active_duration(&anim);
+                        let active_time = anim.elapsed - f64::from(anim.delay());
+                        let elapsed_time = if active_time.is_finite() {
+                            active_time.min(active_duration).max(0.0)
+                        } else {
+                            0.0
+                        };
+                        events.push((
+                            entity,
+                            AnimationEvent::Animation(AnimationEventData {
+                                kind: AnimationEventKind::Cancel,
+                                name: anim.name().to_string(),
+                                elapsed_time,
+                            }),
+                        ));
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            if anims.is_empty() {
+                self.animations.remove(&entity);
+            }
+        }
+        events
+    }
+
     /// Clear all state.
     pub fn clear(&mut self) {
         self.has_running_cache = None;

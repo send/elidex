@@ -56,6 +56,8 @@ pub(crate) fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
     let anchored = format!("^(?:{p})$");
     regex::RegexBuilder::new(&anchored)
         .size_limit(1 << 20)
+        // JS pattern attribute uses the `u` flag (WHATWG HTML §4.10.5.3.8).
+        // Rust regex defaults match this: \d/\w are ASCII-only, `.` matches Unicode scalars.
         .build()
         .ok()
         .map(Arc::new)

@@ -140,7 +140,6 @@ fn parse_bg_image(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Par
     if let Ok(url) = input.try_parse(cssparser::Parser::expect_url) {
         return Ok(CssValue::Url(url.as_ref().to_string()));
     }
-    // Try gradient (Phase C)
     if let Ok(gradient) = gradient::parse_gradient(input) {
         return Ok(gradient);
     }
@@ -268,7 +267,161 @@ fn get_computed_bg_image(style: &ComputedStyle) -> CssValue {
 fn bg_image_to_css_value(img: &BackgroundImage) -> CssValue {
     match img {
         BackgroundImage::Url(u) => CssValue::Url(u.clone()),
-        _ => CssValue::Keyword("none".to_string()), // TODO: gradient serialization
+        BackgroundImage::LinearGradient(lg) => CssValue::Keyword(serialize_linear_gradient(lg)),
+        BackgroundImage::RadialGradient(rg) => CssValue::Keyword(serialize_radial_gradient(rg)),
+        BackgroundImage::ConicGradient(cg) => CssValue::Keyword(serialize_conic_gradient(cg)),
+        _ => CssValue::Keyword("none".to_string()),
+    }
+}
+
+/// Format a color as `rgba(r, g, b, a)` or `rgb(r, g, b)`.
+fn serialize_color(c: elidex_plugin::CssColor) -> String {
+    if c.a == 255 {
+        format!("rgb({}, {}, {})", c.r, c.g, c.b)
+    } else {
+        let alpha = f64::from(c.a) / 255.0;
+        // Round to 3 decimal places to avoid excessive precision
+        let alpha = (alpha * 1000.0).round() / 1000.0;
+        format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
+    }
+}
+
+/// Format a float without unnecessary trailing zeros (e.g. `45` not `45.000`).
+fn fmt_f32(v: f32) -> String {
+    if !v.is_finite() {
+        return "0".to_string();
+    }
+    if v.fract() == 0.0 {
+        // Use {:.0} formatting instead of casting to i64, which would
+        // overflow for very large floats.
+        format!("{v:.0}")
+    } else {
+        // Up to 3 decimal places
+        let s = format!("{v:.3}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+fn serialize_linear_gradient(lg: &elidex_plugin::background::LinearGradient) -> String {
+    let prefix = if lg.repeating {
+        "repeating-linear-gradient("
+    } else {
+        "linear-gradient("
+    };
+    let mut s = String::from(prefix);
+    // Omit default angle (180deg = to bottom)
+    if (lg.angle - 180.0).abs() > 0.01 {
+        s.push_str(&fmt_f32(lg.angle));
+        s.push_str("deg, ");
+    }
+    serialize_color_stops_normalized(&lg.stops, &mut s);
+    s.push(')');
+    s
+}
+
+fn serialize_radial_gradient(rg: &elidex_plugin::background::RadialGradient) -> String {
+    let prefix = if rg.repeating {
+        "repeating-radial-gradient("
+    } else {
+        "radial-gradient("
+    };
+    let mut s = String::from(prefix);
+
+    // Emit shape/size if explicit radii are set
+    let has_radii = rg.radii.0 > 0.0 || rg.radii.1 > 0.0;
+    if has_radii {
+        let is_circle = (rg.radii.0 - rg.radii.1).abs() < 0.01;
+        if is_circle {
+            s.push_str("circle ");
+            s.push_str(&fmt_f32(rg.radii.0));
+            s.push_str("px");
+        } else {
+            s.push_str(&fmt_f32(rg.radii.0));
+            s.push_str("px ");
+            s.push_str(&fmt_f32(rg.radii.1));
+            s.push_str("px");
+        }
+    }
+
+    // Emit center if not default 50% 50%
+    let non_default_center = (rg.center.0 - 50.0).abs() > 0.01 || (rg.center.1 - 50.0).abs() > 0.01;
+    if non_default_center {
+        if has_radii {
+            s.push(' ');
+        }
+        s.push_str("at ");
+        s.push_str(&fmt_f32(rg.center.0));
+        s.push_str("% ");
+        s.push_str(&fmt_f32(rg.center.1));
+        s.push('%');
+    }
+
+    if has_radii || non_default_center {
+        s.push_str(", ");
+    }
+
+    serialize_color_stops_normalized(&rg.stops, &mut s);
+    s.push(')');
+    s
+}
+
+fn serialize_conic_gradient(cg: &elidex_plugin::background::ConicGradient) -> String {
+    let prefix = if cg.repeating {
+        "repeating-conic-gradient("
+    } else {
+        "conic-gradient("
+    };
+    let mut s = String::from(prefix);
+    let non_default_angle = cg.start_angle.abs() > 0.01;
+    let non_default_center = (cg.center.0 - 50.0).abs() > 0.01 || (cg.center.1 - 50.0).abs() > 0.01;
+    if non_default_angle {
+        s.push_str("from ");
+        s.push_str(&fmt_f32(cg.start_angle));
+        s.push_str("deg");
+        if non_default_center {
+            s.push(' ');
+        } else {
+            s.push_str(", ");
+        }
+    }
+    if non_default_center {
+        s.push_str("at ");
+        s.push_str(&fmt_f32(cg.center.0));
+        s.push_str("% ");
+        s.push_str(&fmt_f32(cg.center.1));
+        s.push_str("%, ");
+    }
+    serialize_angular_stops(&cg.stops, &mut s);
+    s.push(')');
+    s
+}
+
+/// Serialize linear/radial color stops (positions are 0.0–1.0, emitted as percentages).
+fn serialize_color_stops_normalized(
+    stops: &[elidex_plugin::background::ColorStop],
+    s: &mut String,
+) {
+    for (i, stop) in stops.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&serialize_color(stop.color));
+        s.push(' ');
+        s.push_str(&fmt_f32(stop.position * 100.0));
+        s.push('%');
+    }
+}
+
+/// Serialize conic color stops (positions are in degrees).
+fn serialize_angular_stops(stops: &[elidex_plugin::background::ColorStop], s: &mut String) {
+    for (i, stop) in stops.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&serialize_color(stop.color));
+        s.push(' ');
+        s.push_str(&fmt_f32(stop.position));
+        s.push_str("deg");
     }
 }
 

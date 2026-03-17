@@ -38,11 +38,8 @@ pub struct AnimationInstance {
 
 impl AnimationInstance {
     /// Create a new animation instance from a spec and start time.
-    ///
-    /// Integration with content thread frame loop is deferred to Phase 4+.
-    #[allow(dead_code)]
     #[must_use]
-    pub(crate) fn new(spec: &crate::SingleAnimationSpec, start_time: f64) -> Self {
+    pub fn new(spec: &crate::SingleAnimationSpec, start_time: f64) -> Self {
         Self {
             name: spec.name.clone(),
             duration: spec.duration,

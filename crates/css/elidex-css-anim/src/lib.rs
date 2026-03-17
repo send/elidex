@@ -157,15 +157,15 @@ impl CssPropertyHandler for AnimHandler {
 ///
 /// Also used as the parameter type for [`instance::AnimationInstance::new`]
 /// to avoid a 9-parameter constructor.
-pub(crate) struct SingleAnimationSpec {
-    pub(crate) name: String,
-    pub(crate) duration: f32,
-    pub(crate) timing_function: timing::TimingFunction,
-    pub(crate) delay: f32,
-    pub(crate) iteration_count: style::IterationCount,
-    pub(crate) direction: style::AnimationDirection,
-    pub(crate) fill_mode: style::AnimationFillMode,
-    pub(crate) play_state: style::PlayState,
+pub struct SingleAnimationSpec {
+    pub name: String,
+    pub duration: f32,
+    pub timing_function: timing::TimingFunction,
+    pub delay: f32,
+    pub iteration_count: style::IterationCount,
+    pub direction: style::AnimationDirection,
+    pub fill_mode: style::AnimationFillMode,
+    pub play_state: style::PlayState,
 }
 
 /// Parse the `animation` shorthand.

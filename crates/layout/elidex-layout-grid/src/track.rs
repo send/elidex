@@ -20,6 +20,9 @@ pub(crate) struct ResolvedTrack {
     pub(crate) fr: f32,
     /// Final resolved size in pixels.
     pub(crate) size: f32,
+    /// Whether this track was collapsed by auto-fit (CSS Grid §7.2.3.2).
+    /// Collapsed tracks have size 0 and their adjacent gutters are also collapsed.
+    pub(crate) collapsed: bool,
 }
 
 impl ResolvedTrack {
@@ -99,6 +102,7 @@ fn resolve_single_track(
             limit: *px,
             fr: 0.0,
             size: *px,
+            collapsed: false,
         },
         TrackSize::Percentage(pct) => {
             let resolved = available * pct / 100.0;
@@ -107,6 +111,7 @@ fn resolve_single_track(
                 limit: resolved,
                 fr: 0.0,
                 size: resolved,
+                collapsed: false,
             }
         }
         TrackSize::Fr(f) => ResolvedTrack {
@@ -114,12 +119,14 @@ fn resolve_single_track(
             limit: f32::INFINITY,
             fr: *f,
             size: 0.0, // Will be set by distribute_fr.
+            collapsed: false,
         },
         TrackSize::Auto => ResolvedTrack {
             base: min_content,
             limit: max_content.max(0.0),
             fr: 0.0,
             size: max_content,
+            collapsed: false,
         },
         TrackSize::MinMax(min_breadth, max_breadth) => {
             let min_val = resolve_breadth_as_min(min_breadth, available, min_content, max_content);
@@ -137,6 +144,7 @@ fn resolve_single_track(
                 } else {
                     min_val.max(max_val.min(min_val.max(max_content)))
                 },
+                collapsed: false,
             }
         }
     }
@@ -272,13 +280,15 @@ fn distribute_fr(tracks: &mut [ResolvedTrack], available: f32, gap: f32) {
 /// Compute track positions (cumulative offsets from the content edge).
 ///
 /// Returns a vector of starting positions for each track.
+/// Gaps adjacent to collapsed tracks (from auto-fit) are skipped per CSS Grid §7.2.3.2.
 pub(crate) fn compute_track_positions(tracks: &[ResolvedTrack], gap: f32) -> Vec<f32> {
     let mut positions = Vec::with_capacity(tracks.len());
     let mut offset = 0.0;
     for (i, track) in tracks.iter().enumerate() {
         positions.push(offset);
         offset += track.size;
-        if i + 1 < tracks.len() {
+        // Only add a gap between two non-collapsed adjacent tracks.
+        if i + 1 < tracks.len() && !track.collapsed && !tracks[i + 1].collapsed {
             offset += gap;
         }
     }
@@ -286,12 +296,19 @@ pub(crate) fn compute_track_positions(tracks: &[ResolvedTrack], gap: f32) -> Vec
 }
 
 /// Get the total size of all tracks plus gaps.
-#[allow(clippy::cast_precision_loss)]
+///
+/// Gaps adjacent to collapsed tracks are excluded per CSS Grid §7.2.3.2.
 pub(crate) fn total_track_size(tracks: &[ResolvedTrack], gap: f32) -> f32 {
     if tracks.is_empty() {
         return 0.0;
     }
     let track_sum: f32 = tracks.iter().map(|t| t.size).sum();
-    let gap_sum = gap * (tracks.len().saturating_sub(1)) as f32;
+    // Count gaps only between pairs of adjacent non-collapsed tracks.
+    let gap_count = tracks
+        .windows(2)
+        .filter(|pair| !pair[0].collapsed && !pair[1].collapsed)
+        .count();
+    #[allow(clippy::cast_precision_loss)]
+    let gap_sum = gap * gap_count as f32;
     track_sum + gap_sum
 }

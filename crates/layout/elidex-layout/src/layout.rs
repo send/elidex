@@ -326,10 +326,10 @@ mod tests {
             grid,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: elidex_plugin::GridTrackList::Explicit(vec![
                     elidex_plugin::TrackSize::Fr(1.0),
                     elidex_plugin::TrackSize::Fr(1.0),
-                ],
+                ]),
                 ..Default::default()
             },
         );
@@ -381,7 +381,9 @@ mod tests {
             grid,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![elidex_plugin::TrackSize::Length(200.0)],
+                grid_template_columns: elidex_plugin::GridTrackList::Explicit(vec![
+                    elidex_plugin::TrackSize::Length(200.0),
+                ]),
                 ..Default::default()
             },
         );
@@ -610,10 +612,10 @@ mod tests {
             container,
             ComputedStyle {
                 display: Display::InlineGrid,
-                grid_template_columns: vec![
+                grid_template_columns: elidex_plugin::GridTrackList::Explicit(vec![
                     elidex_plugin::TrackSize::Fr(1.0),
                     elidex_plugin::TrackSize::Fr(1.0),
-                ],
+                ]),
                 ..Default::default()
             },
         );

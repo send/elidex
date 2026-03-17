@@ -2,8 +2,9 @@
 
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_length},
-    ComputedStyle, CssPropertyHandler, CssValue, GridAutoFlow, GridLine, LengthUnit, ParseError,
-    PropertyDeclaration, ResolveContext, TrackBreadth, TrackSize,
+    AutoRepeatMode, ComputedStyle, CssPropertyHandler, CssValue, GridAutoFlow, GridLine,
+    GridTrackList, LengthUnit, ParseError, PropertyDeclaration, ResolveContext, TrackBreadth,
+    TrackSize,
 };
 
 /// CSS grid property handler.
@@ -299,13 +300,40 @@ fn parse_grid_line(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, Pa
 // Resolution helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve a track list `CssValue` to `Vec<TrackSize>`.
-fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> Vec<TrackSize> {
+/// Resolve a track list `CssValue` to `GridTrackList`.
+fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> GridTrackList {
     match value {
-        CssValue::Keyword(k) if k == "none" => Vec::new(),
-        CssValue::List(items) => items.iter().map(|v| resolve_single_track(v, ctx)).collect(),
+        CssValue::Keyword(k) if k == "none" => GridTrackList::default(),
+        CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("auto-repeat".to_string())) =>
+        {
+            // Auto-repeat marker: [Keyword("auto-repeat"), Keyword(mode), List(before), List(pattern), List(after)]
+            let mode = match items.get(1).and_then(|v| v.as_keyword()) {
+                Some("auto-fill") => AutoRepeatMode::AutoFill,
+                Some("auto-fit") => AutoRepeatMode::AutoFit,
+                _ => return GridTrackList::default(),
+            };
+            let resolve_list = |v: &CssValue| -> Vec<TrackSize> {
+                match v {
+                    CssValue::List(l) => l.iter().map(|i| resolve_single_track(i, ctx)).collect(),
+                    _ => Vec::new(),
+                }
+            };
+            let before = items.get(2).map_or_else(Vec::new, resolve_list);
+            let pattern = items.get(3).map_or_else(Vec::new, resolve_list);
+            let after = items.get(4).map_or_else(Vec::new, resolve_list);
+            GridTrackList::AutoRepeat {
+                before,
+                pattern,
+                mode,
+                after,
+            }
+        }
+        CssValue::List(items) => {
+            GridTrackList::Explicit(items.iter().map(|v| resolve_single_track(v, ctx)).collect())
+        }
         // Single track size (grid-template-columns: 100px)
-        other => vec![resolve_single_track(other, ctx)],
+        other => GridTrackList::Explicit(vec![resolve_single_track(other, ctx)]),
     }
 }
 
@@ -387,15 +415,37 @@ fn resolve_grid_line(value: &CssValue) -> GridLine {
 // Serialization helpers
 // ---------------------------------------------------------------------------
 
-/// Serialize a track list back to `CssValue`.
-fn track_list_to_css(tracks: &[TrackSize]) -> CssValue {
-    if tracks.is_empty() {
-        return CssValue::Keyword("none".to_string());
+/// Serialize a `GridTrackList` back to `CssValue`.
+fn track_list_to_css(list: &GridTrackList) -> CssValue {
+    match list {
+        GridTrackList::Explicit(tracks) => {
+            if tracks.is_empty() {
+                return CssValue::Keyword("none".to_string());
+            }
+            if tracks.len() == 1 {
+                return track_size_to_css(&tracks[0]);
+            }
+            CssValue::List(tracks.iter().map(track_size_to_css).collect())
+        }
+        GridTrackList::AutoRepeat {
+            before,
+            pattern,
+            mode,
+            after,
+        } => {
+            let mode_str = match mode {
+                AutoRepeatMode::AutoFill => "auto-fill",
+                AutoRepeatMode::AutoFit => "auto-fit",
+            };
+            CssValue::List(vec![
+                CssValue::Keyword("auto-repeat".to_string()),
+                CssValue::Keyword(mode_str.to_string()),
+                CssValue::List(before.iter().map(track_size_to_css).collect()),
+                CssValue::List(pattern.iter().map(track_size_to_css).collect()),
+                CssValue::List(after.iter().map(track_size_to_css).collect()),
+            ])
+        }
     }
-    if tracks.len() == 1 {
-        return track_size_to_css(&tracks[0]);
-    }
-    CssValue::List(tracks.iter().map(track_size_to_css).collect())
 }
 
 /// Serialize a single `TrackSize` to `CssValue`.
@@ -542,10 +592,14 @@ mod tests {
             CssValue::Auto,
         ]);
         handler.resolve("grid-template-columns", &value, &ctx, &mut style);
-        assert_eq!(style.grid_template_columns.len(), 3);
-        assert_eq!(style.grid_template_columns[0], TrackSize::Length(100.0));
-        assert_eq!(style.grid_template_columns[1], TrackSize::Fr(2.0));
-        assert_eq!(style.grid_template_columns[2], TrackSize::Auto);
+        assert_eq!(
+            style.grid_template_columns,
+            GridTrackList::Explicit(vec![
+                TrackSize::Length(100.0),
+                TrackSize::Fr(2.0),
+                TrackSize::Auto,
+            ])
+        );
     }
 
     #[test]
@@ -559,7 +613,7 @@ mod tests {
             &ctx,
             &mut style,
         );
-        assert!(style.grid_template_rows.is_empty());
+        assert_eq!(style.grid_template_rows, GridTrackList::default());
     }
 
     #[test]
@@ -646,7 +700,10 @@ mod tests {
     fn get_computed_roundtrip() {
         let handler = GridHandler;
         let style = ComputedStyle {
-            grid_template_columns: vec![TrackSize::Length(50.0), TrackSize::Fr(1.0)],
+            grid_template_columns: GridTrackList::Explicit(vec![
+                TrackSize::Length(50.0),
+                TrackSize::Fr(1.0),
+            ]),
             grid_auto_flow: GridAutoFlow::RowDense,
             grid_column_start: GridLine::Span(3),
             grid_row_end: GridLine::Line(-2),

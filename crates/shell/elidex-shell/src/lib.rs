@@ -218,7 +218,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let animation_engine = create_animation_engine(&stylesheets);
 
-    PipelineResult {
+    let mut result = PipelineResult {
         display_list,
         dom,
         document,
@@ -234,7 +234,12 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
-    }
+    };
+
+    // Start CSS animations declared in initial styles.
+    sync_css_animations(&mut result, &[]);
+
+    result
 }
 
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
@@ -275,6 +280,11 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     // Includes entities that newly gained AnimStyle (transition-* properties).
     detect_and_start_transitions(result, &old_styles, &old_computed_no_anim);
 
+    // Phase 3b: Start/cancel CSS animations based on animation-name changes.
+    // CSS Animations L1 §4.2: when animation-name changes, old names are cancelled
+    // and new names are started.
+    sync_css_animations(result, &old_styles);
+
     // Phase 4: Apply animated values from active transitions/animations to ComputedStyle.
     apply_active_animations(result);
 
@@ -305,7 +315,7 @@ fn collect_old_anim_styles(
         .world()
         .query::<(Entity, (&AnimStyle, &ComputedStyle))>()
     {
-        if !anim_style.transition_property.is_empty() {
+        if !anim_style.transition_property.is_empty() || !anim_style.animation_name.is_empty() {
             result.push((entity.to_bits().get(), anim_style.clone(), computed.clone()));
         }
     }
@@ -423,6 +433,153 @@ fn detect_and_start_transitions(
     }
 
     dispatch_anim_events(&cancel_dispatches, result);
+}
+
+/// Synchronize CSS animations from `AnimStyle.animation_name` to the engine.
+///
+/// CSS Animations Level 1 §4.2: when `animation-name` on an element changes,
+/// animations for removed names are cancelled (emitting `animationcancel`) and
+/// animations for new names are started.
+///
+/// `old_styles` contains the pre-re-resolve `AnimStyle` snapshot. For the initial
+/// render pass an empty slice (all names are considered new).
+fn sync_css_animations(
+    result: &mut PipelineResult,
+    old_styles: &[(u64, elidex_css_anim::style::AnimStyle, ComputedStyle)],
+) {
+    use elidex_css_anim::instance::AnimationInstance;
+    use elidex_css_anim::style::AnimStyle;
+    use std::collections::HashMap;
+
+    // Build lookup from entity_bits → old animation names (ordered Vec).
+    let old_names_map: HashMap<u64, Vec<String>> = old_styles
+        .iter()
+        .map(|(bits, anim_style, _)| (*bits, anim_style.animation_name.clone()))
+        .collect();
+
+    // Collect current AnimStyle data for all entities.
+    let current: Vec<(u64, AnimStyle)> = result
+        .dom
+        .world()
+        .query::<(Entity, &AnimStyle)>()
+        .iter()
+        .filter(|(_, anim_style)| !anim_style.animation_name.is_empty())
+        .map(|(entity, anim_style)| (entity.to_bits().get(), anim_style.clone()))
+        .collect();
+
+    let mut cancel_events = Vec::new();
+    let timeline_time = result.animation_engine.timeline().current_time();
+
+    for (entity_bits, anim_style) in &current {
+        let old_names_vec: Vec<&str> = old_names_map
+            .get(entity_bits)
+            .map_or_else(Vec::new, |names| names.iter().map(String::as_str).collect());
+        let new_names_vec: Vec<&str> = anim_style
+            .animation_name
+            .iter()
+            .map(String::as_str)
+            .collect();
+
+        // CSS Animations L1 §4.2: "The same @keyframes rule name may be repeated...
+        // each one is independently started." If the name list changed at all,
+        // cancel all old animations and restart from scratch.
+        if old_names_vec != new_names_vec {
+            let events = result.animation_engine.cancel_animations(*entity_bits);
+            cancel_events.extend(events);
+
+            // Start all new animations.
+            for (i, name) in anim_style.animation_name.iter().enumerate() {
+                if name == "none" {
+                    continue;
+                }
+                if result.animation_engine.get_keyframes(name).is_none() {
+                    continue;
+                }
+                let spec = build_animation_spec(name, i, anim_style);
+                let instance = AnimationInstance::new(&spec, timeline_time);
+                result
+                    .animation_engine
+                    .add_animation(*entity_bits, instance);
+            }
+        }
+    }
+
+    // Cancel animations for entities whose animation-name was cleared entirely
+    // (no longer in `current` because filter requires non-empty animation_name).
+    let current_set: std::collections::HashSet<u64> =
+        current.iter().map(|(bits, _)| *bits).collect();
+    for (entity_bits, old_names) in &old_names_map {
+        if !old_names.is_empty() && !current_set.contains(entity_bits) {
+            let events = result.animation_engine.cancel_animations(*entity_bits);
+            cancel_events.extend(events);
+        }
+    }
+
+    if !cancel_events.is_empty() {
+        dispatch_anim_events(&cancel_events, result);
+    }
+}
+
+/// Build a `SingleAnimationSpec` from `AnimStyle` lists with CSS cycling.
+///
+/// CSS Animations L1 §5.2: when animation property lists have different lengths,
+/// values cycle (index mod `list.len()`).
+fn build_animation_spec(
+    name: &str,
+    index: usize,
+    anim_style: &elidex_css_anim::style::AnimStyle,
+) -> elidex_css_anim::SingleAnimationSpec {
+    use elidex_css_anim::style::{
+        AnimationDirection, AnimationFillMode, IterationCount, PlayState,
+    };
+    use elidex_css_anim::timing::TimingFunction;
+
+    let cycle = |list_len: usize| -> usize {
+        if list_len == 0 {
+            0
+        } else {
+            index % list_len
+        }
+    };
+
+    elidex_css_anim::SingleAnimationSpec {
+        name: name.to_string(),
+        duration: anim_style
+            .animation_duration
+            .get(cycle(anim_style.animation_duration.len()))
+            .copied()
+            .unwrap_or(0.0),
+        timing_function: anim_style
+            .animation_timing_function
+            .get(cycle(anim_style.animation_timing_function.len()))
+            .cloned()
+            .unwrap_or(TimingFunction::EASE),
+        delay: anim_style
+            .animation_delay
+            .get(cycle(anim_style.animation_delay.len()))
+            .copied()
+            .unwrap_or(0.0),
+        iteration_count: anim_style
+            .animation_iteration_count
+            .get(cycle(anim_style.animation_iteration_count.len()))
+            .copied()
+            .unwrap_or(IterationCount::default()),
+        direction: anim_style
+            .animation_direction
+            .get(cycle(anim_style.animation_direction.len()))
+            .copied()
+            .unwrap_or(AnimationDirection::default()),
+        fill_mode: anim_style
+            .animation_fill_mode
+            .get(cycle(anim_style.animation_fill_mode.len()))
+            .copied()
+            .unwrap_or(AnimationFillMode::default()),
+        play_state: anim_style
+            .animation_play_state
+            .get(cycle(anim_style.animation_play_state.len()))
+            .copied()
+            .unwrap_or(PlayState::default()),
+    }
 }
 
 /// Compare old vs new computed values for the given transition-property lists,
@@ -671,7 +828,7 @@ pub fn build_pipeline_from_loaded(
 
     let animation_engine = create_animation_engine(&stylesheets);
 
-    PipelineResult {
+    let mut result = PipelineResult {
         display_list,
         dom,
         document,
@@ -687,7 +844,12 @@ pub fn build_pipeline_from_loaded(
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
-    }
+    };
+
+    // Start CSS animations declared in initial styles.
+    sync_css_animations(&mut result, &[]);
+
+    result
 }
 
 /// Build a pipeline from a URL.

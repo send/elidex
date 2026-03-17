@@ -3,14 +3,13 @@
 //! Implements the core grid algorithm: track sizing, item placement,
 //! and cell positioning.
 //!
-//! Current simplifications:
-//! - No named grid lines (numeric only)
-//! - No `grid-template-areas`
-//! - No subgrid
-//! - `repeat(auto-fill/auto-fit, ...)` treated as `repeat(1, ...)`
-//! - `fit-content()` treated as `auto`
-//! - `inline-grid` treated as block-level
-//! - `baseline` alignment treated as `start`
+// Current simplifications:
+// - No named grid lines (numeric only)
+// - No `grid-template-areas`
+// - No subgrid
+// - `fit-content()` treated as `auto`
+// - `inline-grid` treated as block-level
+// - `baseline` alignment treated as `start`
 
 mod placement;
 mod track;
@@ -31,7 +30,7 @@ use elidex_layout_block::{
 };
 use elidex_plugin::{
     AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
-    LayoutBox, Rect, TrackSize,
+    GridTrackList, LayoutBox, Rect, TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -151,9 +150,14 @@ pub fn layout_grid(
             .then(a.source_order.cmp(&b.source_order))
     });
 
-    // --- 4. Determine explicit grid size ---
-    let explicit_cols = style.grid_template_columns.len();
-    let explicit_rows = style.grid_template_rows.len();
+    // --- 4. Expand auto-repeat and determine explicit grid size ---
+    let col_track_list = &style.grid_template_columns;
+    let row_track_list = &style.grid_template_rows;
+    let expanded_cols = col_track_list.expand(content_width, gap_col);
+    let available_height_for_rows = resolve_explicit_height(&style, containing_height);
+    let expanded_rows = row_track_list.expand(available_height_for_rows.unwrap_or(0.0), gap_row);
+    let explicit_cols = expanded_cols.len();
+    let explicit_rows = expanded_rows.len();
 
     // --- 5-7. Placement ---
     let column_flow = matches!(
@@ -196,12 +200,8 @@ pub fn layout_grid(
     let (row_min_sizes, row_max_sizes) = compute_content_per_track(&items, actual_rows, false);
 
     // --- 9. Resolve column tracks ---
-    let col_defs = build_track_definitions(
-        &style.grid_template_columns,
-        &style.grid_auto_columns,
-        actual_cols,
-    );
-    let col_tracks = track::resolve_tracks(
+    let col_defs = build_track_definitions(&expanded_cols, &style.grid_auto_columns, actual_cols);
+    let mut col_tracks = track::resolve_tracks(
         &col_defs,
         content_width,
         gap_col,
@@ -209,13 +209,21 @@ pub fn layout_grid(
         &col_max_sizes,
     );
 
+    // auto-fit: collapse empty auto-repeated column tracks to 0.
+    if col_track_list.is_auto_fit() {
+        collapse_empty_auto_tracks(
+            &mut col_tracks,
+            col_track_list,
+            content_width,
+            gap_col,
+            &items,
+            true,
+        );
+    }
+
     // --- 10. Resolve row tracks ---
-    let available_height = resolve_explicit_height(&style, containing_height);
-    let row_defs = build_track_definitions(
-        &style.grid_template_rows,
-        &style.grid_auto_rows,
-        actual_rows,
-    );
+    let available_height = available_height_for_rows;
+    let row_defs = build_track_definitions(&expanded_rows, &style.grid_auto_rows, actual_rows);
     // When the container height is indefinite, percentage row tracks should
     // behave like auto (CSS Grid §7.2.1).
     let row_defs = if available_height.is_none() {
@@ -223,13 +231,25 @@ pub fn layout_grid(
     } else {
         row_defs
     };
-    let row_tracks = track::resolve_tracks(
+    let mut row_tracks = track::resolve_tracks(
         &row_defs,
         available_height.unwrap_or(0.0),
         gap_row,
         &row_min_sizes,
         &row_max_sizes,
     );
+
+    // auto-fit: collapse empty auto-repeated row tracks to 0.
+    if row_track_list.is_auto_fit() {
+        collapse_empty_auto_tracks(
+            &mut row_tracks,
+            row_track_list,
+            available_height.unwrap_or(0.0),
+            gap_row,
+            &items,
+            false,
+        );
+    }
 
     // --- 11. Compute track positions ---
     let col_positions = track::compute_track_positions(&col_tracks, gap_col);
@@ -262,6 +282,49 @@ pub fn layout_grid(
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb
+}
+
+// ---------------------------------------------------------------------------
+// Auto-fit collapse
+// ---------------------------------------------------------------------------
+
+/// Collapse empty auto-repeated tracks to zero size (CSS Grid Level 1 §7.2.3.2).
+///
+/// For `auto-fit`, tracks in the auto-repeat range that contain no items
+/// are collapsed: their size is set to 0 and they don't contribute to the
+/// grid container's intrinsic size.
+fn collapse_empty_auto_tracks(
+    tracks: &mut [track::ResolvedTrack],
+    track_list: &GridTrackList,
+    available: f32,
+    gap: f32,
+    items: &[GridItem],
+    is_column: bool,
+) {
+    let Some(range) = track_list.auto_repeat_range(available, gap) else {
+        return;
+    };
+
+    for idx in range {
+        if idx >= tracks.len() {
+            break;
+        }
+        // Check if any item occupies this track.
+        let occupied = items.iter().any(|item| {
+            let (start, span) = if is_column {
+                (item.col_start, item.col_span)
+            } else {
+                (item.row_start, item.row_span)
+            };
+            idx >= start && idx < start + span
+        });
+        if !occupied {
+            tracks[idx].size = 0.0;
+            tracks[idx].base = 0.0;
+            tracks[idx].limit = 0.0;
+            tracks[idx].collapsed = true;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_layout_block::{layout_block_only, LayoutInput};
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, LayoutBox, TrackBreadth,
-    TrackSize,
+    AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, GridTrackList,
+    LayoutBox, TrackBreadth, TrackSize,
 };
 use elidex_text::FontDatabase;
 

@@ -10,7 +10,10 @@ fn grid_gap_between_items() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0), TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![
+                    TrackSize::Fr(1.0),
+                    TrackSize::Fr(1.0),
+                ]),
                 column_gap: Dimension::Length(20.0),
                 row_gap: Dimension::Length(10.0),
                 ..Default::default()
@@ -59,8 +62,8 @@ fn grid_align_items_center() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
-                grid_template_rows: vec![TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_rows: GridTrackList::Explicit(vec![TrackSize::Length(100.0)]),
                 align_items: AlignItems::Center,
                 ..Default::default()
             },
@@ -97,7 +100,7 @@ fn grid_with_padding_border() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
                 padding: EdgeSizes {
                     top: Dimension::Length(10.0),
                     right: Dimension::Length(10.0),
@@ -160,8 +163,8 @@ fn grid_item_margin() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(200.0)],
-                grid_template_rows: vec![TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Length(200.0)]),
+                grid_template_rows: GridTrackList::Explicit(vec![TrackSize::Length(100.0)]),
                 ..Default::default()
             },
         )
@@ -214,7 +217,7 @@ fn grid_box_sizing_border_box() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
                 width: Dimension::Length(400.0),
                 box_sizing: elidex_plugin::BoxSizing::BorderBox,
                 padding: EdgeSizes {
@@ -268,8 +271,8 @@ fn grid_align_self_stretch_with_center_container() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
-                grid_template_rows: vec![TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_rows: GridTrackList::Explicit(vec![TrackSize::Length(100.0)]),
                 align_items: AlignItems::Center,
                 ..Default::default()
             },
@@ -321,7 +324,10 @@ fn grid_negative_track_size_clamped() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(-50.0), TrackSize::Length(200.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![
+                    TrackSize::Length(-50.0),
+                    TrackSize::Length(200.0),
+                ]),
                 ..Default::default()
             },
         )
@@ -368,7 +374,10 @@ fn grid_rtl_reverses_column_order() {
             ComputedStyle {
                 display: Display::Grid,
                 direction: elidex_plugin::Direction::Rtl,
-                grid_template_columns: vec![TrackSize::Length(100.0), TrackSize::Length(200.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(200.0),
+                ]),
                 ..Default::default()
             },
         )

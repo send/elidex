@@ -598,6 +598,149 @@ fn anim_style_not_attached_without_animation_props() {
 }
 
 #[test]
+fn css_animation_auto_started_on_initial_render() {
+    // Verify that CSS animations declared in the stylesheet are automatically
+    // started in the animation engine on initial pipeline build.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } \
+               div { animation-name: fadeIn; animation-duration: 1s; }";
+    let result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(
+        active.len(),
+        1,
+        "Expected 1 active animation, got {}",
+        active.len()
+    );
+    assert_eq!(active[0].name(), "fadeIn");
+}
+
+#[test]
+fn css_animation_not_started_without_keyframes() {
+    // animation-name references a non-existent @keyframes — should not start.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "div { animation-name: nonexistent; animation-duration: 1s; }";
+    let result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(
+        active.len(),
+        0,
+        "Should not start animation without @keyframes"
+    );
+}
+
+#[test]
+fn css_animation_none_ignored() {
+    // animation-name: none should not start any animation.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } \
+               div { animation-name: none; animation-duration: 1s; }";
+    let result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(active.len(), 0, "animation-name: none should not start");
+}
+
+#[test]
+fn re_render_preserves_running_animations() {
+    // Verify that re_render with no style changes keeps existing animations running.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } \
+               div { animation-name: fadeIn; animation-duration: 1s; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        1,
+        "Should have 1 animation before re_render"
+    );
+
+    // Re-render with no DOM changes — animation should persist.
+    re_render(&mut result);
+
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(
+        active.len(),
+        1,
+        "Animation should persist across re_render with no changes"
+    );
+    assert_eq!(active[0].name(), "fadeIn");
+}
+
+#[test]
+fn re_render_does_not_duplicate_animations() {
+    // Verify that re_render with unchanged CSS doesn't duplicate animations.
+    // sync_css_animations should skip already-running names.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } \
+               @keyframes slideUp { from { opacity: 0; } to { opacity: 1; } } \
+               div { animation-name: fadeIn, slideUp; animation-duration: 1s, 2s; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        2,
+        "Should have 2 animations initially"
+    );
+
+    // Re-render multiple times — count should stay at 2.
+    re_render(&mut result);
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        2,
+        "Should still have 2 animations after first re_render"
+    );
+
+    re_render(&mut result);
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        2,
+        "Should still have 2 animations after second re_render"
+    );
+}
+
+#[test]
+fn cancel_animations_by_name_selective() {
+    // Test that cancel_animations_by_name only removes specified names.
+    let html = r#"<div id="box">Hello</div>"#;
+    let css = "@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } \
+               @keyframes slideUp { from { opacity: 0; } to { opacity: 1; } } \
+               div { animation-name: fadeIn, slideUp; animation-duration: 1s, 2s; }";
+    let mut result = build_pipeline_interactive(html, css);
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        2,
+    );
+
+    // Cancel only fadeIn — slideUp should remain.
+    let mut to_cancel = std::collections::HashSet::new();
+    to_cancel.insert("fadeIn");
+    let events = result
+        .animation_engine
+        .cancel_animations_by_name(entity_bits, &to_cancel);
+    assert_eq!(events.len(), 1, "Should emit 1 cancel event");
+
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(active.len(), 1, "Should have 1 remaining animation");
+    assert_eq!(active[0].name(), "slideUp");
+}
+
+#[test]
 fn re_render_with_transitions_does_not_panic() {
     // Verify the full re_render pipeline (including transition detection
     // and animated value application) doesn't panic with transition CSS.

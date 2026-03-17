@@ -87,7 +87,7 @@ pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValu
 pub use display::{Display, Overflow, Position};
 pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
-pub use grid::{GridAutoFlow, GridLine, TrackBreadth, TrackSize};
+pub use grid::{AutoRepeatMode, GridAutoFlow, GridLine, GridTrackList, TrackBreadth, TrackSize};
 pub use table::{BorderCollapse, CaptionSide, TableLayout};
 pub use text::{
     FontStyle, LineHeight, ListStyleType, TextAlign, TextDecorationLine, TextDecorationStyle,
@@ -241,9 +241,9 @@ pub struct ComputedStyle {
 
     // --- Grid container properties (non-inherited) ---
     /// Grid template column track sizes. Initial: empty (= `none`).
-    pub grid_template_columns: Vec<TrackSize>,
+    pub grid_template_columns: GridTrackList,
     /// Grid template row track sizes. Initial: empty (= `none`).
-    pub grid_template_rows: Vec<TrackSize>,
+    pub grid_template_rows: GridTrackList,
     /// Grid auto-flow direction. Initial: `Row`.
     pub grid_auto_flow: GridAutoFlow,
     /// Implicit column track size. Initial: `Auto`.
@@ -400,8 +400,8 @@ impl Default for ComputedStyle {
             align_self: AlignSelf::default(),
 
             // Grid container
-            grid_template_columns: Vec::new(),
-            grid_template_rows: Vec::new(),
+            grid_template_columns: GridTrackList::default(),
+            grid_template_rows: GridTrackList::default(),
             grid_auto_flow: GridAutoFlow::default(),
             grid_auto_columns: TrackSize::Auto,
             grid_auto_rows: TrackSize::Auto,

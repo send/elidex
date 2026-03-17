@@ -604,3 +604,228 @@ fn parse_background_shorthand_no_repeat() {
         CssValue::Keyword("no-repeat".to_string())
     );
 }
+
+// ---------------------------------------------------------------------------
+// gradient serialization (get_computed)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_computed_linear_gradient_serialization() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::LinearGradient(LinearGradient {
+                angle: 45.0,
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 1.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(s.starts_with("linear-gradient("), "got: {s}");
+    assert!(s.contains("45deg"), "angle missing: {s}");
+    assert!(s.contains("rgb(255, 0, 0)"), "red missing: {s}");
+    assert!(s.contains("rgb(0, 0, 255)"), "blue missing: {s}");
+}
+
+#[test]
+fn get_computed_linear_gradient_default_angle() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::LinearGradient(LinearGradient {
+                angle: 180.0,
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 1.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    // Default angle (180deg) should be omitted
+    assert!(
+        !s.contains("180deg"),
+        "default angle should be omitted: {s}"
+    );
+    assert!(s.starts_with("linear-gradient(rgb("), "got: {s}");
+}
+
+#[test]
+fn get_computed_repeating_linear_gradient() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::LinearGradient(LinearGradient {
+                angle: 90.0,
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 0.5,
+                    },
+                ],
+                repeating: true,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(s.starts_with("repeating-linear-gradient("), "got: {s}");
+}
+
+#[test]
+fn get_computed_radial_gradient_serialization() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::RadialGradient(RadialGradient {
+                center: (50.0, 50.0), // default center
+                radii: (100.0, 100.0),
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 1.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(s.starts_with("radial-gradient("), "got: {s}");
+    // Default center (50% 50%) should be omitted
+    assert!(!s.contains("at "), "default center should be omitted: {s}");
+}
+
+#[test]
+fn get_computed_radial_gradient_custom_center() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::RadialGradient(RadialGradient {
+                center: (25.0, 75.0),
+                radii: (100.0, 100.0),
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 1.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(s.contains("at 25% 75%"), "custom center missing: {s}");
+}
+
+#[test]
+fn get_computed_conic_gradient_serialization() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::ConicGradient(ConicGradient {
+                center: (50.0, 50.0),
+                start_angle: 45.0,
+                end_angle: 405.0,
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 360.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(s.starts_with("conic-gradient("), "got: {s}");
+    assert!(s.contains("from 45deg"), "start angle missing: {s}");
+    assert!(
+        s.contains("0deg"),
+        "stop positions should be in degrees: {s}"
+    );
+}
+
+#[test]
+fn get_computed_conic_gradient_default_angle_custom_center() {
+    let mut style = ComputedStyle::default();
+    style.background_layers = Some(
+        vec![BackgroundLayer {
+            image: BackgroundImage::ConicGradient(ConicGradient {
+                center: (30.0, 70.0),
+                start_angle: 0.0,
+                end_angle: 360.0,
+                stops: vec![
+                    ColorStop {
+                        color: CssColor::RED,
+                        position: 0.0,
+                    },
+                    ColorStop {
+                        color: CssColor::BLUE,
+                        position: 360.0,
+                    },
+                ],
+                repeating: false,
+            }),
+            ..BackgroundLayer::default()
+        }]
+        .into_boxed_slice(),
+    );
+    let v = BackgroundHandler.get_computed("background-image", &style);
+    let s = v.as_keyword().unwrap();
+    assert!(
+        !s.contains("from 0deg"),
+        "default angle should be omitted: {s}"
+    );
+    assert!(s.contains("at 30% 70%"), "custom center missing: {s}");
+}

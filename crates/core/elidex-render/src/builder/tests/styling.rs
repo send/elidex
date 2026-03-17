@@ -262,11 +262,10 @@ fn opacity_cases() {
     }
 }
 
-/// Known Phase 4 limitation: when both `border-radius` and `border` are
-/// set, the background is a `RoundedRect` but borders are axis-aligned
-/// `SolidRect` items. Borders do not follow rounded corners.
+/// When both `border-radius` and uniform `border` are set, a single
+/// `RoundedBorderRing` item is emitted instead of 4 axis-aligned `SolidRect`.
 #[test]
-fn border_radius_with_border_known_limitation() {
+fn border_radius_with_border_emits_rounded_ring() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
@@ -307,17 +306,91 @@ fn border_radius_with_border_known_limitation() {
     );
     let font_db = elidex_text::FontDatabase::new();
     let dl = build_display_list(&dom, &font_db);
-    // 1 RoundedRect (background) + 4 SolidRect (borders).
+    // 1 RoundedRect (background) + 1 RoundedBorderRing (borders).
     let rounded =
         dl.0.iter()
             .filter(|i| matches!(i, crate::display_list::DisplayItem::RoundedRect { .. }))
+            .count();
+    let rings =
+        dl.0.iter()
+            .filter(|i| {
+                matches!(
+                    i,
+                    crate::display_list::DisplayItem::RoundedBorderRing { .. }
+                )
+            })
             .count();
     let rects =
         dl.0.iter()
             .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
             .count();
-    assert_eq!(rounded, 1);
-    assert_eq!(rects, 4);
+    assert_eq!(rounded, 1, "should have 1 RoundedRect for background");
+    assert_eq!(rings, 1, "should have 1 RoundedBorderRing for borders");
+    assert_eq!(rects, 0, "should have no SolidRect borders");
+}
+
+/// When border-radius is set but border colors differ, fall back to SolidRect.
+#[test]
+fn border_radius_different_colors_falls_back_to_solid_rect() {
+    let (dom, _) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            background_color: elidex_plugin::CssColor::TRANSPARENT,
+            border_radii: [10.0; 4],
+            border_top: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_right: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLUE,
+            },
+            border_bottom: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_left: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLUE,
+            },
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(2.0, 2.0, 100.0, 50.0),
+            border: EdgeSizes {
+                top: 2.0,
+                right: 2.0,
+                bottom: 2.0,
+                left: 2.0,
+            },
+            ..Default::default()
+        },
+    );
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+    // Different colors → fallback to SolidRect borders.
+    let rings =
+        dl.0.iter()
+            .filter(|i| {
+                matches!(
+                    i,
+                    crate::display_list::DisplayItem::RoundedBorderRing { .. }
+                )
+            })
+            .count();
+    let rects =
+        dl.0.iter()
+            .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
+            .count();
+    assert_eq!(
+        rings, 0,
+        "should not use RoundedBorderRing with mixed colors"
+    );
+    assert_eq!(rects, 4, "should fall back to 4 SolidRect borders");
 }
 
 #[test]

@@ -114,6 +114,38 @@ pub enum DisplayItem {
         /// Element opacity (0.0–1.0).
         opacity: f32,
     },
+    /// Draw a border ring between an outer and inner rounded rectangle.
+    /// Used when border-radius is set with uniform border color.
+    RoundedBorderRing {
+        /// Outer rectangle (border-box).
+        outer_rect: Rect,
+        /// Outer corner radii `[top-left, top-right, bottom-right, bottom-left]`.
+        outer_radii: [f32; 4],
+        /// Inner rectangle (padding-box).
+        inner_rect: Rect,
+        /// Inner corner radii `[top-left, top-right, bottom-right, bottom-left]`.
+        inner_radii: [f32; 4],
+        /// Border color (uniform for all sides).
+        color: CssColor,
+    },
+    /// Draw a border segment with a specific line style (dashed, dotted).
+    ///
+    /// The segment is rendered as a stroked line along the center of the
+    /// border edge. Dash patterns and cap styles control the appearance.
+    StyledBorderSegment {
+        /// Start point of the border line center.
+        start: (f32, f32),
+        /// End point of the border line center.
+        end: (f32, f32),
+        /// Border width (stroke width).
+        width: f32,
+        /// Dash pattern: `[dash_length, gap_length]`. Empty = solid.
+        dashes: Vec<f32>,
+        /// Whether to use round caps (for dotted: dots are circles).
+        round_caps: bool,
+        /// The border color.
+        color: CssColor,
+    },
     /// Begin a clip region (for `overflow: hidden` or background-clip).
     PushClip {
         /// The clipping rectangle.

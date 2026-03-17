@@ -105,9 +105,19 @@ fn parse_track_breadth(input: &mut Parser) -> Result<CssValue, ()> {
     parse_length_or_percentage(input)
 }
 
+/// Result from parsing a `repeat()` function.
+enum RepeatResult {
+    /// Integer repeat: already expanded tracks.
+    Expanded(Vec<CssValue>),
+    /// Auto-fill or auto-fit: the mode keyword and the pattern tracks.
+    AutoRepeat(String, Vec<CssValue>),
+}
+
 /// Parse `grid-template-columns` or `grid-template-rows`.
 ///
 /// Accepts: `none` | `<track-size>+` | `repeat(N, <track-size>+)`.
+/// For `repeat(auto-fill/auto-fit, ...)`, emits a special `CssValue::List`
+/// with marker `Keyword("auto-repeat")`.
 pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `none` keyword.
     if let Ok(()) = input.try_parse(|i| -> Result<(), ()> {
@@ -122,44 +132,77 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
     }
 
     // Parse track list (one or more track-size values, possibly with repeat()).
-    let mut tracks = Vec::new();
+    // CSS spec allows at most one auto-repeat per track list.
+    let mut before = Vec::new();
+    let mut auto_repeat: Option<(String, Vec<CssValue>)> = None;
+    let mut after = Vec::new();
+
     while !input.is_exhausted() {
         // Try repeat() function.
-        if let Ok(expanded) = input.try_parse(parse_repeat) {
-            tracks.extend(expanded);
+        if let Ok(result) = input.try_parse(parse_repeat) {
+            match result {
+                RepeatResult::Expanded(expanded) => {
+                    if auto_repeat.is_some() {
+                        after.extend(expanded);
+                    } else {
+                        before.extend(expanded);
+                    }
+                }
+                RepeatResult::AutoRepeat(mode, pattern) => {
+                    if auto_repeat.is_some() {
+                        // CSS spec: at most one auto-repeat; ignore second.
+                        break;
+                    }
+                    auto_repeat = Some((mode, pattern));
+                }
+            }
             continue;
         }
 
         // Try a single track-size.
         if let Ok(ts) = input.try_parse(parse_track_size) {
-            tracks.push(ts);
+            if auto_repeat.is_some() {
+                after.push(ts);
+            } else {
+                before.push(ts);
+            }
             continue;
         }
 
         break;
     }
 
-    if tracks.is_empty() {
+    if let Some((mode, pattern)) = auto_repeat {
+        // Emit: List([Keyword("auto-repeat"), Keyword(mode), List(before), List(pattern), List(after)])
+        let value = CssValue::List(vec![
+            CssValue::Keyword("auto-repeat".into()),
+            CssValue::Keyword(mode),
+            CssValue::List(before),
+            CssValue::List(pattern),
+            CssValue::List(after),
+        ]);
+        return single_decl(name, value);
+    }
+
+    if before.is_empty() {
         return Vec::new();
     }
 
-    single_decl(name, CssValue::List(tracks))
+    single_decl(name, CssValue::List(before))
 }
 
 /// Maximum repeat count to prevent OOM from malicious CSS (e.g. `repeat(999999999, 1fr)`).
 const MAX_REPEAT_COUNT: u32 = 10_000;
 
-/// Parse `repeat(N, <track-size>+)`.
+/// Parse `repeat(N, <track-size>+)` or `repeat(auto-fill/auto-fit, <track-size>+)`.
 #[allow(clippy::cast_sign_loss)] // CSS repeat count is always >= 1
-///
-/// `auto-fill`/`auto-fit` are treated as `repeat(1, ...)` (Phase 3.5 simplification).
-fn parse_repeat(input: &mut Parser) -> Result<Vec<CssValue>, ()> {
+fn parse_repeat(input: &mut Parser) -> Result<RepeatResult, ()> {
     input.expect_function_matching("repeat").map_err(|_| ())?;
     input
         .parse_nested_block(
-            |args| -> Result<Vec<CssValue>, cssparser::ParseError<'_, ()>> {
-                // Parse repeat count: integer or auto-fill/auto-fit → 1.
-                let count = if let Ok(n) = args.try_parse(|i| -> Result<u32, ()> {
+            |args| -> Result<RepeatResult, cssparser::ParseError<'_, ()>> {
+                // Try integer count first.
+                let count_or_mode = if let Ok(n) = args.try_parse(|i| -> Result<u32, ()> {
                     let tok = i.next().map_err(|_| ())?;
                     match *tok {
                         Token::Number {
@@ -168,19 +211,17 @@ fn parse_repeat(input: &mut Parser) -> Result<Vec<CssValue>, ()> {
                         _ => Err(()),
                     }
                 }) {
-                    n
+                    Ok(n)
                 } else {
-                    // auto-fill / auto-fit → 1
+                    // auto-fill / auto-fit
                     let ident = args.expect_ident().map_err(cssparser::ParseError::from)?;
                     let lower = ident.to_ascii_lowercase();
                     if lower == "auto-fill" || lower == "auto-fit" {
-                        1
+                        Err(lower)
                     } else {
                         return Err(args.new_custom_error(()));
                     }
                 };
-
-                let count = count.min(MAX_REPEAT_COUNT);
 
                 args.expect_comma().map_err(cssparser::ParseError::from)?;
 
@@ -194,14 +235,70 @@ fn parse_repeat(input: &mut Parser) -> Result<Vec<CssValue>, ()> {
                     return Err(args.new_custom_error(()));
                 }
 
-                let mut result = Vec::new();
-                for _ in 0..count {
-                    result.extend(pattern.clone());
+                match count_or_mode {
+                    Ok(count) => {
+                        let count = count.min(MAX_REPEAT_COUNT);
+                        let mut result = Vec::new();
+                        for _ in 0..count {
+                            result.extend(pattern.clone());
+                        }
+                        Ok(RepeatResult::Expanded(result))
+                    }
+                    Err(mode) => {
+                        // CSS Grid §7.2.3.2: auto-repeat tracks must all be
+                        // fixed-size (Length, Percentage, or minmax with fixed
+                        // bounds). Reject patterns containing fr, auto,
+                        // min-content, or max-content.
+                        if !pattern.iter().all(is_fixed_track_value) {
+                            return Err(args.new_custom_error(()));
+                        }
+                        Ok(RepeatResult::AutoRepeat(mode, pattern))
+                    }
                 }
-                Ok(result)
             },
         )
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
+}
+
+/// Check whether a parsed track-size `CssValue` is a `<fixed-size>` per
+/// CSS Grid §7.2.3.2. Valid forms:
+///   - `<fixed-breadth>` (length or percentage, not `fr`)
+///   - `minmax(<fixed-breadth>, <track-breadth>)` — any max OK if min is fixed
+///   - `minmax(<inflexible-breadth>, <fixed-breadth>)` — any non-fr min OK if max is fixed
+fn is_fixed_track_value(v: &CssValue) -> bool {
+    match v {
+        CssValue::Length(_, unit) => *unit != LengthUnit::Fr,
+        CssValue::Percentage(_) => true,
+        CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("minmax".into())) && items.len() == 3 =>
+        {
+            let min_fixed = is_fixed_breadth_value(&items[1]);
+            let max_fixed = is_fixed_breadth_value(&items[2]);
+            if min_fixed {
+                // minmax(<fixed-breadth>, <track-breadth>) — any max is OK
+                true
+            } else {
+                // minmax(<inflexible-breadth>, <fixed-breadth>) — min must not be fr
+                is_inflexible_breadth_value(&items[1]) && max_fixed
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Check whether a track-breadth `CssValue` is a fixed (definite) size.
+/// `fr` units are not fixed.
+fn is_fixed_breadth_value(v: &CssValue) -> bool {
+    match v {
+        CssValue::Length(_, unit) => *unit != LengthUnit::Fr,
+        CssValue::Percentage(_) => true,
+        _ => false,
+    }
+}
+
+/// Check whether a track-breadth is inflexible (anything except `fr`).
+fn is_inflexible_breadth_value(v: &CssValue) -> bool {
+    !matches!(v, CssValue::Length(_, unit) if *unit == LengthUnit::Fr)
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +520,126 @@ mod tests {
             assert_eq!(tracks.len(), 3);
         } else {
             panic!("expected List");
+        }
+    }
+
+    #[test]
+    fn auto_fill_emits_auto_repeat_marker() {
+        let decls = parse_template("repeat(auto-fill, 200px)");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(items) = &decls[0].value {
+            assert_eq!(items[0], CssValue::Keyword("auto-repeat".into()));
+            assert_eq!(items[1], CssValue::Keyword("auto-fill".into()));
+            // before: empty
+            assert_eq!(items[2], CssValue::List(vec![]));
+            // pattern: [Length(200, Px)]
+            if let CssValue::List(pattern) = &items[3] {
+                assert_eq!(pattern.len(), 1);
+            } else {
+                panic!("expected pattern List");
+            }
+            // after: empty
+            assert_eq!(items[4], CssValue::List(vec![]));
+        } else {
+            panic!("expected List with auto-repeat marker");
+        }
+    }
+
+    #[test]
+    fn auto_fit_emits_auto_repeat_marker() {
+        let decls = parse_template("repeat(auto-fit, 100px 200px)");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(items) = &decls[0].value {
+            assert_eq!(items[0], CssValue::Keyword("auto-repeat".into()));
+            assert_eq!(items[1], CssValue::Keyword("auto-fit".into()));
+            if let CssValue::List(pattern) = &items[3] {
+                assert_eq!(pattern.len(), 2);
+            } else {
+                panic!("expected pattern List");
+            }
+        } else {
+            panic!("expected List with auto-repeat marker");
+        }
+    }
+
+    #[test]
+    fn auto_repeat_rejects_non_fixed_tracks() {
+        // repeat(auto-fill, 1fr) should be rejected — fr is not a fixed size.
+        let decls = parse_template("repeat(auto-fill, 1fr)");
+        assert!(
+            decls.is_empty(),
+            "repeat(auto-fill, 1fr) should be rejected, got {decls:?}"
+        );
+
+        // repeat(auto-fit, auto) should also be rejected.
+        let decls = parse_template("repeat(auto-fit, auto)");
+        assert!(
+            decls.is_empty(),
+            "repeat(auto-fit, auto) should be rejected, got {decls:?}"
+        );
+
+        // repeat(auto-fill, minmax(100px, 1fr)) is valid: min is <fixed-breadth>.
+        let decls = parse_template("repeat(auto-fill, minmax(100px, 1fr))");
+        assert_eq!(
+            decls.len(),
+            1,
+            "repeat(auto-fill, minmax(100px, 1fr)) should be accepted (fixed min)"
+        );
+
+        // repeat(auto-fill, minmax(min-content, 200px)) is valid: max is <fixed-breadth>.
+        let decls = parse_template("repeat(auto-fill, minmax(min-content, 200px))");
+        assert_eq!(
+            decls.len(),
+            1,
+            "repeat(auto-fill, minmax(min-content, 200px)) should be accepted"
+        );
+
+        // repeat(auto-fill, minmax(1fr, 200px)) is invalid: min is fr (flexible).
+        let decls = parse_template("repeat(auto-fill, minmax(1fr, 200px))");
+        assert!(
+            decls.is_empty(),
+            "repeat(auto-fill, minmax(1fr, 200px)) should be rejected (fr min), got {decls:?}"
+        );
+
+        // repeat(auto-fill, 100px) should still work.
+        let decls = parse_template("repeat(auto-fill, 100px)");
+        assert_eq!(
+            decls.len(),
+            1,
+            "repeat(auto-fill, 100px) should be accepted"
+        );
+
+        // repeat(auto-fit, minmax(100px, 200px)) should work (both bounds fixed).
+        let decls = parse_template("repeat(auto-fit, minmax(100px, 200px))");
+        assert_eq!(
+            decls.len(),
+            1,
+            "repeat(auto-fit, minmax(100px, 200px)) should be accepted"
+        );
+    }
+
+    #[test]
+    fn auto_fill_with_fixed_tracks() {
+        // 100px repeat(auto-fill, 200px) 50px
+        let decls = parse_template("100px repeat(auto-fill, 200px) 50px");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(items) = &decls[0].value {
+            assert_eq!(items[0], CssValue::Keyword("auto-repeat".into()));
+            assert_eq!(items[1], CssValue::Keyword("auto-fill".into()));
+            // before: [Length(100, Px)]
+            if let CssValue::List(before) = &items[2] {
+                assert_eq!(before.len(), 1);
+            } else {
+                panic!("expected before List");
+            }
+            // after: [Length(50, Px)]
+            if let CssValue::List(after) = &items[4] {
+                assert_eq!(after.len(), 1);
+            } else {
+                panic!("expected after List");
+            }
+        } else {
+            panic!("expected List with auto-repeat marker");
         }
     }
 }

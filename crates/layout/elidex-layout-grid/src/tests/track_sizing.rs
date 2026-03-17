@@ -9,7 +9,10 @@ fn grid_empty_container() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0), TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![
+                    TrackSize::Fr(1.0),
+                    TrackSize::Fr(1.0),
+                ]),
                 height: Dimension::Length(100.0),
                 ..Default::default()
             },
@@ -97,7 +100,7 @@ fn column_track_sizing() {
                 container,
                 ComputedStyle {
                     display: Display::Grid,
-                    grid_template_columns: tracks.to_vec(),
+                    grid_template_columns: GridTrackList::Explicit(tracks.to_vec()),
                     ..Default::default()
                 },
             )
@@ -145,7 +148,10 @@ fn grid_auto_rows() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0), TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![
+                    TrackSize::Fr(1.0),
+                    TrackSize::Fr(1.0),
+                ]),
                 ..Default::default()
             },
         )
@@ -188,8 +194,11 @@ fn grid_explicit_rows() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
-                grid_template_rows: vec![TrackSize::Length(100.0), TrackSize::Length(200.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_rows: GridTrackList::Explicit(vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(200.0),
+                ]),
                 ..Default::default()
             },
         )
@@ -229,7 +238,7 @@ fn grid_auto_track_size() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
                 grid_auto_rows: TrackSize::Length(50.0),
                 ..Default::default()
             },
@@ -271,7 +280,7 @@ fn grid_container_auto_height() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
                 ..Default::default()
             },
         )
@@ -306,13 +315,13 @@ fn grid_minmax_track() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::Length(100.0)),
                         Box::new(TrackBreadth::Fr(1.0)),
                     ),
                     TrackSize::Length(200.0),
-                ],
+                ]),
                 ..Default::default()
             },
         )
@@ -354,8 +363,8 @@ fn grid_percentage_row_indefinite_height() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Fr(1.0)],
-                grid_template_rows: vec![TrackSize::Percentage(50.0)],
+                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_rows: GridTrackList::Explicit(vec![TrackSize::Percentage(50.0)]),
                 // No explicit height -> indefinite.
                 ..Default::default()
             },
@@ -397,13 +406,13 @@ fn grid_minmax_min_content_uses_narrow_size() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::MinContent),
                         Box::new(TrackBreadth::Fr(1.0)),
                     ),
                     TrackSize::Length(200.0),
-                ],
+                ]),
                 ..Default::default()
             },
         )
@@ -465,13 +474,13 @@ fn grid_minmax_max_content_in_max() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::Length(100.0)),
                         Box::new(TrackBreadth::MaxContent),
                     ),
                     TrackSize::Fr(1.0),
-                ],
+                ]),
                 ..Default::default()
             },
         )
@@ -515,5 +524,287 @@ fn grid_minmax_max_content_in_max() {
         approx_eq(lb1.content.width, 150.0),
         "expected 150px (max-content limit), got {}",
         lb1.content.width
+    );
+}
+
+// ---------------------------------------------------------------------------
+// auto-fill / auto-fit tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auto_fill_200px_in_900px() {
+    // repeat(auto-fill, 200px) in 900px container -> floor(900/200) = 4 tracks.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::AutoRepeat {
+                    before: vec![],
+                    pattern: vec![TrackSize::Length(200.0)],
+                    mode: elidex_plugin::AutoRepeatMode::AutoFill,
+                    after: vec![],
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let c1 = make_grid_child(&mut dom, container, 50.0);
+    let c2 = make_grid_child(&mut dom, container, 50.0);
+    let c3 = make_grid_child(&mut dom, container, 50.0);
+    let c4 = make_grid_child(&mut dom, container, 50.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        900.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+    let lb2 = get_layout(&dom, c2);
+    let lb3 = get_layout(&dom, c3);
+    let lb4 = get_layout(&dom, c4);
+
+    // 4 tracks of 200px each.
+    assert!(approx_eq(lb1.content.x, 0.0));
+    assert!(approx_eq(lb1.content.width, 200.0));
+    assert!(approx_eq(lb2.content.x, 200.0));
+    assert!(approx_eq(lb3.content.x, 400.0));
+    assert!(approx_eq(lb4.content.x, 600.0));
+}
+
+#[test]
+fn auto_fill_multi_pattern_in_900px() {
+    // repeat(auto-fill, 100px 200px) in 900px -> floor(900/300) = 3 reps = 6 tracks.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::AutoRepeat {
+                    before: vec![],
+                    pattern: vec![TrackSize::Length(100.0), TrackSize::Length(200.0)],
+                    mode: elidex_plugin::AutoRepeatMode::AutoFill,
+                    after: vec![],
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let children: Vec<_> = (0..6)
+        .map(|_| make_grid_child(&mut dom, container, 50.0))
+        .collect();
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        900.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    // 3 repetitions: 100 200 100 200 100 200
+    let lb0 = get_layout(&dom, children[0]);
+    let lb1 = get_layout(&dom, children[1]);
+    let lb2 = get_layout(&dom, children[2]);
+
+    assert!(
+        approx_eq(lb0.content.width, 100.0),
+        "child0 width={}",
+        lb0.content.width
+    );
+    assert!(
+        approx_eq(lb1.content.width, 200.0),
+        "child1 width={}",
+        lb1.content.width
+    );
+    assert!(
+        approx_eq(lb2.content.x, 300.0),
+        "child2 x={}",
+        lb2.content.x
+    );
+}
+
+#[test]
+fn auto_fit_collapses_empty_tracks() {
+    // repeat(auto-fit, 200px) with only 2 items in 900px -> 4 tracks,
+    // but empty ones collapse their size to 0.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::AutoRepeat {
+                    before: vec![],
+                    pattern: vec![TrackSize::Length(200.0)],
+                    mode: elidex_plugin::AutoRepeatMode::AutoFit,
+                    after: vec![],
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let c1 = make_grid_child(&mut dom, container, 50.0);
+    let c2 = make_grid_child(&mut dom, container, 50.0);
+
+    let font_db = FontDatabase::new();
+    let clb = do_layout_grid(
+        &mut dom,
+        container,
+        900.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+    let lb2 = get_layout(&dom, c2);
+
+    // Items should be in first 2 tracks (200px each).
+    assert!(approx_eq(lb1.content.x, 0.0));
+    assert!(approx_eq(lb1.content.width, 200.0));
+    assert!(approx_eq(lb2.content.x, 200.0));
+    assert!(approx_eq(lb2.content.width, 200.0));
+}
+
+#[test]
+fn auto_fill_minimum_one_repetition() {
+    // repeat(auto-fill, 300px) in 250px container -> minimum 1 track.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::AutoRepeat {
+                    before: vec![],
+                    pattern: vec![TrackSize::Length(300.0)],
+                    mode: elidex_plugin::AutoRepeatMode::AutoFill,
+                    after: vec![],
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let c1 = make_grid_child(&mut dom, container, 50.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        250.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+
+    // Even though 300px > 250px, minimum 1 track.
+    assert!(approx_eq(lb1.content.width, 300.0));
+}
+
+#[test]
+fn auto_fill_with_fixed_before_after() {
+    // 100px repeat(auto-fill, 200px) 100px in 900px
+    // Fixed: 100 + 100 = 200. Remaining: 700.
+    // Each 200px pattern with gap=0 -> floor(700/200) = 3 repetitions.
+    // Total: 100 + 3*200 + 100 = 800.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::AutoRepeat {
+                    before: vec![TrackSize::Length(100.0)],
+                    pattern: vec![TrackSize::Length(200.0)],
+                    mode: elidex_plugin::AutoRepeatMode::AutoFill,
+                    after: vec![TrackSize::Length(100.0)],
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // 5 items to fill: 100 + 200 + 200 + 200 + 100 = 5 tracks
+    let children: Vec<_> = (0..5)
+        .map(|_| make_grid_child(&mut dom, container, 50.0))
+        .collect();
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        900.0,
+        None,
+        0.0,
+        0.0,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb0 = get_layout(&dom, children[0]);
+    let lb1 = get_layout(&dom, children[1]);
+    let lb4 = get_layout(&dom, children[4]);
+
+    // First track: 100px
+    assert!(
+        approx_eq(lb0.content.width, 100.0),
+        "first track width={}",
+        lb0.content.width
+    );
+    // Second track: 200px, starts at x=100
+    assert!(
+        approx_eq(lb1.content.x, 100.0),
+        "second track x={}",
+        lb1.content.x
+    );
+    assert!(
+        approx_eq(lb1.content.width, 200.0),
+        "second track width={}",
+        lb1.content.width
+    );
+    // Last track: 100px, starts at x=100+600=700
+    assert!(
+        approx_eq(lb4.content.x, 700.0),
+        "last track x={}",
+        lb4.content.x
+    );
+    assert!(
+        approx_eq(lb4.content.width, 100.0),
+        "last track width={}",
+        lb4.content.width
     );
 }

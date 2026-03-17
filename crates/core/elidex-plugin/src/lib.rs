@@ -20,12 +20,12 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderSide, BorderStyle, BoxSizing,
-    CaptionSide, Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight,
-    ListStyleType, Overflow, Position, TableLayout, TextAlign, TextDecorationLine,
-    TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi,
-    VerticalAlign, Visibility, WhiteSpace, WritingMode,
+    AlignContent, AlignItems, AlignSelf, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle,
+    BoxSizing, CaptionSide, Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction,
+    Display, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, GridTrackList,
+    JustifyContent, LineHeight, ListStyleType, Overflow, Position, TableLayout, TextAlign,
+    TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth,
+    TrackSize, UnicodeBidi, VerticalAlign, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{

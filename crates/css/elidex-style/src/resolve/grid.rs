@@ -1,7 +1,8 @@
 //! CSS Grid property resolution.
 
 use elidex_plugin::{
-    ComputedStyle, CssValue, GridAutoFlow, GridLine, LengthUnit, TrackBreadth, TrackSize,
+    AutoRepeatMode, ComputedStyle, CssValue, GridAutoFlow, GridLine, GridTrackList, LengthUnit,
+    TrackBreadth, TrackSize,
 };
 
 use super::helpers::resolve_keyword_enum_prop;
@@ -87,15 +88,60 @@ pub(super) fn resolve_grid_properties(
     );
 }
 
-/// Resolve a `CssValue` track list to `Vec<TrackSize>`.
-fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> Vec<TrackSize> {
+/// Resolve a `CssValue` track list to `GridTrackList`.
+fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> GridTrackList {
     match value {
-        CssValue::List(items) => items
-            .iter()
-            .map(|item| resolve_track_size(item, ctx))
-            .collect(),
-        CssValue::Keyword(k) if k == "none" => Vec::new(),
-        _ => Vec::new(),
+        CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("auto-repeat".to_string())) =>
+        {
+            // Auto-repeat marker: [Keyword("auto-repeat"), Keyword(mode), List(before), List(pattern), List(after)]
+            let mode = match items.get(1).and_then(|v| v.as_keyword()) {
+                Some("auto-fill") => AutoRepeatMode::AutoFill,
+                Some("auto-fit") => AutoRepeatMode::AutoFit,
+                _ => return GridTrackList::default(),
+            };
+            let before = items
+                .get(2)
+                .and_then(|v| match v {
+                    CssValue::List(l) => {
+                        Some(l.iter().map(|i| resolve_track_size(i, ctx)).collect())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let pattern = items
+                .get(3)
+                .and_then(|v| match v {
+                    CssValue::List(l) => {
+                        Some(l.iter().map(|i| resolve_track_size(i, ctx)).collect())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let after = items
+                .get(4)
+                .and_then(|v| match v {
+                    CssValue::List(l) => {
+                        Some(l.iter().map(|i| resolve_track_size(i, ctx)).collect())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            GridTrackList::AutoRepeat {
+                before,
+                pattern,
+                mode,
+                after,
+            }
+        }
+        CssValue::List(items) => GridTrackList::Explicit(
+            items
+                .iter()
+                .map(|item| resolve_track_size(item, ctx))
+                .collect(),
+        ),
+        CssValue::Keyword(k) if k == "none" => GridTrackList::default(),
+        _ => GridTrackList::default(),
     }
 }
 
@@ -179,7 +225,8 @@ mod tests {
     use std::collections::HashMap;
 
     use elidex_plugin::{
-        ComputedStyle, CssValue, GridAutoFlow, GridLine, LengthUnit, TrackBreadth, TrackSize,
+        ComputedStyle, CssValue, GridAutoFlow, GridLine, GridTrackList, LengthUnit, TrackBreadth,
+        TrackSize,
     };
 
     use crate::resolve::helpers::PropertyMap;
@@ -224,9 +271,10 @@ mod tests {
         winners.insert("grid-template-columns", &tracks);
         let ctx = default_ctx();
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert_eq!(style.grid_template_columns.len(), 2);
-        assert_eq!(style.grid_template_columns[0], TrackSize::Length(100.0));
-        assert_eq!(style.grid_template_columns[1], TrackSize::Fr(1.0));
+        assert_eq!(
+            style.grid_template_columns,
+            GridTrackList::Explicit(vec![TrackSize::Length(100.0), TrackSize::Fr(1.0)])
+        );
     }
 
     #[test]
@@ -241,13 +289,12 @@ mod tests {
         winners.insert("grid-template-rows", &tracks);
         let ctx = default_ctx();
         let style = build_computed_style(&winners, &parent, &ctx);
-        assert_eq!(style.grid_template_rows.len(), 1);
         assert_eq!(
-            style.grid_template_rows[0],
-            TrackSize::MinMax(
+            style.grid_template_rows,
+            GridTrackList::Explicit(vec![TrackSize::MinMax(
                 Box::new(TrackBreadth::Length(100.0)),
                 Box::new(TrackBreadth::Fr(1.0)),
-            )
+            )])
         );
     }
 

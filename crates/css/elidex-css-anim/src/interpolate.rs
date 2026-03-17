@@ -121,9 +121,11 @@ pub fn interpolate_color(from: &CssColor, to: &CssColor, t: f32) -> CssColor {
 /// Includes all properties that can be interpolated with the current `CssValue` types
 /// (lengths, colors, numbers, percentages, keywords).
 ///
-/// Properties requiring new `ComputedStyle` fields not yet implemented:
-/// transform, filter, clip-path, background-position, background-size,
-/// perspective, rotate, scale, translate.
+/// Properties not yet interpolatable:
+/// - `transform`, `rotate`, `scale`, `translate`: require matrix decomposition (CSS Transforms L1 §12)
+/// - `filter`, `clip-path`: require dedicated `ComputedStyle` fields
+/// - `background-position`, `background-size`: stored in `BackgroundLayer`, not as `CssValue`
+/// - `perspective`: requires `ComputedStyle` field
 pub const ANIMATABLE_PROPERTIES: &[&str] = &[
     // Opacity & color
     "opacity",
