@@ -118,6 +118,12 @@ impl ViewportOverflow {
         }
     }
 
+    /// Returns `true` if viewport scrolling is allowed on either axis.
+    #[must_use]
+    pub fn allows_scroll(&self) -> bool {
+        self.overflow_x.is_scroll_container() || self.overflow_y.is_scroll_container()
+    }
+
     /// Create from propagated overflow values, applying viewport normalization.
     #[must_use]
     pub fn from_propagated(overflow_x: Overflow, overflow_y: Overflow) -> Self {

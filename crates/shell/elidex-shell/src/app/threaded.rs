@@ -3,7 +3,7 @@
 //! Each tab runs on a dedicated content thread, communicating via message
 //! passing. This module handles all window events in that mode.
 
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 
 use elidex_render::DisplayList;
@@ -81,6 +81,9 @@ impl App {
                 self.send_to_content(BrowserToContent::MouseRelease {
                     button: winit_button_to_dom(button),
                 });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.handle_mouse_wheel_threaded(delta, x_offset, y_offset);
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
@@ -219,6 +222,40 @@ impl App {
                 }));
             }
         }
+    }
+
+    /// Handle `MouseWheel` in threaded mode.
+    ///
+    /// Converts winit scroll deltas to CSS pixels and sends to content thread.
+    /// Winit convention: positive = content moves right/down (natural scroll).
+    /// Browser convention: positive delta = scrollTop increases (scroll down).
+    /// These are opposite, so deltas are negated.
+    /// `LineDelta` is multiplied by 40px per line (typical browser behavior);
+    /// `PixelDelta` is used as-is (already in CSS pixels on most platforms).
+    fn handle_mouse_wheel_threaded(
+        &mut self,
+        delta: MouseScrollDelta,
+        x_offset: f32,
+        y_offset: f32,
+    ) {
+        const LINE_SCROLL_PX: f64 = 40.0;
+        let (delta_x, delta_y) = match delta {
+            MouseScrollDelta::LineDelta(x, y) => (
+                -f64::from(x) * LINE_SCROLL_PX,
+                -f64::from(y) * LINE_SCROLL_PX,
+            ),
+            MouseScrollDelta::PixelDelta(pos) => (-pos.x, -pos.y),
+        };
+        let (x, y) = self.cursor_pos.map_or((0.0_f32, 0.0_f32), |(cx, cy)| {
+            #[allow(clippy::cast_possible_truncation)]
+            ((cx as f32) - x_offset, (cy as f32) - y_offset)
+        });
+        self.send_to_content(BrowserToContent::MouseWheel {
+            delta_x,
+            delta_y,
+            x,
+            y,
+        });
     }
 
     /// Handle `KeyboardInput` in threaded mode.

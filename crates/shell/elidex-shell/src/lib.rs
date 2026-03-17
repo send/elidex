@@ -33,7 +33,9 @@ use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
-use elidex_plugin::{AnimationEventInit, ComputedStyle, EventPayload, TransitionEventInit};
+use elidex_plugin::{
+    AnimationEventInit, ComputedStyle, EventPayload, TransitionEventInit, ViewportOverflow,
+};
 use elidex_render::{build_display_list, build_display_list_with_caret, DisplayList};
 use elidex_script_session::{DispatchEvent, SessionCore};
 use elidex_style::resolve_styles_with_compat;
@@ -68,17 +70,19 @@ fn resolve_with_compat(
     dom: &mut EcsDom,
     author_stylesheets: &[&Stylesheet],
     registry: &elidex_plugin::CssPropertyRegistry,
-) {
+    viewport_width: f32,
+    viewport_height: f32,
+) -> ViewportOverflow {
     let legacy_ua = legacy_ua_stylesheet();
-    let _vp_overflow = resolve_styles_with_compat(
+    resolve_styles_with_compat(
         dom,
         author_stylesheets,
         &[legacy_ua],
         &get_presentational_hints,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
+        viewport_width,
+        viewport_height,
         Some(registry),
-    );
+    )
 }
 
 /// Run the full browser pipeline and display the result in a window.
@@ -146,6 +150,8 @@ pub struct PipelineResult {
     pub caret_visible: bool,
     /// Cached form ancestor lookups (invalidated on DOM mutation).
     pub ancestor_cache: elidex_form::AncestorCache,
+    /// Viewport-level overflow propagated from root/body element.
+    pub viewport_overflow: ViewportOverflow,
 }
 
 impl PipelineResult {
@@ -203,7 +209,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    let (session, runtime) = pipeline::run_scripts_and_finalize(
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
@@ -234,6 +240,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
     };
 
     // Start CSS animations declared in initial styles.
@@ -274,7 +281,13 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 
     // Phase 2: Re-resolve styles.
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    resolve_with_compat(&mut result.dom, &stylesheet_refs, &result.registry);
+    result.viewport_overflow = resolve_with_compat(
+        &mut result.dom,
+        &stylesheet_refs,
+        &result.registry,
+        result.viewport_width,
+        result.viewport_height,
+    );
 
     // Phase 3: Detect transitions by comparing old vs new computed values.
     // Includes entities that newly gained AnimStyle (transition-* properties).
@@ -813,7 +826,7 @@ pub fn build_pipeline_from_loaded(
 
     let registry = create_css_property_registry();
 
-    let (session, runtime) = pipeline::run_scripts_and_finalize(
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
@@ -844,6 +857,7 @@ pub fn build_pipeline_from_loaded(
         viewport_height: DEFAULT_VIEWPORT_HEIGHT,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
     };
 
     // Start CSS animations declared in initial styles.

@@ -10,6 +10,8 @@ use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_script_session::{DispatchEvent, SessionCore};
 
+use elidex_plugin::ViewportOverflow;
+
 use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
 
 /// Common script execution and finalization phase shared by pipeline builders.
@@ -23,7 +25,7 @@ use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH
 /// The `registry` is passed in from the caller to avoid creating a duplicate
 /// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
 ///
-/// Returns the `(SessionCore, JsRuntime)` for the caller to include in `PipelineResult`.
+/// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_scripts_and_finalize(
     dom: &mut EcsDom,
@@ -34,11 +36,17 @@ pub(super) fn run_scripts_and_finalize(
     font_db: &Rc<elidex_text::FontDatabase>,
     current_url: Option<url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
-) -> (SessionCore, JsRuntime) {
+) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs, registry);
+    resolve_with_compat(
+        dom,
+        &stylesheet_refs,
+        registry,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -59,7 +67,13 @@ pub(super) fn run_scripts_and_finalize(
     session.flush(dom);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    resolve_with_compat(dom, &stylesheet_refs, registry);
+    let viewport_overflow = resolve_with_compat(
+        dom,
+        &stylesheet_refs,
+        registry,
+        DEFAULT_VIEWPORT_WIDTH,
+        DEFAULT_VIEWPORT_HEIGHT,
+    );
 
     layout_tree(
         dom,
@@ -68,7 +82,7 @@ pub(super) fn run_scripts_and_finalize(
         font_db,
     );
 
-    (session, runtime)
+    (session, runtime, viewport_overflow)
 }
 
 /// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.

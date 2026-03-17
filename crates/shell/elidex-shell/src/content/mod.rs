@@ -9,6 +9,7 @@ pub(crate) mod focus;
 mod form_input;
 mod ime;
 mod navigation;
+mod scroll;
 
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -49,6 +50,8 @@ struct ContentState {
     caret_last_toggle: Instant,
     /// Cached list of focusable entities for Tab navigation (invalidated on DOM changes).
     focusable_cache: Option<Vec<Entity>>,
+    /// Viewport-level scroll state (not attached to a DOM entity).
+    viewport_scroll: elidex_ecs::ScrollState,
 }
 
 impl ContentState {
@@ -107,6 +110,7 @@ impl ContentState {
             caret_visible: true,
             caret_last_toggle: Instant::now(),
             focusable_cache: None,
+            viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
         }
     }
@@ -163,6 +167,9 @@ impl ContentState {
             self.pipeline.document,
             viewport,
         );
+
+        // Update viewport scroll dimensions after layout completes.
+        scroll::update_viewport_scroll_dimensions(self);
     }
 
     /// Reset caret blink timer (call on key input to keep caret visible).
@@ -240,6 +247,7 @@ fn content_thread_main(
 ) {
     let pipeline = crate::build_pipeline_interactive(html, css);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
+    scroll::update_viewport_scroll_dimensions(&mut state);
     state.send_display_list();
     run_event_loop(&mut state);
 }
@@ -264,6 +272,7 @@ fn content_thread_main_url(
     nav_controller.push(url.clone());
 
     let mut state = ContentState::new(channel, nav_controller, pipeline);
+    scroll::update_viewport_scroll_dimensions(&mut state);
     state.notify_navigation(url);
     run_event_loop(&mut state);
 }
@@ -429,6 +438,15 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             if let Some(url) = state.pipeline.url.clone() {
                 navigation::handle_navigate(state, &url, true, None);
             }
+        }
+
+        BrowserToContent::MouseWheel {
+            delta_x,
+            delta_y,
+            x,
+            y,
+        } => {
+            scroll::handle_wheel(state, delta_x, delta_y, x, y);
         }
 
         BrowserToContent::Ime { kind } => {

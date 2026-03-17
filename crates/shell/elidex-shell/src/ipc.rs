@@ -107,6 +107,17 @@ pub enum BrowserToContent {
     GoForward,
     /// Reload the current page.
     Reload,
+    /// Mouse wheel scrolled in the content area.
+    MouseWheel {
+        /// Horizontal scroll delta in CSS pixels (positive = scroll right).
+        delta_x: f64,
+        /// Vertical scroll delta in CSS pixels (positive = scroll down).
+        delta_y: f64,
+        /// Content-relative X coordinate for scroll target hit testing.
+        x: f32,
+        /// Content-relative Y coordinate for scroll target hit testing.
+        y: f32,
+    },
     /// IME event.
     Ime {
         /// The IME event kind.

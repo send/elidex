@@ -804,3 +804,15 @@ fn computed_style_clips_overflow() {
     s.overflow_y = Overflow::Clip;
     assert!(s.clips_overflow());
 }
+
+#[test]
+fn viewport_overflow_allows_scroll_auto() {
+    let vp = ViewportOverflow::default();
+    assert!(vp.allows_scroll());
+}
+
+#[test]
+fn viewport_overflow_allows_scroll_hidden() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Hidden, Overflow::Hidden);
+    assert!(!vp.allows_scroll());
+}
