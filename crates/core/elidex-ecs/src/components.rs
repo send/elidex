@@ -387,10 +387,8 @@ pub struct DocTypeData {
 /// for scroll containers (CSS Overflow L3 §3).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScrollState {
-    /// Current horizontal scroll offset in CSS pixels.
-    pub scroll_x: f32,
-    /// Current vertical scroll offset in CSS pixels.
-    pub scroll_y: f32,
+    /// Current scroll offset `(x, y)` in CSS pixels.
+    pub scroll_offset: (f32, f32),
     /// Total scrollable content width.
     pub scroll_width: f32,
     /// Total scrollable content height.
@@ -411,8 +409,7 @@ impl ScrollState {
         client_height: f32,
     ) -> Self {
         Self {
-            scroll_x: 0.0,
-            scroll_y: 0.0,
+            scroll_offset: (0.0, 0.0),
             scroll_width,
             scroll_height,
             client_width,
@@ -434,8 +431,8 @@ impl ScrollState {
 
     /// Clamp scroll offsets to valid range.
     pub fn clamp_scroll(&mut self) {
-        self.scroll_x = self.scroll_x.clamp(0.0, self.max_scroll_x());
-        self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll_y());
+        self.scroll_offset.0 = self.scroll_offset.0.clamp(0.0, self.max_scroll_x());
+        self.scroll_offset.1 = self.scroll_offset.1.clamp(0.0, self.max_scroll_y());
     }
 }
 
@@ -457,26 +454,24 @@ mod tests {
     #[test]
     fn scroll_state_new_and_defaults() {
         let s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
-        assert_eq!(s.scroll_x, 0.0);
-        assert_eq!(s.scroll_y, 0.0);
+        assert_eq!(s.scroll_offset, (0.0, 0.0));
         assert_eq!(s.scroll_width, 500.0);
         assert_eq!(s.scroll_height, 1000.0);
         assert_eq!(s.client_width, 300.0);
         assert_eq!(s.client_height, 400.0);
 
         let d = ScrollState::default();
-        assert_eq!(d.scroll_x, 0.0);
+        assert_eq!(d.scroll_offset, (0.0, 0.0));
         assert_eq!(d.scroll_width, 0.0);
     }
 
     #[test]
     fn scroll_state_clamp() {
         let mut s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
-        s.scroll_x = 999.0;
-        s.scroll_y = -10.0;
+        s.scroll_offset = (999.0, -10.0);
         s.clamp_scroll();
-        assert!((s.scroll_x - 200.0).abs() < f32::EPSILON);
-        assert_eq!(s.scroll_y, 0.0);
+        assert!((s.scroll_offset.0 - 200.0).abs() < f32::EPSILON);
+        assert_eq!(s.scroll_offset.1, 0.0);
     }
 
     #[test]

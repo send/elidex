@@ -86,7 +86,7 @@ impl App {
             #[allow(clippy::cast_possible_truncation)]
             let (x, y) = (px as f32, (py as f32) - crate::chrome::CHROME_HEIGHT);
             let new_chain = if y >= 0.0 {
-                elidex_layout::hit_test(&interactive.pipeline.dom, x, y)
+                elidex_layout::hit_test(&interactive.pipeline.dom, (x, y))
                     .map(|hit| hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity))
                     .unwrap_or_default()
             } else {

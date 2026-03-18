@@ -2,7 +2,7 @@
 
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
-use elidex_layout::hit_test;
+use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
 use elidex_script_session::DispatchEvent;
 
@@ -32,7 +32,11 @@ fn clear_active_chain(state: &mut ContentState) {
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
-    let Some(hit) = hit_test(&state.pipeline.dom, click.x, click.y) else {
+    let query = HitTestQuery {
+        point: click.point,
+        scroll: state.viewport_scroll.scroll_offset,
+    };
+    let Some(hit) = hit_test_with_scroll(&state.pipeline.dom, &query) else {
         return;
     };
     let hit_entity = hit.entity;
@@ -54,8 +58,8 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Use viewport-relative coordinates for DOM event properties (clientX/clientY).
     let mouse_init = MouseEventInit {
-        client_x: click.client_x,
-        client_y: click.client_y,
+        client_x: click.client_point.0,
+        client_y: click.client_point.1,
         button: i16::from(click.button),
         alt_key: click.mods.alt,
         ctrl_key: click.mods.ctrl,
@@ -180,11 +184,17 @@ pub(super) fn handle_mouse_release(state: &mut ContentState) {
     state.send_display_list();
 }
 
-pub(super) fn handle_mouse_move(state: &mut ContentState, x: f32, y: f32) {
-    let new_chain = if x >= 0.0 && y >= 0.0 {
-        hit_test(&state.pipeline.dom, x, y)
-            .map(|hit| collect_hover_chain(&state.pipeline.dom, hit.entity))
-            .unwrap_or_default()
+pub(super) fn handle_mouse_move(state: &mut ContentState, point: (f32, f32)) {
+    let new_chain = if point.0 >= 0.0 && point.1 >= 0.0 {
+        hit_test_with_scroll(
+            &state.pipeline.dom,
+            &HitTestQuery {
+                point,
+                scroll: state.viewport_scroll.scroll_offset,
+            },
+        )
+        .map(|hit| collect_hover_chain(&state.pipeline.dom, hit.entity))
+        .unwrap_or_default()
     } else {
         Vec::new()
     };

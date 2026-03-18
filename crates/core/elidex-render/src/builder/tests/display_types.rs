@@ -103,7 +103,7 @@ fn styled_segments_x_consecutive() {
         dl.0.iter()
             .filter_map(|i| {
                 if let crate::display_list::DisplayItem::Text { glyphs, .. } = i {
-                    glyphs.first().map(|g| g.x)
+                    glyphs.first().map(|g| g.position.0)
                 } else {
                     None
                 }

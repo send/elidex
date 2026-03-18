@@ -187,10 +187,8 @@ impl App {
         if x >= 0.0 && y >= 0.0 {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
-                x,
-                y,
-                client_x,
-                client_y,
+                point: (x, y),
+                client_point: (client_x, client_y),
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -213,10 +211,8 @@ impl App {
             if y >= 0.0 && x >= 0.0 {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-                    x,
-                    y,
-                    client_x: cx,
-                    client_y: cy,
+                    point: (x, y),
+                    client_point: (cx, cy),
                     button: winit_button_to_dom(button),
                     mods,
                 }));
@@ -251,10 +247,8 @@ impl App {
             ((cx as f32) - x_offset, (cy as f32) - y_offset)
         });
         self.send_to_content(BrowserToContent::MouseWheel {
-            delta_x,
-            delta_y,
-            x,
-            y,
+            delta: (delta_x, delta_y),
+            point: (x, y),
         });
     }
 

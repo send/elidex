@@ -158,10 +158,23 @@ fn collect_inner(
                     collect_inner(dom, child, abs, fixed, depth + 1);
                 }
                 // else: positioned + generates box → this child owns its own abs children.
+                // If it also has transform it owns fixed children too, but that's
+                // handled by its own layout_positioned_children call.
             }
             Position::Static => {
-                // Static child → transparent, continue scan.
-                collect_inner(dom, child, abs, fixed, depth + 1);
+                if style.has_transform && style.display != Display::Contents {
+                    // CSS Transforms L1 §2: a transform establishes a containing
+                    // block for all descendants, including fixed-positioned ones.
+                    // Stop fixed collection here — this element will handle its own
+                    // fixed descendants via layout_positioned_children.
+                    // Absolute children are also owned by this transform element,
+                    // but we still collect them for the nearest positioned ancestor
+                    // since absolute CB resolution is position-based in current arch.
+                    collect_inner(dom, child, abs, &mut Vec::new(), depth + 1);
+                } else {
+                    // Static child → transparent, continue scan.
+                    collect_inner(dom, child, abs, fixed, depth + 1);
+                }
             }
         }
     }
@@ -209,22 +222,26 @@ pub fn layout_positioned_children(
         );
     }
 
-    // Layout fixed children against viewport.
-    if let Some((vw, vh)) = viewport {
-        let vp_rect = Rect::new(0.0, 0.0, vw, vh);
-        for child in fixed_children {
-            let sp = static_positions.get(&child).copied().unwrap_or((0.0, 0.0));
-            layout_absolutely_positioned(
-                dom,
-                child,
-                &vp_rect,
-                sp,
-                font_db,
-                layout_child,
-                depth,
-                viewport,
-            );
-        }
+    // Layout fixed children.
+    //
+    // `collect_positioned_descendants` stops fixed collection at transform
+    // boundaries (CSS Transforms L1 §2), so every fixed child collected here
+    // belongs to THIS element as its containing block.
+    //
+    // - If this element has `has_transform`, it is the CB per CSS Transforms L1 §2.
+    // - Otherwise, this is a positioned/root element with no intervening transform,
+    //   so the viewport is the CB per CSS Positioned Layout L3 §3.
+    let has_transform = try_get_style(dom, entity).is_some_and(|s| s.has_transform);
+    for child in fixed_children {
+        let (cb, sp_default) = if has_transform {
+            (*cb_padding_box, (cb_padding_box.x, cb_padding_box.y))
+        } else if let Some((vw, vh)) = viewport {
+            (Rect::new(0.0, 0.0, vw, vh), (0.0, 0.0))
+        } else {
+            continue;
+        };
+        let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
+        layout_absolutely_positioned(dom, child, &cb, sp, font_db, layout_child, depth, viewport);
     }
 }
 
@@ -418,7 +435,7 @@ fn layout_absolutely_positioned(
     let dy = content_y - child_lb.content.y;
     if dx.abs() > f32::EPSILON || dy.abs() > f32::EPSILON {
         let grandchildren = dom.composed_children(entity);
-        crate::block::children::shift_descendants(dom, &grandchildren, dx, dy);
+        crate::block::children::shift_descendants(dom, &grandchildren, (dx, dy));
     }
 }
 

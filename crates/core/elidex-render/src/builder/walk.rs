@@ -29,6 +29,12 @@ pub(crate) struct PaintContext<'a> {
     pub(crate) font_cache: &'a mut FontCache,
     pub(crate) dl: &'a mut DisplayList,
     pub(crate) caret_visible: bool,
+    /// Viewport scroll offset `(x, y)`.
+    ///
+    /// This is the same value used for the root-level `PushScrollOffset`
+    /// in `build_display_list_with_scroll()`. Fixed elements re-push this
+    /// value after their `PopScrollOffset`/walk/`PushScrollOffset` sequence.
+    pub(crate) scroll_offset: (f32, f32),
 }
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
@@ -49,6 +55,7 @@ pub(crate) fn walk(
     entity: Entity,
     depth: usize,
     parent_perspective: &Perspective,
+    in_transform: bool,
 ) {
     if depth > MAX_ANCESTOR_DEPTH {
         return;
@@ -178,10 +185,26 @@ pub(crate) fn walk(
         .is_some_and(|s| s.creates_stacking_context())
         || ctx.dom.get_parent(entity).is_none(); // root is always a SC
 
+    let child_in_transform = in_transform || has_transform_push;
+
     if is_sc {
-        paint_stacking_context_layers(ctx, entity, &children, depth, &child_perspective);
+        paint_stacking_context_layers(
+            ctx,
+            entity,
+            &children,
+            depth,
+            &child_perspective,
+            child_in_transform,
+        );
     } else {
-        paint_non_sc(ctx, entity, &children, depth, &child_perspective);
+        paint_non_sc(
+            ctx,
+            entity,
+            &children,
+            depth,
+            &child_perspective,
+            child_in_transform,
+        );
     }
 
     if has_clip {
@@ -200,24 +223,25 @@ fn paint_stacking_context_layers(
     children: &[Entity],
     depth: usize,
     child_perspective: &Perspective,
+    in_transform: bool,
 ) {
     let layers = collect_sc_participants(ctx.dom, children);
 
     // Layer 2: negative z stacking contexts (z ascending).
     for &child in &layers.negative_z {
-        walk(ctx, child, depth + 1, child_perspective);
+        walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 
     // Layer 3: in-flow non-positioned blocks (DOM order).
     let mut list_counter = 0_usize;
     for &child in &layers.in_flow_blocks {
         maybe_emit_list_marker(ctx, child, &mut list_counter);
-        walk(ctx, child, depth + 1, child_perspective);
+        walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 
     // Layer 4: non-positioned floats (DOM order).
     for &child in &layers.floats {
-        walk(ctx, child, depth + 1, child_perspective);
+        walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 
     // Layer 5: inline content (DOM order, positioned excluded).
@@ -264,23 +288,28 @@ fn paint_stacking_context_layers(
         .collect();
     layer6.sort_by(|&a, &b| ctx.dom.tree_order_cmp(a, b));
     for &child in &layer6 {
-        walk(ctx, child, depth + 1, child_perspective);
+        walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 
     // Layer 7: positive z stacking contexts (z ascending).
     for &child in &layers.positive_z {
-        walk(ctx, child, depth + 1, child_perspective);
+        walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 }
 
 /// Paint children of a non-SC element in DOM order, skipping positioned
 /// children (they are painted by the parent stacking context).
+///
+/// The `in_transform` flag is propagated to all children so that
+/// `position: fixed` descendants inside a transform ancestor are
+/// correctly treated as absolute (CSS Transforms L1 §2).
 fn paint_non_sc(
     ctx: &mut PaintContext,
     entity: Entity,
     children: &[Entity],
     depth: usize,
     child_perspective: &Perspective,
+    in_transform: bool,
 ) {
     let mut inline_run = Vec::new();
     let mut list_counter = 0_usize;
@@ -308,7 +337,7 @@ fn paint_non_sc(
             maybe_emit_list_marker(ctx, child, &mut list_counter);
 
             // Recurse into block child.
-            walk(ctx, child, depth + 1, child_perspective);
+            walk(ctx, child, depth + 1, child_perspective, in_transform);
         } else {
             // Text node or inline element — add to current run.
             inline_run.push(child);
@@ -346,6 +375,46 @@ pub(crate) fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
         .get::<&ComputedStyle>(entity)
         .ok()
         .is_some_and(|style| elidex_layout_block::block::is_block_level(style.display))
+}
+
+/// Walk a child entity, wrapping `position: fixed` (viewport-attached) elements
+/// with `PopScrollOffset`/`PushScrollOffset` so they remain visually unscrolled.
+///
+/// The `PopScrollOffset`/`PushScrollOffset` pair must always be balanced:
+/// both are emitted unconditionally when `is_viewport_fixed` is true,
+/// and `walk()` never early-returns after the Pop has been emitted.
+fn walk_child_with_fixed_check(
+    ctx: &mut PaintContext,
+    child: Entity,
+    depth: usize,
+    child_perspective: &Perspective,
+    in_transform: bool,
+) {
+    let is_fixed_vp = is_viewport_fixed(ctx.dom, child, in_transform);
+    if is_fixed_vp {
+        ctx.dl.push(DisplayItem::PopScrollOffset);
+    }
+    walk(ctx, child, depth + 1, child_perspective, in_transform);
+    if is_fixed_vp {
+        ctx.dl.push(DisplayItem::PushScrollOffset {
+            scroll_offset: ctx.scroll_offset,
+        });
+    }
+}
+
+/// `position: fixed` with no transform ancestor → viewport-attached (scroll excluded).
+///
+/// CSS Transforms L1 §2: a transform ancestor establishes a containing block
+/// for fixed descendants, so they scroll with the transform ancestor.
+#[must_use]
+fn is_viewport_fixed(dom: &EcsDom, entity: Entity, in_transform: bool) -> bool {
+    if in_transform {
+        return false;
+    }
+    dom.world()
+        .get::<&ComputedStyle>(entity)
+        .ok()
+        .is_some_and(|s| s.position == elidex_plugin::Position::Fixed)
 }
 
 /// Emit a list marker for a block child if it is a `list-item` with a visible marker.

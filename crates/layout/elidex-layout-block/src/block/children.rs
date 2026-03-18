@@ -445,7 +445,7 @@ fn layout_float(
     let delta_y = final_y - child_box.content.y;
     if delta_x.abs() > f32::EPSILON || delta_y.abs() > f32::EPSILON {
         let grandchildren = dom.composed_children(child);
-        shift_descendants(dom, &grandchildren, delta_x, delta_y);
+        shift_descendants(dom, &grandchildren, (delta_x, delta_y));
     }
 }
 
@@ -462,8 +462,8 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
 }
 
 /// Shift descendants by (dx, dy), used to reposition float/positioned contents after placement.
-pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], dx: f32, dy: f32) {
-    shift_descendants_inner(dom, children, dx, dy, false);
+pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: (f32, f32)) {
+    shift_descendants_inner(dom, children, delta.0, delta.1, false);
 }
 
 /// Iterative tree walk that shifts `LayoutBox` positions by `(dx, dy)`.

@@ -397,8 +397,7 @@ fn emit_styled_segments_vertical(
                 dl.push(DisplayItem::Text {
                     glyphs: vec![GlyphEntry {
                         glyph_id: u32::from(glyph.glyph_id),
-                        x,
-                        y,
+                        position: (x, y),
                     }],
                     font_blob: font_blob.clone(),
                     font_index,

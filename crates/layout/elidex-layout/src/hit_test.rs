@@ -19,11 +19,28 @@ pub struct HitTestResult {
     pub entity: Entity,
 }
 
-/// Transform state propagated through the hit test tree walk.
+/// Immutable query parameters for a hit test.
+///
+/// Groups viewport coordinates and scroll offset so they can be threaded
+/// through the recursive walk by reference instead of as four separate scalars.
+pub struct HitTestQuery {
+    /// Viewport coordinates `(x, y)`.
+    pub point: (f32, f32),
+    /// Viewport scroll offset `(scroll_x, scroll_y)`.
+    pub scroll: (f32, f32),
+}
+
+/// Transform + fixed/scroll state propagated through the hit test tree walk.
 #[derive(Clone, Copy)]
 struct TransformContext {
     cumulative: [f64; 6],
     perspective: Perspective,
+    /// `true` when this element or an ancestor is viewport-fixed
+    /// (`position: fixed` with no transform ancestor), meaning scroll
+    /// offset is not applied for hit testing.
+    in_fixed: bool,
+    /// `true` when an ancestor has CSS transform (fixed behaves as absolute).
+    in_transform: bool,
 }
 
 /// Find the front-most entity at viewport coordinates `(x, y)`.
@@ -32,18 +49,45 @@ struct TransformContext {
 /// Returns `None` for non-finite inputs.
 ///
 /// Uses stacking context layer order so that higher z-index elements win.
+///
+/// This is a convenience wrapper around [`hit_test_with_scroll`] with zero scroll offset.
 #[must_use]
-pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
-    if !x.is_finite() || !y.is_finite() {
+pub fn hit_test(dom: &EcsDom, point: (f32, f32)) -> Option<HitTestResult> {
+    hit_test_with_scroll(
+        dom,
+        &HitTestQuery {
+            point,
+            scroll: (0.0, 0.0),
+        },
+    )
+}
+
+/// Find the front-most entity at viewport coordinates,
+/// accounting for viewport scroll offset.
+///
+/// **Sign convention:** rendering translates content by `(-scroll.0, -scroll.1)`,
+/// so to find which content-space element is under a viewport point we add
+/// `+scroll` to the point: `content_coord = viewport_point + scroll_offset`.
+/// `position: fixed` elements (without a transform ancestor) bypass this
+/// adjustment and are tested at the original viewport `point`.
+#[must_use]
+pub fn hit_test_with_scroll(dom: &EcsDom, query: &HitTestQuery) -> Option<HitTestResult> {
+    if !query.point.0.is_finite() || !query.point.1.is_finite() {
         return None;
     }
+    debug_assert!(
+        query.scroll.0.is_finite() && query.scroll.1.is_finite(),
+        "scroll offset must be finite"
+    );
     let mut result = None;
     let ctx = TransformContext {
         cumulative: IDENTITY,
         perspective: Perspective::default(),
+        in_fixed: false,
+        in_transform: false,
     };
     for root in dom.root_entities() {
-        hit_test_subtree(dom, root, x, y, &mut result, 0, ctx);
+        hit_test_subtree(dom, root, query, &mut result, 0, ctx);
     }
     result
 }
@@ -55,13 +99,12 @@ pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
 fn hit_test_subtree(
     dom: &EcsDom,
     entity: Entity,
-    x: f32,
-    y: f32,
+    query: &HitTestQuery,
     result: &mut Option<HitTestResult>,
     depth: u32,
     ctx: TransformContext,
 ) {
-    if depth > elidex_layout_block::MAX_LAYOUT_DEPTH {
+    if depth >= elidex_layout_block::MAX_LAYOUT_DEPTH {
         return;
     }
 
@@ -71,6 +114,20 @@ fn hit_test_subtree(
     if display == Display::None {
         return;
     }
+
+    // CSS Transforms L1 §2: a transform ancestor makes fixed behave like absolute.
+    let has_transform = style_opt.as_ref().is_some_and(|s| s.has_transform);
+    let child_in_transform = ctx.in_transform || has_transform;
+
+    // Determine if this element is viewport-fixed (position:fixed with no transform ancestor).
+    let is_this_fixed = style_opt
+        .as_ref()
+        .is_some_and(|s| s.position == elidex_plugin::Position::Fixed);
+    let effective_fixed = if is_this_fixed && !ctx.in_transform {
+        true
+    } else {
+        ctx.in_fixed
+    };
 
     // Compute transform for this element.
     let layout_box_opt = dom.world().get::<&LayoutBox>(entity).ok();
@@ -89,12 +146,21 @@ fn hit_test_subtree(
     }
 
     // Check if this entity's border box contains the point.
+    // Fixed elements use viewport coordinates; others use scrolled coordinates.
     if let Some(bb) = cached_bb {
+        let (hit_x, hit_y) = if effective_fixed {
+            query.point
+        } else {
+            (
+                query.point.0 + query.scroll.0,
+                query.point.1 + query.scroll.1,
+            )
+        };
         let (test_x, test_y) = if is_affine_identity(&local_transform) {
-            (x, y)
+            (hit_x, hit_y)
         } else if let Some(inv) = invert_affine(local_transform) {
-            let lx = inv[0] * f64::from(x) + inv[2] * f64::from(y) + inv[4];
-            let ly = inv[1] * f64::from(x) + inv[3] * f64::from(y) + inv[5];
+            let lx = inv[0] * f64::from(hit_x) + inv[2] * f64::from(hit_y) + inv[4];
+            let ly = inv[1] * f64::from(hit_x) + inv[3] * f64::from(hit_y) + inv[5];
             if !lx.is_finite() || !ly.is_finite() {
                 (f32::MAX, f32::MAX)
             } else {
@@ -102,7 +168,7 @@ fn hit_test_subtree(
                 (lx as f32, ly as f32)
             }
         } else {
-            (x, y)
+            (hit_x, hit_y)
         };
         if test_x >= bb.x && test_x < bb.x + bb.width && test_y >= bb.y && test_y < bb.y + bb.height
         {
@@ -119,6 +185,8 @@ fn hit_test_subtree(
     let child_ctx = TransformContext {
         cumulative: local_transform,
         perspective: child_perspective,
+        in_fixed: effective_fixed,
+        in_transform: child_in_transform,
     };
 
     // Determine if this element is a stacking context.
@@ -128,9 +196,9 @@ fn hit_test_subtree(
         || dom.get_parent(entity).is_none();
 
     if is_sc {
-        hit_test_sc_layers(dom, entity, x, y, result, depth, child_ctx);
+        hit_test_sc_layers(dom, entity, query, result, depth, child_ctx);
     } else {
-        hit_test_non_sc(dom, entity, x, y, result, depth, child_ctx);
+        hit_test_non_sc(dom, entity, query, result, depth, child_ctx);
     }
 }
 
@@ -139,8 +207,7 @@ fn hit_test_subtree(
 fn hit_test_sc_layers(
     dom: &EcsDom,
     entity: Entity,
-    x: f32,
-    y: f32,
+    query: &HitTestQuery,
     result: &mut Option<HitTestResult>,
     depth: u32,
     ctx: TransformContext,
@@ -150,20 +217,20 @@ fn hit_test_sc_layers(
 
     // Layer 2: negative z (z ascending → last wins for same z).
     for &child in &layers.negative_z {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
     // Layer 3: in-flow blocks.
     for &child in &layers.in_flow_blocks {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
     // Layer 4: floats.
     for &child in &layers.floats {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
     // Layer 5: inline (DOM order, non-positioned).
     for &child in &layers.all_children {
         if !is_positioned(dom, child) && !is_block_or_float(dom, child) {
-            hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+            hit_test_subtree(dom, child, query, result, depth + 1, ctx);
         }
     }
     // Layer 6: positioned auto + z:0 (DOM order interleave).
@@ -175,11 +242,11 @@ fn hit_test_sc_layers(
         .collect();
     layer6.sort_by(|&a, &b| dom.tree_order_cmp(a, b));
     for &child in &layer6 {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
     // Layer 7: positive z (z ascending).
     for &child in &layers.positive_z {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
 }
 
@@ -187,8 +254,7 @@ fn hit_test_sc_layers(
 fn hit_test_non_sc(
     dom: &EcsDom,
     entity: Entity,
-    x: f32,
-    y: f32,
+    query: &HitTestQuery,
     result: &mut Option<HitTestResult>,
     depth: u32,
     ctx: TransformContext,
@@ -198,7 +264,7 @@ fn hit_test_non_sc(
         if is_positioned(dom, child) {
             continue;
         }
-        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        hit_test_subtree(dom, child, query, result, depth + 1, ctx);
     }
 }
 
@@ -241,7 +307,7 @@ mod tests {
     #[test]
     fn empty_dom_returns_none() {
         let dom = EcsDom::new();
-        assert_eq!(hit_test(&dom, 100.0, 100.0), None);
+        assert_eq!(hit_test(&dom, (100.0, 100.0)), None);
     }
 
     #[test]
@@ -250,7 +316,7 @@ mod tests {
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
         // Click outside the box.
-        assert_eq!(hit_test(&dom, 200.0, 200.0), None);
+        assert_eq!(hit_test(&dom, (200.0, 200.0)), None);
     }
 
     #[test]
@@ -258,7 +324,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 10.0, 10.0, 100.0, 50.0);
-        let result = hit_test(&dom, 50.0, 30.0);
+        let result = hit_test(&dom, (50.0, 30.0));
         assert_eq!(result, Some(HitTestResult { entity: e }));
     }
 
@@ -273,11 +339,11 @@ mod tests {
         set_layout(&mut dom, inner, 50.0, 50.0, 50.0, 50.0);
 
         // Click inside inner.
-        let result = hit_test(&dom, 60.0, 60.0);
+        let result = hit_test(&dom, (60.0, 60.0));
         assert_eq!(result, Some(HitTestResult { entity: inner }));
 
         // Click outside inner but inside outer.
-        let result = hit_test(&dom, 10.0, 10.0);
+        let result = hit_test(&dom, (10.0, 10.0));
         assert_eq!(result, Some(HitTestResult { entity: outer }));
     }
 
@@ -295,7 +361,7 @@ mod tests {
         set_layout(&mut dom, a, 0.0, 0.0, 100.0, 100.0);
         set_layout(&mut dom, b, 50.0, 50.0, 100.0, 100.0);
 
-        let result = hit_test(&dom, 75.0, 75.0);
+        let result = hit_test(&dom, (75.0, 75.0));
         assert_eq!(result, Some(HitTestResult { entity: b }));
     }
 
@@ -311,7 +377,7 @@ mod tests {
         set_style(&mut dom, hidden, Display::None);
 
         // Hidden element should be skipped — parent wins.
-        let result = hit_test(&dom, 50.0, 50.0);
+        let result = hit_test(&dom, (50.0, 50.0));
         assert_eq!(result, Some(HitTestResult { entity: parent }));
     }
 
@@ -323,14 +389,14 @@ mod tests {
 
         // Exactly at top-left corner.
         assert_eq!(
-            hit_test(&dom, 10.0, 10.0),
+            hit_test(&dom, (10.0, 10.0)),
             Some(HitTestResult { entity: e })
         );
         // Exactly at bottom-right (exclusive) — miss.
-        assert_eq!(hit_test(&dom, 110.0, 60.0), None);
+        assert_eq!(hit_test(&dom, (110.0, 60.0)), None);
         // Just inside bottom-right.
         assert_eq!(
-            hit_test(&dom, 109.99, 59.99),
+            hit_test(&dom, (109.99, 59.99)),
             Some(HitTestResult { entity: e })
         );
     }
@@ -340,7 +406,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 50.0, 50.0, 0.0, 0.0);
-        assert_eq!(hit_test(&dom, 50.0, 50.0), None);
+        assert_eq!(hit_test(&dom, (50.0, 50.0)), None);
     }
 
     #[test]
@@ -370,7 +436,7 @@ mod tests {
         }
         let _ = root;
 
-        let result = hit_test(&dom, 250.0, 250.0);
+        let result = hit_test(&dom, (250.0, 250.0));
         assert_eq!(result, Some(HitTestResult { entity: deepest }));
     }
 
@@ -388,10 +454,10 @@ mod tests {
 
         // Border box: x=10, y=10, w=80, h=80 → [10,90) × [10,90).
         assert_eq!(
-            hit_test(&dom, 10.0, 10.0),
+            hit_test(&dom, (10.0, 10.0)),
             Some(HitTestResult { entity: e })
         );
-        assert_eq!(hit_test(&dom, 9.0, 9.0), None);
+        assert_eq!(hit_test(&dom, (9.0, 9.0)), None);
     }
 
     #[test]
@@ -400,9 +466,260 @@ mod tests {
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
 
-        assert_eq!(hit_test(&dom, f32::NAN, 50.0), None);
-        assert_eq!(hit_test(&dom, 50.0, f32::NAN), None);
-        assert_eq!(hit_test(&dom, f32::INFINITY, 50.0), None);
+        assert_eq!(hit_test(&dom, (f32::NAN, 50.0)), None);
+        assert_eq!(hit_test(&dom, (50.0, f32::NAN)), None);
+        assert_eq!(hit_test(&dom, (f32::INFINITY, 50.0)), None);
+    }
+
+    #[test]
+    fn scroll_offset_shifts_hit() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        // Element at (100, 100, 50, 50) in layout space.
+        set_layout(&mut dom, e, 100.0, 100.0, 50.0, 50.0);
+
+        // Without scroll, clicking (110, 110) hits.
+        assert!(hit_test(&dom, (110.0, 110.0)).is_some());
+
+        // With scroll_y=80, viewport (30, 30) maps to layout (30+0, 30+80) = (30, 110).
+        // That misses the element at x=100.
+        assert!(hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (30.0, 30.0),
+                scroll: (0.0, 80.0)
+            }
+        )
+        .is_none());
+
+        // With scroll_y=80, viewport (110, 20) maps to layout (110, 100) → hit.
+        assert_eq!(
+            hit_test_with_scroll(
+                &dom,
+                &HitTestQuery {
+                    point: (110.0, 20.0),
+                    scroll: (0.0, 80.0)
+                }
+            ),
+            Some(HitTestResult { entity: e })
+        );
+    }
+
+    #[test]
+    fn scroll_offset_misses() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
+
+        // Without scroll, (50, 50) hits.
+        assert!(hit_test(&dom, (50.0, 50.0)).is_some());
+
+        // With scroll_y=200, viewport (50, 50) maps to layout (50, 250) → miss.
+        assert!(hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 50.0),
+                scroll: (0.0, 200.0)
+            }
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn fixed_ignores_scroll() {
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        set_layout(&mut dom, parent, 0.0, 0.0, 1000.0, 2000.0);
+        let _ = dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+
+        let fixed = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, fixed);
+        set_layout(&mut dom, fixed, 0.0, 0.0, 100.0, 50.0);
+        let _ = dom.world_mut().insert_one(
+            fixed,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Fixed,
+                z_index: Some(0),
+                ..Default::default()
+            },
+        );
+
+        // Fixed element at (0,0,100,50) should be hit at viewport (50, 25)
+        // regardless of scroll offset.
+        assert_eq!(
+            hit_test_with_scroll(
+                &dom,
+                &HitTestQuery {
+                    point: (50.0, 25.0),
+                    scroll: (0.0, 500.0)
+                }
+            ),
+            Some(HitTestResult { entity: fixed })
+        );
+    }
+
+    #[test]
+    fn fixed_inside_transform_scrolls() {
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        set_layout(&mut dom, parent, 0.0, 0.0, 1000.0, 2000.0);
+        let _ = dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                has_transform: true, // transform ancestor
+                ..Default::default()
+            },
+        );
+
+        let fixed = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, fixed);
+        set_layout(&mut dom, fixed, 0.0, 0.0, 100.0, 50.0);
+        let _ = dom.world_mut().insert_one(
+            fixed,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Fixed,
+                ..Default::default()
+            },
+        );
+
+        // Fixed inside transform → behaves like absolute → scroll applies.
+        // With scroll_y=200, viewport (50, 25) maps to layout (50, 225).
+        // The fixed child at (0,0,100,50) is missed; parent (1000x2000) is hit.
+        let result = hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 25.0),
+                scroll: (0.0, 200.0),
+            },
+        );
+        assert_eq!(result, Some(HitTestResult { entity: parent }));
+
+        // Without scroll, (50, 25) hits the fixed child (front-most).
+        let result = hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 25.0),
+                scroll: (0.0, 0.0),
+            },
+        );
+        assert_eq!(result, Some(HitTestResult { entity: fixed }));
+    }
+
+    #[test]
+    fn backward_compat_hit_test() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        set_layout(&mut dom, e, 10.0, 10.0, 100.0, 50.0);
+
+        // hit_test() should give same result as hit_test_with_scroll(0,0).
+        let r1 = hit_test(&dom, (50.0, 30.0));
+        let r2 = hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 30.0),
+                scroll: (0.0, 0.0),
+            },
+        );
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn negative_scroll_offset_clamps_hit() {
+        // Negative scroll offsets (after clamping, should be 0) — verify hit test
+        // still works correctly even if a negative value slips through.
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        set_layout(&mut dom, e, 0.0, 0.0, 100.0, 50.0);
+
+        // With negative scroll (-10, -10), viewport (50, 25) maps to (40, 15).
+        // Element at (0,0,100,50) still contains (40, 15) → hit.
+        assert_eq!(
+            hit_test_with_scroll(
+                &dom,
+                &HitTestQuery {
+                    point: (50.0, 25.0),
+                    scroll: (-10.0, -10.0),
+                }
+            ),
+            Some(HitTestResult { entity: e })
+        );
+    }
+
+    #[test]
+    fn very_large_scroll_offset_misses() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        set_layout(&mut dom, e, 0.0, 0.0, 100.0, 50.0);
+
+        // Huge scroll offset pushes the test point far beyond the element.
+        assert!(hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 25.0),
+                scroll: (100_000.0, 100_000.0),
+            }
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn multiple_fixed_elements_z_order_with_scroll() {
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        set_layout(&mut dom, parent, 0.0, 0.0, 1000.0, 2000.0);
+        let _ = dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+
+        // Two overlapping fixed elements with different z-index.
+        let low_z = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, low_z);
+        set_layout(&mut dom, low_z, 0.0, 0.0, 100.0, 50.0);
+        let _ = dom.world_mut().insert_one(
+            low_z,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Fixed,
+                z_index: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let high_z = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, high_z);
+        set_layout(&mut dom, high_z, 0.0, 0.0, 100.0, 50.0);
+        let _ = dom.world_mut().insert_one(
+            high_z,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Fixed,
+                z_index: Some(5),
+                ..Default::default()
+            },
+        );
+
+        // Higher z-index fixed element wins, regardless of scroll.
+        let result = hit_test_with_scroll(
+            &dom,
+            &HitTestQuery {
+                point: (50.0, 25.0),
+                scroll: (0.0, 800.0),
+            },
+        );
+        assert_eq!(result, Some(HitTestResult { entity: high_z }));
     }
 
     #[test]
@@ -449,7 +766,7 @@ mod tests {
         );
 
         // high-z should win
-        let result = hit_test(&dom, 50.0, 50.0);
+        let result = hit_test(&dom, (50.0, 50.0));
         assert_eq!(result, Some(HitTestResult { entity: high }));
     }
 }

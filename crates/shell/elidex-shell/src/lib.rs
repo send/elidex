@@ -36,7 +36,7 @@ use elidex_net::FetchHandle;
 use elidex_plugin::{
     AnimationEventInit, ComputedStyle, EventPayload, TransitionEventInit, ViewportOverflow,
 };
-use elidex_render::{build_display_list, build_display_list_with_caret, DisplayList};
+use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
 use elidex_script_session::{DispatchEvent, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
@@ -152,6 +152,8 @@ pub struct PipelineResult {
     pub ancestor_cache: elidex_form::AncestorCache,
     /// Viewport-level overflow propagated from root/body element.
     pub viewport_overflow: ViewportOverflow,
+    /// Viewport scroll offset `(x, y)` synced from content thread before re-render.
+    pub scroll_offset: (f32, f32),
 }
 
 impl PipelineResult {
@@ -241,6 +243,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
+        scroll_offset: (0.0, 0.0),
     };
 
     // Start CSS animations declared in initial styles.
@@ -308,8 +311,12 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         &result.font_db,
     );
 
-    result.display_list =
-        build_display_list_with_caret(&result.dom, &result.font_db, result.caret_visible);
+    result.display_list = build_display_list_with_scroll(
+        &result.dom,
+        &result.font_db,
+        result.caret_visible,
+        result.scroll_offset,
+    );
 
     mutation_records
 }
@@ -858,6 +865,7 @@ pub fn build_pipeline_from_loaded(
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
+        scroll_offset: (0.0, 0.0),
     };
 
     // Start CSS animations declared in initial styles.

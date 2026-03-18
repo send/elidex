@@ -12,5 +12,5 @@ pub use elidex_layout_block::{
     block, inline, resolve_padding, sanitize, sanitize_border, sanitize_padding, ChildLayoutFn,
     LayoutInput, MAX_LAYOUT_DEPTH,
 };
-pub use hit_test::{hit_test, HitTestResult};
+pub use hit_test::{hit_test, hit_test_with_scroll, HitTestQuery, HitTestResult};
 pub use layout::layout_tree;

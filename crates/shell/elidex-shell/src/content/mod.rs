@@ -132,6 +132,8 @@ impl ContentState {
             .bridge()
             .sync_dirty_canvases(&mut self.pipeline.dom);
         self.pipeline.caret_visible = self.caret_visible;
+        // Sync viewport scroll offset to pipeline for display list building.
+        self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
         let mutation_records = crate::re_render(&mut self.pipeline);
 
         // Invalidate focusable cache when DOM structure or focusability changes.
@@ -387,8 +389,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event_handlers::handle_mouse_release(state);
         }
 
-        BrowserToContent::MouseMove { x, y, .. } => {
-            event_handlers::handle_mouse_move(state, x, y);
+        BrowserToContent::MouseMove { point, .. } => {
+            event_handlers::handle_mouse_move(state, point);
         }
 
         BrowserToContent::CursorLeft => {
@@ -440,13 +442,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             }
         }
 
-        BrowserToContent::MouseWheel {
-            delta_x,
-            delta_y,
-            x,
-            y,
-        } => {
-            scroll::handle_wheel(state, delta_x, delta_y, x, y);
+        BrowserToContent::MouseWheel { delta, point } => {
+            scroll::handle_wheel(state, delta, point);
         }
 
         BrowserToContent::Ime { kind } => {

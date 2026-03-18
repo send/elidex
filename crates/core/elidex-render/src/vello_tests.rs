@@ -216,3 +216,136 @@ fn styled_border_segment_dotted_builds_scene() {
     build_scene(&mut scene, &dl, &mut fc);
     // Should not panic — smoke test for dotted border segment.
 }
+
+#[test]
+fn scroll_offset_translates() {
+    let mut scene = Scene::new();
+    let mut fc = HashMap::new();
+    let dl = DisplayList(vec![
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (50.0, 100.0),
+        },
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            color: CssColor::RED,
+        },
+        DisplayItem::PopScrollOffset,
+    ]);
+    build_scene(&mut scene, &dl, &mut fc);
+    // Should not panic — scroll offset applied as translate(-50, -100).
+}
+
+#[test]
+fn scroll_offset_zero_identity() {
+    let mut scene = Scene::new();
+    let mut fc = HashMap::new();
+    let dl = DisplayList(vec![
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 0.0),
+        },
+        DisplayItem::SolidRect {
+            rect: Rect::new(10.0, 10.0, 50.0, 50.0),
+            color: CssColor::GREEN,
+        },
+        DisplayItem::PopScrollOffset,
+    ]);
+    build_scene(&mut scene, &dl, &mut fc);
+    // (0,0) scroll is identity — should render normally.
+}
+
+#[test]
+fn nested_scroll_transform() {
+    let mut scene = Scene::new();
+    let mut fc = HashMap::new();
+    let dl = DisplayList(vec![
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (10.0, 20.0),
+        },
+        DisplayItem::PushTransform {
+            affine: [1.0, 0.0, 0.0, 1.0, 50.0, 50.0], // translate(50, 50)
+        },
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            color: CssColor::BLUE,
+        },
+        DisplayItem::PopTransform,
+        DisplayItem::PopScrollOffset,
+    ]);
+    build_scene(&mut scene, &dl, &mut fc);
+    // Nested scroll + CSS transform — should compose correctly.
+}
+
+#[test]
+fn fixed_element_scroll_exclusion() {
+    // Simulates the display list structure emitted by walk_child_with_fixed_check:
+    // PushScrollOffset → normal content → PopScrollOffset (cancel for fixed) →
+    // fixed content → PushScrollOffset (re-apply) → more content → PopScrollOffset.
+    let mut scene = Scene::new();
+    let mut fc = HashMap::new();
+    let dl = DisplayList(vec![
+        // Root scroll
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 100.0),
+        },
+        // Normal (scrolled) content
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 200.0, 50.0),
+            color: CssColor::RED,
+        },
+        // Cancel scroll for fixed element
+        DisplayItem::PopScrollOffset,
+        // Fixed element (not scrolled)
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 100.0, 30.0),
+            color: CssColor::BLUE,
+        },
+        // Re-apply scroll
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 100.0),
+        },
+        // More normal content
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 50.0, 200.0, 50.0),
+            color: CssColor::GREEN,
+        },
+        DisplayItem::PopScrollOffset,
+    ]);
+    build_scene(&mut scene, &dl, &mut fc);
+    // Balanced Push/Pop pairs with fixed-element exclusion — should not panic.
+}
+
+#[test]
+fn fixed_element_scroll_exclusion_update() {
+    // Verify update_scroll_offset patches all PushScrollOffset items uniformly,
+    // including the re-push after a fixed element.
+    let mut dl = DisplayList(vec![
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 0.0),
+        },
+        DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            color: CssColor::RED,
+        },
+        DisplayItem::PopScrollOffset,
+        // Fixed element re-push
+        DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 0.0),
+        },
+        DisplayItem::PopScrollOffset,
+    ]);
+
+    dl.update_scroll_offset((30.0, 80.0));
+
+    let offsets: Vec<_> = dl
+        .iter()
+        .filter_map(|item| match item {
+            DisplayItem::PushScrollOffset { scroll_offset } => Some(*scroll_offset),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(offsets.len(), 2);
+    for (sx, sy) in offsets {
+        assert!((sx - 30.0).abs() < f32::EPSILON);
+        assert!((sy - 80.0).abs() < f32::EPSILON);
+    }
+}

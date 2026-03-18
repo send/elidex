@@ -335,9 +335,10 @@ pub fn layout_block_inner(
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
     // Layout positioned descendants owned by this containing block.
-    // A positioned element or root element serves as containing block for abs children.
+    // A positioned element, root element, or transform element serves as CB.
+    // CSS Transforms L1 §2: transform establishes CB for all descendants.
     let is_root = dom.get_parent(entity).is_none();
-    let is_cb = style.position != Position::Static || is_root;
+    let is_cb = style.position != Position::Static || is_root || style.has_transform;
     if is_cb {
         let pb = lb.padding_box();
         crate::positioned::layout_positioned_children(

@@ -37,7 +37,7 @@ impl App {
             }
 
             let pipeline = &mut interactive.pipeline;
-            let Some(hit) = elidex_layout::hit_test(&pipeline.dom, x, y) else {
+            let Some(hit) = elidex_layout::hit_test(&pipeline.dom, (x, y)) else {
                 return;
             };
             let hit_entity = hit.entity;

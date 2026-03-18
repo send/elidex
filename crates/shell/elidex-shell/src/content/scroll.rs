@@ -5,8 +5,8 @@
 //! scrolling only; element-level scroll containers will be added in Step 5.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout::hit_test;
-use elidex_plugin::{ComputedStyle, Display, LayoutBox};
+use elidex_layout::{hit_test_with_scroll, HitTestQuery};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, Rect};
 
 use super::ContentState;
 
@@ -17,8 +17,8 @@ enum ScrollTarget {
 }
 
 /// Handle a `MouseWheel` IPC message.
-pub(super) fn handle_wheel(state: &mut ContentState, delta_x: f64, delta_y: f64, x: f32, y: f32) {
-    if !delta_x.is_finite() || !delta_y.is_finite() {
+pub(super) fn handle_wheel(state: &mut ContentState, delta: (f64, f64), point: (f32, f32)) {
+    if !delta.0.is_finite() || !delta.1.is_finite() {
         return;
     }
 
@@ -29,7 +29,11 @@ pub(super) fn handle_wheel(state: &mut ContentState, delta_x: f64, delta_y: f64,
         return;
     }
 
-    let hit = hit_test(&state.pipeline.dom, x, y);
+    let query = HitTestQuery {
+        point,
+        scroll: state.viewport_scroll.scroll_offset,
+    };
+    let hit = hit_test_with_scroll(&state.pipeline.dom, &query);
     let target = hit.map_or(ScrollTarget::Viewport, |h| {
         find_scroll_target(&state.pipeline.dom, h.entity)
     });
@@ -37,34 +41,33 @@ pub(super) fn handle_wheel(state: &mut ContentState, delta_x: f64, delta_y: f64,
     let consumed = match target {
         ScrollTarget::Viewport => apply_viewport_scroll(
             state,
-            delta_x,
-            delta_y,
+            delta,
             vp.overflow_x.is_scroll_container(),
             vp.overflow_y.is_scroll_container(),
         ),
     };
 
     if consumed {
-        // TODO(Step 4): Scroll offset is not yet applied to the display list
-        // (requires PushTranslation). For now, full re-render updates scroll
-        // dimensions but the visual result won't shift until Step 4.
-        // TODO(Step 4): Avoid full re-render — only update display list offset.
-        state.re_render();
+        // Fast path: patch scroll offset in existing display list.
+        // The display list structure (PushScrollOffset/PopScrollOffset pairs
+        // including fixed-element exclusion) is invariant for scroll-only changes.
+        state
+            .pipeline
+            .display_list
+            .update_scroll_offset(state.viewport_scroll.scroll_offset);
         state.send_display_list();
     }
 }
 
 /// Walk from `hit_entity` up the ancestor chain looking for a scroll container.
 ///
-/// Step 3: element-level `ScrollState` is not yet implemented, so this always
-/// returns `Viewport`. Step 5 will check `ComputedStyle::is_scroll_container()`
-/// and return `ScrollTarget::Element(entity)` when found.
+/// Currently always returns `Viewport` — element-level scroll containers
+/// will be added in Step 5 (check `ComputedStyle::is_scroll_container()`
+/// and return `ScrollTarget::Element(entity)` when found).
 fn find_scroll_target(dom: &EcsDom, hit_entity: Entity) -> ScrollTarget {
     let mut current = Some(hit_entity);
     while let Some(entity) = current {
-        if let Ok(_style) = dom.world().get::<&ComputedStyle>(entity) {
-            // Step 5: check style.is_scroll_container() and return Element(entity).
-        }
+        // TODO(Step 5): check ComputedStyle::is_scroll_container() and return Element(entity).
         current = dom.get_parent(entity);
     }
     ScrollTarget::Viewport
@@ -73,36 +76,43 @@ fn find_scroll_target(dom: &EcsDom, hit_entity: Entity) -> ScrollTarget {
 /// Apply scroll delta to the viewport `ScrollState`. Returns `true` if scroll changed.
 fn apply_viewport_scroll(
     state: &mut ContentState,
-    delta_x: f64,
-    delta_y: f64,
+    delta: (f64, f64),
     can_scroll_x: bool,
     can_scroll_y: bool,
 ) -> bool {
-    let old_x = state.viewport_scroll.scroll_x;
-    let old_y = state.viewport_scroll.scroll_y;
+    let (dx, dy) = delta;
+    let old = state.viewport_scroll.scroll_offset;
     if can_scroll_x {
         #[allow(clippy::cast_possible_truncation)]
-        {
-            state.viewport_scroll.scroll_x += delta_x as f32;
-        }
+        let dx_f32 = dx as f32;
+        debug_assert!(
+            dx_f32.is_finite(),
+            "scroll delta x must be finite after cast"
+        );
+        state.viewport_scroll.scroll_offset.0 += dx_f32;
     }
     if can_scroll_y {
         #[allow(clippy::cast_possible_truncation)]
-        {
-            state.viewport_scroll.scroll_y += delta_y as f32;
-        }
+        let dy_f32 = dy as f32;
+        debug_assert!(
+            dy_f32.is_finite(),
+            "scroll delta y must be finite after cast"
+        );
+        state.viewport_scroll.scroll_offset.1 += dy_f32;
     }
     state.viewport_scroll.clamp_scroll();
-    (state.viewport_scroll.scroll_x - old_x).abs() > f32::EPSILON
-        || (state.viewport_scroll.scroll_y - old_y).abs() > f32::EPSILON
+    let new = state.viewport_scroll.scroll_offset;
+    (new.0 - old.0).abs() > f32::EPSILON || (new.1 - old.1).abs() > f32::EPSILON
 }
 
-/// Compute the maximum content height from all visible `LayoutBox` border boxes.
+/// Compute the maximum content extent along an axis from all visible `LayoutBox` border boxes.
 ///
 /// Skips elements with `display: none` (they have no box and should not
 /// contribute to the scrollable area).
-pub(super) fn compute_content_height(dom: &EcsDom) -> f32 {
-    let mut max_bottom: f32 = 0.0;
+///
+/// `extent_fn` extracts the far edge (e.g. `x + width` or `y + height`) from a border box.
+fn compute_content_extent(dom: &EcsDom, extent_fn: fn(&Rect) -> f32) -> f32 {
+    let mut max_extent: f32 = 0.0;
     for (_, (lb, style)) in &mut dom
         .world()
         .query::<(Entity, (&LayoutBox, &ComputedStyle))>()
@@ -111,33 +121,22 @@ pub(super) fn compute_content_height(dom: &EcsDom) -> f32 {
             continue;
         }
         let bb = lb.border_box();
-        let bottom = bb.y + bb.height;
-        if bottom > max_bottom {
-            max_bottom = bottom;
+        let extent = extent_fn(&bb);
+        if extent > max_extent {
+            max_extent = extent;
         }
     }
-    max_bottom
+    max_extent
+}
+
+/// Compute the maximum content height from all visible `LayoutBox` border boxes.
+pub(super) fn compute_content_height(dom: &EcsDom) -> f32 {
+    compute_content_extent(dom, |bb| bb.y + bb.height)
 }
 
 /// Compute the maximum content width from all visible `LayoutBox` border boxes.
-///
-/// Skips elements with `display: none`.
 pub(super) fn compute_content_width(dom: &EcsDom) -> f32 {
-    let mut max_right: f32 = 0.0;
-    for (_, (lb, style)) in &mut dom
-        .world()
-        .query::<(Entity, (&LayoutBox, &ComputedStyle))>()
-    {
-        if style.display == Display::None {
-            continue;
-        }
-        let bb = lb.border_box();
-        let right = bb.x + bb.width;
-        if right > max_right {
-            max_right = right;
-        }
-    }
-    max_right
+    compute_content_extent(dom, |bb| bb.x + bb.width)
 }
 
 /// Update `viewport_scroll` dimensions after re-render.
@@ -162,28 +161,28 @@ mod tests {
     #[test]
     fn viewport_scroll_down() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        let old_y = scroll.scroll_y;
-        scroll.scroll_y += 100.0;
+        let old_y = scroll.scroll_offset.1;
+        scroll.scroll_offset.1 += 100.0;
         scroll.clamp_scroll();
-        assert!(scroll.scroll_y > old_y);
-        assert!((scroll.scroll_y - 100.0).abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.1 > old_y);
+        assert!((scroll.scroll_offset.1 - 100.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn viewport_scroll_clamp_max() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        scroll.scroll_y += 5000.0;
+        scroll.scroll_offset.1 += 5000.0;
         scroll.clamp_scroll();
         // max_scroll_y = 2000 - 768 = 1232
-        assert!((scroll.scroll_y - 1232.0).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.1 - 1232.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn viewport_scroll_clamp_min() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        scroll.scroll_y -= 100.0;
+        scroll.scroll_offset.1 -= 100.0;
         scroll.clamp_scroll();
-        assert!((scroll.scroll_y).abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.1.abs() < f32::EPSILON);
     }
 
     #[test]
@@ -191,11 +190,11 @@ mod tests {
         // When overflow is Hidden, allows_scroll is false so handle_wheel
         // returns early. Test that apply_viewport_scroll respects axis flags.
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        let old_y = scroll.scroll_y;
+        let old_y = scroll.scroll_offset.1;
         // Simulate: can_scroll_y = false
         // (don't add delta)
         scroll.clamp_scroll();
-        assert!((scroll.scroll_y - old_y).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.1 - old_y).abs() < f32::EPSILON);
 
         // Double-check: Hidden does not create scroll container
         let vp = ViewportOverflow::from_propagated(Overflow::Hidden, Overflow::Hidden);
@@ -205,21 +204,21 @@ mod tests {
     #[test]
     fn viewport_scroll_horizontal() {
         let mut scroll = ScrollState::new(3000.0, 768.0, 1024.0, 768.0);
-        scroll.scroll_x += 200.0;
+        scroll.scroll_offset.0 += 200.0;
         scroll.clamp_scroll();
-        assert!((scroll.scroll_x - 200.0).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.0 - 200.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn nan_delta_is_ignored() {
         // NaN deltas should be rejected before reaching ScrollState.
         let scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        assert!((scroll.scroll_y).abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.1.abs() < f32::EPSILON);
         // NaN guard is tested via handle_wheel in integration; here verify
         // ScrollState is not corrupted by validating clamp works on clean state.
         let mut s = scroll;
         s.clamp_scroll();
-        assert!((s.scroll_y).abs() < f32::EPSILON);
+        assert!(s.scroll_offset.1.abs() < f32::EPSILON);
     }
 
     #[test]

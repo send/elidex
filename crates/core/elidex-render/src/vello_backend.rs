@@ -340,6 +340,17 @@ pub(crate) fn build_scene(
             .count(),
         "PushTransform/PopTransform must be balanced in display list"
     );
+    debug_assert_eq!(
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PushScrollOffset { .. }))
+            .count(),
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PopScrollOffset))
+            .count(),
+        "PushScrollOffset/PopScrollOffset must be balanced in display list"
+    );
 
     let mut transform_stack: Vec<Affine> = vec![Affine::IDENTITY];
     let mut skipped_push_count: u32 = 0;
@@ -642,6 +653,31 @@ pub(crate) fn build_scene(
                     }
                 }
             }
+            DisplayItem::PushScrollOffset { scroll_offset } => {
+                debug_assert!(
+                    scroll_offset.0.is_finite() && scroll_offset.1.is_finite(),
+                    "scroll offset must be finite"
+                );
+                if transform_stack.len() < 256 {
+                    let parent = *transform_stack
+                        .last()
+                        .expect("transform stack is never empty");
+                    let scroll = Affine::translate((
+                        -f64::from(scroll_offset.0),
+                        -f64::from(scroll_offset.1),
+                    ));
+                    transform_stack.push(parent * scroll);
+                } else {
+                    skipped_push_count += 1;
+                }
+            }
+            DisplayItem::PopScrollOffset => {
+                if skipped_push_count > 0 {
+                    skipped_push_count -= 1;
+                } else if transform_stack.len() > 1 {
+                    transform_stack.pop();
+                }
+            }
             DisplayItem::Text {
                 glyphs,
                 font_blob,
@@ -663,8 +699,8 @@ pub(crate) fn build_scene(
                     .iter()
                     .map(|g| Glyph {
                         id: g.glyph_id,
-                        x: g.x,
-                        y: g.y,
+                        x: g.position.0,
+                        y: g.position.1,
                     })
                     .collect();
 

@@ -512,8 +512,9 @@ pub fn layout_table(
     // Layout positioned descendants owned by this containing block.
     // CSS 2.1 §17.2: the table establishes a CB for absolute children
     // when it is itself positioned (or is the root).
+    // CSS Transforms L1 §2: transform establishes CB for all descendants.
     let is_root = dom.get_parent(entity).is_none();
-    let is_cb = style.position != elidex_plugin::Position::Static || is_root;
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
     if is_cb {
         let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
             dom, &children, content_x, cursor_y,

@@ -30,14 +30,10 @@ pub struct ModifierState {
 /// and modifier key state for a mouse click.
 #[derive(Clone, Debug)]
 pub struct MouseClickEvent {
-    /// X position in content area (for hit testing).
-    pub x: f32,
-    /// Y position in content area (for hit testing).
-    pub y: f32,
-    /// X position in viewport (for DOM event clientX).
-    pub client_x: f64,
-    /// Y position in viewport (for DOM event clientY).
-    pub client_y: f64,
+    /// `(x, y)` position in content area (for hit testing).
+    pub point: (f32, f32),
+    /// `(x, y)` position in viewport (for DOM event clientX/clientY).
+    pub client_point: (f64, f64),
     /// Mouse button number (DOM spec: 0=primary, 1=aux, 2=secondary).
     pub button: u8,
     /// Modifier keys held during click.
@@ -61,14 +57,10 @@ pub enum BrowserToContent {
     },
     /// Mouse moved to content-relative coordinates.
     MouseMove {
-        /// X position in content area (for hit testing).
-        x: f32,
-        /// Y position in content area (for hit testing).
-        y: f32,
-        /// X position in viewport (for DOM event clientX).
-        client_x: f64,
-        /// Y position in viewport (for DOM event clientY).
-        client_y: f64,
+        /// `(x, y)` position in content area (for hit testing).
+        point: (f32, f32),
+        /// `(x, y)` position in viewport (for DOM event clientX/clientY).
+        client_point: (f64, f64),
     },
     /// Cursor left the content area.
     CursorLeft,
@@ -109,14 +101,10 @@ pub enum BrowserToContent {
     Reload,
     /// Mouse wheel scrolled in the content area.
     MouseWheel {
-        /// Horizontal scroll delta in CSS pixels (positive = scroll right).
-        delta_x: f64,
-        /// Vertical scroll delta in CSS pixels (positive = scroll down).
-        delta_y: f64,
-        /// Content-relative X coordinate for scroll target hit testing.
-        x: f32,
-        /// Content-relative Y coordinate for scroll target hit testing.
-        y: f32,
+        /// `(horizontal, vertical)` scroll delta in CSS pixels (positive = scroll right/down).
+        delta: (f64, f64),
+        /// `(x, y)` content-relative coordinates for scroll target hit testing.
+        point: (f32, f32),
     },
     /// IME event.
     Ime {

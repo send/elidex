@@ -34,9 +34,9 @@ fn text_align_center_offsets_text() {
     // Exact offset = (400 - text_width) / 2, which is > 0 for any short text.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+            glyphs[0].position.0 > 0.0 && glyphs[0].position.0 < 400.0,
             "center-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].x
+            glyphs[0].position.0
         );
     }
 }
@@ -70,16 +70,16 @@ fn text_align_right_offsets_text() {
     // Right-aligned: offset = 400 - text_width, so glyph x > center offset.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+            glyphs[0].position.0 > 0.0 && glyphs[0].position.0 < 400.0,
             "right-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].x
+            glyphs[0].position.0
         );
         // Right offset should be > center offset for the same text.
         // "Hi" in 400px: right offset ≈ 380+, center offset ≈ 190+.
         assert!(
-            glyphs[0].x > 200.0,
+            glyphs[0].position.0 > 200.0,
             "right-aligned text should be in right half, got x={}",
-            glyphs[0].x
+            glyphs[0].position.0
         );
     }
 }

@@ -14,10 +14,8 @@ use elidex_plugin::{CssColor, Rect};
 pub struct GlyphEntry {
     /// Glyph ID in the font.
     pub glyph_id: u32,
-    /// Horizontal position.
-    pub x: f32,
-    /// Vertical position.
-    pub y: f32,
+    /// Position `(x, y)` in pixels.
+    pub position: (f32, f32),
 }
 
 /// A single paint operation in the display list.
@@ -164,6 +162,18 @@ pub enum DisplayItem {
     },
     /// End a transform region.
     PopTransform,
+    /// Begin viewport scroll translation.
+    ///
+    /// Translates all subsequent items by `(-offset.0, -offset.1)` until
+    /// the matching [`PopScrollOffset`]. Fixed-position elements emit a
+    /// `PopScrollOffset`/`PushScrollOffset` pair around themselves to
+    /// cancel the scroll translation.
+    PushScrollOffset {
+        /// Scroll offset `(x, y)` in pixels.
+        scroll_offset: (f32, f32),
+    },
+    /// End viewport scroll translation.
+    PopScrollOffset,
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.
@@ -205,6 +215,23 @@ impl DisplayList {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Patch all `PushScrollOffset` items with new scroll values.
+    ///
+    /// This is the fast path for scroll-only updates: the display list
+    /// structure (including fixed-element exclusion pairs) is preserved,
+    /// and only the scroll offset values are updated in place.
+    pub fn update_scroll_offset(&mut self, scroll_offset: (f32, f32)) {
+        debug_assert!(
+            scroll_offset.0.is_finite() && scroll_offset.1.is_finite(),
+            "scroll offset must be finite"
+        );
+        for item in &mut self.0 {
+            if let DisplayItem::PushScrollOffset { scroll_offset: so } = item {
+                *so = scroll_offset;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -225,5 +252,65 @@ mod tests {
             color: CssColor::RED,
         });
         assert_eq!(dl.0.len(), 1);
+    }
+
+    #[test]
+    fn push_scroll_offset() {
+        let mut dl = DisplayList::default();
+        dl.push(DisplayItem::PushScrollOffset {
+            scroll_offset: (10.0, 20.0),
+        });
+        assert_eq!(dl.len(), 1);
+        assert!(matches!(
+            dl.iter().next(),
+            Some(DisplayItem::PushScrollOffset {
+                scroll_offset,
+            }) if (scroll_offset.0 - 10.0).abs() < f32::EPSILON && (scroll_offset.1 - 20.0).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
+    fn update_scroll_offset_patches() {
+        let mut dl = DisplayList::default();
+        dl.push(DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 0.0),
+        });
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            color: CssColor::RED,
+        });
+        dl.push(DisplayItem::PopScrollOffset);
+        // A second PushScrollOffset (e.g. from fixed re-push).
+        dl.push(DisplayItem::PushScrollOffset {
+            scroll_offset: (0.0, 0.0),
+        });
+        dl.push(DisplayItem::PopScrollOffset);
+
+        dl.update_scroll_offset((50.0, 100.0));
+
+        let pushes: Vec<_> = dl
+            .iter()
+            .filter_map(|item| match item {
+                DisplayItem::PushScrollOffset { scroll_offset } => Some(*scroll_offset),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pushes.len(), 2);
+        for (sx, sy) in pushes {
+            assert!((sx - 50.0).abs() < f32::EPSILON);
+            assert!((sy - 100.0).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn update_scroll_offset_noop() {
+        let mut dl = DisplayList::default();
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            color: CssColor::RED,
+        });
+        // No PushScrollOffset items — should not panic.
+        dl.update_scroll_offset((10.0, 20.0));
+        assert_eq!(dl.len(), 1);
     }
 }

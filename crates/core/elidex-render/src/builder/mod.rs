@@ -27,6 +27,7 @@ use crate::display_list::DisplayList;
 use crate::font_cache::FontCache;
 
 // Re-export sub-module items used across sibling modules.
+use crate::display_list::DisplayItem;
 pub(super) use bidi::bidi_visual_order;
 pub(super) use glyph::{families_as_refs, place_glyphs, place_glyphs_vertical};
 pub(super) use inline::{emit_inline_run, StyledTextSegment};
@@ -118,8 +119,28 @@ pub fn build_display_list_with_caret(
     font_db: &FontDatabase,
     caret_visible: bool,
 ) -> DisplayList {
+    build_display_list_with_scroll(dom, font_db, caret_visible, (0.0, 0.0))
+}
+
+/// Build a display list with viewport scroll offset.
+///
+/// Wraps the content in `PushScrollOffset`/`PopScrollOffset` when the scroll
+/// offset is non-zero. `position: fixed` elements are excluded from the scroll
+/// translation (they remain viewport-attached).
+#[must_use]
+pub fn build_display_list_with_scroll(
+    dom: &EcsDom,
+    font_db: &FontDatabase,
+    caret_visible: bool,
+    scroll_offset: (f32, f32),
+) -> DisplayList {
     let mut dl = DisplayList::default();
     let mut font_cache = FontCache::new();
+    let has_scroll = scroll_offset.0.abs() > f32::EPSILON || scroll_offset.1.abs() > f32::EPSILON;
+
+    if has_scroll {
+        dl.push(DisplayItem::PushScrollOffset { scroll_offset });
+    }
 
     let mut ctx = PaintContext {
         dom,
@@ -127,6 +148,7 @@ pub fn build_display_list_with_caret(
         font_cache: &mut font_cache,
         dl: &mut dl,
         caret_visible,
+        scroll_offset,
     };
     let roots = find_roots(dom);
     for root in roots {
@@ -135,7 +157,12 @@ pub fn build_display_list_with_caret(
             root,
             0,
             &elidex_plugin::transform_math::Perspective::default(),
+            false,
         );
+    }
+
+    if has_scroll {
+        dl.push(DisplayItem::PopScrollOffset);
     }
 
     dl

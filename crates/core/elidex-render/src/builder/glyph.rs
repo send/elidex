@@ -42,8 +42,7 @@ pub(crate) fn place_glyphs(
         let y = by - glyph.y_offset;
         glyphs.push(GlyphEntry {
             glyph_id: u32::from(glyph.glyph_id),
-            x,
-            y,
+            position: (x, y),
         });
         *cursor_x += glyph.x_advance;
 
@@ -93,8 +92,7 @@ pub(crate) fn place_glyphs_vertical(
         let y = *cursor_y + glyph.y_offset;
         glyphs.push(GlyphEntry {
             glyph_id: u32::from(glyph.glyph_id),
-            x,
-            y,
+            position: (x, y),
         });
         *cursor_y += glyph.y_advance;
     }

@@ -912,6 +912,197 @@ fn fixed_inside_relative() {
     assert!(approx_eq(lb.content.y, 0.0));
 }
 
+/// CSS Transforms L1 §2: static element with transform establishes CB for
+/// fixed descendants, even when a positioned ancestor is in between.
+///
+/// ```text
+/// root (static, transform: rotate(10deg))   ← CB for fixed
+///   └─ container (position: relative)
+///       └─ fixed-child (position: fixed)
+/// ```
+///
+/// fixed-child should use root's padding box as CB, not viewport.
+#[test]
+fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    let container = elem(&mut dom, "div");
+    let fixed_child = elem(&mut dom, "div");
+    dom.append_child(doc, root);
+    dom.append_child(root, container);
+    dom.append_child(container, fixed_child);
+
+    let _ = dom.world_mut().insert_one(
+        root,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Static,
+            has_transform: true, // transform ancestor
+            width: Dimension::Length(600.0),
+            height: Dimension::Length(400.0),
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Relative,
+            width: Dimension::Length(400.0),
+            height: Dimension::Length(300.0),
+            top: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        fixed_child,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Fixed,
+            top: Dimension::Length(10.0),
+            left: Dimension::Length(20.0),
+            width: Dimension::Length(100.0),
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+
+    let input = LayoutInput {
+        containing_width: 800.0,
+        containing_height: None,
+        offset_x: 0.0,
+        offset_y: 0.0,
+        font_db: &font_db(),
+        depth: 0,
+        float_ctx: None,
+        viewport: Some((800.0, 600.0)),
+    };
+    crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
+
+    let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
+    // Fixed child should be positioned relative to root's padding box (transform CB),
+    // not the viewport. Root's padding box starts at (0, 0) with width 600.
+    assert!(approx_eq(lb.content.x, 20.0));
+    assert!(approx_eq(lb.content.y, 10.0));
+}
+
+/// Fixed element with NO transform ancestor should still use viewport.
+#[test]
+fn fixed_no_transform_uses_viewport() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    let container = elem(&mut dom, "div");
+    let fixed_child = elem(&mut dom, "div");
+    dom.append_child(doc, root);
+    dom.append_child(root, container);
+    dom.append_child(container, fixed_child);
+
+    let _ = dom.world_mut().insert_one(
+        root,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Static,
+            // No transform
+            width: Dimension::Length(600.0),
+            height: Dimension::Length(400.0),
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Relative,
+            width: Dimension::Length(400.0),
+            height: Dimension::Length(300.0),
+            top: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        fixed_child,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Fixed,
+            top: Dimension::Length(0.0),
+            left: Dimension::Length(0.0),
+            width: Dimension::Length(100.0),
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+
+    let input = LayoutInput {
+        containing_width: 800.0,
+        containing_height: None,
+        offset_x: 0.0,
+        offset_y: 0.0,
+        font_db: &font_db(),
+        depth: 0,
+        float_ctx: None,
+        viewport: Some((800.0, 600.0)),
+    };
+    crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
+
+    let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
+    // No transform → viewport is CB
+    assert!(approx_eq(lb.content.x, 0.0));
+    assert!(approx_eq(lb.content.y, 0.0));
+}
+
+/// collect_positioned_descendants stops fixed collection at transform boundary.
+#[test]
+fn collect_stops_fixed_at_transform_boundary() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let parent = elem(&mut dom, "div");
+    let transform_el = elem(&mut dom, "div");
+    let fixed_child = elem(&mut dom, "div");
+    dom.append_child(doc, parent);
+    dom.append_child(parent, transform_el);
+    dom.append_child(transform_el, fixed_child);
+
+    let _ = dom.world_mut().insert_one(
+        parent,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Relative,
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        transform_el,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Static,
+            has_transform: true,
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        fixed_child,
+        ComputedStyle {
+            display: Display::Block,
+            position: Position::Fixed,
+            ..Default::default()
+        },
+    );
+
+    let (abs, fixed) = collect_positioned_descendants(&dom, parent);
+    // The fixed child should NOT be collected by parent because
+    // transform_el (static + has_transform) is the CB for fixed descendants.
+    assert!(abs.is_empty());
+    assert!(fixed.is_empty());
+
+    // transform_el should collect the fixed child.
+    let (abs2, fixed2) = collect_positioned_descendants(&dom, transform_el);
+    assert!(abs2.is_empty());
+    assert_eq!(fixed2.len(), 1);
+    assert_eq!(fixed2[0], fixed_child);
+}
+
 fn font_db() -> elidex_text::FontDatabase {
     elidex_text::FontDatabase::new()
 }
