@@ -542,12 +542,9 @@ impl ComputedStyle {
     /// - CSS Containment L2 §3: contain includes paint/layout/strict/content
     #[must_use]
     pub fn creates_stacking_context(&self) -> bool {
-        // Positioned elements
-        if matches!(self.position, Position::Absolute | Position::Fixed) {
-            return true;
-        }
-        if matches!(self.position, Position::Relative | Position::Sticky) && self.z_index.is_some()
-        {
+        // CSS 2.1 §9.9.1: positioned + z-index: <integer> → stacking context.
+        // positioned + z-index: auto → NOT a stacking context (children bubble up).
+        if self.position != Position::Static && self.z_index.is_some() {
             return true;
         }
         // Visual effects

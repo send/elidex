@@ -1,6 +1,7 @@
 //! Block child stacking, shifting, and height resolution.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
@@ -23,6 +24,8 @@ pub struct StackResult {
     pub first_child_margin_top: Option<f32>,
     /// Bottom margin of the last block child (for parent-child collapse).
     pub last_child_margin_bottom: Option<f32>,
+    /// Static positions for absolutely positioned descendants (CSS 2.1 §10.6.5).
+    pub static_positions: HashMap<Entity, (f32, f32)>,
 }
 
 /// Stack block-level children with vertical margin collapse.
@@ -64,6 +67,7 @@ pub fn stack_block_children(
         &local_ctx
     };
     let mut inline_run: Vec<Entity> = Vec::new();
+    let mut static_positions: HashMap<Entity, (f32, f32)> = HashMap::new();
 
     for &child in children {
         let child_style = crate::try_get_style(dom, child);
@@ -73,6 +77,16 @@ pub fn stack_block_children(
             .as_ref()
             .is_some_and(|s| s.display == Display::None)
         {
+            continue;
+        }
+
+        // CSS 2.1 §9.3.1/§9.6: absolutely positioned elements are removed from flow.
+        // Record static position before skipping (CSS 2.1 §10.6.5).
+        if child_style
+            .as_ref()
+            .is_some_and(crate::positioned::is_absolutely_positioned)
+        {
+            static_positions.insert(child, (input.offset_x, cursor_y));
             continue;
         }
 
@@ -95,6 +109,7 @@ pub fn stack_block_children(
                 input,
                 cursor_y,
                 layout_child,
+                &mut static_positions,
             );
             cursor_y += h;
             // Anonymous block box has zero margins.
@@ -176,6 +191,7 @@ pub fn stack_block_children(
             input,
             cursor_y,
             layout_child,
+            &mut static_positions,
         );
         cursor_y += h;
         if first_child_margin_top.is_none() {
@@ -203,6 +219,7 @@ pub fn stack_block_children(
         height,
         first_child_margin_top,
         last_child_margin_bottom,
+        static_positions,
     }
 }
 
@@ -217,10 +234,11 @@ fn flush_inline_run(
     input: &LayoutInput<'_>,
     cursor_y: f32,
     layout_child: crate::ChildLayoutFn,
+    static_positions: &mut HashMap<Entity, (f32, f32)>,
 ) -> f32 {
     let parent_style = crate::get_style(dom, parent_entity);
     let content_origin = (input.offset_x, cursor_y);
-    crate::inline::layout_inline_context(
+    let result = crate::inline::layout_inline_context(
         dom,
         inline_children,
         input.containing_width,
@@ -229,7 +247,9 @@ fn flush_inline_run(
         parent_entity,
         content_origin,
         layout_child,
-    )
+    );
+    static_positions.extend(result.static_positions);
+    result.height
 }
 
 /// Compute the max-content width of an element for shrink-to-fit sizing.
@@ -238,7 +258,7 @@ fn flush_inline_run(
 /// their own max-content width (or explicit width if set). Inline children
 /// contribute the sum of text widths without line breaking.
 /// Capped at [`crate::MAX_LAYOUT_DEPTH`] recursion depth.
-fn max_content_width(
+pub(crate) fn max_content_width(
     dom: &EcsDom,
     entity: Entity,
     font_db: &elidex_text::FontDatabase,
@@ -386,6 +406,7 @@ fn layout_float(
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None,
+        viewport: None,
     };
     let child_box = layout_child(dom, child, &temp_input);
     let content_width = child_box.content.width;
@@ -440,8 +461,8 @@ pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta:
     shift_descendants_inner(dom, children, 0.0, delta, true);
 }
 
-/// Shift descendants by (dx, dy), used to reposition float contents after placement.
-fn shift_descendants(dom: &mut EcsDom, children: &[Entity], dx: f32, dy: f32) {
+/// Shift descendants by (dx, dy), used to reposition float/positioned contents after placement.
+pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], dx: f32, dy: f32) {
     shift_descendants_inner(dom, children, dx, dy, false);
 }
 

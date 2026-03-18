@@ -19,6 +19,29 @@ use mat4::{function_to_4x4, perspective_4x4, translate_4x4};
 /// identity detection) to avoid division by near-zero values.
 pub const ZERO_EPSILON: f64 = 1e-10;
 
+/// CSS `perspective` property value and its resolved origin, propagated
+/// from a parent element to its children.
+///
+/// Bundles the two values that always travel together through the display
+/// list walk and hit testing: the perspective distance and the viewport-
+/// coordinate origin point.
+#[derive(Clone, Copy, Debug)]
+pub struct Perspective {
+    /// `perspective` property value (distance in px), or `None` if unset.
+    pub distance: Option<f32>,
+    /// Resolved `perspective-origin` in viewport coordinates.
+    pub origin: (f64, f64),
+}
+
+impl Default for Perspective {
+    fn default() -> Self {
+        Self {
+            distance: None,
+            origin: (0.0, 0.0),
+        }
+    }
+}
+
 // Re-exports for public API compatibility.
 pub use affine::{invert_affine, mul_affine, IDENTITY};
 
@@ -91,17 +114,16 @@ pub fn compute_transform(
     functions: &[TransformFunction],
     origin: (f64, f64, f64),
     ref_size: (f32, f32),
-    parent_perspective: Option<f32>,
-    perspective_origin: (f64, f64),
+    parent_perspective: &Perspective,
     backface_hidden: bool,
 ) -> Option<[f64; 6]> {
     let mut mat = IDENTITY_4X4;
 
     // 1. Parent perspective
-    if let Some(d) = parent_perspective {
+    if let Some(d) = parent_perspective.distance {
         if d > 0.0 {
             // Translate to perspective origin, apply perspective, translate back
-            let (px, py) = perspective_origin;
+            let (px, py) = parent_perspective.origin;
             mat = mul_4x4(&mat, &translate_4x4(px, py, 0.0));
             mat = mul_4x4(&mat, &perspective_4x4(f64::from(d)));
             mat = mul_4x4(&mat, &translate_4x4(-px, -py, 0.0));
@@ -152,8 +174,7 @@ pub fn compute_transform(
 pub fn compute_element_transform(
     style: &ComputedStyle,
     bb: &Rect,
-    parent_perspective: Option<f32>,
-    parent_perspective_origin: (f64, f64),
+    parent_perspective: &Perspective,
 ) -> Option<[f64; 6]> {
     let ox = resolve_origin_dim(&style.transform_origin.0, bb.width);
     let oy = resolve_origin_dim(&style.transform_origin.1, bb.height);
@@ -171,7 +192,6 @@ pub fn compute_element_transform(
         ),
         (bb.width, bb.height),
         parent_perspective,
-        parent_perspective_origin,
         style.backface_visibility == BackfaceVisibility::Hidden,
     )
 }
@@ -199,14 +219,14 @@ pub fn compute_perspective_origin(
 /// Returns `(perspective, perspective_origin)`. Shared by display list builder
 /// and hit testing to avoid duplicating the same logic.
 #[must_use]
-pub fn resolve_child_perspective(style: &ComputedStyle, bb: &Rect) -> (Option<f32>, (f64, f64)) {
-    let perspective = style.perspective;
-    let origin = if perspective.is_some() {
+pub fn resolve_child_perspective(style: &ComputedStyle, bb: &Rect) -> Perspective {
+    let distance = style.perspective;
+    let origin = if distance.is_some() {
         compute_perspective_origin(&style.perspective_origin, bb.x, bb.y, bb.width, bb.height)
     } else {
         (0.0, 0.0)
     };
-    (perspective, origin)
+    Perspective { distance, origin }
 }
 
 /// Properties that create a stacking context when specified in `will-change`.

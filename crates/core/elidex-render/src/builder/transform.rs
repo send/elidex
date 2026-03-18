@@ -1,6 +1,6 @@
 //! Transform computation helpers for display list building.
 
-use elidex_plugin::transform_math::{compute_element_transform, is_affine_identity};
+use elidex_plugin::transform_math::{compute_element_transform, is_affine_identity, Perspective};
 use elidex_plugin::{ComputedStyle, LayoutBox};
 
 /// Result of computing an element's CSS transform.
@@ -17,14 +17,13 @@ pub(crate) enum TransformResult {
 pub(crate) fn element_transform(
     style: &ComputedStyle,
     lb: &LayoutBox,
-    parent_perspective: Option<f32>,
-    parent_perspective_origin: (f64, f64),
+    parent_perspective: &Perspective,
 ) -> TransformResult {
-    if !style.has_transform && parent_perspective.is_none() {
+    if !style.has_transform && parent_perspective.distance.is_none() {
         return TransformResult::None;
     }
     let bb = lb.border_box();
-    match compute_element_transform(style, &bb, parent_perspective, parent_perspective_origin) {
+    match compute_element_transform(style, &bb, parent_perspective) {
         Some(affine) => {
             if is_affine_identity(&affine) {
                 TransformResult::None

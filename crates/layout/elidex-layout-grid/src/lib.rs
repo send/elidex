@@ -281,6 +281,29 @@ pub fn layout_grid(
         margin,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
+
+    // --- 15. Layout positioned descendants ---
+    // CSS Grid §5.2: the grid container establishes a CB for absolute children
+    // when it is itself positioned (or is the root).
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom, &children, content_x, content_y,
+        );
+        let pb = lb.padding_box();
+        elidex_layout_block::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            input.viewport,
+            &static_positions,
+            font_db,
+            layout_child,
+            depth,
+        );
+    }
+
     lb
 }
 
@@ -343,6 +366,10 @@ fn collect_grid_items(
             continue; // Text node — skip.
         };
         if child_style.display == Display::None {
+            continue;
+        }
+        // Absolutely positioned grid children are removed from grid layout.
+        if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
             continue;
         }
 
@@ -417,6 +444,7 @@ fn measure_item_content(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let min_lb = layout_child(dom, item.entity, &min_input);
         item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
@@ -433,6 +461,7 @@ fn measure_item_content(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let max_lb = layout_child(dom, item.entity, &max_input);
         item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
@@ -627,6 +656,7 @@ fn position_items(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let prelim_lb = layout_child(dom, item.entity, &prelim_input);
 
@@ -666,6 +696,7 @@ fn position_items(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let final_lb = layout_child(dom, item.entity, &final_input);
 

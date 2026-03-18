@@ -6,8 +6,9 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::block::stack_block_children;
+use elidex_layout_block::positioned;
 use elidex_layout_block::LayoutInput;
-use elidex_plugin::{ComputedStyle, Display, LayoutBox};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, Position};
 use elidex_text::FontDatabase;
 
 /// Dispatch child layout based on the element's display type.
@@ -21,7 +22,7 @@ pub fn dispatch_layout_child(
     input: &LayoutInput<'_>,
 ) -> LayoutBox {
     let style = elidex_layout_block::get_style(dom, entity);
-    match style.display {
+    let lb = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
@@ -46,7 +47,29 @@ pub fn dispatch_layout_child(
             input,
             dispatch_layout_child,
         ),
+    };
+
+    // CSS 2.1 §9.4.3: relative offset.
+    // Return the original LayoutBox (without offset) so siblings use the
+    // unshifted space. The ECS LayoutBox is updated with the offset.
+    if style.position == Position::Relative {
+        let mut offset_lb = lb.clone();
+        positioned::apply_relative_offset(
+            &mut offset_lb,
+            &style,
+            input.containing_width,
+            input.containing_height,
+        );
+        let dx = offset_lb.content.x - lb.content.x;
+        let dy = offset_lb.content.y - lb.content.y;
+        let _ = dom.world_mut().insert_one(entity, offset_lb);
+        if dx.abs() > f32::EPSILON || dy.abs() > f32::EPSILON {
+            let children: Vec<_> = dom.children_iter(entity).collect();
+            elidex_layout_block::block::shift_descendants(dom, &children, dx, dy);
+        }
     }
+
+    lb
 }
 
 /// Layout the entire DOM tree.
@@ -106,6 +129,7 @@ fn layout_root(
         font_db,
         depth: 0,
         float_ctx: None,
+        viewport: Some((viewport_width, viewport_height)),
     };
 
     if let Some(display) = root_display {

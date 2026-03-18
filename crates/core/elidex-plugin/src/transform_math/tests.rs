@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::transform_math::affine::*;
     use crate::transform_math::decompose::*;
@@ -119,8 +120,7 @@ mod tests {
             &[TransformFunction::RotateY(180.0)],
             (50.0, 50.0, 0.0),
             (100.0, 100.0),
-            None,
-            (0.0, 0.0),
+            &Perspective::default(),
             true,
         );
         assert!(
@@ -133,8 +133,7 @@ mod tests {
             &[TransformFunction::RotateY(180.0)],
             (50.0, 50.0, 0.0),
             (100.0, 100.0),
-            None,
-            (0.0, 0.0),
+            &Perspective::default(),
             false,
         );
         assert!(
@@ -186,24 +185,14 @@ mod tests {
         // With perspective + rotateY, origin_z shifts the element along Z before rotation,
         // producing a different 2D projection than origin_z = 0.
         let funcs = vec![TransformFunction::RotateY(45.0)];
-        let a = compute_transform(
-            &funcs,
-            (50.0, 50.0, 0.0),
-            (100.0, 100.0),
-            Some(500.0),
-            (50.0, 50.0),
-            false,
-        )
-        .unwrap();
-        let b = compute_transform(
-            &funcs,
-            (50.0, 50.0, 100.0),
-            (100.0, 100.0),
-            Some(500.0),
-            (50.0, 50.0),
-            false,
-        )
-        .unwrap();
+        let persp = Perspective {
+            distance: Some(500.0),
+            origin: (50.0, 50.0),
+        };
+        let a =
+            compute_transform(&funcs, (50.0, 50.0, 0.0), (100.0, 100.0), &persp, false).unwrap();
+        let b =
+            compute_transform(&funcs, (50.0, 50.0, 100.0), (100.0, 100.0), &persp, false).unwrap();
         // The two should differ because origin_z changes the 4x4 matrix
         let differs = a.iter().zip(b.iter()).any(|(x, y)| (x - y).abs() > 1e-6);
         assert!(
@@ -325,8 +314,8 @@ mod tests {
     fn skew_90_degrees_finite() {
         // skew(90deg) produces tan(π/2) ≈ ∞ — must be clamped to finite.
         use crate::transform_math::mat4::*;
-        let funcs = vec![TransformFunction::Skew(90.0, 0.0)];
-        let m = function_to_4x4(&funcs[0], 100.0, 100.0);
+        let func = TransformFunction::Skew(90.0, 0.0);
+        let m = function_to_4x4(&func, 100.0, 100.0);
         for (i, &val) in m.iter().enumerate() {
             assert!(
                 val.is_finite(),
@@ -349,8 +338,8 @@ mod tests {
 
     #[test]
     fn skew_negative_90_finite() {
-        let funcs = vec![TransformFunction::Skew(-90.0, -90.0)];
-        let m = function_to_4x4(&funcs[0], 100.0, 100.0);
+        let func = TransformFunction::Skew(-90.0, -90.0);
+        let m = function_to_4x4(&func, 100.0, 100.0);
         for (i, &val) in m.iter().enumerate() {
             assert!(
                 val.is_finite(),
@@ -364,7 +353,7 @@ mod tests {
         use crate::Dimension;
         let origin = (Dimension::Percentage(50.0), Dimension::Percentage(50.0));
         let (ox, oy) = compute_perspective_origin(&origin, 10.0, 20.0, 200.0, 100.0);
-        assert_near(ox, f64::from(10.0 + 100.0), "origin x");
-        assert_near(oy, f64::from(20.0 + 50.0), "origin y");
+        assert_near(ox, 10.0 + 100.0, "origin x");
+        assert_near(oy, 20.0 + 50.0, "origin y");
     }
 }

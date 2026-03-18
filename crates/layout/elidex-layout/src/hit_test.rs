@@ -1,12 +1,14 @@
 //! Hit testing: find which DOM element is at a given viewport coordinate.
 //!
-//! Uses a pre-order DOM traversal checking `LayoutBox::border_box()`
-//! containment. The last entity hit wins (painter's order = front-most).
+//! Uses stacking context layer order (CSS 2.1 Appendix E) so that
+//! higher z-index elements are hit first. Within each layer,
+//! later DOM-order entities win (painter's order = front-most).
 
 use elidex_ecs::{EcsDom, Entity};
+use elidex_layout_block::paint_order::{collect_sc_participants, is_positioned};
 use elidex_plugin::transform_math::{
     compute_element_transform, invert_affine, is_affine_identity, mul_affine,
-    resolve_child_perspective, IDENTITY,
+    resolve_child_perspective, Perspective, IDENTITY,
 };
 use elidex_plugin::{ComputedStyle, Display, LayoutBox};
 
@@ -21,8 +23,7 @@ pub struct HitTestResult {
 #[derive(Clone, Copy)]
 struct TransformContext {
     cumulative: [f64; 6],
-    parent_perspective: Option<f32>,
-    parent_perspective_origin: (f64, f64),
+    perspective: Perspective,
 }
 
 /// Find the front-most entity at viewport coordinates `(x, y)`.
@@ -30,12 +31,7 @@ struct TransformContext {
 /// Coordinates are viewport-relative (top-left = 0,0) and must be finite.
 /// Returns `None` for non-finite inputs.
 ///
-/// Performs a pre-order traversal of the DOM tree, checking each entity's
-/// `LayoutBox::border_box()` for containment. The last hit wins because
-/// later elements in pre-order are painted on top (painter's order).
-/// Right and bottom edges are exclusive (half-open interval `[x, x+w)`).
-///
-/// Entities with `display: none` are skipped along with their subtrees.
+/// Uses stacking context layer order so that higher z-index elements win.
 #[must_use]
 pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
     if !x.is_finite() || !y.is_finite() {
@@ -44,8 +40,7 @@ pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
     let mut result = None;
     let ctx = TransformContext {
         cumulative: IDENTITY,
-        parent_perspective: None,
-        parent_perspective_origin: (0.0, 0.0),
+        perspective: Perspective::default(),
     };
     for root in dom.root_entities() {
         hit_test_subtree(dom, root, x, y, &mut result, 0, ctx);
@@ -53,7 +48,10 @@ pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
     result
 }
 
-/// Recursively walk the subtree rooted at `entity` in pre-order.
+/// Recursively walk the subtree rooted at `entity`.
+///
+/// For stacking contexts, children are tested in layer order (Layer 2 through 7).
+/// "Last hit wins" within each layer, and higher layers overwrite lower ones.
 fn hit_test_subtree(
     dom: &EcsDom,
     entity: Entity,
@@ -75,21 +73,13 @@ fn hit_test_subtree(
     }
 
     // Compute transform for this element.
-    // Cache LayoutBox to avoid duplicate ECS queries (used for transform, hit test, perspective).
     let layout_box_opt = dom.world().get::<&LayoutBox>(entity).ok();
     let cached_bb = layout_box_opt.as_ref().map(|lb| lb.border_box());
 
     let mut local_transform = ctx.cumulative;
     if let (Some(ref style), Some(bb)) = (&style_opt, cached_bb) {
-        // Match builder/transform.rs: apply transform when element has own transform
-        // OR when parent perspective is present (perspective warps non-transformed children too).
-        if style.has_transform || ctx.parent_perspective.is_some() {
-            if let Some(affine) = compute_element_transform(
-                style,
-                &bb,
-                ctx.parent_perspective,
-                ctx.parent_perspective_origin,
-            ) {
+        if style.has_transform || ctx.perspective.distance.is_some() {
+            if let Some(affine) = compute_element_transform(style, &bb, &ctx.perspective) {
                 local_transform = mul_affine(ctx.cumulative, affine);
             } else {
                 // backface-hidden and facing away — skip subtree
@@ -100,14 +90,12 @@ fn hit_test_subtree(
 
     // Check if this entity's border box contains the point.
     if let Some(bb) = cached_bb {
-        // Transform the test point into local coordinates.
         let (test_x, test_y) = if is_affine_identity(&local_transform) {
             (x, y)
         } else if let Some(inv) = invert_affine(local_transform) {
             let lx = inv[0] * f64::from(x) + inv[2] * f64::from(y) + inv[4];
             let ly = inv[1] * f64::from(x) + inv[3] * f64::from(y) + inv[5];
             if !lx.is_finite() || !ly.is_finite() {
-                // Degenerate inverse transform — skip hit test for this element.
                 (f32::MAX, f32::MAX)
             } else {
                 #[allow(clippy::cast_possible_truncation)]
@@ -123,27 +111,112 @@ fn hit_test_subtree(
     }
 
     // Compute perspective to propagate to children.
-    let (child_perspective, child_perspective_origin) = match (&style_opt, cached_bb) {
+    let child_perspective = match (&style_opt, cached_bb) {
         (Some(style), Some(bb)) => resolve_child_perspective(style, &bb),
-        _ => (None, (0.0, 0.0)),
+        _ => Perspective::default(),
     };
 
-    // Walk children in order (pre-order: parent before children).
     let child_ctx = TransformContext {
         cumulative: local_transform,
-        parent_perspective: child_perspective,
-        parent_perspective_origin: child_perspective_origin,
+        perspective: child_perspective,
     };
-    for child in dom.children_iter(entity) {
-        hit_test_subtree(dom, child, x, y, result, depth + 1, child_ctx);
+
+    // Determine if this element is a stacking context.
+    let is_sc = style_opt
+        .as_ref()
+        .is_some_and(|s| s.creates_stacking_context())
+        || dom.get_parent(entity).is_none();
+
+    if is_sc {
+        hit_test_sc_layers(dom, entity, x, y, result, depth, child_ctx);
+    } else {
+        hit_test_non_sc(dom, entity, x, y, result, depth, child_ctx);
     }
+}
+
+/// Hit test children in stacking context layer order.
+#[allow(clippy::similar_names)]
+fn hit_test_sc_layers(
+    dom: &EcsDom,
+    entity: Entity,
+    x: f32,
+    y: f32,
+    result: &mut Option<HitTestResult>,
+    depth: u32,
+    ctx: TransformContext,
+) {
+    let children = elidex_layout_block::composed_children_flat(dom, entity);
+    let layers = collect_sc_participants(dom, &children);
+
+    // Layer 2: negative z (z ascending → last wins for same z).
+    for &child in &layers.negative_z {
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+    // Layer 3: in-flow blocks.
+    for &child in &layers.in_flow_blocks {
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+    // Layer 4: floats.
+    for &child in &layers.floats {
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+    // Layer 5: inline (DOM order, non-positioned).
+    for &child in &layers.all_children {
+        if !is_positioned(dom, child) && !is_block_or_float(dom, child) {
+            hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+        }
+    }
+    // Layer 6: positioned auto + z:0 (DOM order interleave).
+    let mut layer6: Vec<Entity> = layers
+        .positioned_auto
+        .iter()
+        .chain(layers.zero_z.iter())
+        .copied()
+        .collect();
+    layer6.sort_by(|&a, &b| dom.tree_order_cmp(a, b));
+    for &child in &layer6 {
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+    // Layer 7: positive z (z ascending).
+    for &child in &layers.positive_z {
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+}
+
+/// Hit test children of a non-SC element (DOM order, skip positioned).
+fn hit_test_non_sc(
+    dom: &EcsDom,
+    entity: Entity,
+    x: f32,
+    y: f32,
+    result: &mut Option<HitTestResult>,
+    depth: u32,
+    ctx: TransformContext,
+) {
+    let children = elidex_layout_block::composed_children_flat(dom, entity);
+    for child in children {
+        if is_positioned(dom, child) {
+            continue;
+        }
+        hit_test_subtree(dom, child, x, y, result, depth + 1, ctx);
+    }
+}
+
+fn is_block_or_float(dom: &EcsDom, entity: Entity) -> bool {
+    dom.world()
+        .get::<&ComputedStyle>(entity)
+        .ok()
+        .is_some_and(|s| {
+            elidex_layout_block::block::is_block_level(s.display)
+                || s.float != elidex_plugin::Float::None
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
-    use elidex_plugin::{EdgeSizes, Rect};
+    use elidex_plugin::{EdgeSizes, Position, Rect};
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
         dom.create_element(tag, Attributes::default())
@@ -330,5 +403,53 @@ mod tests {
         assert_eq!(hit_test(&dom, f32::NAN, 50.0), None);
         assert_eq!(hit_test(&dom, 50.0, f32::NAN), None);
         assert_eq!(hit_test(&dom, f32::INFINITY, 50.0), None);
+    }
+
+    #[test]
+    fn z_hit_test_respects_order() {
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        set_layout(&mut dom, parent, 0.0, 0.0, 200.0, 200.0);
+        let _ = dom.world_mut().insert_one(
+            parent,
+            ComputedStyle {
+                display: Display::Block,
+                z_index: Some(0),
+                position: Position::Relative,
+                ..Default::default()
+            },
+        );
+
+        // low-z child (z:1) placed first in DOM
+        let low = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, low);
+        set_layout(&mut dom, low, 0.0, 0.0, 100.0, 100.0);
+        let _ = dom.world_mut().insert_one(
+            low,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Absolute,
+                z_index: Some(1),
+                ..Default::default()
+            },
+        );
+
+        // high-z child (z:5) placed second but overlapping
+        let high = elem(&mut dom, "div");
+        let _ = dom.append_child(parent, high);
+        set_layout(&mut dom, high, 0.0, 0.0, 100.0, 100.0);
+        let _ = dom.world_mut().insert_one(
+            high,
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Absolute,
+                z_index: Some(5),
+                ..Default::default()
+            },
+        );
+
+        // high-z should win
+        let result = hit_test(&dom, 50.0, 50.0);
+        assert_eq!(result, Some(HitTestResult { entity: high }));
     }
 }

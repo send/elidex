@@ -277,6 +277,7 @@ pub fn layout_flex(
         font_db,
         layout_child,
         depth,
+        input_viewport: input.viewport,
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---
@@ -326,6 +327,29 @@ pub fn layout_flex(
         margin,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
+
+    // Layout positioned descendants owned by this containing block.
+    // CSS Flexbox §4.1: the flex container establishes a CB for absolute children
+    // when it is itself positioned (or is the root).
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom, &children, content_x, content_y,
+        );
+        let pb = lb.padding_box();
+        elidex_layout_block::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            input.viewport,
+            &static_positions,
+            font_db,
+            layout_child,
+            depth,
+        );
+    }
+
     lb
 }
 
@@ -349,6 +373,10 @@ fn collect_flex_items(
             continue;
         };
         if child_style.display == Display::None {
+            continue;
+        }
+        // Absolutely positioned flex children are removed from flex layout.
+        if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
             continue;
         }
 
@@ -380,6 +408,7 @@ fn collect_flex_items(
                 font_db: env.font_db,
                 depth: env.depth + 1,
                 float_ctx: None,
+                viewport: env.input_viewport,
             };
             let child_lb = (env.layout_child)(dom, child, &child_input);
             if ctx.horizontal {

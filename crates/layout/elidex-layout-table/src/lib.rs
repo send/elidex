@@ -263,6 +263,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input);
         caption_top_height += box_total_height(&cap_lb);
@@ -380,6 +381,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_input);
 
@@ -462,6 +464,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input);
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
@@ -481,6 +484,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            viewport: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input);
         caption_bottom_height += box_total_height(&cap_lb);
@@ -504,6 +508,29 @@ pub fn layout_table(
         content_height,
     );
     let _ = dom.world_mut().insert_one(entity, lb.clone());
+
+    // Layout positioned descendants owned by this containing block.
+    // CSS 2.1 §17.2: the table establishes a CB for absolute children
+    // when it is itself positioned (or is the root).
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom, &children, content_x, cursor_y,
+        );
+        let pb = lb.padding_box();
+        elidex_layout_block::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            input.viewport,
+            &static_positions,
+            font_db,
+            layout_child,
+            depth,
+        );
+    }
+
     lb
 }
 
@@ -636,6 +663,7 @@ fn compute_column_widths(
                     font_db,
                     depth: depth + 1,
                     float_ctx: None,
+                    viewport: None,
                 };
                 let min_lb = layout_child(dom, cell.entity, &min_input);
                 let max_input = LayoutInput {
@@ -646,6 +674,7 @@ fn compute_column_widths(
                     font_db,
                     depth: depth + 1,
                     float_ctx: None,
+                    viewport: None,
                 };
                 let max_lb = layout_child(dom, cell.entity, &max_input);
                 let cs = elidex_layout_block::get_style(dom, cell.entity);

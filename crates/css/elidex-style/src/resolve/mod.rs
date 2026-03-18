@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn resolve_transform_from_cascade() {
-        use elidex_plugin::{BackfaceVisibility, LengthUnit, TransformFunction};
+        use elidex_plugin::{BackfaceVisibility, TransformFunction};
 
         let mut winners = HashMap::new();
         let transform_val = CssValue::TransformList(vec![TransformFunction::Rotate(45.0)]);

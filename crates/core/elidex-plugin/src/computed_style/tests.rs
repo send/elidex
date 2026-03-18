@@ -628,21 +628,45 @@ fn stacking_context_default_false() {
 }
 
 #[test]
-fn stacking_context_position_absolute() {
+fn stacking_context_position_absolute_with_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: <integer> → SC.
     let s = ComputedStyle {
         position: Position::Absolute,
+        z_index: Some(0),
         ..Default::default()
     };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
-fn stacking_context_position_fixed() {
+fn stacking_context_position_absolute_auto_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: auto → NOT SC.
+    let s = ComputedStyle {
+        position: Position::Absolute,
+        ..Default::default()
+    };
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_fixed_with_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: <integer> → SC.
+    let s = ComputedStyle {
+        position: Position::Fixed,
+        z_index: Some(0),
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_fixed_auto_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: auto → NOT SC.
     let s = ComputedStyle {
         position: Position::Fixed,
         ..Default::default()
     };
-    assert!(s.creates_stacking_context());
+    assert!(!s.creates_stacking_context());
 }
 
 #[test]

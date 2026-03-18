@@ -4,7 +4,7 @@
 //! block-level elements, handling width/height resolution, margin auto
 //! centering, and vertical stacking of child blocks.
 
-mod children;
+pub(crate) mod children;
 pub mod float;
 mod margin;
 mod replaced;
@@ -13,7 +13,7 @@ mod replaced;
 #[allow(unused_must_use)]
 mod tests;
 
-use elidex_ecs::{EcsDom, Entity, ImageData};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
     BoxSizing, Dimension, Display, EdgeSizes, Float, LayoutBox, Overflow, Position, Rect,
     WritingMode,
@@ -27,7 +27,7 @@ use crate::{
     resolve_min_max, sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
-pub use children::{resolve_block_height, stack_block_children, StackResult};
+pub use children::{resolve_block_height, shift_descendants, stack_block_children, StackResult};
 pub use margin::resolve_margin;
 
 use children::shift_block_children;
@@ -87,6 +87,7 @@ pub fn layout_block(
         font_db,
         depth: 0,
         float_ctx: None,
+        viewport: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -112,6 +113,7 @@ pub fn layout_block_with_height(
         font_db,
         depth: 0,
         float_ctx: None,
+        viewport: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -150,22 +152,7 @@ pub fn layout_block_inner(
     let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
 
     // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
-    // Also check for form controls with intrinsic dimensions.
-    #[allow(clippy::cast_precision_loss)]
-    let intrinsic: Option<(f32, f32)> = dom
-        .world()
-        .get::<&ImageData>(entity)
-        .ok()
-        .map(|img| (img.width as f32, img.height as f32))
-        .or_else(|| {
-            dom.world()
-                .get::<&elidex_form::FormControlState>(entity)
-                .ok()
-                .map(|fcs| {
-                    let (w, h) = elidex_form::form_intrinsic_size(&fcs);
-                    (w.max(0.0), h.max(0.0))
-                })
-        });
+    let intrinsic = crate::get_intrinsic_size(dom, entity);
 
     // --- Resolve width ---
     let margin_left_raw = resolve_margin(style.margin_left, containing_width);
@@ -229,6 +216,8 @@ pub fn layout_block_inner(
     // This variable captures the override when an axis swap is needed.
     let mut vertical_width_override: Option<f32> = None;
 
+    let mut static_positions_stash = std::collections::HashMap::new();
+
     let content_height = if let Some((iw, ih)) = intrinsic {
         // Replaced element: use intrinsic/CSS height, no child layout.
         resolve_replaced_height(&style, content_width, iw, ih, &padding, &border)
@@ -243,6 +232,7 @@ pub fn layout_block_inner(
             font_db,
             depth: depth + 1,
             float_ctx: input.float_ctx,
+            viewport: input.viewport,
         };
         let is_bfc = establishes_bfc(&style);
         let result =
@@ -277,6 +267,9 @@ pub fn layout_block_inner(
             }
         }
 
+        // Stash static positions for positioned children layout.
+        static_positions_stash = result.static_positions;
+
         result.height
     } else {
         // Inline context: the first argument is the available inline-axis space.
@@ -288,7 +281,7 @@ pub fn layout_block_inner(
         } else {
             content_width
         };
-        let block_result = layout_inline_context(
+        let inline_result = layout_inline_context(
             dom,
             &children,
             inline_size,
@@ -298,14 +291,15 @@ pub fn layout_block_inner(
             (content_x, content_y),
             layout_child,
         );
+        static_positions_stash = inline_result.static_positions;
         if is_vertical {
-            // block_result = total column width (block-axis in vertical mode).
+            // inline_result.height = total column width (block-axis in vertical mode).
             // Store it to override content_width below. Return the inline-axis
             // size (physical height) as content_height for resolve_block_height.
-            vertical_width_override = Some(block_result);
+            vertical_width_override = Some(inline_result.height);
             inline_size
         } else {
-            block_result
+            inline_result.height
         }
     };
 
@@ -339,6 +333,25 @@ pub fn layout_block_inner(
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
+
+    // Layout positioned descendants owned by this containing block.
+    // A positioned element or root element serves as containing block for abs children.
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != Position::Static || is_root;
+    if is_cb {
+        let pb = lb.padding_box();
+        crate::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            input.viewport,
+            &static_positions_stash,
+            font_db,
+            layout_child,
+            depth,
+        );
+    }
+
     lb
 }
 

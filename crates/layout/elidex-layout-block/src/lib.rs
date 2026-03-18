@@ -6,10 +6,12 @@
 
 pub mod block;
 pub mod inline;
+pub mod paint_order;
+pub mod positioned;
 
 use std::cell::RefCell;
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{
     AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox,
 };
@@ -38,6 +40,11 @@ pub struct LayoutInput<'a> {
     /// (CSS 2.1 §9.5). BFC-establishing elements create their own
     /// `FloatContext` and ignore this field.
     pub float_ctx: Option<&'a RefCell<FloatContext>>,
+    /// Viewport dimensions for fixed positioning.
+    ///
+    /// Set at the root layout and propagated downward. Fixed-positioned
+    /// elements use this as their containing block (CSS 2.1 §10.1).
+    pub viewport: Option<(f32, f32)>,
 }
 
 /// Callback type for dispatching child layout by display type.
@@ -392,4 +399,26 @@ pub fn try_get_style(dom: &EcsDom, entity: Entity) -> Option<ComputedStyle> {
         .get::<&ComputedStyle>(entity)
         .ok()
         .map(|s| (*s).clone())
+}
+
+/// Detect intrinsic dimensions from `ImageData` or `FormControlState`.
+///
+/// Returns `Some((width, height))` for replaced elements (images, form controls),
+/// `None` otherwise.
+#[allow(clippy::cast_precision_loss)]
+#[must_use]
+pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<(f32, f32)> {
+    dom.world()
+        .get::<&ImageData>(entity)
+        .ok()
+        .map(|img| (img.width as f32, img.height as f32))
+        .or_else(|| {
+            dom.world()
+                .get::<&elidex_form::FormControlState>(entity)
+                .ok()
+                .map(|fcs| {
+                    let (w, h) = elidex_form::form_intrinsic_size(&fcs);
+                    (w.max(0.0), h.max(0.0))
+                })
+        })
 }

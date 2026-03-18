@@ -18,6 +18,7 @@ pub(crate) struct LayoutEnv<'a> {
     pub(crate) font_db: &'a FontDatabase,
     pub(crate) layout_child: ChildLayoutFn,
     pub(crate) depth: u32,
+    pub(crate) input_viewport: Option<(f32, f32)>,
 }
 
 /// Line geometry for positioning items.
@@ -231,6 +232,7 @@ pub(crate) fn layout_items_cross(
             font_db: env.font_db,
             depth: env.depth + 1,
             float_ctx: None,
+            viewport: env.input_viewport,
         };
         let child_lb = (env.layout_child)(dom, item.entity, &child_input);
         item.final_cross = if ctx.horizontal {
@@ -420,6 +422,7 @@ fn relayout_item_at_position(
         font_db: env.font_db,
         depth: env.depth + 1,
         float_ctx: None,
+        viewport: env.input_viewport,
     };
     let child_lb = (env.layout_child)(dom, item.entity, &child_input);
 

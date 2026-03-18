@@ -6,8 +6,9 @@ use elidex_ecs::{
     BackgroundImages, EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
+use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-use elidex_plugin::transform_math::resolve_child_perspective;
+use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Visibility};
 use elidex_text::FontDatabase;
 
@@ -18,6 +19,18 @@ use super::form::emit_form_control;
 use super::transform::{element_transform, TransformResult};
 use super::{emit_background, emit_borders, emit_inline_run, emit_list_marker_with_counter};
 
+/// Shared mutable state threaded through the display list walk.
+///
+/// Groups the invariant references and mutable buffers that every
+/// recursive `walk` call needs, reducing per-call argument counts.
+pub(crate) struct PaintContext<'a> {
+    pub(crate) dom: &'a EcsDom,
+    pub(crate) font_db: &'a FontDatabase,
+    pub(crate) font_cache: &'a mut FontCache,
+    pub(crate) dl: &'a mut DisplayList,
+    pub(crate) caret_visible: bool,
+}
+
 /// Pre-order walk: emit paint commands for this entity, then recurse.
 ///
 /// Children are grouped into "inline runs" (consecutive non-block children)
@@ -25,29 +38,28 @@ use super::{emit_background, emit_borders, emit_inline_run, emit_list_marker_wit
 /// text collected and rendered as a single item; block children are
 /// recursed into normally.
 ///
+/// For stacking contexts, children are painted in CSS 2.1 Appendix E order:
+/// Layer 2 (negative z) → Layer 3 (blocks) → Layer 4 (floats) →
+/// Layer 5 (inline) → Layer 6 (positioned auto + z:0) → Layer 7 (positive z).
+///
 /// Recursion is capped at `MAX_ANCESTOR_DEPTH` to prevent stack overflow.
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub(crate) fn walk(
-    dom: &EcsDom,
+    ctx: &mut PaintContext,
     entity: Entity,
-    font_db: &FontDatabase,
-    font_cache: &mut FontCache,
-    dl: &mut DisplayList,
     depth: usize,
-    caret_visible: bool,
-    parent_perspective: Option<f32>,
-    parent_perspective_origin: (f64, f64),
+    parent_perspective: &Perspective,
 ) {
     if depth > MAX_ANCESTOR_DEPTH {
         return;
     }
     // Skip <template> elements — their content is inert.
-    if dom.world().get::<&TemplateContent>(entity).is_ok() {
+    if ctx.dom.world().get::<&TemplateContent>(entity).is_ok() {
         return;
     }
 
     // Fetch ComputedStyle once for display/visibility/painting checks.
-    let style_ref = dom.world().get::<&ComputedStyle>(entity).ok();
+    let style_ref = ctx.dom.world().get::<&ComputedStyle>(entity).ok();
 
     // Check for display: none — skip this subtree entirely.
     if let Some(ref style) = style_ref {
@@ -74,24 +86,24 @@ pub(crate) fn walk(
     let mut has_transform_push = false;
     // Cache border box for perspective-origin computation (avoids redundant ECS lookup).
     let mut cached_border_box = None;
-    if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
+    if let Ok(lb) = ctx.dom.world().get::<&LayoutBox>(entity) {
         cached_border_box = Some(lb.border_box());
         if let Some(ref style) = style_ref {
             // CSS Transforms: compute and emit PushTransform before any painting.
-            match element_transform(style, &lb, parent_perspective, parent_perspective_origin) {
+            match element_transform(style, &lb, parent_perspective) {
                 TransformResult::BackfaceHidden => {
                     // CSS Transforms L2 §5: back-facing → skip entire subtree.
                     return;
                 }
                 TransformResult::Affine(affine) => {
-                    dl.push(DisplayItem::PushTransform { affine });
+                    ctx.dl.push(DisplayItem::PushTransform { affine });
                     has_transform_push = true;
                 }
                 TransformResult::None => {}
             }
 
             if is_visible {
-                let bg_images = dom.world().get::<&BackgroundImages>(entity).ok();
+                let bg_images = ctx.dom.world().get::<&BackgroundImages>(entity).ok();
                 emit_background(
                     &lb,
                     style.background_color,
@@ -99,14 +111,14 @@ pub(crate) fn walk(
                     style.opacity,
                     bg_images.as_deref(),
                     style,
-                    dl,
+                    ctx.dl,
                 );
-                emit_borders(&lb, style, dl);
+                emit_borders(&lb, style, ctx.dl);
 
                 // Emit image for replaced elements with decoded pixel data.
-                if let Ok(image_data) = dom.world().get::<&ImageData>(entity) {
+                if let Ok(image_data) = ctx.dom.world().get::<&ImageData>(entity) {
                     if style.opacity > 0.0 && image_data.width > 0 && image_data.height > 0 {
-                        dl.push(DisplayItem::Image {
+                        ctx.dl.push(DisplayItem::Image {
                             painting_area: lb.content,
                             pixels: Arc::clone(&image_data.pixels),
                             image_width: image_data.width,
@@ -123,19 +135,20 @@ pub(crate) fn walk(
                 }
 
                 // Emit form control rendering.
-                if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
+                if let Ok(fcs) = ctx.dom.world().get::<&FormControlState>(entity) {
                     emit_form_control(
                         &lb,
                         &fcs,
                         style,
-                        font_db,
-                        font_cache,
-                        dl,
-                        dom.world()
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                        ctx.dom
+                            .world()
                             .get::<&elidex_ecs::ElementState>(entity)
                             .ok()
                             .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
-                        caret_visible,
+                        ctx.caret_visible,
                     );
                 }
             }
@@ -143,7 +156,7 @@ pub(crate) fn walk(
             // overflow clipping → clip children to padding box (CSS Overflow §3).
             if style.clips_overflow() {
                 let pb = lb.padding_box();
-                dl.push(DisplayItem::PushClip {
+                ctx.dl.push(DisplayItem::PushClip {
                     rect: pb,
                     radii: [0.0; 4],
                 });
@@ -153,62 +166,149 @@ pub(crate) fn walk(
     }
 
     // Compute perspective to propagate to children.
-    let (child_perspective, child_perspective_origin) = match (&style_ref, cached_border_box) {
+    let child_perspective = match (&style_ref, cached_border_box) {
         (Some(style), Some(bb)) => resolve_child_perspective(style, &bb),
-        _ => (None, (0.0, 0.0)),
+        _ => Perspective::default(),
     };
 
-    // Process children in inline runs vs block children.
-    // Flatten display:contents children — they generate no box, their
-    // children are promoted to this formatting context.
-    let children = elidex_layout_block::composed_children_flat(dom, entity);
+    // Process children: stacking context elements use 7-layer paint order.
+    let children = elidex_layout_block::composed_children_flat(ctx.dom, entity);
+    let is_sc = style_ref
+        .as_ref()
+        .is_some_and(|s| s.creates_stacking_context())
+        || ctx.dom.get_parent(entity).is_none(); // root is always a SC
+
+    if is_sc {
+        paint_stacking_context_layers(ctx, entity, &children, depth, &child_perspective);
+    } else {
+        paint_non_sc(ctx, entity, &children, depth, &child_perspective);
+    }
+
+    if has_clip {
+        ctx.dl.push(DisplayItem::PopClip);
+    }
+    if has_transform_push {
+        ctx.dl.push(DisplayItem::PopTransform);
+    }
+}
+
+/// Paint children in CSS 2.1 Appendix E stacking context layer order.
+#[allow(clippy::similar_names)]
+fn paint_stacking_context_layers(
+    ctx: &mut PaintContext,
+    entity: Entity,
+    children: &[Entity],
+    depth: usize,
+    child_perspective: &Perspective,
+) {
+    let layers = collect_sc_participants(ctx.dom, children);
+
+    // Layer 2: negative z stacking contexts (z ascending).
+    for &child in &layers.negative_z {
+        walk(ctx, child, depth + 1, child_perspective);
+    }
+
+    // Layer 3: in-flow non-positioned blocks (DOM order).
+    let mut list_counter = 0_usize;
+    for &child in &layers.in_flow_blocks {
+        maybe_emit_list_marker(ctx, child, &mut list_counter);
+        walk(ctx, child, depth + 1, child_perspective);
+    }
+
+    // Layer 4: non-positioned floats (DOM order).
+    for &child in &layers.floats {
+        walk(ctx, child, depth + 1, child_perspective);
+    }
+
+    // Layer 5: inline content (DOM order, positioned excluded).
+    {
+        let mut inline_run = Vec::new();
+        for &child in &layers.all_children {
+            if is_positioned(ctx.dom, child)
+                || is_block_child(ctx.dom, child)
+                || is_float_entity(ctx.dom, child)
+            {
+                if !inline_run.is_empty() {
+                    emit_inline_run(
+                        ctx.dom,
+                        entity,
+                        &inline_run,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
+                    inline_run.clear();
+                }
+            } else {
+                inline_run.push(child);
+            }
+        }
+        if !inline_run.is_empty() {
+            emit_inline_run(
+                ctx.dom,
+                entity,
+                &inline_run,
+                ctx.font_db,
+                ctx.font_cache,
+                ctx.dl,
+            );
+        }
+    }
+
+    // Layer 6: positioned auto + z:0 SC — DOM-order interleave.
+    let mut layer6: Vec<Entity> = layers
+        .positioned_auto
+        .iter()
+        .chain(layers.zero_z.iter())
+        .copied()
+        .collect();
+    layer6.sort_by(|&a, &b| ctx.dom.tree_order_cmp(a, b));
+    for &child in &layer6 {
+        walk(ctx, child, depth + 1, child_perspective);
+    }
+
+    // Layer 7: positive z stacking contexts (z ascending).
+    for &child in &layers.positive_z {
+        walk(ctx, child, depth + 1, child_perspective);
+    }
+}
+
+/// Paint children of a non-SC element in DOM order, skipping positioned
+/// children (they are painted by the parent stacking context).
+fn paint_non_sc(
+    ctx: &mut PaintContext,
+    entity: Entity,
+    children: &[Entity],
+    depth: usize,
+    child_perspective: &Perspective,
+) {
     let mut inline_run = Vec::new();
     let mut list_counter = 0_usize;
 
-    for &child in &children {
-        if is_block_child(dom, child) {
+    for &child in children {
+        // Skip positioned children — they're painted by the parent SC.
+        if is_positioned(ctx.dom, child) {
+            continue;
+        }
+
+        if is_block_child(ctx.dom, child) {
             // Flush any pending inline run before the block child.
             if !inline_run.is_empty() {
-                emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
+                emit_inline_run(
+                    ctx.dom,
+                    entity,
+                    &inline_run,
+                    ctx.font_db,
+                    ctx.font_cache,
+                    ctx.dl,
+                );
                 inline_run.clear();
             }
 
-            // Emit list marker for list-item children.
-            // Counter increments for every list-item regardless of list-style-type;
-            // list-style-type: none only suppresses marker rendering.
-            // visibility: hidden also suppresses marker painting.
-            if let Ok(child_style) = dom.world().get::<&ComputedStyle>(child) {
-                if child_style.display == Display::ListItem {
-                    list_counter += 1;
-                    if child_style.list_style_type != ListStyleType::None
-                        && child_style.visibility == Visibility::Visible
-                    {
-                        if let Ok(child_lb) = dom.world().get::<&LayoutBox>(child) {
-                            emit_list_marker_with_counter(
-                                &child_lb,
-                                &child_style,
-                                list_counter,
-                                font_db,
-                                font_cache,
-                                dl,
-                            );
-                        }
-                    }
-                }
-            }
+            maybe_emit_list_marker(ctx, child, &mut list_counter);
 
             // Recurse into block child.
-            walk(
-                dom,
-                child,
-                font_db,
-                font_cache,
-                dl,
-                depth + 1,
-                caret_visible,
-                child_perspective,
-                child_perspective_origin,
-            );
+            walk(ctx, child, depth + 1, child_perspective);
         } else {
             // Text node or inline element — add to current run.
             inline_run.push(child);
@@ -217,14 +317,14 @@ pub(crate) fn walk(
 
     // Flush trailing inline run.
     if !inline_run.is_empty() {
-        emit_inline_run(dom, entity, &inline_run, font_db, font_cache, dl);
-    }
-
-    if has_clip {
-        dl.push(DisplayItem::PopClip);
-    }
-    if has_transform_push {
-        dl.push(DisplayItem::PopTransform);
+        emit_inline_run(
+            ctx.dom,
+            entity,
+            &inline_run,
+            ctx.font_db,
+            ctx.font_cache,
+            ctx.dl,
+        );
     }
 }
 
@@ -245,28 +345,28 @@ pub(crate) fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
     dom.world()
         .get::<&ComputedStyle>(entity)
         .ok()
-        .is_some_and(|style| is_block_display(style.display))
+        .is_some_and(|style| elidex_layout_block::block::is_block_level(style.display))
 }
 
-/// Returns `true` for display values that generate block-level boxes.
-///
-/// Atomic inline-level boxes (`inline-block`, `inline-flex`, etc.) return
-/// `false` — they participate in inline runs and are rendered inline.
-fn is_block_display(display: Display) -> bool {
-    matches!(
-        display,
-        Display::Block
-            | Display::Flex
-            | Display::Grid
-            | Display::ListItem
-            | Display::Table
-            | Display::TableRow
-            | Display::TableRowGroup
-            | Display::TableHeaderGroup
-            | Display::TableFooterGroup
-            | Display::TableCell
-            | Display::TableColumn
-            | Display::TableColumnGroup
-            | Display::TableCaption
-    )
+/// Emit a list marker for a block child if it is a `list-item` with a visible marker.
+fn maybe_emit_list_marker(ctx: &mut PaintContext, child: Entity, counter: &mut usize) {
+    if let Ok(child_style) = ctx.dom.world().get::<&ComputedStyle>(child) {
+        if child_style.display == Display::ListItem {
+            *counter += 1;
+            if child_style.list_style_type != ListStyleType::None
+                && child_style.visibility == Visibility::Visible
+            {
+                if let Ok(child_lb) = ctx.dom.world().get::<&LayoutBox>(child) {
+                    emit_list_marker_with_counter(
+                        &child_lb,
+                        &child_style,
+                        *counter,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
+                }
+            }
+        }
+    }
 }

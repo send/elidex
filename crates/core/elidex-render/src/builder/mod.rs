@@ -35,7 +35,7 @@ pub(super) use paint::{
     find_nearest_layout_box,
 };
 pub(super) use text::{compute_text_align_offset, query_segment_font, resolve_text_align};
-pub(super) use walk::walk;
+pub(super) use walk::{walk, PaintContext};
 pub(super) use whitespace::collapse_segments;
 
 // ---------------------------------------------------------------------------
@@ -121,18 +121,20 @@ pub fn build_display_list_with_caret(
     let mut dl = DisplayList::default();
     let mut font_cache = FontCache::new();
 
+    let mut ctx = PaintContext {
+        dom,
+        font_db,
+        font_cache: &mut font_cache,
+        dl: &mut dl,
+        caret_visible,
+    };
     let roots = find_roots(dom);
     for root in roots {
         walk(
-            dom,
+            &mut ctx,
             root,
-            font_db,
-            &mut font_cache,
-            &mut dl,
             0,
-            caret_visible,
-            None,
-            (0.0, 0.0),
+            &elidex_plugin::transform_math::Perspective::default(),
         );
     }
 

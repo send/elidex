@@ -136,6 +136,10 @@ pub(crate) fn build_cell_grid(dom: &EcsDom, rows: &[Entity]) -> (Vec<CellInfo>, 
             if child_style.display == Display::None {
                 continue;
             }
+            // Absolutely positioned table children are removed from table layout.
+            if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
+                continue;
+            }
 
             // Read colspan/rowspan from HTML attributes.
             let (colspan, rowspan) = read_span_attributes(dom, child);
