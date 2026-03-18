@@ -4,6 +4,10 @@
 //! containment. The last entity hit wins (painter's order = front-most).
 
 use elidex_ecs::{EcsDom, Entity};
+use elidex_plugin::transform_math::{
+    compute_element_transform, invert_affine, is_affine_identity, mul_affine,
+    resolve_child_perspective, IDENTITY,
+};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox};
 
 /// Result of a hit test.
@@ -11,6 +15,14 @@ use elidex_plugin::{ComputedStyle, Display, LayoutBox};
 pub struct HitTestResult {
     /// The entity at the hit point (front-most in painter's order).
     pub entity: Entity,
+}
+
+/// Transform state propagated through the hit test tree walk.
+#[derive(Clone, Copy)]
+struct TransformContext {
+    cumulative: [f64; 6],
+    parent_perspective: Option<f32>,
+    parent_perspective_origin: (f64, f64),
 }
 
 /// Find the front-most entity at viewport coordinates `(x, y)`.
@@ -30,8 +42,13 @@ pub fn hit_test(dom: &EcsDom, x: f32, y: f32) -> Option<HitTestResult> {
         return None;
     }
     let mut result = None;
+    let ctx = TransformContext {
+        cumulative: IDENTITY,
+        parent_perspective: None,
+        parent_perspective_origin: (0.0, 0.0),
+    };
     for root in dom.root_entities() {
-        hit_test_subtree(dom, root, x, y, &mut result, 0);
+        hit_test_subtree(dom, root, x, y, &mut result, 0, ctx);
     }
     result
 }
@@ -44,32 +61,81 @@ fn hit_test_subtree(
     y: f32,
     result: &mut Option<HitTestResult>,
     depth: u32,
+    ctx: TransformContext,
 ) {
     if depth > elidex_layout_block::MAX_LAYOUT_DEPTH {
         return;
     }
 
     // Skip display:none subtrees.
-    let style = dom
-        .world()
-        .get::<&ComputedStyle>(entity)
-        .map(|s| s.display)
-        .unwrap_or_default();
-    if style == Display::None {
+    let style_opt = dom.world().get::<&ComputedStyle>(entity).ok();
+    let display = style_opt.as_ref().map_or(Display::default(), |s| s.display);
+    if display == Display::None {
         return;
     }
 
+    // Compute transform for this element.
+    // Cache LayoutBox to avoid duplicate ECS queries (used for transform, hit test, perspective).
+    let layout_box_opt = dom.world().get::<&LayoutBox>(entity).ok();
+    let cached_bb = layout_box_opt.as_ref().map(|lb| lb.border_box());
+
+    let mut local_transform = ctx.cumulative;
+    if let (Some(ref style), Some(bb)) = (&style_opt, cached_bb) {
+        // Match builder/transform.rs: apply transform when element has own transform
+        // OR when parent perspective is present (perspective warps non-transformed children too).
+        if style.has_transform || ctx.parent_perspective.is_some() {
+            if let Some(affine) = compute_element_transform(
+                style,
+                &bb,
+                ctx.parent_perspective,
+                ctx.parent_perspective_origin,
+            ) {
+                local_transform = mul_affine(ctx.cumulative, affine);
+            } else {
+                // backface-hidden and facing away — skip subtree
+                return;
+            }
+        }
+    }
+
     // Check if this entity's border box contains the point.
-    if let Ok(layout_box) = dom.world().get::<&LayoutBox>(entity) {
-        let bb = layout_box.border_box();
-        if x >= bb.x && x < bb.x + bb.width && y >= bb.y && y < bb.y + bb.height {
+    if let Some(bb) = cached_bb {
+        // Transform the test point into local coordinates.
+        let (test_x, test_y) = if is_affine_identity(&local_transform) {
+            (x, y)
+        } else if let Some(inv) = invert_affine(local_transform) {
+            let lx = inv[0] * f64::from(x) + inv[2] * f64::from(y) + inv[4];
+            let ly = inv[1] * f64::from(x) + inv[3] * f64::from(y) + inv[5];
+            if !lx.is_finite() || !ly.is_finite() {
+                // Degenerate inverse transform — skip hit test for this element.
+                (f32::MAX, f32::MAX)
+            } else {
+                #[allow(clippy::cast_possible_truncation)]
+                (lx as f32, ly as f32)
+            }
+        } else {
+            (x, y)
+        };
+        if test_x >= bb.x && test_x < bb.x + bb.width && test_y >= bb.y && test_y < bb.y + bb.height
+        {
             *result = Some(HitTestResult { entity });
         }
     }
 
+    // Compute perspective to propagate to children.
+    let (child_perspective, child_perspective_origin) = match (&style_opt, cached_bb) {
+        (Some(style), Some(bb)) => resolve_child_perspective(style, &bb),
+        _ => (None, (0.0, 0.0)),
+    };
+
     // Walk children in order (pre-order: parent before children).
+    let child_ctx = TransformContext {
+        cumulative: local_transform,
+        parent_perspective: child_perspective,
+        parent_perspective_origin: child_perspective_origin,
+    };
     for child in dom.children_iter(entity) {
-        hit_test_subtree(dom, child, x, y, result, depth + 1);
+        hit_test_subtree(dom, child, x, y, result, depth + 1, child_ctx);
     }
 }
 
@@ -215,6 +281,7 @@ mod tests {
         for i in 0..10 {
             let child = elem(&mut dom, "div");
             let _ = dom.append_child(parent, child);
+
             #[allow(clippy::cast_precision_loss)]
             let offset = (i + 1) as f32 * 10.0;
             set_layout(

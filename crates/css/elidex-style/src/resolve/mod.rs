@@ -146,6 +146,9 @@ pub(crate) fn build_computed_style(
     // Phase 12: Background layers (CSS Backgrounds Level 3).
     resolve_background_layers(&winners, &mut style);
 
+    // Phase 13: Transform properties (CSS Transforms L1/L2, will-change).
+    resolve_transform_properties(&mut style, &winners, parent_style, &elem_ctx);
+
     style
 }
 
@@ -292,6 +295,36 @@ fn resolve_writing_mode_properties(
         parent_style.text_orientation,
         TextOrientation::from_keyword,
     );
+}
+
+/// Resolve CSS Transforms L1/L2 and will-change properties.
+///
+/// Delegates to `TransformHandler::resolve()` for each of the 7 transform
+/// properties that have cascade winners.
+fn resolve_transform_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    use elidex_plugin::CssPropertyHandler;
+
+    const TRANSFORM_PROPS: &[&str] = &[
+        "transform",
+        "transform-origin",
+        "perspective",
+        "perspective-origin",
+        "transform-style",
+        "backface-visibility",
+        "will-change",
+    ];
+
+    let handler = elidex_css_transform::TransformHandler;
+    for &prop in TRANSFORM_PROPS {
+        if let Some(value) = helpers::get_resolved_winner(prop, winners, parent_style) {
+            handler.resolve(prop, &value, ctx, style);
+        }
+    }
 }
 
 /// Resolve background layer properties from the winning property map.
@@ -551,5 +584,67 @@ mod tests {
             ..base
         };
         assert!((computed_line_height_px(&s3) - 19.2).abs() < 0.01);
+    }
+
+    #[test]
+    fn resolve_transform_from_cascade() {
+        use elidex_plugin::{BackfaceVisibility, LengthUnit, TransformFunction};
+
+        let mut winners = HashMap::new();
+        let transform_val = CssValue::TransformList(vec![TransformFunction::Rotate(45.0)]);
+        winners.insert("transform", &transform_val);
+        let backface_val = CssValue::Keyword("hidden".to_string());
+        winners.insert("backface-visibility", &backface_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.has_transform);
+        assert_eq!(style.transform.len(), 1);
+        assert!(
+            matches!(style.transform[0], TransformFunction::Rotate(deg) if (deg - 45.0).abs() < f32::EPSILON)
+        );
+        assert_eq!(style.backface_visibility, BackfaceVisibility::Hidden);
+    }
+
+    #[test]
+    fn resolve_perspective_from_cascade() {
+        let mut winners = HashMap::new();
+        let perspective_val = CssValue::Length(800.0, LengthUnit::Px);
+        winners.insert("perspective", &perspective_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.has_perspective);
+        assert_eq!(style.perspective, Some(800.0));
+    }
+
+    #[test]
+    fn resolve_will_change_sets_stacking() {
+        let mut winners = HashMap::new();
+        let wc_val = CssValue::List(vec![CssValue::Keyword("transform".to_string())]);
+        winners.insert("will-change", &wc_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.will_change_stacking);
+        assert_eq!(style.will_change, vec!["transform".to_string()]);
     }
 }

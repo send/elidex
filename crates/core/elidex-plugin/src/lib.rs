@@ -16,6 +16,7 @@ mod registry;
 pub mod sandbox;
 mod spec_level;
 mod traits;
+pub mod transform_math;
 pub mod url_security;
 mod values;
 
@@ -44,7 +45,8 @@ pub use traits::{
     PropertyDeclaration, ResolveContext,
 };
 pub use values::{
-    AngleOrDirection, CalcExpr, CssColor, CssColorStop, CssValue, GradientValue, LengthUnit,
+    AngleOrDirection, BackfaceVisibility, CalcExpr, CssColor, CssColorStop, CssValue,
+    GradientValue, LengthUnit, TransformFunction, TransformStyle,
 };
 
 // ---------------------------------------------------------------------------

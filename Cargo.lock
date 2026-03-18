@@ -1791,6 +1791,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-css-transform"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-dom-api"
 version = "0.1.0"
 dependencies = [
@@ -2069,6 +2077,7 @@ dependencies = [
  "elidex-css-grid",
  "elidex-css-table",
  "elidex-css-text",
+ "elidex-css-transform",
  "elidex-ecs",
  "elidex-plugin",
  "rayon",

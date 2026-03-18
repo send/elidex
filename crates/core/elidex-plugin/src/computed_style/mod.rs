@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::background::BackgroundLayer;
-use crate::{CssColor, EdgeSizes};
+use crate::{BackfaceVisibility, CssColor, EdgeSizes, TransformFunction, TransformStyle};
 
 /// Define a CSS keyword enum with `Default` (first variant), `AsRef<str>`, and
 /// `fmt::Display` implementations.
@@ -324,6 +324,22 @@ pub struct ComputedStyle {
     /// `true` when `contain` includes `paint`, `layout`, `strict`, or `content` (CSS Containment L2 §3).
     pub contain_stacking: bool,
 
+    // --- Transform properties (non-inherited, CSS Transforms L1/L2) ---
+    /// Parsed transform function list. Empty vec = `none`.
+    pub transform: Vec<TransformFunction>,
+    /// Transform origin (x, y, z). Z is always in px. Default: (50%, 50%, 0).
+    pub transform_origin: (Dimension, Dimension, f32),
+    /// CSS `perspective` property value in px. `None` = `none`.
+    pub perspective: Option<f32>,
+    /// Perspective origin (x, y). Default: (50%, 50%).
+    pub perspective_origin: (Dimension, Dimension),
+    /// CSS `transform-style`. Default: `flat`.
+    pub transform_style: TransformStyle,
+    /// CSS `backface-visibility`. Default: `visible`.
+    pub backface_visibility: BackfaceVisibility,
+    /// CSS `will-change` property values. Empty vec = `auto`.
+    pub will_change: Vec<String>,
+
     // --- Custom properties (CSS Variables) ---
     /// Custom property values (e.g. `--bg: #0d1117`).
     ///
@@ -474,6 +490,19 @@ impl Default for ComputedStyle {
             isolation_isolate: false,
             has_mix_blend: false,
             contain_stacking: false,
+
+            // Transform properties
+            transform: Vec::new(),
+            transform_origin: (
+                Dimension::Percentage(50.0),
+                Dimension::Percentage(50.0),
+                0.0,
+            ),
+            perspective: None,
+            perspective_origin: (Dimension::Percentage(50.0), Dimension::Percentage(50.0)),
+            transform_style: TransformStyle::default(),
+            backface_visibility: BackfaceVisibility::default(),
+            will_change: Vec::new(),
 
             // Custom properties
             custom_properties: HashMap::new(),

@@ -629,98 +629,134 @@ fn stacking_context_default_false() {
 
 #[test]
 fn stacking_context_position_absolute() {
-    let mut s = ComputedStyle::default();
-    s.position = Position::Absolute;
+    let s = ComputedStyle {
+        position: Position::Absolute,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_position_fixed() {
-    let mut s = ComputedStyle::default();
-    s.position = Position::Fixed;
+    let s = ComputedStyle {
+        position: Position::Fixed,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_relative_with_z_index() {
-    let mut s = ComputedStyle::default();
-    s.position = Position::Relative;
-    s.z_index = Some(1);
+    let s = ComputedStyle {
+        position: Position::Relative,
+        z_index: Some(1),
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_relative_auto_z_index() {
-    let mut s = ComputedStyle::default();
-    s.position = Position::Relative;
-    s.z_index = None;
+    let s = ComputedStyle {
+        position: Position::Relative,
+        z_index: None,
+        ..Default::default()
+    };
     assert!(!s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_opacity() {
-    let mut s = ComputedStyle::default();
-    s.opacity = 0.5;
+    let s = ComputedStyle {
+        opacity: 0.5,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_overflow_hidden() {
-    let mut s = ComputedStyle::default();
-    s.overflow_x = Overflow::Hidden;
+    let s = ComputedStyle {
+        overflow_x: Overflow::Hidden,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_overflow_clip() {
-    let mut s = ComputedStyle::default();
-    s.overflow_y = Overflow::Clip;
+    let s = ComputedStyle {
+        overflow_y: Overflow::Clip,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_transform() {
-    let mut s = ComputedStyle::default();
-    s.has_transform = true;
+    let s = ComputedStyle {
+        has_transform: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_perspective() {
+    let s = ComputedStyle {
+        has_perspective: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_filter() {
-    let mut s = ComputedStyle::default();
-    s.has_filter = true;
+    let s = ComputedStyle {
+        has_filter: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_will_change() {
-    let mut s = ComputedStyle::default();
-    s.will_change_stacking = true;
+    let s = ComputedStyle {
+        will_change_stacking: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_isolation() {
-    let mut s = ComputedStyle::default();
-    s.isolation_isolate = true;
+    let s = ComputedStyle {
+        isolation_isolate: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_mix_blend() {
-    let mut s = ComputedStyle::default();
-    s.has_mix_blend = true;
+    let s = ComputedStyle {
+        has_mix_blend: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 
 #[test]
 fn stacking_context_masking() {
-    let mut s = ComputedStyle::default();
-    s.has_clip_path = true;
+    let s = ComputedStyle {
+        has_clip_path: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
-    s.has_clip_path = false;
-    assert!(!s.creates_stacking_context());
-    s.has_mask = true;
+    let s = ComputedStyle {
+        has_mask: true,
+        ..Default::default()
+    };
     assert!(s.creates_stacking_context());
 }
 

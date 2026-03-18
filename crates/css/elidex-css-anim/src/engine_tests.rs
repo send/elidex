@@ -109,7 +109,7 @@ fn engine_transition_with_delay() {
         0.2,
         TimingFunction::Linear,
     );
-    engine.add_transition(1, trans);
+    let _ = engine.add_transition(1, trans);
 
     // During delay — transitionrun fires on first tick, but not transitionstart yet
     let events = engine.tick(0.1);
@@ -406,11 +406,7 @@ fn keyframe_values_per_keyframe_timing() {
     let (_, val) = opacity_val.unwrap();
     // steps(1, end) at t=0.5 → 0.0, so interpolated opacity = 0 + (1-0)*0.0 = 0.0
     match val {
-        CssValue::Number(n) => assert!(
-            (*n - 0.0).abs() < 0.01,
-            "expected ~0.0 with steps(1, end) at t=0.5, got {n}"
-        ),
-        CssValue::Length(n, _) => assert!(
+        CssValue::Number(n) | CssValue::Length(n, _) => assert!(
             (*n - 0.0).abs() < 0.01,
             "expected ~0.0 with steps(1, end) at t=0.5, got {n}"
         ),

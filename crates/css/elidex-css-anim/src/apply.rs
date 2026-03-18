@@ -15,6 +15,30 @@ use elidex_plugin::{
 #[allow(clippy::too_many_lines)]
 pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &CssValue) {
     match property {
+        "transform" => {
+            if let CssValue::TransformList(funcs) = value {
+                style.transform.clone_from(funcs);
+                style.has_transform = !funcs.is_empty();
+            } else if let CssValue::Keyword(k) = value {
+                if k == "none" {
+                    style.transform.clear();
+                    style.has_transform = false;
+                }
+            }
+        }
+        "perspective" => {
+            if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
+                if v.is_finite() && *v > 0.0 {
+                    style.perspective = Some(*v);
+                    style.has_perspective = true;
+                }
+            } else if let CssValue::Keyword(k) = value {
+                if k == "none" {
+                    style.perspective = None;
+                    style.has_perspective = false;
+                }
+            }
+        }
         "opacity" => {
             if let CssValue::Number(n) = value {
                 if n.is_finite() {
@@ -458,6 +482,37 @@ mod tests {
             &CssValue::Keyword("italic".into()),
         );
         assert_eq!(style.font_style, FontStyle::Italic);
+    }
+
+    #[test]
+    fn apply_transform() {
+        use elidex_plugin::TransformFunction;
+        let mut style = ComputedStyle::default();
+        let funcs = vec![TransformFunction::Rotate(45.0)];
+        apply_animated_value(
+            &mut style,
+            "transform",
+            &CssValue::TransformList(funcs.clone()),
+        );
+        assert_eq!(style.transform, funcs);
+        assert!(style.has_transform);
+
+        // Apply none
+        apply_animated_value(&mut style, "transform", &CssValue::Keyword("none".into()));
+        assert!(style.transform.is_empty());
+        assert!(!style.has_transform);
+    }
+
+    #[test]
+    fn apply_perspective() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(
+            &mut style,
+            "perspective",
+            &CssValue::Length(500.0, LengthUnit::Px),
+        );
+        assert_eq!(style.perspective, Some(500.0));
+        assert!(style.has_perspective);
     }
 
     #[test]

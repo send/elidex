@@ -979,6 +979,7 @@ mod tests {
             .invoke(a, &[obj_ref_arg(b, &mut session)], &mut session, &mut dom)
             .unwrap();
         if let JsValue::Number(v) = r {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let v = v as u32;
             assert!(v & DOCUMENT_POSITION_DISCONNECTED != 0);
             assert!(v & DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC != 0);
@@ -1366,7 +1367,7 @@ mod tests {
         let r = GetTextContentNodeKind
             .invoke(div, &[], &mut session, &mut dom)
             .unwrap();
-        assert_eq!(r, JsValue::String("".into()));
+        assert_eq!(r, JsValue::String(String::new()));
     }
 
     // -----------------------------------------------------------------------

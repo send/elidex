@@ -7,6 +7,7 @@ use elidex_ecs::{
 };
 use elidex_form::FormControlState;
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
+use elidex_plugin::transform_math::resolve_child_perspective;
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Visibility};
 use elidex_text::FontDatabase;
 
@@ -14,6 +15,7 @@ use crate::display_list::{DisplayItem, DisplayList};
 use crate::font_cache::FontCache;
 
 use super::form::emit_form_control;
+use super::transform::{element_transform, TransformResult};
 use super::{emit_background, emit_borders, emit_inline_run, emit_list_marker_with_counter};
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
@@ -24,7 +26,7 @@ use super::{emit_background, emit_borders, emit_inline_run, emit_list_marker_wit
 /// recursed into normally.
 ///
 /// Recursion is capped at `MAX_ANCESTOR_DEPTH` to prevent stack overflow.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub(crate) fn walk(
     dom: &EcsDom,
     entity: Entity,
@@ -33,6 +35,8 @@ pub(crate) fn walk(
     dl: &mut DisplayList,
     depth: usize,
     caret_visible: bool,
+    parent_perspective: Option<f32>,
+    parent_perspective_origin: (f64, f64),
 ) {
     if depth > MAX_ANCESTOR_DEPTH {
         return;
@@ -67,8 +71,25 @@ pub(crate) fn walk(
 
     // Emit background + borders + images for elements with a LayoutBox.
     let mut has_clip = false;
+    let mut has_transform_push = false;
+    // Cache border box for perspective-origin computation (avoids redundant ECS lookup).
+    let mut cached_border_box = None;
     if let Ok(lb) = dom.world().get::<&LayoutBox>(entity) {
+        cached_border_box = Some(lb.border_box());
         if let Some(ref style) = style_ref {
+            // CSS Transforms: compute and emit PushTransform before any painting.
+            match element_transform(style, &lb, parent_perspective, parent_perspective_origin) {
+                TransformResult::BackfaceHidden => {
+                    // CSS Transforms L2 §5: back-facing → skip entire subtree.
+                    return;
+                }
+                TransformResult::Affine(affine) => {
+                    dl.push(DisplayItem::PushTransform { affine });
+                    has_transform_push = true;
+                }
+                TransformResult::None => {}
+            }
+
             if is_visible {
                 let bg_images = dom.world().get::<&BackgroundImages>(entity).ok();
                 emit_background(
@@ -131,6 +152,12 @@ pub(crate) fn walk(
         }
     }
 
+    // Compute perspective to propagate to children.
+    let (child_perspective, child_perspective_origin) = match (&style_ref, cached_border_box) {
+        (Some(style), Some(bb)) => resolve_child_perspective(style, &bb),
+        _ => (None, (0.0, 0.0)),
+    };
+
     // Process children in inline runs vs block children.
     // Flatten display:contents children — they generate no box, their
     // children are promoted to this formatting context.
@@ -179,6 +206,8 @@ pub(crate) fn walk(
                 dl,
                 depth + 1,
                 caret_visible,
+                child_perspective,
+                child_perspective_origin,
             );
         } else {
             // Text node or inline element — add to current run.
@@ -193,6 +222,9 @@ pub(crate) fn walk(
 
     if has_clip {
         dl.push(DisplayItem::PopClip);
+    }
+    if has_transform_push {
+        dl.push(DisplayItem::PopTransform);
     }
 }
 

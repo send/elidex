@@ -13,6 +13,7 @@ mod glyph;
 mod inline;
 mod paint;
 mod text;
+pub(crate) mod transform;
 mod walk;
 mod whitespace;
 
@@ -130,6 +131,8 @@ pub fn build_display_list_with_caret(
             &mut dl,
             0,
             caret_visible,
+            None,
+            (0.0, 0.0),
         );
     }
 

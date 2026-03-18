@@ -329,7 +329,7 @@ fn border_radius_with_border_emits_rounded_ring() {
     assert_eq!(rects, 0, "should have no SolidRect borders");
 }
 
-/// When border-radius is set but border colors differ, fall back to SolidRect.
+/// When border-radius is set but border colors differ, fall back to `SolidRect`.
 #[test]
 fn border_radius_different_colors_falls_back_to_solid_rect() {
     let (dom, _) = setup_block_element(

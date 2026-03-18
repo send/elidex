@@ -208,6 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn dom_registry_has_all_handlers() {
         let registry = create_dom_registry();
         // Verify a representative subset of handlers exist

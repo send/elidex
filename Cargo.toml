@@ -14,6 +14,7 @@ members = [
     "crates/css/elidex-css-float",
     "crates/css/elidex-css-anim",
     "crates/css/elidex-css-background",
+    "crates/css/elidex-css-transform",
     "crates/css/elidex-style",
     "crates/dom/elidex-html-parser",
     "crates/dom/elidex-dom-api",
@@ -98,6 +99,7 @@ elidex-css-table = { path = "crates/css/elidex-css-table" }
 elidex-css-float = { path = "crates/css/elidex-css-float" }
 elidex-css-anim = { path = "crates/css/elidex-css-anim" }
 elidex-css-background = { path = "crates/css/elidex-css-background" }
+elidex-css-transform = { path = "crates/css/elidex-css-transform" }
 elidex-style = { path = "crates/css/elidex-style" }
 elidex-navigation = { path = "crates/shell/elidex-navigation" }
 elidex-net = { path = "crates/net/elidex-net" }

@@ -724,7 +724,10 @@ mod tests {
         let err = ClassListReplace
             .invoke(
                 elem,
-                &[JsValue::String("".into()), JsValue::String("baz".into())],
+                &[
+                    JsValue::String(String::new()),
+                    JsValue::String("baz".into()),
+                ],
                 &mut session,
                 &mut dom,
             )

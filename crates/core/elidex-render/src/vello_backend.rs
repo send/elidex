@@ -152,7 +152,7 @@ const MAX_TILES: usize = 10_000;
 /// - `space`: whole tiles only, excess space distributed evenly
 /// - `round`: adjust tile size so tiles fill exactly
 #[must_use]
-#[allow(clippy::trivially_copy_pass_by_ref)] // kept as ref for consistency with DisplayItem fields
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn compute_tile_positions(
     painting_area: &Rect,
     position: &(f32, f32),
@@ -190,7 +190,8 @@ fn compute_tile_positions(
     let ys = axis_tile_positions(repeat.y, position.1, tile_h, ph);
 
     // Cartesian product, capped at MAX_TILES
-    let mut positions = Vec::with_capacity(xs.len() * ys.len());
+    let cap = xs.len().saturating_mul(ys.len()).min(MAX_TILES);
+    let mut positions = Vec::with_capacity(cap);
     for &y in &ys {
         for &x in &xs {
             positions.push((x, y));
@@ -214,6 +215,9 @@ fn axis_tile_positions(
     match mode {
         BgRepeatAxis::NoRepeat => vec![origin],
         BgRepeatAxis::Repeat | BgRepeatAxis::Round => {
+            if tile_size <= 0.0 {
+                return vec![origin];
+            }
             // Tile from origin backwards and forwards to cover the area
             let mut positions = Vec::new();
             // First tile going left/up from origin
@@ -233,7 +237,7 @@ fn axis_tile_positions(
                 return vec![origin];
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let count = (area_size / tile_size).floor() as usize;
+            let count = (area_size / tile_size).floor().min(10_000.0) as usize;
             if count == 0 {
                 return vec![];
             }
@@ -261,12 +265,29 @@ fn gradient_line_from_angle(
     area: &Rect,
 ) -> (vello::kurbo::Point, vello::kurbo::Point) {
     use std::f64::consts::PI;
-    let cx = f64::from(area.x + area.width / 2.0);
-    let cy = f64::from(area.y + area.height / 2.0);
-    let w = f64::from(area.width);
-    let h = f64::from(area.height);
+    let aw = if area.width.is_finite() {
+        area.width
+    } else {
+        0.0
+    };
+    let ah = if area.height.is_finite() {
+        area.height
+    } else {
+        0.0
+    };
+    let ax = if area.x.is_finite() { area.x } else { 0.0 };
+    let ay = if area.y.is_finite() { area.y } else { 0.0 };
+    let cx = f64::from(ax + aw / 2.0);
+    let cy = f64::from(ay + ah / 2.0);
+    let w = f64::from(aw);
+    let h = f64::from(ah);
 
     // CSS angle: 0deg = to top, 90deg = to right (clockwise from top)
+    let angle_deg = if angle_deg.is_finite() {
+        angle_deg
+    } else {
+        0.0
+    };
     let rad = f64::from(angle_deg) * PI / 180.0;
     let sin = rad.sin();
     let cos = rad.cos();
@@ -308,14 +329,32 @@ pub(crate) fn build_scene(
             .count(),
         "PushClip/PopClip must be balanced in display list"
     );
+    debug_assert_eq!(
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PushTransform { .. }))
+            .count(),
+        display_list
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::PopTransform))
+            .count(),
+        "PushTransform/PopTransform must be balanced in display list"
+    );
+
+    let mut transform_stack: Vec<Affine> = vec![Affine::IDENTITY];
+    let mut skipped_push_count: u32 = 0;
+
     for item in display_list.iter() {
+        let current_transform = *transform_stack
+            .last()
+            .expect("transform stack is never empty");
         match item {
             DisplayItem::SolidRect { rect, color } => {
                 let vello_rect = to_vello_rect(rect);
                 let vello_color = convert_color(*color);
                 scene.fill(
                     Fill::NonZero,
-                    Affine::IDENTITY,
+                    current_transform,
                     vello_color,
                     None,
                     &vello_rect,
@@ -325,7 +364,13 @@ pub(crate) fn build_scene(
                 let vello_rect = to_vello_rect(rect);
                 let rounded = vello_rect.to_rounded_rect(to_vello_radii(radii));
                 let vello_color = convert_color(*color);
-                scene.fill(Fill::NonZero, Affine::IDENTITY, vello_color, None, &rounded);
+                scene.fill(
+                    Fill::NonZero,
+                    current_transform,
+                    vello_color,
+                    None,
+                    &rounded,
+                );
             }
             DisplayItem::StrokedRoundedRect {
                 rect,
@@ -337,7 +382,7 @@ pub(crate) fn build_scene(
                 let rounded = vello_rect.to_rounded_rect(to_vello_radii(radii));
                 let vello_color = convert_color(*color);
                 let stroke = Stroke::new(f64::from(*stroke_width));
-                scene.stroke(&stroke, Affine::IDENTITY, vello_color, None, &rounded);
+                scene.stroke(&stroke, current_transform, vello_color, None, &rounded);
             }
             DisplayItem::StyledBorderSegment {
                 start,
@@ -359,7 +404,7 @@ pub(crate) fn build_scene(
                 let mut path = BezPath::new();
                 path.move_to((f64::from(start.0), f64::from(start.1)));
                 path.line_to((f64::from(end.0), f64::from(end.1)));
-                scene.stroke(&stroke, Affine::IDENTITY, vello_color, None, &path);
+                scene.stroke(&stroke, current_transform, vello_color, None, &path);
             }
             DisplayItem::RoundedBorderRing {
                 outer_rect,
@@ -381,7 +426,7 @@ pub(crate) fn build_scene(
                     path.push(el);
                 }
                 let vello_color = convert_color(*color);
-                scene.fill(Fill::EvenOdd, Affine::IDENTITY, vello_color, None, &path);
+                scene.fill(Fill::EvenOdd, current_transform, vello_color, None, &path);
             }
             DisplayItem::Image {
                 painting_area,
@@ -393,14 +438,20 @@ pub(crate) fn build_scene(
                 repeat,
                 opacity,
             } => {
-                if *image_width > 0 && *image_height > 0 && size.0 > 0.0 && size.1 > 0.0 {
+                if *image_width > 0
+                    && *image_height > 0
+                    && size.0 > 0.0
+                    && size.1 > 0.0
+                    && size.0.is_finite()
+                    && size.1.is_finite()
+                {
                     let clip = to_vello_rect(painting_area);
                     // Always clip to painting area (tiled images must not overflow)
                     scene.push_layer(
                         Fill::NonZero,
                         Mix::Normal,
                         if *opacity < 1.0 { *opacity } else { 1.0 },
-                        Affine::IDENTITY,
+                        current_transform,
                         &clip,
                     );
                     let blob = Blob::from(pixels.as_ref().clone());
@@ -419,7 +470,8 @@ pub(crate) fn build_scene(
                     for (tx, ty) in tile_positions {
                         let draw_x = f64::from(painting_area.x + tx);
                         let draw_y = f64::from(painting_area.y + ty);
-                        let transform = Affine::translate((draw_x, draw_y))
+                        let transform = current_transform
+                            * Affine::translate((draw_x, draw_y))
                             * Affine::scale_non_uniform(scale_x, scale_y);
                         scene.draw_image(&image, transform);
                     }
@@ -447,11 +499,11 @@ pub(crate) fn build_scene(
                         Fill::NonZero,
                         Mix::Normal,
                         *opacity,
-                        Affine::IDENTITY,
+                        current_transform,
                         &rect,
                     );
                 }
-                scene.fill(Fill::NonZero, Affine::IDENTITY, &grad, None, &rect);
+                scene.fill(Fill::NonZero, current_transform, &grad, None, &rect);
                 if needs_layer {
                     scene.pop_layer();
                 }
@@ -465,15 +517,15 @@ pub(crate) fn build_scene(
                 opacity,
             } => {
                 let rect = to_vello_rect(painting_area);
-                let cx = f64::from(center.0);
-                let cy = f64::from(center.1);
-                let rx = f64::from(radii.0).max(0.001);
-                let ry = f64::from(radii.1).max(0.001);
+                let cx = f64::from(if center.0.is_finite() { center.0 } else { 0.0 });
+                let cy = f64::from(if center.1.is_finite() { center.1 } else { 0.0 });
+                let rx = f64::from(if radii.0.is_finite() { radii.0 } else { 0.0 }).max(0.001);
+                let ry = f64::from(if radii.1.is_finite() { radii.1 } else { 0.0 }).max(0.001);
                 let vello_stops: Vec<(f32, Color)> =
                     stops.iter().map(|(p, c)| (*p, convert_color(*c))).collect();
                 // Use circular gradient with aspect transform for ellipses
                 #[allow(clippy::cast_possible_truncation)]
-                let r = rx as f32;
+                let r = rx.clamp(0.001, f64::from(f32::MAX)) as f32;
                 let mut grad = Gradient::new_radial((cx, cy), r).with_stops(vello_stops.as_slice());
                 if *repeating {
                     grad = grad.with_extend(Extend::Repeat);
@@ -484,20 +536,20 @@ pub(crate) fn build_scene(
                         Fill::NonZero,
                         Mix::Normal,
                         *opacity,
-                        Affine::IDENTITY,
+                        current_transform,
                         &rect,
                     );
                 }
                 // Apply aspect ratio transform for ellipse
                 let aspect = ry / rx;
-                let transform = Affine::translate((cx, cy))
+                let brush_transform = Affine::translate((cx, cy))
                     * Affine::scale_non_uniform(1.0, aspect)
                     * Affine::translate((-cx, -cy));
                 scene.fill(
                     Fill::NonZero,
-                    Affine::IDENTITY,
+                    current_transform,
                     &grad,
-                    Some(transform),
+                    Some(brush_transform),
                     &rect,
                 );
                 if needs_layer {
@@ -514,15 +566,16 @@ pub(crate) fn build_scene(
                 opacity,
             } => {
                 let rect = to_vello_rect(painting_area);
-                let cx = f64::from(center.0);
-                let cy = f64::from(center.1);
+                let cx = f64::from(if center.0.is_finite() { center.0 } else { 0.0 });
+                let cy = f64::from(if center.1.is_finite() { center.1 } else { 0.0 });
                 // Convert degrees to turns for vello sweep gradient
                 let vello_stops: Vec<(f32, Color)> = stops
                     .iter()
                     .map(|(p, c)| {
-                        // p is in degrees; normalize to 0.0-1.0 within start..end range
+                        // p is in degrees; normalize to 0.0-1.0 within start..end range.
+                        // Guard: NaN/zero range → all stops at 0.
                         let range = end_angle - start_angle;
-                        let t = if range > 0.0 {
+                        let t = if range.is_finite() && range > 0.0 {
                             (p - start_angle) / range
                         } else {
                             0.0
@@ -541,11 +594,11 @@ pub(crate) fn build_scene(
                         Fill::NonZero,
                         Mix::Normal,
                         *opacity,
-                        Affine::IDENTITY,
+                        current_transform,
                         &rect,
                     );
                 }
-                scene.fill(Fill::NonZero, Affine::IDENTITY, &grad, None, &rect);
+                scene.fill(Fill::NonZero, current_transform, &grad, None, &rect);
                 if needs_layer {
                     scene.pop_layer();
                 }
@@ -554,14 +607,40 @@ pub(crate) fn build_scene(
                 let clip = to_vello_rect(rect);
                 let all_zero = radii.iter().all(|r| *r == 0.0);
                 if all_zero {
-                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &clip);
+                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, current_transform, &clip);
                 } else {
                     let rounded = clip.to_rounded_rect(to_vello_radii(radii));
-                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, Affine::IDENTITY, &rounded);
+                    scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, current_transform, &rounded);
                 }
             }
             DisplayItem::PopClip => {
                 scene.pop_layer();
+            }
+            DisplayItem::PushTransform { affine } => {
+                // Cap stack depth and reject non-finite transforms to prevent
+                // unbounded growth and NaN propagation in the transform stack.
+                if transform_stack.len() < 256 && affine.iter().all(|v| v.is_finite()) {
+                    let parent = *transform_stack
+                        .last()
+                        .expect("transform stack is never empty");
+                    let local = Affine::new(*affine);
+                    transform_stack.push(parent * local);
+                } else {
+                    skipped_push_count += 1;
+                }
+            }
+            DisplayItem::PopTransform => {
+                if skipped_push_count > 0 {
+                    skipped_push_count -= 1;
+                } else {
+                    debug_assert!(
+                        transform_stack.len() > 1,
+                        "PopTransform without matching PushTransform"
+                    );
+                    if transform_stack.len() > 1 {
+                        transform_stack.pop();
+                    }
+                }
             }
             DisplayItem::Text {
                 glyphs,
@@ -592,6 +671,7 @@ pub(crate) fn build_scene(
                 scene
                     .draw_glyphs(&font_data)
                     .font_size(*font_size)
+                    .transform(current_transform)
                     .brush(vello_color)
                     .draw(Fill::NonZero, vello_glyphs.into_iter());
             }
@@ -600,223 +680,5 @@ pub(crate) fn build_scene(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_display_list_builds_empty_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList::default();
-        build_scene(&mut scene, &dl, &mut fc);
-        // Scene was constructed without panic — smoke test passes.
-    }
-
-    #[test]
-    fn solid_rect_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::SolidRect {
-            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
-            color: CssColor::RED,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Scene contains data (encoding is non-empty).
-    }
-
-    #[test]
-    fn image_builds_scene() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::Image {
-            painting_area: Rect::new(10.0, 20.0, 100.0, 50.0),
-            pixels: Arc::new(vec![255u8; 4 * 2 * 2]), // 2×2 white
-            image_width: 2,
-            image_height: 2,
-            position: (0.0, 0.0),
-            size: (100.0, 50.0),
-            repeat: BgRepeat {
-                x: BgRepeatAxis::NoRepeat,
-                y: BgRepeatAxis::NoRepeat,
-            },
-            opacity: 1.0,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test.
-    }
-
-    #[test]
-    fn rounded_rect_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::RoundedRect {
-            rect: Rect::new(10.0, 20.0, 100.0, 50.0),
-            radii: [8.0, 8.0, 8.0, 8.0],
-            color: CssColor::BLUE,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test.
-    }
-
-    #[test]
-    fn stroked_rounded_rect_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::StrokedRoundedRect {
-            rect: Rect::new(10.0, 20.0, 8.0, 8.0),
-            radii: [4.0, 4.0, 4.0, 4.0],
-            stroke_width: 1.0,
-            color: CssColor::BLACK,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test for stroked rounded rect.
-    }
-
-    #[test]
-    fn rounded_border_ring_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::RoundedBorderRing {
-            outer_rect: Rect::new(0.0, 0.0, 104.0, 54.0),
-            outer_radii: [10.0, 10.0, 10.0, 10.0],
-            inner_rect: Rect::new(2.0, 2.0, 100.0, 50.0),
-            inner_radii: [8.0, 8.0, 8.0, 8.0],
-            color: CssColor::BLACK,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test for rounded border ring.
-    }
-
-    #[test]
-    fn push_pop_clip_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![
-            DisplayItem::PushClip {
-                rect: Rect::new(0.0, 0.0, 200.0, 100.0),
-                radii: [0.0; 4],
-            },
-            DisplayItem::SolidRect {
-                rect: Rect::new(10.0, 10.0, 50.0, 50.0),
-                color: CssColor::RED,
-            },
-            DisplayItem::PopClip,
-        ]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test for clip layer.
-    }
-
-    #[test]
-    fn image_repeat_builds_scene() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::Image {
-            painting_area: Rect::new(0.0, 0.0, 200.0, 200.0),
-            pixels: Arc::new(vec![255u8; 4 * 2 * 2]),
-            image_width: 2,
-            image_height: 2,
-            position: (0.0, 0.0),
-            size: (50.0, 50.0),
-            repeat: BgRepeat {
-                x: BgRepeatAxis::Repeat,
-                y: BgRepeatAxis::Repeat,
-            },
-            opacity: 1.0,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-    }
-
-    #[test]
-    fn tile_positions_no_repeat() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let area = Rect::new(0.0, 0.0, 400.0, 300.0);
-        let repeat = BgRepeat {
-            x: BgRepeatAxis::NoRepeat,
-            y: BgRepeatAxis::NoRepeat,
-        };
-        let positions = compute_tile_positions(&area, &(10.0, 20.0), &(100.0, 50.0), &repeat);
-        assert_eq!(positions.len(), 1);
-        assert_eq!(positions[0], (10.0, 20.0));
-    }
-
-    #[test]
-    fn tile_positions_repeat() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let area = Rect::new(0.0, 0.0, 200.0, 100.0);
-        let repeat = BgRepeat {
-            x: BgRepeatAxis::Repeat,
-            y: BgRepeatAxis::Repeat,
-        };
-        let positions = compute_tile_positions(&area, &(0.0, 0.0), &(50.0, 50.0), &repeat);
-        // Must cover the entire painting area — at least 4 columns × 2 rows
-        assert!(positions.len() >= 8);
-        // All visible tiles must intersect the painting area
-        for &(x, y) in &positions {
-            assert!(x < 200.0 && y < 100.0);
-        }
-    }
-
-    #[test]
-    fn tile_positions_space() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let area = Rect::new(0.0, 0.0, 250.0, 100.0);
-        let repeat = BgRepeat {
-            x: BgRepeatAxis::Space,
-            y: BgRepeatAxis::NoRepeat,
-        };
-        let positions = compute_tile_positions(&area, &(0.0, 0.0), &(100.0, 50.0), &repeat);
-        // floor(250/100) = 2 tiles in x, 1 in y → 2 tiles
-        assert_eq!(positions.len(), 2);
-        // First tile at x=0, second at x=150 (50px space between)
-        assert!((positions[0].0).abs() < 0.1);
-        assert!((positions[1].0 - 150.0).abs() < 0.1);
-    }
-
-    #[test]
-    fn tile_positions_round() {
-        use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
-        let area = Rect::new(0.0, 0.0, 250.0, 100.0);
-        let repeat = BgRepeat {
-            x: BgRepeatAxis::Round,
-            y: BgRepeatAxis::NoRepeat,
-        };
-        // round(250/100) = 3 tiles, each 250/3 ≈ 83.3px
-        let positions = compute_tile_positions(&area, &(0.0, 0.0), &(100.0, 50.0), &repeat);
-        // Must have at least 3 tiles covering the 250px area with ~83px tiles
-        assert!(positions.len() >= 3);
-    }
-
-    #[test]
-    fn styled_border_segment_dashed_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::StyledBorderSegment {
-            start: (0.0, 1.0),
-            end: (100.0, 1.0),
-            width: 2.0,
-            dashes: vec![6.0, 2.0],
-            round_caps: false,
-            color: CssColor::RED,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test for dashed border segment.
-    }
-
-    #[test]
-    fn styled_border_segment_dotted_builds_scene() {
-        let mut scene = Scene::new();
-        let mut fc = HashMap::new();
-        let dl = DisplayList(vec![DisplayItem::StyledBorderSegment {
-            start: (1.5, 0.0),
-            end: (1.5, 50.0),
-            width: 3.0,
-            dashes: vec![0.001, 6.0],
-            round_caps: true,
-            color: CssColor::BLUE,
-        }]);
-        build_scene(&mut scene, &dl, &mut fc);
-        // Should not panic — smoke test for dotted border segment.
-    }
-}
+#[path = "vello_tests.rs"]
+mod tests;

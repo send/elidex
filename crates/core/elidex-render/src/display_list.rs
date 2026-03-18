@@ -156,6 +156,14 @@ pub enum DisplayItem {
     },
     /// End a clip region.
     PopClip,
+    /// Begin a 2D affine transform region (CSS Transforms L1/L2, 3D projected to 2D).
+    /// Coefficients `[a, b, c, d, e, f]` = `| a c e | / | b d f | / | 0 0 1 |`
+    PushTransform {
+        /// The projected 2D affine transform.
+        affine: [f64; 6],
+    },
+    /// End a transform region.
+    PopTransform,
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.

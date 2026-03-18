@@ -448,7 +448,7 @@ fn grid_minmax_min_content_uses_narrow_size() {
         layout_block_only,
     );
 
-    let lb1 = get_layout(&dom, c1);
+    let _lb1 = get_layout(&dom, c1);
 
     // minmax(min-content, 1fr): base = min-content (50px child width),
     // max = 1fr gets remaining space (600 - 200 = 400px).
@@ -669,7 +669,7 @@ fn auto_fit_collapses_empty_tracks() {
     let c2 = make_grid_child(&mut dom, container, 50.0);
 
     let font_db = FontDatabase::new();
-    let clb = do_layout_grid(
+    let _clb = do_layout_grid(
         &mut dom,
         container,
         900.0,

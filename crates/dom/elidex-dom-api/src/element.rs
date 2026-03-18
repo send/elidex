@@ -1211,7 +1211,7 @@ mod tests {
         let err = SetAttribute
             .invoke(
                 parent,
-                &[JsValue::String("".into()), JsValue::String("v".into())],
+                &[JsValue::String(String::new()), JsValue::String("v".into())],
                 &mut session,
                 &mut dom,
             )
@@ -1528,7 +1528,7 @@ mod tests {
         let err = ToggleAttribute
             .invoke(
                 parent,
-                &[JsValue::String("".into())],
+                &[JsValue::String(String::new())],
                 &mut session,
                 &mut dom,
             )

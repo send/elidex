@@ -7,6 +7,7 @@ use elidex_plugin::{EdgeSizes, Rect};
 mod basic;
 mod display_types;
 mod styling;
+mod transform;
 
 /// Font families used across tests. Covers common system fonts on
 /// Linux, macOS, and Windows so that at least one is available on CI.
