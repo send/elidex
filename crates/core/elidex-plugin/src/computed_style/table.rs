@@ -25,3 +25,11 @@ keyword_enum! {
         Bottom => "bottom",
     }
 }
+
+keyword_enum! {
+    /// The CSS `empty-cells` property (CSS 2.1 §17.5.1).
+    EmptyCells {
+        Show => "show",
+        Hide => "hide",
+    }
+}

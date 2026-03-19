@@ -1773,6 +1773,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-css-multicol"
+version = "0.1.0"
+dependencies = [
+ "cssparser",
+ "elidex-css",
+ "elidex-plugin",
+]
+
+[[package]]
 name = "elidex-css-table"
 version = "0.1.0"
 dependencies = [
@@ -2075,6 +2084,7 @@ dependencies = [
  "elidex-css-flex",
  "elidex-css-float",
  "elidex-css-grid",
+ "elidex-css-multicol",
  "elidex-css-table",
  "elidex-css-text",
  "elidex-css-transform",

@@ -239,7 +239,7 @@ fn grid_auto_track_size() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
-                grid_auto_rows: TrackSize::Length(50.0),
+                grid_auto_rows: vec![TrackSize::Length(50.0)],
                 ..Default::default()
             },
         )

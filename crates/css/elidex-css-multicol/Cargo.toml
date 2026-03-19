@@ -1,0 +1,19 @@
+[package]
+name = "elidex-css-multicol"
+description = "CSS multi-column layout property handler plugin for elidex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+keywords = ["browser-engine", "css", "multicol"]
+categories = ["web-programming"]
+
+[dependencies]
+elidex-plugin.workspace = true
+elidex-css.workspace = true
+cssparser.workspace = true
+
+[lints]
+workspace = true

@@ -75,20 +75,29 @@ macro_rules! keyword_enum {
 }
 
 mod box_model;
+mod columns;
 mod display;
 mod flex;
 mod float_visibility;
+mod fragmentation;
 mod grid;
 mod table;
 mod text;
 mod writing_mode;
 
 pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
+pub use columns::{ColumnFill, ColumnSpan};
 pub use display::{Display, Overflow, Position, ViewportOverflow};
-pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
+pub use flex::{
+    AlignContent, AlignItems, AlignSelf, AlignmentSafety, FlexDirection, FlexWrap, JustifyContent,
+};
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
-pub use grid::{AutoRepeatMode, GridAutoFlow, GridLine, GridTrackList, TrackBreadth, TrackSize};
-pub use table::{BorderCollapse, CaptionSide, TableLayout};
+pub use fragmentation::{BoxDecorationBreak, BreakInsideValue, BreakValue};
+pub use grid::{
+    AutoRepeatMode, GridAutoFlow, GridLine, GridTrackList, JustifyItems, JustifySelf, TrackBreadth,
+    TrackSize,
+};
+pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
 pub use text::{
     FontStyle, LineHeight, ListStyleType, TextAlign, TextDecorationLine, TextDecorationStyle,
     TextTransform, WhiteSpace,
@@ -218,6 +227,12 @@ pub struct ComputedStyle {
     /// Column gap (computed value — may contain percentages). Initial: 0.
     pub column_gap: Dimension,
 
+    // --- Alignment safety (non-inherited) ---
+    /// Justify-content alignment safety. Initial: `Unsafe`.
+    pub justify_content_safety: AlignmentSafety,
+    /// Align-content alignment safety. Initial: `Unsafe`.
+    pub align_content_safety: AlignmentSafety,
+
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
     pub flex_direction: FlexDirection,
@@ -249,10 +264,14 @@ pub struct ComputedStyle {
     pub grid_template_rows: GridTrackList,
     /// Grid auto-flow direction. Initial: `Row`.
     pub grid_auto_flow: GridAutoFlow,
-    /// Implicit column track size. Initial: `Auto`.
-    pub grid_auto_columns: TrackSize,
-    /// Implicit row track size. Initial: `Auto`.
-    pub grid_auto_rows: TrackSize,
+    /// Implicit column track sizes (cycled for implicit tracks). Initial: `[Auto]`.
+    pub grid_auto_columns: Vec<TrackSize>,
+    /// Implicit row track sizes (cycled for implicit tracks). Initial: `[Auto]`.
+    pub grid_auto_rows: Vec<TrackSize>,
+    /// Justify items for grid children. Initial: `Stretch`.
+    pub justify_items: JustifyItems,
+    /// Justify self for grid items. Initial: `Auto`.
+    pub justify_self: JustifySelf,
 
     // --- Grid item properties (non-inherited) ---
     /// Grid column start line. Initial: `Auto`.
@@ -265,6 +284,8 @@ pub struct ComputedStyle {
     pub grid_row_end: GridLine,
 
     // --- Table properties ---
+    /// Empty cells visibility. Initial: `Show`. **Inherited.**
+    pub empty_cells: EmptyCells,
     /// Border collapse model. Initial: `Separate`. **Inherited.**
     pub border_collapse: BorderCollapse,
     /// Horizontal border spacing in pixels (separate model only). Initial: 0.0. **Inherited.**
@@ -295,6 +316,36 @@ pub struct ComputedStyle {
     pub clear: Clear,
     /// Vertical alignment for inline/table-cell. Initial: `Baseline`.
     pub vertical_align: VerticalAlign,
+
+    // --- Fragmentation properties ---
+    /// Break before the element. Initial: `Auto`.
+    pub break_before: BreakValue,
+    /// Break after the element. Initial: `Auto`.
+    pub break_after: BreakValue,
+    /// Break inside the element. Initial: `Auto`.
+    pub break_inside: BreakInsideValue,
+    /// Box decoration break. Initial: `Slice`.
+    pub box_decoration_break: BoxDecorationBreak,
+    /// Minimum lines at bottom of page/column. Initial: `2`. **Inherited.**
+    pub orphans: u32,
+    /// Minimum lines at top of page/column. Initial: `2`. **Inherited.**
+    pub widows: u32,
+
+    // --- Multi-column properties (non-inherited) ---
+    /// Column count. Initial: `None` (= `auto`).
+    pub column_count: Option<u32>,
+    /// Column width. Initial: `Auto`.
+    pub column_width: Dimension,
+    /// Column fill. Initial: `Balance`.
+    pub column_fill: ColumnFill,
+    /// Column span. Initial: `None`.
+    pub column_span: ColumnSpan,
+    /// Column rule width in pixels. Initial: `3.0` (medium).
+    pub column_rule_width: f32,
+    /// Column rule style. Initial: `None`.
+    pub column_rule_style: BorderStyle,
+    /// Column rule color. Initial: `currentColor`.
+    pub column_rule_color: CssColor,
 
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
@@ -444,12 +495,18 @@ impl Default for ComputedStyle {
             order: 0,
             align_self: AlignSelf::default(),
 
+            // Alignment safety
+            justify_content_safety: AlignmentSafety::default(),
+            align_content_safety: AlignmentSafety::default(),
+
             // Grid container
             grid_template_columns: GridTrackList::default(),
             grid_template_rows: GridTrackList::default(),
             grid_auto_flow: GridAutoFlow::default(),
-            grid_auto_columns: TrackSize::Auto,
-            grid_auto_rows: TrackSize::Auto,
+            grid_auto_columns: vec![TrackSize::Auto],
+            grid_auto_rows: vec![TrackSize::Auto],
+            justify_items: JustifyItems::default(),
+            justify_self: JustifySelf::default(),
 
             // Grid item
             grid_column_start: GridLine::Auto,
@@ -458,6 +515,7 @@ impl Default for ComputedStyle {
             grid_row_end: GridLine::Auto,
 
             // Table
+            empty_cells: EmptyCells::default(),
             border_collapse: BorderCollapse::default(),
             border_spacing_h: 0.0,
             border_spacing_v: 0.0,
@@ -475,6 +533,23 @@ impl Default for ComputedStyle {
             float: Float::default(),
             clear: Clear::default(),
             vertical_align: VerticalAlign::default(),
+
+            // Fragmentation
+            break_before: BreakValue::default(),
+            break_after: BreakValue::default(),
+            break_inside: BreakInsideValue::default(),
+            box_decoration_break: BoxDecorationBreak::default(),
+            orphans: 2,
+            widows: 2,
+
+            // Multi-column
+            column_count: None,
+            column_width: Dimension::Auto,
+            column_fill: ColumnFill::default(),
+            column_span: ColumnSpan::default(),
+            column_rule_width: 3.0,
+            column_rule_style: BorderStyle::None,
+            column_rule_color: color,
 
             // Generated content
             content: ContentValue::Normal,

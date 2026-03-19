@@ -1,8 +1,9 @@
 //! Box model resolution: dimensions, margin, padding, border, extras, gap.
 
 use elidex_plugin::{
-    BorderCollapse, BorderStyle, BoxSizing, CaptionSide, ComputedStyle, CssColor, CssValue,
-    Dimension, Overflow, Position, TableLayout,
+    BorderCollapse, BorderStyle, BoxDecorationBreak, BoxSizing, BreakInsideValue, BreakValue,
+    CaptionSide, ColumnFill, ColumnSpan, ComputedStyle, CssColor, CssValue, Dimension, EmptyCells,
+    Overflow, Position, TableLayout,
 };
 
 use super::helpers::resolve_keyword_enum_prop;
@@ -492,6 +493,156 @@ pub(super) fn resolve_table_properties(
         parent_style.caption_side,
         CaptionSide::from_keyword,
     );
+
+    // empty-cells (inherited)
+    style.empty_cells = resolve_inherited_keyword_enum(
+        "empty-cells",
+        winners,
+        parent_style,
+        parent_style.empty_cells,
+        EmptyCells::from_keyword,
+    );
+
+    // break-before / break-after (non-inherited)
+    resolve_keyword_enum_prop!(
+        "break-before",
+        winners,
+        parent_style,
+        style.break_before,
+        BreakValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "break-after",
+        winners,
+        parent_style,
+        style.break_after,
+        BreakValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "break-inside",
+        winners,
+        parent_style,
+        style.break_inside,
+        BreakInsideValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "box-decoration-break",
+        winners,
+        parent_style,
+        style.box_decoration_break,
+        BoxDecorationBreak::from_keyword
+    );
+
+    // orphans / widows (inherited)
+    if let Some(CssValue::Number(n)) = get_resolved_winner("orphans", winners, parent_style) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            style.orphans = (n as u32).max(1);
+        }
+    } else if !winners.contains_key("orphans") {
+        style.orphans = parent_style.orphans;
+    }
+    if let Some(CssValue::Number(n)) = get_resolved_winner("widows", winners, parent_style) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            style.widows = (n as u32).max(1);
+        }
+    } else if !winners.contains_key("widows") {
+        style.widows = parent_style.widows;
+    }
+
+    // Multi-column properties.
+    resolve_multicol_properties(style, winners, parent_style, ctx);
+}
+
+/// Resolve CSS Multi-column Layout Level 1 properties (all non-inherited).
+fn resolve_multicol_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    // column-count: integer ≥ 1, or None for auto
+    match get_resolved_winner("column-count", winners, parent_style) {
+        Some(CssValue::Number(n)) if n.is_finite() => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                style.column_count = Some((n as u32).max(1));
+            }
+        }
+        Some(CssValue::Auto) => {
+            style.column_count = None;
+        }
+        _ => {}
+    }
+
+    // column-width: length ≥ 0, or Auto
+    match get_resolved_winner("column-width", winners, parent_style) {
+        Some(CssValue::Auto) => {
+            style.column_width = Dimension::Auto;
+        }
+        Some(ref v) => {
+            let px = resolve_to_px(v, ctx).max(0.0);
+            style.column_width = Dimension::Length(px);
+        }
+        None => {}
+    }
+
+    // column-fill
+    resolve_keyword_enum_prop!(
+        "column-fill",
+        winners,
+        parent_style,
+        style.column_fill,
+        ColumnFill::from_keyword
+    );
+
+    // column-span
+    resolve_keyword_enum_prop!(
+        "column-span",
+        winners,
+        parent_style,
+        style.column_span,
+        ColumnSpan::from_keyword
+    );
+
+    // column-rule-style (must be resolved before width)
+    resolve_keyword_enum_prop!(
+        "column-rule-style",
+        winners,
+        parent_style,
+        style.column_rule_style,
+        BorderStyle::from_keyword
+    );
+
+    // column-rule-width: 0 when style is none/hidden
+    if let Some(ref v) = get_resolved_winner("column-rule-width", winners, parent_style) {
+        let px = if matches!(
+            style.column_rule_style,
+            BorderStyle::None | BorderStyle::Hidden
+        ) {
+            0.0
+        } else {
+            resolve_to_px(v, ctx).max(0.0)
+        };
+        style.column_rule_width = px;
+    }
+
+    // column-rule-color (initial = currentcolor)
+    let current_color = style.color;
+    match get_resolved_winner("column-rule-color", winners, parent_style) {
+        Some(CssValue::Color(c)) => {
+            style.column_rule_color = c;
+        }
+        Some(_) => {
+            // currentcolor keyword or any other value → resolve to current color.
+            style.column_rule_color = current_color;
+        }
+        None => {
+            // No declaration: initial value is currentcolor.
+            style.column_rule_color = current_color;
+        }
+    }
 }
 
 #[cfg(test)]

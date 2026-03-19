@@ -7,9 +7,10 @@ use elidex_plugin::{
         parse_length_percentage_auto_or_none, parse_non_negative_length_or_percentage,
         resolve_color, resolve_dimension, resolve_to_px,
     },
-    parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
-    ContentValue, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
-    ParseError, Position, PropertyDeclaration, ResolveContext,
+    parse_css_keyword as parse_keyword, BorderStyle, BoxDecorationBreak, BoxSizing,
+    BreakInsideValue, BreakValue, ComputedStyle, ContentItem, ContentValue, CssPropertyHandler,
+    CssValue, Dimension, Display, LengthUnit, Overflow, ParseError, Position, PropertyDeclaration,
+    ResolveContext,
 };
 
 /// CSS box model property handler.
@@ -105,6 +106,12 @@ const BOX_PROPERTIES: &[&str] = &[
     "bottom",
     "left",
     "z-index",
+    "break-before",
+    "break-after",
+    "break-inside",
+    "box-decoration-break",
+    "orphans",
+    "widows",
 ];
 
 impl CssPropertyHandler for BoxHandler {
@@ -153,6 +160,27 @@ impl CssPropertyHandler for BoxHandler {
 
             "opacity" => parse_opacity(input)?,
             "content" => parse_content(input)?,
+
+            "break-before" | "break-after" => parse_keyword(
+                input,
+                &[
+                    "auto",
+                    "avoid",
+                    "avoid-page",
+                    "avoid-column",
+                    "page",
+                    "column",
+                    "left",
+                    "right",
+                    "recto",
+                    "verso",
+                ],
+            )?,
+            "break-inside" => {
+                parse_keyword(input, &["auto", "avoid", "avoid-page", "avoid-column"])?
+            }
+            "box-decoration-break" => parse_keyword(input, &["slice", "clone"])?,
+            "orphans" | "widows" => parse_positive_integer(input, name)?,
 
             // "overflow" shorthand is expanded into overflow-x/y by elidex-css
             // before reaching this handler. It remains in BOX_PROPERTIES for
@@ -289,6 +317,39 @@ impl CssPropertyHandler for BoxHandler {
                 };
             }
 
+            "break-before" => {
+                elidex_plugin::resolve_keyword!(value, style.break_before, BreakValue);
+            }
+            "break-after" => {
+                elidex_plugin::resolve_keyword!(value, style.break_after, BreakValue);
+            }
+            "break-inside" => {
+                elidex_plugin::resolve_keyword!(value, style.break_inside, BreakInsideValue);
+            }
+            "box-decoration-break" => {
+                elidex_plugin::resolve_keyword!(
+                    value,
+                    style.box_decoration_break,
+                    BoxDecorationBreak
+                );
+            }
+            "orphans" => {
+                if let CssValue::Number(n) = value {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    {
+                        style.orphans = (*n as u32).max(1);
+                    }
+                }
+            }
+            "widows" => {
+                if let CssValue::Number(n) = value {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    {
+                        style.widows = (*n as u32).max(1);
+                    }
+                }
+            }
+
             _ => {}
         }
     }
@@ -339,12 +400,18 @@ impl CssPropertyHandler for BoxHandler {
             "overflow" | "overflow-x" | "overflow-y" => CssValue::Keyword("visible".to_string()),
             "content" => CssValue::Keyword("normal".to_string()),
 
+            "break-before" | "break-after" | "break-inside" => {
+                CssValue::Keyword("auto".to_string())
+            }
+            "box-decoration-break" => CssValue::Keyword("slice".to_string()),
+            "orphans" | "widows" => CssValue::Number(2.0),
+
             _ => CssValue::Initial,
         }
     }
 
-    fn is_inherited(&self, _name: &str) -> bool {
-        false
+    fn is_inherited(&self, name: &str) -> bool {
+        matches!(name, "orphans" | "widows")
     }
 
     fn affects_layout(&self, name: &str) -> bool {
@@ -454,6 +521,15 @@ impl CssPropertyHandler for BoxHandler {
                 None => CssValue::Auto,
             },
 
+            "break-before" => keyword_from(&style.break_before),
+            "break-after" => keyword_from(&style.break_after),
+            "break-inside" => keyword_from(&style.break_inside),
+            "box-decoration-break" => keyword_from(&style.box_decoration_break),
+            #[allow(clippy::cast_precision_loss)]
+            "orphans" => CssValue::Number(style.orphans as f32),
+            #[allow(clippy::cast_precision_loss)]
+            "widows" => CssValue::Number(style.widows as f32),
+
             _ => CssValue::Initial,
         }
     }
@@ -482,6 +558,26 @@ fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
 }
 
 /// Parse opacity: a number clamped to 0.0..=1.0.
+fn parse_positive_integer(
+    input: &mut cssparser::Parser<'_, '_>,
+    prop: &str,
+) -> Result<CssValue, ParseError> {
+    let n = input.expect_integer().map_err(|_| ParseError {
+        property: prop.into(),
+        input: String::new(),
+        message: "expected positive integer".into(),
+    })?;
+    if n < 1 {
+        return Err(ParseError {
+            property: prop.into(),
+            input: n.to_string(),
+            message: "value must be >= 1".into(),
+        });
+    }
+    #[allow(clippy::cast_precision_loss)]
+    Ok(CssValue::Number(n as f32))
+}
+
 fn parse_opacity(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let token = input.next().map_err(|_| ParseError {
         property: String::new(),

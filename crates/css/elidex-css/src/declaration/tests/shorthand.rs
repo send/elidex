@@ -511,3 +511,87 @@ fn parse_content_attr() {
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].value, CssValue::Keyword("attr:title".to_string()));
 }
+
+// --- column-rule shorthand ---
+
+#[test]
+fn column_rule_all_three() {
+    let decls = parse_single("column-rule", "2px solid red");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+    assert_eq!(
+        decls[2].value,
+        CssValue::Color(CssColor {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        })
+    );
+}
+
+#[test]
+fn column_rule_style_only() {
+    // Omitted components reset to initial values.
+    let decls = parse_single("column-rule", "dashed");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(3.0, LengthUnit::Px)); // medium
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+    assert_eq!(
+        decls[2].value,
+        CssValue::Keyword("currentcolor".to_string())
+    );
+}
+
+#[test]
+fn column_rule_any_order() {
+    // Input order differs from output — output always: width, style, color.
+    let decls = parse_single("column-rule", "red thick dotted");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(5.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dotted".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+}
+
+// --- columns shorthand ---
+
+#[test]
+fn columns_both() {
+    let decls = parse_single("columns", "200px 3");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Length(200.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Number(3.0));
+}
+
+#[test]
+fn columns_auto() {
+    // "auto" matches column-count; omitted column-width resets to auto.
+    let decls = parse_single("columns", "auto");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Auto);
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Auto);
+}
+
+#[test]
+fn columns_count_only() {
+    // Omitted column-width resets to initial (auto).
+    let decls = parse_single("columns", "3");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Auto);
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Number(3.0));
+}

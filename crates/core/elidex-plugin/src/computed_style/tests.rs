@@ -79,9 +79,9 @@ fn default_initial_values() {
     // --- Flex container ---
     assert_eq!(s.flex_direction, FlexDirection::Row);
     assert_eq!(s.flex_wrap, FlexWrap::Nowrap);
-    assert_eq!(s.justify_content, JustifyContent::FlexStart);
+    assert_eq!(s.justify_content, JustifyContent::Normal);
     assert_eq!(s.align_items, AlignItems::Stretch);
-    assert_eq!(s.align_content, AlignContent::Stretch);
+    assert_eq!(s.align_content, AlignContent::Normal);
 
     // --- Flex item ---
     assert_eq!(s.flex_grow, 0.0);
@@ -94,8 +94,8 @@ fn default_initial_values() {
     assert!(s.grid_template_columns.is_empty());
     assert!(s.grid_template_rows.is_empty());
     assert_eq!(s.grid_auto_flow, GridAutoFlow::Row);
-    assert_eq!(s.grid_auto_columns, TrackSize::Auto);
-    assert_eq!(s.grid_auto_rows, TrackSize::Auto);
+    assert_eq!(s.grid_auto_columns, vec![TrackSize::Auto]);
+    assert_eq!(s.grid_auto_rows, vec![TrackSize::Auto]);
 
     // --- Grid item ---
     assert_eq!(s.grid_column_start, GridLine::Auto);
@@ -143,10 +143,10 @@ fn keyword_enum_defaults_and_as_ref() {
     assert_eq!(BorderStyle::default().as_ref(), "none");
     assert_eq!(FlexDirection::default().as_ref(), "row");
     assert_eq!(FlexWrap::default().as_ref(), "nowrap");
-    assert_eq!(JustifyContent::default().as_ref(), "flex-start");
+    assert_eq!(JustifyContent::default().as_ref(), "normal");
     assert_eq!(AlignItems::default().as_ref(), "stretch");
     assert_eq!(AlignSelf::default().as_ref(), "auto");
-    assert_eq!(AlignContent::default().as_ref(), "stretch");
+    assert_eq!(AlignContent::default().as_ref(), "normal");
     assert_eq!(FontStyle::default().as_ref(), "normal");
     assert_eq!(TextAlign::default().as_ref(), "start");
     assert_eq!(Direction::default().as_ref(), "ltr");
@@ -464,6 +464,8 @@ fn from_keyword_roundtrip() {
             JustifyContent::SpaceBetween,
             JustifyContent::SpaceAround,
             JustifyContent::SpaceEvenly,
+            JustifyContent::Stretch,
+            JustifyContent::Normal,
         ],
         JustifyContent::from_keyword,
     );
@@ -486,6 +488,7 @@ fn from_keyword_roundtrip() {
             AlignContent::SpaceBetween,
             AlignContent::SpaceAround,
             AlignContent::SpaceEvenly,
+            AlignContent::Normal,
         ],
         AlignContent::from_keyword,
     );
@@ -591,6 +594,67 @@ fn from_keyword_roundtrip() {
             Visibility::Collapse,
         ],
         Visibility::from_keyword,
+    );
+    assert_roundtrips(
+        &[EmptyCells::Show, EmptyCells::Hide],
+        EmptyCells::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            BreakValue::Auto,
+            BreakValue::Avoid,
+            BreakValue::AvoidPage,
+            BreakValue::AvoidColumn,
+            BreakValue::Page,
+            BreakValue::Column,
+            BreakValue::Left,
+            BreakValue::Right,
+            BreakValue::Recto,
+            BreakValue::Verso,
+        ],
+        BreakValue::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            BreakInsideValue::Auto,
+            BreakInsideValue::Avoid,
+            BreakInsideValue::AvoidPage,
+            BreakInsideValue::AvoidColumn,
+        ],
+        BreakInsideValue::from_keyword,
+    );
+    assert_roundtrips(
+        &[ColumnSpan::None, ColumnSpan::All],
+        ColumnSpan::from_keyword,
+    );
+    assert_roundtrips(
+        &[ColumnFill::Balance, ColumnFill::Auto],
+        ColumnFill::from_keyword,
+    );
+    assert_roundtrips(
+        &[BoxDecorationBreak::Slice, BoxDecorationBreak::Cloned],
+        BoxDecorationBreak::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            JustifyItems::Stretch,
+            JustifyItems::Start,
+            JustifyItems::End,
+            JustifyItems::Center,
+            JustifyItems::Baseline,
+        ],
+        JustifyItems::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            JustifySelf::Auto,
+            JustifySelf::Start,
+            JustifySelf::End,
+            JustifySelf::Center,
+            JustifySelf::Stretch,
+            JustifySelf::Baseline,
+        ],
+        JustifySelf::from_keyword,
     );
 }
 

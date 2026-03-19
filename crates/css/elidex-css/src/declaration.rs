@@ -410,6 +410,10 @@ pub(crate) fn parse_property_value(
         "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
         "grid-area" => grid::parse_grid_area(input),
 
+        // --- Multi-column shorthands ---
+        "column-rule" => misc::parse_column_rule_shorthand(input),
+        "columns" => misc::parse_columns_shorthand(input),
+
         // --- Writing mode / BiDi properties ---
         "direction" => parse_keyword_property(input, name, &["ltr", "rtl"]),
         "unicode-bidi" => parse_keyword_property(
@@ -684,6 +688,12 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "grid-row-end".to_string(),
             "grid-column-end".to_string(),
         ],
+        "column-rule" => vec![
+            "column-rule-width".to_string(),
+            "column-rule-style".to_string(),
+            "column-rule-color".to_string(),
+        ],
+        "columns" => vec!["column-width".to_string(), "column-count".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

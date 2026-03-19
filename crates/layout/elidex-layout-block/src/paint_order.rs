@@ -47,8 +47,15 @@ impl StackingContextLayers {
 /// Collect all participants for a stacking context's paint order.
 ///
 /// Walks through z-index: auto positioned elements to collect bubbled-up descendants.
+///
+/// When `parent_display` is a flex or grid container, all layers use order-modified
+/// document order (CSS Flexbox §5.4 / CSS Grid §8.3).
 #[must_use]
-pub fn collect_sc_participants(dom: &EcsDom, children: &[Entity]) -> StackingContextLayers {
+pub fn collect_sc_participants(
+    dom: &EcsDom,
+    children: &[Entity],
+    parent_display: Option<Display>,
+) -> StackingContextLayers {
     let mut layers = StackingContextLayers::new();
     layers.all_children = children.to_vec();
 
@@ -84,7 +91,35 @@ pub fn collect_sc_participants(dom: &EcsDom, children: &[Entity]) -> StackingCon
     layers.negative_z.sort_by_key(|&e| get_z_index(dom, e));
     layers.positive_z.sort_by_key(|&e| get_z_index(dom, e));
 
+    // CSS Flexbox §5.4 / CSS Grid §8.3: order-modified document order.
+    if matches!(
+        parent_display,
+        Some(Display::Flex | Display::InlineFlex | Display::Grid | Display::InlineGrid)
+    ) {
+        let order_key = |e: &Entity| get_order(dom, *e);
+        layers.in_flow_blocks.sort_by_key(order_key);
+        layers.floats.sort_by_key(order_key);
+        layers.positioned_auto.sort_by_key(order_key);
+        // zero_z: all have z-index=0, so sort by order only (stable sort preserves DOM order).
+        layers.zero_z.sort_by_key(order_key);
+        layers.negative_z.sort_by(|a, b| {
+            get_z_index(dom, *a)
+                .cmp(&get_z_index(dom, *b))
+                .then_with(|| get_order(dom, *a).cmp(&get_order(dom, *b)))
+        });
+        layers.positive_z.sort_by(|a, b| {
+            get_z_index(dom, *a)
+                .cmp(&get_z_index(dom, *b))
+                .then_with(|| get_order(dom, *a).cmp(&get_order(dom, *b)))
+        });
+    }
+
     layers
+}
+
+/// Get order for sorting (defaults to 0).
+fn get_order(dom: &EcsDom, entity: Entity) -> i32 {
+    try_get_style(dom, entity).map_or(0, |s| s.order)
 }
 
 /// Classify a stacking context entity by z-index into the appropriate layer.
@@ -211,7 +246,7 @@ mod tests {
         dom.append_child(parent, child);
         set_block(&mut dom, child);
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.in_flow_blocks.len(), 1);
         assert!(layers.floats.is_empty());
         assert!(layers.positioned_auto.is_empty());
@@ -223,7 +258,7 @@ mod tests {
         let child = elem(&mut dom, "div");
         set_float(&mut dom, child);
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.floats.len(), 1);
         assert!(layers.in_flow_blocks.is_empty());
     }
@@ -234,7 +269,7 @@ mod tests {
         let child = elem(&mut dom, "span");
         set_inline(&mut dom, child);
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         // Inline is neither block nor float nor positioned.
         assert!(layers.in_flow_blocks.is_empty());
         assert!(layers.floats.is_empty());
@@ -247,7 +282,7 @@ mod tests {
         let child = elem(&mut dom, "div");
         set_positioned(&mut dom, child, Position::Absolute, Some(-1));
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.negative_z.len(), 1);
     }
 
@@ -257,7 +292,7 @@ mod tests {
         let child = elem(&mut dom, "div");
         set_positioned(&mut dom, child, Position::Relative, None);
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.positioned_auto.len(), 1);
     }
 
@@ -267,7 +302,7 @@ mod tests {
         let child = elem(&mut dom, "div");
         set_positioned(&mut dom, child, Position::Absolute, Some(0));
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.zero_z.len(), 1);
     }
 
@@ -277,7 +312,7 @@ mod tests {
         let child = elem(&mut dom, "div");
         set_positioned(&mut dom, child, Position::Fixed, Some(1));
 
-        let layers = collect_sc_participants(&dom, &[child]);
+        let layers = collect_sc_participants(&dom, &[child], None);
         assert_eq!(layers.positive_z.len(), 1);
     }
 
@@ -292,7 +327,7 @@ mod tests {
         set_positioned(&mut dom, auto_pos, Position::Relative, None);
         set_positioned(&mut dom, inner_sc, Position::Absolute, Some(5));
 
-        let layers = collect_sc_participants(&dom, &[auto_pos]);
+        let layers = collect_sc_participants(&dom, &[auto_pos], None);
         // auto_pos is in positioned_auto
         assert_eq!(layers.positioned_auto.len(), 1);
         // inner_sc (z:5) bubbles up to positive_z
@@ -309,7 +344,7 @@ mod tests {
         set_positioned(&mut dom, sc, Position::Absolute, Some(0));
         set_positioned(&mut dom, inner, Position::Absolute, Some(5));
 
-        let layers = collect_sc_participants(&dom, &[sc]);
+        let layers = collect_sc_participants(&dom, &[sc], None);
         // sc (z:0) is in zero_z. inner is INSIDE sc's stacking context.
         assert_eq!(layers.zero_z.len(), 1);
         // inner should NOT bubble up.
@@ -333,7 +368,7 @@ mod tests {
         );
         set_positioned(&mut dom, positioned_child, Position::Absolute, Some(5));
 
-        let layers = collect_sc_participants(&dom, &[opacity_elem]);
+        let layers = collect_sc_participants(&dom, &[opacity_elem], None);
         // opacity element creates SC → positioned child should NOT bubble up
         assert!(layers.positive_z.is_empty());
     }
@@ -350,7 +385,7 @@ mod tests {
         set_block(&mut dom, static_wrapper);
         set_positioned(&mut dom, positioned_child, Position::Absolute, Some(3));
 
-        let layers = collect_sc_participants(&dom, &[static_parent]);
+        let layers = collect_sc_participants(&dom, &[static_parent], None);
         // positioned_child should bubble up through static_parent and static_wrapper
         assert_eq!(layers.positive_z.len(), 1);
         assert_eq!(layers.positive_z[0], positioned_child);

@@ -11,6 +11,7 @@ members = [
     "crates/css/elidex-css-flex",
     "crates/css/elidex-css-grid",
     "crates/css/elidex-css-table",
+    "crates/css/elidex-css-multicol",
     "crates/css/elidex-css-float",
     "crates/css/elidex-css-anim",
     "crates/css/elidex-css-background",
@@ -95,6 +96,7 @@ elidex-css-box = { path = "crates/css/elidex-css-box" }
 elidex-css-text = { path = "crates/css/elidex-css-text" }
 elidex-css-flex = { path = "crates/css/elidex-css-flex" }
 elidex-css-grid = { path = "crates/css/elidex-css-grid" }
+elidex-css-multicol = { path = "crates/css/elidex-css-multicol" }
 elidex-css-table = { path = "crates/css/elidex-css-table" }
 elidex-css-float = { path = "crates/css/elidex-css-float" }
 elidex-css-anim = { path = "crates/css/elidex-css-anim" }

@@ -15,8 +15,8 @@ use elidex_layout_block::{
     vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
-    FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect, Visibility,
+    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
+    Display, EdgeSizes, FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect, Visibility,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -165,6 +165,10 @@ pub(crate) struct FlexContext {
     pub(crate) gap_cross: f32,
     /// CSS `direction` property (LTR/RTL) — affects main-axis order for row layouts.
     pub(crate) css_direction: Direction,
+    /// CSS Box Alignment L3: safe/unsafe modifier for justify-content.
+    pub(crate) justify_content_safety: AlignmentSafety,
+    /// CSS Box Alignment L3: safe/unsafe modifier for align-content.
+    pub(crate) align_content_safety: AlignmentSafety,
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +283,8 @@ pub fn layout_flex(
         gap_main,
         gap_cross,
         css_direction: style.direction,
+        justify_content_safety: style.justify_content_safety,
+        align_content_safety: style.align_content_safety,
     };
 
     let env = algo::LayoutEnv {
@@ -318,10 +324,17 @@ pub fn layout_flex(
 
     let container_cross =
         algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross);
+    let align_content = algo::apply_align_content_safety(
+        ctx.align_content,
+        container_cross,
+        &line_cross_sizes,
+        ctx.gap_cross,
+        ctx.align_content_safety,
+    );
     let align_result = algo::compute_align_content_offsets(
         &line_cross_sizes,
         container_cross,
-        ctx.align_content,
+        align_content,
         ctx.wrap,
         ctx.gap_cross,
     );

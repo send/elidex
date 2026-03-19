@@ -6,8 +6,8 @@ use elidex_layout_block::{
     clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, FlexWrap,
-    JustifyContent, LayoutBox, Rect,
+    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
+    FlexWrap, JustifyContent, LayoutBox, Rect,
 };
 use elidex_text::FontDatabase;
 
@@ -514,7 +514,11 @@ pub(crate) fn position_items(
         let (mut main_cursor, justify_gap) = if auto_main_count > 0 {
             (0.0, 0.0)
         } else {
-            compute_justify_offsets(ctx.justify, free_space, line_items.len())
+            compute_justify_offsets(
+                apply_justify_safety(ctx.justify, free_space, ctx.justify_content_safety),
+                free_space,
+                line_items.len(),
+            )
         };
         // Effective gap = CSS gap + justify-content gap.
         let gap = ctx.gap_main + justify_gap;
@@ -624,6 +628,41 @@ pub(crate) fn compute_container_height(
 // Justify-content
 // ---------------------------------------------------------------------------
 
+/// Apply safety fallback for justify-content.
+///
+/// CSS Box Alignment L3 §5.4: when `safe` is specified and free space is negative,
+/// the alignment falls back to `flex-start`.
+pub(crate) fn apply_justify_safety(
+    justify: JustifyContent,
+    free_space: f32,
+    safety: AlignmentSafety,
+) -> JustifyContent {
+    if safety == AlignmentSafety::Safe && free_space < 0.0 {
+        JustifyContent::FlexStart
+    } else {
+        justify
+    }
+}
+
+/// Apply safety fallback for align-content.
+pub(crate) fn apply_align_content_safety(
+    align_content: AlignContent,
+    container_cross: f32,
+    line_cross_sizes: &[f32],
+    gap_cross: f32,
+    safety: AlignmentSafety,
+) -> AlignContent {
+    if safety == AlignmentSafety::Safe {
+        let total: f32 = line_cross_sizes.iter().sum();
+        let total_gap = total_gap(line_cross_sizes.len(), gap_cross);
+        let free = container_cross - total - total_gap;
+        if free < 0.0 {
+            return AlignContent::FlexStart;
+        }
+    }
+    align_content
+}
+
 /// Compute justify-content start offset and gap.
 #[allow(clippy::cast_precision_loss)] // item counts are small
 fn compute_justify_offsets(justify: JustifyContent, free_space: f32, count: usize) -> (f32, f32) {
@@ -632,7 +671,7 @@ fn compute_justify_offsets(justify: JustifyContent, free_space: f32, count: usiz
     }
     let n = count as f32;
     match justify {
-        JustifyContent::FlexStart => (0.0, 0.0),
+        JustifyContent::FlexStart | JustifyContent::Stretch | JustifyContent::Normal => (0.0, 0.0),
         JustifyContent::FlexEnd => (free_space, 0.0),
         JustifyContent::Center => (free_space / 2.0, 0.0),
         JustifyContent::SpaceBetween => {
@@ -697,7 +736,10 @@ pub(crate) fn compute_align_content_offsets(
         AlignContent::Center => free / 2.0,
         AlignContent::SpaceAround => free / (2.0 * nf),
         AlignContent::SpaceEvenly => free / (nf + 1.0),
-        AlignContent::FlexStart | AlignContent::SpaceBetween | AlignContent::Stretch => 0.0,
+        AlignContent::FlexStart
+        | AlignContent::SpaceBetween
+        | AlignContent::Stretch
+        | AlignContent::Normal => 0.0,
     };
 
     let gap = match align_content {
@@ -713,7 +755,7 @@ pub(crate) fn compute_align_content_offsets(
         _ => 0.0,
     };
 
-    let stretch_extra = if align_content == AlignContent::Stretch {
+    let stretch_extra = if matches!(align_content, AlignContent::Stretch | AlignContent::Normal) {
         free / nf
     } else {
         0.0

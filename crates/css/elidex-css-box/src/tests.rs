@@ -288,10 +288,15 @@ fn initial_values() {
 // --- Inheritance ---
 
 #[test]
-fn no_properties_inherited() {
+fn inheritance_flags() {
     let h = handler();
     for name in BOX_PROPERTIES {
-        assert!(!h.is_inherited(name), "{name} should not be inherited");
+        let expected = matches!(*name, "orphans" | "widows");
+        assert_eq!(
+            h.is_inherited(name),
+            expected,
+            "{name} inheritance mismatch"
+        );
     }
 }
 
@@ -389,4 +394,102 @@ fn resolve_em_units() {
         &mut style,
     );
     assert_eq!(style.width, Dimension::Length(40.0));
+}
+
+#[test]
+fn parse_break_before() {
+    let result = parse("break-before", "page");
+    assert_eq!(result[0].value, CssValue::Keyword("page".to_string()));
+    let result = parse("break-before", "avoid-column");
+    assert_eq!(
+        result[0].value,
+        CssValue::Keyword("avoid-column".to_string())
+    );
+}
+
+#[test]
+fn parse_break_inside() {
+    let result = parse("break-inside", "avoid");
+    assert_eq!(result[0].value, CssValue::Keyword("avoid".to_string()));
+}
+
+#[test]
+fn resolve_break_before() {
+    let h = handler();
+    let ctx = default_ctx();
+    let mut style = ComputedStyle::default();
+    h.resolve(
+        "break-before",
+        &CssValue::Keyword("column".into()),
+        &ctx,
+        &mut style,
+    );
+    assert_eq!(style.break_before, BreakValue::Column);
+}
+
+#[test]
+fn resolve_break_inside() {
+    let h = handler();
+    let ctx = default_ctx();
+    let mut style = ComputedStyle::default();
+    h.resolve(
+        "break-inside",
+        &CssValue::Keyword("avoid-page".into()),
+        &ctx,
+        &mut style,
+    );
+    assert_eq!(style.break_inside, BreakInsideValue::AvoidPage);
+}
+
+#[test]
+fn parse_box_decoration_break() {
+    let result = parse("box-decoration-break", "clone");
+    assert_eq!(result[0].value, CssValue::Keyword("clone".to_string()));
+}
+
+#[test]
+fn resolve_box_decoration_break() {
+    let h = handler();
+    let ctx = default_ctx();
+    let mut style = ComputedStyle::default();
+    h.resolve(
+        "box-decoration-break",
+        &CssValue::Keyword("clone".into()),
+        &ctx,
+        &mut style,
+    );
+    assert_eq!(style.box_decoration_break, BoxDecorationBreak::Cloned);
+}
+
+#[test]
+fn parse_orphans() {
+    let result = parse("orphans", "3");
+    assert_eq!(result[0].value, CssValue::Number(3.0));
+}
+
+#[test]
+fn parse_orphans_rejects_zero() {
+    let h = handler();
+    let mut pi = cssparser::ParserInput::new("0");
+    let mut parser = cssparser::Parser::new(&mut pi);
+    assert!(h.parse("orphans", &mut parser).is_err());
+}
+
+#[test]
+fn resolve_orphans_widows() {
+    let h = handler();
+    let ctx = default_ctx();
+    let mut style = ComputedStyle::default();
+    h.resolve("orphans", &CssValue::Number(5.0), &ctx, &mut style);
+    assert_eq!(style.orphans, 5);
+    h.resolve("widows", &CssValue::Number(3.0), &ctx, &mut style);
+    assert_eq!(style.widows, 3);
+}
+
+#[test]
+fn orphans_widows_inherited() {
+    let h = handler();
+    assert!(h.is_inherited("orphans"));
+    assert!(h.is_inherited("widows"));
+    assert!(!h.is_inherited("break-before"));
 }

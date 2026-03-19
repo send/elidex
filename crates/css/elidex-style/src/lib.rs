@@ -46,6 +46,7 @@ pub fn create_css_property_registry() -> CssPropertyRegistry {
     elidex_css_anim::AnimHandler::register(&mut registry);
     elidex_css_background::BackgroundHandler::register(&mut registry);
     elidex_css_transform::TransformHandler::register(&mut registry);
+    elidex_css_multicol::MulticolHandler::register(&mut registry);
     registry
 }
 

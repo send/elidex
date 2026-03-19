@@ -255,6 +255,29 @@ fn track_size_fixed_contribution(ts: &TrackSize, available: f32) -> f32 {
     }
 }
 
+keyword_enum! {
+    /// The CSS `justify-items` property (CSS Box Alignment Level 3 §6.1).
+    JustifyItems {
+        Stretch => "stretch",
+        Start => "start",
+        End => "end",
+        Center => "center",
+        Baseline => "baseline",
+    }
+}
+
+keyword_enum! {
+    /// The CSS `justify-self` property (CSS Box Alignment Level 3 §6.2).
+    JustifySelf {
+        Auto => "auto",
+        Start => "start",
+        End => "end",
+        Center => "center",
+        Stretch => "stretch",
+        Baseline => "baseline",
+    }
+}
+
 /// A grid line placement value.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum GridLine {

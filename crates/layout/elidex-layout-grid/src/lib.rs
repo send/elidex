@@ -29,8 +29,9 @@ use elidex_layout_block::{
     EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
-    GridTrackList, LayoutBox, Rect, TrackSize,
+    AlignContent, AlignItems, AlignmentSafety, ComputedStyle, Dimension, Direction, Display,
+    EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyContent, JustifyItems, JustifySelf,
+    LayoutBox, Rect, TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -64,6 +65,8 @@ struct GridItem {
     pb: EdgeSizes,
     /// Align-self for this item.
     align: AlignItems,
+    /// Justify-self for this item.
+    justify: JustifyItems,
     /// Whether the item's height is `auto` (for stretch).
     height_auto: bool,
     /// Whether the item's width is `auto` (for stretch).
@@ -252,8 +255,28 @@ pub fn layout_grid(
     }
 
     // --- 11. Compute track positions ---
-    let col_positions = track::compute_track_positions(&col_tracks, gap_col);
-    let row_positions = track::compute_track_positions(&row_tracks, gap_row);
+    let mut col_positions = track::compute_track_positions(&col_tracks, gap_col);
+    let mut row_positions = track::compute_track_positions(&row_tracks, gap_row);
+
+    // --- 11b. Track distribution (justify-content / align-content) ---
+    distribute_tracks(
+        &mut col_positions,
+        &col_tracks,
+        gap_col,
+        content_width,
+        style.justify_content,
+        style.justify_content_safety,
+    );
+    if let Some(h) = available_height {
+        distribute_tracks(
+            &mut row_positions,
+            &row_tracks,
+            gap_row,
+            h,
+            style.align_content,
+            style.align_content_safety,
+        );
+    }
 
     // --- 12. Position items + final layout ---
     let placement = GridPlacement {
@@ -382,6 +405,7 @@ fn collect_grid_items(
         }
 
         let align = effective_align(child_style.align_self, container_style.align_items);
+        let justify = effective_justify(child_style.justify_self, container_style.justify_items);
 
         items.push(GridItem {
             entity: child,
@@ -398,6 +422,7 @@ fn collect_grid_items(
             margin: EdgeSizes::default(),
             pb: EdgeSizes::default(),
             align,
+            justify,
             height_auto: child_style.height == Dimension::Auto,
             width_auto: child_style.width == Dimension::Auto,
             content_width: 0.0,
@@ -578,17 +603,23 @@ fn percentage_tracks_to_auto(defs: Vec<TrackSize>) -> Vec<TrackSize> {
 }
 
 /// Build the full list of track definitions (explicit + implicit).
+///
+/// Implicit tracks cycle through `auto_tracks` per CSS Grid §7.2.4.
 fn build_track_definitions(
     explicit: &[TrackSize],
-    auto_track: &TrackSize,
+    auto_tracks: &[TrackSize],
     actual_count: usize,
 ) -> Vec<TrackSize> {
     (0..actual_count)
         .map(|i| {
-            explicit
-                .get(i)
-                .cloned()
-                .unwrap_or_else(|| auto_track.clone())
+            explicit.get(i).cloned().unwrap_or_else(|| {
+                if auto_tracks.is_empty() {
+                    TrackSize::Auto
+                } else {
+                    let implicit_idx = i.saturating_sub(explicit.len());
+                    auto_tracks[implicit_idx % auto_tracks.len()].clone()
+                }
+            })
         })
         .collect()
 }
@@ -647,7 +678,10 @@ fn position_items(
 
         // Resolve item content width.
         let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let item_content_w = if item.width_auto {
+        let item_content_w = if item.width_auto && item.justify != JustifyItems::Stretch {
+            // Non-stretch: use content width (shrink-wrap).
+            item.content_width
+        } else if item.width_auto {
             (avail_w - item.pb.left - item.pb.right).max(0.0)
         } else {
             resolve_item_dimension(
@@ -688,6 +722,11 @@ fn position_items(
         // Cross-axis alignment (vertical).
         let y_offset = compute_alignment_offset(item.align, area_height, item_outer_h);
 
+        // Inline-axis alignment (horizontal).
+        let item_outer_w =
+            item_content_w + item.pb.left + item.pb.right + item.margin.left + item.margin.right;
+        let x_offset = compute_justify_offset(item.justify, area_width, item_outer_w);
+
         // Override the child's width/height so layout_block_inner uses grid-resolved values.
         {
             let mut style = elidex_layout_block::get_style(dom, item.entity);
@@ -698,7 +737,7 @@ fn position_items(
 
         // Margin-box position: layout_child (layout_block_inner) adds
         // margin + border + padding offsets from here.
-        let margin_box_x = content_x + area_x;
+        let margin_box_x = content_x + area_x + x_offset;
         let margin_box_y = content_y + area_y + y_offset;
 
         // Final layout at resolved position.
@@ -770,6 +809,150 @@ fn compute_alignment_offset(item_align: AlignItems, available: f32, item_size: f
         AlignItems::FlexEnd => free,
         // Stretch, FlexStart, Baseline — all align to start.
         AlignItems::FlexStart | AlignItems::Stretch | AlignItems::Baseline => 0.0,
+    }
+}
+
+/// Content distribution mode for track alignment.
+#[derive(Clone, Copy)]
+enum ContentDistribution {
+    Start,
+    End,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+    Stretch,
+}
+
+impl From<JustifyContent> for ContentDistribution {
+    fn from(jc: JustifyContent) -> Self {
+        match jc {
+            JustifyContent::FlexStart => Self::Start,
+            JustifyContent::FlexEnd => Self::End,
+            JustifyContent::Center => Self::Center,
+            JustifyContent::SpaceBetween => Self::SpaceBetween,
+            JustifyContent::SpaceAround => Self::SpaceAround,
+            JustifyContent::SpaceEvenly => Self::SpaceEvenly,
+            // CSS Grid §10.5: normal behaves as stretch for grid containers.
+            JustifyContent::Stretch | JustifyContent::Normal => Self::Stretch,
+        }
+    }
+}
+
+impl From<AlignContent> for ContentDistribution {
+    fn from(ac: AlignContent) -> Self {
+        match ac {
+            AlignContent::FlexStart => Self::Start,
+            AlignContent::FlexEnd => Self::End,
+            AlignContent::Center => Self::Center,
+            AlignContent::SpaceBetween => Self::SpaceBetween,
+            AlignContent::SpaceAround => Self::SpaceAround,
+            AlignContent::SpaceEvenly => Self::SpaceEvenly,
+            // CSS Grid §10.6: normal behaves as stretch for grid containers.
+            AlignContent::Stretch | AlignContent::Normal => Self::Stretch,
+        }
+    }
+}
+
+#[allow(clippy::cast_precision_loss)]
+/// Distribute tracks along the container axis (CSS Grid §10.5 / §10.6).
+///
+/// Adjusts track positions based on `justify-content` / `align-content`.
+fn distribute_tracks<D: Into<ContentDistribution>>(
+    positions: &mut [f32],
+    tracks: &[track::ResolvedTrack],
+    gap: f32,
+    container_size: f32,
+    distribution: D,
+    safety: AlignmentSafety,
+) {
+    if positions.is_empty() || tracks.is_empty() {
+        return;
+    }
+    let used_space = track::total_track_size(tracks, gap);
+    let free_space = container_size - used_space;
+
+    let dist = distribution.into();
+
+    // Safety fallback: if free_space < 0 and safe, fall back to start.
+    let dist = if safety == AlignmentSafety::Safe && free_space < 0.0 {
+        ContentDistribution::Start
+    } else {
+        dist
+    };
+
+    match dist {
+        ContentDistribution::Start | ContentDistribution::Stretch => {
+            // No adjustment needed. Stretch is handled in track sizing phase.
+        }
+        ContentDistribution::End => {
+            let offset = free_space.max(0.0);
+            for pos in positions.iter_mut() {
+                *pos += offset;
+            }
+        }
+        ContentDistribution::Center => {
+            let offset = (free_space / 2.0).max(0.0);
+            for pos in positions.iter_mut() {
+                *pos += offset;
+            }
+        }
+        ContentDistribution::SpaceBetween => {
+            if tracks.len() <= 1 || free_space <= 0.0 {
+                return;
+            }
+            let extra_gap = free_space / (tracks.len() - 1) as f32;
+            for (i, pos) in positions.iter_mut().enumerate() {
+                *pos += extra_gap * i as f32;
+            }
+        }
+        ContentDistribution::SpaceAround => {
+            if free_space <= 0.0 {
+                return;
+            }
+            let per_track = free_space / tracks.len() as f32;
+            let half = per_track / 2.0;
+            for (i, pos) in positions.iter_mut().enumerate() {
+                *pos += half + per_track * i as f32;
+            }
+        }
+        ContentDistribution::SpaceEvenly => {
+            if free_space <= 0.0 {
+                return;
+            }
+            let slot = free_space / (tracks.len() + 1) as f32;
+            for (i, pos) in positions.iter_mut().enumerate() {
+                *pos += slot * (i + 1) as f32;
+            }
+        }
+    }
+}
+
+/// Compute inline-axis alignment offset for a grid item.
+fn compute_justify_offset(justify: JustifyItems, available: f32, item_size: f32) -> f32 {
+    let free = (available - item_size).max(0.0);
+    match justify {
+        JustifyItems::Center => free / 2.0,
+        JustifyItems::End => free,
+        // Stretch, Start, Baseline — all align to start.
+        JustifyItems::Start | JustifyItems::Stretch | JustifyItems::Baseline => 0.0,
+    }
+}
+
+/// Resolve effective justify for a grid item.
+///
+/// `justify-self: auto` resolves to the container's `justify-items`.
+fn effective_justify(
+    justify_self: JustifySelf,
+    container_justify_items: JustifyItems,
+) -> JustifyItems {
+    match justify_self {
+        JustifySelf::Auto => container_justify_items,
+        JustifySelf::Start => JustifyItems::Start,
+        JustifySelf::End => JustifyItems::End,
+        JustifySelf::Center => JustifyItems::Center,
+        JustifySelf::Stretch => JustifyItems::Stretch,
+        JustifySelf::Baseline => JustifyItems::Baseline,
     }
 }
 

@@ -213,7 +213,8 @@ fn hit_test_sc_layers(
     ctx: TransformContext,
 ) {
     let children = elidex_layout_block::composed_children_flat(dom, entity);
-    let layers = collect_sc_participants(dom, &children);
+    let parent_display = elidex_layout_block::try_get_style(dom, entity).map(|s| s.display);
+    let layers = collect_sc_participants(dom, &children, parent_display);
 
     // Layer 2: negative z (z ascending → last wins for same z).
     for &child in &layers.negative_z {

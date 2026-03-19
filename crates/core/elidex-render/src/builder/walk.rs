@@ -9,7 +9,9 @@ use elidex_form::FormControlState;
 use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, ListStyleType, Visibility};
+use elidex_plugin::{
+    BorderCollapse, ComputedStyle, Display, EmptyCells, LayoutBox, ListStyleType, Visibility,
+};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -109,7 +111,15 @@ pub(crate) fn walk(
                 TransformResult::None => {}
             }
 
-            if is_visible {
+            // CSS 2.1 §17.5.1: empty-cells: hide suppresses background/border
+            // for empty table cells when border-collapse is separate.
+            let skip_cell_paint = is_visible
+                && style.display == Display::TableCell
+                && style.empty_cells == EmptyCells::Hide
+                && style.border_collapse == BorderCollapse::Separate
+                && is_cell_empty(ctx.dom, entity);
+
+            if is_visible && !skip_cell_paint {
                 let bg_images = ctx.dom.world().get::<&BackgroundImages>(entity).ok();
                 emit_background(
                     &lb,
@@ -225,7 +235,8 @@ fn paint_stacking_context_layers(
     child_perspective: &Perspective,
     in_transform: bool,
 ) {
-    let layers = collect_sc_participants(ctx.dom, children);
+    let parent_display = elidex_layout_block::try_get_style(ctx.dom, entity).map(|s| s.display);
+    let layers = collect_sc_participants(ctx.dom, children, parent_display);
 
     // Layer 2: negative z stacking contexts (z ascending).
     for &child in &layers.negative_z {
@@ -438,4 +449,20 @@ fn maybe_emit_list_marker(ctx: &mut PaintContext, child: Entity, counter: &mut u
             }
         }
     }
+}
+
+/// Check if a table cell is empty (CSS 2.1 §17.5.1).
+///
+/// A cell is considered empty if it has no children or all children are
+/// whitespace-only text nodes.
+fn is_cell_empty(dom: &EcsDom, entity: Entity) -> bool {
+    let children: Vec<_> = dom.children_iter(entity).collect();
+    if children.is_empty() {
+        return true;
+    }
+    children.iter().all(|&child| {
+        dom.world()
+            .get::<&elidex_ecs::TextContent>(child)
+            .is_ok_and(|text| text.0.trim().is_empty())
+    })
 }

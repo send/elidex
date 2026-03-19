@@ -560,3 +560,164 @@ pub(super) fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 pub(super) fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
     parse_color_property(input, "background-color")
 }
+
+// --- Multi-column shorthands ---
+
+/// Border-style keywords shared by column-rule parsing.
+const BORDER_STYLE_KEYWORDS: &[&str] = &[
+    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+];
+
+/// Parse `column-rule` shorthand: `<width> || <style> || <color>` (CSS Multi-col Level 1 §5).
+///
+/// Each component may appear at most once, in any order.
+pub(super) fn parse_column_rule_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut width = None;
+            let mut style = None;
+            let mut color = None;
+
+            for _ in 0..3 {
+                if width.is_none() {
+                    if let Ok(v) = i.try_parse(parse_border_width_value) {
+                        width = Some(v);
+                        continue;
+                    }
+                }
+                if style.is_none() {
+                    if let Ok(kw) = i.try_parse(|i2| try_parse_keyword(i2, BORDER_STYLE_KEYWORDS)) {
+                        style = Some(CssValue::Keyword(kw));
+                        continue;
+                    }
+                }
+                if color.is_none() {
+                    if let Ok(v) = i.try_parse(parse_color_or_currentcolor) {
+                        color = Some(v);
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            if width.is_none() && style.is_none() && color.is_none() {
+                return Err(());
+            }
+
+            // CSS shorthand: omitted components reset to initial values.
+            let w = width.unwrap_or(CssValue::Length(3.0, LengthUnit::Px)); // medium
+            let s = style.unwrap_or(CssValue::Keyword("none".into()));
+            let c = color.unwrap_or(CssValue::Keyword("currentcolor".into()));
+            Ok(vec![
+                Declaration::new("column-rule-width", w),
+                Declaration::new("column-rule-style", s),
+                Declaration::new("column-rule-color", c),
+            ])
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `columns` shorthand: `<column-width> || <column-count>` (CSS Multi-col Level 1 §3).
+pub(super) fn parse_columns_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut width = None;
+            let mut count = None;
+
+            for _ in 0..2 {
+                // Try count first so bare integers and "auto" map to column-count.
+                if count.is_none() {
+                    if let Ok(v) = i.try_parse(parse_column_count_value) {
+                        count = Some(v);
+                        continue;
+                    }
+                }
+                if width.is_none() {
+                    if let Ok(v) = i.try_parse(parse_column_width_value) {
+                        width = Some(v);
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            if width.is_none() && count.is_none() {
+                return Err(());
+            }
+
+            // CSS shorthand: omitted components reset to initial values.
+            let w = width.unwrap_or(CssValue::Auto);
+            let c = count.unwrap_or(CssValue::Auto);
+            Ok(vec![
+                Declaration::new("column-width", w),
+                Declaration::new("column-count", c),
+            ])
+        })
+        .unwrap_or_default()
+}
+
+/// Parse a border-width value: `thin` | `medium` | `thick` | non-negative length.
+fn parse_border_width_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(|s| s.to_ascii_lowercase())) {
+        return match ident.as_str() {
+            "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
+            "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
+            "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
+            _ => Err(()),
+        };
+    }
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        Token::Dimension {
+            value, ref unit, ..
+        } if value >= 0.0 => {
+            let u = crate::values::parse_length_unit(unit)?;
+            Ok(CssValue::Length(value, u))
+        }
+        Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
+}
+
+/// Parse `column-count` value: `auto` | positive integer.
+fn parse_column_count_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    let n = input.expect_integer().map_err(|_| ())?;
+    if n < 1 {
+        return Err(());
+    }
+    #[allow(clippy::cast_precision_loss)]
+    Ok(CssValue::Number(n as f32))
+}
+
+/// Parse `column-width` value: `auto` | non-negative length.
+fn parse_column_width_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        Token::Dimension {
+            value, ref unit, ..
+        } if value >= 0.0 => {
+            let u = crate::values::parse_length_unit(unit)?;
+            Ok(CssValue::Length(value, u))
+        }
+        Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
+}
+
+/// Parse a color value, including `currentcolor` keyword.
+fn parse_color_or_currentcolor(input: &mut Parser) -> Result<CssValue, ()> {
+    if input
+        .try_parse(|i| i.expect_ident_matching("currentcolor"))
+        .is_ok()
+    {
+        return Ok(CssValue::Keyword("currentcolor".to_string()));
+    }
+    let c = crate::color::parse_color(input)?;
+    Ok(CssValue::Color(c))
+}

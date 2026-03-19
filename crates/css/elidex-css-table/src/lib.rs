@@ -4,8 +4,8 @@
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_non_negative_length, resolve_to_px},
     parse_css_keyword as parse_keyword, BorderCollapse, CaptionSide, ComputedStyle,
-    CssPropertyHandler, CssValue, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
-    TableLayout,
+    CssPropertyHandler, CssValue, EmptyCells, LengthUnit, ParseError, PropertyDeclaration,
+    ResolveContext, TableLayout,
 };
 
 /// CSS table property handler.
@@ -27,6 +27,7 @@ impl CssPropertyHandler for TableHandler {
             "border-spacing-v",
             "table-layout",
             "caption-side",
+            "empty-cells",
         ]
     }
 
@@ -40,6 +41,7 @@ impl CssPropertyHandler for TableHandler {
             "border-spacing-h" | "border-spacing-v" => parse_non_negative_length(input)?,
             "table-layout" => parse_keyword(input, &["auto", "fixed"])?,
             "caption-side" => parse_keyword(input, &["top", "bottom"])?,
+            "empty-cells" => parse_keyword(input, &["show", "hide"])?,
             _ => return Ok(vec![]),
         };
         Ok(vec![PropertyDeclaration::new(name, value)])
@@ -70,6 +72,9 @@ impl CssPropertyHandler for TableHandler {
             "caption-side" => {
                 elidex_plugin::resolve_keyword!(value, style.caption_side, CaptionSide);
             }
+            "empty-cells" => {
+                elidex_plugin::resolve_keyword!(value, style.empty_cells, EmptyCells);
+            }
             _ => {}
         }
     }
@@ -80,6 +85,7 @@ impl CssPropertyHandler for TableHandler {
             "border-spacing-h" | "border-spacing-v" => CssValue::Length(0.0, LengthUnit::Px),
             "table-layout" => CssValue::Keyword("auto".to_string()),
             "caption-side" => CssValue::Keyword("top".to_string()),
+            "empty-cells" => CssValue::Keyword("show".to_string()),
             _ => CssValue::Initial,
         }
     }
@@ -87,7 +93,11 @@ impl CssPropertyHandler for TableHandler {
     fn is_inherited(&self, name: &str) -> bool {
         matches!(
             name,
-            "border-collapse" | "border-spacing-h" | "border-spacing-v" | "caption-side"
+            "border-collapse"
+                | "border-spacing-h"
+                | "border-spacing-v"
+                | "caption-side"
+                | "empty-cells"
         )
     }
 
@@ -102,6 +112,7 @@ impl CssPropertyHandler for TableHandler {
             "border-spacing-v" => CssValue::Length(style.border_spacing_v, LengthUnit::Px),
             "table-layout" => keyword_from(&style.table_layout),
             "caption-side" => keyword_from(&style.caption_side),
+            "empty-cells" => keyword_from(&style.empty_cells),
             _ => CssValue::Initial,
         }
     }
@@ -303,5 +314,27 @@ mod tests {
             &mut style,
         );
         assert_eq!(style.border_spacing_h, 0.0);
+    }
+
+    #[test]
+    fn parse_empty_cells() {
+        let result = parse_helper("empty-cells", "show");
+        assert_eq!(result[0].value, CssValue::Keyword("show".to_string()));
+        let result = parse_helper("empty-cells", "hide");
+        assert_eq!(result[0].value, CssValue::Keyword("hide".to_string()));
+    }
+
+    #[test]
+    fn resolve_empty_cells() {
+        let handler = TableHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "empty-cells",
+            &CssValue::Keyword("hide".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.empty_cells, EmptyCells::Hide);
     }
 }

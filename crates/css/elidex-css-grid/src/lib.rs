@@ -3,8 +3,8 @@
 use elidex_plugin::{
     css_resolve::{keyword_from, parse_length_unit, resolve_length},
     AutoRepeatMode, ComputedStyle, CssPropertyHandler, CssValue, GridAutoFlow, GridLine,
-    GridTrackList, LengthUnit, ParseError, PropertyDeclaration, ResolveContext, TrackBreadth,
-    TrackSize,
+    GridTrackList, JustifyItems, JustifySelf, LengthUnit, ParseError, PropertyDeclaration,
+    ResolveContext, TrackBreadth, TrackSize,
 };
 
 /// CSS grid property handler.
@@ -28,6 +28,8 @@ const GRID_PROPERTIES: &[&str] = &[
     "grid-column-end",
     "grid-row-start",
     "grid-row-end",
+    "justify-items",
+    "justify-self",
 ];
 
 impl CssPropertyHandler for GridHandler {
@@ -43,9 +45,30 @@ impl CssPropertyHandler for GridHandler {
         let value = match name {
             "grid-template-columns" | "grid-template-rows" => parse_track_list(input)?,
             "grid-auto-flow" => parse_auto_flow(input)?,
-            "grid-auto-columns" | "grid-auto-rows" => parse_single_track_size(input)?,
+            "grid-auto-columns" | "grid-auto-rows" => parse_auto_track_list(input)?,
             "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
                 parse_grid_line(input)?
+            }
+            "justify-items" | "justify-self" => {
+                let ident = input
+                    .expect_ident()
+                    .map(|s| s.to_ascii_lowercase())
+                    .map_err(|_| ParseError {
+                        property: name.into(),
+                        input: String::new(),
+                        message: "expected alignment keyword".into(),
+                    })?;
+                match ident.as_str() {
+                    "stretch" | "start" | "end" | "center" | "baseline" => CssValue::Keyword(ident),
+                    "auto" if name == "justify-self" => CssValue::Keyword(ident),
+                    _ => {
+                        return Err(ParseError {
+                            property: name.into(),
+                            input: ident,
+                            message: "invalid alignment keyword".into(),
+                        })
+                    }
+                }
             }
             _ => return Ok(vec![]),
         };
@@ -70,10 +93,10 @@ impl CssPropertyHandler for GridHandler {
                 elidex_plugin::resolve_keyword!(value, style.grid_auto_flow, GridAutoFlow);
             }
             "grid-auto-columns" => {
-                style.grid_auto_columns = resolve_single_track(value, ctx);
+                style.grid_auto_columns = resolve_auto_track_list(value, ctx);
             }
             "grid-auto-rows" => {
-                style.grid_auto_rows = resolve_single_track(value, ctx);
+                style.grid_auto_rows = resolve_auto_track_list(value, ctx);
             }
             "grid-column-start" => {
                 style.grid_column_start = resolve_grid_line(value);
@@ -87,6 +110,12 @@ impl CssPropertyHandler for GridHandler {
             "grid-row-end" => {
                 style.grid_row_end = resolve_grid_line(value);
             }
+            "justify-items" => {
+                elidex_plugin::resolve_keyword!(value, style.justify_items, JustifyItems);
+            }
+            "justify-self" => {
+                elidex_plugin::resolve_keyword!(value, style.justify_self, JustifySelf);
+            }
             _ => {}
         }
     }
@@ -97,6 +126,8 @@ impl CssPropertyHandler for GridHandler {
             "grid-auto-flow" => CssValue::Keyword("row".to_string()),
             "grid-auto-columns" | "grid-auto-rows" | "grid-column-start" | "grid-column-end"
             | "grid-row-start" | "grid-row-end" => CssValue::Auto,
+            "justify-items" => CssValue::Keyword("stretch".to_string()),
+            "justify-self" => CssValue::Keyword("auto".to_string()),
             _ => CssValue::Initial,
         }
     }
@@ -114,12 +145,14 @@ impl CssPropertyHandler for GridHandler {
             "grid-template-columns" => track_list_to_css(&style.grid_template_columns),
             "grid-template-rows" => track_list_to_css(&style.grid_template_rows),
             "grid-auto-flow" => keyword_from(&style.grid_auto_flow),
-            "grid-auto-columns" => track_size_to_css(&style.grid_auto_columns),
-            "grid-auto-rows" => track_size_to_css(&style.grid_auto_rows),
+            "grid-auto-columns" => auto_track_list_to_css(&style.grid_auto_columns),
+            "grid-auto-rows" => auto_track_list_to_css(&style.grid_auto_rows),
             "grid-column-start" => grid_line_to_css(style.grid_column_start),
             "grid-column-end" => grid_line_to_css(style.grid_column_end),
             "grid-row-start" => grid_line_to_css(style.grid_row_start),
             "grid-row-end" => grid_line_to_css(style.grid_row_end),
+            "justify-items" => keyword_from(&style.justify_items),
+            "justify-self" => keyword_from(&style.justify_self),
             _ => CssValue::Initial,
         }
     }
@@ -160,15 +193,6 @@ fn parse_track_list(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
         return Ok(items.pop().expect("len == 1"));
     }
     Ok(CssValue::List(items))
-}
-
-/// Parse a single track size value (used for grid-auto-columns/rows and within track lists).
-fn parse_single_track_size(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    parse_single_track_size_inner(input).map_err(|()| ParseError {
-        property: String::new(),
-        input: String::new(),
-        message: "expected track size".into(),
-    })
 }
 
 /// Parse a keyword (`auto`/`min-content`/`max-content`) or a dimension/percentage/zero token
@@ -230,6 +254,30 @@ fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Resul
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
     })
+}
+
+/// Parse a space-separated list of track sizes for grid-auto-columns/rows.
+///
+/// CSS Grid Level 2 §7.2.4: `<track-size>+` (one or more track sizes).
+fn parse_auto_track_list(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
+    let mut items = Vec::new();
+    while let Ok(v) = parse_single_track_size_inner(input) {
+        items.push(v);
+        if items.len() >= MAX_TRACKS {
+            break;
+        }
+    }
+    if items.is_empty() {
+        return Err(ParseError {
+            property: String::new(),
+            input: String::new(),
+            message: "expected track size".into(),
+        });
+    }
+    if items.len() == 1 {
+        return Ok(items.pop().expect("len == 1"));
+    }
+    Ok(CssValue::List(items))
 }
 
 /// Parse `grid-auto-flow`: `row`, `column`, `row dense`, `column dense`.
@@ -384,6 +432,14 @@ fn resolve_breadth(value: &CssValue, ctx: &ResolveContext) -> TrackBreadth {
     }
 }
 
+/// Resolve a `CssValue` to a `Vec<TrackSize>` for grid-auto-columns/rows.
+fn resolve_auto_track_list(value: &CssValue, ctx: &ResolveContext) -> Vec<TrackSize> {
+    match value {
+        CssValue::List(items) => items.iter().map(|v| resolve_single_track(v, ctx)).collect(),
+        _ => vec![resolve_single_track(value, ctx)],
+    }
+}
+
 /// Resolve a grid line value.
 fn resolve_grid_line(value: &CssValue) -> GridLine {
     match value {
@@ -475,6 +531,14 @@ fn breadth_to_css(b: &TrackBreadth) -> CssValue {
     }
 }
 
+/// Serialize a `Vec<TrackSize>` to `CssValue` for grid-auto-columns/rows.
+fn auto_track_list_to_css(tracks: &[TrackSize]) -> CssValue {
+    if tracks.len() == 1 {
+        return track_size_to_css(&tracks[0]);
+    }
+    CssValue::List(tracks.iter().map(track_size_to_css).collect())
+}
+
 /// Serialize a `GridLine` to `CssValue`.
 fn grid_line_to_css(gl: GridLine) -> CssValue {
     match gl {
@@ -504,7 +568,7 @@ mod tests {
     fn property_names_complete() {
         let handler = GridHandler;
         let names = handler.property_names();
-        assert_eq!(names.len(), 9);
+        assert_eq!(names.len(), 11);
         assert!(names.contains(&"grid-template-columns"));
         assert!(names.contains(&"grid-row-end"));
     }
@@ -666,10 +730,10 @@ mod tests {
         );
         assert_eq!(
             style.grid_auto_columns,
-            TrackSize::MinMax(
+            vec![TrackSize::MinMax(
                 Box::new(TrackBreadth::MinContent),
                 Box::new(TrackBreadth::MinContent),
-            )
+            )]
         );
     }
 
@@ -748,5 +812,49 @@ mod tests {
     fn parse_auto_columns_single() {
         let result = parse_prop("grid-auto-columns", "200px");
         assert_eq!(result[0].value, CssValue::Length(200.0, LengthUnit::Px));
+    }
+
+    #[test]
+    fn parse_justify_items() {
+        for kw in ["stretch", "start", "end", "center", "baseline"] {
+            let result = parse_prop("justify-items", kw);
+            assert_eq!(result[0].value, CssValue::Keyword(kw.to_string()), "{kw}");
+        }
+    }
+
+    #[test]
+    fn parse_justify_self() {
+        for kw in ["auto", "start", "end", "center", "stretch", "baseline"] {
+            let result = parse_prop("justify-self", kw);
+            assert_eq!(result[0].value, CssValue::Keyword(kw.to_string()), "{kw}");
+        }
+    }
+
+    #[test]
+    fn resolve_justify_items() {
+        let handler = GridHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "justify-items",
+            &CssValue::Keyword("center".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.justify_items, JustifyItems::Center);
+    }
+
+    #[test]
+    fn resolve_justify_self() {
+        let handler = GridHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "justify-self",
+            &CssValue::Keyword("end".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.justify_self, JustifySelf::End);
     }
 }
