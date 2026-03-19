@@ -6,6 +6,7 @@ use elidex_text::FontDatabase;
 mod alignment_gap;
 mod direction;
 mod grow_shrink;
+mod spec_compliance;
 
 /// Helper to call `layout_flex` with the old positional-argument pattern used by tests.
 #[allow(clippy::too_many_arguments)]
@@ -29,6 +30,8 @@ fn do_layout_flex(
         depth,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     layout_flex(dom, entity, &input, layout_child)
 }

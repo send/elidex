@@ -233,8 +233,10 @@ pub(crate) fn layout_items_cross(
             depth: env.depth + 1,
             float_ctx: None,
             viewport: env.input_viewport,
+            fragmentainer: None,
+            break_token: None,
         };
-        let child_lb = (env.layout_child)(dom, item.entity, &child_input);
+        let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
         item.final_cross = if ctx.horizontal {
             child_lb.content.height + item.pb_cross
         } else {
@@ -400,6 +402,8 @@ fn relayout_item_at_position(
     };
 
     // Overwrite the item's width/height to flex-resolved values.
+    // Also zero out auto margins — flex handles them via position offsets;
+    // block layout must not apply its own margin-auto centering on top.
     {
         let mut style = elidex_layout_block::get_style(dom, item.entity);
         if ctx.horizontal {
@@ -408,6 +412,17 @@ fn relayout_item_at_position(
         } else {
             style.width = Dimension::Length(item_content_width);
             style.height = Dimension::Length(item.final_main);
+        }
+        // Zero any auto margins: flex handles them via position offsets.
+        for m in [
+            &mut style.margin_top,
+            &mut style.margin_right,
+            &mut style.margin_bottom,
+            &mut style.margin_left,
+        ] {
+            if *m == Dimension::Auto {
+                *m = Dimension::Length(0.0);
+            }
         }
         let _ = dom.world_mut().insert_one(item.entity, style);
     }
@@ -423,8 +438,10 @@ fn relayout_item_at_position(
         depth: env.depth + 1,
         float_ctx: None,
         viewport: env.input_viewport,
+        fragmentainer: None,
+        break_token: None,
     };
-    let child_lb = (env.layout_child)(dom, item.entity, &child_input);
+    let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 
     // Overwrite the item's LayoutBox with flex-resolved dimensions.
     // child_lb.content.x/y already include margin + border + padding
@@ -443,6 +460,7 @@ fn relayout_item_at_position(
     let _ = dom.world_mut().insert_one(item.entity, lb);
 }
 
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 pub(crate) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
@@ -479,8 +497,25 @@ pub(crate) fn position_items(
         // Total gap between items on the main axis.
         let total_gap = total_gap(line_items.len(), ctx.gap_main);
         let free_space = (ctx.container_main - total_main_used - total_gap).max(0.0);
-        let (mut main_cursor, justify_gap) =
-            compute_justify_offsets(ctx.justify, free_space, line_items.len());
+
+        // Flex §8.1: count auto main margins. When present, they absorb free space
+        // and override justify-content.
+        let auto_main_count: usize = line_items
+            .iter()
+            .map(|i| usize::from(i.margin_main_start_auto) + usize::from(i.margin_main_end_auto))
+            .sum();
+        let auto_main_per = if auto_main_count > 0 && free_space > 0.0 {
+            free_space / auto_main_count as f32
+        } else {
+            0.0
+        };
+
+        // When auto margins are present, they absorb free space; skip justify-content.
+        let (mut main_cursor, justify_gap) = if auto_main_count > 0 {
+            (0.0, 0.0)
+        } else {
+            compute_justify_offsets(ctx.justify, free_space, line_items.len())
+        };
         // Effective gap = CSS gap + justify-content gap.
         let gap = ctx.gap_main + justify_gap;
 
@@ -491,22 +526,58 @@ pub(crate) fn position_items(
         for item in line_items {
             let item_outer_main = item.final_main + item.pb_main + item.margin_main;
 
+            // Flex §8.1: compute auto margin adjustments for this item.
+            let auto_margin_main_start = if item.margin_main_start_auto {
+                auto_main_per
+            } else {
+                0.0
+            };
+            let auto_margin_main_end = if item.margin_main_end_auto {
+                auto_main_per
+            } else {
+                0.0
+            };
+            let auto_margin_outer = auto_margin_main_start + auto_margin_main_end;
+
             if reversed_main {
-                main_cursor -= item_outer_main;
+                main_cursor -= item_outer_main + auto_margin_outer;
             }
 
-            let align_offset = cross_align_offset(item, line_cross);
+            // Flex §8.1: cross-axis auto margins.
+            let (cross_auto_offset, skip_align) = {
+                let both = item.margin_cross_start_auto && item.margin_cross_end_auto;
+                let start_only = item.margin_cross_start_auto && !item.margin_cross_end_auto;
+                let end_only = !item.margin_cross_start_auto && item.margin_cross_end_auto;
+                let item_outer_cross = item.final_cross + item.margin_cross;
+                let cross_free = (line_cross - item_outer_cross).max(0.0);
+                if both {
+                    (cross_free / 2.0, true)
+                } else if end_only {
+                    (0.0, true) // start-aligned (absorb into end margin)
+                } else if start_only {
+                    (cross_free, true) // end-aligned (absorb into start margin)
+                } else {
+                    (0.0, false)
+                }
+            };
+
+            let align_offset = if skip_align {
+                cross_auto_offset
+            } else {
+                cross_align_offset(item, line_cross)
+            };
 
             // Margin-box position: layout adds margins internally.
+            // Auto main margin shifts the item's start position.
             let (margin_box_x, margin_box_y) = if ctx.horizontal {
                 (
-                    ctx.content_x + main_cursor,
+                    ctx.content_x + main_cursor + auto_margin_main_start,
                     ctx.content_y + cross_offset + align_offset,
                 )
             } else {
                 (
                     ctx.content_x + cross_offset + align_offset,
-                    ctx.content_y + main_cursor,
+                    ctx.content_y + main_cursor + auto_margin_main_start,
                 )
             };
 
@@ -515,7 +586,7 @@ pub(crate) fn position_items(
             if reversed_main {
                 main_cursor -= gap;
             } else {
-                main_cursor += item_outer_main + gap;
+                main_cursor += item_outer_main + auto_margin_outer + gap;
             }
         }
     }

@@ -484,8 +484,10 @@ fn layout_atomic_items(
                 depth: 0,
                 float_ctx: None,
                 viewport: None,
+                fragmentainer: None,
+                break_token: None,
             };
-            let lb = layout_child(dom, *entity, &input);
+            let lb = layout_child(dom, *entity, &input).layout_box;
             let margin_box = lb.margin_box();
             if is_vertical {
                 *inline_size = margin_box.height;

@@ -88,6 +88,8 @@ pub fn layout_block(
         depth: 0,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -114,6 +116,8 @@ pub fn layout_block_with_height(
         depth: 0,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only)
 }
@@ -233,6 +237,8 @@ pub fn layout_block_inner(
             depth: depth + 1,
             float_ctx: input.float_ctx,
             viewport: input.viewport,
+            fragmentainer: None,
+            break_token: None,
         };
         let is_bfc = establishes_bfc(&style);
         let result =

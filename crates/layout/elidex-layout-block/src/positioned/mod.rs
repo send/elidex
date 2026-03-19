@@ -373,8 +373,10 @@ fn layout_absolutely_positioned(
             depth: depth + 1,
             float_ctx: None,
             viewport,
+            fragmentainer: None,
+            break_token: None,
         };
-        let lb = layout_child(dom, entity, &child_input);
+        let lb = layout_child(dom, entity, &child_input).layout_box;
         Some(lb.content.height)
     } else {
         None
@@ -418,8 +420,10 @@ fn layout_absolutely_positioned(
         depth: depth + 1,
         float_ctx: None,
         viewport,
+        fragmentainer: None,
+        break_token: None,
     };
-    let child_lb = layout_child(dom, entity, &child_input);
+    let child_lb = layout_child(dom, entity, &child_input).layout_box;
 
     // Overwrite the LayoutBox with correct position and margins.
     let lb = elidex_plugin::LayoutBox {

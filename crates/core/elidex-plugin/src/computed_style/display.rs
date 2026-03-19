@@ -43,6 +43,30 @@ impl Display {
                 | Self::TableColumnGroup
         )
     }
+
+    /// CSS 2.1 §9.7 / Flex §4.2 / Grid §6.1: blockify a display value.
+    ///
+    /// Inline-level and table-internal values become their block-level equivalents.
+    /// Already block-level values are returned unchanged.
+    #[must_use]
+    pub fn blockify(self) -> Self {
+        match self {
+            Self::Inline
+            | Self::InlineBlock
+            | Self::TableRow
+            | Self::TableCell
+            | Self::TableRowGroup
+            | Self::TableHeaderGroup
+            | Self::TableFooterGroup
+            | Self::TableColumn
+            | Self::TableColumnGroup
+            | Self::TableCaption => Self::Block,
+            Self::InlineFlex => Self::Flex,
+            Self::InlineGrid => Self::Grid,
+            Self::InlineTable => Self::Table,
+            other => other,
+        }
+    }
 }
 
 keyword_enum! {

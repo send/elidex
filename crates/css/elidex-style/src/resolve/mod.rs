@@ -218,25 +218,7 @@ fn resolve_float_visibility_properties(
 /// `display: contents` is excluded — it generates no box, so blockification
 /// does not apply (browsers preserve `contents` when combined with `float`).
 fn blockify_display(display: Display) -> Display {
-    match display {
-        // Inline-level and table-internal values become block.
-        Display::Inline
-        | Display::InlineBlock
-        | Display::TableRow
-        | Display::TableCell
-        | Display::TableRowGroup
-        | Display::TableHeaderGroup
-        | Display::TableFooterGroup
-        | Display::TableColumn
-        | Display::TableColumnGroup
-        | Display::TableCaption => Display::Block,
-        Display::InlineFlex => Display::Flex,
-        Display::InlineGrid => Display::Grid,
-        Display::InlineTable => Display::Table,
-        // Block, Flex, Grid, Table, ListItem, None — already block-level
-        // or special, unchanged.
-        other => other,
-    }
+    display.blockify()
 }
 
 /// Compute the element's line-height in pixels for percentage resolution.

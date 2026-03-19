@@ -562,6 +562,8 @@ fn mixed_block_inline_anonymous_box() {
         depth: 0,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -624,6 +626,8 @@ fn block_only_children_no_anonymous_boxes() {
         depth: 0,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -683,6 +687,8 @@ fn display_none_skipped_in_block_context() {
         depth: 0,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,

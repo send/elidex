@@ -11,6 +11,7 @@ use elidex_text::FontDatabase;
 use crate::{algo, layout_table, CellInfo};
 
 mod box_model;
+mod col_span;
 mod sizing;
 mod structure;
 
@@ -31,8 +32,8 @@ fn test_layout_child(
     dom: &mut EcsDom,
     entity: elidex_ecs::Entity,
     input: &LayoutInput<'_>,
-) -> LayoutBox {
-    elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child)
+) -> elidex_layout_block::LayoutOutcome {
+    elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child).into()
 }
 
 /// Helper to call `layout_table` with the old positional-argument pattern used by tests.
@@ -57,6 +58,8 @@ fn do_layout_table(
         depth,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
     layout_table(dom, entity, &input, layout_child)
 }

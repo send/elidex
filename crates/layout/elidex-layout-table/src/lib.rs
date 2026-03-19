@@ -16,7 +16,7 @@
 //! Current simplifications (Phase 4 deferred):
 //! - `vertical-align` treated as `top`
 //! - `InlineTable` treated as block-level
-//! - `<col>` span attribute not read (always treated as span=1)
+//! - `<col>` span attribute read from HTML (clamped to 1–1000 per WHATWG §4.9.11)
 //! - `empty-cells` always `show`
 //! - `baseline` alignment treated as `start`
 //! - Anonymous row DOM mutation is not idempotent across re-layouts (needs layout caching)
@@ -93,7 +93,7 @@ fn collect_col_widths(
                     }
                     let cc_style = elidex_layout_block::get_style(dom, cc);
                     if cc_style.display == Display::TableColumn {
-                        let span = col_span_count(&cc_style);
+                        let span = col_span_count(dom, cc);
                         let w = resolve_col_width(&cc_style, available_for_cols)
                             .or_else(|| resolve_col_width(&child_style, available_for_cols));
                         for _ in 0..span {
@@ -109,7 +109,7 @@ fn collect_col_widths(
                 }
             }
             Display::TableColumn => {
-                let span = col_span_count(&child_style);
+                let span = col_span_count(dom, child);
                 let w = resolve_col_width(&child_style, available_for_cols);
                 for _ in 0..span {
                     if col_idx < num_cols {
@@ -135,11 +135,19 @@ fn resolve_col_width(style: &ComputedStyle, available: f32) -> Option<f32> {
     }
 }
 
-/// Get the `span` count for a `<col>` element (defaults to 1).
-fn col_span_count(_style: &ComputedStyle) -> usize {
-    // CSS does not have a dedicated ComputedStyle field for col span;
-    // the HTML `span` attribute is typically 1. Future: read from Attributes.
-    1
+/// Get the `span` count for a `<col>` element from its HTML `span` attribute.
+///
+/// Defaults to 1 if the attribute is absent or invalid. Clamped to 1000 max
+/// to prevent degenerate tables (WHATWG §4.9.11).
+pub(crate) fn col_span_count(dom: &EcsDom, entity: Entity) -> usize {
+    let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
+        return 1;
+    };
+    attrs
+        .get("span")
+        .and_then(|val| val.parse::<u32>().ok())
+        .filter(|&n| n >= 1)
+        .map_or(1, |n| n.min(1000) as usize)
 }
 
 /// Cell width adjusted for the collapsed border half-width model.
@@ -264,8 +272,10 @@ pub fn layout_table(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let cap_lb = layout_child(dom, cap, &cap_input);
+        let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
         caption_top_height += box_total_height(&cap_lb);
         let _ = dom.world_mut().insert_one(cap, cap_lb);
     }
@@ -382,8 +392,10 @@ pub fn layout_table(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let cell_lb = layout_child(dom, cell.entity, &cell_input);
+        let cell_lb = layout_child(dom, cell.entity, &cell_input).layout_box;
 
         let cell_total_height = box_total_height(&cell_lb);
 
@@ -465,8 +477,10 @@ pub fn layout_table(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input);
+        let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
     }
 
@@ -485,8 +499,10 @@ pub fn layout_table(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let cap_lb = layout_child(dom, cap, &cap_input);
+        let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
         caption_bottom_height += box_total_height(&cap_lb);
         cursor_y += box_total_height(&cap_lb);
         let _ = dom.world_mut().insert_one(cap, cap_lb);
@@ -665,8 +681,10 @@ fn compute_column_widths(
                     depth: depth + 1,
                     float_ctx: None,
                     viewport: None,
+                    fragmentainer: None,
+                    break_token: None,
                 };
-                let min_lb = layout_child(dom, cell.entity, &min_input);
+                let min_lb = layout_child(dom, cell.entity, &min_input).layout_box;
                 let max_input = LayoutInput {
                     containing_width: f32::MAX / 4.0, // max-content probe
                     containing_height: None,
@@ -676,8 +694,10 @@ fn compute_column_widths(
                     depth: depth + 1,
                     float_ctx: None,
                     viewport: None,
+                    fragmentainer: None,
+                    break_token: None,
                 };
-                let max_lb = layout_child(dom, cell.entity, &max_input);
+                let max_lb = layout_child(dom, cell.entity, &max_input).layout_box;
                 let cs = elidex_layout_block::get_style(dom, cell.entity);
                 let p = elidex_layout_block::resolve_padding(&cs, available_for_cols);
                 let b = sanitize_border(&cs);

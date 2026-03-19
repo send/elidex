@@ -176,7 +176,7 @@ pub fn stack_block_children(
             float_ctx: Some(float_ctx),
             ..*input
         };
-        let child_box = layout_child(dom, child, &child_input);
+        let child_box = layout_child(dom, child, &child_input).layout_box;
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
         last_child_margin_bottom = Some(child_box.margin.bottom);
@@ -407,8 +407,10 @@ fn layout_float(
         depth: input.depth + 1,
         float_ctx: None,
         viewport: None,
+        fragmentainer: None,
+        break_token: None,
     };
-    let child_box = layout_child(dom, child, &temp_input);
+    let child_box = layout_child(dom, child, &temp_input).layout_box;
     let content_width = child_box.content.width;
     let content_height = child_box.content.height;
 

@@ -16,7 +16,7 @@ use elidex_layout_block::{
 };
 use elidex_plugin::{
     AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
-    FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
+    FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect, Visibility,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -105,6 +105,7 @@ fn resolve_flex_basis(
 // ---------------------------------------------------------------------------
 
 /// A flex item with resolved metrics.
+#[allow(clippy::struct_excessive_bools)] // auto margin + collapsed flags are spec-mandated
 pub(crate) struct FlexItem {
     pub(crate) entity: Entity,
     pub(crate) source_order: usize,
@@ -130,6 +131,13 @@ pub(crate) struct FlexItem {
     pub(crate) min_main: f32,
     /// Maximum content size on the main axis (from max-width/max-height).
     pub(crate) max_main: f32,
+    /// Flex §8.1: auto margin flags for free-space distribution.
+    pub(crate) margin_main_start_auto: bool,
+    pub(crate) margin_main_end_auto: bool,
+    pub(crate) margin_cross_start_auto: bool,
+    pub(crate) margin_cross_end_auto: bool,
+    /// Flex §4.4: visibility:collapse — item participates in sizing but renders at zero main size.
+    pub(crate) collapsed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +301,18 @@ pub fn layout_flex(
         algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main, ctx.gap_main);
     }
 
+    // Flex §4.4: After flexible length resolution, collapsed items have their
+    // main size and main-axis margins zeroed so they occupy no main-axis space,
+    // but they still participate in cross-size computation (act as a strut).
+    for item in items.iter_mut().filter(|i| i.collapsed) {
+        item.final_main = 0.0;
+        item.margin_main = 0.0;
+        // Clear auto margin flags so collapsed items don't participate
+        // in auto margin free-space distribution in position_items.
+        item.margin_main_start_auto = false;
+        item.margin_main_end_auto = false;
+    }
+
     algo::layout_items_cross(dom, &mut items, &ctx, &env);
     let (line_cross_sizes, total_line_cross) = algo::compute_line_cross_sizes(&items, &line_ranges);
 
@@ -362,6 +382,7 @@ pub fn layout_flex(
 // Item collection
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 fn collect_flex_items(
     dom: &mut EcsDom,
     children: &[Entity],
@@ -370,7 +391,7 @@ fn collect_flex_items(
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
+        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue;
         };
         if child_style.display == Display::None {
@@ -381,9 +402,64 @@ fn collect_flex_items(
             continue;
         }
 
+        // Flex §4.2: blockify flex items.
+        let blockified = child_style.display.blockify();
+        if blockified != child_style.display {
+            child_style.display = blockified;
+            let _ = dom.world_mut().insert_one(child, child_style.clone());
+        }
+
         let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.containing_width);
+
+        // Flex §8.1: detect auto margins before resolving to 0.
+        let (
+            margin_main_start_auto,
+            margin_main_end_auto,
+            margin_cross_start_auto,
+            margin_cross_end_auto,
+        ) = if ctx.horizontal {
+            let (ms, me) = if is_reversed(ctx.direction) {
+                (
+                    child_style.margin_right == Dimension::Auto,
+                    child_style.margin_left == Dimension::Auto,
+                )
+            } else {
+                (
+                    child_style.margin_left == Dimension::Auto,
+                    child_style.margin_right == Dimension::Auto,
+                )
+            };
+            (
+                ms,
+                me,
+                child_style.margin_top == Dimension::Auto,
+                child_style.margin_bottom == Dimension::Auto,
+            )
+        } else {
+            let (ms, me) = if is_reversed(ctx.direction) {
+                (
+                    child_style.margin_bottom == Dimension::Auto,
+                    child_style.margin_top == Dimension::Auto,
+                )
+            } else {
+                (
+                    child_style.margin_top == Dimension::Auto,
+                    child_style.margin_bottom == Dimension::Auto,
+                )
+            };
+            (
+                ms,
+                me,
+                child_style.margin_left == Dimension::Auto,
+                child_style.margin_right == Dimension::Auto,
+            )
+        };
+
         let (margin_main, margin_cross) =
             compute_margins(&child_style, ctx.horizontal, ctx.containing_width);
+
+        // Flex §4.4: visibility:collapse detection.
+        let collapsed = child_style.visibility == Visibility::Collapse;
 
         // CSS spec: stretch only applies when the cross-size property is auto.
         let cross_size_auto = if ctx.horizontal {
@@ -410,8 +486,10 @@ fn collect_flex_items(
                 depth: env.depth + 1,
                 float_ctx: None,
                 viewport: env.input_viewport,
+                fragmentainer: None,
+                break_token: None,
             };
-            let child_lb = (env.layout_child)(dom, child, &child_input);
+            let child_lb = (env.layout_child)(dom, child, &child_input).layout_box;
             if ctx.horizontal {
                 child_lb.content.width
             } else {
@@ -462,6 +540,11 @@ fn collect_flex_items(
             cross_size_auto,
             min_main,
             max_main,
+            margin_main_start_auto,
+            margin_main_end_auto,
+            margin_cross_start_auto,
+            margin_cross_end_auto,
+            collapsed,
         });
     }
     items

@@ -357,13 +357,13 @@ fn collapse_empty_auto_tracks(
 
 /// Collect grid items from children, skipping `display:none` and text nodes.
 fn collect_grid_items(
-    dom: &EcsDom,
+    dom: &mut EcsDom,
     children: &[Entity],
     container_style: &ComputedStyle,
 ) -> Vec<GridItem> {
     let mut items = Vec::new();
     for (i, &child) in children.iter().enumerate() {
-        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
+        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue; // Text node — skip.
         };
         if child_style.display == Display::None {
@@ -372,6 +372,13 @@ fn collect_grid_items(
         // Absolutely positioned grid children are removed from grid layout.
         if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
             continue;
+        }
+
+        // Grid §6.1: blockify grid items.
+        let blockified = child_style.display.blockify();
+        if blockified != child_style.display {
+            child_style.display = blockified;
+            let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
         let align = effective_align(child_style.align_self, container_style.align_items);
@@ -446,8 +453,10 @@ fn measure_item_content(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let min_lb = layout_child(dom, item.entity, &min_input);
+        let min_lb = layout_child(dom, item.entity, &min_input).layout_box;
         item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
         item.min_content_height = min_lb.content.height + item.pb.top + item.pb.bottom;
         // Restore styles corrupted by the min-content probe.
@@ -463,8 +472,10 @@ fn measure_item_content(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let max_lb = layout_child(dom, item.entity, &max_input);
+        let max_lb = layout_child(dom, item.entity, &max_input).layout_box;
         item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
         item.content_height = max_lb.content.height + item.pb.top + item.pb.bottom;
     }
@@ -658,8 +669,10 @@ fn position_items(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let prelim_lb = layout_child(dom, item.entity, &prelim_input);
+        let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
 
         // Resolve item content height: stretch fills the area, otherwise use content.
         let prelim_content_h = prelim_lb.content.height;
@@ -698,8 +711,10 @@ fn position_items(
             depth: depth + 1,
             float_ctx: None,
             viewport: None,
+            fragmentainer: None,
+            break_token: None,
         };
-        let final_lb = layout_child(dom, item.entity, &final_input);
+        let final_lb = layout_child(dom, item.entity, &final_input).layout_box;
 
         // Ensure the content height matches the grid-resolved value.
         if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {

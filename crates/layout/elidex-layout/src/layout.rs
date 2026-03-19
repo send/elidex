@@ -20,7 +20,7 @@ pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
     input: &LayoutInput<'_>,
-) -> LayoutBox {
+) -> elidex_layout_block::LayoutOutcome {
     let style = elidex_layout_block::get_style(dom, entity);
     let lb = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
@@ -69,7 +69,7 @@ pub fn dispatch_layout_child(
         }
     }
 
-    lb
+    lb.into()
 }
 
 /// Layout the entire DOM tree.
@@ -130,6 +130,8 @@ fn layout_root(
         depth: 0,
         float_ctx: None,
         viewport: Some((viewport_width, viewport_height)),
+        fragmentainer: None,
+        break_token: None,
     };
 
     if let Some(display) = root_display {

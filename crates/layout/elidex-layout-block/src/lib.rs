@@ -19,6 +19,83 @@ use elidex_text::FontDatabase;
 
 use crate::block::float::FloatContext;
 
+// ---------------------------------------------------------------------------
+// Fragmentation types (CSS Fragmentation Level 3)
+// ---------------------------------------------------------------------------
+
+/// Type of fragmentation context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FragmentationType {
+    /// Page-based fragmentation (CSS Paged Media).
+    Page,
+    /// Column-based fragmentation (CSS Multi-column).
+    Column,
+}
+
+/// Context passed into layout when inside a fragmentation container.
+#[derive(Clone, Copy, Debug)]
+pub struct FragmentainerContext {
+    /// Available block-axis size before the next break opportunity.
+    pub available_block_size: f32,
+    /// Type of fragmentation.
+    pub fragmentation_type: FragmentationType,
+}
+
+/// Result of a layout pass, including an optional break token for fragmentation.
+#[derive(Clone, Debug)]
+pub struct LayoutOutcome {
+    /// The layout box produced by this fragment.
+    pub layout_box: LayoutBox,
+    /// If layout was interrupted by a fragmentainer break, the token to resume.
+    pub break_token: Option<BreakToken>,
+}
+
+impl From<LayoutBox> for LayoutOutcome {
+    fn from(lb: LayoutBox) -> Self {
+        Self {
+            layout_box: lb,
+            break_token: None,
+        }
+    }
+}
+
+/// Token that records where layout was interrupted, allowing resumption.
+#[derive(Clone, Debug)]
+pub struct BreakToken {
+    /// The entity whose layout was interrupted.
+    pub entity: Entity,
+    /// How much block-axis size was consumed before the break.
+    pub consumed_block_size: f32,
+    /// Nested break token from a child that was itself interrupted.
+    pub child_break_token: Option<Box<BreakToken>>,
+    /// Layout-mode-specific data for resumption.
+    pub mode_data: Option<BreakTokenData>,
+}
+
+/// Layout-mode-specific data stored in a [`BreakToken`].
+#[derive(Clone, Debug)]
+pub enum BreakTokenData {
+    /// Block layout: index of the next child to lay out.
+    Block { child_index: usize },
+    /// Flex layout: line and item indices.
+    Flex {
+        line_index: usize,
+        item_index: usize,
+    },
+    /// Grid layout: row index.
+    Grid { row_index: usize },
+    /// Table layout: row index and optional header/footer tokens.
+    Table {
+        row_index: usize,
+        thead: Option<Box<BreakToken>>,
+        tfoot: Option<Box<BreakToken>>,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Layout input and dispatch
+// ---------------------------------------------------------------------------
+
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
@@ -45,6 +122,10 @@ pub struct LayoutInput<'a> {
     /// Set at the root layout and propagated downward. Fixed-positioned
     /// elements use this as their containing block (CSS 2.1 §10.1).
     pub viewport: Option<(f32, f32)>,
+    /// Fragmentation context (if inside a fragmentainer).
+    pub fragmentainer: Option<&'a FragmentainerContext>,
+    /// Break token from a previous fragment (for resumption).
+    pub break_token: Option<&'a BreakToken>,
 }
 
 /// Callback type for dispatching child layout by display type.
@@ -52,7 +133,7 @@ pub struct LayoutInput<'a> {
 /// The orchestrator (`elidex-layout`) provides a dispatch function that routes
 /// to block, flex, or grid layout based on the child's `display` value.
 /// Within standalone block-only scenarios, [`layout_block_only`] can be used.
-pub type ChildLayoutFn = fn(&mut EcsDom, Entity, &LayoutInput<'_>) -> LayoutBox;
+pub type ChildLayoutFn = fn(&mut EcsDom, Entity, &LayoutInput<'_>) -> LayoutOutcome;
 
 /// Maximum recursion depth for layout tree walking.
 ///
@@ -64,8 +145,12 @@ pub const MAX_LAYOUT_DEPTH: u32 = 1000;
 ///
 /// A [`ChildLayoutFn`] implementation that always uses block layout.
 /// Used for standalone tests and scenarios where flex/grid dispatch is not needed.
-pub fn layout_block_only(dom: &mut EcsDom, entity: Entity, input: &LayoutInput<'_>) -> LayoutBox {
-    block::layout_block_inner(dom, entity, input, layout_block_only)
+pub fn layout_block_only(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+) -> LayoutOutcome {
+    block::layout_block_inner(dom, entity, input, layout_block_only).into()
 }
 
 // ---------------------------------------------------------------------------
@@ -421,4 +506,73 @@ pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<(f32, f32)> {
                     (w.max(0.0), h.max(0.0))
                 })
         })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elidex_plugin::LayoutBox;
+
+    #[test]
+    fn layout_outcome_from_layout_box() {
+        let lb = LayoutBox::default();
+        let outcome: LayoutOutcome = lb.clone().into();
+        assert!(outcome.break_token.is_none());
+        assert_eq!(outcome.layout_box.content.width, lb.content.width);
+    }
+
+    #[test]
+    fn layout_outcome_no_break_default() {
+        let outcome = LayoutOutcome::from(LayoutBox::default());
+        assert!(outcome.break_token.is_none());
+    }
+
+    #[test]
+    fn break_token_nested() {
+        let inner = BreakToken {
+            entity: Entity::DANGLING,
+            consumed_block_size: 50.0,
+            child_break_token: None,
+            mode_data: Some(BreakTokenData::Block { child_index: 2 }),
+        };
+        let outer = BreakToken {
+            entity: Entity::DANGLING,
+            consumed_block_size: 100.0,
+            child_break_token: Some(Box::new(inner)),
+            mode_data: Some(BreakTokenData::Flex {
+                line_index: 0,
+                item_index: 3,
+            }),
+        };
+        let child = outer.child_break_token.as_ref().unwrap();
+        assert_eq!(child.consumed_block_size, 50.0);
+        assert!(matches!(
+            child.mode_data,
+            Some(BreakTokenData::Block { child_index: 2 })
+        ));
+    }
+
+    #[test]
+    fn break_token_data_variants() {
+        let block = BreakTokenData::Block { child_index: 5 };
+        let flex = BreakTokenData::Flex {
+            line_index: 1,
+            item_index: 2,
+        };
+        let grid = BreakTokenData::Grid { row_index: 3 };
+        let table = BreakTokenData::Table {
+            row_index: 0,
+            thead: None,
+            tfoot: None,
+        };
+        // Ensure all variants are constructible and cloneable.
+        let _ = block.clone();
+        let _ = flex.clone();
+        let _ = grid.clone();
+        let _ = table.clone();
+    }
 }
