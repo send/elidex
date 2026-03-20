@@ -14,16 +14,15 @@
 //! always have identical length.
 //!
 //! Current simplifications (Phase 4 deferred):
-//! - `vertical-align` treated as `top`
 //! - `InlineTable` treated as block-level
 //! - `<col>` span attribute read from HTML (clamped to 1–1000 per WHATWG §4.9.11)
 //! - `empty-cells` always `show`
-//! - `baseline` alignment treated as `start`
 //! - Anonymous row DOM mutation is not idempotent across re-layouts (needs layout caching)
 //! - Cells are laid out twice (height probe + final positioning); could cache first pass
 
 mod algo;
 mod grid;
+mod helpers;
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -34,131 +33,34 @@ use elidex_layout_block::{
     horizontal_pb, sanitize_border, vertical_pb, ChildLayoutFn, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    BorderCollapse, CaptionSide, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
-    LayoutBox, Rect, TableLayout,
+    BorderCollapse, CaptionSide, ComputedStyle, Direction, Display, EdgeSizes, LayoutBox,
+    VerticalAlign,
 };
-use elidex_text::FontDatabase;
 
 use elidex_layout_block::block::resolve_margin;
 
-use algo::{auto_column_widths, fixed_column_widths, resolve_collapsed_borders, CollapsedBorders};
+use algo::{resolve_collapsed_borders, CollapsedBorders};
 pub(crate) use grid::{
     build_cell_grid, cell_available_width, collect_all_rows, span_end_col, span_end_row, CellInfo,
 };
+use helpers::{
+    box_total_height, build_table_layout_box, collapse_adjusted_width, collect_col_widths,
+    compute_column_widths, resolve_table_height, TableColumnInput,
+};
+// Re-exported for tests (col_span.rs uses `crate::col_span_count`).
+#[cfg(test)]
+pub(crate) use helpers::col_span_count;
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/// Total outer height of a layout box (margin + border + padding + content).
-#[inline]
-#[must_use]
-fn box_total_height(lb: &LayoutBox) -> f32 {
-    lb.margin.top
-        + lb.border.top
-        + lb.padding.top
-        + lb.content.height
-        + lb.padding.bottom
-        + lb.border.bottom
-        + lb.margin.bottom
-}
-
-/// Collect per-column widths from `<col>` and `<colgroup>` elements.
+/// Compute a table cell's baseline from its border-box top edge (CSS 2.1 §17.5.1).
 ///
-/// Walks the table's children, expanding `<colgroup>` into its child `<col>`
-/// elements. Returns a vec of `Option<f32>` indexed by column, where `None`
-/// means no col-specified width for that column.
-#[must_use]
-fn collect_col_widths(
-    dom: &EcsDom,
-    children: &[Entity],
-    num_cols: usize,
-    available_for_cols: f32,
-) -> Vec<Option<f32>> {
-    let mut result = vec![None::<f32>; num_cols];
-    let mut col_idx = 0;
-
-    for &child in children {
-        if col_idx >= num_cols {
-            break;
-        }
-        let child_style = elidex_layout_block::get_style(dom, child);
-        match child_style.display {
-            Display::TableColumnGroup => {
-                // Expand colgroup: walk its <col> children.
-                let mut col_child = dom.get_first_child(child);
-                while let Some(cc) = col_child {
-                    if col_idx >= num_cols {
-                        break;
-                    }
-                    let cc_style = elidex_layout_block::get_style(dom, cc);
-                    if cc_style.display == Display::TableColumn {
-                        let span = col_span_count(dom, cc);
-                        let w = resolve_col_width(&cc_style, available_for_cols)
-                            .or_else(|| resolve_col_width(&child_style, available_for_cols));
-                        for _ in 0..span {
-                            if col_idx < num_cols {
-                                if result[col_idx].is_none() {
-                                    result[col_idx] = w;
-                                }
-                                col_idx += 1;
-                            }
-                        }
-                    }
-                    col_child = dom.get_next_sibling(cc);
-                }
-            }
-            Display::TableColumn => {
-                let span = col_span_count(dom, child);
-                let w = resolve_col_width(&child_style, available_for_cols);
-                for _ in 0..span {
-                    if col_idx < num_cols {
-                        if result[col_idx].is_none() {
-                            result[col_idx] = w;
-                        }
-                        col_idx += 1;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    result
-}
-
-/// Resolve a `<col>` or `<colgroup>` element's width to pixels.
-fn resolve_col_width(style: &ComputedStyle, available: f32) -> Option<f32> {
-    match style.width {
-        Dimension::Length(px) if px.is_finite() && px > 0.0 => Some(px),
-        Dimension::Percentage(pct) if pct > 0.0 => Some(available * pct / 100.0),
-        _ => None,
-    }
-}
-
-/// Get the `span` count for a `<col>` element from its HTML `span` attribute.
-///
-/// Defaults to 1 if the attribute is absent or invalid. Clamped to 1000 max
-/// to prevent degenerate tables (WHATWG §4.9.11).
-pub(crate) fn col_span_count(dom: &EcsDom, entity: Entity) -> usize {
-    let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
-        return 1;
-    };
-    attrs
-        .get("span")
-        .and_then(|val| val.parse::<u32>().ok())
-        .filter(|&n| n >= 1)
-        .map_or(1, |n| n.min(1000) as usize)
-}
-
-/// Cell width adjusted for the collapsed border half-width model.
-#[inline]
-#[must_use]
-fn collapse_adjusted_width(cell_width: f32, is_collapse: bool, cb: &CollapsedBorders) -> f32 {
-    if is_collapse {
-        (cell_width - cb.left / 2.0 - cb.right / 2.0).max(0.0)
-    } else {
-        cell_width
-    }
+/// If the cell has a `first_baseline`, returns `padding.top + border.top + baseline`.
+/// Otherwise, returns the content-edge bottom: `padding.top + border.top + content.height`
+/// (CSS 2.1 §17.5.1: "the baseline is the bottom of the content edge of the cell box").
+fn cell_baseline(cell_lb: &LayoutBox) -> f32 {
+    cell_lb.first_baseline.map_or(
+        cell_lb.padding.top + cell_lb.border.top + cell_lb.content.height,
+        |b| b + cell_lb.padding.top + cell_lb.border.top,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +223,7 @@ pub fn layout_table(
             offset_y + margin.top + border.top + padding.top,
             content_width,
             content_height,
+            None,
         );
         let _ = dom.world_mut().insert_one(entity, lb.clone());
         return lb;
@@ -407,6 +310,39 @@ pub fn layout_table(
         cell_layout_boxes.push(cell_lb);
     }
 
+    // Pre-compute per-cell baselines to avoid repeated computation.
+    let cell_baselines: Vec<f32> = cell_layout_boxes.iter().map(cell_baseline).collect();
+
+    // Per-row baseline for baseline-aligned cells (CSS 2.1 §17.5.1).
+    // Table cells have zero margins (CSS 2.1 §17.5.4), so padding+border only.
+    let mut row_baselines = vec![0.0_f32; num_rows];
+    let mut row_has_baseline = vec![false; num_rows];
+    for (i, cell) in cells.iter().enumerate() {
+        if cell.rowspan == 1 {
+            let cell_style = &cell_styles[i];
+            if cell_style.vertical_align == VerticalAlign::Baseline {
+                row_baselines[cell.row] = row_baselines[cell.row].max(cell_baselines[i]);
+                row_has_baseline[cell.row] = true;
+            }
+        }
+    }
+
+    // Ensure rows are tall enough for baseline alignment.
+    // Row height >= max(baseline_above) + max(baseline_below).
+    for r in 0..num_rows {
+        if row_has_baseline[r] {
+            let baseline_below: f32 = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.row == r && c.rowspan == 1)
+                .filter(|(i, _)| cell_styles[*i].vertical_align == VerticalAlign::Baseline)
+                .map(|(i, _)| box_total_height(&cell_layout_boxes[i]) - cell_baselines[i])
+                .fold(0.0_f32, f32::max);
+            let min_row_h = row_baselines[r] + baseline_below;
+            row_heights[r] = row_heights[r].max(min_row_h);
+        }
+    }
+
     // Handle rowspan: if spanning rows don't have enough combined height,
     // distribute the deficit evenly across all spanned rows (CSS 2.1 §17.5.3).
     for (i, cell) in cells.iter().enumerate() {
@@ -456,7 +392,6 @@ pub fn layout_table(
     // Now position each cell with final coordinates.
     for (i, cell) in cells.iter().enumerate() {
         let cell_x = content_x + col_x_offsets[cell.col];
-        let cell_y = cursor_y + row_y_offsets[cell.row];
 
         let cell_width = cell_available_width(&col_widths, cell, spacing_h, num_cols);
         let effective_width =
@@ -466,6 +401,20 @@ pub fn layout_table(
         let span_end = span_end_row(cell, num_rows);
         let cell_height: f32 = row_heights[cell.row..span_end].iter().sum::<f32>()
             + spacing_v * (cell.rowspan as f32 - 1.0).max(0.0);
+
+        // Compute vertical-align offset within the cell's row slot.
+        let cell_total_height = box_total_height(&cell_layout_boxes[i]);
+        let free = (cell_height - cell_total_height).max(0.0);
+        let va_offset = match cell_styles[i].vertical_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Middle => free / 2.0,
+            VerticalAlign::Bottom => free,
+            // CSS 2.1 §17.5.1: sub/super/text-top/text-bottom/length/percentage
+            // are treated as baseline alignment in table cell context.
+            _ => (row_baselines[cell.row] - cell_baselines[i]).max(0.0),
+        };
+
+        let cell_y = cursor_y + row_y_offsets[cell.row] + va_offset;
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
@@ -514,6 +463,17 @@ pub fn layout_table(
     let content_height = resolve_table_height(&style, containing_height, v_pb, min_content_height)
         .max(min_content_height);
 
+    // Table container baseline = first row's baseline (CSS 2.1 §17.5.1).
+    let table_baseline = if !row_has_baseline.is_empty() && row_has_baseline[0] {
+        // Row 0 has baseline-aligned cells — use the shared row baseline.
+        Some(caption_top_height + spacing_v + row_baselines[0])
+    } else if !row_heights.is_empty() {
+        // No baseline-aligned cells in row 0 — use row height as fallback.
+        Some(caption_top_height + spacing_v + row_heights[0])
+    } else {
+        None
+    };
+
     let lb = build_table_layout_box(
         &padding,
         &border,
@@ -522,6 +482,7 @@ pub fn layout_table(
         offset_y + margin.top + border.top + padding.top,
         content_width,
         content_height,
+        table_baseline,
     );
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
@@ -549,192 +510,4 @@ pub fn layout_table(
     }
 
     lb
-}
-
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
-
-/// Resolve the table's content height.
-#[must_use]
-fn resolve_table_height(
-    style: &ComputedStyle,
-    containing_height: Option<f32>,
-    v_pb: f32,
-    min_height: f32,
-) -> f32 {
-    let explicit = match style.height {
-        Dimension::Length(px) if px.is_finite() => {
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                Some((px - v_pb).max(0.0))
-            } else {
-                Some(px)
-            }
-        }
-        Dimension::Percentage(pct) => containing_height.map(|ch| {
-            let resolved = ch * pct / 100.0;
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (resolved - v_pb).max(0.0)
-            } else {
-                resolved
-            }
-        }),
-        _ => None,
-    };
-    explicit.unwrap_or(min_height).max(min_height)
-}
-
-/// Parameters for column width computation.
-///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing).
-#[allow(dead_code)]
-struct TableColumnInput<'a> {
-    style: &'a ComputedStyle,
-    cells: &'a [CellInfo],
-    cell_styles: &'a [ComputedStyle],
-    collapsed_borders: &'a [CollapsedBorders],
-    /// Per-column widths from `<col>`/`<colgroup>` elements (CSS 2.1 §17.5.2.1).
-    /// `None` means the column has no col-specified width.
-    col_element_widths: &'a [Option<f32>],
-    num_cols: usize,
-    available_for_cols: f32,
-    content_width: f32,
-    is_collapse: bool,
-}
-
-/// Compute column widths based on table-layout algorithm.
-///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing) and currently unused.
-#[must_use]
-fn compute_column_widths(
-    dom: &mut EcsDom,
-    params: &TableColumnInput<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) -> Vec<f32> {
-    let style = params.style;
-    let cells = params.cells;
-    let cell_styles = params.cell_styles;
-    // params.collapsed_borders, params.content_width, params.is_collapse reserved for Phase 4.
-    let num_cols = params.num_cols;
-    let available_for_cols = params.available_for_cols;
-    if style.table_layout == TableLayout::Fixed && !matches!(style.width, Dimension::Auto) {
-        // Fixed table layout: use first row cell widths.
-        // Collect (index, &CellInfo) pairs to avoid re-searching for indices.
-        let first_row: Vec<(usize, &CellInfo)> = cells
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.row == 0)
-            .collect();
-        let first_row_explicit: Vec<Option<f32>> = first_row
-            .iter()
-            .map(|&(i, _)| {
-                let cs = &cell_styles[i];
-                match cs.width {
-                    Dimension::Length(px) if px.is_finite() && px > 0.0 => Some(px),
-                    Dimension::Percentage(pct) if pct > 0.0 => {
-                        Some(available_for_cols * pct / 100.0)
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
-        let first_row_cell_infos: Vec<CellInfo> = first_row
-            .iter()
-            .map(|&(_, c)| CellInfo {
-                entity: c.entity,
-                col: c.col,
-                row: c.row,
-                colspan: c.colspan,
-                rowspan: c.rowspan,
-            })
-            .collect();
-        let mut widths = fixed_column_widths(
-            num_cols,
-            &first_row_cell_infos,
-            &first_row_explicit,
-            params.col_element_widths,
-            available_for_cols,
-        );
-        // Col element widths are already applied inside fixed_column_widths.
-        // Clamp negative widths.
-        for w in &mut widths {
-            *w = w.max(0.0);
-        }
-        widths
-    } else {
-        // Auto table layout: measure cell intrinsic widths.
-        let cell_widths: Vec<(f32, f32)> = cells
-            .iter()
-            .map(|cell| {
-                // Layout cell with a very small width to get min-content,
-                // and with a very large width to get max-content.
-                let min_input = LayoutInput {
-                    containing_width: 1.0, // min-content probe
-                    containing_height: None,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                    float_ctx: None,
-                    viewport: None,
-                    fragmentainer: None,
-                    break_token: None,
-                };
-                let min_lb = layout_child(dom, cell.entity, &min_input).layout_box;
-                let max_input = LayoutInput {
-                    containing_width: f32::MAX / 4.0, // max-content probe
-                    containing_height: None,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                    float_ctx: None,
-                    viewport: None,
-                    fragmentainer: None,
-                    break_token: None,
-                };
-                let max_lb = layout_child(dom, cell.entity, &max_input).layout_box;
-                let cs = elidex_layout_block::get_style(dom, cell.entity);
-                let p = elidex_layout_block::resolve_padding(&cs, available_for_cols);
-                let b = sanitize_border(&cs);
-                let cell_h_pb = horizontal_pb(&p, &b);
-                // min-content = content width from narrow probe + cell pb
-                let min_w = min_lb.content.width + cell_h_pb;
-                // max-content = content width from wide probe + cell pb
-                let max_w = max_lb.content.width + cell_h_pb;
-                (min_w.max(0.0), max_w.max(min_w))
-            })
-            .collect();
-        let mut widths = auto_column_widths(num_cols, cells, &cell_widths, available_for_cols);
-        // Apply col element widths as minimum constraints (CSS 2.1 §17.5.2.2).
-        for (col, w) in widths.iter_mut().enumerate() {
-            if let Some(Some(col_w)) = params.col_element_widths.get(col) {
-                *w = w.max(*col_w);
-            }
-        }
-        widths
-    }
-}
-
-/// Build the final `LayoutBox` for the table element.
-#[must_use]
-fn build_table_layout_box(
-    padding: &EdgeSizes,
-    border: &EdgeSizes,
-    margin: &EdgeSizes,
-    content_x: f32,
-    content_y: f32,
-    content_width: f32,
-    content_height: f32,
-) -> LayoutBox {
-    LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
-        padding: *padding,
-        border: *border,
-        margin: *margin,
-    }
 }

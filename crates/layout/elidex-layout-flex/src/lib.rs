@@ -2,9 +2,6 @@
 //!
 //! Implements the core flexbox algorithm: item collection, line splitting,
 //! flexible length resolution, and cross/main axis alignment.
-//!
-//! Current simplifications:
-//! - `baseline` alignment treated as `flex-start`
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
@@ -24,6 +21,8 @@ use elidex_plugin::{
 const INDEFINITE_MAIN_SIZE: f32 = f32::MAX / 2.0;
 
 mod algo;
+mod align;
+mod baseline;
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -139,6 +138,24 @@ pub(crate) struct FlexItem {
     pub(crate) margin_cross_end_auto: bool,
     /// Flex §4.4: visibility:collapse — item participates in sizing but renders at zero main size.
     pub(crate) collapsed: bool,
+    /// First baseline offset from the item's margin-box cross-start edge.
+    ///
+    /// Populated after `layout_items_cross` by reading the child's `LayoutBox`.
+    /// Used for baseline alignment (CSS Flexbox §9.4, §9.6).
+    pub(crate) first_baseline: Option<f32>,
+    /// Cross-start margin (top for row, left for column).
+    ///
+    /// Needed to compute the baseline offset from the margin-box edge.
+    pub(crate) margin_cross_start: f32,
+}
+
+impl FlexItem {
+    /// Returns the item's baseline for alignment, or a synthesized baseline
+    /// at the border-box bottom (CSS Flexbox §9.4) when no intrinsic baseline exists.
+    pub(crate) fn baseline_or_synthesized(&self) -> f32 {
+        self.first_baseline
+            .unwrap_or(self.margin_cross_start + self.final_cross)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,18 +338,24 @@ pub fn layout_flex(
     }
 
     algo::layout_items_cross(dom, &mut items, &ctx, &env);
-    let (line_cross_sizes, total_line_cross) = algo::compute_line_cross_sizes(&items, &line_ranges);
+
+    // Read baselines from children after cross-size layout.
+    baseline::read_item_baselines(dom, &mut items, &ctx);
+
+    let line_baselines = baseline::compute_line_baselines(&items, &line_ranges, horizontal);
+    let (line_cross_sizes, total_line_cross) =
+        algo::compute_line_cross_sizes(&items, &line_ranges, &line_baselines);
 
     let container_cross =
         algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross);
-    let align_content = algo::apply_align_content_safety(
+    let align_content = align::apply_align_content_safety(
         ctx.align_content,
         container_cross,
         &line_cross_sizes,
         ctx.gap_cross,
         ctx.align_content_safety,
     );
-    let align_result = algo::compute_align_content_offsets(
+    let align_result = align::compute_align_content_offsets(
         &line_cross_sizes,
         container_cross,
         align_content,
@@ -347,6 +370,7 @@ pub fn layout_flex(
         line_ranges: &line_ranges,
         line_cross_sizes: &align_result.effective_line_sizes,
         line_offsets: &align_result.offsets,
+        line_baselines: &line_baselines,
         container_cross,
     };
     algo::position_items(dom, &items, &lines, &ctx, &env);
@@ -354,11 +378,37 @@ pub fn layout_flex(
     // --- Container LayoutBox ---
     let content_height =
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross);
+
+    // Flex container baseline (CSS Flexbox §9.4): first line's max baseline.
+    let wrap_reverse = matches!(ctx.wrap, FlexWrap::WrapReverse);
+    let first_baseline = if !line_baselines.is_empty() && line_baselines[0] > 0.0 {
+        // First logical line's max baseline, content-box relative.
+        // wrap-reverse mirrors cross positions: visual offset = container_cross - off - line_cross.
+        align_result.offsets.first().map(|&off| {
+            let cross_off = if wrap_reverse {
+                container_cross - off - align_result.effective_line_sizes[0]
+            } else {
+                off
+            };
+            cross_off + line_baselines[0]
+        })
+    } else if !items.is_empty() {
+        // Fallback: first item's own baseline.
+        let first_item = &items[0];
+        dom.world()
+            .get::<&LayoutBox>(first_item.entity)
+            .ok()
+            .and_then(|lb| lb.first_baseline.map(|bl| lb.content.y - content_y + bl))
+    } else {
+        None
+    };
+
     let lb = LayoutBox {
         content: Rect::new(content_x, content_y, content_width, content_height),
         padding,
         border,
         margin,
+        first_baseline,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
@@ -472,6 +522,13 @@ fn collect_flex_items(
         let (margin_main, margin_cross) =
             compute_margins(&child_style, ctx.horizontal, ctx.containing_width);
 
+        // Cross-start margin for baseline offset computation.
+        let margin_cross_start = if ctx.horizontal {
+            resolve_margin(child_style.margin_top, ctx.containing_width)
+        } else {
+            resolve_margin(child_style.margin_left, ctx.containing_width)
+        };
+
         // Flex §4.4: visibility:collapse detection.
         let collapsed = child_style.visibility == Visibility::Collapse;
 
@@ -575,6 +632,8 @@ fn collect_flex_items(
             margin_cross_start_auto,
             margin_cross_end_auto,
             collapsed,
+            first_baseline: None,
+            margin_cross_start,
         });
     }
     items

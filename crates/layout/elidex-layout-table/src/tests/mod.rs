@@ -14,6 +14,7 @@ mod box_model;
 mod col_span;
 mod sizing;
 mod structure;
+mod vertical_align;
 
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 1.0

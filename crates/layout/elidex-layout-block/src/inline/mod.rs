@@ -376,6 +376,11 @@ pub struct InlineLayoutResult {
     /// Static positions for absolutely positioned placeholders (CSS 2.1 §10.6.5).
     /// Positions are in content-area-relative coordinates.
     pub static_positions: HashMap<Entity, (f32, f32)>,
+    /// First baseline offset from content box top edge.
+    ///
+    /// CSS 2.1 §10.8.1: computed from the first line box's text run baseline,
+    /// accounting for half-leading distribution.
+    pub first_baseline: Option<f32>,
 }
 
 /// Layout inline content (text nodes, inline elements, and atomic inline
@@ -417,6 +422,7 @@ pub fn layout_inline_context(
         return InlineLayoutResult {
             height: 0.0,
             static_positions: HashMap::new(),
+            first_baseline: None,
         };
     }
 
@@ -447,6 +453,7 @@ pub fn layout_inline_context(
             return InlineLayoutResult {
                 height: 0.0,
                 static_positions: HashMap::new(),
+                first_baseline: None,
             };
         }
     }
@@ -456,7 +463,14 @@ pub fn layout_inline_context(
     // Greedy line packing.
     let mut packer = LinePacker::new(parent_entity);
     for pi in &pack_items {
-        packer.pack(pi, &items, font_db, containing_inline_size, is_vertical);
+        packer.pack(
+            pi,
+            &items,
+            dom,
+            font_db,
+            containing_inline_size,
+            is_vertical,
+        );
     }
     packer.finish();
 
@@ -485,6 +499,7 @@ pub fn layout_inline_context(
     InlineLayoutResult {
         height: total_block,
         static_positions,
+        first_baseline: packer.first_baseline,
     }
 }
 
@@ -541,6 +556,9 @@ struct LinePacker {
     current_block_offset: f32,
     on_line: bool,
     parent_entity: Entity,
+    /// First baseline offset from the inline formatting context top.
+    /// Captured from the first text run on the first line.
+    first_baseline: Option<f32>,
 }
 
 impl LinePacker {
@@ -554,6 +572,7 @@ impl LinePacker {
             current_block_offset: 0.0,
             on_line: false,
             parent_entity,
+            first_baseline: None,
         }
     }
 
@@ -561,6 +580,7 @@ impl LinePacker {
         &mut self,
         pi: &PackItem,
         items: &[InlineItem],
+        dom: &EcsDom,
         font_db: &FontDatabase,
         containing_inline_size: f32,
         is_vertical: bool,
@@ -583,6 +603,25 @@ impl LinePacker {
                 };
                 let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, text);
 
+                // Capture first baseline: from the first text run on the first line.
+                // CSS 2.1 §10.8.1: baseline = line_y + half_leading + ascent
+                // half_leading = (line_height - (ascent - descent)) / 2
+                if self.first_baseline.is_none() && !is_vertical {
+                    if let Some(metrics) = measure_text(font_db, &params, text) {
+                        let em_height = metrics.ascent - metrics.descent;
+                        // Guard: em_height can be 0/negative (malformed font metrics) or
+                        // line_height can be NaN/inf from bad CSS — sanitize to avoid
+                        // propagating NaN into layout geometry.
+                        let half_leading = if em_height > 0.0 && run.line_height.is_finite() {
+                            (run.line_height - em_height) / 2.0
+                        } else {
+                            0.0
+                        };
+                        self.first_baseline =
+                            Some(self.current_block_offset + half_leading + metrics.ascent);
+                    }
+                }
+
                 self.place_item(
                     seg_width,
                     trimmed_width,
@@ -604,6 +643,30 @@ impl LinePacker {
                 else {
                     return;
                 };
+
+                // Capture baseline from atomic box if no text baseline yet.
+                // CSS 2.1 §10.8.1: atomic inline boxes use their own first_baseline,
+                // or fall back to the margin-box bottom edge.
+                if self.first_baseline.is_none() && !is_vertical {
+                    if let Ok(child_lb) = dom.world().get::<&LayoutBox>(*entity) {
+                        // Fallback: content-bottom + padding.bottom + border.bottom + margin.bottom
+                        // (the remaining distance from content top to margin-box bottom).
+                        let bl = child_lb.first_baseline.unwrap_or(
+                            child_lb.content.height
+                                + child_lb.padding.bottom
+                                + child_lb.border.bottom
+                                + child_lb.margin.bottom,
+                        );
+                        self.first_baseline = Some(
+                            self.current_block_offset
+                                + child_lb.margin.top
+                                + child_lb.border.top
+                                + child_lb.padding.top
+                                + bl,
+                        );
+                    }
+                }
+
                 // Atomic boxes don't break internally; treat as a single unit.
                 self.place_item(
                     *inline_size,
@@ -722,6 +785,7 @@ fn assign_inline_layout_boxes(
             padding: EdgeSizes::default(),
             border: EdgeSizes::default(),
             margin: EdgeSizes::default(),
+            first_baseline: None,
         };
         let _ = dom.world_mut().insert_one(*entity, lb);
     }

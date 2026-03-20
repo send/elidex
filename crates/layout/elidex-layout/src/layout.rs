@@ -58,6 +58,7 @@ pub fn dispatch_layout_child(
             padding: elidex_plugin::EdgeSizes::default(),
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),
+            first_baseline: None,
         },
         Display::Flex | Display::InlineFlex => {
             elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)

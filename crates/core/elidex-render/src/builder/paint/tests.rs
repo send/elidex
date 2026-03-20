@@ -211,6 +211,7 @@ fn make_bordered_box(
             left: border_width,
         },
         margin: EdgeSizes::default(),
+        first_baseline: None,
     };
     let side = BorderSide {
         width: border_width,

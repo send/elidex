@@ -4,6 +4,7 @@ use elidex_layout_block::{layout_block_only, LayoutInput};
 use elidex_text::FontDatabase;
 
 mod alignment_gap;
+mod baseline;
 mod direction;
 mod grow_shrink;
 mod spec_compliance;

@@ -363,22 +363,15 @@ pub fn adjust_min_max_for_border_box(min: &mut f32, max: &mut f32, pb: f32) {
 /// Resolve the effective cross-axis alignment for an item.
 ///
 /// `AlignSelf::Auto` inherits from the container's `align-items`.
-/// `Baseline` is treated as `FlexStart` (baseline alignment not yet implemented).
 #[must_use]
 pub fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignItems {
-    let resolved = match item_align {
+    match item_align {
         AlignSelf::Auto => container_align,
         AlignSelf::Stretch => AlignItems::Stretch,
         AlignSelf::FlexStart => AlignItems::FlexStart,
         AlignSelf::FlexEnd => AlignItems::FlexEnd,
         AlignSelf::Center => AlignItems::Center,
         AlignSelf::Baseline => AlignItems::Baseline,
-    };
-    // Baseline not yet implemented — treat as flex-start.
-    if resolved == AlignItems::Baseline {
-        AlignItems::FlexStart
-    } else {
-        resolved
     }
 }
 
@@ -455,6 +448,7 @@ pub fn empty_container_box(
         padding: params.padding,
         border: params.border,
         margin: params.margin,
+        first_baseline: None,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb

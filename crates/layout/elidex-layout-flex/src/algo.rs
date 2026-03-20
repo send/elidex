@@ -6,9 +6,10 @@ use elidex_layout_block::{
     clamp_min_max, resolve_explicit_height, sanitize, total_gap, ChildLayoutFn, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
-    FlexWrap, JustifyContent, LayoutBox, Rect,
+    AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, FlexWrap, LayoutBox, Rect,
 };
+
+use super::align::{apply_justify_safety, compute_justify_offsets};
 use elidex_text::FontDatabase;
 
 use super::{is_reversed, FlexContext, FlexItem};
@@ -26,6 +27,8 @@ pub(crate) struct LineGeometry<'a> {
     pub(crate) line_ranges: &'a [(usize, usize)],
     pub(crate) line_cross_sizes: &'a [f32],
     pub(crate) line_offsets: &'a [f32],
+    /// Per-line maximum baseline for baseline alignment (CSS Flexbox §9.4).
+    pub(crate) line_baselines: &'a [f32],
     pub(crate) container_cross: f32,
 }
 
@@ -291,14 +294,32 @@ fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Op
 pub(crate) fn compute_line_cross_sizes(
     items: &[FlexItem],
     line_ranges: &[(usize, usize)],
+    line_baselines: &[f32],
 ) -> (Vec<f32>, f32) {
     let sizes: Vec<f32> = line_ranges
         .iter()
-        .map(|&(s, e)| {
-            items[s..e]
+        .enumerate()
+        .map(|(idx, &(s, e))| {
+            let normal_max = items[s..e]
                 .iter()
                 .map(|i| i.final_cross + i.margin_cross)
-                .fold(0.0_f32, f32::max)
+                .fold(0.0_f32, f32::max);
+            let line_bl = line_baselines.get(idx).copied().unwrap_or(0.0);
+            if line_bl <= 0.0 {
+                return normal_max;
+            }
+            // CSS Flexbox §9.4: line cross size must accommodate both
+            // the tallest baseline-above and tallest baseline-below portions.
+            let baseline_below = items[s..e]
+                .iter()
+                .filter(|i| {
+                    i.align == AlignItems::Baseline
+                        && !i.margin_cross_start_auto
+                        && !i.margin_cross_end_auto
+                })
+                .map(|i| (i.final_cross + i.margin_cross) - i.baseline_or_synthesized())
+                .fold(0.0_f32, f32::max);
+            normal_max.max(line_bl + baseline_below)
         })
         .collect();
     let total = sizes.iter().sum();
@@ -349,8 +370,9 @@ pub(crate) fn resolve_container_cross(
 /// Compute the cross-axis alignment offset for a single flex item.
 ///
 /// Based on the item's `align-self` (resolved to `AlignItems`), returns the
-/// offset within the line's cross space.
-fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
+/// offset within the line's cross space. For baseline alignment, `line_max_baseline`
+/// is the maximum baseline among baseline-participating items in the line.
+fn cross_align_offset(item: &FlexItem, line_cross: f32, line_max_baseline: f32) -> f32 {
     debug_assert!(
         line_cross >= 0.0,
         "line_cross must be non-negative: {line_cross}"
@@ -359,6 +381,10 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
     match item.align {
         AlignItems::FlexEnd => line_cross - item_outer_cross,
         AlignItems::Center => (line_cross - item_outer_cross) / 2.0,
+        AlignItems::Baseline => {
+            // CSS Flexbox §9.4: align item's baseline with the line's max baseline.
+            (line_max_baseline - item.baseline_or_synthesized()).max(0.0)
+        }
         _ => 0.0,
     }
 }
@@ -415,11 +441,33 @@ fn relayout_item_at_position(
         let _ = dom.world_mut().insert_one(item.entity, style);
     }
 
+    // Flex §9.9: stretched items have a definite cross size for their children's
+    // percentage-height resolution. Pass the resolved cross size as the
+    // containing height (for row flex) or containing width (for column flex).
+    let child_containing_width;
+    let child_containing_height;
+    if ctx.horizontal {
+        child_containing_width = ctx.containing_width;
+        child_containing_height = if item.align == AlignItems::Stretch && item.cross_size_auto {
+            Some(item_content_height)
+        } else {
+            ctx.container_definite_height
+        };
+    } else {
+        // Column flex: cross axis is width. Stretched items get a definite width.
+        child_containing_width = if item.align == AlignItems::Stretch && item.cross_size_auto {
+            item_content_width
+        } else {
+            ctx.containing_width
+        };
+        child_containing_height = ctx.container_definite_height;
+    }
+
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
     let child_input = LayoutInput {
-        containing_width: ctx.containing_width,
-        containing_height: ctx.container_definite_height,
+        containing_width: child_containing_width,
+        containing_height: child_containing_height,
         offset_x: margin_box_x,
         offset_y: margin_box_y,
         font_db: env.font_db,
@@ -444,6 +492,7 @@ fn relayout_item_at_position(
         padding: child_lb.padding,
         border: child_lb.border,
         margin: child_lb.margin,
+        first_baseline: child_lb.first_baseline,
     };
     let _ = dom.world_mut().insert_one(item.entity, lb);
 }
@@ -472,6 +521,7 @@ pub(crate) fn position_items(
     for (line_idx, &(start, end)) in line_ranges.iter().enumerate() {
         let line_items = &items[start..end];
         let line_cross = line_cross_sizes[line_idx];
+        let line_bl = lines.line_baselines.get(line_idx).copied().unwrap_or(0.0);
         let cross_offset = if reversed_cross {
             container_cross - line_offsets[line_idx] - line_cross
         } else {
@@ -556,7 +606,7 @@ pub(crate) fn position_items(
             let align_offset = if skip_align {
                 cross_auto_offset
             } else {
-                cross_align_offset(item, line_cross)
+                cross_align_offset(item, line_cross, line_bl)
             };
 
             // Margin-box position: layout adds margins internally.
@@ -612,155 +662,5 @@ pub(crate) fn compute_container_height(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Justify-content
-// ---------------------------------------------------------------------------
-
-/// Apply safety fallback for justify-content.
-///
-/// CSS Box Alignment L3 §5.4: when `safe` is specified and free space is negative,
-/// the alignment falls back to `flex-start`.
-pub(crate) fn apply_justify_safety(
-    justify: JustifyContent,
-    free_space: f32,
-    safety: AlignmentSafety,
-) -> JustifyContent {
-    if safety == AlignmentSafety::Safe && free_space < 0.0 {
-        JustifyContent::FlexStart
-    } else {
-        justify
-    }
-}
-
-/// Apply safety fallback for align-content.
-pub(crate) fn apply_align_content_safety(
-    align_content: AlignContent,
-    container_cross: f32,
-    line_cross_sizes: &[f32],
-    gap_cross: f32,
-    safety: AlignmentSafety,
-) -> AlignContent {
-    if safety == AlignmentSafety::Safe {
-        let total: f32 = line_cross_sizes.iter().sum();
-        let total_gap = total_gap(line_cross_sizes.len(), gap_cross);
-        let free = container_cross - total - total_gap;
-        if free < 0.0 {
-            return AlignContent::FlexStart;
-        }
-    }
-    align_content
-}
-
-/// Compute justify-content start offset and gap.
-#[allow(clippy::cast_precision_loss)] // item counts are small
-fn compute_justify_offsets(justify: JustifyContent, free_space: f32, count: usize) -> (f32, f32) {
-    if count == 0 {
-        return (0.0, 0.0);
-    }
-    let n = count as f32;
-    match justify {
-        JustifyContent::FlexStart | JustifyContent::Stretch | JustifyContent::Normal => (0.0, 0.0),
-        JustifyContent::FlexEnd => (free_space, 0.0),
-        JustifyContent::Center => (free_space / 2.0, 0.0),
-        JustifyContent::SpaceBetween => {
-            if count <= 1 {
-                (0.0, 0.0)
-            } else {
-                (0.0, free_space / (n - 1.0))
-            }
-        }
-        JustifyContent::SpaceAround => {
-            let gap = free_space / n;
-            (gap / 2.0, gap)
-        }
-        JustifyContent::SpaceEvenly => {
-            let gap = free_space / (n + 1.0);
-            (gap, gap)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Align-content
-// ---------------------------------------------------------------------------
-
-/// Result of align-content distribution.
-pub(crate) struct AlignContentResult {
-    /// Starting cross offset for each line.
-    pub(crate) offsets: Vec<f32>,
-    /// Effective cross sizes for each line (may be increased by stretch).
-    pub(crate) effective_line_sizes: Vec<f32>,
-}
-
-#[allow(clippy::cast_precision_loss)] // line counts are small
-pub(crate) fn compute_align_content_offsets(
-    line_cross_sizes: &[f32],
-    container_cross: f32,
-    align_content: AlignContent,
-    wrap: FlexWrap,
-    gap_cross: f32,
-) -> AlignContentResult {
-    let n = line_cross_sizes.len();
-    if n == 0 {
-        return AlignContentResult {
-            offsets: Vec::new(),
-            effective_line_sizes: Vec::new(),
-        };
-    }
-    if matches!(wrap, FlexWrap::Nowrap) {
-        return AlignContentResult {
-            offsets: vec![0.0],
-            effective_line_sizes: line_cross_sizes.to_vec(),
-        };
-    }
-
-    let total: f32 = line_cross_sizes.iter().sum();
-    let total_cross_gap = total_gap(n, gap_cross);
-    let free = (container_cross - total - total_cross_gap).max(0.0);
-    let nf = n as f32;
-
-    let mut cursor = match align_content {
-        AlignContent::FlexEnd => free,
-        AlignContent::Center => free / 2.0,
-        AlignContent::SpaceAround => free / (2.0 * nf),
-        AlignContent::SpaceEvenly => free / (nf + 1.0),
-        AlignContent::FlexStart
-        | AlignContent::SpaceBetween
-        | AlignContent::Stretch
-        | AlignContent::Normal => 0.0,
-    };
-
-    let gap = match align_content {
-        AlignContent::SpaceBetween => {
-            if n <= 1 {
-                0.0
-            } else {
-                free / (nf - 1.0)
-            }
-        }
-        AlignContent::SpaceAround => free / nf,
-        AlignContent::SpaceEvenly => free / (nf + 1.0),
-        _ => 0.0,
-    };
-
-    let stretch_extra = if matches!(align_content, AlignContent::Stretch | AlignContent::Normal) {
-        free / nf
-    } else {
-        0.0
-    };
-
-    let mut offsets = Vec::with_capacity(n);
-    let mut effective_line_sizes = Vec::with_capacity(n);
-    for (i, &line_size) in line_cross_sizes.iter().enumerate() {
-        offsets.push(cursor);
-        effective_line_sizes.push(line_size + stretch_extra);
-        cursor += line_size + stretch_extra;
-        if i < n - 1 {
-            cursor += gap + gap_cross;
-        }
-    }
-    AlignContentResult {
-        offsets,
-        effective_line_sizes,
-    }
-}
+// Justify-content and align-content helpers are in the `align` module.
+// Baseline helpers are in the `baseline` module.

@@ -39,6 +39,7 @@ fn do_layout_grid(
 }
 
 mod alignment_box;
+mod baseline;
 mod blockification;
 mod placement;
 mod track_sizing;

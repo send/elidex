@@ -431,6 +431,7 @@ fn layout_absolutely_positioned(
         padding,
         border,
         margin: elidex_plugin::EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
+        first_baseline: child_lb.first_baseline,
     };
     let _ = dom.world_mut().insert_one(entity, lb);
 

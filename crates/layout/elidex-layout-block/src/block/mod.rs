@@ -221,6 +221,7 @@ pub fn layout_block_inner(
     let mut vertical_width_override: Option<f32> = None;
 
     let mut static_positions_stash = std::collections::HashMap::new();
+    let mut block_first_baseline: Option<f32> = None;
 
     let content_height = if let Some((iw, ih)) = intrinsic {
         // Replaced element: use intrinsic/CSS height, no child layout.
@@ -275,6 +276,20 @@ pub fn layout_block_inner(
 
         // Stash static positions for positioned children layout.
         static_positions_stash = result.static_positions;
+        // Adjust baseline for parent-child top margin collapse (CSS 2.1 §8.3.1).
+        // When the first child's top margin collapses with the parent's,
+        // children shift by `delta` and the content box top shifts by
+        // `(new_margin - old_margin)`, yielding a net baseline shift of
+        // `-first_child_margin_top`.
+        block_first_baseline = if border.top == 0.0 && padding.top == 0.0 && !is_bfc {
+            if let Some(first_mt) = result.first_child_margin_top {
+                result.first_baseline.map(|bl| bl - first_mt)
+            } else {
+                result.first_baseline
+            }
+        } else {
+            result.first_baseline
+        };
 
         result.height
     } else {
@@ -298,6 +313,7 @@ pub fn layout_block_inner(
             layout_child,
         );
         static_positions_stash = inline_result.static_positions;
+        block_first_baseline = inline_result.first_baseline;
         if is_vertical {
             // inline_result.height = total column width (block-axis in vertical mode).
             // Store it to override content_width below. Return the inline-axis
@@ -336,6 +352,7 @@ pub fn layout_block_inner(
             collapsed_margin_bottom,
             margin_left,
         ),
+        first_baseline: block_first_baseline,
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());

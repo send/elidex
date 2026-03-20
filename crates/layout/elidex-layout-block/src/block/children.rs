@@ -26,6 +26,12 @@ pub struct StackResult {
     pub last_child_margin_bottom: Option<f32>,
     /// Static positions for absolutely positioned descendants (CSS 2.1 §10.6.5).
     pub static_positions: HashMap<Entity, (f32, f32)>,
+    /// First baseline from children (CSS 2.1 §10.8.1).
+    ///
+    /// For block formatting contexts: the first in-flow child's baseline,
+    /// offset-adjusted to the parent's content area.
+    /// For anonymous inline runs: the inline layout's first baseline.
+    pub first_baseline: Option<f32>,
 }
 
 /// Stack block-level children with vertical margin collapse.
@@ -68,6 +74,7 @@ pub fn stack_block_children(
     };
     let mut inline_run: Vec<Entity> = Vec::new();
     let mut static_positions: HashMap<Entity, (f32, f32)> = HashMap::new();
+    let mut first_baseline: Option<f32> = None;
 
     for &child in children {
         let child_style = crate::try_get_style(dom, child);
@@ -102,7 +109,7 @@ pub fn stack_block_children(
 
         // Flush any pending inline run before this block child (CSS 2.1 §9.2.1.1).
         if !inline_run.is_empty() {
-            let h = flush_inline_run(
+            let run_result = flush_inline_run(
                 dom,
                 &inline_run,
                 parent_entity,
@@ -111,7 +118,13 @@ pub fn stack_block_children(
                 layout_child,
                 &mut static_positions,
             );
-            cursor_y += h;
+            // Capture baseline from inline run (offset by cursor_y - input.offset_y).
+            if first_baseline.is_none() {
+                first_baseline = run_result
+                    .first_baseline
+                    .map(|bl| (cursor_y - input.offset_y) + bl);
+            }
+            cursor_y += run_result.height;
             // Anonymous block box has zero margins.
             if first_child_margin_top.is_none() {
                 first_child_margin_top = Some(0.0);
@@ -177,6 +190,13 @@ pub fn stack_block_children(
             ..*input
         };
         let child_box = layout_child(dom, child, &child_input).layout_box;
+        // Capture baseline from first in-flow block child (CSS 2.1 §10.8.1).
+        if first_baseline.is_none() {
+            if let Some(child_bl) = child_box.first_baseline {
+                // Offset: child content.y relative to parent content area top.
+                first_baseline = Some(child_box.content.y - input.offset_y + child_bl);
+            }
+        }
         cursor_y += child_box.margin_box().height;
         prev_margin_bottom = Some(child_box.margin.bottom);
         last_child_margin_bottom = Some(child_box.margin.bottom);
@@ -184,7 +204,7 @@ pub fn stack_block_children(
 
     // Flush trailing inline run (CSS 2.1 §9.2.1.1).
     if !inline_run.is_empty() {
-        let h = flush_inline_run(
+        let run_result = flush_inline_run(
             dom,
             &inline_run,
             parent_entity,
@@ -193,7 +213,12 @@ pub fn stack_block_children(
             layout_child,
             &mut static_positions,
         );
-        cursor_y += h;
+        if first_baseline.is_none() {
+            first_baseline = run_result
+                .first_baseline
+                .map(|bl| (cursor_y - input.offset_y) + bl);
+        }
+        cursor_y += run_result.height;
         if first_child_margin_top.is_none() {
             first_child_margin_top = Some(0.0);
         }
@@ -220,13 +245,20 @@ pub fn stack_block_children(
         first_child_margin_top,
         last_child_margin_bottom,
         static_positions,
+        first_baseline,
     }
+}
+
+/// Result of flushing an inline run.
+struct InlineRunResult {
+    height: f32,
+    first_baseline: Option<f32>,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
 ///
 /// Lays out consecutive inline/text children via the inline formatting
-/// context and returns the total height consumed.
+/// context and returns the total height consumed and the first baseline.
 fn flush_inline_run(
     dom: &mut EcsDom,
     inline_children: &[Entity],
@@ -235,7 +267,7 @@ fn flush_inline_run(
     cursor_y: f32,
     layout_child: crate::ChildLayoutFn,
     static_positions: &mut HashMap<Entity, (f32, f32)>,
-) -> f32 {
+) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let content_origin = (input.offset_x, cursor_y);
     let result = crate::inline::layout_inline_context(
@@ -249,7 +281,10 @@ fn flush_inline_run(
         layout_child,
     );
     static_positions.extend(result.static_positions);
-    result.height
+    InlineRunResult {
+        height: result.height,
+        first_baseline: result.first_baseline,
+    }
 }
 
 /// Compute the max-content width of an element for shrink-to-fit sizing.
@@ -439,6 +474,7 @@ fn layout_float(
         padding,
         border,
         margin: EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
+        first_baseline: child_box.first_baseline,
     };
     let _ = dom.world_mut().insert_one(child, lb);
 

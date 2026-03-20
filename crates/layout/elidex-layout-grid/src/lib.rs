@@ -8,9 +8,9 @@
 // - No `grid-template-areas`
 // - No subgrid
 // - `inline-grid` treated as block-level
-// - `baseline` alignment treated as `start`
 
 mod placement;
+pub(crate) mod position;
 mod track;
 
 /// Threshold for correcting layout sizes after final child layout.
@@ -28,9 +28,9 @@ use elidex_layout_block::{
     EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignmentSafety, ComputedStyle, Dimension, Direction, Display,
-    EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyContent, JustifyItems, JustifySelf,
-    LayoutBox, Rect, TrackSize,
+    AlignContent, AlignItems, AlignmentSafety, ComputedStyle, Dimension, Display, EdgeSizes,
+    GridAutoFlow, GridLine, GridTrackList, JustifyContent, JustifyItems, JustifySelf, LayoutBox,
+    Rect, TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -278,7 +278,7 @@ pub fn layout_grid(
     }
 
     // --- 12. Position items + final layout ---
-    let placement = GridPlacement {
+    let placement = position::GridPlacement {
         col_tracks: &col_tracks,
         row_tracks: &row_tracks,
         col_positions: &col_positions,
@@ -289,18 +289,23 @@ pub fn layout_grid(
         direction: style.direction,
         containing_height,
     };
-    position_items(dom, &items, &placement, font_db, depth, layout_child);
+    let grid_baseline =
+        position::position_items(dom, &items, &placement, font_db, depth, layout_child);
 
     // --- 13. Container height ---
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
     let content_height = available_height.unwrap_or(total_row_size);
 
     // --- 14. LayoutBox ---
+    // Grid container baseline (CSS Grid §4.2).
+    let first_baseline = grid_baseline;
+
     let lb = LayoutBox {
         content: Rect::new(content_x, content_y, content_width, content_height),
         padding,
         border,
         margin,
+        first_baseline,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
@@ -609,194 +614,6 @@ fn build_track_definitions(
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Item positioning
-// ---------------------------------------------------------------------------
-
-/// Grid track layout and positioning context.
-struct GridPlacement<'a> {
-    col_tracks: &'a [track::ResolvedTrack],
-    row_tracks: &'a [track::ResolvedTrack],
-    col_positions: &'a [f32],
-    row_positions: &'a [f32],
-    content_x: f32,
-    content_y: f32,
-    content_width: f32,
-    direction: Direction,
-    containing_height: Option<f32>,
-}
-
-/// Position each item within its grid area and perform final layout.
-fn position_items(
-    dom: &mut EcsDom,
-    items: &[GridItem],
-    placement: &GridPlacement<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) {
-    let is_rtl = placement.direction == Direction::Rtl;
-    let content_x = placement.content_x;
-    let content_y = placement.content_y;
-    let content_width = placement.content_width;
-    let containing_height = placement.containing_height;
-    let col_tracks = placement.col_tracks;
-    let row_tracks = placement.row_tracks;
-    let col_positions = placement.col_positions;
-    let row_positions = placement.row_positions;
-    for item in items {
-        // Compute the grid area rectangle.
-        let ltr_area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
-        let area_width = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-        // RTL: mirror column position so columns flow right-to-left.
-        let area_x = if is_rtl {
-            (content_width - ltr_area_x - area_width).max(0.0)
-        } else {
-            ltr_area_x
-        };
-        let area_y = row_positions.get(item.row_start).copied().unwrap_or(0.0);
-        let area_height = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
-
-        // Available space for the item after subtracting margins.
-        let avail_w = (area_width - item.margin.left - item.margin.right).max(0.0);
-        let avail_h = (area_height - item.margin.top - item.margin.bottom).max(0.0);
-
-        // Resolve item content width.
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let item_content_w = if item.width_auto && item.justify != JustifyItems::Stretch {
-            // Non-stretch: use content width (shrink-wrap).
-            item.content_width
-        } else if item.width_auto {
-            (avail_w - item.pb.left - item.pb.right).max(0.0)
-        } else {
-            resolve_item_dimension(
-                child_style.width,
-                avail_w,
-                item.pb.left + item.pb.right,
-                child_style.box_sizing,
-            )
-            .max(0.0)
-        };
-
-        // Preliminary layout to measure content height.
-        let prelim_input = LayoutInput {
-            containing_width: avail_w,
-            containing_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
-        };
-        let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
-
-        // Resolve item content height: stretch fills the area, otherwise use content.
-        let prelim_content_h = prelim_lb.content.height;
-        let item_content_h = if should_stretch_cross(item.align, item.height_auto) {
-            (avail_h - item.pb.top - item.pb.bottom).max(prelim_content_h)
-        } else {
-            prelim_content_h
-        };
-
-        let item_outer_h =
-            item_content_h + item.pb.top + item.pb.bottom + item.margin.top + item.margin.bottom;
-
-        // Cross-axis alignment (vertical).
-        let y_offset = compute_alignment_offset(item.align, area_height, item_outer_h);
-
-        // Inline-axis alignment (horizontal).
-        let item_outer_w =
-            item_content_w + item.pb.left + item.pb.right + item.margin.left + item.margin.right;
-        let x_offset = compute_justify_offset(item.justify, area_width, item_outer_w);
-
-        // Override the child's width/height so layout_block_inner uses grid-resolved values.
-        {
-            let mut style = elidex_layout_block::get_style(dom, item.entity);
-            style.width = Dimension::Length(item_content_w);
-            style.height = Dimension::Length(item_content_h);
-            let _ = dom.world_mut().insert_one(item.entity, style);
-        }
-
-        // Margin-box position: layout_child (layout_block_inner) adds
-        // margin + border + padding offsets from here.
-        let margin_box_x = content_x + area_x + x_offset;
-        let margin_box_y = content_y + area_y + y_offset;
-
-        // Final layout at resolved position.
-        let final_input = LayoutInput {
-            containing_width: area_width,
-            containing_height: Some(item_content_h),
-            offset_x: margin_box_x,
-            offset_y: margin_box_y,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
-        };
-        let final_lb = layout_child(dom, item.entity, &final_input).layout_box;
-
-        // Ensure the content height matches the grid-resolved value.
-        if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {
-            let corrected = LayoutBox {
-                content: Rect::new(
-                    final_lb.content.x,
-                    final_lb.content.y,
-                    item_content_w,
-                    item_content_h,
-                ),
-                ..final_lb
-            };
-            let _ = dom.world_mut().insert_one(item.entity, corrected);
-        }
-    }
-}
-
-/// Compute the pixel size of a span of tracks.
-///
-/// Gaps between spanned tracks are included naturally because track positions
-/// already account for gaps.
-fn cell_span_size(
-    tracks: &[track::ResolvedTrack],
-    positions: &[f32],
-    start: usize,
-    span: usize,
-) -> f32 {
-    if tracks.is_empty() || start >= tracks.len() {
-        return 0.0;
-    }
-    let end = (start + span).min(tracks.len());
-    let start_pos = positions.get(start).copied().unwrap_or(0.0);
-    let last = end.saturating_sub(1);
-    let end_pos = positions.get(last).copied().unwrap_or(start_pos)
-        + tracks.get(last).map_or(0.0, |t| t.size);
-    // Include gaps between spanned tracks but not the gap after the last track.
-    end_pos - start_pos
-}
-
-/// Check if an item should stretch in the cross axis.
-///
-/// Stretch only applies when the item's resolved alignment is `Stretch`
-/// AND the item's size on that axis is `auto`.
-fn should_stretch_cross(item_align: AlignItems, size_auto: bool) -> bool {
-    size_auto && matches!(item_align, AlignItems::Stretch)
-}
-
-/// Compute alignment offset within available space.
-fn compute_alignment_offset(item_align: AlignItems, available: f32, item_size: f32) -> f32 {
-    let free = (available - item_size).max(0.0);
-    match item_align {
-        AlignItems::Center => free / 2.0,
-        AlignItems::FlexEnd => free,
-        // Stretch, FlexStart, Baseline — all align to start.
-        AlignItems::FlexStart | AlignItems::Stretch | AlignItems::Baseline => 0.0,
-    }
-}
-
 /// Content distribution mode for track alignment.
 #[derive(Clone, Copy)]
 enum ContentDistribution {
@@ -913,17 +730,6 @@ fn distribute_tracks<D: Into<ContentDistribution>>(
     }
 }
 
-/// Compute inline-axis alignment offset for a grid item.
-fn compute_justify_offset(justify: JustifyItems, available: f32, item_size: f32) -> f32 {
-    let free = (available - item_size).max(0.0);
-    match justify {
-        JustifyItems::Center => free / 2.0,
-        JustifyItems::End => free,
-        // Stretch, Start, Baseline — all align to start.
-        JustifyItems::Start | JustifyItems::Stretch | JustifyItems::Baseline => 0.0,
-    }
-}
-
 /// Resolve effective justify for a grid item.
 ///
 /// `justify-self: auto` resolves to the container's `justify-items`.
@@ -938,32 +744,5 @@ fn effective_justify(
         JustifySelf::Center => JustifyItems::Center,
         JustifySelf::Stretch => JustifyItems::Stretch,
         JustifySelf::Baseline => JustifyItems::Baseline,
-    }
-}
-
-/// Resolve an item dimension (width/height).
-fn resolve_item_dimension(
-    dim: Dimension,
-    available: f32,
-    pb: f32,
-    box_sizing: elidex_plugin::BoxSizing,
-) -> f32 {
-    match dim {
-        Dimension::Length(px) => {
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (px - pb).max(0.0)
-            } else {
-                px
-            }
-        }
-        Dimension::Percentage(pct) => {
-            let resolved = available * pct / 100.0;
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (resolved - pb).max(0.0)
-            } else {
-                resolved
-            }
-        }
-        Dimension::Auto => (available - pb).max(0.0),
     }
 }

@@ -135,6 +135,11 @@ pub struct LayoutBox {
     pub border: EdgeSizes,
     /// Margin outside the border.
     pub margin: EdgeSizes,
+    /// First baseline offset from content box top edge (`None` if no baseline).
+    ///
+    /// CSS 2.1 §10.8.1: the first baseline of a box is the first baseline
+    /// of its first in-flow line box or block child that has a baseline.
+    pub first_baseline: Option<f32>,
 }
 
 impl LayoutBox {
@@ -276,6 +281,7 @@ mod tests {
                 bottom: 5.0,
                 left: 5.0,
             },
+            first_baseline: None,
         };
         let mb = b.margin_box();
         assert_eq!(mb.x, 10.0); // 30 - 10(pad) - 5(border) - 5(margin)
@@ -313,6 +319,7 @@ mod tests {
                 bottom: 0.0,
                 left: 0.0,
             },
+            first_baseline: None,
         };
         let bb = b.border_box();
         assert_eq!(bb.x, 6.0); // 20 - 10 (pad.left) - 4 (border.left)
