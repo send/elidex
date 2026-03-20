@@ -1,14 +1,15 @@
-//! CSS Grid layout algorithm (CSS Grid Level 1, simplified).
+//! CSS Grid layout algorithm (CSS Grid Level 1).
 //!
 //! Implements the core grid algorithm: track sizing, item placement,
-//! and cell positioning.
+//! and cell positioning. Supports named grid lines, `grid-template-areas`,
+//! and grid shorthand properties.
 //!
 // Current simplifications:
-// - No named grid lines (numeric only)
-// - No `grid-template-areas`
 // - No subgrid
 // - `inline-grid` treated as block-level
 
+mod helpers;
+mod occupancy;
 mod placement;
 pub(crate) mod position;
 mod track;
@@ -22,19 +23,24 @@ const LAYOUT_SIZE_EPSILON: f32 = 0.5;
 #[cfg(test)]
 mod tests;
 
+pub use helpers::compute_grid_intrinsic;
+
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    effective_align, horizontal_pb, resolve_explicit_height, sanitize_border, ChildLayoutFn,
-    EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
+    resolve_explicit_height, sanitize_border, ChildLayoutFn, EmptyContainerParams, LayoutInput,
+    MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignmentSafety, ComputedStyle, Dimension, Display, EdgeSizes,
-    GridAutoFlow, GridLine, GridTrackList, JustifyContent, JustifyItems, JustifySelf, LayoutBox,
-    Rect, TrackSize,
+    AlignItems, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox, Rect,
 };
-use elidex_text::FontDatabase;
 
 use elidex_layout_block::block::resolve_margin;
+use elidex_layout_block::horizontal_pb;
+
+use helpers::{
+    build_contributions, build_track_definitions, collect_grid_items, distribute_tracks,
+    measure_item_content, percentage_tracks_to_auto, resolve_grid_abspos_cb,
+};
 
 // ---------------------------------------------------------------------------
 // GridItem
@@ -155,11 +161,20 @@ pub fn layout_grid(
     // --- 4. Expand auto-repeat and determine explicit grid size ---
     let col_track_list = &style.grid_template_columns;
     let row_track_list = &style.grid_template_rows;
-    let expanded_cols = col_track_list.expand(content_width, gap_col);
+    let col_section = col_track_list.expand_with_names(content_width, gap_col);
     let available_height_for_rows = resolve_explicit_height(&style, containing_height);
-    let expanded_rows = row_track_list.expand(available_height_for_rows.unwrap_or(0.0), gap_row);
+    let row_section =
+        row_track_list.expand_with_names(available_height_for_rows.unwrap_or(0.0), gap_row);
+    let expanded_cols = &col_section.tracks;
+    let expanded_rows = &row_section.tracks;
     let explicit_cols = expanded_cols.len();
     let explicit_rows = expanded_rows.len();
+
+    // --- 4b. Build line name maps ---
+    let col_name_map =
+        placement::build_line_name_map(&col_section.line_names, &style.grid_template_areas, true);
+    let row_name_map =
+        placement::build_line_name_map(&row_section.line_names, &style.grid_template_areas, false);
 
     // --- 5-7. Placement ---
     let column_flow = matches!(
@@ -170,7 +185,15 @@ pub fn layout_grid(
         style.grid_auto_flow,
         GridAutoFlow::RowDense | GridAutoFlow::ColumnDense
     );
-    placement::place_items(&mut items, explicit_cols, explicit_rows, column_flow, dense);
+    placement::place_items(
+        &mut items,
+        explicit_cols,
+        explicit_rows,
+        column_flow,
+        dense,
+        &col_name_map,
+        &row_name_map,
+    );
 
     // --- Determine actual grid dimensions (may exceed explicit) ---
     let actual_cols = items
@@ -202,7 +225,7 @@ pub fn layout_grid(
     let row_contribs = build_contributions(&items, false);
 
     // --- 9. Resolve column tracks ---
-    let col_defs = build_track_definitions(&expanded_cols, &style.grid_auto_columns, actual_cols);
+    let col_defs = build_track_definitions(expanded_cols, &style.grid_auto_columns, actual_cols);
     let mut col_tracks = track::resolve_tracks(
         &col_defs,
         content_width,
@@ -225,7 +248,7 @@ pub fn layout_grid(
 
     // --- 10. Resolve row tracks ---
     let available_height = available_height_for_rows;
-    let row_defs = build_track_definitions(&expanded_rows, &style.grid_auto_rows, actual_rows);
+    let row_defs = build_track_definitions(expanded_rows, &style.grid_auto_rows, actual_rows);
     // When the container height is indefinite, percentage row tracks should
     // behave like auto (CSS Grid §7.2.1).
     let row_defs = if available_height.is_none() {
@@ -310,9 +333,9 @@ pub fn layout_grid(
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
     // --- 15. Layout positioned descendants ---
-    // CSS Grid §5.2: the grid container establishes a CB for absolute children
-    // when it is itself positioned (or is the root).
-    // CSS Transforms L1 §2: transform establishes CB for all descendants.
+    // CSS Grid §11: Grid containers establish containing blocks for abs-pos
+    // children. When placement properties specify grid lines, the grid area
+    // is the CB; otherwise, the container padding-box is used.
     let is_root = dom.get_parent(entity).is_none();
     let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
     if is_cb {
@@ -320,16 +343,65 @@ pub fn layout_grid(
             dom, &children, content_x, content_y,
         );
         let pb = lb.padding_box();
-        elidex_layout_block::positioned::layout_positioned_children(
-            dom,
-            entity,
-            &pb,
-            input.viewport,
-            &static_positions,
-            font_db,
-            layout_child,
-            depth,
-        );
+        let (abs_children, fixed_children) =
+            elidex_layout_block::positioned::collect_positioned_descendants(dom, entity);
+
+        for child in abs_children {
+            let cb = resolve_grid_abspos_cb(
+                dom,
+                child,
+                &col_positions,
+                &row_positions,
+                &col_tracks,
+                &row_tracks,
+                gap_col,
+                gap_row,
+                content_x,
+                content_y,
+                &pb,
+                &col_name_map,
+                &row_name_map,
+                explicit_cols,
+                explicit_rows,
+            );
+            let sp = static_positions
+                .get(&child)
+                .copied()
+                .unwrap_or((cb.x, cb.y));
+            elidex_layout_block::positioned::layout_absolutely_positioned(
+                dom,
+                child,
+                &cb,
+                sp,
+                font_db,
+                layout_child,
+                depth,
+                input.viewport,
+            );
+        }
+
+        // Fixed children use viewport CB (or transform CB).
+        let has_transform = style.has_transform;
+        for child in fixed_children {
+            let (cb, sp_default) = if has_transform {
+                (pb, (pb.x, pb.y))
+            } else if let Some((vw, vh)) = input.viewport {
+                (Rect::new(0.0, 0.0, vw, vh), (0.0, 0.0))
+            } else {
+                continue;
+            };
+            let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
+            elidex_layout_block::positioned::layout_absolutely_positioned(
+                dom,
+                child,
+                &cb,
+                sp,
+                font_db,
+                layout_child,
+                depth,
+                input.viewport,
+            );
+        }
     }
 
     lb
@@ -375,374 +447,5 @@ fn collapse_empty_auto_tracks(
             tracks[idx].limit = 0.0;
             tracks[idx].collapsed = true;
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Item collection
-// ---------------------------------------------------------------------------
-
-/// Collect grid items from children, skipping `display:none` and text nodes.
-fn collect_grid_items(
-    dom: &mut EcsDom,
-    children: &[Entity],
-    container_style: &ComputedStyle,
-) -> Vec<GridItem> {
-    let mut items = Vec::new();
-    for (i, &child) in children.iter().enumerate() {
-        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
-            continue; // Text node — skip.
-        };
-        if child_style.display == Display::None {
-            continue;
-        }
-        // Absolutely positioned grid children are removed from grid layout.
-        if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
-            continue;
-        }
-
-        // Grid §6.1: blockify grid items.
-        let blockified = child_style.display.blockify();
-        if blockified != child_style.display {
-            child_style.display = blockified;
-            let _ = dom.world_mut().insert_one(child, child_style.clone());
-        }
-
-        let align = effective_align(child_style.align_self, container_style.align_items);
-        let justify = effective_justify(child_style.justify_self, container_style.justify_items);
-
-        items.push(GridItem {
-            entity: child,
-            source_order: i,
-            order: child_style.order,
-            row_start: 0,
-            col_start: 0,
-            row_span: 1,
-            col_span: 1,
-            grid_row_start: child_style.grid_row_start,
-            grid_row_end: child_style.grid_row_end,
-            grid_column_start: child_style.grid_column_start,
-            grid_column_end: child_style.grid_column_end,
-            margin: EdgeSizes::default(),
-            pb: EdgeSizes::default(),
-            align,
-            justify,
-            height_auto: child_style.height == Dimension::Auto,
-            width_auto: child_style.width == Dimension::Auto,
-            content_width: 0.0,
-            content_height: 0.0,
-            min_content_width: 0.0,
-            min_content_height: 0.0,
-        });
-    }
-    items
-}
-
-// ---------------------------------------------------------------------------
-// Content measurement
-// ---------------------------------------------------------------------------
-
-/// Measure each item's content size via a preliminary layout.
-fn measure_item_content(
-    dom: &mut EcsDom,
-    items: &mut [GridItem],
-    container_width: f32,
-    containing_height: Option<f32>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) {
-    for item in items.iter_mut() {
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let padding = elidex_layout_block::resolve_padding(&child_style, container_width);
-        let border = sanitize_border(&child_style);
-        item.pb = EdgeSizes::new(
-            padding.top + border.top,
-            padding.right + border.right,
-            padding.bottom + border.bottom,
-            padding.left + border.left,
-        );
-        item.margin = EdgeSizes::new(
-            resolve_margin(child_style.margin_top, container_width),
-            resolve_margin(child_style.margin_right, container_width),
-            resolve_margin(child_style.margin_bottom, container_width),
-            resolve_margin(child_style.margin_left, container_width),
-        );
-
-        // Min-content probe: layout at near-zero width (CSS Grid §12.3).
-        // Save descendant styles first — layout probes can mutate styles
-        // (e.g. flex's relayout_item_at_position overwrites child widths).
-        let saved_styles = save_descendant_styles(dom, item.entity);
-        let min_input = LayoutInput {
-            containing_width: 1.0,
-            containing_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
-        };
-        let min_lb = layout_child(dom, item.entity, &min_input).layout_box;
-        item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
-        item.min_content_height = min_lb.content.height + item.pb.top + item.pb.bottom;
-        // Restore styles corrupted by the min-content probe.
-        restore_descendant_styles(dom, &saved_styles);
-
-        // Max-content probe: layout at container width.
-        let max_input = LayoutInput {
-            containing_width: container_width,
-            containing_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
-        };
-        let max_lb = layout_child(dom, item.entity, &max_input).layout_box;
-        item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
-        item.content_height = max_lb.content.height + item.pb.top + item.pb.bottom;
-    }
-}
-
-/// Save `ComputedStyle` for all descendants of `entity` (excluding `entity` itself).
-///
-/// Layout probes (e.g. min-content at `containing_width: 1.0`) can mutate
-/// descendant styles via flex/grid `position_items`. This function captures
-/// the styles so they can be restored after the probe.
-fn save_descendant_styles(dom: &EcsDom, entity: Entity) -> Vec<(Entity, ComputedStyle)> {
-    let mut result = Vec::new();
-    let mut stack = Vec::new();
-    // Push direct children.
-    let mut child = dom.get_first_child(entity);
-    while let Some(c) = child {
-        stack.push(c);
-        child = dom.get_next_sibling(c);
-    }
-    while let Some(e) = stack.pop() {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(e) {
-            result.push((e, (*style).clone()));
-        }
-        // Push children of e.
-        let mut c = dom.get_first_child(e);
-        while let Some(ch) = c {
-            stack.push(ch);
-            c = dom.get_next_sibling(ch);
-        }
-    }
-    result
-}
-
-/// Restore previously saved `ComputedStyle` components.
-fn restore_descendant_styles(dom: &mut EcsDom, saved: &[(Entity, ComputedStyle)]) {
-    for (entity, style) in saved {
-        let _ = dom.world_mut().insert_one(*entity, style.clone());
-    }
-}
-
-/// Compute intrinsic content sizes per track.
-///
-/// Returns `(min_content_sizes, max_content_sizes)` per track.
-/// For items spanning a single track, contribute their full size.
-/// For multi-span items, distribute proportionally.
-#[allow(clippy::cast_precision_loss)]
-/// Build per-item track contributions for the track sizing algorithm.
-fn build_contributions(items: &[GridItem], is_column: bool) -> Vec<track::TrackContribution> {
-    items
-        .iter()
-        .map(|item| {
-            if is_column {
-                track::TrackContribution {
-                    start: item.col_start,
-                    span: item.col_span,
-                    min_content: item.min_content_width + item.margin.left + item.margin.right,
-                    max_content: item.content_width + item.margin.left + item.margin.right,
-                }
-            } else {
-                track::TrackContribution {
-                    start: item.row_start,
-                    span: item.row_span,
-                    min_content: item.min_content_height + item.margin.top + item.margin.bottom,
-                    max_content: item.content_height + item.margin.top + item.margin.bottom,
-                }
-            }
-        })
-        .collect()
-}
-
-// ---------------------------------------------------------------------------
-// Track definitions
-// ---------------------------------------------------------------------------
-
-/// Convert percentage tracks to auto (CSS Grid §7.2.1).
-///
-/// When the available size on an axis is indefinite, percentage-sized tracks
-/// are treated as auto so that intrinsic content sizing takes over.
-fn percentage_tracks_to_auto(defs: Vec<TrackSize>) -> Vec<TrackSize> {
-    defs.into_iter()
-        .map(|def| match def {
-            TrackSize::Percentage(_) => TrackSize::Auto,
-            other => other,
-        })
-        .collect()
-}
-
-/// Build the full list of track definitions (explicit + implicit).
-///
-/// Implicit tracks cycle through `auto_tracks` per CSS Grid §7.2.4.
-fn build_track_definitions(
-    explicit: &[TrackSize],
-    auto_tracks: &[TrackSize],
-    actual_count: usize,
-) -> Vec<TrackSize> {
-    (0..actual_count)
-        .map(|i| {
-            explicit.get(i).cloned().unwrap_or_else(|| {
-                if auto_tracks.is_empty() {
-                    TrackSize::Auto
-                } else {
-                    let implicit_idx = i.saturating_sub(explicit.len());
-                    auto_tracks[implicit_idx % auto_tracks.len()].clone()
-                }
-            })
-        })
-        .collect()
-}
-
-/// Content distribution mode for track alignment.
-#[derive(Clone, Copy)]
-enum ContentDistribution {
-    Start,
-    End,
-    Center,
-    SpaceBetween,
-    SpaceAround,
-    SpaceEvenly,
-    Stretch,
-}
-
-impl From<JustifyContent> for ContentDistribution {
-    fn from(jc: JustifyContent) -> Self {
-        match jc {
-            JustifyContent::FlexStart => Self::Start,
-            JustifyContent::FlexEnd => Self::End,
-            JustifyContent::Center => Self::Center,
-            JustifyContent::SpaceBetween => Self::SpaceBetween,
-            JustifyContent::SpaceAround => Self::SpaceAround,
-            JustifyContent::SpaceEvenly => Self::SpaceEvenly,
-            // CSS Grid §10.5: normal behaves as stretch for grid containers.
-            JustifyContent::Stretch | JustifyContent::Normal => Self::Stretch,
-        }
-    }
-}
-
-impl From<AlignContent> for ContentDistribution {
-    fn from(ac: AlignContent) -> Self {
-        match ac {
-            AlignContent::FlexStart => Self::Start,
-            AlignContent::FlexEnd => Self::End,
-            AlignContent::Center => Self::Center,
-            AlignContent::SpaceBetween => Self::SpaceBetween,
-            AlignContent::SpaceAround => Self::SpaceAround,
-            AlignContent::SpaceEvenly => Self::SpaceEvenly,
-            // CSS Grid §10.6: normal behaves as stretch for grid containers.
-            AlignContent::Stretch | AlignContent::Normal => Self::Stretch,
-        }
-    }
-}
-
-#[allow(clippy::cast_precision_loss)]
-/// Distribute tracks along the container axis (CSS Grid §10.5 / §10.6).
-///
-/// Adjusts track positions based on `justify-content` / `align-content`.
-fn distribute_tracks<D: Into<ContentDistribution>>(
-    positions: &mut [f32],
-    tracks: &[track::ResolvedTrack],
-    gap: f32,
-    container_size: f32,
-    distribution: D,
-    safety: AlignmentSafety,
-) {
-    if positions.is_empty() || tracks.is_empty() {
-        return;
-    }
-    let used_space = track::total_track_size(tracks, gap);
-    let free_space = container_size - used_space;
-
-    let dist = distribution.into();
-
-    // Safety fallback: if free_space < 0 and safe, fall back to start.
-    let dist = if safety == AlignmentSafety::Safe && free_space < 0.0 {
-        ContentDistribution::Start
-    } else {
-        dist
-    };
-
-    match dist {
-        ContentDistribution::Start | ContentDistribution::Stretch => {
-            // No adjustment needed. Stretch is handled in track sizing phase.
-        }
-        ContentDistribution::End => {
-            let offset = free_space.max(0.0);
-            for pos in positions.iter_mut() {
-                *pos += offset;
-            }
-        }
-        ContentDistribution::Center => {
-            let offset = (free_space / 2.0).max(0.0);
-            for pos in positions.iter_mut() {
-                *pos += offset;
-            }
-        }
-        ContentDistribution::SpaceBetween => {
-            if tracks.len() <= 1 || free_space <= 0.0 {
-                return;
-            }
-            let extra_gap = free_space / (tracks.len() - 1) as f32;
-            for (i, pos) in positions.iter_mut().enumerate() {
-                *pos += extra_gap * i as f32;
-            }
-        }
-        ContentDistribution::SpaceAround => {
-            if free_space <= 0.0 {
-                return;
-            }
-            let per_track = free_space / tracks.len() as f32;
-            let half = per_track / 2.0;
-            for (i, pos) in positions.iter_mut().enumerate() {
-                *pos += half + per_track * i as f32;
-            }
-        }
-        ContentDistribution::SpaceEvenly => {
-            if free_space <= 0.0 {
-                return;
-            }
-            let slot = free_space / (tracks.len() + 1) as f32;
-            for (i, pos) in positions.iter_mut().enumerate() {
-                *pos += slot * (i + 1) as f32;
-            }
-        }
-    }
-}
-
-/// Resolve effective justify for a grid item.
-///
-/// `justify-self: auto` resolves to the container's `justify-items`.
-fn effective_justify(
-    justify_self: JustifySelf,
-    container_justify_items: JustifyItems,
-) -> JustifyItems {
-    match justify_self {
-        JustifySelf::Auto => container_justify_items,
-        JustifySelf::Start => JustifyItems::Start,
-        JustifySelf::End => JustifyItems::End,
-        JustifySelf::Center => JustifyItems::Center,
-        JustifySelf::Stretch => JustifyItems::Stretch,
-        JustifySelf::Baseline => JustifyItems::Baseline,
     }
 }

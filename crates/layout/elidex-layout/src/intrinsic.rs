@@ -22,8 +22,7 @@ use elidex_text::FontDatabase;
 /// - **Block**: inline children → inline min/max; block children → max of children.
 /// - **Flex row**: nowrap → sum, wrap → max for min-content.
 /// - **Flex column**: max of children's intrinsic widths.
-/// - **Grid**: per-column track sizing (simplified, without full placement;
-///   will be unified with `resolve_tracks()` in G5 — see `layout-full-spec-plan.md`).
+/// - **Grid**: placement-based per-column track sizing via `elidex-layout-grid`.
 /// - **Table**: cell → column → table (CSS 2.1 §17.5.2).
 /// - **Inline/Text**: delegates to inline measurement.
 pub fn compute_intrinsic_sizes(
@@ -62,9 +61,14 @@ pub fn compute_intrinsic_sizes(
         Display::Flex | Display::InlineFlex => {
             compute_flex_intrinsic(dom, entity, &children, font_db, layout_child, depth)
         }
-        Display::Grid | Display::InlineGrid => {
-            compute_grid_intrinsic(dom, entity, &children, font_db, layout_child, depth)
-        }
+        Display::Grid | Display::InlineGrid => elidex_layout_grid::compute_grid_intrinsic(
+            dom,
+            entity,
+            &children,
+            font_db,
+            layout_child,
+            depth,
+        ),
         Display::Table | Display::InlineTable => {
             compute_table_intrinsic(dom, entity, &children, font_db, layout_child, depth)
         }
@@ -221,135 +225,6 @@ fn compute_flex_intrinsic(
             min_content: max_min,
             max_content: max_max,
         }
-    }
-}
-
-/// Classify grid tracks into fixed and intrinsic categories.
-///
-/// Fixed tracks (Length, Percentage, Fr) get their resolved sizes written into
-/// `track_min`/`track_max`. Intrinsic tracks (`Auto`, `MinContent`, `MaxContent`,
-/// `FitContent`) are collected as indices for later child-contribution distribution.
-/// Returns `(intrinsic_indices, fit_content_caps)`.
-fn classify_grid_tracks(
-    tracks: &[elidex_plugin::TrackSize],
-    track_min: &mut [f32],
-    track_max: &mut [f32],
-) -> (Vec<usize>, Vec<(usize, f32)>) {
-    use elidex_plugin::{TrackBreadth, TrackSize};
-
-    let mut intrinsic_indices: Vec<usize> = Vec::new();
-    let mut fit_content_caps: Vec<(usize, f32)> = Vec::new();
-
-    for (i, track) in tracks.iter().enumerate() {
-        match track {
-            TrackSize::Length(px) => {
-                track_min[i] = *px;
-                track_max[i] = *px;
-            }
-            TrackSize::Percentage(_) | TrackSize::Fr(_) => {} // 0 in intrinsic sizing
-            TrackSize::Auto => intrinsic_indices.push(i),
-            TrackSize::FitContent(limit) => {
-                intrinsic_indices.push(i);
-                fit_content_caps.push((i, *limit));
-            }
-            TrackSize::MinMax(min_b, max_b) => {
-                // Resolve min breadth contribution.
-                if let TrackBreadth::Length(px) = **min_b {
-                    track_min[i] = px;
-                }
-                // Resolve max breadth: fixed max sets the ceiling,
-                // intrinsic max needs child contributions.
-                match **max_b {
-                    TrackBreadth::Length(px) => {
-                        track_max[i] = px;
-                        if !matches!(**min_b, TrackBreadth::Length(_)) {
-                            intrinsic_indices.push(i);
-                        }
-                    }
-                    TrackBreadth::Fr(_) | TrackBreadth::Percentage(_) => {
-                        if !matches!(**min_b, TrackBreadth::Length(_)) {
-                            intrinsic_indices.push(i);
-                        }
-                    }
-                    _ => intrinsic_indices.push(i),
-                }
-            }
-        }
-    }
-
-    // If no explicit tracks, treat as single intrinsic column.
-    if tracks.is_empty() {
-        intrinsic_indices.push(0);
-    }
-
-    (intrinsic_indices, fit_content_caps)
-}
-
-/// Grid intrinsic sizing.
-///
-/// Sums fixed track sizes and distributes child intrinsic sizes across
-/// intrinsic tracks (Auto/MinContent/MaxContent/FitContent).
-/// Fr tracks contribute 0 per CSS Grid §12.7.
-fn compute_grid_intrinsic(
-    dom: &mut EcsDom,
-    entity: Entity,
-    children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
-) -> IntrinsicSizes {
-    use elidex_plugin::GridTrackList;
-
-    let style = get_style(dom, entity);
-    let child_sizes_list =
-        collect_child_intrinsic_sizes(dom, children, font_db, layout_child, depth);
-
-    // Analyse column track definitions.
-    let tracks = match &style.grid_template_columns {
-        GridTrackList::Explicit(tracks) => tracks.as_slice(),
-        GridTrackList::AutoRepeat { .. } => &[],
-    };
-
-    let num_tracks = tracks.len().max(1);
-    let mut track_min = vec![0.0_f32; num_tracks];
-    let mut track_max = vec![0.0_f32; num_tracks];
-
-    let (intrinsic_indices, fit_content_caps) =
-        classify_grid_tracks(tracks, &mut track_min, &mut track_max);
-
-    // Distribute child contributions to intrinsic tracks.
-    // NOTE: Uses round-robin approximation — actual grid placement is not
-    // consulted. This is correct for the common case where items flow in
-    // source order into sequential columns. Will be replaced by
-    // resolve_grid_contributions() + resolve_tracks() delegation in G5
-    // (see layout-full-spec-plan.md § "Grid placement パイプライン独立関数化").
-    if !intrinsic_indices.is_empty() {
-        for (ci, sizes) in child_sizes_list.iter().enumerate() {
-            let idx = intrinsic_indices[ci % intrinsic_indices.len()];
-            track_min[idx] = track_min[idx].max(sizes.min_content);
-            track_max[idx] = track_max[idx].max(sizes.max_content);
-        }
-    }
-
-    // Apply fit-content caps: track_max cannot exceed the limit (§7.2.4).
-    for &(i, limit) in &fit_content_caps {
-        track_max[i] = track_max[i].min(limit).max(track_min[i]);
-    }
-
-    let min: f32 = track_min.iter().sum();
-    let max: f32 = track_max.iter().sum();
-
-    // Add gaps between tracks.
-    let gap = elidex_layout_block::resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0);
-    let gap_total = if tracks.is_empty() {
-        0.0
-    } else {
-        total_gap(num_tracks, gap)
-    };
-
-    IntrinsicSizes {
-        min_content: min + gap_total,
-        max_content: max + gap_total,
     }
 }
 

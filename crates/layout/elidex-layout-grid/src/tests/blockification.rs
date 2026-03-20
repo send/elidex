@@ -5,7 +5,9 @@ use super::*;
 fn grid_container() -> ComputedStyle {
     ComputedStyle {
         display: Display::Grid,
-        grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Length(200.0)]),
+        grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+            TrackSize::Length(200.0),
+        ])),
         ..Default::default()
     }
 }

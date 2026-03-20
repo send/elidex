@@ -14,10 +14,10 @@ fn row_baseline_alignment() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 align_items: AlignItems::Baseline,
                 ..Default::default()
             },
@@ -70,11 +70,13 @@ fn column_baseline_alignment() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Length(200.0)]),
-                grid_template_rows: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(200.0),
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 justify_items: JustifyItems::Baseline,
                 ..Default::default()
             },
@@ -124,10 +126,10 @@ fn mixed_baseline_and_stretch() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -204,14 +206,14 @@ fn spanning_item_fallback() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
-                grid_template_rows: GridTrackList::Explicit(vec![
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(50.0),
                     TrackSize::Length(50.0),
-                ]),
+                ])),
                 align_items: AlignItems::Baseline,
                 ..Default::default()
             },
@@ -271,11 +273,11 @@ fn no_baseline_item() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 align_items: AlignItems::Baseline,
                 ..Default::default()
             },
@@ -333,10 +335,10 @@ fn container_baseline_propagation() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 align_items: AlignItems::Baseline,
                 ..Default::default()
             },

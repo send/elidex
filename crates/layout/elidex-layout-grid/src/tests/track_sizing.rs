@@ -9,10 +9,10 @@ fn grid_empty_container() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Fr(1.0),
                     TrackSize::Fr(1.0),
-                ]),
+                ])),
                 height: Dimension::Length(100.0),
                 ..Default::default()
             },
@@ -100,7 +100,9 @@ fn column_track_sizing() {
                 container,
                 ComputedStyle {
                     display: Display::Grid,
-                    grid_template_columns: GridTrackList::Explicit(tracks.to_vec()),
+                    grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(
+                        tracks.to_vec(),
+                    )),
                     ..Default::default()
                 },
             )
@@ -148,10 +150,10 @@ fn grid_auto_rows() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Fr(1.0),
                     TrackSize::Fr(1.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -194,11 +196,13 @@ fn grid_explicit_rows() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
-                grid_template_rows: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Fr(1.0),
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(200.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -238,7 +242,9 @@ fn grid_auto_track_size() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Fr(1.0),
+                ])),
                 grid_auto_rows: vec![TrackSize::Length(50.0)],
                 ..Default::default()
             },
@@ -280,7 +286,9 @@ fn grid_container_auto_height() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Fr(1.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -315,13 +323,13 @@ fn grid_minmax_track() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::Length(100.0)),
                         Box::new(TrackBreadth::Fr(1.0)),
                     ),
                     TrackSize::Length(200.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -363,8 +371,12 @@ fn grid_percentage_row_indefinite_height() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Fr(1.0)]),
-                grid_template_rows: GridTrackList::Explicit(vec![TrackSize::Percentage(50.0)]),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Fr(1.0),
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Percentage(50.0),
+                ])),
                 // No explicit height -> indefinite.
                 ..Default::default()
             },
@@ -406,13 +418,13 @@ fn grid_minmax_min_content_uses_narrow_size() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::MinContent),
                         Box::new(TrackBreadth::Fr(1.0)),
                     ),
                     TrackSize::Length(200.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -474,13 +486,13 @@ fn grid_minmax_max_content_in_max() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::MinMax(
                         Box::new(TrackBreadth::Length(100.0)),
                         Box::new(TrackBreadth::MaxContent),
                     ),
                     TrackSize::Fr(1.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -542,10 +554,10 @@ fn auto_fill_200px_in_900px() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::AutoRepeat {
-                    before: vec![],
-                    pattern: vec![TrackSize::Length(200.0)],
+                    before: TrackSection::from_tracks(vec![]),
+                    pattern: TrackSection::from_tracks(vec![TrackSize::Length(200.0)]),
                     mode: elidex_plugin::AutoRepeatMode::AutoFill,
-                    after: vec![],
+                    after: TrackSection::from_tracks(vec![]),
                 },
                 ..Default::default()
             },
@@ -594,10 +606,13 @@ fn auto_fill_multi_pattern_in_900px() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::AutoRepeat {
-                    before: vec![],
-                    pattern: vec![TrackSize::Length(100.0), TrackSize::Length(200.0)],
+                    before: TrackSection::from_tracks(vec![]),
+                    pattern: TrackSection::from_tracks(vec![
+                        TrackSize::Length(100.0),
+                        TrackSize::Length(200.0),
+                    ]),
                     mode: elidex_plugin::AutoRepeatMode::AutoFill,
-                    after: vec![],
+                    after: TrackSection::from_tracks(vec![]),
                 },
                 ..Default::default()
             },
@@ -655,10 +670,10 @@ fn auto_fit_collapses_empty_tracks() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::AutoRepeat {
-                    before: vec![],
-                    pattern: vec![TrackSize::Length(200.0)],
+                    before: TrackSection::from_tracks(vec![]),
+                    pattern: TrackSection::from_tracks(vec![TrackSize::Length(200.0)]),
                     mode: elidex_plugin::AutoRepeatMode::AutoFit,
-                    after: vec![],
+                    after: TrackSection::from_tracks(vec![]),
                 },
                 ..Default::default()
             },
@@ -702,10 +717,10 @@ fn auto_fill_minimum_one_repetition() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::AutoRepeat {
-                    before: vec![],
-                    pattern: vec![TrackSize::Length(300.0)],
+                    before: TrackSection::from_tracks(vec![]),
+                    pattern: TrackSection::from_tracks(vec![TrackSize::Length(300.0)]),
                     mode: elidex_plugin::AutoRepeatMode::AutoFill,
-                    after: vec![],
+                    after: TrackSection::from_tracks(vec![]),
                 },
                 ..Default::default()
             },
@@ -747,10 +762,10 @@ fn auto_fill_with_fixed_before_after() {
             ComputedStyle {
                 display: Display::Grid,
                 grid_template_columns: GridTrackList::AutoRepeat {
-                    before: vec![TrackSize::Length(100.0)],
-                    pattern: vec![TrackSize::Length(200.0)],
+                    before: TrackSection::from_tracks(vec![TrackSize::Length(100.0)]),
+                    pattern: TrackSection::from_tracks(vec![TrackSize::Length(200.0)]),
                     mode: elidex_plugin::AutoRepeatMode::AutoFill,
-                    after: vec![TrackSize::Length(100.0)],
+                    after: TrackSection::from_tracks(vec![TrackSize::Length(100.0)]),
                 },
                 ..Default::default()
             },

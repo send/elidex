@@ -249,7 +249,7 @@ pub fn layout_positioned_children(
 ///
 /// CSS 2.1 §10.3.7 / §10.6.4 constraint equations.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
-fn layout_absolutely_positioned(
+pub fn layout_absolutely_positioned(
     dom: &mut EcsDom,
     entity: Entity,
     cb: &Rect,

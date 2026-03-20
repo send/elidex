@@ -10,11 +10,11 @@ fn grid_explicit_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -65,11 +65,11 @@ fn grid_span_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -124,10 +124,10 @@ fn grid_auto_placement_row() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -173,14 +173,14 @@ fn grid_auto_placement_column() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
-                grid_template_rows: GridTrackList::Explicit(vec![
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(40.0),
                     TrackSize::Length(40.0),
-                ]),
+                ])),
                 grid_auto_flow: GridAutoFlow::Column,
                 ..Default::default()
             },
@@ -227,11 +227,11 @@ fn grid_dense_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 grid_auto_flow: GridAutoFlow::RowDense,
                 ..Default::default()
             },
@@ -301,11 +301,11 @@ fn grid_order_property() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -388,11 +388,11 @@ fn grid_negative_line_number() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -446,11 +446,11 @@ fn grid_negative_line_start_end() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 ..Default::default()
             },
         )
@@ -504,7 +504,9 @@ fn grid_extreme_line_number_capped() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Length(100.0)]),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -561,7 +563,9 @@ fn grid_extreme_span_capped() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![TrackSize::Length(100.0)]),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -618,11 +622,11 @@ fn auto_placement_cursor_advances_past_semi_definite() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: GridTrackList::Explicit(vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ]),
+                ])),
                 // Default: row flow, sparse (not dense).
                 ..Default::default()
             },

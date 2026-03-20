@@ -1,7 +1,10 @@
-//! CSS Grid property parsers.
+//! CSS Grid track list and line value parsers.
 //!
-//! Handles `grid-template-columns/rows`, `grid-auto-flow`, `grid-auto-columns/rows`,
-//! `grid-column/row-start/end`, `grid-column/row` shorthands, and `grid-area`.
+//! Handles `grid-template-columns/rows` track list parsing, `repeat()`, line names,
+//! and `<grid-line>` value parsing.
+//!
+//! Other grid properties (longhands and shorthands) are in the sibling
+//! `grid_shorthand` module.
 
 use cssparser::{Parser, Token};
 use elidex_plugin::{CssValue, LengthUnit};
@@ -23,7 +26,7 @@ use super::{single_decl, Declaration};
 /// - `Auto` for `auto`
 /// - `Keyword("min-content")` / `Keyword("max-content")`
 /// - `List([Keyword("minmax"), min, max])` for `minmax()`
-fn parse_track_size(input: &mut Parser) -> Result<CssValue, ()> {
+pub(crate) fn parse_track_size(input: &mut Parser) -> Result<CssValue, ()> {
     // Try minmax() function.
     if let Ok(val) = input.try_parse(parse_minmax) {
         return Ok(val);
@@ -113,12 +116,103 @@ enum RepeatResult {
     AutoRepeat(String, Vec<CssValue>),
 }
 
+/// Parse `[line-names]` bracket block: `[ident1 ident2 ...]`.
+pub(crate) fn parse_line_names(input: &mut Parser) -> Result<Vec<String>, ()> {
+    input.expect_square_bracket_block().map_err(|_| ())?;
+    input
+        .parse_nested_block(
+            |block| -> Result<Vec<String>, cssparser::ParseError<'_, ()>> {
+                let mut names = Vec::new();
+                while let Ok(ident) =
+                    block.try_parse(|b| b.expect_ident().map(std::string::ToString::to_string))
+                {
+                    names.push(ident);
+                }
+                Ok(names)
+            },
+        )
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())
+}
+
+/// Interleaved track + line-names representation during parsing.
+pub(crate) struct TrackListParts {
+    pub(crate) tracks: Vec<CssValue>,
+    pub(crate) line_names: Vec<Vec<String>>, // len == tracks.len() + 1 (once finalized)
+}
+
+impl TrackListParts {
+    pub(crate) fn new() -> Self {
+        Self {
+            tracks: Vec::new(),
+            line_names: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push_names(&mut self, mut names: Vec<String>) {
+        // If we already have a trailing names entry, merge into it.
+        if self.line_names.len() > self.tracks.len() {
+            self.line_names.last_mut().unwrap().append(&mut names);
+        } else {
+            self.line_names.push(names);
+        }
+    }
+
+    pub(crate) fn push_track(&mut self, track: CssValue) {
+        // Ensure there's a line-names entry before this track.
+        while self.line_names.len() <= self.tracks.len() {
+            self.line_names.push(vec![]);
+        }
+        self.tracks.push(track);
+    }
+
+    pub(crate) fn finalize(&mut self) {
+        // Ensure trailing line-names entry.
+        while self.line_names.len() <= self.tracks.len() {
+            self.line_names.push(vec![]);
+        }
+    }
+
+    pub(crate) fn has_names(&self) -> bool {
+        self.line_names.iter().any(|n| !n.is_empty())
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tracks.is_empty()
+    }
+
+    /// Encode as `CssValue`. If there are named lines, use the named-tracks marker.
+    #[allow(clippy::wrong_self_convention)] // Consumes fields via mem::take
+    pub(crate) fn to_css_value(&mut self) -> CssValue {
+        self.finalize();
+        if !self.has_names() {
+            return CssValue::List(std::mem::take(&mut self.tracks));
+        }
+        // Encode: [Keyword("named-tracks"), List(names_0), track0, List(names_1), track1, ..., List(names_n)]
+        let mut items = vec![CssValue::Keyword("named-tracks".into())];
+        for (i, track) in self.tracks.iter().enumerate() {
+            let names = self.line_names.get(i).cloned().unwrap_or_default();
+            items.push(CssValue::List(
+                names.into_iter().map(CssValue::Keyword).collect(),
+            ));
+            items.push(track.clone());
+        }
+        let trailing = self
+            .line_names
+            .get(self.tracks.len())
+            .cloned()
+            .unwrap_or_default();
+        items.push(CssValue::List(
+            trailing.into_iter().map(CssValue::Keyword).collect(),
+        ));
+        CssValue::List(items)
+    }
+}
+
 /// Parse `grid-template-columns` or `grid-template-rows`.
 ///
-/// Accepts: `none` | `<track-size>+` | `repeat(N, <track-size>+)`.
-/// For `repeat(auto-fill/auto-fit, ...)`, emits a special `CssValue::List`
-/// with marker `Keyword("auto-repeat")`.
-pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declaration> {
+/// Accepts: `none` | `[name] <track-size>+ [name]` | `repeat(...)`.
+/// `[name]` brackets are optional at each line boundary.
+pub(crate) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declaration> {
     // Try `none` keyword.
     if let Ok(()) = input.try_parse(|i| -> Result<(), ()> {
         let ident = i.expect_ident().map_err(|_| ())?;
@@ -131,26 +225,36 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
         return single_decl(name, CssValue::Keyword("none".into()));
     }
 
-    // Parse track list (one or more track-size values, possibly with repeat()).
-    // CSS spec allows at most one auto-repeat per track list.
-    let mut before = Vec::new();
+    let mut before = TrackListParts::new();
     let mut auto_repeat: Option<(String, Vec<CssValue>)> = None;
-    let mut after = Vec::new();
+    let mut after = TrackListParts::new();
 
     while !input.is_exhausted() {
+        // Try [line-names]
+        if let Ok(names) = input.try_parse(parse_line_names) {
+            if auto_repeat.is_some() {
+                after.push_names(names);
+            } else {
+                before.push_names(names);
+            }
+            continue;
+        }
+
         // Try repeat() function.
         if let Ok(result) = input.try_parse(parse_repeat) {
             match result {
                 RepeatResult::Expanded(expanded) => {
-                    if auto_repeat.is_some() {
-                        after.extend(expanded);
+                    let target = if auto_repeat.is_some() {
+                        &mut after
                     } else {
-                        before.extend(expanded);
+                        &mut before
+                    };
+                    for ts in expanded {
+                        target.push_track(ts);
                     }
                 }
                 RepeatResult::AutoRepeat(mode, pattern) => {
                     if auto_repeat.is_some() {
-                        // CSS spec: at most one auto-repeat; ignore second.
                         break;
                     }
                     auto_repeat = Some((mode, pattern));
@@ -162,9 +266,9 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
         // Try a single track-size.
         if let Ok(ts) = input.try_parse(parse_track_size) {
             if auto_repeat.is_some() {
-                after.push(ts);
+                after.push_track(ts);
             } else {
-                before.push(ts);
+                before.push_track(ts);
             }
             continue;
         }
@@ -173,13 +277,12 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
     }
 
     if let Some((mode, pattern)) = auto_repeat {
-        // Emit: List([Keyword("auto-repeat"), Keyword(mode), List(before), List(pattern), List(after)])
         let value = CssValue::List(vec![
             CssValue::Keyword("auto-repeat".into()),
             CssValue::Keyword(mode),
-            CssValue::List(before),
+            before.to_css_value(),
             CssValue::List(pattern),
-            CssValue::List(after),
+            after.to_css_value(),
         ]);
         return single_decl(name, value);
     }
@@ -188,7 +291,7 @@ pub(super) fn parse_grid_template(input: &mut Parser, name: &str) -> Vec<Declara
         return Vec::new();
     }
 
-    single_decl(name, CssValue::List(before))
+    single_decl(name, before.to_css_value())
 }
 
 /// Maximum repeat count to prevent OOM from malicious CSS (e.g. `repeat(999999999, 1fr)`).
@@ -301,192 +404,159 @@ fn is_inflexible_breadth_value(v: &CssValue) -> bool {
     !matches!(v, CssValue::Length(_, unit) if *unit == LengthUnit::Fr)
 }
 
-// ---------------------------------------------------------------------------
-// Grid auto track size
-// ---------------------------------------------------------------------------
-
-/// Parse `grid-auto-columns` or `grid-auto-rows`: a single `<track-size>`.
-pub(super) fn parse_grid_auto_track(input: &mut Parser, name: &str) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_track_size(i)?;
-            Ok(single_decl(name, val))
-        })
-        .unwrap_or_default()
-}
-
-// ---------------------------------------------------------------------------
-// Grid auto flow
-// ---------------------------------------------------------------------------
-
-/// Parse `grid-auto-flow`: `row` | `column` | `row dense` | `column dense`.
-pub(super) fn parse_grid_auto_flow(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let ident = i.expect_ident().map_err(|_| ())?;
-            let lower = ident.to_ascii_lowercase();
-            let direction = match lower.as_str() {
-                "row" | "column" => lower.clone(),
-                "dense" => {
-                    // `dense` alone = `row dense`
-                    return Ok(single_decl(
-                        "grid-auto-flow",
-                        CssValue::Keyword("row dense".into()),
-                    ));
-                }
-                _ => return Err(()),
-            };
-
-            // Try optional `dense` keyword.
-            let dense = i
-                .try_parse(|i2| -> Result<bool, ()> {
-                    let ident2 = i2.expect_ident().map_err(|_| ())?;
-                    if ident2.eq_ignore_ascii_case("dense") {
-                        Ok(true)
-                    } else {
-                        Err(())
-                    }
-                })
-                .unwrap_or(false);
-
-            let kw = if dense {
-                format!("{direction} dense")
-            } else {
-                direction
-            };
-            Ok(single_decl("grid-auto-flow", CssValue::Keyword(kw)))
-        })
-        .unwrap_or_default()
+/// Forbidden identifiers for grid-line and area names (CSS Grid §8.1).
+pub(crate) fn is_forbidden_grid_ident(s: &str) -> bool {
+    matches!(
+        s.to_ascii_lowercase().as_str(),
+        "auto" | "span" | "inherit" | "initial" | "unset" | "default"
+    )
 }
 
 // ---------------------------------------------------------------------------
 // Grid line placement
 // ---------------------------------------------------------------------------
 
-/// Parse a single `<grid-line>` value: `auto` | `<integer>` | `span <integer>`.
-#[allow(clippy::cast_precision_loss)] // CSS grid line numbers are small integers
-fn parse_grid_line_value(input: &mut Parser) -> Result<CssValue, ()> {
+/// Parse a single `<grid-line>` value (CSS Grid §8.1).
+///
+/// ```text
+/// auto | <custom-ident> |
+/// [ <integer [-∞,-1]> | <integer [1,∞]> ] && <custom-ident>? |
+/// [ span && [ <integer [1,∞]> || <custom-ident> ] ]
+/// ```
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+// CSS grid line values: full §8.1 grammar with named idents.
+pub(crate) fn parse_grid_line_value(input: &mut Parser) -> Result<CssValue, ()> {
     // Try `auto`.
-    if let Ok(()) = input.try_parse(|i| -> Result<(), ()> {
-        let ident = i.expect_ident().map_err(|_| ())?;
-        if ident.eq_ignore_ascii_case("auto") {
-            Ok(())
-        } else {
-            Err(())
-        }
-    }) {
+    if input
+        .try_parse(|i| -> Result<(), ()> {
+            let ident = i.expect_ident().map_err(|_| ())?;
+            if ident.eq_ignore_ascii_case("auto") {
+                Ok(())
+            } else {
+                Err(())
+            }
+        })
+        .is_ok()
+    {
         return Ok(CssValue::Auto);
     }
 
-    // Try `span <integer>`.
+    // Try span variants.
     if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
         let ident = i.expect_ident().map_err(|_| ())?;
         if !ident.eq_ignore_ascii_case("span") {
             return Err(());
         }
-        let tok = i.next().map_err(|_| ())?;
-        match *tok {
-            Token::Number {
-                int_value: Some(n), ..
-            } if n >= 1 => Ok(CssValue::List(vec![
+
+        // Try integer first
+        let maybe_int = i.try_parse(|i2| -> Result<i32, ()> {
+            let tok = i2.next().map_err(|_| ())?;
+            match *tok {
+                Token::Number {
+                    int_value: Some(n), ..
+                } if n >= 1 => Ok(n),
+                _ => Err(()),
+            }
+        });
+
+        // Try ident
+        let maybe_ident = i.try_parse(|i2| -> Result<String, ()> {
+            let id = i2.expect_ident().map_err(|_| ())?;
+            let s = id.to_string();
+            if is_forbidden_grid_ident(&s) {
+                return Err(());
+            }
+            Ok(s)
+        });
+
+        let (n, named_ident) = match (maybe_int, maybe_ident) {
+            (Ok(n), Ok(ident)) => (n, Some(ident)),
+            (Ok(n), Err(())) => (n, None),
+            (Err(()), Ok(ident)) => {
+                let trailing = i.try_parse(|i2| -> Result<i32, ()> {
+                    let tok = i2.next().map_err(|_| ())?;
+                    match *tok {
+                        Token::Number {
+                            int_value: Some(n), ..
+                        } if n >= 1 => Ok(n),
+                        _ => Err(()),
+                    }
+                });
+                (trailing.unwrap_or(1), Some(ident))
+            }
+            (Err(()), Err(())) => return Err(()),
+        };
+
+        if let Some(ident) = named_ident {
+            Ok(CssValue::List(vec![
+                CssValue::Keyword("span-named".into()),
+                CssValue::Number(n as f32),
+                CssValue::Keyword(ident),
+            ]))
+        } else {
+            Ok(CssValue::List(vec![
                 CssValue::Keyword("span".into()),
                 CssValue::Number(n as f32),
-            ])),
-            _ => Err(()),
+            ]))
         }
     }) {
         return Ok(val);
     }
 
-    // Try plain integer.
-    let tok = input.next().map_err(|_| ())?;
-    match *tok {
-        Token::Number {
-            int_value: Some(n), ..
-        } if n != 0 => Ok(CssValue::Number(n as f32)),
-        _ => Err(()),
+    // Try "<integer> <custom-ident>" or just "<integer>".
+    if let Ok(val) = input.try_parse(|i| -> Result<CssValue, ()> {
+        let tok = i.next().map_err(|_| ())?;
+        let n = match *tok {
+            Token::Number {
+                int_value: Some(n), ..
+            } if n != 0 => n,
+            _ => return Err(()),
+        };
+        let maybe_ident = i.try_parse(|i2| -> Result<String, ()> {
+            let id = i2.expect_ident().map_err(|_| ())?;
+            let s = id.to_string();
+            if is_forbidden_grid_ident(&s) {
+                return Err(());
+            }
+            Ok(s)
+        });
+        if let Ok(ident) = maybe_ident {
+            Ok(CssValue::List(vec![
+                CssValue::Number(n as f32),
+                CssValue::Keyword(ident),
+            ]))
+        } else {
+            Ok(CssValue::Number(n as f32))
+        }
+    }) {
+        return Ok(val);
     }
-}
 
-/// Parse `grid-column-start`, `grid-column-end`, `grid-row-start`, `grid-row-end`.
-pub(super) fn parse_grid_line(input: &mut Parser, name: &str) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_grid_line_value(i)?;
-            Ok(single_decl(name, val))
-        })
-        .unwrap_or_default()
-}
-
-// ---------------------------------------------------------------------------
-// Grid line shorthands
-// ---------------------------------------------------------------------------
-
-/// Parse `grid-column` or `grid-row` shorthand: `<start> / <end>` or `<start>`.
-pub(super) fn parse_grid_line_shorthand(input: &mut Parser, name: &str) -> Vec<Declaration> {
-    let (start_prop, end_prop) = match name {
-        "grid-column" => ("grid-column-start", "grid-column-end"),
-        "grid-row" => ("grid-row-start", "grid-row-end"),
-        _ => return Vec::new(),
-    };
-
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let start = parse_grid_line_value(i)?;
-
-            // Try optional slash + end.
-            let end = i
-                .try_parse(|i2| -> Result<CssValue, ()> {
-                    i2.expect_delim('/').map_err(|_| ())?;
-                    parse_grid_line_value(i2)
-                })
-                .unwrap_or(CssValue::Auto);
-
-            Ok(vec![
-                Declaration::new(start_prop, start),
-                Declaration::new(end_prop, end),
-            ])
-        })
-        .unwrap_or_default()
-}
-
-/// Parse `grid-area` shorthand: `<row-start> / <col-start> / <row-end> / <col-end>`.
-///
-/// Missing values default to `auto`.
-pub(super) fn parse_grid_area(input: &mut Parser) -> Vec<Declaration> {
-    input
-        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let row_start = parse_grid_line_value(i)?;
-
-            let col_start = i
-                .try_parse(|i2| -> Result<CssValue, ()> {
-                    i2.expect_delim('/').map_err(|_| ())?;
-                    parse_grid_line_value(i2)
-                })
-                .unwrap_or(CssValue::Auto);
-
-            let row_end = i
-                .try_parse(|i2| -> Result<CssValue, ()> {
-                    i2.expect_delim('/').map_err(|_| ())?;
-                    parse_grid_line_value(i2)
-                })
-                .unwrap_or(CssValue::Auto);
-
-            let col_end = i
-                .try_parse(|i2| -> Result<CssValue, ()> {
-                    i2.expect_delim('/').map_err(|_| ())?;
-                    parse_grid_line_value(i2)
-                })
-                .unwrap_or(CssValue::Auto);
-
-            Ok(vec![
-                Declaration::new("grid-row-start", row_start),
-                Declaration::new("grid-column-start", col_start),
-                Declaration::new("grid-row-end", row_end),
-                Declaration::new("grid-column-end", col_end),
-            ])
-        })
-        .unwrap_or_default()
+    // Try "<custom-ident> <integer>" or just "<custom-ident>".
+    input.try_parse(|i| -> Result<CssValue, ()> {
+        let ident = i.expect_ident().map_err(|_| ())?;
+        let s = ident.to_string();
+        if is_forbidden_grid_ident(&s) {
+            return Err(());
+        }
+        let maybe_int = i.try_parse(|i2| -> Result<i32, ()> {
+            let tok = i2.next().map_err(|_| ())?;
+            match *tok {
+                Token::Number {
+                    int_value: Some(n), ..
+                } if n != 0 => Ok(n),
+                _ => Err(()),
+            }
+        });
+        if let Ok(n) = maybe_int {
+            Ok(CssValue::List(vec![
+                CssValue::Keyword(s),
+                CssValue::Number(n as f32),
+            ]))
+        } else {
+            Ok(CssValue::Keyword(s))
+        }
+    })
 }
 
 #[cfg(test)]
@@ -640,6 +710,84 @@ mod tests {
             }
         } else {
             panic!("expected List with auto-repeat marker");
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Named line tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn named_lines_basic() {
+        // "[a] 1fr [b]" — named-tracks marker present, 1 track
+        let decls = parse_template("[a] 1fr [b]");
+        assert_eq!(decls.len(), 1, "expected 1 declaration");
+        if let CssValue::List(items) = &decls[0].value {
+            assert_eq!(
+                items[0],
+                CssValue::Keyword("named-tracks".into()),
+                "expected named-tracks marker"
+            );
+            // Structure: [named-tracks, [a], 1fr, [b]]
+            // items[1] = names_0 = ["a"], items[2] = track, items[3] = names_1 = ["b"]
+            assert_eq!(
+                items.len(),
+                4,
+                "expected 4 items (marker + names + track + names)"
+            );
+        } else {
+            panic!("expected List, got {:?}", decls[0].value);
+        }
+    }
+
+    #[test]
+    fn named_lines_multiple_names() {
+        // "[a b] 1fr" — two names in first name slot
+        let decls = parse_template("[a b] 1fr");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(items) = &decls[0].value {
+            assert_eq!(items[0], CssValue::Keyword("named-tracks".into()));
+            // items[1] should be List([Keyword("a"), Keyword("b")])
+            if let CssValue::List(names) = &items[1] {
+                assert_eq!(names.len(), 2);
+                assert_eq!(names[0], CssValue::Keyword("a".into()));
+                assert_eq!(names[1], CssValue::Keyword("b".into()));
+            } else {
+                panic!("expected List for names, got {:?}", items[1]);
+            }
+        } else {
+            panic!("expected List, got {:?}", decls[0].value);
+        }
+    }
+
+    #[test]
+    fn named_lines_empty_brackets() {
+        // "[] 1fr" — valid parse with empty name list
+        let decls = parse_template("[] 1fr");
+        assert_eq!(decls.len(), 1, "expected 1 declaration for [] 1fr");
+        // Empty brackets with no names → no named-tracks marker (no names to record)
+        // The track list should just be a simple List with the track value
+        match &decls[0].value {
+            CssValue::List(_) => {} // Either with or without marker is acceptable
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn named_lines_compat_no_names() {
+        // "1fr 2fr" — NO named-tracks marker (backward compat)
+        let decls = parse_template("1fr 2fr");
+        assert_eq!(decls.len(), 1);
+        if let CssValue::List(items) = &decls[0].value {
+            // Must NOT start with "named-tracks" marker
+            assert_ne!(
+                items.first(),
+                Some(&CssValue::Keyword("named-tracks".into())),
+                "plain tracks should not have named-tracks marker"
+            );
+            assert_eq!(items.len(), 2, "expected 2 track items");
+        } else {
+            panic!("expected List, got {:?}", decls[0].value);
         }
     }
 }

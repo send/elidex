@@ -17,6 +17,7 @@ mod box_model;
 mod flex;
 mod font;
 mod grid;
+mod grid_shorthand;
 mod misc;
 
 #[cfg(test)]
@@ -398,17 +399,22 @@ pub(crate) fn parse_property_value(
 
         // --- Grid container properties ---
         "grid-template-columns" | "grid-template-rows" => grid::parse_grid_template(input, name),
-        "grid-auto-flow" => grid::parse_grid_auto_flow(input),
-        "grid-auto-columns" | "grid-auto-rows" => grid::parse_grid_auto_track(input, name),
+        "grid-template-areas" => grid_shorthand::parse_grid_template_areas(input),
+        "grid-auto-flow" => grid_shorthand::parse_grid_auto_flow(input),
+        "grid-auto-columns" | "grid-auto-rows" => {
+            grid_shorthand::parse_grid_auto_track(input, name)
+        }
 
         // --- Grid item properties ---
         "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
-            grid::parse_grid_line(input, name)
+            grid_shorthand::parse_grid_line(input, name)
         }
 
         // --- Grid shorthands ---
-        "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
-        "grid-area" => grid::parse_grid_area(input),
+        "grid-column" | "grid-row" => grid_shorthand::parse_grid_line_shorthand(input, name),
+        "grid-area" => grid_shorthand::parse_grid_area(input),
+        "grid-template" => grid_shorthand::parse_grid_template_shorthand(input),
+        "grid" => grid_shorthand::parse_grid_shorthand(input),
 
         // --- Multi-column shorthands ---
         "column-rule" => misc::parse_column_rule_shorthand(input),
@@ -687,6 +693,19 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "grid-column-start".to_string(),
             "grid-row-end".to_string(),
             "grid-column-end".to_string(),
+        ],
+        "grid-template" => vec![
+            "grid-template-rows".to_string(),
+            "grid-template-columns".to_string(),
+            "grid-template-areas".to_string(),
+        ],
+        "grid" => vec![
+            "grid-template-rows".to_string(),
+            "grid-template-columns".to_string(),
+            "grid-template-areas".to_string(),
+            "grid-auto-flow".to_string(),
+            "grid-auto-rows".to_string(),
+            "grid-auto-columns".to_string(),
         ],
         "column-rule" => vec![
             "column-rule-width".to_string(),

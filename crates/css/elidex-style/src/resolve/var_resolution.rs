@@ -157,6 +157,36 @@ fn expand_resolved_shorthand(resolved: &mut HashMap<String, CssValue>, name: &st
             resolved.insert("overflow-x".to_string(), val.clone());
             resolved.insert("overflow-y".to_string(), val);
         }
+        // NOTE: grid-template and grid shorthands have complex syntax
+        // (rows / columns, areas interleave, auto-flow patterns). When var()
+        // resolves to a shorthand key, we cannot reliably split the value into
+        // longhands. As a fallback, the resolved value is assigned to rows and
+        // columns identically. This matches the simplistic approach used for
+        // other shorthands (border, overflow) and is correct for single-value
+        // cases like `none`. Full shorthand re-parsing after var() substitution
+        // is deferred to the handler dispatch migration (M4-LFS-post).
+        "grid-template" => {
+            resolved.insert("grid-template-rows".to_string(), val.clone());
+            resolved.insert("grid-template-columns".to_string(), val.clone());
+            resolved.insert(
+                "grid-template-areas".to_string(),
+                CssValue::Keyword("none".to_string()),
+            );
+        }
+        "grid" => {
+            resolved.insert("grid-template-rows".to_string(), val.clone());
+            resolved.insert("grid-template-columns".to_string(), val.clone());
+            resolved.insert(
+                "grid-template-areas".to_string(),
+                CssValue::Keyword("none".to_string()),
+            );
+            resolved.insert(
+                "grid-auto-flow".to_string(),
+                CssValue::Keyword("row".to_string()),
+            );
+            resolved.insert("grid-auto-rows".to_string(), CssValue::Auto);
+            resolved.insert("grid-auto-columns".to_string(), CssValue::Auto);
+        }
         _ => {
             resolved.insert((*name).to_string(), val);
         }

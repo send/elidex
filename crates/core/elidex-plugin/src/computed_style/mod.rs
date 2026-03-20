@@ -95,8 +95,8 @@ pub use flex::{
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use fragmentation::{BoxDecorationBreak, BreakInsideValue, BreakValue};
 pub use grid::{
-    AutoRepeatMode, GridAutoFlow, GridLine, GridTrackList, JustifyItems, JustifySelf, TrackBreadth,
-    TrackSize,
+    validate_area_rectangles, AutoRepeatMode, GridAutoFlow, GridLine, GridTemplateAreas,
+    GridTrackList, JustifyItems, JustifySelf, TrackBreadth, TrackSection, TrackSize,
 };
 pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
 pub use text::{
@@ -269,6 +269,8 @@ pub struct ComputedStyle {
     pub grid_auto_columns: Vec<TrackSize>,
     /// Implicit row track sizes (cycled for implicit tracks). Initial: `[Auto]`.
     pub grid_auto_rows: Vec<TrackSize>,
+    /// Grid template areas (CSS Grid §8.2). Initial: `none` (empty).
+    pub grid_template_areas: GridTemplateAreas,
     /// Justify items for grid children. Initial: `Stretch`.
     pub justify_items: JustifyItems,
     /// Justify self for grid items. Initial: `Auto`.
@@ -506,6 +508,7 @@ impl Default for ComputedStyle {
             grid_auto_flow: GridAutoFlow::default(),
             grid_auto_columns: vec![TrackSize::Auto],
             grid_auto_rows: vec![TrackSize::Auto],
+            grid_template_areas: GridTemplateAreas::default(),
             justify_items: JustifyItems::default(),
             justify_self: JustifySelf::default(),
 
