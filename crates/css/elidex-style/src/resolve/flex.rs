@@ -1,7 +1,7 @@
 //! Flexbox property resolution.
 
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignSelf, ComputedStyle, CssValue, Dimension, FlexDirection,
+    AlignContent, AlignItems, AlignSelf, ComputedStyle, CssValue, FlexBasis, FlexDirection,
     FlexWrap, JustifyContent,
 };
 
@@ -13,7 +13,7 @@ pub(super) fn resolve_flex_properties(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
-    dim: impl Fn(&CssValue) -> Dimension,
+    ctx: &super::ResolveContext,
 ) {
     resolve_flex_keyword_enums(style, winners, parent_style);
 
@@ -31,9 +31,15 @@ pub(super) fn resolve_flex_properties(
         |v| resolve_non_negative_f32(v, 1.0),
         |v| style.flex_shrink = v,
     );
-    resolve_prop("flex-basis", winners, parent_style, &dim, |d| {
-        style.flex_basis = d;
-    });
+    resolve_prop(
+        "flex-basis",
+        winners,
+        parent_style,
+        |v| resolve_flex_basis(v, ctx),
+        |d| {
+            style.flex_basis = d;
+        },
+    );
     resolve_prop(
         "order",
         winners,
@@ -41,6 +47,18 @@ pub(super) fn resolve_flex_properties(
         |v| resolve_i32(v, 0),
         |v| style.order = v,
     );
+}
+
+/// Resolve a `CssValue` to a `FlexBasis`.
+fn resolve_flex_basis(value: &CssValue, ctx: &super::ResolveContext) -> FlexBasis {
+    use elidex_plugin::css_resolve::resolve_length;
+    match value {
+        CssValue::Keyword(k) if k == "content" => FlexBasis::Content,
+        CssValue::Length(v, unit) => FlexBasis::Length(resolve_length(*v, *unit, ctx)),
+        CssValue::Percentage(p) => FlexBasis::Percentage(*p),
+        CssValue::Number(n) if *n == 0.0 => FlexBasis::Length(0.0),
+        _ => FlexBasis::Auto,
+    }
 }
 
 /// Resolve flex keyword-enum properties (direction, wrap, alignment).
@@ -98,7 +116,7 @@ mod tests {
     use std::collections::HashMap;
 
     use elidex_plugin::{
-        AlignContent, AlignItems, AlignSelf, ComputedStyle, CssValue, Dimension, FlexDirection,
+        AlignContent, AlignItems, AlignSelf, ComputedStyle, CssValue, FlexBasis, FlexDirection,
         FlexWrap, JustifyContent, LengthUnit,
     };
 
@@ -158,7 +176,7 @@ mod tests {
         assert_eq!(style.flex_wrap, FlexWrap::Wrap);
         assert_eq!(style.justify_content, JustifyContent::Center);
         assert_eq!(style.align_items, AlignItems::FlexEnd);
-        assert_eq!(style.flex_basis, Dimension::Length(100.0));
+        assert_eq!(style.flex_basis, FlexBasis::Length(100.0));
         assert_eq!(style.order, 2);
     }
 
@@ -175,7 +193,7 @@ mod tests {
         assert_eq!(style.align_content, AlignContent::Normal);
         assert_eq!(style.flex_grow, 0.0);
         assert_eq!(style.flex_shrink, 1.0);
-        assert_eq!(style.flex_basis, Dimension::Auto);
+        assert_eq!(style.flex_basis, FlexBasis::Auto);
         assert_eq!(style.order, 0);
         assert_eq!(style.align_self, AlignSelf::Auto);
     }

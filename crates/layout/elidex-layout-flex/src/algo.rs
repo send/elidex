@@ -3,7 +3,7 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn, LayoutInput,
+    clamp_min_max, resolve_explicit_height, sanitize, total_gap, ChildLayoutFn, LayoutInput,
 };
 use elidex_plugin::{
     AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
@@ -35,18 +35,6 @@ pub(crate) struct LineGeometry<'a> {
 /// considered "not violated" — the final clamp pass after the loop
 /// corrects any remaining sub-pixel differences.
 const FLEX_FREEZE_EPSILON: f32 = 0.001;
-
-/// Total gap space between `count` items at `gap` spacing.
-///
-/// Returns `0.0` when there are fewer than 2 items.
-#[allow(clippy::cast_precision_loss)]
-fn total_gap(count: usize, gap: f32) -> f32 {
-    if count > 1 {
-        gap * (count - 1) as f32
-    } else {
-        0.0
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Line splitting (§9.3)

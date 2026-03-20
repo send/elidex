@@ -7,7 +7,6 @@
 // - No named grid lines (numeric only)
 // - No `grid-template-areas`
 // - No subgrid
-// - `fit-content()` treated as `auto`
 // - `inline-grid` treated as block-level
 // - `baseline` alignment treated as `start`
 
@@ -198,9 +197,9 @@ pub fn layout_grid(
         layout_child,
     );
 
-    // --- Build per-track intrinsic sizes (min-content + max-content) ---
-    let (col_min_sizes, col_max_sizes) = compute_content_per_track(&items, actual_cols, true);
-    let (row_min_sizes, row_max_sizes) = compute_content_per_track(&items, actual_rows, false);
+    // --- Build per-item intrinsic size contributions ---
+    let col_contribs = build_contributions(&items, true);
+    let row_contribs = build_contributions(&items, false);
 
     // --- 9. Resolve column tracks ---
     let col_defs = build_track_definitions(&expanded_cols, &style.grid_auto_columns, actual_cols);
@@ -208,8 +207,8 @@ pub fn layout_grid(
         &col_defs,
         content_width,
         gap_col,
-        &col_min_sizes,
-        &col_max_sizes,
+        &col_contribs,
+        false, // stretch handled by distribute_tracks
     );
 
     // auto-fit: collapse empty auto-repeated column tracks to 0.
@@ -238,8 +237,8 @@ pub fn layout_grid(
         &row_defs,
         available_height.unwrap_or(0.0),
         gap_row,
-        &row_min_sizes,
-        &row_max_sizes,
+        &row_contribs,
+        false, // stretch handled by distribute_tracks
     );
 
     // auto-fit: collapse empty auto-repeated row tracks to 0.
@@ -547,42 +546,28 @@ fn restore_descendant_styles(dom: &mut EcsDom, saved: &[(Entity, ComputedStyle)]
 /// For items spanning a single track, contribute their full size.
 /// For multi-span items, distribute proportionally.
 #[allow(clippy::cast_precision_loss)]
-fn compute_content_per_track(
-    items: &[GridItem],
-    track_count: usize,
-    is_column: bool,
-) -> (Vec<f32>, Vec<f32>) {
-    let mut min_sizes = vec![0.0_f32; track_count];
-    let mut max_sizes = vec![0.0_f32; track_count];
-    for item in items {
-        let (start, span, min_content, max_content) = if is_column {
-            (
-                item.col_start,
-                item.col_span,
-                item.min_content_width + item.margin.left + item.margin.right,
-                item.content_width + item.margin.left + item.margin.right,
-            )
-        } else {
-            (
-                item.row_start,
-                item.row_span,
-                item.min_content_height + item.margin.top + item.margin.bottom,
-                item.content_height + item.margin.top + item.margin.bottom,
-            )
-        };
-        if span == 1 && start < track_count {
-            min_sizes[start] = min_sizes[start].max(min_content);
-            max_sizes[start] = max_sizes[start].max(max_content);
-        } else if span > 1 {
-            let min_per = min_content / span as f32;
-            let max_per = max_content / span as f32;
-            for i in start..(start + span).min(track_count) {
-                min_sizes[i] = min_sizes[i].max(min_per);
-                max_sizes[i] = max_sizes[i].max(max_per);
+/// Build per-item track contributions for the track sizing algorithm.
+fn build_contributions(items: &[GridItem], is_column: bool) -> Vec<track::TrackContribution> {
+    items
+        .iter()
+        .map(|item| {
+            if is_column {
+                track::TrackContribution {
+                    start: item.col_start,
+                    span: item.col_span,
+                    min_content: item.min_content_width + item.margin.left + item.margin.right,
+                    max_content: item.content_width + item.margin.left + item.margin.right,
+                }
+            } else {
+                track::TrackContribution {
+                    start: item.row_start,
+                    span: item.row_span,
+                    min_content: item.min_content_height + item.margin.top + item.margin.bottom,
+                    max_content: item.content_height + item.margin.top + item.margin.bottom,
+                }
             }
-        }
-    }
-    (min_sizes, max_sizes)
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

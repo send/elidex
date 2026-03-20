@@ -26,6 +26,9 @@ pub enum TrackSize {
     Auto,
     /// `minmax(min, max)` function.
     MinMax(Box<TrackBreadth>, Box<TrackBreadth>),
+    /// `fit-content(<length>)` — clamped max-content (CSS Grid §7.2.4).
+    /// The argument is the resolved limit in pixels.
+    FitContent(f32),
 }
 
 /// A track breadth value, used inside `minmax()`.
@@ -43,6 +46,8 @@ pub enum TrackBreadth {
     MinContent,
     /// `max-content` intrinsic size.
     MaxContent,
+    /// `fit-content(<length>)` — resolved limit in pixels.
+    FitContent(f32),
 }
 
 /// How an auto-repeat track should fill (CSS Grid Level 1 §7.2.3.2).
@@ -237,7 +242,7 @@ fn compute_auto_repeat_count(
 /// breadth if definite (CSS Grid §7.2.3.2). `Fr` and `Auto` contribute 0.
 fn track_size_fixed_contribution(ts: &TrackSize, available: f32) -> f32 {
     match ts {
-        TrackSize::Length(px) => *px,
+        TrackSize::Length(px) | TrackSize::FitContent(px) => *px,
         TrackSize::Percentage(pct) => pct / 100.0 * available,
         TrackSize::MinMax(min, max) => {
             // Use max if definite length/percentage, else min if definite, else 0.

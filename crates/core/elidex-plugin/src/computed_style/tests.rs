@@ -86,7 +86,7 @@ fn default_initial_values() {
     // --- Flex item ---
     assert_eq!(s.flex_grow, 0.0);
     assert_eq!(s.flex_shrink, 1.0);
-    assert_eq!(s.flex_basis, Dimension::Auto);
+    assert_eq!(s.flex_basis, FlexBasis::Auto);
     assert_eq!(s.order, 0);
     assert_eq!(s.align_self, AlignSelf::Auto);
 

@@ -22,6 +22,33 @@ pub fn dispatch_layout_child(
     input: &LayoutInput<'_>,
 ) -> elidex_layout_block::LayoutOutcome {
     let style = elidex_layout_block::get_style(dom, entity);
+
+    // CSS 2.1 §10.3.5: Inline-level containers (inline-flex, inline-grid,
+    // inline-table) use shrink-to-fit width. Compute intrinsic sizes and
+    // replace containing_width with shrink-to-fit.
+    let adjusted_input;
+    let effective_input = if matches!(
+        style.display,
+        Display::InlineFlex | Display::InlineGrid | Display::InlineTable
+    ) && style.width == elidex_plugin::Dimension::Auto
+    {
+        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(
+            dom,
+            entity,
+            input.font_db,
+            dispatch_layout_child,
+            input.depth,
+        );
+        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, input.containing_width);
+        adjusted_input = LayoutInput {
+            containing_width: stf,
+            ..*input
+        };
+        &adjusted_input
+    } else {
+        input
+    };
+
     let lb = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
@@ -33,13 +60,13 @@ pub fn dispatch_layout_child(
             margin: elidex_plugin::EdgeSizes::default(),
         },
         Display::Flex | Display::InlineFlex => {
-            elidex_layout_flex::layout_flex(dom, entity, input, dispatch_layout_child)
+            elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)
         }
         Display::Grid | Display::InlineGrid => {
-            elidex_layout_grid::layout_grid(dom, entity, input, dispatch_layout_child)
+            elidex_layout_grid::layout_grid(dom, entity, effective_input, dispatch_layout_child)
         }
         Display::Table | Display::InlineTable => {
-            elidex_layout_table::layout_table(dom, entity, input, dispatch_layout_child)
+            elidex_layout_table::layout_table(dom, entity, effective_input, dispatch_layout_child)
         }
         _ => elidex_layout_block::block::layout_block_inner(
             dom,
@@ -631,7 +658,8 @@ mod tests {
 
     #[test]
     fn inline_grid_dispatches_to_grid() {
-        // inline-grid should be treated as block-level grid.
+        // inline-grid uses shrink-to-fit width (CSS 2.1 §10.3.5).
+        // With fixed-size columns, shrink-to-fit uses intrinsic sizes.
         let mut dom = EcsDom::new();
         let container = dom.create_element("div", Attributes::default());
         dom.world_mut().insert_one(
@@ -639,8 +667,8 @@ mod tests {
             ComputedStyle {
                 display: Display::InlineGrid,
                 grid_template_columns: elidex_plugin::GridTrackList::Explicit(vec![
-                    elidex_plugin::TrackSize::Fr(1.0),
-                    elidex_plugin::TrackSize::Fr(1.0),
+                    elidex_plugin::TrackSize::Length(200.0),
+                    elidex_plugin::TrackSize::Length(200.0),
                 ]),
                 ..Default::default()
             },
@@ -662,9 +690,9 @@ mod tests {
         let container_lb = get_layout(&dom, container);
         let c1_lb = get_layout(&dom, c1);
 
-        // Should be laid out as grid (2 columns of 300px each).
-        assert!(approx_eq(container_lb.content.width, 600.0));
-        assert!(approx_eq(c1_lb.content.width, 300.0));
+        // 2 columns of 200px each → container width = 400px (shrink-to-fit).
+        assert!(approx_eq(container_lb.content.width, 400.0));
+        assert!(approx_eq(c1_lb.content.width, 200.0));
     }
 
     #[test]

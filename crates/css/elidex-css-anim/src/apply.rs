@@ -4,8 +4,8 @@
 //! applying interpolated values from active transitions and animations.
 
 use elidex_plugin::{
-    ComputedStyle, CssColor, CssValue, Dimension, FontStyle, LengthUnit, LineHeight, ListStyleType,
-    VerticalAlign, Visibility,
+    ComputedStyle, CssColor, CssValue, Dimension, FlexBasis, FontStyle, LengthUnit, LineHeight,
+    ListStyleType, VerticalAlign, Visibility,
 };
 
 /// Apply an animated value to the corresponding `ComputedStyle` field.
@@ -126,7 +126,7 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
         "border-bottom-left-radius" => apply_px(&mut style.border_radii[3], value),
         "row-gap" => apply_dimension(&mut style.row_gap, value),
         "column-gap" => apply_dimension(&mut style.column_gap, value),
-        "flex-basis" => apply_dimension(&mut style.flex_basis, value),
+        "flex-basis" => apply_flex_basis(&mut style.flex_basis, value),
         "flex-grow" => apply_non_negative_number(&mut style.flex_grow, value),
         "flex-shrink" => apply_non_negative_number(&mut style.flex_shrink, value),
         "order" => {
@@ -210,6 +210,28 @@ fn apply_dimension(field: &mut Dimension, value: &CssValue) {
         }
         CssValue::Auto => {
             *field = Dimension::Auto;
+        }
+        _ => {}
+    }
+}
+
+fn apply_flex_basis(field: &mut FlexBasis, value: &CssValue) {
+    match value {
+        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => {
+            if v.is_finite() {
+                *field = FlexBasis::Length(*v);
+            }
+        }
+        CssValue::Percentage(p) => {
+            if p.is_finite() {
+                *field = FlexBasis::Percentage(*p);
+            }
+        }
+        CssValue::Auto => {
+            *field = FlexBasis::Auto;
+        }
+        CssValue::Keyword(k) if k == "content" => {
+            *field = FlexBasis::Content;
         }
         _ => {}
     }
@@ -463,14 +485,14 @@ mod tests {
             "flex-basis",
             &CssValue::Length(100.0, LengthUnit::Px),
         );
-        assert_eq!(style.flex_basis, Dimension::Length(100.0));
+        assert_eq!(style.flex_basis, FlexBasis::Length(100.0));
     }
 
     #[test]
     fn apply_flex_basis_percentage() {
         let mut style = ComputedStyle::default();
         apply_animated_value(&mut style, "flex-basis", &CssValue::Percentage(50.0));
-        assert_eq!(style.flex_basis, Dimension::Percentage(50.0));
+        assert_eq!(style.flex_basis, FlexBasis::Percentage(50.0));
     }
 
     #[test]

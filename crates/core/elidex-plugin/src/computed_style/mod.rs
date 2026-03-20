@@ -89,7 +89,8 @@ pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValu
 pub use columns::{ColumnFill, ColumnSpan};
 pub use display::{Display, Overflow, Position, ViewportOverflow};
 pub use flex::{
-    AlignContent, AlignItems, AlignSelf, AlignmentSafety, FlexDirection, FlexWrap, JustifyContent,
+    AlignContent, AlignItems, AlignSelf, AlignmentSafety, FlexBasis, FlexDirection, FlexWrap,
+    JustifyContent,
 };
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
 pub use fragmentation::{BoxDecorationBreak, BreakInsideValue, BreakValue};
@@ -251,7 +252,7 @@ pub struct ComputedStyle {
     /// Flex shrink factor. Initial: `1.0`.
     pub flex_shrink: f32,
     /// Flex basis. Initial: `Auto`.
-    pub flex_basis: Dimension,
+    pub flex_basis: FlexBasis,
     /// Order. Initial: `0`.
     pub order: i32,
     /// Align self. Initial: `Auto`.
@@ -491,7 +492,7 @@ impl Default for ComputedStyle {
             // Flex item
             flex_grow: 0.0,
             flex_shrink: 1.0,
-            flex_basis: Dimension::Auto,
+            flex_basis: FlexBasis::Auto,
             order: 0,
             align_self: AlignSelf::default(),
 

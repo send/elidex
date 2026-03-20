@@ -16,7 +16,6 @@ use elidex_plugin::{
     TextOrientation, UnicodeBidi, VerticalAlign, Visibility, WritingMode,
 };
 
-use helpers::resolve_dimension;
 pub(crate) use helpers::PropertyMap;
 
 use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
@@ -126,8 +125,7 @@ pub(crate) fn build_computed_style(
     resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
 
     // Phase 7: Flex, grid, and gap properties.
-    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
-    resolve_flex_properties(&mut style, &winners, parent_style, dim);
+    resolve_flex_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
 

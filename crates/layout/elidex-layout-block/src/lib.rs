@@ -93,6 +93,22 @@ pub enum BreakTokenData {
 }
 
 // ---------------------------------------------------------------------------
+// Intrinsic sizing (CSS Sizing Level 3)
+// ---------------------------------------------------------------------------
+
+/// Min-content and max-content intrinsic sizes for an element.
+///
+/// Used by flex (§4.5 automatic minimum), grid (§12.3-12.6 track sizing),
+/// and shrink-to-fit width calculations (CSS 2.1 §10.3.5).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IntrinsicSizes {
+    /// The narrowest an element can be without overflow (longest unbreakable segment).
+    pub min_content: f32,
+    /// The widest an element would be given infinite available space (no line breaks).
+    pub max_content: f32,
+}
+
+// ---------------------------------------------------------------------------
 // Layout input and dispatch
 // ---------------------------------------------------------------------------
 
@@ -292,6 +308,19 @@ pub fn resolve_min_max(dim: Dimension, containing: f32, default_value: f32) -> f
 #[must_use]
 pub fn clamp_min_max(value: f32, min: f32, max: f32) -> f32 {
     value.max(min).min(max).max(min)
+}
+
+/// Compute total gap size for `count` items with `gap` between each pair.
+///
+/// Returns `gap * (count - 1)` when `count > 1`, otherwise `0.0`.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn total_gap(count: usize, gap: f32) -> f32 {
+    if count > 1 {
+        gap * (count - 1) as f32
+    } else {
+        0.0
+    }
 }
 
 /// Resolve the content-box width for a container (flex, grid, table).
@@ -516,6 +545,26 @@ pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<(f32, f32)> {
 mod tests {
     use super::*;
     use elidex_plugin::LayoutBox;
+
+    #[test]
+    fn intrinsic_sizes_default() {
+        let sizes = IntrinsicSizes::default();
+        assert_eq!(sizes.min_content, 0.0);
+        assert_eq!(sizes.max_content, 0.0);
+    }
+
+    #[test]
+    fn intrinsic_sizes_with_values() {
+        let sizes = IntrinsicSizes {
+            min_content: 50.0,
+            max_content: 200.0,
+        };
+        assert_eq!(sizes.min_content, 50.0);
+        assert_eq!(sizes.max_content, 200.0);
+        // Verify Clone + Copy
+        let copy = sizes;
+        assert_eq!(copy.min_content, 50.0);
+    }
 
     #[test]
     fn layout_outcome_from_layout_box() {

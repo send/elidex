@@ -236,6 +236,22 @@ fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Resul
         return Ok(v);
     }
 
+    // Try fit-content(<length-percentage>)
+    if let Ok(v) = input.try_parse(|i| {
+        i.expect_function_matching("fit-content").map_err(|_| ())?;
+        i.parse_nested_block(|args| {
+            let limit = parse_length_or_percentage_inner(args)
+                .map_err(|()| args.new_custom_error::<_, ()>(()))?;
+            Ok(CssValue::List(vec![
+                CssValue::Keyword("fit-content".to_string()),
+                limit,
+            ]))
+        })
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())
+    }) {
+        return Ok(v);
+    }
+
     // Try minmax(min, max)
     input.try_parse(|i| {
         i.expect_function_matching("minmax").map_err(|_| ())?;
@@ -254,6 +270,21 @@ fn parse_single_track_size_inner(input: &mut cssparser::Parser<'_, '_>) -> Resul
         })
         .map_err(|_: cssparser::ParseError<'_, ()>| ())
     })
+}
+
+/// Parse a `<length-percentage>` value inside a function argument (returns `CssValue`).
+fn parse_length_or_percentage_inner(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ()> {
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        cssparser::Token::Dimension {
+            value, ref unit, ..
+        } => Ok(CssValue::Length(value, parse_length_unit(unit))),
+        cssparser::Token::Percentage { unit_value, .. } => {
+            Ok(CssValue::Percentage(unit_value * 100.0))
+        }
+        cssparser::Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
 }
 
 /// Parse a space-separated list of track sizes for grid-auto-columns/rows.
@@ -377,6 +408,15 @@ fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> GridTrackList {
                 after,
             }
         }
+        // Single fit-content() or minmax() — these are CssValue::List but represent one track.
+        CssValue::List(items)
+            if items
+                .first()
+                .and_then(|v| v.as_keyword())
+                .is_some_and(|k| k == "fit-content" || k == "minmax") =>
+        {
+            GridTrackList::Explicit(vec![resolve_single_track(value, ctx)])
+        }
         CssValue::List(items) => {
             GridTrackList::Explicit(items.iter().map(|v| resolve_single_track(v, ctx)).collect())
         }
@@ -403,6 +443,22 @@ fn resolve_single_track(value: &CssValue, ctx: &ResolveContext) -> TrackSize {
             _ => TrackSize::Auto,
         },
         CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("fit-content".to_string())) =>
+        {
+            // fit-content(<length-percentage>): resolve the limit argument.
+            let limit = items.get(1).map_or(0.0, |v| match v {
+                CssValue::Length(px, unit) => resolve_length(*px, *unit, ctx),
+                CssValue::Percentage(pct) => {
+                    // Percentage resolved against viewport width as approximation.
+                    // Correct resolution against the grid container's available space
+                    // happens in track sizing (CSS Grid §7.2.4).
+                    ctx.viewport_width * pct / 100.0
+                }
+                _ => 0.0,
+            });
+            TrackSize::FitContent(limit)
+        }
+        CssValue::List(items)
             if items.first() == Some(&CssValue::Keyword("minmax".to_string())) =>
         {
             let min = items
@@ -428,6 +484,16 @@ fn resolve_breadth(value: &CssValue, ctx: &ResolveContext) -> TrackBreadth {
             "max-content" => TrackBreadth::MaxContent,
             _ => TrackBreadth::Auto,
         },
+        CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("fit-content".to_string())) =>
+        {
+            let limit = items.get(1).map_or(0.0, |v| match v {
+                CssValue::Length(px, unit) => resolve_length(*px, *unit, ctx),
+                CssValue::Percentage(pct) => ctx.viewport_width * pct / 100.0,
+                _ => 0.0,
+            });
+            TrackBreadth::FitContent(limit)
+        }
         _ => TrackBreadth::Auto,
     }
 }
@@ -516,6 +582,10 @@ fn track_size_to_css(ts: &TrackSize) -> CssValue {
             breadth_to_css(min),
             breadth_to_css(max),
         ]),
+        TrackSize::FitContent(px) => CssValue::List(vec![
+            CssValue::Keyword("fit-content".to_string()),
+            CssValue::Length(*px, LengthUnit::Px),
+        ]),
     }
 }
 
@@ -528,6 +598,10 @@ fn breadth_to_css(b: &TrackBreadth) -> CssValue {
         TrackBreadth::Auto => CssValue::Auto,
         TrackBreadth::MinContent => CssValue::Keyword("min-content".to_string()),
         TrackBreadth::MaxContent => CssValue::Keyword("max-content".to_string()),
+        TrackBreadth::FitContent(px) => CssValue::List(vec![
+            CssValue::Keyword("fit-content".to_string()),
+            CssValue::Length(*px, LengthUnit::Px),
+        ]),
     }
 }
 
@@ -800,6 +874,73 @@ mod tests {
             handler.get_computed("grid-row-end", &style),
             CssValue::Number(-2.0)
         );
+    }
+
+    #[test]
+    fn parse_fit_content() {
+        let result = parse_prop("grid-template-columns", "fit-content(200px)");
+        assert_eq!(
+            result[0].value,
+            CssValue::List(vec![
+                CssValue::Keyword("fit-content".to_string()),
+                CssValue::Length(200.0, LengthUnit::Px),
+            ])
+        );
+    }
+
+    #[test]
+    fn resolve_fit_content_track() {
+        let handler = GridHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        let value = CssValue::List(vec![
+            CssValue::Keyword("fit-content".to_string()),
+            CssValue::Length(150.0, LengthUnit::Px),
+        ]);
+        handler.resolve("grid-template-columns", &value, &ctx, &mut style);
+        assert_eq!(
+            style.grid_template_columns,
+            GridTrackList::Explicit(vec![TrackSize::FitContent(150.0)])
+        );
+    }
+
+    #[test]
+    fn get_computed_fit_content_roundtrip() {
+        let handler = GridHandler;
+        let style = ComputedStyle {
+            grid_template_columns: GridTrackList::Explicit(vec![TrackSize::FitContent(100.0)]),
+            ..ComputedStyle::default()
+        };
+        let v = handler.get_computed("grid-template-columns", &style);
+        assert_eq!(
+            v,
+            CssValue::List(vec![
+                CssValue::Keyword("fit-content".to_string()),
+                CssValue::Length(100.0, LengthUnit::Px),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_minmax_min_content_fit_content() {
+        // fit-content inside minmax is not standard syntax, but ensure the parser
+        // at least handles individual fit-content tracks correctly alongside minmax.
+        let result = parse_prop("grid-template-columns", "fit-content(100px) 1fr");
+        if let CssValue::List(ref items) = result[0].value {
+            assert_eq!(items.len(), 2);
+            // First track: fit-content(100px)
+            assert_eq!(
+                items[0],
+                CssValue::List(vec![
+                    CssValue::Keyword("fit-content".to_string()),
+                    CssValue::Length(100.0, LengthUnit::Px),
+                ])
+            );
+            // Second track: 1fr
+            assert_eq!(items[1], CssValue::Length(1.0, LengthUnit::Fr));
+        } else {
+            panic!("expected List");
+        }
     }
 
     #[test]

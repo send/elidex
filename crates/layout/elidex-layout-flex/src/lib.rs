@@ -4,9 +4,7 @@
 //! flexible length resolution, and cross/main axis alignment.
 //!
 //! Current simplifications:
-//! - `flex-basis: content` treated as `auto`
 //! - `baseline` alignment treated as `flex-start`
-//! - `inline-flex` treated as block-level
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
@@ -16,7 +14,8 @@ use elidex_layout_block::{
 };
 use elidex_plugin::{
     AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
-    Display, EdgeSizes, FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect, Visibility,
+    Display, EdgeSizes, FlexBasis, FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
+    Visibility,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -60,7 +59,8 @@ fn resolve_percentage_main(pct: f32, containing_main: f32) -> Option<f32> {
 
 /// Resolve flex-basis to a main-axis size in pixels.
 ///
-/// Returns `None` when content sizing is needed.
+/// Returns `None` when content sizing is needed (auto with auto main size,
+/// or `content` keyword).
 /// When `box-sizing: border-box`, subtracts main-axis padding and border
 /// from the resolved value so it represents content size.
 fn resolve_flex_basis(
@@ -70,9 +70,10 @@ fn resolve_flex_basis(
     containing_width: f32,
 ) -> Option<f32> {
     let raw = match style.flex_basis {
-        Dimension::Length(px) => Some(px),
-        Dimension::Percentage(pct) => resolve_percentage_main(pct, containing_main),
-        Dimension::Auto => {
+        FlexBasis::Length(px) => Some(px),
+        FlexBasis::Percentage(pct) => resolve_percentage_main(pct, containing_main),
+        FlexBasis::Content => None,
+        FlexBasis::Auto => {
             let fallback = if is_main_horizontal(direction) {
                 style.width
             } else {
@@ -487,11 +488,21 @@ fn collect_flex_items(
             ctx.container_main,
             ctx.containing_width,
         );
+        // CSS Flexbox §9.2 step 3(B): flex-basis: content → max-content size.
+        // flex-basis: auto with width: auto → layout at container width.
+        let is_content_basis = matches!(child_style.flex_basis, FlexBasis::Content);
         let hypo_main = if let Some(px) = basis {
             sanitize(px).max(0.0)
         } else {
+            // content: probe at very large width for max-content.
+            // auto (width: auto): probe at container width.
+            let probe_width = if is_content_basis {
+                1e6
+            } else {
+                ctx.content_width
+            };
             let child_input = LayoutInput {
-                containing_width: ctx.content_width,
+                containing_width: probe_width,
                 containing_height: None,
                 offset_x: 0.0,
                 offset_y: 0.0,
@@ -514,18 +525,24 @@ fn collect_flex_items(
         // For box-sizing: border-box, subtract padding+border from min/max
         // so they compare correctly with content-level hypo_main.
         let containing_main = ctx.container_main;
-        let (mut min_main, mut max_main) = if ctx.horizontal {
+        let (raw_min_dim, mut max_main) = if ctx.horizontal {
             (
-                resolve_min_max(child_style.min_width, containing_main, 0.0),
+                child_style.min_width,
                 resolve_min_max(child_style.max_width, containing_main, f32::INFINITY),
             )
         } else {
             // Column direction: items' containing block is the flex container itself.
             let ch = ctx.container_definite_height.unwrap_or(0.0);
             (
-                resolve_min_max(child_style.min_height, ch, 0.0),
+                child_style.min_height,
                 resolve_min_max(child_style.max_height, ch, f32::INFINITY),
             )
+        };
+        // Flex §4.5: auto min → automatic minimum size (content-based).
+        let mut min_main = if raw_min_dim == Dimension::Auto {
+            compute_automatic_minimum(dom, child, &child_style, ctx, env, pb_main)
+        } else {
+            resolve_min_max(raw_min_dim, containing_main, 0.0)
         };
         if child_style.box_sizing == BoxSizing::BorderBox {
             adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
@@ -561,6 +578,76 @@ fn collect_flex_items(
         });
     }
     items
+}
+
+/// Compute Flex §4.5 automatic minimum size for a flex item with `min-width: auto`.
+///
+/// `automatic_minimum` = min(`content_based_minimum`, `specified_size_suggestion`)
+/// `content_based_minimum` = min-content size (content probe at 1px)
+/// `specified_size_suggestion` = flex-basis or width/height if definite, else infinity
+/// overflow != visible → return 0 (clamped minimum)
+fn compute_automatic_minimum(
+    dom: &mut EcsDom,
+    child: Entity,
+    child_style: &ComputedStyle,
+    ctx: &FlexContext,
+    env: &algo::LayoutEnv<'_>,
+    pb_main: f32,
+) -> f32 {
+    use elidex_plugin::Overflow;
+
+    // Flex §4.5: overflow != visible → clamped minimum (0).
+    let overflow = if ctx.horizontal {
+        child_style.overflow_x
+    } else {
+        child_style.overflow_y
+    };
+    if overflow != Overflow::Visible {
+        return 0.0;
+    }
+
+    // Content-based minimum: probe layout at near-zero width.
+    let probe_input = LayoutInput {
+        containing_width: 1.0,
+        containing_height: None,
+        offset_x: 0.0,
+        offset_y: 0.0,
+        font_db: env.font_db,
+        depth: env.depth + 1,
+        float_ctx: None,
+        viewport: env.input_viewport,
+        fragmentainer: None,
+        break_token: None,
+    };
+    let probe_lb = (env.layout_child)(dom, child, &probe_input).layout_box;
+    let content_min = if ctx.horizontal {
+        probe_lb.content.width
+    } else {
+        probe_lb.content.height
+    };
+
+    // Specified size suggestion (CSS Flexbox §4.5):
+    // Comes from the item's computed main size property (width/height),
+    // NOT from flex-basis.
+    let specified_suggestion = {
+        let dim = if ctx.horizontal {
+            child_style.width
+        } else {
+            child_style.height
+        };
+        match dim {
+            Dimension::Length(px) if px.is_finite() => {
+                if child_style.box_sizing == BoxSizing::BorderBox {
+                    (px - pb_main).max(0.0)
+                } else {
+                    px
+                }
+            }
+            _ => f32::INFINITY,
+        }
+    };
+
+    content_min.min(specified_suggestion)
 }
 
 fn compute_pb(style: &ComputedStyle, horizontal: bool, containing_width: f32) -> (f32, f32) {
