@@ -5,7 +5,7 @@
 
 use elidex_plugin::{BorderStyle, ComputedStyle};
 
-use crate::{span_end_col, span_end_row, CellInfo};
+use crate::{span_end_col, span_end_row, CellInfo, ColGroupBorderInfo, RowGroupInfo};
 
 /// Maximum cells in the collapsed border grid (~8 MB budget).
 /// Tables exceeding this threshold fall back to separate borders.
@@ -185,20 +185,20 @@ pub struct CollapsedBorders {
 
 /// Priority order for border conflict resolution (CSS 2.1 §17.6.2.1).
 ///
-/// Lower value = lower priority. Currently only `Table` and `Cell` origins
-/// are used; `RowGroup` and `Row` are defined for spec completeness and
-/// will be utilized when row/row-group border collection is implemented
-/// (Phase 4).
+/// Lower value = lower priority. Full spec priority:
+/// cell > row > row-group > column > column-group > table.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(dead_code)]
 enum BorderOrigin {
     Table = 0,
-    RowGroup = 1,
-    Row = 2,
-    Cell = 3,
+    ColumnGroup = 1,
+    Column = 2,
+    RowGroup = 3,
+    Row = 4,
+    Cell = 5,
 }
 
 /// A candidate border for collapse resolution.
+#[derive(Clone)]
 struct BorderCandidate {
     width: f32,
     style: BorderStyle,
@@ -210,7 +210,7 @@ impl BorderCandidate {
     ///
     /// Priority: hidden always wins → none always loses → wider wins →
     /// style priority (double > solid > dashed > dotted > ridge > outset > groove > inset)
-    /// → higher origin wins (cell > row > row-group > table).
+    /// → higher origin wins (cell > row > row-group > column > column-group > table).
     fn beats(&self, other: &Self) -> bool {
         // 1. `hidden` always wins.
         if self.style == BorderStyle::Hidden && other.style != BorderStyle::Hidden {
@@ -256,44 +256,88 @@ fn style_priority(style: BorderStyle) -> u8 {
     }
 }
 
-/// Resolve the winning border width between two candidates.
-fn resolve_border(a: &BorderCandidate, b: &BorderCandidate) -> f32 {
-    if a.beats(b) {
-        a.width
-    } else {
-        b.width
+/// Check if a column border candidate beats `best` and update if so.
+fn check_col_border(
+    best: &mut BorderCandidate,
+    col_styles: &[Option<ComputedStyle>],
+    col: usize,
+    side: fn(&ComputedStyle) -> (f32, BorderStyle),
+) {
+    if let Some(Some(cs)) = col_styles.get(col) {
+        let (w, s) = side(cs);
+        let cand = BorderCandidate {
+            width: w,
+            style: s,
+            origin: BorderOrigin::Column,
+        };
+        if cand.beats(best) {
+            *best = cand;
+        }
+    }
+}
+
+/// Check if a colgroup border candidate beats `best` and update if so.
+fn check_colgroup_border(
+    best: &mut BorderCandidate,
+    col_group_infos: &[ColGroupBorderInfo],
+    col_to_group: &[Option<usize>],
+    col: usize,
+    boundary_col: usize,
+    is_start: bool,
+    side: fn(&ComputedStyle) -> (f32, BorderStyle),
+) {
+    if let Some(gi) = col_to_group.get(col).copied().flatten() {
+        let cg = &col_group_infos[gi];
+        let at_boundary = if is_start {
+            boundary_col == cg.start_col
+        } else {
+            boundary_col == cg.end_col
+        };
+        if at_boundary {
+            let (w, s) = side(&cg.style);
+            let cand = BorderCandidate {
+                width: w,
+                style: s,
+                origin: BorderOrigin::ColumnGroup,
+            };
+            if cand.beats(best) {
+                *best = cand;
+            }
+        }
     }
 }
 
 /// Resolve collapsed borders for all cells in the table.
 ///
 /// Returns a vector parallel to `cells` with the resolved border widths for each cell.
+/// Includes row, row-group, column, and column-group borders in the conflict resolution
+/// chain (CSS 2.1 §17.6.2.1: cell > row > row-group > column > column-group > table).
 #[must_use]
-#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    clippy::too_many_arguments
+)]
 pub fn resolve_collapsed_borders(
     cells: &[CellInfo],
     cell_styles: &[ComputedStyle],
     table_style: &ComputedStyle,
+    row_styles: &[ComputedStyle],
+    row_group_infos: &[RowGroupInfo],
+    col_styles: &[Option<ComputedStyle>],
+    col_group_infos: &[ColGroupBorderInfo],
     num_cols: usize,
     num_rows: usize,
 ) -> Vec<CollapsedBorders> {
-    let table_border = |side: fn(&ComputedStyle) -> (f32, BorderStyle)| -> BorderCandidate {
-        let (w, s) = side(table_style);
-        BorderCandidate {
-            width: w,
-            style: s,
-            origin: BorderOrigin::Table,
-        }
-    };
-
-    let cell_border = |style: &ComputedStyle,
-                       side: fn(&ComputedStyle) -> (f32, BorderStyle)|
+    let make_border = |style: &ComputedStyle,
+                       side: fn(&ComputedStyle) -> (f32, BorderStyle),
+                       origin: BorderOrigin|
      -> BorderCandidate {
         let (w, s) = side(style);
         BorderCandidate {
             width: w,
             style: s,
-            origin: BorderOrigin::Cell,
+            origin,
         }
     };
 
@@ -313,87 +357,352 @@ pub fn resolve_collapsed_borders(
         }
     }
 
+    // Build row → row-group index lookup.
+    let mut row_to_group: Vec<Option<usize>> = vec![None; num_rows];
+    for (gi, rg) in row_group_infos.iter().enumerate() {
+        for slot in &mut row_to_group[rg.start_row..rg.end_row.min(num_rows)] {
+            *slot = Some(gi);
+        }
+    }
+
+    // Build col → col-group index lookup.
+    let mut col_to_group: Vec<Option<usize>> = vec![None; num_cols];
+    for (gi, cg) in col_group_infos.iter().enumerate() {
+        for slot in &mut col_to_group[cg.start_col..cg.end_col.min(num_cols)] {
+            *slot = Some(gi);
+        }
+    }
+
     let mut result = vec![CollapsedBorders::default(); cells.len()];
 
     for (i, cell) in cells.iter().enumerate() {
         let style = &cell_styles[i];
-        let this_top = cell_border(style, border_top);
-        let this_right = cell_border(style, border_right);
-        let this_bottom = cell_border(style, border_bottom);
-        let this_left = cell_border(style, border_left);
+        let this_top = make_border(style, border_top, BorderOrigin::Cell);
+        let this_right = make_border(style, border_right, BorderOrigin::Cell);
+        let this_bottom = make_border(style, border_bottom, BorderOrigin::Cell);
+        let this_left = make_border(style, border_left, BorderOrigin::Cell);
 
         let col_end = span_end_col(cell, num_cols);
         let row_end = span_end_row(cell, num_rows);
 
-        // Top edge: resolve against all neighbors across the column span.
-        result[i].top = if cell.row == 0 {
-            resolve_border(&this_top, &table_border(border_top))
-        } else {
-            let neighbor_row = &grid[cell.row - 1];
-            let mut best = this_top.width;
-            for slot in &neighbor_row[cell.col..col_end] {
-                if let Some(ni) = *slot {
-                    best = best.max(resolve_border(
-                        &this_top,
-                        &cell_border(&cell_styles[ni], border_bottom),
-                    ));
-                }
-            }
-            best
-        };
+        // --- Top edge ---
+        {
+            let mut best = this_top.clone();
 
-        // Bottom edge: resolve against all neighbors across the column span.
-        let bottom_row = row_end.saturating_sub(1);
-        result[i].bottom = if bottom_row + 1 >= num_rows {
-            resolve_border(&this_bottom, &table_border(border_bottom))
-        } else {
-            let neighbor_row = &grid[bottom_row + 1];
-            let mut best = this_bottom.width;
-            for slot in &neighbor_row[cell.col..col_end] {
-                if let Some(ni) = *slot {
-                    best = best.max(resolve_border(
-                        &this_bottom,
-                        &cell_border(&cell_styles[ni], border_top),
-                    ));
+            // Row border (top of this cell's row).
+            if cell.row < row_styles.len() {
+                let row_b = make_border(&row_styles[cell.row], border_top, BorderOrigin::Row);
+                if row_b.beats(&best) {
+                    best = row_b;
                 }
             }
-            best
-        };
 
-        // Left edge: resolve against all neighbors across the row span.
-        result[i].left = if cell.col == 0 {
-            resolve_border(&this_left, &table_border(border_left))
-        } else {
-            let left_col = cell.col - 1;
-            let mut best = this_left.width;
-            for grid_row in &grid[cell.row..row_end] {
-                if let Some(ni) = grid_row[left_col] {
-                    best = best.max(resolve_border(
-                        &this_left,
-                        &cell_border(&cell_styles[ni], border_right),
-                    ));
+            // Row-group border (top, if cell is in the first row of the group).
+            if let Some(gi) = row_to_group.get(cell.row).copied().flatten() {
+                if cell.row == row_group_infos[gi].start_row {
+                    let rg_b = make_border(
+                        &row_group_infos[gi].style,
+                        border_top,
+                        BorderOrigin::RowGroup,
+                    );
+                    if rg_b.beats(&best) {
+                        best = rg_b;
+                    }
                 }
             }
-            best
-        };
 
-        // Right edge: resolve against all neighbors across the row span.
-        let right_col = col_end.saturating_sub(1);
-        result[i].right = if right_col + 1 >= num_cols {
-            resolve_border(&this_right, &table_border(border_right))
-        } else {
-            let check_col = right_col + 1;
-            let mut best = this_right.width;
-            for grid_row in &grid[cell.row..row_end] {
-                if let Some(ni) = grid_row[check_col] {
-                    best = best.max(resolve_border(
-                        &this_right,
-                        &cell_border(&cell_styles[ni], border_left),
-                    ));
+            // Column/colgroup top borders only at table top edge.
+            if cell.row == 0 {
+                for c in cell.col..col_end {
+                    check_col_border(&mut best, col_styles, c, border_top);
+                    check_colgroup_border(
+                        &mut best,
+                        col_group_infos,
+                        &col_to_group,
+                        c,
+                        c,
+                        true,
+                        border_top,
+                    );
                 }
             }
-            best
-        };
+
+            if cell.row == 0 {
+                // Table border.
+                let tb = make_border(table_style, border_top, BorderOrigin::Table);
+                if tb.beats(&best) {
+                    best = tb;
+                }
+            } else {
+                // Neighbor cell bottom borders.
+                let neighbor_row = &grid[cell.row - 1];
+                for slot in &neighbor_row[cell.col..col_end] {
+                    if let Some(ni) = *slot {
+                        let cand = make_border(&cell_styles[ni], border_bottom, BorderOrigin::Cell);
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+                // Neighbor row bottom border.
+                if cell.row - 1 < row_styles.len() {
+                    let cand =
+                        make_border(&row_styles[cell.row - 1], border_bottom, BorderOrigin::Row);
+                    if cand.beats(&best) {
+                        best = cand;
+                    }
+                }
+                // Neighbor rowgroup bottom border (R-1: internal boundary).
+                if let Some(gi) = row_to_group.get(cell.row - 1).copied().flatten() {
+                    if cell.row == row_group_infos[gi].end_row {
+                        let cand = make_border(
+                            &row_group_infos[gi].style,
+                            border_bottom,
+                            BorderOrigin::RowGroup,
+                        );
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+            }
+            result[i].top = best.width;
+        }
+
+        // --- Bottom edge ---
+        {
+            let bottom_row = row_end.saturating_sub(1);
+            let mut best = this_bottom.clone();
+
+            // Row border (bottom of last spanned row).
+            if bottom_row < row_styles.len() {
+                let row_b = make_border(&row_styles[bottom_row], border_bottom, BorderOrigin::Row);
+                if row_b.beats(&best) {
+                    best = row_b;
+                }
+            }
+
+            // Row-group border (bottom, if cell's last row is the last in the group).
+            if let Some(gi) = row_to_group.get(bottom_row).copied().flatten() {
+                if bottom_row + 1 == row_group_infos[gi].end_row {
+                    let rg_b = make_border(
+                        &row_group_infos[gi].style,
+                        border_bottom,
+                        BorderOrigin::RowGroup,
+                    );
+                    if rg_b.beats(&best) {
+                        best = rg_b;
+                    }
+                }
+            }
+
+            // Column/colgroup bottom borders only at table bottom edge.
+            if bottom_row + 1 >= num_rows {
+                for c in cell.col..col_end {
+                    check_col_border(&mut best, col_styles, c, border_bottom);
+                    check_colgroup_border(
+                        &mut best,
+                        col_group_infos,
+                        &col_to_group,
+                        c,
+                        c + 1,
+                        false,
+                        border_bottom,
+                    );
+                }
+            }
+
+            if bottom_row + 1 >= num_rows {
+                let tb = make_border(table_style, border_bottom, BorderOrigin::Table);
+                if tb.beats(&best) {
+                    best = tb;
+                }
+            } else {
+                let neighbor_row = &grid[bottom_row + 1];
+                for slot in &neighbor_row[cell.col..col_end] {
+                    if let Some(ni) = *slot {
+                        let cand = make_border(&cell_styles[ni], border_top, BorderOrigin::Cell);
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+                if bottom_row + 1 < row_styles.len() {
+                    let cand =
+                        make_border(&row_styles[bottom_row + 1], border_top, BorderOrigin::Row);
+                    if cand.beats(&best) {
+                        best = cand;
+                    }
+                }
+                // Neighbor rowgroup top border (R-1: internal boundary).
+                if let Some(gi) = row_to_group.get(bottom_row + 1).copied().flatten() {
+                    if bottom_row + 1 == row_group_infos[gi].start_row {
+                        let cand = make_border(
+                            &row_group_infos[gi].style,
+                            border_top,
+                            BorderOrigin::RowGroup,
+                        );
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+            }
+            result[i].bottom = best.width;
+        }
+
+        // --- Left edge ---
+        {
+            let mut best = this_left.clone();
+
+            // Row/row-group borders for ALL spanned rows (F-5 fix: was only cell.row).
+            for r in cell.row..row_end {
+                if r < row_styles.len() {
+                    let row_b = make_border(&row_styles[r], border_left, BorderOrigin::Row);
+                    if row_b.beats(&best) {
+                        best = row_b;
+                    }
+                }
+                if let Some(gi) = row_to_group.get(r).copied().flatten() {
+                    let rg_b = make_border(
+                        &row_group_infos[gi].style,
+                        border_left,
+                        BorderOrigin::RowGroup,
+                    );
+                    if rg_b.beats(&best) {
+                        best = rg_b;
+                    }
+                }
+            }
+
+            // Column border (left of this cell's first column).
+            check_col_border(&mut best, col_styles, cell.col, border_left);
+            // Colgroup border (left, if cell.col is at group start).
+            check_colgroup_border(
+                &mut best,
+                col_group_infos,
+                &col_to_group,
+                cell.col,
+                cell.col,
+                true,
+                border_left,
+            );
+
+            if cell.col == 0 {
+                let tb = make_border(table_style, border_left, BorderOrigin::Table);
+                if tb.beats(&best) {
+                    best = tb;
+                }
+            } else {
+                let left_col = cell.col - 1;
+                for grid_row in &grid[cell.row..row_end] {
+                    if let Some(ni) = grid_row[left_col] {
+                        let cand = make_border(&cell_styles[ni], border_right, BorderOrigin::Cell);
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+                // Neighbor column's right border.
+                if let Some(Some(cs)) = col_styles.get(left_col) {
+                    let cand = make_border(cs, border_right, BorderOrigin::Column);
+                    if cand.beats(&best) {
+                        best = cand;
+                    }
+                }
+                // Neighbor colgroup's right border (if left_col is at group end).
+                if let Some(gi) = col_to_group.get(left_col).copied().flatten() {
+                    if left_col + 1 == col_group_infos[gi].end_col {
+                        let cand = make_border(
+                            &col_group_infos[gi].style,
+                            border_right,
+                            BorderOrigin::ColumnGroup,
+                        );
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+            }
+            result[i].left = best.width;
+        }
+
+        // --- Right edge ---
+        {
+            let right_col = col_end.saturating_sub(1);
+            let mut best = this_right.clone();
+
+            // Row/row-group borders for ALL spanned rows (F-5 fix: was only cell.row).
+            for r in cell.row..row_end {
+                if r < row_styles.len() {
+                    let row_b = make_border(&row_styles[r], border_right, BorderOrigin::Row);
+                    if row_b.beats(&best) {
+                        best = row_b;
+                    }
+                }
+                if let Some(gi) = row_to_group.get(r).copied().flatten() {
+                    let rg_b = make_border(
+                        &row_group_infos[gi].style,
+                        border_right,
+                        BorderOrigin::RowGroup,
+                    );
+                    if rg_b.beats(&best) {
+                        best = rg_b;
+                    }
+                }
+            }
+
+            // Column border (right of this cell's last column).
+            check_col_border(&mut best, col_styles, right_col, border_right);
+            // Colgroup border (right, if col_end is at group end).
+            check_colgroup_border(
+                &mut best,
+                col_group_infos,
+                &col_to_group,
+                right_col,
+                col_end,
+                false,
+                border_right,
+            );
+
+            if right_col + 1 >= num_cols {
+                let tb = make_border(table_style, border_right, BorderOrigin::Table);
+                if tb.beats(&best) {
+                    best = tb;
+                }
+            } else {
+                let check_col = right_col + 1;
+                for grid_row in &grid[cell.row..row_end] {
+                    if let Some(ni) = grid_row[check_col] {
+                        let cand = make_border(&cell_styles[ni], border_left, BorderOrigin::Cell);
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+                // Neighbor column's left border.
+                if let Some(Some(cs)) = col_styles.get(check_col) {
+                    let cand = make_border(cs, border_left, BorderOrigin::Column);
+                    if cand.beats(&best) {
+                        best = cand;
+                    }
+                }
+                // Neighbor colgroup's left border (if check_col is at group start).
+                if let Some(gi) = col_to_group.get(check_col).copied().flatten() {
+                    if check_col == col_group_infos[gi].start_col {
+                        let cand = make_border(
+                            &col_group_infos[gi].style,
+                            border_left,
+                            BorderOrigin::ColumnGroup,
+                        );
+                        if cand.beats(&best) {
+                            best = cand;
+                        }
+                    }
+                }
+            }
+            result[i].right = best.width;
+        }
     }
 
     result

@@ -12,6 +12,7 @@ use elidex_text::FontDatabase;
 
 use crate::algo::{auto_column_widths, fixed_column_widths, CollapsedBorders};
 use crate::grid::CellInfo;
+use crate::ColGroupBorderInfo;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -71,19 +72,29 @@ pub(crate) fn build_table_layout_box(
 // Column width helpers
 // ---------------------------------------------------------------------------
 
-/// Collect per-column widths from `<col>` and `<colgroup>` elements.
+/// Collect per-column widths, styles, and column-group ranges in a single walk.
 ///
-/// Walks the table's children, expanding `<colgroup>` into its child `<col>`
-/// elements. Returns a vec of `Option<f32>` indexed by column, where `None`
-/// means no col-specified width for that column.
+/// Combines width resolution and border-style collection for `<col>`/`<colgroup>`
+/// elements (CSS 2.1 §17.5.2.1 + §17.6.2.1).
+///
+/// Returns `(col_widths, col_styles, col_group_infos)` where:
+/// - `col_widths[c]` is the resolved pixel width from the `<col>` covering column `c` (if any)
+/// - `col_styles[c]` is the `ComputedStyle` of the `<col>` covering column `c` (if any)
+/// - `col_group_infos` records each `<colgroup>` range and style
 #[must_use]
-pub(crate) fn collect_col_widths(
+pub(crate) fn collect_col_info(
     dom: &EcsDom,
     children: &[Entity],
     num_cols: usize,
     available_for_cols: f32,
-) -> Vec<Option<f32>> {
-    let mut result = vec![None::<f32>; num_cols];
+) -> (
+    Vec<Option<f32>>,
+    Vec<Option<ComputedStyle>>,
+    Vec<ColGroupBorderInfo>,
+) {
+    let mut widths = vec![None::<f32>; num_cols];
+    let mut styles: Vec<Option<ComputedStyle>> = vec![None; num_cols];
+    let mut col_groups: Vec<ColGroupBorderInfo> = Vec::new();
     let mut col_idx = 0;
 
     for &child in children {
@@ -93,7 +104,7 @@ pub(crate) fn collect_col_widths(
         let child_style = elidex_layout_block::get_style(dom, child);
         match child_style.display {
             Display::TableColumnGroup => {
-                // Expand colgroup: walk its <col> children.
+                let group_start = col_idx;
                 let mut col_child = dom.get_first_child(child);
                 while let Some(cc) = col_child {
                     if col_idx >= num_cols {
@@ -106,24 +117,40 @@ pub(crate) fn collect_col_widths(
                             .or_else(|| resolve_col_width(&child_style, available_for_cols));
                         for _ in 0..span {
                             if col_idx < num_cols {
-                                if result[col_idx].is_none() {
-                                    result[col_idx] = w;
+                                if widths[col_idx].is_none() {
+                                    widths[col_idx] = w;
                                 }
+                                styles[col_idx] = Some(cc_style.clone());
                                 col_idx += 1;
                             }
                         }
                     }
                     col_child = dom.get_next_sibling(cc);
                 }
+                // If the colgroup has no col children, apply its span attribute.
+                if col_idx == group_start {
+                    let span = col_span_count(dom, child);
+                    for _ in 0..span {
+                        if col_idx < num_cols {
+                            col_idx += 1;
+                        }
+                    }
+                }
+                col_groups.push(ColGroupBorderInfo {
+                    style: child_style,
+                    start_col: group_start,
+                    end_col: col_idx,
+                });
             }
             Display::TableColumn => {
                 let span = col_span_count(dom, child);
                 let w = resolve_col_width(&child_style, available_for_cols);
                 for _ in 0..span {
                     if col_idx < num_cols {
-                        if result[col_idx].is_none() {
-                            result[col_idx] = w;
+                        if widths[col_idx].is_none() {
+                            widths[col_idx] = w;
                         }
+                        styles[col_idx] = Some(child_style.clone());
                         col_idx += 1;
                     }
                 }
@@ -131,7 +158,7 @@ pub(crate) fn collect_col_widths(
             _ => {}
         }
     }
-    result
+    (widths, styles, col_groups)
 }
 
 /// Resolve a `<col>` or `<colgroup>` element's width to pixels.
@@ -196,10 +223,6 @@ pub(crate) fn resolve_table_height(
 // ---------------------------------------------------------------------------
 
 /// Parameters for column width computation.
-///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing).
-#[allow(dead_code)]
 pub(crate) struct TableColumnInput<'a> {
     pub(crate) style: &'a ComputedStyle,
     pub(crate) cells: &'a [CellInfo],
@@ -210,15 +233,15 @@ pub(crate) struct TableColumnInput<'a> {
     pub(crate) col_element_widths: &'a [Option<f32>],
     pub(crate) num_cols: usize,
     pub(crate) available_for_cols: f32,
-    pub(crate) content_width: f32,
     pub(crate) is_collapse: bool,
 }
 
 /// Compute column widths based on table-layout algorithm.
 ///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing) and currently unused.
+/// In the collapsing border model, cell intrinsic widths are adjusted by
+/// subtracting the collapsed border half-widths (CSS 2.1 §17.6.2).
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub(crate) fn compute_column_widths(
     dom: &mut EcsDom,
     params: &TableColumnInput<'_>,
@@ -229,7 +252,8 @@ pub(crate) fn compute_column_widths(
     let style = params.style;
     let cells = params.cells;
     let cell_styles = params.cell_styles;
-    // params.collapsed_borders, params.content_width, params.is_collapse reserved for Phase 4.
+    let collapsed_borders = params.collapsed_borders;
+    let is_collapse = params.is_collapse;
     let num_cols = params.num_cols;
     let available_for_cols = params.available_for_cols;
     if style.table_layout == TableLayout::Fixed && !matches!(style.width, Dimension::Auto) {
@@ -244,25 +268,27 @@ pub(crate) fn compute_column_widths(
             .iter()
             .map(|&(i, _)| {
                 let cs = &cell_styles[i];
-                match cs.width {
+                let raw = match cs.width {
                     Dimension::Length(px) if px.is_finite() && px > 0.0 => Some(px),
                     Dimension::Percentage(pct) if pct > 0.0 => {
                         Some(available_for_cols * pct / 100.0)
                     }
                     _ => None,
+                };
+                // In the collapsing border model, subtract collapsed border half-widths
+                // from explicit cell widths (CSS 2.1 §17.6.2, F-4 fix).
+                if is_collapse {
+                    raw.map(|w| {
+                        let cb = &collapsed_borders[i];
+                        (w - f32::midpoint(cb.left, cb.right)).max(0.0)
+                    })
+                } else {
+                    raw
                 }
             })
             .collect();
-        let first_row_cell_infos: Vec<CellInfo> = first_row
-            .iter()
-            .map(|&(_, c)| CellInfo {
-                entity: c.entity,
-                col: c.col,
-                row: c.row,
-                colspan: c.colspan,
-                rowspan: c.rowspan,
-            })
-            .collect();
+        let first_row_cell_infos: Vec<CellInfo> =
+            first_row.iter().map(|&(_, c)| c.clone()).collect();
         let mut widths = fixed_column_widths(
             num_cols,
             &first_row_cell_infos,
@@ -280,7 +306,8 @@ pub(crate) fn compute_column_widths(
         // Auto table layout: measure cell intrinsic widths.
         let cell_widths: Vec<(f32, f32)> = cells
             .iter()
-            .map(|cell| {
+            .enumerate()
+            .map(|(i, cell)| {
                 // Layout cell with a very small width to get min-content,
                 // and with a very large width to get max-content.
                 let min_input = LayoutInput {
@@ -314,9 +341,17 @@ pub(crate) fn compute_column_widths(
                 let b = sanitize_border(&cs);
                 let cell_h_pb = horizontal_pb(&p, &b);
                 // min-content = content width from narrow probe + cell pb
-                let min_w = min_lb.content.width + cell_h_pb;
+                let mut min_w = min_lb.content.width + cell_h_pb;
                 // max-content = content width from wide probe + cell pb
-                let max_w = max_lb.content.width + cell_h_pb;
+                let mut max_w = max_lb.content.width + cell_h_pb;
+                // In the collapsing border model, subtract collapsed border half-widths
+                // from intrinsic sizes (CSS 2.1 §17.6.2).
+                if is_collapse {
+                    let cb = &collapsed_borders[i];
+                    let border_adj = f32::midpoint(cb.left, cb.right);
+                    min_w = (min_w - border_adj).max(0.0);
+                    max_w = (max_w - border_adj).max(0.0);
+                }
                 (min_w.max(0.0), max_w.max(min_w))
             })
             .collect();

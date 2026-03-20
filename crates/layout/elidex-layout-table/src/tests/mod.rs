@@ -10,8 +10,13 @@ use elidex_text::FontDatabase;
 
 use crate::{algo, layout_table, CellInfo};
 
+mod anon_wrapping;
+mod border_collapse;
 mod box_model;
 mod col_span;
+mod height_sizing;
+mod inline_table;
+mod rowspan;
 mod sizing;
 mod structure;
 mod vertical_align;

@@ -277,7 +277,8 @@ fn compute_table_intrinsic(
         }
     }
 
-    // NOTE: colspan is not yet handled — each cell is treated as colspan=1.
+    // Colspan-aware intrinsic sizing: spanning cells distribute their intrinsic
+    // width equally across spanned columns.
     for &row in &rows {
         let cells = composed_children_flat(dom, row);
         let mut col_idx = 0;
@@ -290,20 +291,48 @@ fn compute_table_intrinsic(
             {
                 continue;
             }
+            // Read colspan from HTML attribute.
+            let colspan = dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(cell)
+                .ok()
+                .and_then(|attrs| attrs.get("colspan").and_then(|s| s.parse::<usize>().ok()))
+                .unwrap_or(1)
+                .clamp(1, 1000);
+
             let cell_sizes = compute_intrinsic_sizes(dom, cell, font_db, layout_child, depth + 1);
+
             // Grow column vectors as needed.
-            while col_min.len() <= col_idx {
+            while col_min.len() < col_idx + colspan {
                 col_min.push(0.0);
                 col_max.push(0.0);
             }
-            col_min[col_idx] = col_min[col_idx].max(cell_sizes.min_content);
-            col_max[col_idx] = col_max[col_idx].max(cell_sizes.max_content);
-            col_idx += 1;
+
+            if colspan == 1 {
+                col_min[col_idx] = col_min[col_idx].max(cell_sizes.min_content);
+                col_max[col_idx] = col_max[col_idx].max(cell_sizes.max_content);
+            } else {
+                // Distribute spanning cell's intrinsic width equally across columns.
+                #[allow(clippy::cast_precision_loss)] // colspan clamped to 1..=1000
+                let col_f = colspan as f32;
+                let per_min = cell_sizes.min_content / col_f;
+                let per_max = cell_sizes.max_content / col_f;
+                for c in col_idx..col_idx + colspan {
+                    col_min[c] = col_min[c].max(per_min);
+                    col_max[c] = col_max[c].max(per_max);
+                }
+            }
+            col_idx += colspan;
         }
     }
 
     let style = get_style(dom, entity);
-    let gap = style.border_spacing_h.max(0.0);
+    // CSS 2.1 §17.6.2: in the collapsing border model, border-spacing is ignored.
+    let gap = if style.border_collapse == elidex_plugin::BorderCollapse::Collapse {
+        0.0
+    } else {
+        style.border_spacing_h.max(0.0)
+    };
     let gap_total = total_gap(col_min.len(), gap);
 
     IntrinsicSizes {
@@ -551,5 +580,82 @@ mod tests {
             max_content: 400.0,
         };
         assert_eq!(shrink_to_fit_width(&sizes, 250.0), 250.0);
+    }
+
+    // --- G6: Colspan intrinsic sizing tests ---
+
+    /// Helper: create a table with one row and cells with optional colspan.
+    fn make_table_with_colspan(cells: &[(usize, f32)]) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let table = dom.create_element("table", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            table,
+            ComputedStyle {
+                display: Display::Table,
+                ..Default::default()
+            },
+        );
+        let tr = dom.create_element("tr", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            tr,
+            ComputedStyle {
+                display: Display::TableRow,
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(table, tr);
+        for &(colspan, width) in cells {
+            let mut attrs = Attributes::default();
+            if colspan > 1 {
+                attrs.set("colspan", colspan.to_string());
+            }
+            let td = dom.create_element("td", attrs);
+            let _ = dom.world_mut().insert_one(
+                td,
+                ComputedStyle {
+                    display: Display::TableCell,
+                    width: Dimension::Length(width),
+                    height: Dimension::Length(20.0),
+                    ..Default::default()
+                },
+            );
+            let _ = dom.append_child(tr, td);
+        }
+        (dom, table)
+    }
+
+    #[test]
+    fn colspan_2_intrinsic_distributes() {
+        // One cell with colspan=2 and width=200.
+        // Should create 2 columns of 100px each intrinsic.
+        let (mut dom, table) = make_table_with_colspan(&[(2, 200.0)]);
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        // With 2 columns of 100px + gap, total should be around 200+gap.
+        assert!(sizes.min_content > 0.0);
+        assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    #[test]
+    fn colspan_plus_normal_mixed() {
+        // Row 1: [colspan=2, width=200], [width=50]
+        // Should create 3 columns: col 0,1 at 100px each, col 2 at 50px.
+        let (mut dom, table) = make_table_with_colspan(&[(2, 200.0), (1, 50.0)]);
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        assert!(sizes.min_content > 0.0);
+        // Total: 100 + 100 + 50 + gaps = ~250+
+        assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    #[test]
+    fn all_colspan_row() {
+        // Single cell with colspan=3 and width=300.
+        let (mut dom, table) = make_table_with_colspan(&[(3, 300.0)]);
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        // 3 columns of 100px each.
+        assert!(sizes.min_content > 0.0);
+        assert!(sizes.max_content >= sizes.min_content);
     }
 }

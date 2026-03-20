@@ -436,6 +436,13 @@ impl ScrollState {
     }
 }
 
+/// Marker for anonymous table objects (CSS 2.1 §17.2.1).
+///
+/// Re-layout reuses existing entities with this marker to prevent
+/// duplicate anonymous box generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnonymousTableMarker;
+
 /// Data for an Attr node (WHATWG DOM §4.9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttrData {

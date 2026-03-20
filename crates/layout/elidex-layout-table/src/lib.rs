@@ -13,11 +13,8 @@
 //! `cells`, `cell_styles`, `cell_layout_boxes`, and `collapsed_borders`
 //! always have identical length.
 //!
-//! Current simplifications (Phase 4 deferred):
-//! - `InlineTable` treated as block-level
+//! Current simplifications:
 //! - `<col>` span attribute read from HTML (clamped to 1–1000 per WHATWG §4.9.11)
-//! - `empty-cells` always `show`
-//! - Anonymous row DOM mutation is not idempotent across re-layouts (needs layout caching)
 //! - Cells are laid out twice (height probe + final positioning); could cache first pass
 
 mod algo;
@@ -28,7 +25,7 @@ mod helpers;
 #[allow(unused_must_use)]
 mod tests;
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     horizontal_pb, sanitize_border, vertical_pb, ChildLayoutFn, LayoutInput, MAX_LAYOUT_DEPTH,
 };
@@ -39,12 +36,15 @@ use elidex_plugin::{
 
 use elidex_layout_block::block::resolve_margin;
 
-use algo::{resolve_collapsed_borders, CollapsedBorders};
+use algo::resolve_collapsed_borders;
+pub(crate) use algo::CollapsedBorders;
 pub(crate) use grid::{
     build_cell_grid, cell_available_width, collect_all_rows, span_end_col, span_end_row, CellInfo,
+    RowInfo,
 };
+pub use grid::{collect_anonymous_pool, inherit_for_anonymous};
 use helpers::{
-    box_total_height, build_table_layout_box, collapse_adjusted_width, collect_col_widths,
+    box_total_height, build_table_layout_box, collapse_adjusted_width, collect_col_info,
     compute_column_widths, resolve_table_height, TableColumnInput,
 };
 // Re-exported for tests (col_span.rs uses `crate::col_span_count`).
@@ -61,6 +61,110 @@ fn cell_baseline(cell_lb: &LayoutBox) -> f32 {
         cell_lb.padding.top + cell_lb.border.top + cell_lb.content.height,
         |b| b + cell_lb.padding.top + cell_lb.border.top,
     )
+}
+
+// ---------------------------------------------------------------------------
+// Anonymous table object generation (CSS 2.1 §17.2.1)
+// ---------------------------------------------------------------------------
+
+/// Wrap consecutive non-table-cell children in rows with anonymous table-cell boxes.
+///
+/// CSS 2.1 §17.2.1 Stage 2 Rule 3: any child of a table-row that is not a
+/// table-cell generates an anonymous table-cell wrapper.
+fn wrap_non_cell_content_in_rows(dom: &mut EcsDom, all_rows: &[RowInfo]) {
+    for row_info in all_rows {
+        grid::wrap_non_matching_children(
+            dom,
+            row_info.entity,
+            Display::TableCell,
+            Display::TableCell,
+            "td",
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Row group info for border collapse
+// ---------------------------------------------------------------------------
+
+/// Row-group metadata for border-collapse resolution.
+pub(crate) struct RowGroupInfo {
+    pub(crate) style: ComputedStyle,
+    pub(crate) start_row: usize,
+    /// Exclusive end row index.
+    pub(crate) end_row: usize,
+}
+
+/// Column-group metadata for border-collapse resolution (CSS 2.1 §17.6.2.1).
+pub(crate) struct ColGroupBorderInfo {
+    pub(crate) style: ComputedStyle,
+    pub(crate) start_col: usize,
+    /// Exclusive end column index.
+    pub(crate) end_col: usize,
+}
+
+/// Collect row group style and row-range info from the row collection.
+///
+/// Derives row ranges directly from [`RowInfo::group_end_row`] boundaries,
+/// avoiding a redundant DOM re-walk.  Each distinct `(start, group_end_row)`
+/// range with an associated row-group entity produces one `RowGroupInfo`.
+fn collect_row_group_infos(
+    dom: &EcsDom,
+    row_groups: &[Entity],
+    all_rows: &[RowInfo],
+) -> Vec<RowGroupInfo> {
+    // Build a set of row-group entities for O(1) lookup.
+    let rg_set: std::collections::HashSet<Entity> = row_groups.iter().copied().collect();
+
+    let mut infos = Vec::new();
+    let mut i = 0;
+    while i < all_rows.len() {
+        let group_end = all_rows[i].group_end_row;
+        let start = i;
+
+        // Find the row-group entity for this range by checking the parent of
+        // the first row.  If the parent is a row-group, use it; otherwise this
+        // range consists of direct rows (no RowGroupInfo needed).
+        let parent = dom.get_parent(all_rows[i].entity);
+        let is_rg = parent.is_some_and(|p| rg_set.contains(&p));
+
+        // Advance past all rows that share the same group_end_row.
+        while i < all_rows.len() && all_rows[i].group_end_row == group_end {
+            i += 1;
+        }
+
+        if is_rg {
+            let rg_entity = parent.unwrap(); // safe: is_rg guarantees Some
+            infos.push(RowGroupInfo {
+                style: elidex_layout_block::get_style(dom, rg_entity),
+                start_row: start,
+                end_row: i,
+            });
+        }
+    }
+    infos
+}
+
+/// Redistribute surplus table height proportionally across rows.
+///
+/// CSS 2.1 §17.5.3 does not define how extra space is distributed
+/// ("CSS 2.1 does not define how extra space is distributed").
+/// We use proportional distribution based on content height,
+/// which matches Chromium behavior.
+#[allow(clippy::cast_precision_loss)] // row count is small
+fn redistribute_surplus(row_heights: &mut [f32], surplus: f32) {
+    let total: f32 = row_heights.iter().sum();
+    if total > f32::EPSILON {
+        for h in row_heights.iter_mut() {
+            *h += surplus * (*h / total);
+        }
+    } else {
+        // All rows are zero height: distribute equally.
+        let per_row = surplus / row_heights.len().max(1) as f32;
+        for h in row_heights.iter_mut() {
+            *h += per_row;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -184,16 +288,9 @@ pub fn layout_table(
     cursor_y += caption_top_height;
 
     // Wrap direct cells in an anonymous row (CSS 2.1 §17.2.1).
+    // Uses find_or_create_anonymous for idempotent re-layout.
     if !direct_cells.is_empty() {
-        let anon_row = dom.create_element("tr", Attributes::default());
-        let _ = dom.world_mut().insert_one(
-            anon_row,
-            ComputedStyle {
-                display: Display::TableRow,
-                ..Default::default()
-            },
-        );
-        let _ = dom.append_child(entity, anon_row);
+        let anon_row = grid::find_or_create_anonymous(dom, entity, Display::TableRow, "tr");
         for &cell in &direct_cells {
             let _ = dom.append_child(anon_row, cell);
         }
@@ -202,6 +299,9 @@ pub fn layout_table(
 
     // Collect all rows (from row groups + direct rows).
     let all_rows = collect_all_rows(dom, &row_groups, &direct_rows);
+
+    // Wrap non-cell content in rows (CSS 2.1 §17.2.1 Stage 2 Rule 3).
+    wrap_non_cell_content_in_rows(dom, &all_rows);
 
     // Build cell grid from rows.
     let (cells, num_cols, num_rows) = build_cell_grid(dom, &all_rows);
@@ -250,15 +350,34 @@ pub fn layout_table(
         .map(|c| elidex_layout_block::get_style(dom, c.entity))
         .collect();
 
+    // Collect row and row-group styles for collapsed border resolution.
+    let row_styles: Vec<ComputedStyle> = all_rows
+        .iter()
+        .map(|ri| elidex_layout_block::get_style(dom, ri.entity))
+        .collect();
+    let row_group_infos = collect_row_group_infos(dom, &row_groups, &all_rows);
+
+    // Extract <col>/<colgroup> widths and border styles in a single walk
+    // (CSS 2.1 §17.5.2.1 + §17.6.2.1).
+    let (col_element_widths, col_border_styles, col_group_border_infos) =
+        collect_col_info(dom, &children, num_cols, available_for_cols);
+
     // Resolve collapsed borders if needed.
     let collapsed_borders: Vec<CollapsedBorders> = if is_collapse {
-        resolve_collapsed_borders(&cells, &cell_styles, &style, num_cols, num_rows)
+        resolve_collapsed_borders(
+            &cells,
+            &cell_styles,
+            &style,
+            &row_styles,
+            &row_group_infos,
+            &col_border_styles,
+            &col_group_border_infos,
+            num_cols,
+            num_rows,
+        )
     } else {
         vec![CollapsedBorders::default(); cells.len()]
     };
-
-    // Extract <col>/<colgroup> widths (CSS 2.1 §17.5.2.1).
-    let col_element_widths = collect_col_widths(dom, &children, num_cols, available_for_cols);
 
     // Determine column widths.
     let col_input = TableColumnInput {
@@ -269,10 +388,31 @@ pub fn layout_table(
         col_element_widths: &col_element_widths,
         num_cols,
         available_for_cols,
-        content_width,
         is_collapse,
     };
     let col_widths = compute_column_widths(dom, &col_input, font_db, depth, layout_child);
+
+    // Pre-compute the table's explicit content height for cell percentage-height
+    // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
+    // percentage heights resolve against the content-box height; otherwise auto.
+    let table_explicit_height = match style.height {
+        elidex_plugin::Dimension::Length(px) if px.is_finite() && px > 0.0 => {
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                Some((px - v_pb).max(0.0))
+            } else {
+                Some(px)
+            }
+        }
+        elidex_plugin::Dimension::Percentage(pct) if pct > 0.0 => containing_height.map(|ch| {
+            let resolved = ch * pct / 100.0;
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                (resolved - v_pb).max(0.0)
+            } else {
+                resolved
+            }
+        }),
+        _ => None,
+    };
 
     // Compute row heights by laying out each cell with its resolved column width.
     let mut row_heights = vec![0.0_f32; num_rows];
@@ -286,9 +426,11 @@ pub fn layout_table(
             collapse_adjusted_width(cell_width, is_collapse, &collapsed_borders[i]);
 
         // Layout the cell content (using block layout).
+        // Pass table explicit height as containing_height so cell percentage
+        // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
             containing_width: effective_width,
-            containing_height: None,
+            containing_height: table_explicit_height,
             offset_x: 0.0, // temporary x, will be positioned later
             offset_y: 0.0, // temporary y
             font_db,
@@ -360,6 +502,19 @@ pub fn layout_table(
                 }
             }
         }
+    }
+
+    // Height redistribution (CSS 2.1 §17.5.3): if the table has an explicit
+    // height larger than the sum of row heights, distribute the surplus
+    // proportionally across rows.
+    let pre_redistribution_row_height: f32 =
+        row_heights.iter().sum::<f32>() + spacing_v * (num_rows as f32 + 1.0);
+    let min_for_redistribution = caption_top_height + pre_redistribution_row_height;
+    let explicit_height =
+        resolve_table_height(&style, containing_height, v_pb, min_for_redistribution);
+    if explicit_height > min_for_redistribution {
+        let surplus = explicit_height - min_for_redistribution;
+        redistribute_surplus(&mut row_heights, surplus);
     }
 
     // Position cells.
