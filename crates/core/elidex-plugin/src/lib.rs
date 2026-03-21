@@ -21,15 +21,15 @@ pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    validate_area_rectangles, AlignContent, AlignItems, AlignSelf, AlignmentSafety, AutoRepeatMode,
-    BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak, BoxSizing, BreakInsideValue,
-    BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan, ComputedStyle, ContentItem,
-    ContentValue, Dimension, Direction, Display, EmptyCells, FlexBasis, FlexDirection, FlexWrap,
-    Float, FontStyle, GridAutoFlow, GridLine, GridTemplateAreas, GridTrackList, JustifyContent,
-    JustifyItems, JustifySelf, LineHeight, ListStyleType, Overflow, Position, TableLayout,
-    TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform,
-    TrackBreadth, TrackSection, TrackSize, UnicodeBidi, VerticalAlign, ViewportOverflow,
-    Visibility, WhiteSpace, WritingMode,
+    is_multicol, validate_area_rectangles, AlignContent, AlignItems, AlignSelf, AlignmentSafety,
+    AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak, BoxSizing,
+    BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan, ComputedStyle,
+    ContentItem, ContentValue, Dimension, Direction, Display, EmptyCells, FlexBasis, FlexDirection,
+    FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, GridTemplateAreas, GridTrackList,
+    JustifyContent, JustifyItems, JustifySelf, LineHeight, ListStyleType, MulticolInfo, Overflow,
+    Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation,
+    TextTransform, TrackBreadth, TrackSection, TrackSize, UnicodeBidi, VerticalAlign,
+    ViewportOverflow, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{

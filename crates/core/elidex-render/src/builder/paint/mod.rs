@@ -571,6 +571,76 @@ pub(crate) fn emit_list_marker_with_counter(
     }
 }
 
+/// Emit column rules between columns of a multicol container.
+///
+/// CSS Multi-column L1 §4: column rules are drawn between columns that both
+/// have content. For spanners, rules are not drawn in the spanner area.
+///
+/// Writing-mode aware:
+/// - `horizontal-tb`: vertical rules between horizontal columns.
+/// - `vertical-rl`/`vertical-lr`: horizontal rules between vertical columns.
+pub(crate) fn emit_column_rules(
+    lb: &LayoutBox,
+    style: &ComputedStyle,
+    info: &elidex_plugin::MulticolInfo,
+    dl: &mut DisplayList,
+) {
+    // Skip if no rule style or zero width.
+    if style.column_rule_style == BorderStyle::None || style.column_rule_width <= 0.0 {
+        return;
+    }
+
+    let rule_width = style.column_rule_width;
+    // currentColor is already resolved to the text color during style resolution
+    // (ComputedStyle initialises column_rule_color = color).
+    let color = apply_opacity(style.column_rule_color, style.opacity);
+
+    let pb = lb.padding_box();
+    let is_horizontal = info.writing_mode.is_horizontal();
+
+    for &(actual_count, seg_start, seg_extent) in &info.segments {
+        if actual_count <= 1 {
+            continue;
+        }
+
+        for i in 1..actual_count {
+            #[allow(clippy::cast_precision_loss)]
+            let rule_inline_pos =
+                i as f32 * (info.column_width + info.column_gap) - info.column_gap / 2.0;
+
+            if is_horizontal {
+                // Vertical rule line.
+                let rule_x = pb.x + rule_inline_pos;
+                let rule_y = pb.y + seg_start;
+                let rule_h = seg_extent;
+                emit_border_side(
+                    style.column_rule_style,
+                    (rule_x, rule_y),
+                    (rule_x, rule_y + rule_h),
+                    rule_width,
+                    Rect::new(rule_x - rule_width / 2.0, rule_y, rule_width, rule_h),
+                    color,
+                    dl,
+                );
+            } else {
+                // Horizontal rule line (vertical writing mode).
+                let rule_y = pb.y + rule_inline_pos;
+                let rule_x = pb.x + seg_start;
+                let rule_w = seg_extent;
+                emit_border_side(
+                    style.column_rule_style,
+                    (rule_x, rule_y),
+                    (rule_x + rule_w, rule_y),
+                    rule_width,
+                    Rect::new(rule_x, rule_y - rule_width / 2.0, rule_w, rule_width),
+                    color,
+                    dl,
+                );
+            }
+        }
+    }
+}
+
 /// Walk up the ancestor chain to find the nearest entity with a `LayoutBox`.
 ///
 /// Starts with `entity` itself, then checks its parent, grandparent, etc.

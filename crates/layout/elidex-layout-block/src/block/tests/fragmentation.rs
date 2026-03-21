@@ -40,7 +40,7 @@ fn make_block_child_with_break(
     child
 }
 
-/// Build a base LayoutInput (without fragmentainer/break_token; caller sets those).
+/// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
 fn base_input(font_db: &FontDatabase) -> LayoutInput<'_> {
     LayoutInput {
         containing_width: 400.0,

@@ -272,19 +272,25 @@ mod tests {
 
     #[test]
     fn monolithic_overflow() {
-        let mut style = ComputedStyle::default();
-        style.overflow_x = Overflow::Hidden;
+        let style = ComputedStyle {
+            overflow_x: Overflow::Hidden,
+            ..ComputedStyle::default()
+        };
         assert!(is_monolithic(&style, false));
 
-        let mut style2 = ComputedStyle::default();
-        style2.overflow_y = Overflow::Scroll;
+        let style2 = ComputedStyle {
+            overflow_y: Overflow::Scroll,
+            ..ComputedStyle::default()
+        };
         assert!(is_monolithic(&style2, false));
     }
 
     #[test]
     fn monolithic_transform() {
-        let mut style = ComputedStyle::default();
-        style.has_transform = true;
+        let style = ComputedStyle {
+            has_transform: true,
+            ..ComputedStyle::default()
+        };
         assert!(is_monolithic(&style, false));
     }
 

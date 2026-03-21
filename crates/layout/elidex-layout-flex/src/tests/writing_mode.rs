@@ -374,7 +374,7 @@ fn vertical_rl_flex_wrap_wraps_on_cross_axis() {
     );
 
     let lb0 = get_lb(&dom, items[0]);
-    let lb1 = get_lb(&dom, items[1]);
+    let _lb1 = get_lb(&dom, items[1]);
     let lb2 = get_lb(&dom, items[2]);
     // Items 0 and 1 fit on first line (50+50=100), item 2 wraps.
     // Wrapped item should be on a different cross position (X axis).

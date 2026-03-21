@@ -656,6 +656,7 @@ pub fn layout_block_inner(
 /// CSS 2.1 §9.4.1: Does this element establish a new block formatting context?
 ///
 /// Elements that establish a BFC prevent margin collapse with children.
+/// CSS Multi-column L1 §3.1: multicol containers also establish a BFC.
 fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
     style.float != Float::None
         || matches!(style.position, Position::Absolute | Position::Fixed)
@@ -672,4 +673,5 @@ fn establishes_bfc(style: &elidex_plugin::ComputedStyle) -> bool {
                 | Display::InlineTable
                 | Display::TableCell
         )
+        || elidex_plugin::is_multicol(style)
 }

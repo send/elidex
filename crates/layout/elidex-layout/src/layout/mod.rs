@@ -31,7 +31,7 @@ pub fn dispatch_layout_child(
     let adjusted_input;
     let effective_input = if matches!(
         style.display,
-        Display::InlineFlex | Display::InlineGrid | Display::InlineTable
+        Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
     ) && style.width == elidex_plugin::Dimension::Auto
     {
         let intrinsic = crate::intrinsic::compute_intrinsic_sizes(
@@ -91,10 +91,18 @@ pub fn dispatch_layout_child(
             elidex_layout_table::layout_table(dom, entity, effective_input, dispatch_layout_child)
                 .into()
         }
+        // CSS Multi-column L1: multicol containers have block display +
+        // column-count/column-width. Check before falling through to block.
+        _ if elidex_plugin::is_multicol(&style) => elidex_layout_multicol::layout_multicol(
+            dom,
+            entity,
+            effective_input,
+            dispatch_layout_child,
+        ),
         _ => elidex_layout_block::block::layout_block_inner(
             dom,
             entity,
-            input,
+            effective_input,
             dispatch_layout_child,
         ),
     };

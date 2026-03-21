@@ -257,6 +257,7 @@ fn relative_percentage_offset() {
 
 // --- Inline axis constraint equation tests ---
 
+#[allow(clippy::too_many_arguments)]
 fn make_inline_props(
     start: Option<f32>,
     size: Option<f32>,
@@ -283,6 +284,7 @@ fn make_inline_props(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_block_props(
     start: Option<f32>,
     end: Option<f32>,
@@ -1412,7 +1414,7 @@ fn vertical_rl_absolute_percentage_height() {
     );
 }
 
-/// apply_relative_offset works correctly in vertical-rl mode.
+/// `apply_relative_offset` works correctly in vertical-rl mode.
 /// In vertical-rl: inline axis = top/bottom (top is inline-start for LTR),
 /// block axis = left/right (right is block-start for rl).
 #[test]

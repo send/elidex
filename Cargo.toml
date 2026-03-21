@@ -28,6 +28,7 @@ members = [
     "crates/layout/elidex-layout-flex",
     "crates/layout/elidex-layout-grid",
     "crates/layout/elidex-layout-table",
+    "crates/layout/elidex-layout-multicol",
     "crates/text/elidex-shaping",
     "crates/text/elidex-linebreak",
     "crates/text/elidex-bidi",
@@ -110,6 +111,7 @@ elidex-layout-block = { path = "crates/layout/elidex-layout-block" }
 elidex-layout-flex = { path = "crates/layout/elidex-layout-flex" }
 elidex-layout-grid = { path = "crates/layout/elidex-layout-grid" }
 elidex-layout-table = { path = "crates/layout/elidex-layout-table" }
+elidex-layout-multicol = { path = "crates/layout/elidex-layout-multicol" }
 elidex-bidi = { path = "crates/text/elidex-bidi" }
 elidex-text = { path = "crates/text/elidex-text" }
 elidex-script-session = { path = "crates/script/elidex-script-session" }

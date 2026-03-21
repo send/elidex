@@ -10,7 +10,8 @@ use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity,
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{
-    BorderCollapse, ComputedStyle, Display, EmptyCells, LayoutBox, ListStyleType, Visibility,
+    BorderCollapse, ComputedStyle, Display, EmptyCells, LayoutBox, ListStyleType, MulticolInfo,
+    Visibility,
 };
 use elidex_text::FontDatabase;
 
@@ -131,6 +132,11 @@ pub(crate) fn walk(
                     ctx.dl,
                 );
                 emit_borders(&lb, style, ctx.dl);
+
+                // Emit column rules for multicol containers.
+                if let Ok(info) = ctx.dom.world().get::<&MulticolInfo>(entity) {
+                    super::paint::emit_column_rules(&lb, style, &info, ctx.dl);
+                }
 
                 // Emit image for replaced elements with decoded pixel data.
                 if let Ok(image_data) = ctx.dom.world().get::<&ImageData>(entity) {

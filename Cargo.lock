@@ -1898,6 +1898,7 @@ dependencies = [
  "elidex-layout-block",
  "elidex-layout-flex",
  "elidex-layout-grid",
+ "elidex-layout-multicol",
  "elidex-layout-table",
  "elidex-plugin",
  "elidex-text",
@@ -1925,6 +1926,16 @@ dependencies = [
 
 [[package]]
 name = "elidex-layout-grid"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-layout-block",
+ "elidex-plugin",
+ "elidex-text",
+]
+
+[[package]]
+name = "elidex-layout-multicol"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",

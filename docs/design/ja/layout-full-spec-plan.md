@@ -848,7 +848,7 @@ pub fn layout_multicol(
 - multicol container は BFC を確立し、**block layout を置換** (wrapper ではない)
 - `layout_multicol()` が内部で column ごとに block fragmentation を実行
 
-### Column 内 break とページ break の相互作用 (§7)
+### Column 内 break とページ break の相互作用 (§7) — **G11 に延期**
 
 Column 内で `break-before: page` が発生した場合:
 - column fragmentation を中断し、page break として BreakToken を返す
@@ -857,6 +857,9 @@ Column 内で `break-before: page` が発生した場合:
 > **Nested multicol**: multicol 内に multicol がネストした場合、内側の column fragmentation は
 > 外側の fragmentainer に制約される。内側の column がオーバーフローしたら、外側の break point
 > として扱う。実装は `FragmentainerContext` のネストで自然に対応。
+>
+> **注記:** Column ↔ Page break interaction、Nested fragmentainer (multicol inside page) は
+> Paged Media 基盤が前提のため G11 で対応する。
 
 **見込み:** +550〜750 lines, 35〜48 tests
 

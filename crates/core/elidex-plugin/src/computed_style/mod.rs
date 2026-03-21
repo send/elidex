@@ -86,7 +86,7 @@ mod text;
 mod writing_mode;
 
 pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
-pub use columns::{ColumnFill, ColumnSpan};
+pub use columns::{is_multicol, ColumnFill, ColumnSpan, MulticolInfo};
 pub use display::{Display, Overflow, Position, ViewportOverflow};
 pub use flex::{
     AlignContent, AlignItems, AlignSelf, AlignmentSafety, FlexBasis, FlexDirection, FlexWrap,

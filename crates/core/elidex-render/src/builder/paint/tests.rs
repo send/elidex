@@ -302,3 +302,115 @@ fn emit_borders_none_produces_nothing() {
     emit_borders(&lb, &style, &mut dl);
     assert!(dl.is_empty());
 }
+
+// --- emit_column_rules ---
+
+fn make_column_rule_fixtures(
+    rule_style: BorderStyle,
+    rule_width: f32,
+    rule_color: CssColor,
+    segments: Vec<(u32, f32, f32)>,
+) -> (LayoutBox, ComputedStyle, elidex_plugin::MulticolInfo) {
+    use elidex_plugin::EdgeSizes;
+    let lb = LayoutBox {
+        content: Rect::new(10.0, 10.0, 600.0, 200.0),
+        padding: EdgeSizes::default(),
+        border: EdgeSizes::default(),
+        margin: EdgeSizes::default(),
+        first_baseline: None,
+    };
+    let style = ComputedStyle {
+        column_rule_style: rule_style,
+        column_rule_width: rule_width,
+        column_rule_color: rule_color,
+        ..ComputedStyle::default()
+    };
+    let info = elidex_plugin::MulticolInfo {
+        column_width: 290.0,
+        column_gap: 20.0,
+        writing_mode: elidex_plugin::WritingMode::HorizontalTb,
+        segments,
+    };
+    (lb, style, info)
+}
+
+#[test]
+fn column_rule_solid_two_columns() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::Solid,
+        2.0,
+        CssColor::BLACK,
+        vec![(2, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    // 2 columns → 1 rule
+    assert_eq!(dl.len(), 1);
+}
+
+#[test]
+fn column_rule_none_style_no_output() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::None,
+        2.0,
+        CssColor::BLACK,
+        vec![(2, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    assert!(dl.is_empty());
+}
+
+#[test]
+fn column_rule_zero_width_no_output() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::Solid,
+        0.0,
+        CssColor::BLACK,
+        vec![(2, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    assert!(dl.is_empty());
+}
+
+#[test]
+fn column_rule_three_columns_two_rules() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::Solid,
+        1.0,
+        CssColor::BLACK,
+        vec![(3, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    // 3 columns → 2 rules
+    assert_eq!(dl.len(), 2);
+}
+
+#[test]
+fn column_rule_dashed() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::Dashed,
+        2.0,
+        CssColor::BLACK,
+        vec![(2, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    // Dashed renders as multiple segments
+    assert!(!dl.is_empty());
+}
+
+#[test]
+fn column_rule_single_column_no_rule() {
+    let (lb, style, info) = make_column_rule_fixtures(
+        BorderStyle::Solid,
+        2.0,
+        CssColor::BLACK,
+        vec![(1, 0.0, 200.0)],
+    );
+    let mut dl = DisplayList::default();
+    emit_column_rules(&lb, &style, &info, &mut dl);
+    assert!(dl.is_empty());
+}
