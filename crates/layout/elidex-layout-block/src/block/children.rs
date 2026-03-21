@@ -5,13 +5,17 @@ use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
-    BoxSizing, Clear, ComputedStyle, Dimension, Display, EdgeSizes, Float, LayoutBox,
+    BoxSizing, BreakValue, Clear, ComputedStyle, Dimension, Display, EdgeSizes, Float, LayoutBox,
     WritingModeContext,
 };
 
-use crate::{adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, LayoutInput};
+use crate::{
+    adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, BreakToken, BreakTokenData,
+    LayoutInput,
+};
 
 use super::float::FloatContext;
+use super::fragmentation;
 use super::is_block_level;
 use super::margin::{collapse_margins, resolve_margin};
 
@@ -31,6 +35,34 @@ pub struct StackResult {
     /// offset-adjusted to the parent's content area.
     /// For anonymous inline runs: the inline layout's first baseline.
     pub first_baseline: Option<f32>,
+    /// Break token if layout was interrupted by a fragmentainer break.
+    pub break_token: Option<BreakToken>,
+    /// Propagated forced break-before from first child (CSS Frag L3 §3.2).
+    pub propagated_break_before: Option<BreakValue>,
+    /// Propagated forced break-after from last child (CSS Frag L3 §3.2).
+    pub propagated_break_after: Option<BreakValue>,
+}
+
+/// Build a `BreakToken` for a block break point.
+///
+/// DRY helper — avoids repeating the `BreakToken` / `BreakTokenData::Block`
+/// construction at every break site in `stack_block_children`.
+fn make_block_break_token(
+    parent_entity: Entity,
+    consumed_block_size: f32,
+    child_index: usize,
+    inline_break_line: Option<usize>,
+    child_break_token: Option<Box<BreakToken>>,
+) -> BreakToken {
+    BreakToken {
+        entity: parent_entity,
+        consumed_block_size,
+        child_break_token,
+        mode_data: Some(BreakTokenData::Block {
+            child_index,
+            inline_break_line,
+        }),
+    }
 }
 
 /// Stack block-level children along the block axis with margin collapse.
@@ -89,10 +121,63 @@ pub fn stack_block_children(
         &local_ctx
     };
     let mut inline_run: Vec<Entity> = Vec::new();
+    // Array index of the first child in the current inline run.
+    // Used for break token child_index when an inline run is fragmented.
+    let mut inline_run_start_idx: Option<usize> = None;
     let mut static_positions: HashMap<Entity, (f32, f32)> = HashMap::new();
     let mut first_baseline: Option<f32> = None;
 
-    for &child in children {
+    // --- Fragmentation: resume from break token ---
+    let (start_index, resume_child_break_token, resume_inline_break_line) =
+        if let Some(bt) = input.break_token {
+            if let Some(BreakTokenData::Block {
+                child_index,
+                inline_break_line,
+            }) = &bt.mode_data
+            {
+                (
+                    *child_index,
+                    bt.child_break_token.as_deref(),
+                    *inline_break_line,
+                )
+            } else {
+                (0, None, None)
+            }
+        } else {
+            (0, None, None)
+        };
+    let is_continuation = input.break_token.is_some();
+    let frag_ctx = input.fragmentainer;
+
+    // CSS Fragmentation L3 §3.1: margins not collapsed across a fragmentation break.
+    // In continuation fragments, suppress collapse with "previous" content.
+    if is_continuation {
+        prev_margin_block_end = None;
+        first_child_margin_block_start = Some(0.0);
+    }
+
+    debug_assert!(
+        start_index <= children.len(),
+        "BreakToken child_index ({start_index}) exceeds children count ({})",
+        children.len()
+    );
+
+    // Break candidates for overflow-based break selection.
+    let mut break_candidates: Vec<fragmentation::BreakCandidate> = Vec::new();
+    let mut propagated_break_before: Option<BreakValue> = None;
+    let mut propagated_break_after: Option<BreakValue> = None;
+    let mut result_break_token: Option<BreakToken> = None;
+
+    // Track previous block child's break-after for avoid penalty (CSS Frag §3.4).
+    let mut prev_break_after: Option<BreakValue> = None;
+    // Track whether we've seen any block children (for break candidate recording).
+    let mut seen_block_child = false;
+
+    for (idx, &child) in children.iter().enumerate() {
+        // Skip children before the resume point.
+        if idx < start_index {
+            continue;
+        }
         let child_style = crate::try_get_style(dom, child);
 
         // Skip display: none entirely.
@@ -124,12 +209,20 @@ pub fn stack_block_children(
 
         if !is_block {
             // Text node or inline element — collect for anonymous block box.
+            if inline_run.is_empty() {
+                inline_run_start_idx = Some(idx);
+            }
             inline_run.push(child);
             continue;
         }
 
         // Flush any pending inline run before this block child (CSS 2.1 §9.2.1.1).
         if !inline_run.is_empty() {
+            let skip_lines = if inline_run_start_idx == Some(start_index) {
+                resume_inline_break_line.unwrap_or(0)
+            } else {
+                0
+            };
             let run_result = flush_inline_run(
                 dom,
                 &inline_run,
@@ -137,8 +230,10 @@ pub fn stack_block_children(
                 input,
                 wm,
                 cursor_block,
+                cursor_block_origin,
                 layout_child,
                 &mut static_positions,
+                skip_lines,
             );
             if first_baseline.is_none() {
                 first_baseline = run_result
@@ -152,12 +247,45 @@ pub fn stack_block_children(
             }
             prev_margin_block_end = Some(0.0);
             last_child_margin_block_end = Some(0.0);
+            // Handle inline fragmentation break.
+            if let Some(break_line) = run_result.break_after_line {
+                result_break_token = Some(make_block_break_token(
+                    parent_entity,
+                    (cursor_block - cursor_block_origin).max(0.0),
+                    inline_run_start_idx.unwrap_or(idx),
+                    Some(break_line),
+                    None,
+                ));
+                inline_run.clear();
+                inline_run_start_idx = None;
+                break;
+            }
             inline_run.clear();
+            inline_run_start_idx = None;
         }
 
         let child_style = child_style.unwrap();
         let child_float = child_style.float;
         let child_clear = child_style.clear;
+
+        // --- Fragmentation: forced break-before (§3.1) ---
+        if let Some(frag) = frag_ctx {
+            let effective_break_before = child_style.break_before;
+            if fragmentation::is_forced_break(effective_break_before, frag.fragmentation_type) {
+                // First child's forced break-before propagates to parent (§3.2).
+                if idx == start_index {
+                    propagated_break_before = Some(effective_break_before);
+                }
+                result_break_token = Some(make_block_break_token(
+                    parent_entity,
+                    (cursor_block - cursor_block_origin).max(0.0),
+                    idx,
+                    None,
+                    None,
+                ));
+                break;
+            }
+        }
 
         // Block-start margin of the child (for collapse).
         // CSS WM: block-start = top (horizontal), right (vertical-rl), left (vertical-lr).
@@ -181,6 +309,8 @@ pub fn stack_block_children(
         };
 
         // --- Floated children: out of normal flow (CSS 2.1 §9.5) ---
+        // TODO(G9): Float fragmentation — push float to next fragmentainer if it
+        // overflows. Requires fragmentainer-aware float placement (CSS Frag §3.3).
         if child_float != Float::None {
             layout_float(
                 dom,
@@ -192,6 +322,7 @@ pub fn stack_block_children(
                 cursor_block,
                 layout_child,
             );
+            prev_break_after = Some(child_style.break_after);
             continue;
         }
 
@@ -208,22 +339,97 @@ pub fn stack_block_children(
             }
         }
 
+        // --- Fragmentation: record Class A break candidate between siblings ---
+        if let Some(frag) = frag_ctx {
+            if seen_block_child {
+                // §3.4: penalty from parent's break-inside, this child's break-before,
+                // AND the previous child's break-after.
+                let violates_avoid = fragmentation::is_avoid_break_inside(
+                    parent_style.break_inside,
+                    frag.fragmentation_type,
+                ) || fragmentation::is_avoid_break_value(
+                    child_style.break_before,
+                    frag.fragmentation_type,
+                ) || prev_break_after.is_some_and(|ba| {
+                    fragmentation::is_avoid_break_value(ba, frag.fragmentation_type)
+                });
+                break_candidates.push(fragmentation::BreakCandidate {
+                    child_index: idx,
+                    class: fragmentation::BreakClass::A,
+                    cursor_block: (cursor_block - cursor_block_origin).max(0.0),
+                    violates_avoid,
+                    orphan_widow_penalty: false,
+                });
+            }
+        }
+
+        // --- Fragmentation: check monolithic overflow before layout ---
+        if let Some(frag) = frag_ctx {
+            let child_has_intrinsic = crate::get_intrinsic_size(dom, child).is_some();
+            if fragmentation::is_monolithic(&child_style, child_has_intrinsic) {
+                let consumed = (cursor_block - cursor_block_origin).max(0.0);
+                // CSS Frag §4: if prior content exists and no remaining space,
+                // defer monolithic child to next fragmentainer.
+                if consumed > 0.0 && consumed >= frag.available_block_size {
+                    result_break_token = Some(make_block_break_token(
+                        parent_entity,
+                        consumed,
+                        idx,
+                        None,
+                        None,
+                    ));
+                    break;
+                }
+            }
+        }
+
         // Dispatch child layout via callback.
         // Set the block-axis offset in the child input.
+        // Pass child break token only to the first child being resumed.
+        let child_bt = if idx == start_index {
+            resume_child_break_token
+        } else {
+            None
+        };
         let child_input = if is_horizontal {
             LayoutInput {
                 offset_y: cursor_block,
                 float_ctx: Some(float_ctx),
+                break_token: child_bt,
                 ..*input
             }
         } else {
             LayoutInput {
                 offset_x: cursor_block,
                 float_ctx: Some(float_ctx),
+                break_token: child_bt,
                 ..*input
             }
         };
-        let child_box = layout_child(dom, child, &child_input).layout_box;
+        let child_outcome = layout_child(dom, child, &child_input);
+        let child_box = child_outcome.layout_box;
+
+        // --- Fragmentation: propagate child's break token upward ---
+        // If the child itself was fragmented, produce a break at this child_index
+        // wrapping the child's break token.
+        if let Some(child_bt) = child_outcome.break_token {
+            // Track propagated break-before from first child.
+            if idx == start_index {
+                if let Some(bp) = child_outcome.propagated_break_before {
+                    propagated_break_before = Some(bp);
+                }
+            }
+            // Note: propagated_break_after from a fragmented child is NOT propagated
+            // here — the child hasn't finished, so its last-child break info is premature.
+            result_break_token = Some(make_block_break_token(
+                parent_entity,
+                (cursor_block - cursor_block_origin).max(0.0) + child_bt.consumed_block_size,
+                idx,
+                None,
+                Some(Box::new(child_bt)),
+            ));
+            break;
+        }
 
         // Capture baseline from first in-flow block child (CSS 2.1 §10.8.1).
         if first_baseline.is_none() {
@@ -245,6 +451,36 @@ pub fn stack_block_children(
         };
         cursor_block += child_block_extent;
 
+        // --- Fragmentation: overflow detection ---
+        if let Some(frag) = frag_ctx {
+            let consumed = (cursor_block - cursor_block_origin).max(0.0);
+            if consumed > frag.available_block_size {
+                // Select best break from candidates.
+                if let Some(best_idx) =
+                    fragmentation::find_best_break(&break_candidates, frag.available_block_size)
+                {
+                    let best = &break_candidates[best_idx];
+                    result_break_token = Some(make_block_break_token(
+                        parent_entity,
+                        best.cursor_block,
+                        best.child_index,
+                        None,
+                        None,
+                    ));
+                    break;
+                }
+                // No candidates: break after current child (overflow accepted).
+                result_break_token = Some(make_block_break_token(
+                    parent_entity,
+                    consumed,
+                    idx + 1,
+                    None,
+                    None,
+                ));
+                break;
+            }
+        }
+
         // Track block-end margin for collapse with next sibling.
         let child_margin_block_end = if is_horizontal {
             child_box.margin.bottom
@@ -255,10 +491,42 @@ pub fn stack_block_children(
         };
         prev_margin_block_end = Some(child_margin_block_end);
         last_child_margin_block_end = Some(child_margin_block_end);
+
+        // --- Fragmentation: forced break-after (§3.1) ---
+        if let Some(frag) = frag_ctx {
+            if fragmentation::is_forced_break(child_style.break_after, frag.fragmentation_type) {
+                // §3.2: Only propagate break-after if this is the last content child.
+                let remaining_has_content = children[idx + 1..].iter().any(|&c| {
+                    crate::try_get_style(dom, c).is_none_or(|s| {
+                        s.display != Display::None
+                            && !crate::positioned::is_absolutely_positioned(&s)
+                    })
+                });
+                if !remaining_has_content {
+                    propagated_break_after = Some(child_style.break_after);
+                }
+                result_break_token = Some(make_block_break_token(
+                    parent_entity,
+                    (cursor_block - cursor_block_origin).max(0.0),
+                    idx + 1,
+                    None,
+                    None,
+                ));
+                break;
+            }
+        }
+
+        prev_break_after = Some(child_style.break_after);
+        seen_block_child = true;
     }
 
-    // Flush trailing inline run (CSS 2.1 §9.2.1.1).
-    if !inline_run.is_empty() {
+    // Flush trailing inline run (CSS 2.1 §9.2.1.1) — only if no break was produced.
+    if result_break_token.is_none() && !inline_run.is_empty() {
+        let skip_lines = if inline_run_start_idx == Some(start_index) {
+            resume_inline_break_line.unwrap_or(0)
+        } else {
+            0
+        };
         let run_result = flush_inline_run(
             dom,
             &inline_run,
@@ -266,8 +534,10 @@ pub fn stack_block_children(
             input,
             wm,
             cursor_block,
+            cursor_block_origin,
             layout_child,
             &mut static_positions,
+            skip_lines,
         );
         if first_baseline.is_none() {
             first_baseline = run_result
@@ -279,12 +549,32 @@ pub fn stack_block_children(
             first_child_margin_block_start = Some(0.0);
         }
         last_child_margin_block_end = Some(0.0);
+        // Handle inline fragmentation break from trailing run.
+        if let Some(break_line) = run_result.break_after_line {
+            result_break_token = Some(make_block_break_token(
+                parent_entity,
+                (cursor_block - cursor_block_origin).max(0.0),
+                inline_run_start_idx.unwrap_or(children.len()),
+                Some(break_line),
+                None,
+            ));
+        }
+    }
+
+    // CSS Fragmentation L3 §3.1: margins not collapsed at fragment end.
+    if result_break_token.is_some() {
+        last_child_margin_block_end = Some(0.0);
     }
 
     // CSS 2.1 §10.6.7: Only elements that establish a BFC have their
     // block extent increased to contain floats.
     let normal_extent = cursor_block - cursor_block_origin;
-    let height = if is_bfc {
+
+    // H3: When fragmented, clamp height to the break point's consumed size
+    // (the cursor may have advanced past the break point for overflow detection).
+    let height = if let Some(ref bt) = result_break_token {
+        bt.consumed_block_size.min(normal_extent)
+    } else if is_bfc {
         let float_bottom = float_ctx.borrow().float_bottom();
         let float_extend = if float_bottom > 0.0 {
             (float_bottom - cursor_block_origin).max(0.0)
@@ -302,6 +592,9 @@ pub fn stack_block_children(
         last_child_margin_bottom: last_child_margin_block_end,
         static_positions,
         first_baseline,
+        break_token: result_break_token,
+        propagated_break_before,
+        propagated_break_after,
     }
 }
 
@@ -310,6 +603,8 @@ struct InlineRunResult {
     /// Block-axis extent consumed by the inline run.
     block_extent: f32,
     first_baseline: Option<f32>,
+    /// If fragmentation was applied, the line index after which to break.
+    break_after_line: Option<usize>,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
@@ -318,6 +613,9 @@ struct InlineRunResult {
 /// context and returns the block extent consumed and the first baseline.
 /// Writing-mode-aware: uses inline-axis size for the line width and
 /// positions the content origin based on the block cursor.
+///
+/// `skip_lines` is set when resuming an inline run after a fragmentation
+/// break — it tells the inline layout engine how many line boxes to skip.
 #[allow(clippy::too_many_arguments)]
 fn flush_inline_run(
     dom: &mut EcsDom,
@@ -326,8 +624,10 @@ fn flush_inline_run(
     input: &LayoutInput<'_>,
     wm: WritingModeContext,
     cursor_block: f32,
+    cursor_block_origin: f32,
     layout_child: crate::ChildLayoutFn,
     static_positions: &mut HashMap<Entity, (f32, f32)>,
+    skip_lines: usize,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let is_horizontal = wm.is_horizontal();
@@ -347,7 +647,18 @@ fn flush_inline_run(
         (cursor_block, input.offset_y)
     };
 
-    let result = crate::inline::layout_inline_context(
+    // Build fragmentation constraint for inline layout if fragmentainer is active.
+    let frag_constraint = input.fragmentainer.map(|frag| {
+        let consumed = (cursor_block - cursor_block_origin).max(0.0);
+        crate::inline::InlineFragConstraint {
+            available_block: (frag.available_block_size - consumed).max(0.0),
+            orphans: parent_style.orphans,
+            widows: parent_style.widows,
+            skip_lines,
+        }
+    });
+
+    let result = crate::inline::layout_inline_context_fragmented(
         dom,
         inline_children,
         inline_size,
@@ -356,6 +667,7 @@ fn flush_inline_run(
         parent_entity,
         content_origin,
         layout_child,
+        frag_constraint.as_ref(),
     );
     static_positions.extend(result.static_positions);
 
@@ -364,6 +676,7 @@ fn flush_inline_run(
     InlineRunResult {
         block_extent: result.height,
         first_baseline: result.first_baseline,
+        break_after_line: result.break_after_line,
     }
 }
 

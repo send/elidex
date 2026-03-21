@@ -9,6 +9,7 @@ use elidex_plugin::{
 use elidex_text::FontDatabase;
 
 mod float_layout;
+mod fragmentation;
 mod height_replaced;
 mod margin_collapse;
 mod width;

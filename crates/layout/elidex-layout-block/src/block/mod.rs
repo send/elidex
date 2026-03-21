@@ -6,6 +6,7 @@
 
 pub(crate) mod children;
 pub mod float;
+pub(crate) mod fragmentation;
 mod margin;
 mod replaced;
 
@@ -20,7 +21,6 @@ use elidex_plugin::{
 };
 use elidex_text::FontDatabase;
 
-use crate::inline::layout_inline_context;
 use crate::sanitize;
 use crate::{
     adjust_min_max_for_border_box, clamp_min_max, resolve_dimension_value, resolve_min_max,
@@ -93,7 +93,7 @@ pub fn layout_block(
         break_token: None,
         subgrid: None,
     };
-    layout_block_inner(dom, entity, &input, crate::layout_block_only)
+    layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
 
 /// Layout a block-level element with an explicit containing height.
@@ -123,7 +123,7 @@ pub fn layout_block_with_height(
         break_token: None,
         subgrid: None,
     };
-    layout_block_inner(dom, entity, &input, crate::layout_block_only)
+    layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
 
 /// Inner recursive implementation with depth tracking.
@@ -142,7 +142,7 @@ pub fn layout_block_inner(
     entity: Entity,
     input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
-) -> LayoutBox {
+) -> crate::LayoutOutcome {
     let containing_width = input.containing_width;
     let containing_height = input.containing_height;
     let offset_x = input.offset_x;
@@ -342,6 +342,29 @@ pub fn layout_block_inner(
 
     let mut static_positions_stash = std::collections::HashMap::new();
     let mut block_first_baseline: Option<f32> = None;
+    let mut child_break_token: Option<crate::BreakToken> = None;
+    let mut propagated_break_before: Option<elidex_plugin::BreakValue> = None;
+    let mut propagated_break_after: Option<elidex_plugin::BreakValue> = None;
+    // Inline-only break line (separate from child_break_token to avoid double-wrapping).
+    let mut inline_break_after_line: Option<usize> = None;
+    let mut inline_content_block: f32 = 0.0;
+
+    // --- Fragmentation: compute child fragmentainer context ---
+    let is_first_fragment = input.break_token.is_none();
+    let block_start_pb = l_border.block_start + l_padding.block_start;
+    let block_end_pb = l_border.block_end + l_padding.block_end;
+
+    let child_fragmentainer = input.fragmentainer.map(|frag| {
+        let pb_consumed = match style.box_decoration_break {
+            elidex_plugin::BoxDecorationBreak::Slice if is_first_fragment => block_start_pb,
+            elidex_plugin::BoxDecorationBreak::Slice => 0.0,
+            elidex_plugin::BoxDecorationBreak::Cloned => block_start_pb + block_end_pb,
+        };
+        crate::FragmentainerContext {
+            available_block_size: (frag.available_block_size - pb_consumed).max(0.0),
+            fragmentation_type: frag.fragmentation_type,
+        }
+    });
 
     let content_block = if let Some((iw, ih)) = intrinsic {
         // Replaced element: resolve block-size from physical dimensions.
@@ -358,6 +381,11 @@ pub fn layout_block_inner(
             child_phys_width,
             child_phys_height,
         );
+        // Extract child break token for stack_block_children resumption.
+        // layout_block_inner wraps stack's BreakToken as child_break_token in its own.
+        let child_bt_for_stack = input
+            .break_token
+            .and_then(|bt| bt.child_break_token.as_deref());
         let child_input = LayoutInput {
             containing_width: child_phys_width,
             containing_height: child_phys_height,
@@ -368,17 +396,24 @@ pub fn layout_block_inner(
             depth: depth + 1,
             float_ctx: input.float_ctx,
             viewport: input.viewport,
-            fragmentainer: None,
-            break_token: None,
+            fragmentainer: child_fragmentainer.as_ref(),
+            break_token: child_bt_for_stack,
             subgrid: None,
         };
         let is_bfc = establishes_bfc(&style);
-        let result =
+        let mut result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
+
+        // Capture fragmentation results from stack_block_children.
+        child_break_token = result.break_token.take();
+        propagated_break_before = result.propagated_break_before;
+        propagated_break_after = result.propagated_break_after;
 
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's block-start margin collapses with parent's block-start margin
         // when parent has no block-start border/padding and doesn't establish BFC.
+        // CSS Fragmentation L3 §3.1: suppress in continuation fragments.
+        let suppress_parent_child_collapse = input.break_token.is_some();
         let block_start_border = if is_horizontal {
             border.top
         } else {
@@ -389,7 +424,11 @@ pub fn layout_block_inner(
         } else {
             l_padding.block_start
         };
-        if block_start_border == 0.0 && block_start_padding == 0.0 && !is_bfc {
+        if block_start_border == 0.0
+            && block_start_padding == 0.0
+            && !is_bfc
+            && !suppress_parent_child_collapse
+        {
             if let Some(first_mbs) = result.first_child_margin_top {
                 let new_mbs = collapse_margins(margin_block_start, first_mbs);
                 let delta = (new_mbs - collapsed_margin_block_start) - first_mbs;
@@ -445,7 +484,28 @@ pub fn layout_block_inner(
             // is vertical (height). Use containing height when known.
             child_phys_height.unwrap_or(content_inline)
         };
-        let inline_result = layout_inline_context(
+        // Extract inline resume skip_lines from break token (H2: inline resume).
+        let inline_skip_lines = input
+            .break_token
+            .and_then(|bt| bt.mode_data.as_ref())
+            .and_then(|md| match md {
+                crate::BreakTokenData::Block {
+                    inline_break_line, ..
+                } => *inline_break_line,
+                _ => None,
+            })
+            .unwrap_or(0);
+        // Build fragmentation constraint for inline layout if fragmentainer is active.
+        let inline_frag_constraint =
+            child_fragmentainer
+                .as_ref()
+                .map(|frag| crate::inline::InlineFragConstraint {
+                    available_block: frag.available_block_size,
+                    orphans: style.orphans,
+                    widows: style.widows,
+                    skip_lines: inline_skip_lines,
+                });
+        let inline_result = crate::inline::layout_inline_context_fragmented(
             dom,
             &children,
             inline_size,
@@ -454,9 +514,14 @@ pub fn layout_block_inner(
             entity,
             (content_x, content_y),
             layout_child,
+            inline_frag_constraint.as_ref(),
         );
         static_positions_stash = inline_result.static_positions;
         block_first_baseline = inline_result.first_baseline;
+        // Record inline break for later (handled after LayoutBox is built,
+        // without going through the child_break_token wrapping path).
+        inline_break_after_line = inline_result.break_after_line;
+        inline_content_block = inline_result.height;
         // inline_result.height is always the block-axis extent:
         // horizontal-tb: physical height (line boxes stacked vertically)
         // vertical-rl/lr: physical width (column widths stacked horizontally)
@@ -546,7 +611,46 @@ pub fn layout_block_inner(
         );
     }
 
-    lb
+    // Inline-only fragmentation break: return directly without wrapping
+    // (no child_break_token nesting — mode_data goes on the top-level token).
+    if let Some(break_line) = inline_break_after_line {
+        return crate::LayoutOutcome {
+            layout_box: lb,
+            break_token: Some(crate::BreakToken {
+                entity,
+                consumed_block_size: inline_content_block + block_start_pb,
+                child_break_token: None,
+                mode_data: Some(crate::BreakTokenData::Block {
+                    child_index: 0,
+                    inline_break_line: Some(break_line),
+                }),
+            }),
+            propagated_break_before,
+            propagated_break_after,
+        };
+    }
+
+    // If stack_block_children produced a break token, wrap it in a parent break token.
+    if let Some(child_bt) = child_break_token {
+        return crate::LayoutOutcome {
+            layout_box: lb,
+            break_token: Some(crate::BreakToken {
+                entity,
+                consumed_block_size: child_bt.consumed_block_size + block_start_pb,
+                child_break_token: Some(Box::new(child_bt)),
+                mode_data: None,
+            }),
+            propagated_break_before,
+            propagated_break_after,
+        };
+    }
+
+    crate::LayoutOutcome {
+        layout_box: lb,
+        break_token: None,
+        propagated_break_before,
+        propagated_break_after,
+    }
 }
 
 /// CSS 2.1 §9.4.1: Does this element establish a new block formatting context?

@@ -40,7 +40,7 @@ fn test_layout_child(
     entity: elidex_ecs::Entity,
     input: &LayoutInput<'_>,
 ) -> elidex_layout_block::LayoutOutcome {
-    elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child).into()
+    elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child)
 }
 
 /// Helper to call `layout_table` with the old positional-argument pattern used by tests.

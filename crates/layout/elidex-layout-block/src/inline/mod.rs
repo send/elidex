@@ -381,6 +381,23 @@ pub struct InlineLayoutResult {
     /// CSS 2.1 §10.8.1: computed from the first line box's text run baseline,
     /// accounting for half-leading distribution.
     pub first_baseline: Option<f32>,
+    /// Total number of line boxes produced.
+    pub line_count: usize,
+    /// If fragmentation was applied, the number of lines in this fragment.
+    /// Lines after this count should be laid out in the next fragmentainer.
+    pub break_after_line: Option<usize>,
+}
+
+/// Fragmentation constraint for inline layout (CSS Fragmentation L3 §4.3).
+pub struct InlineFragConstraint {
+    /// Available block-axis space from the current cursor position.
+    pub available_block: f32,
+    /// CSS orphans value (inherited, default 2).
+    pub orphans: u32,
+    /// CSS widows value (inherited, default 2).
+    pub widows: u32,
+    /// Number of lines to skip (for resuming after a break).
+    pub skip_lines: usize,
 }
 
 /// Layout inline content (text nodes, inline elements, and atomic inline
@@ -417,12 +434,40 @@ pub fn layout_inline_context(
     content_origin: (f32, f32),
     layout_child: crate::ChildLayoutFn,
 ) -> InlineLayoutResult {
+    layout_inline_context_fragmented(
+        dom,
+        children,
+        containing_inline_size,
+        parent_style,
+        font_db,
+        parent_entity,
+        content_origin,
+        layout_child,
+        None,
+    )
+}
+
+/// Layout inline content with optional fragmentation constraint.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub fn layout_inline_context_fragmented(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    containing_inline_size: f32,
+    parent_style: &ComputedStyle,
+    font_db: &FontDatabase,
+    parent_entity: Entity,
+    content_origin: (f32, f32),
+    layout_child: crate::ChildLayoutFn,
+    frag_constraint: Option<&InlineFragConstraint>,
+) -> InlineLayoutResult {
     let mut items = collect_inline_items(dom, children, parent_style, parent_entity);
     if items.is_empty() {
         return InlineLayoutResult {
             height: 0.0,
             static_positions: HashMap::new(),
             first_baseline: None,
+            line_count: 0,
+            break_after_line: None,
         };
     }
 
@@ -454,6 +499,8 @@ pub fn layout_inline_context(
                 height: 0.0,
                 static_positions: HashMap::new(),
                 first_baseline: None,
+                line_count: 0,
+                break_after_line: None,
             };
         }
     }
@@ -474,7 +521,58 @@ pub fn layout_inline_context(
     }
     packer.finish();
 
-    let total_block: f32 = packer.line_boxes.iter().map(|lb| lb.block_size).sum();
+    let line_count = packer.line_boxes.len();
+
+    // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §4.3) ---
+    let break_after_line = if let Some(constraint) = frag_constraint {
+        let skip = constraint.skip_lines;
+        let line_heights: Vec<f32> = packer.line_boxes.iter().map(|lb| lb.block_size).collect();
+
+        // Find the first line that overflows.
+        let mut cumulative = 0.0_f32;
+        let mut break_line: Option<usize> = None;
+        for (i, &h) in line_heights.iter().enumerate().skip(skip) {
+            if cumulative + h > constraint.available_block {
+                break_line = Some(i);
+                break;
+            }
+            cumulative += h;
+        }
+
+        if let Some(bl) = break_line {
+            let total = line_heights.len();
+            let orphans = constraint.orphans as usize;
+            let widows = constraint.widows as usize;
+            // orphans: at least `orphans` lines must stay in this fragment.
+            let mut actual_break = bl.max(skip + orphans);
+            // widows: at least `widows` lines must go to the next fragment.
+            if total > actual_break && total - actual_break < widows {
+                actual_break = total.saturating_sub(widows);
+            }
+            // If orphans + widows > total lines, treat as monolithic.
+            if actual_break < skip + orphans || actual_break >= total {
+                None // cannot satisfy constraints or all lines fit
+            } else {
+                Some(actual_break)
+            }
+        } else {
+            None // all lines fit
+        }
+    } else {
+        None
+    };
+
+    // Compute total block using only lines up to break point (if fragmented).
+    let effective_line_count = break_after_line.unwrap_or(line_count);
+    let skip_lines = frag_constraint.map_or(0, |c| c.skip_lines);
+    let total_block: f32 = packer
+        .line_boxes
+        .iter()
+        .skip(skip_lines)
+        .take(effective_line_count.saturating_sub(skip_lines))
+        .map(|lb| lb.block_size)
+        .sum();
+
     assign_inline_layout_boxes(dom, &packer.entity_bounds, content_origin, is_vertical);
 
     // Convert static positions from packer-relative to layout coordinates.
@@ -500,6 +598,8 @@ pub fn layout_inline_context(
         height: total_block,
         static_positions,
         first_baseline: packer.first_baseline,
+        line_count,
+        break_after_line,
     }
 }
 

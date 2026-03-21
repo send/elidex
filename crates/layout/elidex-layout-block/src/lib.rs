@@ -49,6 +49,10 @@ pub struct LayoutOutcome {
     pub layout_box: LayoutBox,
     /// If layout was interrupted by a fragmentainer break, the token to resume.
     pub break_token: Option<BreakToken>,
+    /// CSS Fragmentation L3 §3.2: propagated forced break-before from first child.
+    pub propagated_break_before: Option<elidex_plugin::BreakValue>,
+    /// CSS Fragmentation L3 §3.2: propagated forced break-after from last child.
+    pub propagated_break_after: Option<elidex_plugin::BreakValue>,
 }
 
 impl From<LayoutBox> for LayoutOutcome {
@@ -56,6 +60,8 @@ impl From<LayoutBox> for LayoutOutcome {
         Self {
             layout_box: lb,
             break_token: None,
+            propagated_break_before: None,
+            propagated_break_after: None,
         }
     }
 }
@@ -77,7 +83,12 @@ pub struct BreakToken {
 #[derive(Clone, Debug)]
 pub enum BreakTokenData {
     /// Block layout: index of the next child to lay out.
-    Block { child_index: usize },
+    Block {
+        child_index: usize,
+        /// If the break occurred within an inline run at this `child_index`,
+        /// the number of line boxes to skip when resuming.
+        inline_break_line: Option<usize>,
+    },
     /// Flex layout: line and item indices.
     Flex {
         line_index: usize,
@@ -200,7 +211,7 @@ pub fn layout_block_only(
     entity: Entity,
     input: &LayoutInput<'_>,
 ) -> LayoutOutcome {
-    block::layout_block_inner(dom, entity, input, layout_block_only).into()
+    block::layout_block_inner(dom, entity, input, layout_block_only)
 }
 
 // ---------------------------------------------------------------------------
@@ -764,7 +775,10 @@ mod tests {
             entity: Entity::DANGLING,
             consumed_block_size: 50.0,
             child_break_token: None,
-            mode_data: Some(BreakTokenData::Block { child_index: 2 }),
+            mode_data: Some(BreakTokenData::Block {
+                child_index: 2,
+                inline_break_line: None,
+            }),
         };
         let outer = BreakToken {
             entity: Entity::DANGLING,
@@ -779,13 +793,16 @@ mod tests {
         assert_eq!(child.consumed_block_size, 50.0);
         assert!(matches!(
             child.mode_data,
-            Some(BreakTokenData::Block { child_index: 2 })
+            Some(BreakTokenData::Block { child_index: 2, .. })
         ));
     }
 
     #[test]
     fn break_token_data_variants() {
-        let block = BreakTokenData::Block { child_index: 5 };
+        let block = BreakTokenData::Block {
+            child_index: 5,
+            inline_break_line: None,
+        };
         let flex = BreakTokenData::Flex {
             line_index: 1,
             item_index: 2,

@@ -67,7 +67,7 @@ pub fn dispatch_layout_child(
         anonymous_table::ensure_table_wrappers(dom, entity);
     }
 
-    let lb = match style.display {
+    let outcome = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
@@ -77,15 +77,19 @@ pub fn dispatch_layout_child(
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),
             first_baseline: None,
-        },
+        }
+        .into(),
         Display::Flex | Display::InlineFlex => {
             elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)
+                .into()
         }
         Display::Grid | Display::InlineGrid => {
             elidex_layout_grid::layout_grid(dom, entity, effective_input, dispatch_layout_child)
+                .into()
         }
         Display::Table | Display::InlineTable => {
             elidex_layout_table::layout_table(dom, entity, effective_input, dispatch_layout_child)
+                .into()
         }
         _ => elidex_layout_block::block::layout_block_inner(
             dom,
@@ -99,6 +103,7 @@ pub fn dispatch_layout_child(
     // Return the original LayoutBox (without offset) so siblings use the
     // unshifted space. The ECS LayoutBox is updated with the offset.
     if style.position == Position::Relative {
+        let lb = &outcome.layout_box;
         let mut offset_lb = lb.clone();
         positioned::apply_relative_offset(
             &mut offset_lb,
@@ -115,7 +120,41 @@ pub fn dispatch_layout_child(
         }
     }
 
-    lb.into()
+    outcome
+}
+
+/// Maximum number of fragments to prevent infinite loops.
+pub const MAX_FRAGMENTS: usize = 1000;
+
+/// Lay out an element across multiple fragmentainers.
+///
+/// Returns a `Vec` of `LayoutOutcome`, one per fragment. Each fragment's
+/// `layout_box` represents the portion of the element in that fragmentainer.
+pub fn layout_fragmented(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    fragmentainer: elidex_layout_block::FragmentainerContext,
+) -> Vec<elidex_layout_block::LayoutOutcome> {
+    let mut fragments = Vec::new();
+    let mut current_token: Option<elidex_layout_block::BreakToken> = None;
+
+    for _ in 0..MAX_FRAGMENTS {
+        let frag_input = LayoutInput {
+            fragmentainer: Some(&fragmentainer),
+            break_token: current_token.as_ref(),
+            ..*input
+        };
+        let mut outcome = dispatch_layout_child(dom, entity, &frag_input);
+        current_token = outcome.break_token.take();
+        let has_more = current_token.is_some();
+        fragments.push(outcome);
+
+        if !has_more {
+            break;
+        }
+    }
+    fragments
 }
 
 /// Layout the entire DOM tree.
