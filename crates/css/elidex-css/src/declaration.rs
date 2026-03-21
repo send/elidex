@@ -467,7 +467,9 @@ pub(crate) fn parse_property_value(
         "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
         "border-spacing" => misc::parse_border_spacing(input),
         "table-layout" => parse_keyword_property(input, name, &["auto", "fixed"]),
-        "caption-side" => parse_keyword_property(input, name, &["top", "bottom"]),
+        "caption-side" => {
+            parse_keyword_property(input, name, &["top", "bottom", "block-start", "block-end"])
+        }
 
         // --- Content property ---
         "content" => misc::parse_content(input),

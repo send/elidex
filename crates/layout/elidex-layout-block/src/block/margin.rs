@@ -1,6 +1,6 @@
 //! Margin resolution and collapsing logic.
 
-use elidex_plugin::{ComputedStyle, Dimension, Direction};
+use elidex_plugin::{Dimension, Direction};
 
 use crate::{resolve_dimension_value, sanitize};
 
@@ -13,23 +13,29 @@ pub fn resolve_margin(dim: Dimension, containing_width: f32) -> f32 {
     sanitize(resolve_dimension_value(dim, containing_width, 0.0))
 }
 
-/// Apply horizontal `margin: auto` centering (CSS 2.1 §10.3.3).
+/// Apply inline-axis `margin: auto` centering (CSS 2.1 §10.3.3).
 ///
-/// `used_horizontal` = `content_width` + padding + border (already sanitized).
+/// Generalized for writing modes: accepts inline-start and inline-end margin
+/// dimensions directly, along with the inline-axis containing size and used size.
+///
+/// `used_inline` = `content_inline` + inline padding + inline border (already sanitized).
 /// When the box is overconstrained:
-/// - LTR: `margin-right` is recalculated to satisfy the constraint.
-/// - RTL: `margin-left` is recalculated to satisfy the constraint.
+/// - Normal direction: inline-end margin is recalculated.
+/// - Reversed direction: inline-start margin is recalculated.
+///
+/// Returns `(margin_inline_start, margin_inline_end)`.
 pub(super) fn apply_margin_auto_centering(
-    style: &ComputedStyle,
-    containing_width: f32,
-    used_horizontal: f32,
+    margin_start_dim: Dimension,
+    margin_end_dim: Dimension,
+    containing_inline: f32,
+    used_inline: f32,
     direction: Direction,
 ) -> (f32, f32) {
-    let remaining = containing_width - used_horizontal;
-    let left_auto = matches!(style.margin_left, Dimension::Auto);
-    let right_auto = matches!(style.margin_right, Dimension::Auto);
+    let remaining = containing_inline - used_inline;
+    let start_auto = matches!(margin_start_dim, Dimension::Auto);
+    let end_auto = matches!(margin_end_dim, Dimension::Auto);
 
-    match (left_auto, right_auto) {
+    match (start_auto, end_auto) {
         (true, true) => {
             if remaining >= 0.0 {
                 (remaining / 2.0, remaining / 2.0)
@@ -43,24 +49,24 @@ pub(super) fn apply_margin_auto_centering(
             }
         }
         (true, false) => {
-            let mr = resolve_margin(style.margin_right, containing_width);
-            (remaining - mr, mr)
+            let me = resolve_margin(margin_end_dim, containing_inline);
+            (remaining - me, me)
         }
         (false, true) => {
-            let ml = resolve_margin(style.margin_left, containing_width);
-            (ml, remaining - ml)
+            let ms = resolve_margin(margin_start_dim, containing_inline);
+            (ms, remaining - ms)
         }
         (false, false) => {
             // CSS 2.1 §10.3.3: no margins auto, over-constrained.
-            // LTR: margin-right recalculated. RTL: margin-left recalculated.
+            // Normal: end margin recalculated. Reversed: start margin recalculated.
             match direction {
                 Direction::Ltr => {
-                    let ml = resolve_margin(style.margin_left, containing_width);
-                    (ml, containing_width - used_horizontal - ml)
+                    let ms = resolve_margin(margin_start_dim, containing_inline);
+                    (ms, containing_inline - used_inline - ms)
                 }
                 Direction::Rtl => {
-                    let mr = resolve_margin(style.margin_right, containing_width);
-                    (containing_width - used_horizontal - mr, mr)
+                    let me = resolve_margin(margin_end_dim, containing_inline);
+                    (containing_inline - used_inline - me, me)
                 }
             }
         }

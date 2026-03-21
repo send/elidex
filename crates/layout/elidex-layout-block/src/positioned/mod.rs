@@ -1,7 +1,8 @@
 //! CSS positioned layout (relative, absolute, fixed).
 //!
 //! Implements CSS 2.1 §9.3 (relative), §10.3.7/§10.6.4 (absolute constraint
-//! equations), and §9.9.1 (stacking context rules).
+//! equations), §9.9.1 (stacking context rules), and CSS Writing Modes L3
+//! writing-mode-aware constraint equation axis mapping.
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -10,7 +11,7 @@ mod tests;
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, Dimension, Direction, Display, Position, Rect};
+use elidex_plugin::{ComputedStyle, Dimension, Display, Position, Rect, WritingModeContext};
 use elidex_text::FontDatabase;
 
 use crate::{
@@ -75,9 +76,14 @@ pub fn collect_abspos_static_positions(
 
 /// Apply relative positioning offsets to a `LayoutBox`.
 ///
-/// CSS 2.1 §9.4.3:
-///   Vertical: top wins over bottom (always)
-///   Horizontal: direction-dependent — LTR: left wins; RTL: right wins
+/// CSS Writing Modes L3 §4.3 maps the constraint rules to logical axes:
+/// - Inline axis: inline-start wins over inline-end (direction-dependent in physical)
+/// - Block axis: block-start wins over block-end
+///
+/// In horizontal-tb LTR: left wins over right, top wins over bottom (CSS 2.1 behavior).
+/// In horizontal-tb RTL: right wins over left, top wins over bottom.
+/// In vertical-rl LTR: top wins over bottom (inline), right wins over left (block).
+/// In vertical-lr LTR: top wins over bottom (inline), left wins over right (block).
 pub fn apply_relative_offset(
     lb: &mut elidex_plugin::LayoutBox,
     style: &ComputedStyle,
@@ -85,35 +91,68 @@ pub fn apply_relative_offset(
     containing_height: Option<f32>,
 ) {
     let ch = containing_height.unwrap_or(0.0);
+    let wm = WritingModeContext::new(style.writing_mode, style.direction);
 
-    // Horizontal offset
+    // Resolve all four physical offsets.
     let left = resolve_offset(&style.left, containing_width);
     let right = resolve_offset(&style.right, containing_width);
-    let dx = match (left, right) {
-        (Some(l), Some(r)) => {
-            // Both specified: direction determines winner.
-            if style.direction == Direction::Rtl {
-                -r // RTL: right wins
-            } else {
-                l // LTR: left wins
-            }
-        }
-        (Some(l), None) => l,
-        (None, Some(r)) => -r,
-        (None, None) => 0.0,
-    };
-
-    // Vertical offset: top always wins over bottom.
     let top = resolve_offset(&style.top, ch);
     let bottom = resolve_offset(&style.bottom, ch);
-    let dy = match (top, bottom) {
-        (Some(t), _) => t, // top always wins
-        (None, Some(b)) => -b,
-        (None, None) => 0.0,
-    };
 
-    lb.content.x += dx;
-    lb.content.y += dy;
+    if wm.is_horizontal() {
+        // Inline axis = horizontal: direction determines winner.
+        let dx = match (left, right) {
+            (Some(l), Some(r)) => {
+                if wm.is_inline_reversed() {
+                    -r // RTL: right (inline-start) wins
+                } else {
+                    l // LTR: left (inline-start) wins
+                }
+            }
+            (Some(l), None) => l,
+            (None, Some(r)) => -r,
+            (None, None) => 0.0,
+        };
+        // Block axis = vertical: block-start (top) always wins.
+        let dy = match (top, bottom) {
+            (Some(t), _) => t,
+            (None, Some(b)) => -b,
+            (None, None) => 0.0,
+        };
+        lb.content.x += dx;
+        lb.content.y += dy;
+    } else {
+        // Vertical writing mode: inline axis = vertical, block axis = horizontal.
+        // Inline axis (top/bottom): direction determines winner.
+        let dy = match (top, bottom) {
+            (Some(t), Some(b)) => {
+                if wm.is_inline_reversed() {
+                    -b // RTL: bottom (inline-start) wins
+                } else {
+                    t // LTR: top (inline-start) wins
+                }
+            }
+            (Some(t), None) => t,
+            (None, Some(b)) => -b,
+            (None, None) => 0.0,
+        };
+        // Block axis (left/right): block-start wins.
+        // vertical-rl: block-start = right; vertical-lr: block-start = left.
+        let dx = match (left, right) {
+            (Some(l), Some(r)) => {
+                if wm.is_block_reversed() {
+                    -r // vertical-rl: right (block-start) wins
+                } else {
+                    l // vertical-lr: left (block-start) wins
+                }
+            }
+            (Some(l), None) => l,
+            (None, Some(r)) => -r,
+            (None, None) => 0.0,
+        };
+        lb.content.x += dx;
+        lb.content.y += dy;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,10 +284,85 @@ pub fn layout_positioned_children(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Physical ↔ logical property mapping for positioned layout
+// ---------------------------------------------------------------------------
+
+/// Physical properties mapped to the inline axis.
+struct InlineAxisProps {
+    /// Resolved inline-start offset (physical left or top depending on WM).
+    start: Option<f32>,
+    /// Resolved inline-end offset (physical right or bottom depending on WM).
+    end: Option<f32>,
+    /// Specified inline-size (physical width or height depending on WM).
+    size: Option<f32>,
+    /// Raw margin at inline-start side.
+    margin_start_raw: f32,
+    /// Raw margin at inline-end side.
+    margin_end_raw: f32,
+    /// Whether inline-start margin is auto.
+    margin_start_auto: bool,
+    /// Whether inline-end margin is auto.
+    margin_end_auto: bool,
+    /// Inline-axis padding + border.
+    pb: f32,
+    /// Containing block inline size.
+    containing: f32,
+    /// Static position on inline axis (relative to CB origin).
+    static_offset: f32,
+}
+
+/// Physical properties mapped to the block axis.
+struct BlockAxisProps {
+    /// Resolved block-start offset.
+    start: Option<f32>,
+    /// Resolved block-end offset.
+    end: Option<f32>,
+    /// Specified block-size (`None` if auto).
+    size: Option<f32>,
+    /// Content size from layout (used when size is auto).
+    content_size: Option<f32>,
+    /// Raw margin at block-start side.
+    margin_start_raw: f32,
+    /// Raw margin at block-end side.
+    margin_end_raw: f32,
+    /// Whether block-start margin is auto.
+    margin_start_auto: bool,
+    /// Whether block-end margin is auto.
+    margin_end_auto: bool,
+    /// Block-axis padding + border.
+    pb: f32,
+    /// Containing block block size.
+    containing: f32,
+    /// Static position on block axis (relative to CB origin).
+    static_offset: f32,
+}
+
+/// Result of axis constraint resolution, in logical terms.
+struct AxisResult {
+    /// Resolved content size along this axis.
+    size: f32,
+    /// Margin at the start side.
+    margin_start: f32,
+    /// Margin at the end side.
+    margin_end: f32,
+    /// Offset from CB edge to margin edge (start side).
+    offset: f32,
+}
+
 /// Layout a single absolutely positioned element against its containing block.
 ///
-/// CSS 2.1 §10.3.7 / §10.6.4 constraint equations.
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+/// CSS 2.1 §10.3.7 / §10.6.4 constraint equations, extended for writing modes
+/// per CSS Writing Modes L3 §4.3 and CSS Positioned Layout L3.
+///
+/// The inline axis gets shrink-to-fit behavior, direction-dependent over-constrained
+/// handling, and direction-dependent static position. The block axis gets stretch
+/// behavior and always-equal-split auto margins.
+#[allow(
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::similar_names
+)]
 pub fn layout_absolutely_positioned(
     dom: &mut EcsDom,
     entity: Entity,
@@ -260,17 +374,29 @@ pub fn layout_absolutely_positioned(
     viewport: Option<(f32, f32)>,
 ) {
     let style = get_style(dom, entity);
-    let padding = resolve_padding(&style, cb.width);
+    let wm = WritingModeContext::new(style.writing_mode, style.direction);
+
+    // CSS Box Model L3 §5.3: percentage padding/margin resolve against the
+    // containing block's *inline size*.
+    let inline_containing = if wm.is_horizontal() {
+        cb.width
+    } else {
+        cb.height
+    };
+
+    let padding = resolve_padding(&style, inline_containing);
     let border = sanitize_border(&style);
     let h_pb = horizontal_pb(&padding, &border);
     let v_pb = crate::vertical_pb(&padding, &border);
     let is_border_box = style.box_sizing == elidex_plugin::BoxSizing::BorderBox;
 
-    let margin_top_raw = crate::block::resolve_margin(style.margin_top, cb.width);
-    let margin_bottom_raw = crate::block::resolve_margin(style.margin_bottom, cb.width);
-    let margin_left_raw = crate::block::resolve_margin(style.margin_left, cb.width);
-    let margin_right_raw = crate::block::resolve_margin(style.margin_right, cb.width);
+    // Resolve all four physical margins against inline containing size.
+    let margin_top_raw = crate::block::resolve_margin(style.margin_top, inline_containing);
+    let margin_bottom_raw = crate::block::resolve_margin(style.margin_bottom, inline_containing);
+    let margin_left_raw = crate::block::resolve_margin(style.margin_left, inline_containing);
+    let margin_right_raw = crate::block::resolve_margin(style.margin_right, inline_containing);
 
+    // Resolve all four physical offsets.
     let left = resolve_offset(&style.left, cb.width);
     let right = resolve_offset(&style.right, cb.width);
     let top = resolve_offset(&style.top, cb.height);
@@ -278,95 +404,249 @@ pub fn layout_absolutely_positioned(
 
     let intrinsic = crate::get_intrinsic_size(dom, entity);
 
-    // -----------------------------------------------------------------------
-    // Horizontal axis: CSS 2.1 §10.3.7
-    // left + margin-left + border-left + padding-left + width + padding-right
-    // + border-right + margin-right + right = cb.width
-    // -----------------------------------------------------------------------
-
-    let width_specified = match style.width {
-        Dimension::Length(px) => {
-            let w = sanitize(px);
-            // CSS 2.1 §10.3.7: box-sizing: border-box → subtract padding+border.
-            Some(if is_border_box && intrinsic.is_none() {
-                (w - h_pb).max(0.0)
-            } else {
-                w
-            })
-        }
-        Dimension::Percentage(pct) => {
-            let w = sanitize(cb.width * pct / 100.0);
-            Some(if is_border_box && intrinsic.is_none() {
-                (w - h_pb).max(0.0)
-            } else {
-                w
-            })
-        }
-        Dimension::Auto => intrinsic.map(|(iw, _)| iw),
+    // Map physical properties to logical axes based on writing mode.
+    // In horizontal-tb: inline axis = horizontal, block axis = vertical.
+    // In vertical-rl/lr: inline axis = vertical, block axis = horizontal.
+    let (
+        inline_start,
+        inline_end,
+        block_start,
+        block_end,
+        inline_size_dim,
+        block_size_dim,
+        inline_min,
+        inline_max,
+        block_min,
+        block_max,
+        inline_pb,
+        block_pb,
+        inline_margin_start_raw,
+        inline_margin_end_raw,
+        block_margin_start_raw,
+        block_margin_end_raw,
+        inline_margin_start_auto,
+        inline_margin_end_auto,
+        block_margin_start_auto,
+        block_margin_end_auto,
+        cb_inline_size,
+        cb_block_size,
+        static_inline,
+        static_block,
+        intrinsic_inline,
+        intrinsic_block,
+    ) = if wm.is_horizontal() {
+        // horizontal-tb
+        let (is, ie) = if wm.is_inline_reversed() {
+            (right, left) // RTL: inline-start = right
+        } else {
+            (left, right)
+        };
+        let (ms_raw, me_raw) = if wm.is_inline_reversed() {
+            (margin_right_raw, margin_left_raw)
+        } else {
+            (margin_left_raw, margin_right_raw)
+        };
+        let (ms_auto, me_auto) = if wm.is_inline_reversed() {
+            (
+                matches!(style.margin_right, Dimension::Auto),
+                matches!(style.margin_left, Dimension::Auto),
+            )
+        } else {
+            (
+                matches!(style.margin_left, Dimension::Auto),
+                matches!(style.margin_right, Dimension::Auto),
+            )
+        };
+        let static_i = if wm.is_inline_reversed() {
+            cb.width - (static_position.0 - cb.x)
+        } else {
+            static_position.0 - cb.x
+        };
+        (
+            is,
+            ie,
+            top,
+            bottom,
+            style.width,
+            style.height,
+            style.min_width,
+            style.max_width,
+            style.min_height,
+            style.max_height,
+            h_pb,
+            v_pb,
+            ms_raw,
+            me_raw,
+            margin_top_raw,
+            margin_bottom_raw,
+            ms_auto,
+            me_auto,
+            matches!(style.margin_top, Dimension::Auto),
+            matches!(style.margin_bottom, Dimension::Auto),
+            cb.width,
+            cb.height,
+            static_i,
+            static_position.1 - cb.y,
+            intrinsic.map(|(iw, _)| iw),
+            intrinsic.map(|(_, ih)| ih),
+        )
+    } else {
+        // vertical-rl / vertical-lr
+        // Inline axis = vertical (top/bottom/height)
+        // Block axis = horizontal (left/right/width)
+        let (is, ie) = if wm.is_inline_reversed() {
+            (bottom, top) // RTL: inline-start = bottom
+        } else {
+            (top, bottom)
+        };
+        let (bs, be) = if wm.is_block_reversed() {
+            (right, left) // vertical-rl: block-start = right
+        } else {
+            (left, right)
+        };
+        let (ims_raw, ime_raw) = if wm.is_inline_reversed() {
+            (margin_bottom_raw, margin_top_raw)
+        } else {
+            (margin_top_raw, margin_bottom_raw)
+        };
+        let (bms_raw, bme_raw) = if wm.is_block_reversed() {
+            (margin_right_raw, margin_left_raw)
+        } else {
+            (margin_left_raw, margin_right_raw)
+        };
+        let (ims_auto, ime_auto) = if wm.is_inline_reversed() {
+            (
+                matches!(style.margin_bottom, Dimension::Auto),
+                matches!(style.margin_top, Dimension::Auto),
+            )
+        } else {
+            (
+                matches!(style.margin_top, Dimension::Auto),
+                matches!(style.margin_bottom, Dimension::Auto),
+            )
+        };
+        let (bms_auto, bme_auto) = if wm.is_block_reversed() {
+            (
+                matches!(style.margin_right, Dimension::Auto),
+                matches!(style.margin_left, Dimension::Auto),
+            )
+        } else {
+            (
+                matches!(style.margin_left, Dimension::Auto),
+                matches!(style.margin_right, Dimension::Auto),
+            )
+        };
+        let static_i = if wm.is_inline_reversed() {
+            cb.height - (static_position.1 - cb.y)
+        } else {
+            static_position.1 - cb.y
+        };
+        let static_b = if wm.is_block_reversed() {
+            cb.width - (static_position.0 - cb.x)
+        } else {
+            static_position.0 - cb.x
+        };
+        (
+            is,
+            ie,
+            bs,
+            be,
+            style.height, // inline-size = height
+            style.width,  // block-size = width
+            style.min_height,
+            style.max_height,
+            style.min_width,
+            style.max_width,
+            v_pb, // inline pb = vertical pb
+            h_pb, // block pb = horizontal pb
+            ims_raw,
+            ime_raw,
+            bms_raw,
+            bme_raw,
+            ims_auto,
+            ime_auto,
+            bms_auto,
+            bme_auto,
+            cb.height, // CB inline size
+            cb.width,  // CB block size
+            static_i,
+            static_b,
+            intrinsic.map(|(_, ih)| ih), // intrinsic inline = height
+            intrinsic.map(|(iw, _)| iw), // intrinsic block = width
+        )
     };
 
-    let (mut content_width, margin_left, margin_right, used_left) = resolve_horizontal(
-        left,
-        width_specified,
-        right,
-        margin_left_raw,
-        margin_right_raw,
-        h_pb,
-        cb.width,
-        static_position.0 - cb.x,
-        &style,
-        || shrink_to_fit_width(dom, entity, font_db, depth, cb.width, h_pb),
+    // -----------------------------------------------------------------------
+    // Resolve inline-size (specified or intrinsic)
+    // -----------------------------------------------------------------------
+    let inline_size_specified = resolve_size_value(
+        inline_size_dim,
+        cb_inline_size,
+        inline_pb,
+        is_border_box && intrinsic.is_none(),
+        intrinsic_inline,
     );
 
-    // CSS 2.1 §10.4: apply min-width / max-width after constraint resolution.
+    // -----------------------------------------------------------------------
+    // Inline axis constraint equation
+    // -----------------------------------------------------------------------
+    let inline_result = resolve_inline_axis(
+        &InlineAxisProps {
+            start: inline_start,
+            end: inline_end,
+            size: inline_size_specified,
+            margin_start_raw: inline_margin_start_raw,
+            margin_end_raw: inline_margin_end_raw,
+            margin_start_auto: inline_margin_start_auto,
+            margin_end_auto: inline_margin_end_auto,
+            pb: inline_pb,
+            containing: cb_inline_size,
+            static_offset: static_inline,
+        },
+        || {
+            // Shrink-to-fit: always computes in physical width for now.
+            shrink_to_fit_width(dom, entity, font_db, depth, cb.width, h_pb)
+        },
+    );
+
+    // Map inline result back to physical width/height.
+    let mut content_inline = inline_result.size;
+
+    // Apply min/max inline-size.
     {
-        let mut min_w = resolve_min_max(style.min_width, cb.width, 0.0);
-        let mut max_w = resolve_min_max(style.max_width, cb.width, f32::INFINITY);
+        let mut min_i = resolve_min_max(inline_min, cb_inline_size, 0.0);
+        let mut max_i = resolve_min_max(inline_max, cb_inline_size, f32::INFINITY);
         if is_border_box && intrinsic.is_none() {
-            adjust_min_max_for_border_box(&mut min_w, &mut max_w, h_pb);
+            adjust_min_max_for_border_box(&mut min_i, &mut max_i, inline_pb);
         }
-        content_width = clamp_min_max(content_width, min_w, max_w);
+        content_inline = clamp_min_max(content_inline, min_i, max_i);
     }
 
     // -----------------------------------------------------------------------
-    // Vertical axis: CSS 2.1 §10.6.4
+    // Resolve block-size
     // -----------------------------------------------------------------------
+    let block_size_specified = resolve_size_value(
+        block_size_dim,
+        cb_block_size,
+        block_pb,
+        is_border_box && intrinsic.is_none(),
+        intrinsic_block,
+    );
 
-    let height_specified = match style.height {
-        Dimension::Length(px) => {
-            let h = sanitize(px);
-            Some(if is_border_box && intrinsic.is_none() {
-                (h - v_pb).max(0.0)
-            } else {
-                h
-            })
-        }
-        Dimension::Percentage(pct) => {
-            if cb.height >= 0.0 && cb.height.is_finite() {
-                let h = sanitize(cb.height * pct / 100.0);
-                Some(if is_border_box && intrinsic.is_none() {
-                    (h - v_pb).max(0.0)
-                } else {
-                    h
-                })
-            } else {
-                None
-            }
-        }
-        Dimension::Auto => intrinsic.map(|(_, ih)| ih),
-    };
-
-    // If height is auto (no intrinsic, no specified), we need content height.
-    // Do a preliminary layout to determine it.
-    //
-    // CSS Sizing L3 "definite size": auto height depends on content layout,
-    // so it is indefinite. Children with percentage heights resolve to auto
-    // (containing_height: None). This is spec-correct — no re-layout needed.
-    // Servo uses the same single-pass approach (SizeConstraint::MinMax).
-    let content_height_from_layout = if height_specified.is_none() {
+    // If block-size is auto, do preliminary layout to get content size.
+    let content_block_from_layout = if block_size_specified.is_none() {
+        // Map logical inline size back to physical for child layout input.
+        let (phys_w, phys_h_opt) = if wm.is_horizontal() {
+            (content_inline, None)
+        } else {
+            // In vertical modes: physical width = block size (unknown), height = inline size.
+            // Use content_inline as containing_width approximation.
+            (content_inline, None)
+        };
         let child_input = LayoutInput {
-            containing_width: content_width,
-            containing_height: None,
+            containing_width: phys_w,
+            containing_height: phys_h_opt,
+            containing_inline_size: content_inline,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db,
@@ -375,45 +655,149 @@ pub fn layout_absolutely_positioned(
             viewport,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let lb = layout_child(dom, entity, &child_input).layout_box;
-        Some(lb.content.height)
+        // Content block from layout: in horizontal = height, in vertical = width.
+        Some(if wm.is_horizontal() {
+            lb.content.height
+        } else {
+            lb.content.width
+        })
     } else {
         None
     };
 
-    let (mut content_height, margin_top, margin_bottom, used_top) = resolve_vertical(
-        top,
-        bottom,
-        height_specified,
-        content_height_from_layout,
-        margin_top_raw,
-        margin_bottom_raw,
-        v_pb,
-        cb.height,
-        static_position.1 - cb.y,
-        &style,
-    );
+    // -----------------------------------------------------------------------
+    // Block axis constraint equation
+    // -----------------------------------------------------------------------
+    let block_result = resolve_block_axis(&BlockAxisProps {
+        start: block_start,
+        end: block_end,
+        size: block_size_specified,
+        content_size: content_block_from_layout,
+        margin_start_raw: block_margin_start_raw,
+        margin_end_raw: block_margin_end_raw,
+        margin_start_auto: block_margin_start_auto,
+        margin_end_auto: block_margin_end_auto,
+        pb: block_pb,
+        containing: cb_block_size,
+        static_offset: static_block,
+    });
 
-    // CSS 2.1 §10.7: apply min-height / max-height after constraint resolution.
+    let mut content_block = block_result.size;
+
+    // Apply min/max block-size.
     {
-        let ch = cb.height;
-        let mut min_h = resolve_min_max(style.min_height, ch, 0.0);
-        let mut max_h = resolve_min_max(style.max_height, ch, f32::INFINITY);
+        let mut min_b = resolve_min_max(block_min, cb_block_size, 0.0);
+        let mut max_b = resolve_min_max(block_max, cb_block_size, f32::INFINITY);
         if is_border_box && intrinsic.is_none() {
-            adjust_min_max_for_border_box(&mut min_h, &mut max_h, v_pb);
+            adjust_min_max_for_border_box(&mut min_b, &mut max_b, block_pb);
         }
-        content_height = clamp_min_max(content_height, min_h, max_h);
+        content_block = clamp_min_max(content_block, min_b, max_b);
     }
+
+    // -----------------------------------------------------------------------
+    // Convert logical results back to physical coordinates
+    // -----------------------------------------------------------------------
+    let (
+        content_width,
+        content_height,
+        used_left,
+        used_top,
+        margin_left,
+        margin_right,
+        margin_top,
+        margin_bottom,
+    ) = if wm.is_horizontal() {
+        let (ml, mr) = if wm.is_inline_reversed() {
+            (inline_result.margin_end, inline_result.margin_start)
+        } else {
+            (inline_result.margin_start, inline_result.margin_end)
+        };
+        // Inline offset → left offset. For RTL, inline-start offset is from
+        // the right edge, so convert: left = cb_width - offset - size - pb - margins.
+        let used_left = if wm.is_inline_reversed() {
+            cb_inline_size
+                - inline_result.offset
+                - content_inline
+                - inline_pb
+                - inline_result.margin_start
+                - inline_result.margin_end
+        } else {
+            inline_result.offset
+        };
+        (
+            content_inline,
+            content_block,
+            used_left,
+            block_result.offset,
+            ml,
+            mr,
+            block_result.margin_start,
+            block_result.margin_end,
+        )
+    } else {
+        // Vertical modes: inline axis = Y, block axis = X.
+        // Inline result → used_top, block result → used_left.
+        let (mt, mb) = if wm.is_inline_reversed() {
+            (inline_result.margin_end, inline_result.margin_start)
+        } else {
+            (inline_result.margin_start, inline_result.margin_end)
+        };
+        let (ml, mr) = if wm.is_block_reversed() {
+            (block_result.margin_end, block_result.margin_start)
+        } else {
+            (block_result.margin_start, block_result.margin_end)
+        };
+        // Convert inline-start offset to physical top.
+        let used_top = if wm.is_inline_reversed() {
+            cb_inline_size
+                - inline_result.offset
+                - content_inline
+                - inline_pb
+                - inline_result.margin_start
+                - inline_result.margin_end
+        } else {
+            inline_result.offset
+        };
+        // Convert block-start offset to physical left.
+        let used_left = if wm.is_block_reversed() {
+            cb_block_size
+                - block_result.offset
+                - content_block
+                - block_pb
+                - block_result.margin_start
+                - block_result.margin_end
+        } else {
+            block_result.offset
+        };
+        (
+            content_block,  // physical width = block size
+            content_inline, // physical height = inline size
+            used_left,
+            used_top,
+            ml,
+            mr,
+            mt,
+            mb,
+        )
+    };
 
     // Compute final position relative to viewport (cb origin + offset).
     let content_x = cb.x + used_left + margin_left + border.left + padding.left;
     let content_y = cb.y + used_top + margin_top + border.top + padding.top;
 
     // Final layout with resolved dimensions.
+    let child_inline_size = if wm.is_horizontal() {
+        content_width
+    } else {
+        content_height
+    };
     let child_input = LayoutInput {
         containing_width: content_width,
         containing_height: Some(content_height),
+        containing_inline_size: child_inline_size,
         offset_x: content_x,
         offset_y: content_y,
         font_db,
@@ -422,6 +806,7 @@ pub fn layout_absolutely_positioned(
         viewport,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let child_lb = layout_child(dom, entity, &child_input).layout_box;
 
@@ -444,170 +829,250 @@ pub fn layout_absolutely_positioned(
     }
 }
 
-/// Resolve horizontal constraint equation (CSS 2.1 §10.3.7).
-#[allow(clippy::too_many_arguments, clippy::similar_names)]
-fn resolve_horizontal(
-    left: Option<f32>,
-    width: Option<f32>,
-    right: Option<f32>,
-    margin_left_raw: f32,
-    margin_right_raw: f32,
-    h_pb: f32,
-    cb_width: f32,
-    static_x: f32,
-    style: &ComputedStyle,
-    shrink_to_fit: impl FnOnce() -> f32,
-) -> (f32, f32, f32, f32) {
-    let ml_auto = matches!(style.margin_left, Dimension::Auto);
-    let mr_auto = matches!(style.margin_right, Dimension::Auto);
+// ---------------------------------------------------------------------------
+// Axis constraint solvers
+// ---------------------------------------------------------------------------
 
-    // Set auto margins to 0 initially.
-    let mut ml = if ml_auto { 0.0 } else { margin_left_raw };
-    let mut mr = if mr_auto { 0.0 } else { margin_right_raw };
+/// Resolve a CSS size dimension (width or height) to a content-box pixel value.
+///
+/// Handles Length, Percentage (against `containing`), and Auto (falls back to
+/// `intrinsic`). Applies border-box adjustment when `adjust_border_box` is true.
+#[must_use]
+fn resolve_size_value(
+    dim: Dimension,
+    containing: f32,
+    pb: f32,
+    adjust_border_box: bool,
+    intrinsic: Option<f32>,
+) -> Option<f32> {
+    match dim {
+        Dimension::Length(px) => {
+            let v = sanitize(px);
+            Some(if adjust_border_box {
+                (v - pb).max(0.0)
+            } else {
+                v
+            })
+        }
+        Dimension::Percentage(pct) => {
+            if containing >= 0.0 && containing.is_finite() {
+                let v = sanitize(containing * pct / 100.0);
+                Some(if adjust_border_box {
+                    (v - pb).max(0.0)
+                } else {
+                    v
+                })
+            } else {
+                None
+            }
+        }
+        Dimension::Auto => intrinsic,
+    }
+}
 
-    match (left, width, right) {
-        // Case 1: all three auto — CSS 2.1 §10.3.7
-        // LTR: left = static position; RTL: right = static position.
+/// Resolve the inline-axis constraint equation.
+///
+/// This is the generalization of CSS 2.1 §10.3.7 for any writing mode.
+/// The inline axis supports shrink-to-fit, direction-dependent over-constrained
+/// handling, and direction-dependent static position.
+///
+/// Returns `(size, margin_start, margin_end, offset)` where offset is from
+/// the inline-start edge of the containing block.
+#[allow(clippy::similar_names)]
+fn resolve_inline_axis(props: &InlineAxisProps, shrink_to_fit: impl FnOnce() -> f32) -> AxisResult {
+    let mut ms = if props.margin_start_auto {
+        0.0
+    } else {
+        props.margin_start_raw
+    };
+    let mut me = if props.margin_end_auto {
+        0.0
+    } else {
+        props.margin_end_raw
+    };
+
+    match (props.start, props.size, props.end) {
+        // All three auto: use static position for start, shrink-to-fit for size.
         (None, None, None) => {
             let w = shrink_to_fit();
-            let l = if style.direction == Direction::Rtl {
-                // RTL: right = static_right, solve left.
-                // static_right = cb_width - static_x (measured from right edge).
-                let static_right = cb_width - static_x;
-                cb_width - static_right - w - h_pb - ml - mr
-            } else {
-                static_x
-            };
-            (w, ml, mr, l)
+            let offset = props.static_offset;
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset,
+            }
         }
-        // Case: left+width auto, right specified
-        (None, None, Some(r)) => {
+        // start+size auto, end specified: shrink-to-fit, solve start.
+        (None, None, Some(e)) => {
             let w = shrink_to_fit();
-            let l = cb_width - r - w - h_pb - ml - mr;
-            (w, ml, mr, l)
+            let offset = props.containing - e - w - props.pb - ms - me;
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset,
+            }
         }
-        // Sub 4: left auto only (width + right specified) → solve left
-        (None, Some(w), Some(r)) => {
-            let l = cb_width - r - w - h_pb - ml - mr;
-            (w, ml, mr, l)
+        // start auto only (size + end specified): solve start.
+        (None, Some(w), Some(e)) => {
+            let offset = props.containing - e - w - props.pb - ms - me;
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset,
+            }
         }
-        // Sub 2: left+right auto, width specified — CSS 2.1 §10.3.7
-        // LTR: left = static position; RTL: right = static position.
+        // start+end auto, size specified: start = static position.
         (None, Some(w), None) => {
-            let l = if style.direction == Direction::Rtl {
-                let static_right = cb_width - static_x;
-                cb_width - static_right - w - h_pb - ml - mr
-            } else {
-                static_x
-            };
-            (w, ml, mr, l)
+            let offset = props.static_offset;
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset,
+            }
         }
-        // Case: width+right auto, left specified
-        (Some(l), None, None) => {
+        // size+end auto, start specified: shrink-to-fit.
+        (Some(s), None, None) => {
             let w = shrink_to_fit();
-            (w, ml, mr, l)
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset: s,
+            }
         }
-        // Case: width auto, left+right specified → stretch
-        (Some(l), None, Some(r)) => {
-            let w = (cb_width - l - r - h_pb - ml - mr).max(0.0);
-            (w, ml, mr, l)
+        // size auto, start+end specified: stretch.
+        (Some(s), None, Some(e)) => {
+            let w = (props.containing - s - e - props.pb - ms - me).max(0.0);
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset: s,
+            }
         }
-        // Case: right auto, left+width specified
-        (Some(l), Some(w), None) => (w, ml, mr, l),
-        // Over-constrained: all three specified
-        (Some(l), Some(w), Some(r)) => {
-            let available = cb_width - l - w - h_pb - r;
-            if ml_auto && mr_auto {
+        // end auto, start+size specified.
+        (Some(s), Some(w), None) => AxisResult {
+            size: w,
+            margin_start: ms,
+            margin_end: me,
+            offset: s,
+        },
+        // Over-constrained: all three specified.
+        (Some(s), Some(w), Some(e)) => {
+            let available = props.containing - s - w - props.pb - e;
+            if props.margin_start_auto && props.margin_end_auto {
                 if available < 0.0 {
-                    // CSS 2.1 §10.3.7: negative centering — absorb overflow
-                    // into the end-side margin (LTR → right, RTL → left).
-                    if style.direction == Direction::Rtl {
-                        mr = 0.0;
-                        ml = available;
-                    } else {
-                        ml = 0.0;
-                        mr = available;
-                    }
+                    // Negative centering: absorb overflow into end-side margin.
+                    ms = 0.0;
+                    me = available;
                 } else {
                     let half = available / 2.0;
-                    ml = half;
-                    mr = available - half;
+                    ms = half;
+                    me = available - half;
                 }
-            } else if ml_auto {
-                ml = available - mr;
-            } else if mr_auto {
-                mr = available - ml;
+            } else if props.margin_start_auto {
+                ms = available - me;
+            } else if props.margin_end_auto {
+                me = available - ms;
             } else {
-                // All non-auto, over-constrained.
-                // CSS 2.1 §10.3.7: LTR → ignore right; RTL → ignore left.
-                if style.direction == Direction::Rtl {
-                    let l_adj = cb_width - r - w - h_pb - ml - mr;
-                    return (w, ml, mr, l_adj);
-                }
+                // All non-auto, over-constrained: ignore inline-end.
+                // (The start offset stands as given.)
             }
-            (w, ml, mr, l)
+            AxisResult {
+                size: w,
+                margin_start: ms,
+                margin_end: me,
+                offset: s,
+            }
         }
     }
 }
 
-/// Resolve vertical constraint equation (CSS 2.1 §10.6.4).
-#[allow(clippy::too_many_arguments, clippy::similar_names)]
-fn resolve_vertical(
-    top: Option<f32>,
-    bottom: Option<f32>,
-    height: Option<f32>,
-    content_height: Option<f32>,
-    margin_top_raw: f32,
-    margin_bottom_raw: f32,
-    v_pb: f32,
-    cb_height: f32,
-    static_y: f32,
-    style: &ComputedStyle,
-) -> (f32, f32, f32, f32) {
-    let mt_auto = matches!(style.margin_top, Dimension::Auto);
-    let mb_auto = matches!(style.margin_bottom, Dimension::Auto);
+/// Resolve the block-axis constraint equation.
+///
+/// This is the generalization of CSS 2.1 §10.6.4 for any writing mode.
+/// The block axis supports stretch (auto size with both offsets specified),
+/// always-equal auto margin splitting, and always ignores block-end when
+/// over-constrained.
+///
+/// Returns `(size, margin_start, margin_end, offset)` where offset is from
+/// the block-start edge of the containing block.
+#[allow(clippy::similar_names)]
+fn resolve_block_axis(props: &BlockAxisProps) -> AxisResult {
+    let mut ms = if props.margin_start_auto {
+        0.0
+    } else {
+        props.margin_start_raw
+    };
+    let mut me = if props.margin_end_auto {
+        0.0
+    } else {
+        props.margin_end_raw
+    };
 
-    let mut mt = if mt_auto { 0.0 } else { margin_top_raw };
-    let mut mb = if mb_auto { 0.0 } else { margin_bottom_raw };
+    // Effective size: specified or content-based.
+    let h = props.size.or(props.content_size).unwrap_or(0.0);
 
-    // Effective height: specified or content-based.
-    let h = height.or(content_height).unwrap_or(0.0);
-
-    // CSS 2.1 §10.6.4: the constraint has 3 unknowns (top, height, bottom).
-    // Height is pre-resolved above (specified or content-based), so we match
-    // only on top/bottom. When height was auto and no content is available,
-    // `h` is 0 (the stretch case is handled in (Some, Some) when both offsets
-    // are specified and height is truly unknown).
-    match (top, bottom) {
+    match (props.start, props.end) {
         (None, None) => {
-            // top = static position
-            (h, mt, mb, static_y)
+            // block-start = static position.
+            AxisResult {
+                size: h,
+                margin_start: ms,
+                margin_end: me,
+                offset: props.static_offset,
+            }
         }
-        (Some(t), None) => (h, mt, mb, t),
-        (None, Some(b)) => {
-            let t = cb_height - b - h - v_pb - mt - mb;
-            (h, mt, mb, t)
+        (Some(s), None) => AxisResult {
+            size: h,
+            margin_start: ms,
+            margin_end: me,
+            offset: s,
+        },
+        (None, Some(e)) => {
+            let offset = props.containing - e - h - props.pb - ms - me;
+            AxisResult {
+                size: h,
+                margin_start: ms,
+                margin_end: me,
+                offset,
+            }
         }
-        (Some(t), Some(b)) => {
-            if height.is_none() {
-                // Height auto with top+bottom → stretch (CSS 2.1 §10.6.4 rule 5)
-                let stretch_h = (cb_height - t - b - v_pb - mt - mb).max(0.0);
-                (stretch_h, mt, mb, t)
-            } else {
-                // Over-constrained
-                let available = cb_height - t - h - v_pb - b;
-                if mt_auto && mb_auto {
-                    // CSS 2.1 §10.6.4: margin-top = margin-bottom (always equal,
-                    // no directional asymmetry unlike horizontal §10.3.7).
-                    let half = available / 2.0;
-                    mt = half;
-                    mb = available - half;
-                } else if mt_auto {
-                    mt = available - mb;
-                } else if mb_auto {
-                    mb = available - mt;
+        (Some(s), Some(e)) => {
+            if props.size.is_none() {
+                // Auto size with both offsets → stretch.
+                let stretch = (props.containing - s - e - props.pb - ms - me).max(0.0);
+                AxisResult {
+                    size: stretch,
+                    margin_start: ms,
+                    margin_end: me,
+                    offset: s,
                 }
-                (h, mt, mb, t)
+            } else {
+                // Over-constrained.
+                let available = props.containing - s - h - props.pb - e;
+                if props.margin_start_auto && props.margin_end_auto {
+                    // Block axis: always equal split (no directional asymmetry).
+                    let half = available / 2.0;
+                    ms = half;
+                    me = available - half;
+                } else if props.margin_start_auto {
+                    ms = available - me;
+                } else if props.margin_end_auto {
+                    me = available - ms;
+                }
+                // Over-constrained with no auto margins: block-end ignored,
+                // offset stays at `s`.
+                AxisResult {
+                    size: h,
+                    margin_start: ms,
+                    margin_end: me,
+                    offset: s,
+                }
             }
         }
     }

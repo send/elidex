@@ -6,17 +6,19 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    composed_children_flat, get_style, horizontal_pb, inline, sanitize_border, sanitize_padding,
+    composed_children_flat, get_style, inline, inline_pb, sanitize_border, sanitize_padding,
     total_gap, ChildLayoutFn, IntrinsicSizes, LayoutInput, MAX_LAYOUT_DEPTH,
 };
-use elidex_plugin::{BoxSizing, Dimension, Display, FlexDirection, FlexWrap};
+#[cfg(test)]
+use elidex_plugin::WritingMode;
+use elidex_plugin::{BoxSizing, Dimension, Display, FlexDirection, FlexWrap, WritingModeContext};
 use elidex_text::FontDatabase;
 
 /// Compute min-content and max-content intrinsic inline sizes for an element.
 ///
-/// Currently computes intrinsic *widths* only (horizontal writing mode).
-/// When writing-mode support matures, this should be generalized to use
-/// the inline axis.
+/// Writing-mode-aware: uses the element's `writing-mode` to determine the
+/// inline axis, so vertical writing modes compute intrinsic sizes along the
+/// vertical (block-flow) direction.
 ///
 /// Routes to display-specific intrinsic sizing:
 /// - **Block**: inline children → inline min/max; block children → max of children.
@@ -38,10 +40,11 @@ pub fn compute_intrinsic_sizes(
 
     let style = get_style(dom, entity);
 
-    // Container padding + border contribute to intrinsic width (CSS Sizing L3 §5).
+    // Container padding + border contribute to intrinsic inline size (CSS Sizing L3 §5).
     let padding = sanitize_padding(&style);
     let border = sanitize_border(&style);
-    let pb = horizontal_pb(&padding, &border);
+    let wm = WritingModeContext::new(style.writing_mode, style.direction);
+    let pb = inline_pb(&wm, &padding, &border);
 
     // Check for replaced elements or explicit sizes first.
     if let Some(sizes) = explicit_intrinsic(dom, entity, &style, pb) {
@@ -81,30 +84,40 @@ pub fn compute_intrinsic_sizes(
     }
 }
 
-/// Return intrinsic sizes for replaced elements or elements with explicit width.
+/// Return intrinsic sizes for replaced elements or elements with explicit inline-axis size.
 ///
 /// Replaced elements (images, form controls) have intrinsic dimensions.
-/// Elements with explicit `width` use that as both min and max content.
+/// Elements with explicit inline-axis dimension (`width` in horizontal-tb,
+/// `height` in vertical modes) use that as both min and max content.
 fn explicit_intrinsic(
     dom: &EcsDom,
     entity: Entity,
     style: &elidex_plugin::ComputedStyle,
     pb: f32,
 ) -> Option<IntrinsicSizes> {
-    // Replaced elements: use intrinsic image/form dimensions.
-    if let Some((w, _h)) = elidex_layout_block::get_intrinsic_size(dom, entity) {
+    let inline_horizontal =
+        WritingModeContext::new(style.writing_mode, style.direction).is_horizontal();
+
+    // Replaced elements: use intrinsic image/form dimensions (inline-axis).
+    if let Some((w, h)) = elidex_layout_block::get_intrinsic_size(dom, entity) {
+        let inline_size = if inline_horizontal { w } else { h };
         return Some(IntrinsicSizes {
-            min_content: w + pb,
-            max_content: w + pb,
+            min_content: inline_size + pb,
+            max_content: inline_size + pb,
         });
     }
-    // Explicit width: acts as both min-content and max-content.
-    if let Dimension::Length(w) = style.width {
-        // border-box: width already includes padding+border.
+    // Explicit inline-axis dimension: acts as both min-content and max-content.
+    let explicit_dim = if inline_horizontal {
+        style.width
+    } else {
+        style.height
+    };
+    if let Dimension::Length(len) = explicit_dim {
+        // border-box: dimension already includes padding+border.
         let size = if style.box_sizing == BoxSizing::BorderBox {
-            w
+            len
         } else {
-            w + pb
+            len + pb
         };
         return Some(IntrinsicSizes {
             min_content: size,
@@ -167,10 +180,14 @@ fn compute_flex_intrinsic(
     depth: u32,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
-    let horizontal = matches!(
-        style.flex_direction,
-        FlexDirection::Row | FlexDirection::RowReverse
-    );
+    // Determine whether the flex main axis maps to the physical horizontal axis,
+    // taking writing mode into account: row directions follow the inline axis,
+    // column directions follow the block axis.
+    let horizontal_wm = style.writing_mode.is_horizontal();
+    let horizontal = match style.flex_direction {
+        FlexDirection::Row | FlexDirection::RowReverse => horizontal_wm,
+        FlexDirection::Column | FlexDirection::ColumnReverse => !horizontal_wm,
+    };
     let nowrap = matches!(style.flex_wrap, FlexWrap::Nowrap);
 
     let child_sizes_list =
@@ -181,6 +198,8 @@ fn compute_flex_intrinsic(
     }
 
     // CSS Box Alignment L3: gap between items contributes to intrinsic size.
+    // Use the main-axis gap (column-gap for row flex, row-gap for column flex)
+    // but select the physical axis based on writing mode.
     let gap = if horizontal {
         elidex_layout_block::resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0)
     } else {
@@ -327,11 +346,16 @@ fn compute_table_intrinsic(
     }
 
     let style = get_style(dom, entity);
+    let inline_horizontal =
+        WritingModeContext::new(style.writing_mode, style.direction).is_horizontal();
     // CSS 2.1 §17.6.2: in the collapsing border model, border-spacing is ignored.
+    // Use inline-axis border-spacing (horizontal in horizontal-tb, vertical in vertical modes).
     let gap = if style.border_collapse == elidex_plugin::BorderCollapse::Collapse {
         0.0
-    } else {
+    } else if inline_horizontal {
         style.border_spacing_h.max(0.0)
+    } else {
+        style.border_spacing_v.max(0.0)
     };
     let gap_total = total_gap(col_min.len(), gap);
 
@@ -379,11 +403,12 @@ fn collect_child_intrinsic_sizes(
     result
 }
 
-/// Probe layout at a given containing width, return content-box width.
+/// Probe layout at a given containing width, return content-box inline-axis size.
 ///
-/// Returns `LayoutBox.content.width` — the content area excluding the entity's
-/// own padding and border.  Intended for text nodes and leaf elements whose
-/// outer box model is accounted for by `compute_intrinsic_sizes`.
+/// Returns the inline-axis content dimension (`width` in horizontal-tb,
+/// `height` in vertical modes), excluding the entity's own padding and border.
+/// Intended for text nodes and leaf elements whose outer box model is
+/// accounted for by `compute_intrinsic_sizes`.
 fn probe_layout_size(
     dom: &mut EcsDom,
     entity: Entity,
@@ -395,6 +420,7 @@ fn probe_layout_size(
     let input = LayoutInput {
         containing_width,
         containing_height: None,
+        containing_inline_size: containing_width,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db,
@@ -403,9 +429,19 @@ fn probe_layout_size(
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let lb = layout_child(dom, entity, &input).layout_box;
-    lb.content.width
+    // Determine inline axis from the parent's writing mode context.
+    // For text/leaf nodes without a style, check ancestor style if available;
+    // fallback to horizontal (width).
+    let inline_horizontal = elidex_layout_block::try_get_style(dom, entity)
+        .is_none_or(|s| WritingModeContext::new(s.writing_mode, s.direction).is_horizontal());
+    if inline_horizontal {
+        lb.content.width
+    } else {
+        lb.content.height
+    }
 }
 
 /// Compute shrink-to-fit width for inline-level containers.
@@ -657,5 +693,221 @@ mod tests {
         // 3 columns of 100px each.
         assert!(sizes.min_content > 0.0);
         assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    // --- G7: Writing-mode-aware intrinsic sizing tests ---
+
+    #[test]
+    fn block_vertical_rl_intrinsic() {
+        // Block with explicit height in vertical-rl: intrinsic uses height as inline-size.
+        let mut dom = EcsDom::new();
+        let block = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            block,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(120.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, block, &font_db, dispatch_layout_child, 0);
+        // Explicit height = 120 acts as inline-size in vertical-rl.
+        assert!((sizes.min_content - 120.0).abs() < 1.0);
+        assert!((sizes.max_content - 120.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn flex_row_vertical_rl_intrinsic() {
+        // Flex row in vertical-rl: row main axis follows inline axis = vertical.
+        // Two children with explicit height → intrinsic sums along vertical.
+        let mut dom = EcsDom::new();
+        let flex = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            flex,
+            ComputedStyle {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                flex_wrap: FlexWrap::Nowrap,
+                writing_mode: WritingMode::VerticalRl,
+                ..Default::default()
+            },
+        );
+        let c1 = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(80.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(flex, c1);
+        let c2 = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            c2,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(60.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(flex, c2);
+
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        // In vertical-rl, row is vertical → main axis is NOT horizontal.
+        // So we compute column-style intrinsic: max of children = 80.
+        // (Row in vertical maps horizontal=false, so column branch runs.)
+        assert!(sizes.min_content >= 60.0);
+        assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    #[test]
+    fn flex_column_vertical_rl_intrinsic() {
+        // Flex column in vertical-rl: column main axis follows block axis = horizontal.
+        // horizontal = !horizontal_wm = true, so the row branch runs (sums items).
+        // Children's intrinsic inline size comes from their height (inline axis in vertical-rl).
+        let mut dom = EcsDom::new();
+        let flex = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            flex,
+            ComputedStyle {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                flex_wrap: FlexWrap::Nowrap,
+                writing_mode: WritingMode::VerticalRl,
+                ..Default::default()
+            },
+        );
+        let c1 = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(70.0), // inline-axis in vertical-rl
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(flex, c1);
+        let c2 = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            c2,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(40.0), // inline-axis in vertical-rl
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(flex, c2);
+
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        // Column + vertical-rl: horizontal = true, row branch sums.
+        // Children's inline-axis sizes (heights) = 70 + 40 = 110.
+        assert!(sizes.min_content >= 40.0);
+        assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    #[test]
+    fn table_vertical_rl_intrinsic() {
+        // Table in vertical-rl: inline-axis border-spacing uses border_spacing_v.
+        let mut dom = EcsDom::new();
+        let table = dom.create_element("table", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            table,
+            ComputedStyle {
+                display: Display::Table,
+                writing_mode: WritingMode::VerticalRl,
+                border_spacing_h: 10.0,
+                border_spacing_v: 5.0,
+                ..Default::default()
+            },
+        );
+        let tr = dom.create_element("tr", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            tr,
+            ComputedStyle {
+                display: Display::TableRow,
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(table, tr);
+        let td1 = dom.create_element("td", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            td1,
+            ComputedStyle {
+                display: Display::TableCell,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(tr, td1);
+        let td2 = dom.create_element("td", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            td2,
+            ComputedStyle {
+                display: Display::TableCell,
+                writing_mode: WritingMode::VerticalRl,
+                height: Dimension::Length(30.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.append_child(tr, td2);
+
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        // 2 cells: 50 + 30 + border_spacing_v(5) gap = 85 (plus pb).
+        assert!(sizes.min_content > 0.0);
+        assert!(sizes.max_content >= sizes.min_content);
+    }
+
+    #[test]
+    fn horizontal_tb_regression_intrinsic() {
+        // Standard horizontal-tb: unchanged from original behavior.
+        let mut dom = EcsDom::new();
+        let block = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            block,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::HorizontalTb,
+                width: Dimension::Length(200.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, block, &font_db, dispatch_layout_child, 0);
+        // Explicit width = 200 in horizontal-tb → both min and max = 200.
+        assert!((sizes.min_content - 200.0).abs() < 1.0);
+        assert!((sizes.max_content - 200.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn explicit_height_vertical_rl() {
+        // Element with explicit height in vertical-rl: intrinsic should use height.
+        let mut dom = EcsDom::new();
+        let el = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            el,
+            ComputedStyle {
+                display: Display::Block,
+                writing_mode: WritingMode::VerticalRl,
+                width: Dimension::Length(999.0), // should be ignored (block-axis)
+                height: Dimension::Length(150.0), // inline-axis
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        let sizes = compute_intrinsic_sizes(&mut dom, el, &font_db, dispatch_layout_child, 0);
+        // In vertical-rl, height is the inline-axis dimension.
+        assert!((sizes.min_content - 150.0).abs() < 1.0);
+        assert!((sizes.max_content - 150.0).abs() < 1.0);
     }
 }

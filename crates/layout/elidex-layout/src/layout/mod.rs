@@ -44,6 +44,7 @@ pub fn dispatch_layout_child(
         let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, input.containing_width);
         adjusted_input = LayoutInput {
             containing_width: stf,
+            containing_inline_size: stf,
             ..*input
         };
         &adjusted_input
@@ -169,6 +170,7 @@ fn layout_root(
     let root_input = LayoutInput {
         containing_width: viewport_width,
         containing_height: Some(viewport_height),
+        containing_inline_size: viewport_width,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db,
@@ -177,6 +179,7 @@ fn layout_root(
         viewport: Some((viewport_width, viewport_height)),
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
 
     if let Some(display) = root_display {

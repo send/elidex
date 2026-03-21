@@ -156,7 +156,10 @@ fn redistribute_surplus(row_heights: &mut [f32], surplus: f32) {
     let total: f32 = row_heights.iter().sum();
     if total > f32::EPSILON {
         for h in row_heights.iter_mut() {
-            *h += surplus * (*h / total);
+            let ratio = *h / total;
+            if ratio.is_finite() {
+                *h += surplus * ratio;
+            }
         }
     } else {
         // All rows are zero height: distribute equally.
@@ -198,12 +201,13 @@ pub fn layout_table(
 
     let style = elidex_layout_block::get_style(dom, entity);
     let is_rtl = style.direction == Direction::Rtl;
+    let is_horizontal_wm = style.writing_mode.is_horizontal();
     let is_collapse = style.border_collapse == BorderCollapse::Collapse;
     // CSS 2.1 §17.6.2: in the collapsing border model, the table has no padding.
     let padding = if is_collapse {
         EdgeSizes::default()
     } else {
-        elidex_layout_block::resolve_padding(&style, containing_width)
+        elidex_layout_block::resolve_padding(&style, input.containing_inline_size)
     };
     // CSS 2.1 §17.6.2: in the collapsing border model, the table's own border
     // is not rendered — borders exist only as collapsed edges between cells and
@@ -219,16 +223,23 @@ pub fn layout_table(
 
     // Resolve margins (before width, since auto width depends on margins).
     let margin = EdgeSizes {
-        top: resolve_margin(style.margin_top, containing_width),
-        right: resolve_margin(style.margin_right, containing_width),
-        bottom: resolve_margin(style.margin_bottom, containing_width),
-        left: resolve_margin(style.margin_left, containing_width),
+        top: resolve_margin(style.margin_top, input.containing_inline_size),
+        right: resolve_margin(style.margin_right, input.containing_inline_size),
+        bottom: resolve_margin(style.margin_bottom, input.containing_inline_size),
+        left: resolve_margin(style.margin_left, input.containing_inline_size),
     };
     let h_margin = margin.left + margin.right;
 
     // Resolve table width.
     let content_width =
         elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin);
+
+    // Child inline containing size: in vertical modes, inline size = physical height.
+    let child_inline_containing = elidex_layout_block::compute_inline_containing(
+        style.writing_mode,
+        content_width,
+        containing_height,
+    );
 
     let content_x = offset_x + margin.left + border.left + padding.left;
     let mut cursor_y = offset_y + margin.top + border.top + padding.top;
@@ -259,11 +270,20 @@ pub fn layout_table(
         }
     }
 
-    // Partition captions by caption-side.
+    // Partition captions by position relative to the table grid.
+    // CSS Tables L3 §4.1: `top`/`bottom` are physical; `block-start`/`block-end`
+    // are logical (mapped through writing mode).
+    // In horizontal-tb: top = before, bottom = after.
+    // In vertical modes: top ≠ block-start; `top` stays physical (rendered
+    // before the table in the block flow if it coincides with block-start).
+    // `block-start`/`block-end` always map correctly regardless of writing mode.
     let (captions_top, captions_bottom): (Vec<Entity>, Vec<Entity>) =
         captions.into_iter().partition(|&cap| {
             let cs = elidex_layout_block::get_style(dom, cap);
-            cs.caption_side != CaptionSide::Bottom
+            // CSS Tables L3 §4.1: top/block-start = before, bottom/block-end = after.
+            // In vertical modes, CSS 2.1 §17.4.1 treats top/bottom as
+            // block-start/block-end equivalents for layout flow purposes.
+            matches!(cs.caption_side, CaptionSide::Top | CaptionSide::BlockStart)
         });
 
     // Layout top captions.
@@ -272,6 +292,7 @@ pub fn layout_table(
         let cap_input = LayoutInput {
             containing_width: content_width,
             containing_height: None,
+            containing_inline_size: child_inline_containing,
             offset_x: content_x,
             offset_y: cursor_y,
             font_db,
@@ -280,6 +301,7 @@ pub fn layout_table(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
         caption_top_height += box_total_height(&cap_lb);
@@ -431,6 +453,7 @@ pub fn layout_table(
         let cell_input = LayoutInput {
             containing_width: effective_width,
             containing_height: table_explicit_height,
+            containing_inline_size: effective_width,
             offset_x: 0.0, // temporary x, will be positioned later
             offset_y: 0.0, // temporary y
             font_db,
@@ -439,6 +462,7 @@ pub fn layout_table(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_input).layout_box;
 
@@ -496,6 +520,9 @@ pub fn layout_table(
             if cell_total_height > spanned_height {
                 let deficit = cell_total_height - spanned_height;
                 let span_count = (span_end - cell.row) as f32;
+                if span_count <= 0.0 {
+                    continue; // Safety: avoid div/0 on degenerate span
+                }
                 let per_row = deficit / span_count;
                 for h in &mut row_heights[cell.row..span_end] {
                     *h += per_row;
@@ -545,8 +572,11 @@ pub fn layout_table(
     let table_content_height_from_rows = y;
 
     // Now position each cell with final coordinates.
+    // CSS 2.1 §17.1: in horizontal-tb, columns = inline (X), rows = block (Y).
+    // In vertical modes, columns = inline (Y), rows = block (X).
     for (i, cell) in cells.iter().enumerate() {
-        let cell_x = content_x + col_x_offsets[cell.col];
+        let col_offset = col_x_offsets[cell.col];
+        let row_offset = row_y_offsets[cell.row];
 
         let cell_width = cell_available_width(&col_widths, cell, spacing_h, num_cols);
         let effective_width =
@@ -569,12 +599,26 @@ pub fn layout_table(
             _ => (row_baselines[cell.row] - cell_baselines[i]).max(0.0),
         };
 
-        let cell_y = cursor_y + row_y_offsets[cell.row] + va_offset;
+        // Map logical table coordinates to physical coordinates.
+        let (cell_x, cell_y) = if is_horizontal_wm {
+            (content_x + col_offset, cursor_y + row_offset + va_offset)
+        } else {
+            // Vertical: columns → Y (inline), rows → X (block).
+            (cursor_y + row_offset + va_offset, content_x + col_offset)
+        };
+
+        // In vertical modes, the cell's physical width/height are swapped.
+        let (cell_phys_w, cell_phys_h) = if is_horizontal_wm {
+            (effective_width, cell_height)
+        } else {
+            (cell_height, effective_width)
+        };
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
-            containing_width: effective_width,
-            containing_height: Some(cell_height),
+            containing_width: cell_phys_w,
+            containing_height: Some(cell_phys_h),
+            containing_inline_size: child_inline_containing,
             offset_x: cell_x,
             offset_y: cell_y,
             font_db,
@@ -583,6 +627,7 @@ pub fn layout_table(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
@@ -597,6 +642,7 @@ pub fn layout_table(
         let cap_input = LayoutInput {
             containing_width: content_width,
             containing_height: None,
+            containing_inline_size: child_inline_containing,
             offset_x: content_x,
             offset_y: cursor_y,
             font_db,
@@ -605,6 +651,7 @@ pub fn layout_table(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
         caption_bottom_height += box_total_height(&cap_lb);
@@ -629,14 +676,22 @@ pub fn layout_table(
         None
     };
 
+    // In vertical modes, the table's physical dimensions are swapped:
+    // content_width (column widths, inline axis) becomes the physical height,
+    // content_height (row heights, block axis) becomes the physical width.
+    let (final_content_w, final_content_h) = if is_horizontal_wm {
+        (content_width, content_height)
+    } else {
+        (content_height, content_width)
+    };
     let lb = build_table_layout_box(
         &padding,
         &border,
         &margin,
         content_x,
         offset_y + margin.top + border.top + padding.top,
-        content_width,
-        content_height,
+        final_content_w,
+        final_content_h,
         table_baseline,
     );
     let _ = dom.world_mut().insert_one(entity, lb.clone());

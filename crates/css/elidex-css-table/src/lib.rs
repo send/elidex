@@ -40,7 +40,7 @@ impl CssPropertyHandler for TableHandler {
             "border-collapse" => parse_keyword(input, &["separate", "collapse"])?,
             "border-spacing-h" | "border-spacing-v" => parse_non_negative_length(input)?,
             "table-layout" => parse_keyword(input, &["auto", "fixed"])?,
-            "caption-side" => parse_keyword(input, &["top", "bottom"])?,
+            "caption-side" => parse_keyword(input, &["top", "bottom", "block-start", "block-end"])?,
             "empty-cells" => parse_keyword(input, &["show", "hide"])?,
             _ => return Ok(vec![]),
         };
@@ -298,6 +298,49 @@ mod tests {
             handler.get_computed("caption-side", &style),
             CssValue::Keyword("bottom".to_string())
         );
+    }
+
+    #[test]
+    fn parse_caption_side_block_start() {
+        let result = parse_helper("caption-side", "block-start");
+        assert_eq!(
+            result[0].value,
+            CssValue::Keyword("block-start".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_caption_side_block_end() {
+        let result = parse_helper("caption-side", "block-end");
+        assert_eq!(result[0].value, CssValue::Keyword("block-end".to_string()));
+    }
+
+    #[test]
+    fn resolve_caption_side_block_start() {
+        let handler = TableHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "caption-side",
+            &CssValue::Keyword("block-start".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.caption_side, CaptionSide::BlockStart);
+    }
+
+    #[test]
+    fn resolve_caption_side_block_end() {
+        let handler = TableHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "caption-side",
+            &CssValue::Keyword("block-end".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.caption_side, CaptionSide::BlockEnd);
     }
 
     #[test]

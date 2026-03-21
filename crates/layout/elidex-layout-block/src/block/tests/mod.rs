@@ -12,6 +12,7 @@ mod float_layout;
 mod height_replaced;
 mod margin_collapse;
 mod width;
+mod writing_mode;
 
 fn block_style() -> ComputedStyle {
     ComputedStyle {

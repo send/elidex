@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{
     AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox,
+    WritingMode, WritingModeContext,
 };
 use elidex_text::FontDatabase;
 
@@ -109,6 +110,30 @@ pub struct IntrinsicSizes {
 }
 
 // ---------------------------------------------------------------------------
+// Subgrid context (CSS Grid Level 2 §2)
+// ---------------------------------------------------------------------------
+
+/// Parent grid track context for subgrid children (CSS Grid Level 2 §2).
+///
+/// When a grid item uses `subgrid` on one or both axes, the parent grid's
+/// resolved track sizes and line names are passed down via this context.
+#[derive(Clone, Debug)]
+pub struct SubgridContext {
+    /// Resolved parent column track sizes (subgrid span only). `None` if not subgridded on columns.
+    pub col_sizes: Option<Vec<f32>>,
+    /// Resolved parent row track sizes (subgrid span only). `None` if not subgridded on rows.
+    pub row_sizes: Option<Vec<f32>>,
+    /// Parent column line names (for merging with subgrid's own names).
+    pub col_line_names: Vec<Vec<String>>,
+    /// Parent row line names (for merging with subgrid's own names).
+    pub row_line_names: Vec<Vec<String>>,
+    /// Parent column gap (CSS Grid L2 §2.4: subgridded axis inherits parent gap).
+    pub col_gap: Option<f32>,
+    /// Parent row gap (CSS Grid L2 §2.4: subgridded axis inherits parent gap).
+    pub row_gap: Option<f32>,
+}
+
+// ---------------------------------------------------------------------------
 // Layout input and dispatch
 // ---------------------------------------------------------------------------
 
@@ -119,6 +144,13 @@ pub struct LayoutInput<'a> {
     pub containing_width: f32,
     /// Height of the containing block (if known).
     pub containing_height: Option<f32>,
+    /// Inline-axis size of the containing block (for margin/padding % resolution).
+    ///
+    /// CSS Box Model Level 3 §5.3: margin/padding percentages refer to the
+    /// containing block's **inline size**. In `horizontal-tb`, this equals
+    /// `containing_width`. In vertical writing modes, this equals the
+    /// physical height of the containing block.
+    pub containing_inline_size: f32,
     /// Horizontal offset from the containing block origin.
     pub offset_x: f32,
     /// Vertical offset from the containing block origin.
@@ -142,6 +174,8 @@ pub struct LayoutInput<'a> {
     pub fragmentainer: Option<&'a FragmentainerContext>,
     /// Break token from a previous fragment (for resumption).
     pub break_token: Option<&'a BreakToken>,
+    /// Parent grid context for subgrid items (CSS Grid Level 2 §2).
+    pub subgrid: Option<&'a SubgridContext>,
 }
 
 /// Callback type for dispatching child layout by display type.
@@ -172,6 +206,20 @@ pub fn layout_block_only(
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/// Compute the inline-axis containing size from the element's writing mode.
+///
+/// Used when a layout function constructs `LayoutInput` for its children.
+/// In `horizontal-tb`, inline size equals physical width. In vertical writing
+/// modes, inline size equals physical height.
+#[must_use]
+pub fn compute_inline_containing(wm: WritingMode, width: f32, height: Option<f32>) -> f32 {
+    if wm.is_horizontal() {
+        width
+    } else {
+        height.unwrap_or(width)
+    }
+}
 
 /// Replace non-finite f32 values (NaN, infinity) with 0.0.
 #[must_use]
@@ -205,10 +253,13 @@ pub fn sanitize_edge_values(top: f32, right: f32, bottom: f32, left: f32) -> Edg
     }
 }
 
-/// Resolve padding from a computed style against the containing block width.
+/// Resolve padding from a computed style against the containing block's inline size.
 ///
-/// CSS 2.1 §8.4: padding percentages (including top/bottom) refer to the
-/// **width** of the containing block. The result is clamped to non-negative.
+/// CSS Box Model L3 §5.3: padding percentages (including block-axis sides) refer
+/// to the **inline size** of the containing block. In `horizontal-tb` this equals
+/// the physical width; in vertical writing modes it equals the physical height.
+/// Callers must pass `containing_inline_size` (not necessarily physical width).
+/// The result is clamped to non-negative.
 #[must_use]
 pub fn resolve_padding(style: &ComputedStyle, containing_width: f32) -> EdgeSizes {
     EdgeSizes {
@@ -256,6 +307,26 @@ pub fn sanitize_border(style: &ComputedStyle) -> EdgeSizes {
     )
 }
 
+/// Resolve all box model edges (padding, border, margin) for an element.
+///
+/// Returns `(padding, border, margin)` all resolved against `containing_inline_size`
+/// per CSS Box Model L3 §5.3.
+#[must_use]
+pub fn resolve_box_model(
+    style: &ComputedStyle,
+    containing_inline_size: f32,
+) -> (EdgeSizes, EdgeSizes, EdgeSizes) {
+    let padding = resolve_padding(style, containing_inline_size);
+    let border = sanitize_border(style);
+    let margin = EdgeSizes::new(
+        block::resolve_margin(style.margin_top, containing_inline_size),
+        block::resolve_margin(style.margin_right, containing_inline_size),
+        block::resolve_margin(style.margin_bottom, containing_inline_size),
+        block::resolve_margin(style.margin_left, containing_inline_size),
+    );
+    (padding, border, margin)
+}
+
 /// Sum of horizontal (left + right) padding and border.
 #[must_use]
 pub fn horizontal_pb(padding: &EdgeSizes, border: &EdgeSizes) -> f32 {
@@ -266,6 +337,32 @@ pub fn horizontal_pb(padding: &EdgeSizes, border: &EdgeSizes) -> f32 {
 #[must_use]
 pub fn vertical_pb(padding: &EdgeSizes, border: &EdgeSizes) -> f32 {
     padding.top + padding.bottom + border.top + border.bottom
+}
+
+/// Sum of inline-axis (inline-start + inline-end) padding and border.
+///
+/// In `horizontal-tb` this equals `horizontal_pb`. In vertical writing modes
+/// this equals `vertical_pb`.
+#[must_use]
+pub fn inline_pb(wm: &WritingModeContext, padding: &EdgeSizes, border: &EdgeSizes) -> f32 {
+    if wm.is_horizontal() {
+        horizontal_pb(padding, border)
+    } else {
+        vertical_pb(padding, border)
+    }
+}
+
+/// Sum of block-axis (block-start + block-end) padding and border.
+///
+/// In `horizontal-tb` this equals `vertical_pb`. In vertical writing modes
+/// this equals `horizontal_pb`.
+#[must_use]
+pub fn block_pb(wm: &WritingModeContext, padding: &EdgeSizes, border: &EdgeSizes) -> f32 {
+    if wm.is_horizontal() {
+        vertical_pb(padding, border)
+    } else {
+        horizontal_pb(padding, border)
+    }
 }
 
 /// Resolve a CSS dimension to a pixel value.
@@ -372,6 +469,40 @@ pub fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> Al
         AlignSelf::FlexEnd => AlignItems::FlexEnd,
         AlignSelf::Center => AlignItems::Center,
         AlignSelf::Baseline => AlignItems::Baseline,
+    }
+}
+
+/// Save all descendant `ComputedStyle` components under `entity`.
+///
+/// Layout probes (e.g. min-content at `containing_width: 1.0`) can mutate
+/// descendant styles via flex/grid `position_items`. This function captures
+/// the styles so they can be restored after the probe.
+#[must_use]
+pub fn save_descendant_styles(dom: &EcsDom, entity: Entity) -> Vec<(Entity, ComputedStyle)> {
+    let mut result = Vec::new();
+    let mut stack = Vec::new();
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        stack.push(c);
+        child = dom.get_next_sibling(c);
+    }
+    while let Some(e) = stack.pop() {
+        if let Ok(style) = dom.world().get::<&ComputedStyle>(e) {
+            result.push((e, (*style).clone()));
+        }
+        let mut c = dom.get_first_child(e);
+        while let Some(ch) = c {
+            stack.push(ch);
+            c = dom.get_next_sibling(ch);
+        }
+    }
+    result
+}
+
+/// Restore previously saved `ComputedStyle` components.
+pub fn restore_descendant_styles(dom: &mut EcsDom, saved: &[(Entity, ComputedStyle)]) {
+    for (entity, style) in saved {
+        let _ = dom.world_mut().insert_one(*entity, style.clone());
     }
 }
 
@@ -538,7 +669,60 @@ pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<(f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_plugin::LayoutBox;
+    use elidex_plugin::{Direction, LayoutBox};
+
+    #[test]
+    fn compute_inline_containing_horizontal() {
+        // horizontal-tb: inline size = physical width
+        assert_eq!(
+            compute_inline_containing(WritingMode::HorizontalTb, 800.0, Some(600.0)),
+            800.0
+        );
+        assert_eq!(
+            compute_inline_containing(WritingMode::HorizontalTb, 800.0, None),
+            800.0
+        );
+    }
+
+    #[test]
+    fn compute_inline_containing_vertical() {
+        // vertical-rl/lr: inline size = physical height
+        assert_eq!(
+            compute_inline_containing(WritingMode::VerticalRl, 800.0, Some(600.0)),
+            600.0
+        );
+        assert_eq!(
+            compute_inline_containing(WritingMode::VerticalLr, 800.0, Some(400.0)),
+            400.0
+        );
+        // When height is None, falls back to width
+        assert_eq!(
+            compute_inline_containing(WritingMode::VerticalRl, 800.0, None),
+            800.0
+        );
+    }
+
+    #[test]
+    fn inline_pb_horizontal() {
+        let wm = WritingModeContext::new(WritingMode::HorizontalTb, Direction::Ltr);
+        let padding = EdgeSizes::new(10.0, 20.0, 30.0, 40.0);
+        let border = EdgeSizes::new(1.0, 2.0, 3.0, 4.0);
+        // Horizontal: inline = left + right = (40+20) + (4+2) = 66
+        assert_eq!(inline_pb(&wm, &padding, &border), 66.0);
+        // Horizontal: block = top + bottom = (10+30) + (1+3) = 44
+        assert_eq!(block_pb(&wm, &padding, &border), 44.0);
+    }
+
+    #[test]
+    fn inline_pb_vertical() {
+        let wm = WritingModeContext::new(WritingMode::VerticalRl, Direction::Ltr);
+        let padding = EdgeSizes::new(10.0, 20.0, 30.0, 40.0);
+        let border = EdgeSizes::new(1.0, 2.0, 3.0, 4.0);
+        // Vertical: inline = top + bottom = (10+30) + (1+3) = 44
+        assert_eq!(inline_pb(&wm, &padding, &border), 44.0);
+        // Vertical: block = left + right = (40+20) + (4+2) = 66
+        assert_eq!(block_pb(&wm, &padding, &border), 66.0);
+    }
 
     #[test]
     fn intrinsic_sizes_default() {

@@ -26,6 +26,7 @@ fn do_layout_grid(
     let input = LayoutInput {
         containing_width,
         containing_height,
+        containing_inline_size: containing_width,
         offset_x,
         offset_y,
         font_db,
@@ -34,6 +35,7 @@ fn do_layout_grid(
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     layout_grid(dom, entity, &input, layout_child)
 }
@@ -42,7 +44,9 @@ mod alignment_box;
 mod baseline;
 mod blockification;
 mod placement;
+mod subgrid;
 mod track_sizing;
+mod writing_mode;
 
 // ---------------------------------------------------------------------------
 // Helpers

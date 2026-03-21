@@ -6,12 +6,97 @@
 use std::collections::HashMap;
 
 use elidex_ecs::EcsDom;
-use elidex_layout_block::{ChildLayoutFn, LayoutInput};
-use elidex_plugin::{AlignItems, Dimension, Direction, JustifyItems, LayoutBox, Rect};
+use elidex_layout_block::{ChildLayoutFn, LayoutInput, SubgridContext};
+use elidex_plugin::{
+    AlignItems, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Rect, WritingMode,
+};
 use elidex_text::FontDatabase;
 
 use crate::track;
 use crate::{GridItem, LAYOUT_SIZE_EPSILON};
+
+// ---------------------------------------------------------------------------
+// Subgrid helpers
+// ---------------------------------------------------------------------------
+
+/// Extract a slice of parent track sizes for a subgrid child.
+fn extract_subgrid_sizes(
+    parent_sizes: Option<&Vec<f32>>,
+    start: usize,
+    span: usize,
+) -> Option<Vec<f32>> {
+    parent_sizes.map(|sizes| {
+        let end = start.saturating_add(span).min(sizes.len());
+        sizes.get(start..end).unwrap_or_default().to_vec()
+    })
+}
+
+/// Extract a slice of parent line names for a subgrid child.
+///
+/// Returns exactly `span + 1` entries (one per line boundary).  If the
+/// parent grid has fewer names than needed, the result is padded with
+/// empty vecs so that downstream merging always sees the correct count.
+fn extract_subgrid_names(
+    parent_names: &[Vec<String>],
+    start: usize,
+    span: usize,
+) -> Vec<Vec<String>> {
+    let expected = span.saturating_add(1);
+    let start = start.min(parent_names.len());
+    let end = start.saturating_add(expected).min(parent_names.len());
+    let mut result = parent_names.get(start..end).unwrap_or_default().to_vec();
+    // Pad with empty vecs to guarantee `span + 1` entries.
+    result.resize_with(expected, Vec::new);
+    result
+}
+
+/// Extract sizes and merged line names for one subgrid axis.
+///
+/// Returns `(None, vec![])` when the axis is not subgridded.
+fn extract_axis_subgrid(
+    is_subgrid: bool,
+    parent_sizes: Option<&Vec<f32>>,
+    parent_names: &[Vec<String>],
+    start: usize,
+    span: usize,
+    track_list: &GridTrackList,
+) -> (Option<Vec<f32>>, Vec<Vec<String>>) {
+    if !is_subgrid {
+        return (None, vec![]);
+    }
+    let sizes = extract_subgrid_sizes(parent_sizes, start, span);
+    let names = extract_subgrid_names(parent_names, start, span);
+    let merged = merge_line_names(&names, track_list);
+    (sizes, merged)
+}
+
+/// Merge parent line names with a subgrid's own declared line names (CSS Grid L2 §2.2).
+///
+/// The subgrid's names augment the parent names at corresponding positions.
+/// If the subgrid declares fewer names than inherited, trailing parent names are kept.
+/// If the subgrid declares more names than inherited, extra names extend the list.
+fn merge_line_names(parent_names: &[Vec<String>], track_list: &GridTrackList) -> Vec<Vec<String>> {
+    let GridTrackList::Subgrid {
+        line_names: subgrid_names,
+    } = track_list
+    else {
+        return parent_names.to_vec();
+    };
+    let max_len = parent_names.len().max(subgrid_names.len());
+    (0..max_len)
+        .map(|i| {
+            let mut merged = parent_names.get(i).cloned().unwrap_or_default();
+            if let Some(sub) = subgrid_names.get(i) {
+                for name in sub {
+                    if !merged.contains(name) {
+                        merged.push(name.clone());
+                    }
+                }
+            }
+            merged
+        })
+        .collect()
+}
 
 // ---------------------------------------------------------------------------
 // GridPlacement
@@ -25,9 +110,14 @@ pub(crate) struct GridPlacement<'a> {
     pub(crate) row_positions: &'a [f32],
     pub(crate) content_x: f32,
     pub(crate) content_y: f32,
-    pub(crate) content_width: f32,
+    /// Container inline-axis size (CSS Writing Modes §6.3, used for RTL mirroring).
+    pub(crate) container_inline_size: f32,
     pub(crate) direction: Direction,
     pub(crate) containing_height: Option<f32>,
+    /// Subgrid context for passing parent track sizes to subgrid children.
+    pub(crate) subgrid_ctx: Option<&'a SubgridContext>,
+    /// Container's writing mode (CSS Writing Modes §6.3).
+    pub(crate) writing_mode: WritingMode,
 }
 
 // ---------------------------------------------------------------------------
@@ -47,9 +137,10 @@ pub(crate) fn position_items(
     layout_child: ChildLayoutFn,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
+    let is_horizontal_wm = placement.writing_mode.is_horizontal();
     let content_x = placement.content_x;
     let content_y = placement.content_y;
-    let content_width = placement.content_width;
+    let container_inline_size = placement.container_inline_size;
     let containing_height = placement.containing_height;
     let col_tracks = placement.col_tracks;
     let row_tracks = placement.row_tracks;
@@ -75,13 +166,26 @@ pub(crate) fn position_items(
             if !align_bl && !justify_bl {
                 continue;
             }
-            let area_width =
-                cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-            let avail_w = (area_width - item.margin.left - item.margin.right).max(0.0);
+            let col_size = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
+            let row_size = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
+            // Map logical track sizes to physical area dimensions.
+            let (bl_area_w, bl_area_h) = if is_horizontal_wm {
+                (col_size, row_size)
+            } else {
+                (row_size, col_size)
+            };
+            let avail_w = (bl_area_w - item.margin.left - item.margin.right).max(0.0);
+            let _avail_h = (bl_area_h - item.margin.top - item.margin.bottom).max(0.0);
 
+            let prelim_inline_size = if is_horizontal_wm {
+                bl_area_w
+            } else {
+                bl_area_h
+            };
             let prelim_input = LayoutInput {
                 containing_width: avail_w,
                 containing_height,
+                containing_inline_size: prelim_inline_size,
                 offset_x: 0.0,
                 offset_y: 0.0,
                 font_db,
@@ -90,6 +194,7 @@ pub(crate) fn position_items(
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
+                subgrid: None,
             };
             let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
 
@@ -125,22 +230,39 @@ pub(crate) fn position_items(
 
     for item in items {
         // Compute the grid area rectangle.
-        let ltr_area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
-        let area_width = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-        // RTL: mirror column position so columns flow right-to-left.
-        let area_x = if is_rtl {
-            (content_width - ltr_area_x - area_width).max(0.0)
+        // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
+        // In horizontal: column → X, row → Y.
+        // In vertical: column → Y (inline axis), row → X (block axis).
+        let col_pos = col_positions.get(item.col_start).copied().unwrap_or(0.0);
+        let col_size = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
+        let row_pos = row_positions.get(item.row_start).copied().unwrap_or(0.0);
+        let row_size = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
+
+        let (area_x, area_y, area_width, area_height) = if is_horizontal_wm {
+            // RTL: mirror column position so columns flow right-to-left.
+            let area_x = if is_rtl {
+                (container_inline_size - col_pos - col_size).max(0.0)
+            } else {
+                col_pos
+            };
+            (area_x, row_pos, col_size, row_size)
         } else {
-            ltr_area_x
+            // Vertical: columns → Y (inline axis), rows → X (block axis).
+            let area_y = if is_rtl {
+                (container_inline_size - col_pos - col_size).max(0.0)
+            } else {
+                col_pos
+            };
+            (row_pos, area_y, row_size, col_size)
         };
-        let area_y = row_positions.get(item.row_start).copied().unwrap_or(0.0);
-        let area_height = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
 
         // Available space for the item after subtracting margins.
         let avail_w = (area_width - item.margin.left - item.margin.right).max(0.0);
         let avail_h = (area_height - item.margin.top - item.margin.bottom).max(0.0);
 
         // Resolve item content width.
+        // CSS Grid §11.3: the containing block for a grid item is the grid area.
+        // Percentage widths resolve against the grid area size (before margins).
         let child_style = elidex_layout_block::get_style(dom, item.entity);
         let item_content_w = if item.width_auto && item.justify != JustifyItems::Stretch {
             // Non-stretch: use content width (shrink-wrap).
@@ -150,7 +272,7 @@ pub(crate) fn position_items(
         } else {
             resolve_item_dimension(
                 child_style.width,
-                avail_w,
+                area_width,
                 item.pb.left + item.pb.right,
                 child_style.box_sizing,
             )
@@ -158,9 +280,17 @@ pub(crate) fn position_items(
         };
 
         // Preliminary layout to measure content height.
+        // CSS Grid §11.3: margin/padding % on grid items resolves against the
+        // grid area's content-box dimension (before margins), not avail (after margins).
+        let item_inline_size = if is_horizontal_wm {
+            area_width
+        } else {
+            area_height
+        };
         let prelim_input = LayoutInput {
-            containing_width: avail_w,
+            containing_width: area_width,
             containing_height,
+            containing_inline_size: item_inline_size,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db,
@@ -169,6 +299,7 @@ pub(crate) fn position_items(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
 
@@ -235,10 +366,53 @@ pub(crate) fn position_items(
         let margin_box_x = content_x + area_x + x_offset;
         let margin_box_y = content_y + area_y + y_offset;
 
+        // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
+        let child_subgrid_ctx = if let Some(parent) = placement
+            .subgrid_ctx
+            .as_ref()
+            .filter(|_| item.is_subgrid_cols || item.is_subgrid_rows)
+        {
+            let child_style = elidex_layout_block::get_style(dom, item.entity);
+            let (child_col_sizes, child_col_names) = extract_axis_subgrid(
+                item.is_subgrid_cols,
+                parent.col_sizes.as_ref(),
+                &parent.col_line_names,
+                item.col_start,
+                item.col_span,
+                &child_style.grid_template_columns,
+            );
+            let (child_row_sizes, child_row_names) = extract_axis_subgrid(
+                item.is_subgrid_rows,
+                parent.row_sizes.as_ref(),
+                &parent.row_line_names,
+                item.row_start,
+                item.row_span,
+                &child_style.grid_template_rows,
+            );
+            Some(SubgridContext {
+                col_sizes: child_col_sizes,
+                row_sizes: child_row_sizes,
+                col_line_names: child_col_names,
+                row_line_names: child_row_names,
+                col_gap: parent.col_gap,
+                row_gap: parent.row_gap,
+            })
+        } else {
+            None
+        };
+
         // Final layout at resolved position.
+        // CSS Grid §11.3: margin/padding % resolves against the grid area's
+        // content-box dimension, consistent with preliminary passes.
+        let final_inline_size = if is_horizontal_wm {
+            area_width
+        } else {
+            area_height
+        };
         let final_input = LayoutInput {
             containing_width: area_width,
             containing_height: Some(item_content_h),
+            containing_inline_size: final_inline_size,
             offset_x: margin_box_x,
             offset_y: margin_box_y,
             font_db,
@@ -247,6 +421,7 @@ pub(crate) fn position_items(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: child_subgrid_ctx.as_ref(),
         };
         let final_lb = layout_child(dom, item.entity, &final_input).layout_box;
 
@@ -301,7 +476,7 @@ fn cell_span_size(
     if tracks.is_empty() || start >= tracks.len() {
         return 0.0;
     }
-    let end = (start + span).min(tracks.len());
+    let end = start.saturating_add(span).min(tracks.len());
     let start_pos = positions.get(start).copied().unwrap_or(0.0);
     let last = end.saturating_sub(1);
     let end_pos = positions.get(last).copied().unwrap_or(start_pos)

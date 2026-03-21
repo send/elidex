@@ -12,7 +12,7 @@ use elidex_layout_block::{
 use elidex_plugin::{
     AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
     Display, EdgeSizes, FlexBasis, FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
-    Visibility,
+    Visibility, WritingMode,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -33,8 +33,15 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if the flex main axis is horizontal.
-fn is_main_horizontal(dir: FlexDirection) -> bool {
-    matches!(dir, FlexDirection::Row | FlexDirection::RowReverse)
+///
+/// In `horizontal-tb`, row = horizontal main axis; in vertical writing modes,
+/// row = vertical main axis (CSS Flexbox §9.1, CSS Writing Modes §6.3).
+fn is_main_horizontal(dir: FlexDirection, wm: WritingMode) -> bool {
+    let horizontal_wm = wm.is_horizontal();
+    match dir {
+        FlexDirection::Row | FlexDirection::RowReverse => horizontal_wm,
+        FlexDirection::Column | FlexDirection::ColumnReverse => !horizontal_wm,
+    }
 }
 
 /// Returns `true` if the main axis direction is reversed.
@@ -66,14 +73,15 @@ fn resolve_flex_basis(
     style: &ComputedStyle,
     direction: FlexDirection,
     containing_main: f32,
-    containing_width: f32,
+    inline_containing: f32,
+    wm: WritingMode,
 ) -> Option<f32> {
     let raw = match style.flex_basis {
         FlexBasis::Length(px) => Some(px),
         FlexBasis::Percentage(pct) => resolve_percentage_main(pct, containing_main),
         FlexBasis::Content => None,
         FlexBasis::Auto => {
-            let fallback = if is_main_horizontal(direction) {
+            let fallback = if is_main_horizontal(direction, wm) {
                 style.width
             } else {
                 style.height
@@ -88,9 +96,9 @@ fn resolve_flex_basis(
     let px = raw?;
     // Adjust for box-sizing: border-box — convert from border-box to content size.
     if style.box_sizing == BoxSizing::BorderBox {
-        let p = elidex_layout_block::resolve_padding(style, containing_width);
+        let p = elidex_layout_block::resolve_padding(style, inline_containing);
         let b = sanitize_border(style);
-        let pb = if is_main_horizontal(direction) {
+        let pb = if is_main_horizontal(direction, wm) {
             horizontal_pb(&p, &b)
         } else {
             vertical_pb(&p, &b)
@@ -175,6 +183,8 @@ pub(crate) struct FlexContext {
     pub(crate) align_content: AlignContent,
     pub(crate) containing_width: f32,
     pub(crate) containing_height: Option<f32>,
+    /// Containing block's inline size (for margin/padding % resolution).
+    pub(crate) inline_containing: f32,
     /// The container's own definite height (for children's percentage height resolution).
     pub(crate) container_definite_height: Option<f32>,
     /// Gap between items on the main axis.
@@ -187,6 +197,8 @@ pub(crate) struct FlexContext {
     pub(crate) justify_content_safety: AlignmentSafety,
     /// CSS Box Alignment L3: safe/unsafe modifier for align-content.
     pub(crate) align_content_safety: AlignmentSafety,
+    /// Container's writing mode (CSS Writing Modes §6.3).
+    pub(crate) writing_mode: WritingMode,
 }
 
 // ---------------------------------------------------------------------------
@@ -230,12 +242,13 @@ pub fn layout_flex(
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
-    let padding = elidex_layout_block::resolve_padding(&style, containing_width);
+    let inline_containing = input.containing_inline_size;
+    let padding = elidex_layout_block::resolve_padding(&style, inline_containing);
     let border = sanitize_border(&style);
-    let margin_top = resolve_margin(style.margin_top, containing_width);
-    let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
-    let margin_left = resolve_margin(style.margin_left, containing_width);
-    let margin_right = resolve_margin(style.margin_right, containing_width);
+    let margin_top = resolve_margin(style.margin_top, inline_containing);
+    let margin_bottom = resolve_margin(style.margin_bottom, inline_containing);
+    let margin_left = resolve_margin(style.margin_left, inline_containing);
+    let margin_right = resolve_margin(style.margin_right, inline_containing);
     let h_pb = horizontal_pb(&padding, &border);
     let content_width = elidex_layout_block::resolve_content_width(
         &style,
@@ -246,7 +259,7 @@ pub fn layout_flex(
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
     let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
-    let horizontal = is_main_horizontal(style.flex_direction);
+    let horizontal = is_main_horizontal(style.flex_direction, style.writing_mode);
     let container_main =
         resolve_container_main(&style, horizontal, content_width, containing_height);
 
@@ -297,12 +310,14 @@ pub fn layout_flex(
         align_content: style.align_content,
         containing_width,
         containing_height,
+        inline_containing,
         container_definite_height,
         gap_main,
         gap_cross,
         css_direction: style.direction,
         justify_content_safety: style.justify_content_safety,
         align_content_safety: style.align_content_safety,
+        writing_mode: style.writing_mode,
     };
 
     let env = algo::LayoutEnv {
@@ -473,7 +488,7 @@ fn collect_flex_items(
             let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
-        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.containing_width);
+        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.inline_containing);
 
         // Flex §8.1: detect auto margins before resolving to 0.
         let (
@@ -520,13 +535,13 @@ fn collect_flex_items(
         };
 
         let (margin_main, margin_cross) =
-            compute_margins(&child_style, ctx.horizontal, ctx.containing_width);
+            compute_margins(&child_style, ctx.horizontal, ctx.inline_containing);
 
         // Cross-start margin for baseline offset computation.
         let margin_cross_start = if ctx.horizontal {
-            resolve_margin(child_style.margin_top, ctx.containing_width)
+            resolve_margin(child_style.margin_top, ctx.inline_containing)
         } else {
-            resolve_margin(child_style.margin_left, ctx.containing_width)
+            resolve_margin(child_style.margin_left, ctx.inline_containing)
         };
 
         // Flex §4.4: visibility:collapse detection.
@@ -543,7 +558,8 @@ fn collect_flex_items(
             &child_style,
             ctx.direction,
             ctx.container_main,
-            ctx.containing_width,
+            ctx.inline_containing,
+            ctx.writing_mode,
         );
         // CSS Flexbox §9.2 step 3(B): flex-basis: content → max-content size.
         // flex-basis: auto with width: auto → layout at container width.
@@ -561,6 +577,7 @@ fn collect_flex_items(
             let child_input = LayoutInput {
                 containing_width: probe_width,
                 containing_height: None,
+                containing_inline_size: probe_width,
                 offset_x: 0.0,
                 offset_y: 0.0,
                 font_db: env.font_db,
@@ -569,6 +586,7 @@ fn collect_flex_items(
                 viewport: env.input_viewport,
                 fragmentainer: None,
                 break_token: None,
+                subgrid: None,
             };
             let child_lb = (env.layout_child)(dom, child, &child_input).layout_box;
             if ctx.horizontal {
@@ -669,6 +687,7 @@ fn compute_automatic_minimum(
     let probe_input = LayoutInput {
         containing_width: 1.0,
         containing_height: None,
+        containing_inline_size: 1.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: env.font_db,
@@ -677,6 +696,7 @@ fn compute_automatic_minimum(
         viewport: env.input_viewport,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let probe_lb = (env.layout_child)(dom, child, &probe_input).layout_box;
     let content_min = if ctx.horizontal {

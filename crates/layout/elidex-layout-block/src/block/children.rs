@@ -6,11 +6,10 @@ use std::collections::HashMap;
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
     BoxSizing, Clear, ComputedStyle, Dimension, Display, EdgeSizes, Float, LayoutBox,
+    WritingModeContext,
 };
 
-use crate::{
-    adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, vertical_pb, LayoutInput,
-};
+use crate::{adjust_min_max_for_border_box, clamp_min_max, resolve_min_max, LayoutInput};
 
 use super::float::FloatContext;
 use super::is_block_level;
@@ -34,10 +33,14 @@ pub struct StackResult {
     pub first_baseline: Option<f32>,
 }
 
-/// Stack block-level children with vertical margin collapse.
+/// Stack block-level children along the block axis with margin collapse.
+///
+/// Writing-mode-aware: the block axis is vertical in `horizontal-tb` and
+/// horizontal in vertical writing modes. Children are stacked along the
+/// block axis, with margin collapse applied on block-axis margins.
 ///
 /// Shared by block children layout and document-root layout. Returns
-/// the total height consumed and first/last child margin info for
+/// the total block extent consumed and first/last child margin info for
 /// parent-child collapse (CSS 2.1 §8.3.1).
 ///
 /// Floated children (CSS 2.1 §9.5) are removed from normal flow and
@@ -55,14 +58,27 @@ pub fn stack_block_children(
     is_bfc: bool,
     parent_entity: Entity,
 ) -> StackResult {
-    let mut cursor_y = input.offset_y;
-    let mut prev_margin_bottom: Option<f32> = None;
-    let mut first_child_margin_top: Option<f32> = None;
-    let mut last_child_margin_bottom: Option<f32> = None;
+    let parent_style = crate::get_style(dom, parent_entity);
+    let wm = WritingModeContext::new(parent_style.writing_mode, parent_style.direction);
+    let is_horizontal = wm.is_horizontal();
+
+    // Block-axis cursor: tracks Y in horizontal-tb, X in vertical modes.
+    let mut cursor_block = if is_horizontal {
+        input.offset_y
+    } else {
+        input.offset_x
+    };
+    let cursor_block_origin = cursor_block;
+
+    let mut prev_margin_block_end: Option<f32> = None;
+    let mut first_child_margin_block_start: Option<f32> = None;
+    let mut last_child_margin_block_end: Option<f32> = None;
+
     // CSS 2.1 §9.5: BFC-establishing elements create their own FloatContext.
-    // Non-BFC blocks forward the ancestor's FloatContext (via RefCell) so
-    // that floats inside non-BFC children are visible to the enclosing BFC.
-    let local_ctx = RefCell::new(FloatContext::new(input.containing_width));
+    // FloatContext works in abstract 2D space: "containing_width" = inline-axis size,
+    // "y" positions = block-axis positions.
+    let inline_containing = input.containing_inline_size;
+    let local_ctx = RefCell::new(FloatContext::new(inline_containing));
     let float_ctx: &RefCell<FloatContext> = if let Some(ancestor_ctx) = input.float_ctx {
         if is_bfc {
             &local_ctx
@@ -93,7 +109,12 @@ pub fn stack_block_children(
             .as_ref()
             .is_some_and(crate::positioned::is_absolutely_positioned)
         {
-            static_positions.insert(child, (input.offset_x, cursor_y));
+            let static_pos = if is_horizontal {
+                (input.offset_x, cursor_block)
+            } else {
+                (cursor_block, input.offset_y)
+            };
+            static_positions.insert(child, static_pos);
             continue;
         }
 
@@ -114,39 +135,48 @@ pub fn stack_block_children(
                 &inline_run,
                 parent_entity,
                 input,
-                cursor_y,
+                wm,
+                cursor_block,
                 layout_child,
                 &mut static_positions,
             );
-            // Capture baseline from inline run (offset by cursor_y - input.offset_y).
             if first_baseline.is_none() {
                 first_baseline = run_result
                     .first_baseline
-                    .map(|bl| (cursor_y - input.offset_y) + bl);
+                    .map(|bl| (cursor_block - cursor_block_origin) + bl);
             }
-            cursor_y += run_result.height;
+            cursor_block += run_result.block_extent;
             // Anonymous block box has zero margins.
-            if first_child_margin_top.is_none() {
-                first_child_margin_top = Some(0.0);
+            if first_child_margin_block_start.is_none() {
+                first_child_margin_block_start = Some(0.0);
             }
-            prev_margin_bottom = Some(0.0);
-            last_child_margin_bottom = Some(0.0);
+            prev_margin_block_end = Some(0.0);
+            last_child_margin_block_end = Some(0.0);
             inline_run.clear();
         }
 
         let child_style = child_style.unwrap();
         let child_float = child_style.float;
         let child_clear = child_style.clear;
-        let child_margin_top_dim = child_style.margin_top;
+
+        // Block-start margin of the child (for collapse).
+        // CSS WM: block-start = top (horizontal), right (vertical-rl), left (vertical-lr).
+        let child_margin_block_start_dim = if is_horizontal {
+            child_style.margin_top
+        } else if wm.is_block_reversed() {
+            child_style.margin_right
+        } else {
+            child_style.margin_left
+        };
 
         // --- Clear: advance past floats (CSS 2.1 §9.5.2) ---
-        // Applied to both floated and non-floated children.
+        // FloatContext clear_y operates on block-axis positions.
         let has_clearance = if child_clear == Clear::None {
             false
         } else {
-            let new_y = float_ctx.borrow().clear_y(child_clear, cursor_y);
-            let cleared = new_y > cursor_y;
-            cursor_y = new_y;
+            let new_block = float_ctx.borrow().clear_y(child_clear, cursor_block);
+            let cleared = new_block > cursor_block;
+            cursor_block = new_block;
             cleared
         };
 
@@ -158,48 +188,73 @@ pub fn stack_block_children(
                 child_float,
                 float_ctx,
                 input,
-                cursor_y,
+                wm,
+                cursor_block,
                 layout_child,
             );
             continue;
         }
 
         // Margin collapse between adjacent block siblings (CSS 2.1 §8.3.1).
-        // Both positive -> max, both negative -> min, mixed -> sum.
-        // Clearance breaks margin adjacency — margins do not collapse when
-        // the element has clearance (CSS 2.1 §8.3.1).
-        let child_margin_top = resolve_margin(child_margin_top_dim, input.containing_width);
-        // Only record a first-child top margin for parent/child collapse
-        // when the child does not have clearance; clearance breaks
-        // margin adjacency with the parent as well (CSS 2.1 §8.3.1).
-        if first_child_margin_top.is_none() && !has_clearance {
-            first_child_margin_top = Some(child_margin_top);
+        let child_margin_block_start =
+            resolve_margin(child_margin_block_start_dim, input.containing_inline_size);
+        if first_child_margin_block_start.is_none() && !has_clearance {
+            first_child_margin_block_start = Some(child_margin_block_start);
         }
-        if let Some(prev_mb) = prev_margin_bottom {
+        if let Some(prev_mbe) = prev_margin_block_end {
             if !has_clearance {
-                let collapsed = collapse_margins(prev_mb, child_margin_top);
-                cursor_y -= prev_mb + child_margin_top - collapsed;
+                let collapsed = collapse_margins(prev_mbe, child_margin_block_start);
+                cursor_block -= prev_mbe + child_margin_block_start - collapsed;
             }
         }
 
-        // Dispatch child layout via callback (routes to block/flex/grid
-        // based on the child's display type).
-        let child_input = LayoutInput {
-            offset_y: cursor_y,
-            float_ctx: Some(float_ctx),
-            ..*input
+        // Dispatch child layout via callback.
+        // Set the block-axis offset in the child input.
+        let child_input = if is_horizontal {
+            LayoutInput {
+                offset_y: cursor_block,
+                float_ctx: Some(float_ctx),
+                ..*input
+            }
+        } else {
+            LayoutInput {
+                offset_x: cursor_block,
+                float_ctx: Some(float_ctx),
+                ..*input
+            }
         };
         let child_box = layout_child(dom, child, &child_input).layout_box;
+
         // Capture baseline from first in-flow block child (CSS 2.1 §10.8.1).
         if first_baseline.is_none() {
             if let Some(child_bl) = child_box.first_baseline {
-                // Offset: child content.y relative to parent content area top.
-                first_baseline = Some(child_box.content.y - input.offset_y + child_bl);
+                let child_block_pos = if is_horizontal {
+                    child_box.content.y
+                } else {
+                    child_box.content.x
+                };
+                first_baseline = Some(child_block_pos - cursor_block_origin + child_bl);
             }
         }
-        cursor_y += child_box.margin_box().height;
-        prev_margin_bottom = Some(child_box.margin.bottom);
-        last_child_margin_bottom = Some(child_box.margin.bottom);
+
+        // Advance cursor by the child's block extent (margin box).
+        let child_block_extent = if is_horizontal {
+            child_box.margin_box().height
+        } else {
+            child_box.margin_box().width
+        };
+        cursor_block += child_block_extent;
+
+        // Track block-end margin for collapse with next sibling.
+        let child_margin_block_end = if is_horizontal {
+            child_box.margin.bottom
+        } else if wm.is_block_reversed() {
+            child_box.margin.left
+        } else {
+            child_box.margin.right
+        };
+        prev_margin_block_end = Some(child_margin_block_end);
+        last_child_margin_block_end = Some(child_margin_block_end);
     }
 
     // Flush trailing inline run (CSS 2.1 §9.2.1.1).
@@ -209,41 +264,42 @@ pub fn stack_block_children(
             &inline_run,
             parent_entity,
             input,
-            cursor_y,
+            wm,
+            cursor_block,
             layout_child,
             &mut static_positions,
         );
         if first_baseline.is_none() {
             first_baseline = run_result
                 .first_baseline
-                .map(|bl| (cursor_y - input.offset_y) + bl);
+                .map(|bl| (cursor_block - cursor_block_origin) + bl);
         }
-        cursor_y += run_result.height;
-        if first_child_margin_top.is_none() {
-            first_child_margin_top = Some(0.0);
+        cursor_block += run_result.block_extent;
+        if first_child_margin_block_start.is_none() {
+            first_child_margin_block_start = Some(0.0);
         }
-        last_child_margin_bottom = Some(0.0);
+        last_child_margin_block_end = Some(0.0);
     }
 
     // CSS 2.1 §10.6.7: Only elements that establish a BFC have their
-    // height increased to contain floats. Non-BFC blocks let floats overflow.
-    let normal_height = cursor_y - input.offset_y;
+    // block extent increased to contain floats.
+    let normal_extent = cursor_block - cursor_block_origin;
     let height = if is_bfc {
         let float_bottom = float_ctx.borrow().float_bottom();
         let float_extend = if float_bottom > 0.0 {
-            (float_bottom - input.offset_y).max(0.0)
+            (float_bottom - cursor_block_origin).max(0.0)
         } else {
             0.0
         };
-        normal_height.max(float_extend)
+        normal_extent.max(float_extend)
     } else {
-        normal_height
+        normal_extent
     };
 
     StackResult {
         height,
-        first_child_margin_top,
-        last_child_margin_bottom,
+        first_child_margin_top: first_child_margin_block_start,
+        last_child_margin_bottom: last_child_margin_block_end,
         static_positions,
         first_baseline,
     }
@@ -251,29 +307,50 @@ pub fn stack_block_children(
 
 /// Result of flushing an inline run.
 struct InlineRunResult {
-    height: f32,
+    /// Block-axis extent consumed by the inline run.
+    block_extent: f32,
     first_baseline: Option<f32>,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
 ///
 /// Lays out consecutive inline/text children via the inline formatting
-/// context and returns the total height consumed and the first baseline.
+/// context and returns the block extent consumed and the first baseline.
+/// Writing-mode-aware: uses inline-axis size for the line width and
+/// positions the content origin based on the block cursor.
+#[allow(clippy::too_many_arguments)]
 fn flush_inline_run(
     dom: &mut EcsDom,
     inline_children: &[Entity],
     parent_entity: Entity,
     input: &LayoutInput<'_>,
-    cursor_y: f32,
+    wm: WritingModeContext,
+    cursor_block: f32,
     layout_child: crate::ChildLayoutFn,
     static_positions: &mut HashMap<Entity, (f32, f32)>,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
-    let content_origin = (input.offset_x, cursor_y);
+    let is_horizontal = wm.is_horizontal();
+
+    // Inline-axis available size for line breaking.
+    // CSS Writing Modes Level 3 §3.1: In vertical modes, inline axis = vertical.
+    let inline_size = if is_horizontal {
+        input.containing_width
+    } else {
+        input.containing_height.unwrap_or(input.containing_width)
+    };
+
+    // Content origin: inline-start position is fixed, block position is the cursor.
+    let content_origin = if is_horizontal {
+        (input.offset_x, cursor_block)
+    } else {
+        (cursor_block, input.offset_y)
+    };
+
     let result = crate::inline::layout_inline_context(
         dom,
         inline_children,
-        input.containing_width,
+        inline_size,
         &parent_style,
         input.font_db,
         parent_entity,
@@ -281,8 +358,11 @@ fn flush_inline_run(
         layout_child,
     );
     static_positions.extend(result.static_positions);
+
+    // In vertical modes, layout_inline_context returns the total column width
+    // (block-axis extent) as `height`, which is the block extent we need.
     InlineRunResult {
-        height: result.height,
+        block_extent: result.height,
         first_baseline: result.first_baseline,
     }
 }
@@ -379,54 +459,86 @@ pub(crate) fn max_content_width(
 
 /// Layout a floated child and place it via the float context.
 ///
-/// Floated elements use shrink-to-fit width: they do not expand to fill
-/// the containing block (CSS 2.1 §10.3.5).
+/// Writing-mode-aware: `float: left` = inline-start, `float: right` = inline-end
+/// (CSS Writing Modes Level 3 §3.3). `FloatContext` operates in abstract
+/// inline/block space; this function converts to physical coordinates
+/// for the final `LayoutBox`.
+///
+/// Floated elements use shrink-to-fit inline-size: they do not expand to
+/// fill the containing block (CSS 2.1 §10.3.5).
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn layout_float(
     dom: &mut EcsDom,
     child: Entity,
     float_side: Float,
     float_ctx: &RefCell<FloatContext>,
     input: &LayoutInput<'_>,
-    cursor_y: f32,
+    wm: WritingModeContext,
+    cursor_block: f32,
     layout_child: crate::ChildLayoutFn,
 ) {
     let child_style = crate::get_style(dom, child);
-    let containing_width = input.containing_width;
+    let is_horizontal = wm.is_horizontal();
 
     // Resolve margins for the float's margin box.
-    let margin_top = resolve_margin(child_style.margin_top, containing_width);
-    let margin_right = resolve_margin(child_style.margin_right, containing_width);
-    let margin_bottom = resolve_margin(child_style.margin_bottom, containing_width);
-    let margin_left = resolve_margin(child_style.margin_left, containing_width);
+    // CSS Box Model Level 3 §5.3: margin % refers to containing block's inline size.
+    let containing_inline = input.containing_inline_size;
+    let margin_top = resolve_margin(child_style.margin_top, containing_inline);
+    let margin_right = resolve_margin(child_style.margin_right, containing_inline);
+    let margin_bottom = resolve_margin(child_style.margin_bottom, containing_inline);
+    let margin_left = resolve_margin(child_style.margin_left, containing_inline);
 
-    let padding = crate::resolve_padding(&child_style, containing_width);
+    let padding = crate::resolve_padding(&child_style, containing_inline);
     let border = crate::sanitize_border(&child_style);
-    let h_pb = crate::horizontal_pb(&padding, &border);
 
-    // Shrink-to-fit width: use specified width if given, otherwise
-    // use 0 as auto (content will determine actual width).
-    // For simplicity, we layout the float at position (0, 0) first to
-    // get its dimensions, then reposition.
-    let shrink_width = match child_style.width {
+    // Inline-axis padding+border for shrink-to-fit sizing.
+    let i_pb = crate::inline_pb(&wm, &padding, &border);
+    let b_pb = crate::block_pb(&wm, &padding, &border);
+
+    // Inline-axis margins.
+    let (margin_inline_start, margin_inline_end) = if is_horizontal {
+        (margin_left, margin_right)
+    } else {
+        (margin_top, margin_bottom)
+    };
+    // Block-axis margins.
+    let (margin_block_start, margin_block_end) = if is_horizontal {
+        (margin_top, margin_bottom)
+    } else if wm.is_block_reversed() {
+        (margin_right, margin_left)
+    } else {
+        (margin_left, margin_right)
+    };
+
+    // Inline-size dimension from style (CSS width is physical, but float sizing
+    // operates on inline-axis: width in horizontal, height in vertical).
+    let inline_size_dim = if is_horizontal {
+        child_style.width
+    } else {
+        child_style.height
+    };
+
+    // Shrink-to-fit inline-size.
+    let shrink_inline = match inline_size_dim {
         Dimension::Length(px) if px.is_finite() => {
             if child_style.box_sizing == BoxSizing::BorderBox {
-                (px - h_pb).max(0.0)
+                (px - i_pb).max(0.0)
             } else {
                 px
             }
         }
         Dimension::Percentage(pct) => {
-            let resolved = containing_width * pct / 100.0;
+            let resolved = containing_inline * pct / 100.0;
             if child_style.box_sizing == BoxSizing::BorderBox {
-                (resolved - h_pb).max(0.0)
+                (resolved - i_pb).max(0.0)
             } else {
                 resolved
             }
         }
-        // CSS 2.1 §10.3.5: shrink-to-fit width for auto-width floats.
-        // preferred = max-content width, available = containing - margins - pb.
+        // CSS 2.1 §10.3.5: shrink-to-fit for auto inline-size floats.
         _ => {
-            let available = (containing_width - margin_left - margin_right - h_pb).max(0.0);
+            let available =
+                (containing_inline - margin_inline_start - margin_inline_end - i_pb).max(0.0);
             let preferred = max_content_width(dom, child, input.font_db, input.depth);
             preferred.min(available).max(0.0)
         }
@@ -434,8 +546,17 @@ fn layout_float(
 
     // Layout the float's contents at a temporary position.
     let temp_input = LayoutInput {
-        containing_width: shrink_width.max(0.0),
-        containing_height: input.containing_height,
+        containing_width: if is_horizontal {
+            shrink_inline.max(0.0)
+        } else {
+            input.containing_width
+        },
+        containing_height: if is_horizontal {
+            input.containing_height
+        } else {
+            Some(shrink_inline.max(0.0))
+        },
+        containing_inline_size: shrink_inline.max(0.0),
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: input.font_db,
@@ -444,28 +565,49 @@ fn layout_float(
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let child_box = layout_child(dom, child, &temp_input).layout_box;
     let content_width = child_box.content.width;
     let content_height = child_box.content.height;
 
-    // Margin box dimensions for float placement.
-    let margin_box_width = content_width + h_pb + margin_left + margin_right;
-    let margin_box_height =
-        content_height + crate::vertical_pb(&padding, &border) + margin_top + margin_bottom;
+    // Physical → inline/block extents for float placement.
+    let (content_inline, content_block) = if is_horizontal {
+        (content_width, content_height)
+    } else {
+        (content_height, content_width)
+    };
 
-    // Place the float via FloatContext.
-    let (float_x, float_y) = float_ctx.borrow_mut().place_float(
+    // Margin box dimensions in inline/block space for float placement.
+    let margin_box_inline = content_inline + i_pb + margin_inline_start + margin_inline_end;
+    let margin_box_block = content_block + b_pb + margin_block_start + margin_block_end;
+
+    // Place the float via FloatContext (operates in inline/block space).
+    let (float_inline, float_block) = float_ctx.borrow_mut().place_float(
         float_side,
-        margin_box_width,
-        margin_box_height,
-        cursor_y,
+        margin_box_inline,
+        margin_box_block,
+        cursor_block,
     );
 
-    // Reposition the float's LayoutBox to the placed position.
-    // float_x is relative to the containing block; add parent offset for absolute position.
-    let final_x = input.offset_x + float_x + margin_left + border.left + padding.left;
-    let final_y = float_y + margin_top + border.top + padding.top;
+    // Convert float position from inline/block to physical coordinates.
+    // float_inline is relative to the containing block's inline-start edge.
+    let l_padding = elidex_plugin::LogicalEdges::from_physical(padding, wm);
+    let l_border = elidex_plugin::LogicalEdges::from_physical(border, wm);
+
+    let final_inline =
+        float_inline + margin_inline_start + l_border.inline_start + l_padding.inline_start;
+    let final_block =
+        float_block + margin_block_start + l_border.block_start + l_padding.block_start;
+
+    // Convert to physical (x, y).
+    let (final_x, final_y) = if is_horizontal {
+        (input.offset_x + final_inline, final_block)
+    } else {
+        // In vertical modes, the inline position maps to Y, block to X.
+        // offset_y is the inline-axis origin.
+        (final_block, input.offset_y + final_inline)
+    };
 
     // Overwrite the LayoutBox that layout_child inserted at a temporary
     // position — hecs `insert_one` on an existing component is an upsert.
@@ -487,16 +629,26 @@ fn layout_float(
     }
 }
 
-/// Shift all block-level children's `LayoutBox.content.y` by `delta`,
+/// Shift all block-level children along the block axis by `delta`,
 /// iteratively including descendants.
 ///
+/// Writing-mode-aware: shifts Y in `horizontal-tb`, X in vertical modes.
 /// Used after parent-child margin collapse to reposition children that were
 /// laid out before the collapse was detected.
-pub(super) fn shift_block_children(dom: &mut EcsDom, children: &[Entity], delta: f32) {
+pub(super) fn shift_block_children(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    delta: f32,
+    wm: WritingModeContext,
+) {
     if delta.abs() < f32::EPSILON {
         return;
     }
-    shift_descendants_inner(dom, children, 0.0, delta, true);
+    if wm.is_horizontal() {
+        shift_descendants_inner(dom, children, 0.0, delta, true);
+    } else {
+        shift_descendants_inner(dom, children, delta, 0.0, true);
+    }
 }
 
 /// Shift descendants by (dx, dy), used to reposition float/positioned contents after placement.
@@ -531,49 +683,69 @@ fn shift_descendants_inner(
     }
 }
 
-/// Resolve the final height for a block element.
+/// Resolve the final block-axis size for a block element.
 ///
-/// Handles CSS height property (Length/Percentage/Auto), border-box adjustment,
-/// and min-height/max-height constraints. `content_height` is used when the
-/// height is auto.
+/// Writing-mode-aware: resolves the block-axis dimension (`height` in
+/// `horizontal-tb`, `width` in vertical modes) with border-box adjustment
+/// and min/max block-size constraints.
+///
+/// `content_block_size` is used when the block-size is auto.
 pub fn resolve_block_height(
     style: &ComputedStyle,
-    content_height: f32,
-    containing_height: Option<f32>,
+    content_block_size: f32,
+    containing_block_size: Option<f32>,
     padding: &EdgeSizes,
     border: &EdgeSizes,
     is_replaced: bool,
+    wm: &WritingModeContext,
 ) -> f32 {
-    let mut height = if is_replaced {
-        content_height
+    let is_horizontal = wm.is_horizontal();
+
+    // Block-axis dimension: height in horizontal, width in vertical.
+    let block_dim = if is_horizontal {
+        style.height
     } else {
-        match style.height {
+        style.width
+    };
+    // Block-axis min/max constraints.
+    let (min_block_dim, max_block_dim) = if is_horizontal {
+        (style.min_height, style.max_height)
+    } else {
+        (style.min_width, style.max_width)
+    };
+    // Block-axis padding+border.
+    let b_pb = crate::block_pb(wm, padding, border);
+
+    let mut block_size = if is_replaced {
+        content_block_size
+    } else {
+        match block_dim {
             Dimension::Length(px) if px.is_finite() => {
                 if style.box_sizing == BoxSizing::BorderBox {
-                    (px - vertical_pb(padding, border)).max(0.0)
+                    (px - b_pb).max(0.0)
                 } else {
                     px
                 }
             }
-            Dimension::Percentage(pct) => containing_height.map_or(content_height, |ch| {
-                let resolved = ch * pct / 100.0;
+            Dimension::Percentage(pct) => containing_block_size.map_or(content_block_size, |cb| {
+                let resolved = cb * pct / 100.0;
                 if style.box_sizing == BoxSizing::BorderBox {
-                    (resolved - vertical_pb(padding, border)).max(0.0)
+                    (resolved - b_pb).max(0.0)
                 } else {
                     resolved
                 }
             }),
-            _ => content_height,
+            _ => content_block_size,
         }
     };
 
-    // Apply min-height / max-height constraints.
-    let ch = containing_height.unwrap_or(0.0);
-    let mut min_h = resolve_min_max(style.min_height, ch, 0.0);
-    let mut max_h = resolve_min_max(style.max_height, ch, f32::INFINITY);
+    // Apply min/max block-size constraints.
+    let cb = containing_block_size.unwrap_or(0.0);
+    let mut min_b = resolve_min_max(min_block_dim, cb, 0.0);
+    let mut max_b = resolve_min_max(max_block_dim, cb, f32::INFINITY);
     if style.box_sizing == BoxSizing::BorderBox && !is_replaced {
-        adjust_min_max_for_border_box(&mut min_h, &mut max_h, vertical_pb(padding, border));
+        adjust_min_max_for_border_box(&mut min_b, &mut max_b, b_pb);
     }
-    height = clamp_min_max(height, min_h, max_h);
-    height
+    block_size = clamp_min_max(block_size, min_b, max_b);
+    block_size
 }

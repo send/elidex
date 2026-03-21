@@ -8,6 +8,7 @@ mod baseline;
 mod direction;
 mod grow_shrink;
 mod spec_compliance;
+mod writing_mode;
 
 /// Helper to call `layout_flex` with the old positional-argument pattern used by tests.
 #[allow(clippy::too_many_arguments)]
@@ -25,6 +26,7 @@ fn do_layout_flex(
     let input = LayoutInput {
         containing_width,
         containing_height,
+        containing_inline_size: containing_width,
         offset_x,
         offset_y,
         font_db,
@@ -33,6 +35,7 @@ fn do_layout_flex(
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     layout_flex(dom, entity, &input, layout_child)
 }

@@ -3,7 +3,9 @@
 //! and intrinsic sizing.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::{effective_align, sanitize_border, ChildLayoutFn, LayoutInput};
+use elidex_layout_block::{
+    effective_align, sanitize_border, ChildLayoutFn, LayoutInput, SubgridContext,
+};
 use elidex_plugin::{
     AlignContent, AlignmentSafety, ComputedStyle, Dimension, Display, EdgeSizes, GridAutoFlow,
     JustifyContent, JustifyItems, JustifySelf, Rect, TrackSize,
@@ -49,6 +51,11 @@ pub(crate) fn collect_grid_items(
         let align = effective_align(child_style.align_self, container_style.align_items);
         let justify = effective_justify(child_style.justify_self, container_style.justify_items);
 
+        // Detect subgrid (CSS Grid Level 2 §2).
+        let child_is_grid = matches!(child_style.display, Display::Grid | Display::InlineGrid);
+        let is_subgrid_cols = child_is_grid && child_style.grid_template_columns.is_subgrid();
+        let is_subgrid_rows = child_is_grid && child_style.grid_template_rows.is_subgrid();
+
         items.push(GridItem {
             entity: child,
             source_order: i,
@@ -71,6 +78,8 @@ pub(crate) fn collect_grid_items(
             content_height: 0.0,
             min_content_width: 0.0,
             min_content_height: 0.0,
+            is_subgrid_cols,
+            is_subgrid_rows,
         });
     }
     items
@@ -81,18 +90,25 @@ pub(crate) fn collect_grid_items(
 // ---------------------------------------------------------------------------
 
 /// Measure each item's content size via a preliminary layout.
+///
+/// `parent_subgrid` is the parent's `SubgridContext`, passed through to subgrid
+/// items during min/max-content probes so nested subgrids receive parent track
+/// sizes (CSS Grid Level 2 §2).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn measure_item_content(
     dom: &mut EcsDom,
     items: &mut [GridItem],
     container_width: f32,
     containing_height: Option<f32>,
+    containing_inline_size: f32,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: ChildLayoutFn,
+    parent_subgrid: Option<&SubgridContext>,
 ) {
     for item in items.iter_mut() {
         let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let padding = elidex_layout_block::resolve_padding(&child_style, container_width);
+        let padding = elidex_layout_block::resolve_padding(&child_style, containing_inline_size);
         let border = sanitize_border(&child_style);
         item.pb = EdgeSizes::new(
             padding.top + border.top,
@@ -101,19 +117,28 @@ pub(crate) fn measure_item_content(
             padding.left + border.left,
         );
         item.margin = EdgeSizes::new(
-            resolve_margin(child_style.margin_top, container_width),
-            resolve_margin(child_style.margin_right, container_width),
-            resolve_margin(child_style.margin_bottom, container_width),
-            resolve_margin(child_style.margin_left, container_width),
+            resolve_margin(child_style.margin_top, containing_inline_size),
+            resolve_margin(child_style.margin_right, containing_inline_size),
+            resolve_margin(child_style.margin_bottom, containing_inline_size),
+            resolve_margin(child_style.margin_left, containing_inline_size),
         );
+
+        // For subgrid items, pass parent's subgrid context through so nested
+        // subgrids receive parent track sizes during intrinsic probes.
+        let probe_subgrid = if item.is_subgrid_cols || item.is_subgrid_rows {
+            parent_subgrid
+        } else {
+            None
+        };
 
         // Min-content probe: layout at near-zero width (CSS Grid §12.3).
         // Save descendant styles first — layout probes can mutate styles
         // (e.g. flex's relayout_item_at_position overwrites child widths).
-        let saved_styles = save_descendant_styles(dom, item.entity);
+        let saved_styles = elidex_layout_block::save_descendant_styles(dom, item.entity);
         let min_input = LayoutInput {
             containing_width: 1.0,
             containing_height,
+            containing_inline_size: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db,
@@ -122,17 +147,19 @@ pub(crate) fn measure_item_content(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: probe_subgrid,
         };
         let min_lb = layout_child(dom, item.entity, &min_input).layout_box;
         item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
         item.min_content_height = min_lb.content.height + item.pb.top + item.pb.bottom;
         // Restore styles corrupted by the min-content probe.
-        restore_descendant_styles(dom, &saved_styles);
+        elidex_layout_block::restore_descendant_styles(dom, &saved_styles);
 
         // Max-content probe: layout at container width.
         let max_input = LayoutInput {
             containing_width: container_width,
             containing_height,
+            containing_inline_size: container_width,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db,
@@ -141,45 +168,11 @@ pub(crate) fn measure_item_content(
             viewport: None,
             fragmentainer: None,
             break_token: None,
+            subgrid: probe_subgrid,
         };
         let max_lb = layout_child(dom, item.entity, &max_input).layout_box;
         item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
         item.content_height = max_lb.content.height + item.pb.top + item.pb.bottom;
-    }
-}
-
-/// Save `ComputedStyle` for all descendants of `entity` (excluding `entity` itself).
-///
-/// Layout probes (e.g. min-content at `containing_width: 1.0`) can mutate
-/// descendant styles via flex/grid `position_items`. This function captures
-/// the styles so they can be restored after the probe.
-fn save_descendant_styles(dom: &EcsDom, entity: Entity) -> Vec<(Entity, ComputedStyle)> {
-    let mut result = Vec::new();
-    let mut stack = Vec::new();
-    // Push direct children.
-    let mut child = dom.get_first_child(entity);
-    while let Some(c) = child {
-        stack.push(c);
-        child = dom.get_next_sibling(c);
-    }
-    while let Some(e) = stack.pop() {
-        if let Ok(style) = dom.world().get::<&ComputedStyle>(e) {
-            result.push((e, (*style).clone()));
-        }
-        // Push children of e.
-        let mut c = dom.get_first_child(e);
-        while let Some(ch) = c {
-            stack.push(ch);
-            c = dom.get_next_sibling(ch);
-        }
-    }
-    result
-}
-
-/// Restore previously saved `ComputedStyle` components.
-fn restore_descendant_styles(dom: &mut EcsDom, saved: &[(Entity, ComputedStyle)]) {
-    for (entity, style) in saved {
-        let _ = dom.world_mut().insert_one(*entity, style.clone());
     }
 }
 
@@ -350,7 +343,7 @@ pub(crate) fn distribute_tracks<D: Into<ContentDistribution>>(
             }
         }
         ContentDistribution::SpaceAround => {
-            if free_space <= 0.0 {
+            if free_space <= 0.0 || tracks.is_empty() {
                 return;
             }
             let per_track = free_space / tracks.len() as f32;
@@ -360,7 +353,7 @@ pub(crate) fn distribute_tracks<D: Into<ContentDistribution>>(
             }
         }
         ContentDistribution::SpaceEvenly => {
-            if free_space <= 0.0 {
+            if free_space <= 0.0 || tracks.is_empty() {
                 return;
             }
             let slot = free_space / (tracks.len() + 1) as f32;
@@ -567,7 +560,17 @@ pub fn compute_grid_intrinsic(
     );
 
     // Measure content sizes (min-content + max-content probes)
-    measure_item_content(dom, &mut items, 0.0, None, font_db, depth, layout_child);
+    measure_item_content(
+        dom,
+        &mut items,
+        0.0,
+        None,
+        0.0,
+        font_db,
+        depth,
+        layout_child,
+        None,
+    );
 
     // Build column contributions from actual placement
     let col_contribs = build_contributions(&items, true);
@@ -581,9 +584,12 @@ pub fn compute_grid_intrinsic(
         .max(explicit_cols)
         .max(1);
 
-    // Resolve column tracks using the track sizing algorithm
+    // Resolve column tracks using the track sizing algorithm.
+    // CSS Grid §7.2.1: in intrinsic sizing (available = 0), percentage tracks
+    // are treated as auto so they participate via content contributions.
     let col_defs =
         build_track_definitions(&col_section.tracks, &style.grid_auto_columns, actual_cols);
+    let col_defs = percentage_tracks_to_auto(col_defs);
     let col_tracks = track::resolve_tracks(&col_defs, 0.0, 0.0, &col_contribs, false);
 
     let gap = elidex_layout_block::resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0);

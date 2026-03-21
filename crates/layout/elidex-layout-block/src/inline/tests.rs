@@ -1,6 +1,6 @@
 use super::*;
 use elidex_ecs::Attributes;
-use elidex_plugin::Dimension;
+use elidex_plugin::{Dimension, WritingMode};
 
 /// Collect only text runs from inline items (for tests that don't need atomics).
 fn collect_styled_runs(
@@ -556,6 +556,7 @@ fn mixed_block_inline_anonymous_box() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -564,6 +565,7 @@ fn mixed_block_inline_anonymous_box() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -620,6 +622,7 @@ fn block_only_children_no_anonymous_boxes() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -628,6 +631,7 @@ fn block_only_children_no_anonymous_boxes() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -681,6 +685,7 @@ fn display_none_skipped_in_block_context() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -689,6 +694,7 @@ fn display_none_skipped_in_block_context() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -879,6 +885,7 @@ fn block_inline_text_baseline() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -887,6 +894,7 @@ fn block_inline_text_baseline() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -933,6 +941,7 @@ fn nested_block_baseline_propagation() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -941,6 +950,7 @@ fn nested_block_baseline_propagation() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -984,6 +994,7 @@ fn block_without_baseline_none() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -992,6 +1003,7 @@ fn block_without_baseline_none() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -1040,6 +1052,7 @@ fn mixed_block_inline_baseline() {
     let input = crate::LayoutInput {
         containing_width: 800.0,
         containing_height: None,
+        containing_inline_size: 800.0,
         offset_x: 0.0,
         offset_y: 0.0,
         font_db: &font_db,
@@ -1048,6 +1061,7 @@ fn mixed_block_inline_baseline() {
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let result = crate::block::stack_block_children(
         &mut dom,

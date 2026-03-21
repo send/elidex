@@ -9,6 +9,15 @@ use elidex_plugin::{
 pub(crate) fn track_list_to_css(list: &GridTrackList) -> CssValue {
     match list {
         GridTrackList::Explicit(section) => section_to_css(section),
+        GridTrackList::Subgrid { line_names } => {
+            let mut items = vec![CssValue::Keyword("subgrid".to_string())];
+            for names in line_names {
+                items.push(CssValue::List(
+                    names.iter().map(|s| CssValue::Keyword(s.clone())).collect(),
+                ));
+            }
+            CssValue::List(items)
+        }
         GridTrackList::AutoRepeat {
             before,
             pattern,

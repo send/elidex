@@ -436,7 +436,12 @@ fn from_keyword_roundtrip() {
         TableLayout::from_keyword,
     );
     assert_roundtrips(
-        &[CaptionSide::Top, CaptionSide::Bottom],
+        &[
+            CaptionSide::Top,
+            CaptionSide::Bottom,
+            CaptionSide::BlockStart,
+            CaptionSide::BlockEnd,
+        ],
         CaptionSide::from_keyword,
     );
     assert_roundtrips(

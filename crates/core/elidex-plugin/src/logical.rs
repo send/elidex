@@ -22,6 +22,15 @@ pub struct WritingModeContext {
 }
 
 impl WritingModeContext {
+    /// Create a new writing mode context.
+    #[must_use]
+    pub fn new(writing_mode: WritingMode, direction: Direction) -> Self {
+        Self {
+            writing_mode,
+            direction,
+        }
+    }
+
     /// Returns `true` if the inline axis is horizontal.
     #[must_use]
     pub fn is_horizontal(&self) -> bool {

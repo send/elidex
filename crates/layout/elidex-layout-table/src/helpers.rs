@@ -313,6 +313,7 @@ pub(crate) fn compute_column_widths(
                 let min_input = LayoutInput {
                     containing_width: 1.0, // min-content probe
                     containing_height: None,
+                    containing_inline_size: 1.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
                     font_db,
@@ -321,11 +322,13 @@ pub(crate) fn compute_column_widths(
                     viewport: None,
                     fragmentainer: None,
                     break_token: None,
+                    subgrid: None,
                 };
                 let min_lb = layout_child(dom, cell.entity, &min_input).layout_box;
                 let max_input = LayoutInput {
                     containing_width: f32::MAX / 4.0, // max-content probe
                     containing_height: None,
+                    containing_inline_size: f32::MAX / 4.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
                     font_db,
@@ -334,6 +337,7 @@ pub(crate) fn compute_column_widths(
                     viewport: None,
                     fragmentainer: None,
                     break_token: None,
+                    subgrid: None,
                 };
                 let max_lb = layout_child(dom, cell.entity, &max_input).layout_box;
                 let cs = elidex_layout_block::get_style(dom, cell.entity);

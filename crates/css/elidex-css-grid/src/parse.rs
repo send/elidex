@@ -17,6 +17,20 @@ pub(crate) fn parse_track_list(
         return Ok(CssValue::Keyword("none".to_string()));
     }
 
+    // CSS Grid Level 2 §2: `subgrid [<line-name-list>]?`
+    if input
+        .try_parse(|i| i.expect_ident_matching("subgrid"))
+        .is_ok()
+    {
+        let mut line_names_list = vec![CssValue::Keyword("subgrid".to_string())];
+        while let Ok(names) = input.try_parse(parse_line_name_bracket) {
+            line_names_list.push(CssValue::List(
+                names.into_iter().map(CssValue::Keyword).collect(),
+            ));
+        }
+        return Ok(CssValue::List(line_names_list));
+    }
+
     let mut items = Vec::new();
     while let Ok(v) = parse_single_track_size_inner(input) {
         items.push(v);
@@ -407,4 +421,22 @@ pub(crate) fn parse_grid_line(
         input: String::new(),
         message: "expected grid line value".into(),
     })
+}
+
+/// Parse a bracketed line name list: `[name1 name2]`.
+///
+/// CSS Grid §7.2: `<line-names> = '[' <custom-ident>* ']'`
+fn parse_line_name_bracket(input: &mut cssparser::Parser<'_, '_>) -> Result<Vec<String>, ()> {
+    input.expect_square_bracket_block().map_err(|_| ())?;
+    input
+        .parse_nested_block(|args| {
+            let mut names = Vec::new();
+            while let Ok(ident) = args.try_parse(|i| i.expect_ident().map(ToString::to_string)) {
+                if !is_forbidden_grid_ident(&ident) {
+                    names.push(ident);
+                }
+            }
+            Ok(names)
+        })
+        .map_err(|_: cssparser::ParseError<'_, ()>| ())
 }

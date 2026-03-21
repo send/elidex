@@ -39,6 +39,18 @@ keyword_enum! {
     }
 }
 
+impl WritingMode {
+    /// Returns `true` if this writing mode has a horizontal inline axis.
+    ///
+    /// `horizontal-tb` is the only horizontal writing mode. All vertical
+    /// modes (`vertical-rl`, `vertical-lr`, `sideways-rl`, `sideways-lr`)
+    /// return `false`.
+    #[must_use]
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, Self::HorizontalTb)
+    }
+}
+
 keyword_enum! {
     /// The CSS `text-orientation` property (CSS Writing Modes Level 3 §5.1).
     ///

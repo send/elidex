@@ -108,6 +108,8 @@ fn parse_keyword_properties() {
         ("table-layout", "fixed", "table-layout", "fixed"),
         ("caption-side", "top", "caption-side", "top"),
         ("caption-side", "bottom", "caption-side", "bottom"),
+        ("caption-side", "block-start", "caption-side", "block-start"),
+        ("caption-side", "block-end", "caption-side", "block-end"),
         // currentcolor
         ("color", "currentcolor", "color", "currentcolor"),
         ("color", "CurrentColor", "color", "currentcolor"),

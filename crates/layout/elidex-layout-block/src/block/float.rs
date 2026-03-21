@@ -5,16 +5,23 @@
 
 use elidex_plugin::{Clear, Float};
 
-/// A placed float with its position and dimensions.
+/// A placed float with its position and dimensions in **abstract** coordinates.
+///
+/// `FloatContext` itself is axis-agnostic: it treats its `containing_width`
+/// as the inline-axis size and `y` positions as block-axis positions.
+/// Callers (see `layout_float` in `children.rs`) are responsible for
+/// mapping between physical and logical coordinates based on writing mode.
+/// This means `float: left` = inline-start and `float: right` = inline-end
+/// regardless of writing mode (CSS Writing Modes L3 §3.3).
 #[derive(Clone, Debug)]
 struct PlacedFloat {
-    /// Left edge of the float's margin box.
+    /// Inline-start offset of the float's margin box.
     x: f32,
-    /// Top edge of the float's margin box.
+    /// Block-start offset of the float's margin box.
     y: f32,
-    /// Width of the float's margin box.
+    /// Inline-axis size of the float's margin box.
     width: f32,
-    /// Height of the float's margin box.
+    /// Block-axis size of the float's margin box.
     height: f32,
 }
 
@@ -33,11 +40,11 @@ impl PlacedFloat {
 /// Tracks placed floats within a block formatting context.
 #[derive(Clone, Debug, Default)]
 pub struct FloatContext {
-    /// Left-floated elements.
+    /// Inline-start (left in LTR, top in vertical) floated elements.
     left_floats: Vec<PlacedFloat>,
-    /// Right-floated elements.
+    /// Inline-end (right in LTR, bottom in vertical) floated elements.
     right_floats: Vec<PlacedFloat>,
-    /// Width of the containing block.
+    /// Inline-axis size of the containing block.
     containing_width: f32,
 }
 

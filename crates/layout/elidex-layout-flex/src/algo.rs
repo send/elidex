@@ -215,9 +215,17 @@ pub(crate) fn layout_items_cross(
         } else {
             ctx.content_width
         };
+        // In vertical writing mode, inline size is height, not width.
+        // If height is indefinite, use 0.0 (not width — that's the wrong axis).
+        let child_inline = if ctx.writing_mode.is_horizontal() {
+            child_containing
+        } else {
+            ctx.container_definite_height.unwrap_or(0.0)
+        };
         let child_input = LayoutInput {
             containing_width: child_containing,
             containing_height: ctx.container_definite_height,
+            containing_inline_size: child_inline,
             offset_x: 0.0,
             offset_y: 0.0,
             font_db: env.font_db,
@@ -226,6 +234,7 @@ pub(crate) fn layout_items_cross(
             viewport: env.input_viewport,
             fragmentainer: None,
             break_token: None,
+            subgrid: None,
         };
         let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
         item.final_cross = if ctx.horizontal {
@@ -250,11 +259,11 @@ fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Op
     match dim {
         Dimension::Length(px) if px.is_finite() => {
             let pb = if ctx.horizontal {
-                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
                 let b = elidex_layout_block::sanitize_border(&style);
                 p.top + b.top + p.bottom + b.bottom
             } else {
-                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
                 let b = elidex_layout_block::sanitize_border(&style);
                 p.left + b.left + p.right + b.right
             };
@@ -273,11 +282,11 @@ fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Op
             };
             let resolved = containing * pct / 100.0;
             let pb = if ctx.horizontal {
-                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
                 let b = elidex_layout_block::sanitize_border(&style);
                 p.top + b.top + p.bottom + b.bottom
             } else {
-                let p = elidex_layout_block::resolve_padding(&style, ctx.containing_width);
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
                 let b = elidex_layout_block::sanitize_border(&style);
                 p.left + b.left + p.right + b.right
             };
@@ -345,6 +354,17 @@ pub(crate) fn stretch_items(
     }
 }
 
+/// Resolve the flex container's cross-axis size.
+///
+/// The cross axis is perpendicular to the main axis:
+/// - `flex-direction: row` + `horizontal-tb` → cross = height (vertical)
+/// - `flex-direction: column` + `horizontal-tb` → cross = width (horizontal)
+/// - `flex-direction: row` + `vertical-rl/lr` → cross = width (horizontal)
+/// - `flex-direction: column` + `vertical-rl/lr` → cross = height (vertical)
+///
+/// If the cross-axis dimension is explicitly set (via `width` or `height`
+/// depending on `ctx.horizontal`), that value is used. Otherwise falls back
+/// to `total_line_cross` (the sum of all flex line cross sizes).
 pub(crate) fn resolve_container_cross(
     style: &ComputedStyle,
     ctx: &FlexContext,
@@ -465,9 +485,17 @@ fn relayout_item_at_position(
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
+    // In vertical writing mode, the inline dimension is height, not width.
+    // If height is indefinite, use 0.0 (not width — that's the block axis).
+    let child_inline_size = if ctx.writing_mode.is_horizontal() {
+        child_containing_width
+    } else {
+        child_containing_height.unwrap_or(0.0)
+    };
     let child_input = LayoutInput {
         containing_width: child_containing_width,
         containing_height: child_containing_height,
+        containing_inline_size: child_inline_size,
         offset_x: margin_box_x,
         offset_y: margin_box_y,
         font_db: env.font_db,
@@ -476,6 +504,7 @@ fn relayout_item_at_position(
         viewport: env.input_viewport,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 

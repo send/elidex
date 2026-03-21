@@ -104,6 +104,14 @@ pub enum GridTrackList {
         /// Tracks after the auto-repeat.
         after: TrackSection,
     },
+    /// CSS Grid Level 2 §2: `subgrid` — inherits track sizing from the parent grid.
+    ///
+    /// `line_names` contains optional line names declared after the `subgrid` keyword.
+    /// The actual track sizes come from the parent grid's resolved tracks.
+    Subgrid {
+        /// Line names declared after the `subgrid` keyword (e.g. `subgrid [a] [b]`).
+        line_names: Vec<Vec<String>>,
+    },
 }
 
 impl Default for GridTrackList {
@@ -117,6 +125,12 @@ impl GridTrackList {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Explicit(s) if s.tracks.is_empty())
+    }
+
+    /// Returns `true` if this is a `subgrid` track list (CSS Grid Level 2 §2).
+    #[must_use]
+    pub fn is_subgrid(&self) -> bool {
+        matches!(self, Self::Subgrid { .. })
     }
 
     /// Returns the number of explicit tracks (without auto-repeat expansion).
@@ -133,6 +147,8 @@ impl GridTrackList {
                 after,
                 ..
             } => before.tracks.len() + pattern.tracks.len() + after.tracks.len(),
+            // Subgrid has no own tracks — actual tracks come from the parent.
+            Self::Subgrid { .. } => 0,
         }
     }
 
@@ -152,6 +168,8 @@ impl GridTrackList {
     pub fn expand_with_names(&self, available: f32, gap: f32) -> TrackSection {
         match self {
             Self::Explicit(s) => s.clone(),
+            // Subgrid: no own tracks — return empty section (parent provides tracks).
+            Self::Subgrid { .. } => TrackSection::default(),
             Self::AutoRepeat {
                 before,
                 pattern,
@@ -204,11 +222,11 @@ impl GridTrackList {
     }
 
     /// Returns the range of track indices that belong to the auto-repeat section
-    /// after expansion. `None` for `Explicit`.
+    /// after expansion. `None` for `Explicit` and `Subgrid`.
     #[must_use]
     pub fn auto_repeat_range(&self, available: f32, gap: f32) -> Option<std::ops::Range<usize>> {
         match self {
-            Self::Explicit(_) => None,
+            Self::Explicit(_) | Self::Subgrid { .. } => None,
             Self::AutoRepeat {
                 before,
                 pattern,

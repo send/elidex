@@ -552,4 +552,112 @@ mod tests {
         );
         assert_eq!(style.justify_self, JustifySelf::End);
     }
+
+    // --- Subgrid tests (CSS Grid Level 2 §2) ---
+
+    #[test]
+    fn subgrid_variant_is_subgrid() {
+        let subgrid = GridTrackList::Subgrid { line_names: vec![] };
+        assert!(subgrid.is_subgrid());
+        assert!(!subgrid.is_empty());
+        // expand returns empty TrackSection (parent provides tracks)
+        let expanded = subgrid.expand_with_names(1000.0, 10.0);
+        assert!(expanded.tracks.is_empty());
+        assert!(!subgrid.is_auto_fit());
+        assert!(subgrid.auto_repeat_range(1000.0, 10.0).is_none());
+    }
+
+    #[test]
+    fn parse_subgrid_keyword() {
+        let result = parse_prop("grid-template-columns", "subgrid");
+        if let CssValue::List(ref items) = result[0].value {
+            assert_eq!(items[0], CssValue::Keyword("subgrid".to_string()));
+            assert_eq!(items.len(), 1);
+        } else {
+            panic!("expected List");
+        }
+    }
+
+    #[test]
+    fn parse_subgrid_with_line_names() {
+        let result = parse_prop("grid-template-rows", "subgrid [a] [b c]");
+        if let CssValue::List(ref items) = result[0].value {
+            assert_eq!(items[0], CssValue::Keyword("subgrid".to_string()));
+            assert_eq!(items.len(), 3); // subgrid + 2 line name groups
+                                        // First line name group: [a]
+            if let CssValue::List(ref names) = items[1] {
+                assert_eq!(names, &[CssValue::Keyword("a".to_string())]);
+            } else {
+                panic!("expected List for line names");
+            }
+            // Second line name group: [b c]
+            if let CssValue::List(ref names) = items[2] {
+                assert_eq!(
+                    names,
+                    &[
+                        CssValue::Keyword("b".to_string()),
+                        CssValue::Keyword("c".to_string()),
+                    ]
+                );
+            } else {
+                panic!("expected List for line names");
+            }
+        } else {
+            panic!("expected List");
+        }
+    }
+
+    #[test]
+    fn resolve_subgrid_roundtrip() {
+        let handler = GridHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        let value = CssValue::List(vec![
+            CssValue::Keyword("subgrid".to_string()),
+            CssValue::List(vec![CssValue::Keyword("a".to_string())]),
+            CssValue::List(vec![
+                CssValue::Keyword("b".to_string()),
+                CssValue::Keyword("c".to_string()),
+            ]),
+        ]);
+        handler.resolve("grid-template-columns", &value, &ctx, &mut style);
+        assert!(style.grid_template_columns.is_subgrid());
+        if let GridTrackList::Subgrid { ref line_names } = style.grid_template_columns {
+            assert_eq!(line_names.len(), 2);
+            assert_eq!(line_names[0], vec!["a".to_string()]);
+            assert_eq!(line_names[1], vec!["b".to_string(), "c".to_string()]);
+        } else {
+            panic!("expected Subgrid");
+        }
+    }
+
+    #[test]
+    fn get_computed_subgrid_roundtrip() {
+        let handler = GridHandler;
+        let style = ComputedStyle {
+            grid_template_columns: GridTrackList::Subgrid {
+                line_names: vec![vec!["x".to_string()], vec!["y".to_string()]],
+            },
+            ..ComputedStyle::default()
+        };
+        let v = handler.get_computed("grid-template-columns", &style);
+        if let CssValue::List(ref items) = v {
+            assert_eq!(items[0], CssValue::Keyword("subgrid".to_string()));
+            assert_eq!(items.len(), 3);
+        } else {
+            panic!("expected List");
+        }
+    }
+
+    #[test]
+    fn explicit_parse_regression() {
+        // Ensure existing explicit track list parsing still works.
+        let result = parse_prop("grid-template-columns", "100px 1fr");
+        if let CssValue::List(ref items) = result[0].value {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Length(100.0, LengthUnit::Px));
+        } else {
+            panic!("expected List");
+        }
+    }
 }

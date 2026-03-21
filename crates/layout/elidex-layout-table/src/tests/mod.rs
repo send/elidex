@@ -20,6 +20,7 @@ mod rowspan;
 mod sizing;
 mod structure;
 mod vertical_align;
+mod writing_mode;
 
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 1.0
@@ -58,6 +59,7 @@ fn do_layout_table(
     let input = LayoutInput {
         containing_width,
         containing_height,
+        containing_inline_size: containing_width,
         offset_x,
         offset_y,
         font_db,
@@ -66,6 +68,7 @@ fn do_layout_table(
         viewport: None,
         fragmentainer: None,
         break_token: None,
+        subgrid: None,
     };
     layout_table(dom, entity, &input, layout_child)
 }

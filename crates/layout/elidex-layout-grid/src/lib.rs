@@ -1,11 +1,10 @@
-//! CSS Grid layout algorithm (CSS Grid Level 1).
+//! CSS Grid layout algorithm (CSS Grid Level 1 + Level 2 subgrid).
 //!
 //! Implements the core grid algorithm: track sizing, item placement,
 //! and cell positioning. Supports named grid lines, `grid-template-areas`,
-//! and grid shorthand properties.
+//! grid shorthand properties, and subgrid (CSS Grid Level 2 §2).
 //!
 // Current simplifications:
-// - No subgrid
 // - `inline-grid` treated as block-level
 
 mod helpers;
@@ -27,14 +26,13 @@ pub use helpers::compute_grid_intrinsic;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    resolve_explicit_height, sanitize_border, ChildLayoutFn, EmptyContainerParams, LayoutInput,
+    resolve_explicit_height, ChildLayoutFn, EmptyContainerParams, LayoutInput, SubgridContext,
     MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignItems, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox, Rect,
 };
 
-use elidex_layout_block::block::resolve_margin;
 use elidex_layout_block::horizontal_pb;
 
 use helpers::{
@@ -47,6 +45,7 @@ use helpers::{
 // ---------------------------------------------------------------------------
 
 /// A grid item with resolved placement and sizing metrics.
+#[allow(clippy::struct_excessive_bools)]
 struct GridItem {
     entity: Entity,
     source_order: usize,
@@ -82,6 +81,69 @@ struct GridItem {
     /// Min-content size from narrow-probe layout.
     min_content_width: f32,
     min_content_height: f32,
+    /// Whether this item is a subgrid on the column axis (CSS Grid Level 2 §2).
+    is_subgrid_cols: bool,
+    /// Whether this item is a subgrid on the row axis (CSS Grid Level 2 §2).
+    is_subgrid_rows: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Extract inherited parent track sizes for a subgridded axis, if applicable.
+///
+/// Returns `Some(tracks)` when `track_list` is `Subgrid` and the parent
+/// provided sizes for this axis; `None` otherwise.
+fn inherited_parent_tracks(
+    track_list: &GridTrackList,
+    subgrid: Option<&SubgridContext>,
+    is_col: bool,
+) -> Option<Vec<track::ResolvedTrack>> {
+    if !track_list.is_subgrid() {
+        return None;
+    }
+    let sg = subgrid?;
+    let sizes = if is_col {
+        sg.col_sizes.as_ref()?
+    } else {
+        sg.row_sizes.as_ref()?
+    };
+    Some(
+        sizes
+            .iter()
+            .map(|&size| track::ResolvedTrack::from_fixed_size(size))
+            .collect(),
+    )
+}
+
+/// Add a subgrid's margin/border/padding contribution to the first and last
+/// tracks it spans on one axis (CSS Grid L2 §2.5).
+///
+/// `contribs` are the per-track intrinsic size contributions;
+/// `start` and `span` identify the spanned tracks; `mbp_start`/`mbp_end`
+/// are the axis-start/end m/b/p values already mapped through writing mode.
+fn add_subgrid_axis_mbp(
+    contribs: &mut [track::TrackContribution],
+    start: usize,
+    span: usize,
+    mbp_start: f32,
+    mbp_end: f32,
+) {
+    let span = span.max(1);
+    if start < contribs.len() {
+        contribs[start].min_content += mbp_start;
+        contribs[start].max_content += mbp_start;
+    }
+    let last = start.saturating_add(span - 1);
+    if last < contribs.len() && last != start {
+        contribs[last].min_content += mbp_end;
+        contribs[last].max_content += mbp_end;
+    } else if start < contribs.len() && span == 1 {
+        // Single-track span: add end m/b/p to the same track.
+        contribs[start].min_content += mbp_end;
+        contribs[start].max_content += mbp_end;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,13 +168,15 @@ pub fn layout_grid(
     let style = elidex_layout_block::get_style(dom, entity);
 
     // --- 1. Container box model resolution ---
-    let padding = elidex_layout_block::resolve_padding(&style, containing_width);
-    let border = sanitize_border(&style);
-    let margin_top = resolve_margin(style.margin_top, containing_width);
-    let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
-    let margin_left = resolve_margin(style.margin_left, containing_width);
-    let margin_right = resolve_margin(style.margin_right, containing_width);
-    let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
+    // Percentage margins/padding resolve against the containing block's inline size
+    // (CSS Box Model §4/§5), not the physical width.
+    let containing_inline = input.containing_inline_size;
+    let (padding, border, margin) =
+        elidex_layout_block::resolve_box_model(&style, containing_inline);
+    let margin_top = margin.top;
+    let margin_bottom = margin.bottom;
+    let margin_left = margin.left;
+    let margin_right = margin.right;
 
     let h_pb = horizontal_pb(&padding, &border);
     let content_width = elidex_layout_block::resolve_content_width(
@@ -124,10 +188,48 @@ pub fn layout_grid(
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
 
-    let gap_col =
-        elidex_layout_block::resolve_dimension_value(style.column_gap, content_width, 0.0).max(0.0);
-    let gap_row =
-        elidex_layout_block::resolve_dimension_value(style.row_gap, content_width, 0.0).max(0.0);
+    // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
+    // In vertical writing modes, the inline axis is physical Y (height) and
+    // block axis is physical X (width).
+    let is_horizontal_wm = style.writing_mode.is_horizontal();
+    let (container_inline_size, block_available) = if is_horizontal_wm {
+        // Horizontal: inline = width, block = height
+        let avail_h = resolve_explicit_height(&style, containing_height);
+        (content_width, avail_h)
+    } else {
+        // Vertical: inline = height (physical Y), block = width (physical X)
+        let v_pb = elidex_layout_block::vertical_pb(&padding, &border);
+        let v_margin = margin_top + margin_bottom;
+        let inline_h = {
+            let auto_val = (containing_inline - v_pb - v_margin).max(0.0);
+            let mut h =
+                elidex_layout_block::sanitize(elidex_layout_block::resolve_dimension_value(
+                    style.height,
+                    containing_inline,
+                    auto_val,
+                ));
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                if let elidex_plugin::Dimension::Length(_)
+                | elidex_plugin::Dimension::Percentage(_) = style.height
+                {
+                    h = (h - v_pb).max(0.0);
+                }
+            }
+            h
+        };
+        // Block available = content_width (physical width = block direction).
+        (inline_h, Some(content_width))
+    };
+
+    let mut gap_col =
+        elidex_layout_block::resolve_dimension_value(style.column_gap, container_inline_size, 0.0)
+            .max(0.0);
+    let mut gap_row = elidex_layout_block::resolve_dimension_value(
+        style.row_gap,
+        block_available.unwrap_or(0.0),
+        0.0,
+    )
+    .max(0.0);
 
     // --- Early return for empty containers ---
     let children = elidex_layout_block::composed_children_flat(dom, entity);
@@ -161,10 +263,22 @@ pub fn layout_grid(
     // --- 4. Expand auto-repeat and determine explicit grid size ---
     let col_track_list = &style.grid_template_columns;
     let row_track_list = &style.grid_template_rows;
-    let col_section = col_track_list.expand_with_names(content_width, gap_col);
-    let available_height_for_rows = resolve_explicit_height(&style, containing_height);
-    let row_section =
-        row_track_list.expand_with_names(available_height_for_rows.unwrap_or(0.0), gap_row);
+
+    // CSS Grid L2 §2.4: subgridded axes inherit parent gap.
+    if col_track_list.is_subgrid() {
+        if let Some(pg) = input.subgrid.and_then(|sg| sg.col_gap) {
+            gap_col = pg;
+        }
+    }
+    if row_track_list.is_subgrid() {
+        if let Some(pg) = input.subgrid.and_then(|sg| sg.row_gap) {
+            gap_row = pg;
+        }
+    }
+
+    // Column tracks expand against inline available, row tracks against block available.
+    let col_section = col_track_list.expand_with_names(container_inline_size, gap_col);
+    let row_section = row_track_list.expand_with_names(block_available.unwrap_or(0.0), gap_row);
     let expanded_cols = &col_section.tracks;
     let expanded_rows = &row_section.tracks;
     let explicit_cols = expanded_cols.len();
@@ -198,109 +312,231 @@ pub fn layout_grid(
     // --- Determine actual grid dimensions (may exceed explicit) ---
     let actual_cols = items
         .iter()
-        .map(|item| item.col_start + item.col_span)
+        .map(|item| item.col_start.saturating_add(item.col_span))
         .max()
         .unwrap_or(explicit_cols)
         .max(explicit_cols);
     let actual_rows = items
         .iter()
-        .map(|item| item.row_start + item.row_span)
+        .map(|item| item.row_start.saturating_add(item.row_span))
         .max()
         .unwrap_or(explicit_rows)
         .max(explicit_rows);
 
-    // --- 8. Measure content sizes (initial layout) ---
-    measure_item_content(
-        dom,
-        &mut items,
-        content_width,
-        containing_height,
-        font_db,
-        depth,
-        layout_child,
-    );
+    // --- Subgrid: check if parent provided track context ---
+    let has_subgrid = items.iter().any(|i| i.is_subgrid_cols || i.is_subgrid_rows);
+    let max_passes = if has_subgrid { 3 } else { 1 };
+    let mut prev_col_sizes: Vec<f32> = Vec::new();
+    let mut prev_row_sizes: Vec<f32> = Vec::new();
 
-    // --- Build per-item intrinsic size contributions ---
-    let col_contribs = build_contributions(&items, true);
-    let row_contribs = build_contributions(&items, false);
+    // Subgrid multi-pass convergence loop (CSS Grid Level 2 §2).
+    // Phases 8-11 may iterate when subgrid items contribute content sizes
+    // that change parent track sizing. Max 3 passes, early exit on convergence.
+    let mut col_tracks: Vec<track::ResolvedTrack> = Vec::new();
+    let mut row_tracks: Vec<track::ResolvedTrack> = Vec::new();
+    let mut col_positions: Vec<f32> = Vec::new();
+    let mut row_positions: Vec<f32> = Vec::new();
 
-    // --- 9. Resolve column tracks ---
-    let col_defs = build_track_definitions(expanded_cols, &style.grid_auto_columns, actual_cols);
-    let mut col_tracks = track::resolve_tracks(
-        &col_defs,
-        content_width,
-        gap_col,
-        &col_contribs,
-        false, // stretch handled by distribute_tracks
-    );
-
-    // auto-fit: collapse empty auto-repeated column tracks to 0.
-    if col_track_list.is_auto_fit() {
-        collapse_empty_auto_tracks(
-            &mut col_tracks,
-            col_track_list,
-            content_width,
-            gap_col,
-            &items,
-            true,
+    for pass in 0..max_passes {
+        // --- 8. Measure content sizes (initial layout) ---
+        // Measure at inline-available width (column = inline axis).
+        measure_item_content(
+            dom,
+            &mut items,
+            container_inline_size,
+            containing_height,
+            input.containing_inline_size,
+            font_db,
+            depth,
+            layout_child,
+            input.subgrid,
         );
-    }
 
-    // --- 10. Resolve row tracks ---
-    let available_height = available_height_for_rows;
-    let row_defs = build_track_definitions(expanded_rows, &style.grid_auto_rows, actual_rows);
-    // When the container height is indefinite, percentage row tracks should
-    // behave like auto (CSS Grid §7.2.1).
-    let row_defs = if available_height.is_none() {
-        percentage_tracks_to_auto(row_defs)
-    } else {
-        row_defs
-    };
-    let mut row_tracks = track::resolve_tracks(
-        &row_defs,
-        available_height.unwrap_or(0.0),
-        gap_row,
-        &row_contribs,
-        false, // stretch handled by distribute_tracks
-    );
+        // --- Build per-item intrinsic size contributions ---
+        let mut col_contribs = build_contributions(&items, true);
+        let mut row_contribs = build_contributions(&items, false);
 
-    // auto-fit: collapse empty auto-repeated row tracks to 0.
-    if row_track_list.is_auto_fit() {
-        collapse_empty_auto_tracks(
-            &mut row_tracks,
-            row_track_list,
-            available_height.unwrap_or(0.0),
-            gap_row,
-            &items,
-            false,
-        );
-    }
+        // CSS Grid L2 §2.5: subgrid m/b/p contributes to parent track sizing.
+        // A subgrid's margin, border, and padding on the subgridded axis are
+        // added to the first and last tracks it spans. The edges must be
+        // mapped through writing mode: columns = inline axis, rows = block axis.
+        for item in &items {
+            if item.is_subgrid_cols {
+                // Inline-axis (column) m/b/p: horizontal→left/right, vertical→top/bottom.
+                let (mbp_start, mbp_end) = if is_horizontal_wm {
+                    (
+                        item.margin.left + item.pb.left,
+                        item.margin.right + item.pb.right,
+                    )
+                } else {
+                    (
+                        item.margin.top + item.pb.top,
+                        item.margin.bottom + item.pb.bottom,
+                    )
+                };
+                add_subgrid_axis_mbp(
+                    &mut col_contribs,
+                    item.col_start,
+                    item.col_span,
+                    mbp_start,
+                    mbp_end,
+                );
+            }
+            if item.is_subgrid_rows {
+                // Block-axis (row) m/b/p: horizontal→top/bottom, vertical→left/right.
+                let (mbp_start, mbp_end) = if is_horizontal_wm {
+                    (
+                        item.margin.top + item.pb.top,
+                        item.margin.bottom + item.pb.bottom,
+                    )
+                } else {
+                    (
+                        item.margin.left + item.pb.left,
+                        item.margin.right + item.pb.right,
+                    )
+                };
+                add_subgrid_axis_mbp(
+                    &mut row_contribs,
+                    item.row_start,
+                    item.row_span,
+                    mbp_start,
+                    mbp_end,
+                );
+            }
+        }
 
-    // --- 11. Compute track positions ---
-    let mut col_positions = track::compute_track_positions(&col_tracks, gap_col);
-    let mut row_positions = track::compute_track_positions(&row_tracks, gap_row);
+        // --- 9. Resolve column tracks ---
+        // If this grid is itself a subgrid on columns, use parent track sizes.
+        col_tracks =
+            if let Some(parent) = inherited_parent_tracks(col_track_list, input.subgrid, true) {
+                parent
+            } else {
+                let col_defs =
+                    build_track_definitions(expanded_cols, &style.grid_auto_columns, actual_cols);
+                let mut ct = track::resolve_tracks(
+                    &col_defs,
+                    container_inline_size,
+                    gap_col,
+                    &col_contribs,
+                    false,
+                );
+                if col_track_list.is_auto_fit() {
+                    collapse_empty_auto_tracks(
+                        &mut ct,
+                        col_track_list,
+                        container_inline_size,
+                        gap_col,
+                        &items,
+                        true,
+                    );
+                }
+                ct
+            };
 
-    // --- 11b. Track distribution (justify-content / align-content) ---
-    distribute_tracks(
-        &mut col_positions,
-        &col_tracks,
-        gap_col,
-        content_width,
-        style.justify_content,
-        style.justify_content_safety,
-    );
-    if let Some(h) = available_height {
-        distribute_tracks(
-            &mut row_positions,
-            &row_tracks,
-            gap_row,
-            h,
-            style.align_content,
-            style.align_content_safety,
-        );
+        // --- 10. Resolve row tracks ---
+        row_tracks =
+            if let Some(parent) = inherited_parent_tracks(row_track_list, input.subgrid, false) {
+                parent
+            } else {
+                let row_defs =
+                    build_track_definitions(expanded_rows, &style.grid_auto_rows, actual_rows);
+                let row_defs = if block_available.is_none() {
+                    percentage_tracks_to_auto(row_defs)
+                } else {
+                    row_defs
+                };
+                let mut rt = track::resolve_tracks(
+                    &row_defs,
+                    block_available.unwrap_or(0.0),
+                    gap_row,
+                    &row_contribs,
+                    false,
+                );
+                if row_track_list.is_auto_fit() {
+                    collapse_empty_auto_tracks(
+                        &mut rt,
+                        row_track_list,
+                        block_available.unwrap_or(0.0),
+                        gap_row,
+                        &items,
+                        false,
+                    );
+                }
+                rt
+            };
+
+        // --- 11. Compute track positions ---
+        col_positions = track::compute_track_positions(&col_tracks, gap_col);
+        row_positions = track::compute_track_positions(&row_tracks, gap_row);
+
+        // --- 11b. Track distribution (justify-content / align-content) ---
+        if !col_track_list.is_subgrid()
+            || input.subgrid.and_then(|sg| sg.col_sizes.as_ref()).is_none()
+        {
+            distribute_tracks(
+                &mut col_positions,
+                &col_tracks,
+                gap_col,
+                container_inline_size,
+                style.justify_content,
+                style.justify_content_safety,
+            );
+        }
+        if !row_track_list.is_subgrid()
+            || input.subgrid.and_then(|sg| sg.row_sizes.as_ref()).is_none()
+        {
+            if let Some(h) = block_available {
+                distribute_tracks(
+                    &mut row_positions,
+                    &row_tracks,
+                    gap_row,
+                    h,
+                    style.align_content,
+                    style.align_content_safety,
+                );
+            }
+        }
+
+        // Convergence check for subgrid multi-pass.
+        if has_subgrid && pass < max_passes - 1 {
+            let cur_col: Vec<f32> = col_tracks.iter().map(|t| t.size).collect();
+            let cur_row: Vec<f32> = row_tracks.iter().map(|t| t.size).collect();
+            if pass > 0 {
+                let cols_converged = cur_col.len() == prev_col_sizes.len()
+                    && cur_col.iter().zip(prev_col_sizes.iter()).all(|(a, b)| {
+                        let diff = (a - b).abs();
+                        diff.is_finite() && diff < LAYOUT_SIZE_EPSILON
+                    });
+                let rows_converged = cur_row.len() == prev_row_sizes.len()
+                    && cur_row.iter().zip(prev_row_sizes.iter()).all(|(a, b)| {
+                        let diff = (a - b).abs();
+                        diff.is_finite() && diff < LAYOUT_SIZE_EPSILON
+                    });
+                if cols_converged && rows_converged {
+                    break;
+                }
+            }
+            prev_col_sizes = cur_col;
+            prev_row_sizes = cur_row;
+        } else {
+            break;
+        }
     }
 
     // --- 12. Position items + final layout ---
+    // Build SubgridContext for child subgrids that need parent track info.
+    let subgrid_ctx = if has_subgrid {
+        Some(SubgridContext {
+            col_sizes: Some(col_tracks.iter().map(|t| t.size).collect()),
+            row_sizes: Some(row_tracks.iter().map(|t| t.size).collect()),
+            col_line_names: col_section.line_names.clone(),
+            row_line_names: row_section.line_names.clone(),
+            col_gap: Some(gap_col),
+            row_gap: Some(gap_row),
+        })
+    } else {
+        None
+    };
     let placement = position::GridPlacement {
         col_tracks: &col_tracks,
         row_tracks: &row_tracks,
@@ -308,23 +544,41 @@ pub fn layout_grid(
         row_positions: &row_positions,
         content_x,
         content_y,
-        content_width,
+        container_inline_size,
         direction: style.direction,
         containing_height,
+        subgrid_ctx: subgrid_ctx.as_ref(),
+        writing_mode: style.writing_mode,
     };
     let grid_baseline =
         position::position_items(dom, &items, &placement, font_db, depth, layout_child);
 
-    // --- 13. Container height ---
+    // --- 13. Container dimensions ---
+    // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
+    // In horizontal: width = inline, height = block.
+    // In vertical: width = block, height = inline.
+    let total_col_size = track::total_track_size(&col_tracks, gap_col);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
-    let content_height = available_height.unwrap_or(total_row_size);
+    let (final_content_width, final_content_height) = if is_horizontal_wm {
+        (content_width, block_available.unwrap_or(total_row_size))
+    } else {
+        // Vertical: width = block-size (row tracks), height = inline-size
+        let block_size = block_available.unwrap_or(total_row_size);
+        let _ = total_col_size; // inline tracks used for container_inline_size
+        (block_size, container_inline_size)
+    };
 
     // --- 14. LayoutBox ---
     // Grid container baseline (CSS Grid §4.2).
     let first_baseline = grid_baseline;
 
     let lb = LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::new(
+            content_x,
+            content_y,
+            final_content_width,
+            final_content_height,
+        ),
         padding,
         border,
         margin,

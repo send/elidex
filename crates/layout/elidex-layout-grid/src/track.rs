@@ -31,6 +31,18 @@ pub(crate) struct ResolvedTrack {
 }
 
 impl ResolvedTrack {
+    /// Create a resolved track with a fixed size (used for subgrid parent tracks).
+    pub(crate) fn from_fixed_size(size: f32) -> Self {
+        Self {
+            base: size,
+            limit: size,
+            fr: 0.0,
+            size,
+            collapsed: false,
+            intrinsic: false,
+        }
+    }
+
     /// Effective size for a non-fr track: `max(base, limit)` when limit is
     /// finite, otherwise just `base`.
     fn effective_non_fr_size(&self) -> f32 {
@@ -561,8 +573,8 @@ fn distribute_fr(tracks: &mut [ResolvedTrack], available: f32, gap: f32) {
             let hypothetical = remaining_space * track.fr / remaining_fr;
             if hypothetical < track.base {
                 frozen[i] = true;
-                remaining_space -= track.base;
-                remaining_fr -= track.fr;
+                remaining_space = (remaining_space - track.base).max(0.0);
+                remaining_fr = (remaining_fr - track.fr).max(0.0);
                 newly_frozen = true;
             }
         }

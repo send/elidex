@@ -10,6 +10,22 @@ use elidex_plugin::{AutoRepeatMode, LengthUnit};
 pub(crate) fn resolve_track_list(value: &CssValue, ctx: &ResolveContext) -> GridTrackList {
     match value {
         CssValue::Keyword(k) if k == "none" => GridTrackList::default(),
+        // CSS Grid Level 2 §2: subgrid [<line-name-list>]*
+        CssValue::List(items)
+            if items.first() == Some(&CssValue::Keyword("subgrid".to_string())) =>
+        {
+            let line_names: Vec<Vec<String>> = items[1..]
+                .iter()
+                .map(|v| match v {
+                    CssValue::List(names) => names
+                        .iter()
+                        .filter_map(|n| n.as_keyword().map(String::from))
+                        .collect(),
+                    _ => vec![],
+                })
+                .collect();
+            GridTrackList::Subgrid { line_names }
+        }
         CssValue::List(items)
             if items.first() == Some(&CssValue::Keyword("auto-repeat".to_string())) =>
         {

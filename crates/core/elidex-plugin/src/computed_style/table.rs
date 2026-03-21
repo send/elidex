@@ -19,10 +19,12 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `caption-side` property (CSS 2.1 §17.4.1).
+    /// The CSS `caption-side` property (CSS 2.1 §17.4.1, CSS Logical Properties §caption-side).
     CaptionSide {
         Top => "top",
         Bottom => "bottom",
+        BlockStart => "block-start",
+        BlockEnd => "block-end",
     }
 }
 

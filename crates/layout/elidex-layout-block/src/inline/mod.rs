@@ -12,7 +12,7 @@ mod tests;
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
-use elidex_plugin::{ComputedStyle, Display, EdgeSizes, LayoutBox, Rect, WritingMode};
+use elidex_plugin::{ComputedStyle, Display, EdgeSizes, LayoutBox, Rect};
 use elidex_text::{
     find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
     FontStyle, TextMeasureParams,
@@ -426,7 +426,7 @@ pub fn layout_inline_context(
         };
     }
 
-    let is_vertical = !matches!(parent_style.writing_mode, WritingMode::HorizontalTb);
+    let is_vertical = !parent_style.writing_mode.is_horizontal();
     // Layout atomic inline boxes and fill in their dimensions.
     layout_atomic_items(
         dom,
@@ -523,6 +523,7 @@ fn layout_atomic_items(
             let input = crate::LayoutInput {
                 containing_width: containing_inline_size,
                 containing_height: None,
+                containing_inline_size,
                 offset_x: content_origin.0,
                 offset_y: content_origin.1,
                 font_db,
@@ -531,6 +532,7 @@ fn layout_atomic_items(
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
+                subgrid: None,
             };
             let lb = layout_child(dom, *entity, &input).layout_box;
             let margin_box = lb.margin_box();
