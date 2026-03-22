@@ -350,6 +350,14 @@ impl DomApiHandler for InsertAdjacentHtml {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        /// Resolve the tag name for a given entity, defaulting to `"div"`.
+        fn tag_of(entity: Entity, dom: &EcsDom) -> String {
+            dom.world()
+                .get::<&TagType>(entity)
+                .ok()
+                .map_or_else(|| "div".to_string(), |t| t.0.clone())
+        }
+
         let position = match args.first() {
             Some(JsValue::String(s)) => s.to_ascii_lowercase(),
             _ => {
@@ -363,26 +371,24 @@ impl DomApiHandler for InsertAdjacentHtml {
             _ => String::new(),
         };
 
-        let context_tag = dom
-            .world()
-            .get::<&TagType>(this)
-            .ok()
-            .map_or_else(|| "div".to_string(), |t| t.0.clone());
-
         match position.as_str() {
             "beforebegin" => {
-                if let Some(parent) = dom.get_parent(this) {
-                    // Parse as sibling of parent context.
-                    let nodes =
-                        elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
-                    // Move nodes before `this` (they were appended at end, need repositioning).
-                    for node in nodes.into_iter().rev() {
-                        let _ = dom.remove_child(parent, node);
-                        let _ = dom.insert_before(parent, node, this);
-                    }
+                let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message: "insertAdjacentHTML: element has no parent for beforebegin".into(),
+                })?;
+                // Use parent's tag as fragment parsing context.
+                let context_tag = tag_of(parent, dom);
+                let nodes =
+                    elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
+                // Move nodes before `this` (they were appended at end, need repositioning).
+                for node in nodes.into_iter().rev() {
+                    let _ = dom.remove_child(parent, node);
+                    let _ = dom.insert_before(parent, node, this);
                 }
             }
             "afterbegin" => {
+                let context_tag = tag_of(this, dom);
                 let first_child = dom.get_first_child(this);
                 let nodes = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
                 if let Some(ref_child) = first_child {
@@ -394,22 +400,27 @@ impl DomApiHandler for InsertAdjacentHtml {
                 // If no first_child, nodes are already appended at end (correct).
             }
             "beforeend" => {
+                let context_tag = tag_of(this, dom);
                 // Nodes are appended at end by parse_html_fragment — already correct.
                 let _ = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
             }
             "afterend" => {
-                if let Some(parent) = dom.get_parent(this) {
-                    let next = dom.get_next_sibling(this);
-                    let nodes =
-                        elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
-                    if let Some(ref_child) = next {
-                        for node in nodes.into_iter().rev() {
-                            let _ = dom.remove_child(parent, node);
-                            let _ = dom.insert_before(parent, node, ref_child);
-                        }
+                let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message: "insertAdjacentHTML: element has no parent for afterend".into(),
+                })?;
+                // Use parent's tag as fragment parsing context.
+                let context_tag = tag_of(parent, dom);
+                let next = dom.get_next_sibling(this);
+                let nodes =
+                    elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
+                if let Some(ref_child) = next {
+                    for node in nodes.into_iter().rev() {
+                        let _ = dom.remove_child(parent, node);
+                        let _ = dom.insert_before(parent, node, ref_child);
                     }
-                    // If no next sibling, nodes are already at end (correct).
                 }
+                // If no next sibling, nodes are already at end (correct).
             }
             _ => {
                 return Err(DomApiError::syntax_error(

@@ -193,12 +193,9 @@ pub fn create_event_object(
         Some(
             NativeFunction::from_copy_closure_with_captures(
                 |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
-                    // Getter: return !defaultPrevented (spec: returnValue="" when not cancelled).
-                    if flag.0.get() {
-                        Ok(JsValue::from(js_string!("")))
-                    } else {
-                        Ok(JsValue::from(true))
-                    }
+                    // Getter: per WHATWG DOM spec, returnValue returns false if the
+                    // canceled flag is set, true otherwise.
+                    Ok(JsValue::from(!flag.0.get()))
                 },
                 SharedFlag(Rc::clone(&flags.prevent_default)),
             )
@@ -207,13 +204,11 @@ pub fn create_event_object(
         Some(
             NativeFunction::from_copy_closure_with_captures(
                 |_this, args, (flag, cancel), _ctx| -> boa_engine::JsResult<JsValue> {
-                    // Setter: setting returnValue to any non-empty string value
-                    // calls preventDefault() on a cancelable event.
+                    // Setter: per WHATWG DOM spec, setting returnValue to false
+                    // on a cancelable event sets the canceled flag (preventDefault).
                     if *cancel {
                         if let Some(val) = args.first() {
-                            // Per spec, setting returnValue to any truthy value
-                            // (including non-empty string) triggers preventDefault.
-                            if val.to_boolean() {
+                            if !val.to_boolean() {
                                 flag.0.set(true);
                             }
                         }

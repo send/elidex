@@ -482,34 +482,33 @@ fn build_named_node_map(
             .unwrap_or_default()
     });
 
-    // Build attribute JS objects first, before borrowing ctx for init.
-    let attr_objects: Vec<(String, JsValue)> = attrs
-        .iter()
-        .map(|(name, value)| {
-            let mut obj = ObjectInitializer::new(ctx);
-            obj.property(
-                js_string!("name"),
-                JsValue::from(js_string!(name.as_str())),
-                Attribute::READONLY,
-            );
-            obj.property(
-                js_string!("value"),
-                JsValue::from(js_string!(value.as_str())),
-                Attribute::READONLY,
-            );
-            obj.property(
-                js_string!("nodeType"),
-                JsValue::from(2),
-                Attribute::READONLY,
-            );
-            obj.property(
-                js_string!("specified"),
-                JsValue::from(true),
-                Attribute::READONLY,
-            );
-            (name.clone(), obj.build().into())
-        })
-        .collect();
+    // Build Attr wrapper objects via getAttributeNode for each attribute.
+    let attr_objects: Vec<(String, JsValue)> = {
+        let mut result = Vec::with_capacity(attrs.len());
+        for (name, _value) in &attrs {
+            let attr_val = invoke_dom_handler_ref(
+                "getAttributeNode",
+                entity,
+                &[ElidexJsValue::String(name.clone())],
+                bridge,
+                ctx,
+            )?;
+            // Wrap the returned ObjectRef as a proper Attr object.
+            let attr_js = if let Some(obj) = attr_val.as_object() {
+                let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                if entity_val.is_undefined() {
+                    attr_val
+                } else {
+                    let attr_entity = super::core::extract_entity(&attr_val, ctx)?;
+                    super::special_nodes::create_attr_object(attr_entity, bridge, ctx)
+                }
+            } else {
+                attr_val
+            };
+            result.push((name.clone(), attr_js));
+        }
+        result
+    };
 
     let mut init = ObjectInitializer::new(ctx);
 

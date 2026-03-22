@@ -167,10 +167,10 @@ impl Range {
                 other.start_offset,
             ),
             START_TO_END => (
-                self.end_container,
-                self.end_offset,
-                other.start_container,
-                other.start_offset,
+                self.start_container,
+                self.start_offset,
+                other.end_container,
+                other.end_offset,
             ),
             END_TO_END => (
                 self.end_container,
@@ -179,10 +179,10 @@ impl Range {
                 other.end_offset,
             ),
             END_TO_START => (
-                self.start_container,
-                self.start_offset,
-                other.end_container,
-                other.end_offset,
+                self.end_container,
+                self.end_offset,
+                other.start_container,
+                other.start_offset,
             ),
             _ => return 0,
         };

@@ -471,23 +471,27 @@ fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(f64, f64)
     if let Some(first) = args.first() {
         if let Some(obj) = first.as_object() {
             // Options object: { top, left, behavior }
-            let top = obj
-                .get(js_string!("top"), ctx)?
-                .to_number(ctx)
-                .unwrap_or(0.0);
-            let left = obj
-                .get(js_string!("left"), ctx)?
-                .to_number(ctx)
-                .unwrap_or(0.0);
+            let top_val = obj.get(js_string!("top"), ctx)?;
+            let top = if top_val.is_undefined() {
+                0.0
+            } else {
+                top_val.to_number(ctx)?
+            };
+            let left_val = obj.get(js_string!("left"), ctx)?;
+            let left = if left_val.is_undefined() {
+                0.0
+            } else {
+                left_val.to_number(ctx)?
+            };
             return Ok((left, top));
         }
         // Numeric arguments: scrollTo(x, y)
-        let x = first.to_number(ctx).unwrap_or(0.0);
-        let y = args
-            .get(1)
-            .map(|v| v.to_number(ctx))
-            .transpose()?
-            .unwrap_or(0.0);
+        let x = first.to_number(ctx)?;
+        let y = if let Some(v) = args.get(1) {
+            v.to_number(ctx)?
+        } else {
+            0.0
+        };
         return Ok((x, y));
     }
     Ok((0.0, 0.0))
