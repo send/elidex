@@ -528,14 +528,16 @@ fn emit_border_side(
 /// Emit a list marker for a `display: list-item` element.
 ///
 /// - `disc`/`circle`/`square`: small shape rendered to the left of the content box.
-/// - `decimal`: rendered as "N." text to the left.
+/// - `decimal` and other text markers: rendered as "N." text to the left.
+///
+/// `marker_text` is the pre-formatted counter string from `CounterState::evaluate_counter`.
 ///
 /// The marker is positioned in the element's left padding area, vertically
 /// centered on the first line (approximated by font ascent).
 pub(crate) fn emit_list_marker_with_counter(
     lb: &LayoutBox,
     style: &ComputedStyle,
-    counter: usize,
+    marker_text: &str,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
@@ -581,42 +583,73 @@ pub(crate) fn emit_list_marker_with_counter(
                 color,
             });
         }
-        ListStyleType::Decimal => {
-            let marker_text = format!("{counter}.");
-            let Some(font_id) = font_db.query(&families, style.font_weight, font_style) else {
-                return;
-            };
-            let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {
-                return;
-            };
-            let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-                return;
-            };
-            let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
-            if !text_width.is_finite() {
-                return;
-            }
-            let baseline_y = lb.content.origin.y + ascent;
-            let mut text_x =
-                lb.content.origin.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
-            let glyphs = place_glyphs(
-                &shaped.glyphs,
-                &mut text_x,
-                baseline_y,
-                0.0,
-                0.0,
-                &marker_text,
-            );
-            dl.push(DisplayItem::Text {
-                glyphs,
-                font_blob,
-                font_index,
-                font_size: style.font_size,
-                color,
-            });
-        }
         ListStyleType::None => {}
+        // Decimal and all other variants: render as "N." text marker.
+        _ => {
+            emit_text_marker(
+                lb,
+                style,
+                marker_text,
+                &families,
+                font_style,
+                ascent,
+                color,
+                font_db,
+                font_cache,
+                dl,
+            );
+        }
     }
+}
+
+/// Emit a text-based list marker (e.g. "1.", "2.") to the left of the content box.
+///
+/// `marker_text` is the pre-formatted counter string (e.g. "1", "ii", "a").
+/// A trailing period is appended for display.
+#[allow(clippy::too_many_arguments)]
+fn emit_text_marker(
+    lb: &LayoutBox,
+    style: &ComputedStyle,
+    marker_text: &str,
+    families: &[&str],
+    font_style: fontdb::Style,
+    ascent: f32,
+    color: CssColor,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let marker_text = format!("{marker_text}.");
+    let Some(font_id) = font_db.query(families, style.font_weight, font_style) else {
+        return;
+    };
+    let Some(shaped) = shape_text(font_db, font_id, style.font_size, &marker_text) else {
+        return;
+    };
+    let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+        return;
+    };
+    let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
+    if !text_width.is_finite() {
+        return;
+    }
+    let baseline_y = lb.content.origin.y + ascent;
+    let mut text_x = lb.content.origin.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
+    let glyphs = place_glyphs(
+        &shaped.glyphs,
+        &mut text_x,
+        baseline_y,
+        0.0,
+        0.0,
+        &marker_text,
+    );
+    dl.push(DisplayItem::Text {
+        glyphs,
+        font_blob,
+        font_index,
+        font_size: style.font_size,
+        color,
+    });
 }
 
 /// Emit column rules between columns of a multicol container.

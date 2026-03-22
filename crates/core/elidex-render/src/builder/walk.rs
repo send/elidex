@@ -14,6 +14,7 @@ use elidex_plugin::{
     Visibility,
 };
 use elidex_plugin::{Point, Vector};
+use elidex_style::counter::CounterState;
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -39,6 +40,12 @@ pub(crate) struct PaintContext<'a> {
     /// in `build_display_list_with_scroll()`. Fixed elements re-push this
     /// value after their `PopScrollOffset`/walk/`PushScrollOffset` sequence.
     pub(crate) scroll_offset: Vector,
+    /// CSS counter state machine (CSS Lists Level 3 §5–7).
+    ///
+    /// Tracks counter scopes during tree walk. Counters are created by
+    /// `counter-reset`, modified by `counter-increment` and `counter-set`,
+    /// and evaluated by `counter()` / `counters()` functions.
+    pub(crate) counter_state: CounterState,
 }
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
@@ -69,18 +76,26 @@ pub(crate) fn walk(
         return;
     }
 
+    // CSS counter scope: push scope and process counter properties on entry.
+    ctx.counter_state.push_scope();
+    if let Ok(style) = ctx.dom.world().get::<&ComputedStyle>(entity) {
+        ctx.counter_state.process_element(&style, false);
+    }
+
     // Fetch ComputedStyle once for display/visibility/painting checks.
     let style_ref = ctx.dom.world().get::<&ComputedStyle>(entity).ok();
 
     // Check for display: none — skip this subtree entirely.
     if let Some(ref style) = style_ref {
         if style.display == Display::None {
+            ctx.counter_state.pop_scope();
             return;
         }
         // CSS 2.1 §11.2: visibility: collapse on table-row, table-column,
         // table-row-group, or table-column-group hides the entire row/column
         // (equivalent to display: none for rendering purposes).
         if style.visibility == Visibility::Collapse && style.display.is_table_internal() {
+            ctx.counter_state.pop_scope();
             return;
         }
     }
@@ -104,6 +119,7 @@ pub(crate) fn walk(
             match element_transform(style, &lb, parent_perspective) {
                 TransformResult::BackfaceHidden => {
                     // CSS Transforms L2 §5: back-facing → skip entire subtree.
+                    ctx.counter_state.pop_scope();
                     return;
                 }
                 TransformResult::Affine(affine) => {
@@ -232,6 +248,9 @@ pub(crate) fn walk(
     if has_transform_push {
         ctx.dl.push(DisplayItem::PopTransform);
     }
+
+    // CSS counter scope: pop scope on element exit.
+    ctx.counter_state.pop_scope();
 }
 
 /// Paint children in CSS 2.1 Appendix E stacking context layer order.
@@ -253,9 +272,8 @@ fn paint_stacking_context_layers(
     }
 
     // Layer 3: in-flow non-positioned blocks (DOM order).
-    let mut list_counter = 0_usize;
     for &child in &layers.in_flow_blocks {
-        maybe_emit_list_marker(ctx, child, &mut list_counter);
+        maybe_emit_list_marker(ctx, child);
         walk_child_with_fixed_check(ctx, child, depth, child_perspective, in_transform);
     }
 
@@ -280,6 +298,7 @@ fn paint_stacking_context_layers(
                         ctx.font_db,
                         ctx.font_cache,
                         ctx.dl,
+                        &ctx.counter_state,
                     );
                     inline_run.clear();
                 }
@@ -295,6 +314,7 @@ fn paint_stacking_context_layers(
                 ctx.font_db,
                 ctx.font_cache,
                 ctx.dl,
+                &ctx.counter_state,
             );
         }
     }
@@ -332,7 +352,6 @@ fn paint_non_sc(
     in_transform: bool,
 ) {
     let mut inline_run = Vec::new();
-    let mut list_counter = 0_usize;
 
     for &child in children {
         // Skip positioned children — they're painted by the parent SC.
@@ -350,11 +369,12 @@ fn paint_non_sc(
                     ctx.font_db,
                     ctx.font_cache,
                     ctx.dl,
+                    &ctx.counter_state,
                 );
                 inline_run.clear();
             }
 
-            maybe_emit_list_marker(ctx, child, &mut list_counter);
+            maybe_emit_list_marker(ctx, child);
 
             // Recurse into block child.
             walk(ctx, child, depth + 1, child_perspective, in_transform);
@@ -373,6 +393,7 @@ fn paint_non_sc(
             ctx.font_db,
             ctx.font_cache,
             ctx.dl,
+            &ctx.counter_state,
         );
     }
 }
@@ -438,23 +459,28 @@ fn is_viewport_fixed(dom: &EcsDom, entity: Entity, in_transform: bool) -> bool {
 }
 
 /// Emit a list marker for a block child if it is a `list-item` with a visible marker.
-fn maybe_emit_list_marker(ctx: &mut PaintContext, child: Entity, counter: &mut usize) {
+///
+/// The counter value is obtained from the `CounterState` which has already been
+/// updated by `process_element()` during the tree walk. This replaces the
+/// previous hardcoded `list_counter: usize` with proper CSS counter evaluation.
+fn maybe_emit_list_marker(ctx: &mut PaintContext, child: Entity) {
     if let Ok(child_style) = ctx.dom.world().get::<&ComputedStyle>(child) {
-        if child_style.display == Display::ListItem {
-            *counter += 1;
-            if child_style.list_style_type != ListStyleType::None
-                && child_style.visibility == Visibility::Visible
-            {
-                if let Ok(child_lb) = ctx.dom.world().get::<&LayoutBox>(child) {
-                    emit_list_marker_with_counter(
-                        &child_lb,
-                        &child_style,
-                        *counter,
-                        ctx.font_db,
-                        ctx.font_cache,
-                        ctx.dl,
-                    );
-                }
+        if child_style.display == Display::ListItem
+            && child_style.list_style_type != ListStyleType::None
+            && child_style.visibility == Visibility::Visible
+        {
+            if let Ok(child_lb) = ctx.dom.world().get::<&LayoutBox>(child) {
+                let marker_text = ctx
+                    .counter_state
+                    .evaluate_counter("list-item", child_style.list_style_type);
+                emit_list_marker_with_counter(
+                    &child_lb,
+                    &child_style,
+                    &marker_text,
+                    ctx.font_db,
+                    ctx.font_cache,
+                    ctx.dl,
+                );
             }
         }
     }

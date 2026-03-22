@@ -2024,6 +2024,7 @@ dependencies = [
  "elidex-form",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
  "fontdb",
  "unicode-segmentation",

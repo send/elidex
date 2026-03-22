@@ -9,8 +9,8 @@ use elidex_plugin::{
     },
     parse_css_keyword as parse_keyword, BorderStyle, BoxDecorationBreak, BoxSizing,
     BreakInsideValue, BreakValue, ComputedStyle, ContentItem, ContentValue, CssPropertyHandler,
-    CssValue, Dimension, Display, LengthUnit, Overflow, ParseError, Position, PropertyDeclaration,
-    ResolveContext,
+    CssValue, Dimension, Display, LengthUnit, ListStyleType, Overflow, ParseError, Position,
+    PropertyDeclaration, ResolveContext,
 };
 
 /// CSS box model property handler.
@@ -488,25 +488,7 @@ impl CssPropertyHandler for BoxHandler {
             "border-bottom-left-radius" => CssValue::Length(style.border_radii[3], LengthUnit::Px),
             "opacity" => CssValue::Number(style.opacity),
 
-            "content" => match &style.content {
-                ContentValue::Normal => CssValue::Keyword("normal".to_string()),
-                ContentValue::None => CssValue::Keyword("none".to_string()),
-                ContentValue::Items(items) => {
-                    let mut parts: Vec<CssValue> = items
-                        .iter()
-                        .map(|item| match item {
-                            ContentItem::String(s) => CssValue::String(s.clone()),
-                            ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
-                        })
-                        .collect();
-                    if parts.len() == 1 {
-                        // len checked above; pop cannot fail.
-                        parts.pop().expect("len == 1")
-                    } else {
-                        CssValue::List(parts)
-                    }
-                }
-            },
+            "content" => computed_content(style),
 
             "row-gap" => dimension_to_css_value(style.row_gap),
             "column-gap" => dimension_to_css_value(style.column_gap),
@@ -698,6 +680,36 @@ fn resolve_max_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
     }
 }
 
+/// Convert `ComputedStyle.content` to a `CssValue` for `get_computed`.
+fn computed_content(style: &ComputedStyle) -> CssValue {
+    match &style.content {
+        ContentValue::Normal => CssValue::Keyword("normal".to_string()),
+        ContentValue::None => CssValue::Keyword("none".to_string()),
+        ContentValue::Items(items) => {
+            let mut parts: Vec<CssValue> = items
+                .iter()
+                .map(|item| match item {
+                    ContentItem::String(s) => CssValue::String(s.clone()),
+                    ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                    ContentItem::Counter { name, style } => {
+                        CssValue::Keyword(format!("counter:{name}:{style}"))
+                    }
+                    ContentItem::Counters {
+                        name,
+                        separator,
+                        style,
+                    } => CssValue::Keyword(format!("counters:{name}:{separator}:{style}")),
+                })
+                .collect();
+            if parts.len() == 1 {
+                parts.pop().expect("len == 1")
+            } else {
+                CssValue::List(parts)
+            }
+        }
+    }
+}
+
 /// Resolve the `content` property value.
 fn resolve_content(value: &CssValue, target: &mut ContentValue) {
     match value {
@@ -722,6 +734,12 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
                     CssValue::Keyword(kw) if kw.starts_with("attr:") => kw
                         .strip_prefix("attr:")
                         .map(|attr_name| ContentItem::Attr(attr_name.to_string())),
+                    CssValue::Keyword(kw) if kw.starts_with("counter:") => {
+                        parse_counter_keyword_to_item(kw)
+                    }
+                    CssValue::Keyword(kw) if kw.starts_with("counters:") => {
+                        parse_counters_keyword_to_item(kw)
+                    }
                     _ => None,
                 })
                 .collect();
@@ -731,6 +749,31 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
         }
         _ => {}
     }
+}
+
+/// Parse a `counter:name:style` keyword into a `ContentItem::Counter`.
+fn parse_counter_keyword_to_item(k: &str) -> Option<ContentItem> {
+    let rest = k.strip_prefix("counter:")?;
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counter { name, style })
+}
+
+/// Parse a `counters:name:separator:style` keyword into a `ContentItem::Counters`.
+fn parse_counters_keyword_to_item(k: &str) -> Option<ContentItem> {
+    let rest = k.strip_prefix("counters:")?;
+    let mut parts = rest.splitn(3, ':');
+    let name = parts.next()?.to_string();
+    let separator = parts.next().unwrap_or(".").to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counters {
+        name,
+        separator,
+        style,
+    })
 }
 
 #[cfg(test)]

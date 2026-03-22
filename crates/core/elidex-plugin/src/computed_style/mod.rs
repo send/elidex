@@ -353,6 +353,12 @@ pub struct ComputedStyle {
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
+    /// CSS `counter-reset` declarations: (name, value) pairs.
+    pub counter_reset: Vec<(String, i32)>,
+    /// CSS `counter-increment` declarations: (name, value) pairs.
+    pub counter_increment: Vec<(String, i32)>,
+    /// CSS `counter-set` declarations: (name, value) pairs.
+    pub counter_set: Vec<(String, i32)>,
 
     // --- Stacking context flags (non-inherited) ---
     // Set by CSS property handlers when resolved; default = initial value (no stacking context).
@@ -557,6 +563,9 @@ impl Default for ComputedStyle {
 
             // Generated content
             content: ContentValue::Normal,
+            counter_reset: Vec::new(),
+            counter_increment: Vec::new(),
+            counter_set: Vec::new(),
 
             // Stacking context flags
             has_transform: false,

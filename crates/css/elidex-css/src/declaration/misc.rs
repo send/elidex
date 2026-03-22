@@ -447,7 +447,7 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
         return single_decl("content", val);
     }
 
-    // Collect one or more content items: quoted strings or attr() functions.
+    // Collect one or more content items: quoted strings, attr(), counter(), counters().
     let mut items: Vec<CssValue> = Vec::new();
     loop {
         // Try quoted string.
@@ -467,6 +467,46 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
                                     Err(e) => return Err(e.into()),
                                 };
                                 items.push(CssValue::Keyword(format!("attr:{attr_name}")));
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+                        Ok(())
+                    }
+                    Token::Function(ref name) if name.eq_ignore_ascii_case("counter") => {
+                        i.parse_nested_block(
+                            |block| -> Result<(), cssparser::ParseError<'_, ()>> {
+                                let counter_name = block.expect_ident()?.as_ref().to_string();
+                                // Optional list-style-type after comma.
+                                let style = if block.try_parse(Parser::expect_comma).is_ok() {
+                                    block.expect_ident()?.as_ref().to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                items.push(CssValue::Keyword(format!(
+                                    "counter:{counter_name}:{style}"
+                                )));
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+                        Ok(())
+                    }
+                    Token::Function(ref name) if name.eq_ignore_ascii_case("counters") => {
+                        i.parse_nested_block(
+                            |block| -> Result<(), cssparser::ParseError<'_, ()>> {
+                                let counter_name = block.expect_ident()?.as_ref().to_string();
+                                block.expect_comma()?;
+                                let separator = block.expect_string()?.as_ref().to_string();
+                                // Optional list-style-type after comma.
+                                let style = if block.try_parse(Parser::expect_comma).is_ok() {
+                                    block.expect_ident()?.as_ref().to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                items.push(CssValue::Keyword(format!(
+                                    "counters:{counter_name}:{separator}:{style}"
+                                )));
                                 Ok(())
                             },
                         )
@@ -720,4 +760,50 @@ fn parse_color_or_currentcolor(input: &mut Parser) -> Result<CssValue, ()> {
     }
     let c = crate::color::parse_color(input)?;
     Ok(CssValue::Color(c))
+}
+
+// --- Counter properties ---
+
+/// Parse `counter-reset`, `counter-increment`, or `counter-set`.
+///
+/// Syntax: `none` | `[<custom-ident> <integer>?]+`
+/// `default_value` is 0 for counter-reset/counter-set, 1 for counter-increment.
+/// Returns a `CssValue::List` with alternating `Keyword(name)` and `Number(value)` entries.
+pub(super) fn parse_counter_list(
+    input: &mut Parser,
+    name: &str,
+    default_value: i32,
+) -> Vec<Declaration> {
+    // `none` produces an empty list.
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return single_decl(name, CssValue::Keyword("none".to_string()));
+    }
+
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut items: Vec<CssValue> = Vec::new();
+            // Parse one or more `<custom-ident> <integer>?` pairs.
+            while let Ok(ident) = i.try_parse(|i2| {
+                let tok = i2.expect_ident().map_err(|_| ())?;
+                Ok::<_, ()>(tok.as_ref().to_ascii_lowercase())
+            }) {
+                // Reject CSS-wide keywords.
+                if matches!(ident.as_str(), "inherit" | "initial" | "unset" | "revert") {
+                    return Err(());
+                }
+                items.push(CssValue::Keyword(ident));
+                // Optional integer value.
+                let val = i
+                    .try_parse(|i2| i2.expect_integer().map_err(|_| ()))
+                    .unwrap_or(default_value);
+                #[allow(clippy::cast_precision_loss)]
+                items.push(CssValue::Number(val as f32));
+                // If no more idents follow, we're done.
+            }
+            if items.is_empty() {
+                return Err(());
+            }
+            Ok(single_decl(name, CssValue::List(items)))
+        })
+        .unwrap_or_default()
 }

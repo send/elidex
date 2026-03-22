@@ -22,6 +22,7 @@ mod tests;
 
 use elidex_ecs::EcsDom;
 use elidex_plugin::Vector;
+use elidex_style::counter::CounterState;
 use elidex_text::FontDatabase;
 
 use crate::display_list::DisplayList;
@@ -150,6 +151,7 @@ pub fn build_display_list_with_scroll(
         dl: &mut dl,
         caret_visible,
         scroll_offset,
+        counter_state: CounterState::new(),
     };
     let roots = find_roots(dom);
     for root in roots {

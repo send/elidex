@@ -1038,6 +1038,7 @@ pub struct CounterState {
 
 - `counter-reset: name value` — カウンタースコープ作成 (CSS Lists L3 §5.1)
 - `counter-increment: name value` — カウンター増減 (CSS Lists L3 §5.2)
+- `counter-set: name value` — 既存カウンター値の上書き、スコープ作成なし (CSS Lists L3 §5.3)
 - `counter(name)` / `counter(name, list-style-type)` — 値取得 (CSS Lists L3 §6.1)
 - `counters(name, string)` — 入れ子カウンター連結 (CSS Lists L3 §6.2)
 - **フラグメンテーション制約**: G10 table fragmentation で記録済みのコメントに基づき、

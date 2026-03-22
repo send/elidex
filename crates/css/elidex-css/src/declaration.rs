@@ -474,6 +474,10 @@ pub(crate) fn parse_property_value(
         // --- Content property ---
         "content" => misc::parse_content(input),
 
+        // --- Counter properties ---
+        "counter-reset" | "counter-set" => misc::parse_counter_list(input, name, 0),
+        "counter-increment" => misc::parse_counter_list(input, name, 1),
+
         // --- Fallback: dispatch to plugin handler registry ---
         _ => {
             if let Some(reg) = registry {

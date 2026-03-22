@@ -500,6 +500,7 @@ fn list_item_decimal_emits_text_marker() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
+            counter_reset: vec![("list-item".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -517,6 +518,7 @@ fn list_item_decimal_emits_text_marker() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::ListItem,
             list_style_type: elidex_plugin::ListStyleType::Decimal,
+            counter_increment: vec![("list-item".to_string(), 1)],
             ..Default::default()
         },
     );
@@ -574,6 +576,7 @@ fn list_item_counter_increments() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
+            counter_reset: vec![("list-item".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -592,6 +595,7 @@ fn list_item_counter_increments() {
             elidex_plugin::ComputedStyle {
                 display: elidex_plugin::Display::ListItem,
                 list_style_type: elidex_plugin::ListStyleType::Disc,
+                counter_increment: vec![("list-item".to_string(), 1)],
                 ..Default::default()
             },
         );

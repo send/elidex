@@ -338,7 +338,18 @@ fn resolve_and_attach_style(
     let element_ctx = ctx.with_em_base(parent_style.font_size);
 
     // Resolve values → ComputedStyle.
-    let style = build_computed_style(&winners, parent_style, &element_ctx);
+    let mut style = build_computed_style(&winners, parent_style, &element_ctx);
+
+    // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists L3 §5).
+    if let Ok(tag) = dom.world().get::<&TagType>(entity) {
+        let attrs = dom
+            .world()
+            .get::<&Attributes>(entity)
+            .ok()
+            .map(|a| (*a).clone())
+            .unwrap_or_default();
+        crate::counter::apply_implicit_list_counters(&mut style, &tag.0, &attrs);
+    }
 
     // Attach ComputedStyle to the entity.
     let _ = dom.world_mut().insert_one(entity, style.clone());

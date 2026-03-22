@@ -5,6 +5,7 @@ use elidex_ecs::Attributes;
 use elidex_plugin::{EdgeSizes, Rect};
 
 mod basic;
+mod counter;
 mod display_types;
 mod styling;
 mod transform;

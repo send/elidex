@@ -386,7 +386,8 @@ pub(super) fn resolve_overflow(
 ///
 /// `content` is non-inherited. Keywords `normal` and `none` map directly;
 /// string values produce `ContentValue::Items`. `attr:name` convention
-/// (from the parser) becomes `ContentItem::Attr`.
+/// (from the parser) becomes `ContentItem::Attr`. `counter:` and `counters:`
+/// prefixed keywords become `ContentItem::Counter`/`ContentItem::Counters`.
 pub(super) fn resolve_content(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
@@ -404,6 +405,20 @@ pub(super) fn resolve_content(
             k if k.starts_with("attr:") => {
                 ContentValue::Items(vec![ContentItem::Attr(k["attr:".len()..].to_string())])
             }
+            k if k.starts_with("counter:") => {
+                if let Some(item) = parse_counter_keyword(k) {
+                    ContentValue::Items(vec![item])
+                } else {
+                    ContentValue::Normal
+                }
+            }
+            k if k.starts_with("counters:") => {
+                if let Some(item) = parse_counters_keyword(k) {
+                    ContentValue::Items(vec![item])
+                } else {
+                    ContentValue::Normal
+                }
+            }
             _ => ContentValue::Normal,
         },
         CssValue::String(s) => ContentValue::Items(vec![ContentItem::String(s.clone())]),
@@ -415,6 +430,8 @@ pub(super) fn resolve_content(
                     CssValue::Keyword(k) if k.starts_with("attr:") => {
                         Some(ContentItem::Attr(k["attr:".len()..].to_string()))
                     }
+                    CssValue::Keyword(k) if k.starts_with("counter:") => parse_counter_keyword(k),
+                    CssValue::Keyword(k) if k.starts_with("counters:") => parse_counters_keyword(k),
                     _ => None,
                 })
                 .collect();
@@ -426,6 +443,86 @@ pub(super) fn resolve_content(
         }
         _ => ContentValue::Normal,
     };
+
+    // Resolve counter-reset/increment/set (non-inherited).
+    resolve_counter_property(
+        "counter-reset",
+        winners,
+        parent_style,
+        &mut style.counter_reset,
+    );
+    resolve_counter_property(
+        "counter-increment",
+        winners,
+        parent_style,
+        &mut style.counter_increment,
+    );
+    resolve_counter_property("counter-set", winners, parent_style, &mut style.counter_set);
+}
+
+/// Parse a `counter:name:style` keyword into a `ContentItem::Counter`.
+fn parse_counter_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
+    use elidex_plugin::{ContentItem, ListStyleType};
+
+    let rest = &k["counter:".len()..];
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counter { name, style })
+}
+
+/// Parse a `counters:name:separator:style` keyword into a `ContentItem::Counters`.
+fn parse_counters_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
+    use elidex_plugin::{ContentItem, ListStyleType};
+
+    let rest = &k["counters:".len()..];
+    let mut parts = rest.splitn(3, ':');
+    let name = parts.next()?.to_string();
+    let separator = parts.next().unwrap_or(".").to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counters {
+        name,
+        separator,
+        style,
+    })
+}
+
+/// Resolve a counter property (`counter-reset`/`counter-increment`/`counter-set`)
+/// from the cascade winners into a `Vec<(String, i32)>`.
+fn resolve_counter_property(
+    property: &str,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    target: &mut Vec<(String, i32)>,
+) {
+    let Some(value) = get_resolved_winner(property, winners, parent_style) else {
+        return; // not declared → default (empty)
+    };
+    match &value {
+        CssValue::Keyword(k) if k == "none" => {
+            // Explicit `none` → empty list.
+        }
+        CssValue::List(items) => {
+            // Alternating Keyword(name), Number(value) pairs.
+            let mut iter = items.iter();
+            while let Some(item) = iter.next() {
+                if let CssValue::Keyword(name) = item {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let val = iter
+                        .next()
+                        .and_then(|v| match v {
+                            CssValue::Number(n) => Some(*n as i32),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    target.push((name.clone(), val));
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 // --- Table property resolution ---

@@ -44,6 +44,13 @@ keyword_enum! {
         Circle => "circle",
         Square => "square",
         Decimal => "decimal",
+        DecimalLeadingZero => "decimal-leading-zero",
+        LowerRoman => "lower-roman",
+        UpperRoman => "upper-roman",
+        LowerAlpha => "lower-alpha",
+        UpperAlpha => "upper-alpha",
+        LowerLatin => "lower-latin",
+        UpperLatin => "upper-latin",
         None => "none",
     }
 }

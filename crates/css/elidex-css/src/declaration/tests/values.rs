@@ -819,3 +819,105 @@ fn parse_overflow_shorthand_invalid() {
     let decls = parse_single("overflow", "overlay");
     assert!(decls.is_empty());
 }
+
+// =============================================================================
+// Counter properties
+// =============================================================================
+
+#[test]
+fn parse_counter_reset_with_value() {
+    let decls = parse_single("counter-reset", "chapter 0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-reset");
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("chapter".into()));
+            assert_eq!(items[1], CssValue::Number(0.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_reset_none() {
+    let decls = parse_single("counter-reset", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-reset");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+}
+
+#[test]
+fn parse_counter_increment_default() {
+    // Default value for counter-increment is 1.
+    let decls = parse_single("counter-increment", "section");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-increment");
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("section".into()));
+            assert_eq!(items[1], CssValue::Number(1.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_increment_explicit_value() {
+    let decls = parse_single("counter-increment", "section 2");
+    assert_eq!(decls.len(), 1);
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("section".into()));
+            assert_eq!(items[1], CssValue::Number(2.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_set_with_value() {
+    let decls = parse_single("counter-set", "page 5");
+    assert_eq!(decls.len(), 1);
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("page".into()));
+            assert_eq!(items[1], CssValue::Number(5.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_content_counter() {
+    let decls = parse_single("content", "counter(page)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "content");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counter:page:decimal".into())
+    );
+}
+
+#[test]
+fn parse_content_counter_with_style() {
+    let decls = parse_single("content", "counter(chapter, upper-roman)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counter:chapter:upper-roman".into())
+    );
+}
+
+#[test]
+fn parse_content_counters() {
+    let decls = parse_single("content", r#"counters(section, ".")"#);
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counters:section:.:decimal".into())
+    );
+}

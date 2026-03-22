@@ -4,6 +4,8 @@ use std::fmt;
 
 use crate::CssColor;
 
+use super::text::ListStyleType;
+
 keyword_enum! {
     /// The CSS `box-sizing` property.
     BoxSizing {
@@ -35,6 +37,22 @@ pub enum ContentItem {
     String(String),
     /// An `attr()` function reference (e.g. `content: attr(title)`).
     Attr(String),
+    /// CSS `counter()` function value.
+    Counter {
+        /// Counter name.
+        name: String,
+        /// List style type for formatting. Default: `Decimal`.
+        style: ListStyleType,
+    },
+    /// CSS `counters()` function value (nested counter concatenation).
+    Counters {
+        /// Counter name.
+        name: String,
+        /// Separator string between nested counter values.
+        separator: String,
+        /// List style type for formatting. Default: `Decimal`.
+        style: ListStyleType,
+    },
 }
 
 /// The computed value of the CSS `content` property.

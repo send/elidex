@@ -13,6 +13,7 @@
 //! ```
 
 pub mod cascade;
+pub mod counter;
 pub mod inherit;
 #[cfg(feature = "parallel")]
 mod parallel;
