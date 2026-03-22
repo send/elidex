@@ -79,15 +79,12 @@ pub fn dispatch_layout_child(
         .into(),
         Display::Flex | Display::InlineFlex => {
             elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)
-                .into()
         }
         Display::Grid | Display::InlineGrid => {
             elidex_layout_grid::layout_grid(dom, entity, effective_input, dispatch_layout_child)
-                .into()
         }
         Display::Table | Display::InlineTable => {
             elidex_layout_table::layout_table(dom, entity, effective_input, dispatch_layout_child)
-                .into()
         }
         // CSS Multi-column L1: multicol containers have block display +
         // column-count/column-width. Check before falling through to block.

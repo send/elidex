@@ -14,6 +14,7 @@ mod anon_wrapping;
 mod border_collapse;
 mod box_model;
 mod col_span;
+mod fragmentation;
 mod height_sizing;
 mod inline_table;
 mod rowspan;
@@ -70,7 +71,7 @@ fn do_layout_table(
         break_token: None,
         subgrid: None,
     };
-    layout_table(dom, entity, &input, layout_child)
+    layout_table(dom, entity, &input, layout_child).layout_box
 }
 
 /// Helper: create a simple table with N rows and M cols.

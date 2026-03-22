@@ -1024,9 +1024,31 @@ pub struct PagedMediaContext {
 4. `page-break-before/after` → `break-before/after` にマッピング (legacy 互換)
 5. **Viewport → page area**: paged layout 中は initial containing block = page area
 
+### 汎用 CSS Counter 基盤 (CSS Lists L3 §5-7)
+
+`counter(page)` / `counter(pages)` のために汎用 CSS counter を G11 で実装する。
+
+```rust
+// counter-reset / counter-increment / counter()
+// elidex-css / elidex-style での解決
+pub struct CounterState {
+    counters: HashMap<String, Vec<i32>>,  // name → stack of values (nested scopes)
+}
+```
+
+- `counter-reset: name value` — カウンタースコープ作成 (CSS Lists L3 §5.1)
+- `counter-increment: name value` — カウンター増減 (CSS Lists L3 §5.2)
+- `counter(name)` / `counter(name, list-style-type)` — 値取得 (CSS Lists L3 §6.1)
+- `counters(name, string)` — 入れ子カウンター連結 (CSS Lists L3 §6.2)
+- **フラグメンテーション制約**: G10 table fragmentation で記録済みのコメントに基づき、
+  continuation fragment では `counter-increment` をスキップ (CSS Fragmentation L3 §4 note)
+- **list-style-type マーカー**: 現在のハードコード `list_counter` を汎用 counter に移行
+  - `<ol>` の `counter-reset: list-item` / `counter-increment: list-item` を暗黙適用
+  - `list-style-type` の `counter(list-item)` 評価
+
 ### Page Counters
 
-- `counter(page)`: 現在のページ番号 (1-based)
+- `counter(page)`: 現在のページ番号 (1-based) — 汎用 counter 基盤の特殊カウンター
 - `counter(pages)`: 総ページ数 — **2-pass layout が必要**
   - Pass 1: content → pages に分割、総ページ数を確定
   - Pass 2: `counter(pages)` を含む margin box を再レイアウト
@@ -1083,7 +1105,7 @@ pub fn layout_paged(
 | G8 | Block Frag + propagation + best-break + box-decoration | +450〜600 | 35〜48 |
 | G9 | Multi-column (stacking ctx, nested span, balance) | +550〜750 | 35〜48 |
 | G10 | Flex/Grid/Table Frag (margin non-collapse) | +400〜550 | 30〜42 |
-| G11 | Paged Media + 16 margin boxes + 2-pass counter | +800〜1,100 | 40〜55 |
+| G11 | Paged Media + 16 margin boxes + 汎用 CSS counter + 2-pass | +900〜1,250 | 45〜62 |
 | **合計** | | **+4,590〜6,260** | **365〜490** |
 
 ## 最適化効果

@@ -6,7 +6,7 @@
 
 pub(crate) mod children;
 pub mod float;
-pub(crate) mod fragmentation;
+pub mod fragmentation;
 mod margin;
 mod replaced;
 

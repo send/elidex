@@ -97,18 +97,30 @@ pub enum BreakTokenData {
         /// the number of line boxes to skip when resuming.
         inline_break_line: Option<usize>,
     },
-    /// Flex layout: line and item indices.
+    /// Flex layout: line and item indices, with optional child break token
+    /// for flex items that contain fragmentable content.
     Flex {
         line_index: usize,
         item_index: usize,
+        /// If the item at `item_index` was itself fragmented (e.g., contains
+        /// block children), this token resumes its child layout.
+        child_break_token: Option<Box<BreakToken>>,
     },
-    /// Grid layout: row index.
-    Grid { row_index: usize },
-    /// Table layout: row index and optional header/footer tokens.
+    /// Grid layout: row index and spanning item break tokens.
+    Grid {
+        row_index: usize,
+        /// Spanning items that were fragmented at this break row.
+        /// Each entry is `(item_entity, child_break_token)` for resumption.
+        child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
+    },
+    /// Table layout: row index and optional header/footer entities for
+    /// repetition in continuation fragments.
     Table {
         row_index: usize,
-        thead: Option<Box<BreakToken>>,
-        tfoot: Option<Box<BreakToken>>,
+        /// Entity of the thead row group to re-layout at the top of each fragment.
+        thead_entity: Option<Entity>,
+        /// Entity of the tfoot row group to re-layout at the bottom of each fragment.
+        tfoot_entity: Option<Entity>,
     },
 }
 
@@ -438,6 +450,7 @@ mod tests {
             mode_data: Some(BreakTokenData::Flex {
                 line_index: 0,
                 item_index: 3,
+                child_break_token: None,
             }),
         };
         let child = outer.child_break_token.as_ref().unwrap();
@@ -457,12 +470,16 @@ mod tests {
         let flex = BreakTokenData::Flex {
             line_index: 1,
             item_index: 2,
+            child_break_token: None,
         };
-        let grid = BreakTokenData::Grid { row_index: 3 };
+        let grid = BreakTokenData::Grid {
+            row_index: 3,
+            child_break_tokens: Vec::new(),
+        };
         let table = BreakTokenData::Table {
             row_index: 0,
-            thead: None,
-            tfoot: None,
+            thead_entity: None,
+            tfoot_entity: None,
         };
         // Ensure all variants are constructible and cloneable.
         let _ = block.clone();

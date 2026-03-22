@@ -5,9 +5,17 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    adjust_min_max_for_border_box, block::resolve_margin, clamp_min_max, effective_align,
-    horizontal_pb, resolve_explicit_height, resolve_min_max, sanitize, sanitize_border,
-    vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
+    adjust_min_max_for_border_box,
+    block::{
+        fragmentation::{
+            find_best_break, is_avoid_break_inside, is_avoid_break_value, is_forced_break,
+            is_monolithic, BreakCandidate, BreakClass,
+        },
+        resolve_margin,
+    },
+    clamp_min_max, effective_align, get_intrinsic_size, horizontal_pb, resolve_explicit_height,
+    resolve_min_max, sanitize, sanitize_border, vertical_pb, BreakToken, BreakTokenData,
+    ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, CssSize, Dimension,
@@ -231,7 +239,7 @@ pub fn layout_flex(
     entity: Entity,
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
-) -> LayoutBox {
+) -> elidex_layout_block::LayoutOutcome {
     let containing_width = input.containing.width;
     let containing_height = input.containing.height;
     let offset_x = input.offset.x;
@@ -276,7 +284,8 @@ pub fn layout_flex(
                 border,
                 margin,
             },
-        );
+        )
+        .into();
     }
 
     // Resolve gap: row-gap applies between rows, column-gap between columns.
@@ -323,6 +332,19 @@ pub fn layout_flex(
         layout_child,
         depth,
         viewport: input.viewport,
+    };
+
+    // --- Parse break token for resumption ---
+    let (resume_line, resume_child_bt) = match input.break_token {
+        Some(bt) => match &bt.mode_data {
+            Some(BreakTokenData::Flex {
+                line_index,
+                child_break_token,
+                ..
+            }) => (*line_index, child_break_token.clone()),
+            _ => (0, None),
+        },
+        None => (0, None),
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---
@@ -388,6 +410,26 @@ pub fn layout_flex(
     };
     algo::position_items(dom, &items, &lines, &ctx, &env);
 
+    // --- Fragmentation (CSS Flexbox L1 §12) ---
+    // If inside a fragmentainer, check whether flex lines overflow the available
+    // block size and produce a break token to resume in the next fragment.
+    let (result_break_token, propagated_break_before, propagated_break_after) =
+        if let Some(&frag) = input.fragmentainer {
+            compute_flex_fragmentation(
+                dom,
+                entity,
+                &items,
+                &line_ranges,
+                &align_result.effective_line_sizes,
+                &ctx,
+                frag,
+                resume_line,
+                resume_child_bt,
+            )
+        } else {
+            (None, None, None)
+        };
+
     // --- Container LayoutBox ---
     let content_height =
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross);
@@ -417,6 +459,13 @@ pub fn layout_flex(
             })
     } else {
         None
+    };
+
+    // If fragmentation produced a break, clamp content height to consumed size.
+    let content_height = if let Some(ref bt) = result_break_token {
+        content_height.min(bt.consumed_block_size)
+    } else {
+        content_height
     };
 
     let lb = LayoutBox {
@@ -461,7 +510,246 @@ pub fn layout_flex(
         );
     }
 
-    lb
+    elidex_layout_block::LayoutOutcome {
+        layout_box: lb,
+        break_token: result_break_token,
+        propagated_break_before,
+        propagated_break_after,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fragmentation (CSS Flexbox L1 §12)
+// ---------------------------------------------------------------------------
+
+/// CSS Flexbox Level 1 §12: Fragmenting Flex Layout.
+///
+/// When the flex container is inside a fragmentainer, the cross-axis extent
+/// of flex lines is checked against the available block size. Between lines,
+/// break opportunities are evaluated (forced breaks, avoid constraints).
+///
+/// Returns `(break_token, propagated_break_before, propagated_break_after)`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn compute_flex_fragmentation(
+    dom: &EcsDom,
+    entity: Entity,
+    items: &[FlexItem],
+    line_ranges: &[(usize, usize)],
+    line_cross_sizes: &[f32],
+    ctx: &FlexContext,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_line: usize,
+    _resume_child_bt: Option<Box<BreakToken>>,
+) -> (
+    Option<BreakToken>,
+    Option<elidex_plugin::BreakValue>,
+    Option<elidex_plugin::BreakValue>,
+) {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+
+    // Propagated breaks from first/last items across all lines.
+    let propagated_before = line_ranges.first().and_then(|&(s, e)| {
+        if s < e {
+            let first_style = elidex_layout_block::try_get_style(dom, items[s].entity)?;
+            if is_forced_break(first_style.break_before, frag_type) {
+                Some(first_style.break_before)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    let propagated_after = line_ranges.last().and_then(|&(s, e)| {
+        if s < e {
+            let last_style = elidex_layout_block::try_get_style(dom, items[e - 1].entity)?;
+            if is_forced_break(last_style.break_after, frag_type) {
+                Some(last_style.break_after)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    // Walk lines starting from resume_line, accumulating cross-axis consumed size.
+    let mut consumed: f32 = 0.0;
+
+    // Account for lines before resume_line (already consumed in a prior fragment).
+    // We still accumulate their sizes to track total consumed, but skip break checks.
+    for line_idx in 0..resume_line.min(line_ranges.len()) {
+        consumed += line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
+        if line_idx + 1 < line_ranges.len() {
+            consumed += ctx.gap_cross;
+        }
+    }
+
+    let mut candidates: Vec<BreakCandidate> = Vec::new();
+
+    for line_idx in resume_line..line_ranges.len() {
+        let &(start, end) = &line_ranges[line_idx];
+        let line_cross = line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
+
+        // Check forced break-before on the first item of this line (if not the first line).
+        if line_idx > resume_line && start < end {
+            if let Some(first_style) = elidex_layout_block::try_get_style(dom, items[start].entity)
+            {
+                if is_forced_break(first_style.break_before, frag_type) {
+                    // Forced break before this line — break immediately.
+                    let bt = BreakToken {
+                        entity,
+                        consumed_block_size: consumed,
+                        child_break_token: None,
+                        mode_data: Some(BreakTokenData::Flex {
+                            line_index: line_idx,
+                            item_index: 0,
+                            child_break_token: None,
+                        }),
+                    };
+                    return (Some(bt), propagated_before, propagated_after);
+                }
+            }
+        }
+
+        // Check forced break-after on the last item of the previous line.
+        if line_idx > resume_line && line_idx > 0 {
+            let prev = &line_ranges[line_idx - 1];
+            if prev.1 > prev.0 {
+                if let Some(last_style) =
+                    elidex_layout_block::try_get_style(dom, items[prev.1 - 1].entity)
+                {
+                    if is_forced_break(last_style.break_after, frag_type) {
+                        let bt = BreakToken {
+                            entity,
+                            consumed_block_size: consumed,
+                            child_break_token: None,
+                            mode_data: Some(BreakTokenData::Flex {
+                                line_index: line_idx,
+                                item_index: 0,
+                                child_break_token: None,
+                            }),
+                        };
+                        return (Some(bt), propagated_before, propagated_after);
+                    }
+                }
+            }
+        }
+
+        // Record a break candidate between lines (Class A break opportunity).
+        if line_idx > resume_line {
+            let violates_avoid =
+                check_avoid_between_lines(dom, items, line_ranges, line_idx, frag_type);
+            candidates.push(BreakCandidate {
+                child_index: line_idx,
+                class: BreakClass::A,
+                cursor_block: consumed,
+                violates_avoid,
+                orphan_widow_penalty: false,
+            });
+        }
+
+        // Add this line's cross size to consumed.
+        consumed += line_cross;
+
+        // Check if consumed exceeds available space (need to break).
+        if consumed > available && !candidates.is_empty() {
+            // Check if the current line is monolithic (single-line nowrap, or all items monolithic).
+            let line_monolithic = items[start..end].iter().all(|item| {
+                let s = elidex_layout_block::try_get_style(dom, item.entity);
+                s.is_some_and(|st| {
+                    is_monolithic(&st, get_intrinsic_size(dom, item.entity).is_some())
+                })
+            });
+            if line_monolithic && candidates.len() == 1 {
+                // Single monolithic line that overflows — can't break, continue.
+                continue;
+            }
+
+            if let Some(best_idx) = find_best_break(&candidates, available) {
+                let break_line = candidates[best_idx].child_index;
+                let consumed_at_break = candidates[best_idx].cursor_block;
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed_at_break,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Flex {
+                        line_index: break_line,
+                        item_index: 0,
+                        child_break_token: None,
+                    }),
+                };
+                return (Some(bt), propagated_before, propagated_after);
+            }
+        }
+
+        // Add cross-axis gap after this line (before the next line).
+        if line_idx + 1 < line_ranges.len() {
+            consumed += ctx.gap_cross;
+        }
+    }
+
+    // All lines fit — no break needed.
+    (None, propagated_before, propagated_after)
+}
+
+/// Check whether breaking between lines at `line_idx` violates an avoid constraint.
+///
+/// Checks `break-after` on the last item of the previous line and `break-before`
+/// on the first item of the current line, plus `break-inside` on the container.
+fn check_avoid_between_lines(
+    dom: &EcsDom,
+    items: &[FlexItem],
+    line_ranges: &[(usize, usize)],
+    line_idx: usize,
+    frag_type: elidex_layout_block::FragmentationType,
+) -> bool {
+    // Check break-inside on the container's parent style via items' styles.
+    // Actually, the container's break-inside is checked by the caller (block layout).
+    // Here we check the items at the boundary.
+
+    // break-after on last item of previous line.
+    if line_idx > 0 {
+        let prev = &line_ranges[line_idx - 1];
+        if prev.1 > prev.0 {
+            if let Some(last_style) =
+                elidex_layout_block::try_get_style(dom, items[prev.1 - 1].entity)
+            {
+                if is_avoid_break_value(last_style.break_after, frag_type) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // break-before on first item of current line.
+    let &(start, end) = &line_ranges[line_idx];
+    if start < end {
+        if let Some(first_style) = elidex_layout_block::try_get_style(dom, items[start].entity) {
+            if is_avoid_break_value(first_style.break_before, frag_type) {
+                return true;
+            }
+        }
+    }
+
+    // Check break-inside: avoid on items spanning the boundary.
+    // For flex, break-inside on the container is the relevant check,
+    // but the container's style is handled by the parent fragmentainer.
+    // We check break-inside on individual items that might be avoided.
+    if line_idx > 0 {
+        let prev = &line_ranges[line_idx - 1];
+        for item in &items[prev.0..prev.1] {
+            if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
+                if is_avoid_break_inside(st.break_inside, frag_type) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 // ---------------------------------------------------------------------------

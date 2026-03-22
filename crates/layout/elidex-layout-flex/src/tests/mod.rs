@@ -7,6 +7,7 @@ use elidex_text::FontDatabase;
 mod alignment_gap;
 mod baseline;
 mod direction;
+mod fragmentation;
 mod grow_shrink;
 mod spec_compliance;
 mod writing_mode;
@@ -38,7 +39,7 @@ fn do_layout_flex(
         break_token: None,
         subgrid: None,
     };
-    layout_flex(dom, entity, &input, layout_child)
+    layout_flex(dom, entity, &input, layout_child).layout_box
 }
 
 fn flex_container() -> ComputedStyle {

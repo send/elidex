@@ -123,19 +123,19 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let lb = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
+    let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 
     // 10% of 400 = 40 per side.
     // If the bug existed (resolving against containing_width=800), padding would be 80.
     assert!(
-        approx_eq(lb.padding.top, 40.0),
+        approx_eq(outcome.layout_box.padding.top, 40.0),
         "padding-top should be 40 (10% of inline size 400), got {}",
-        lb.padding.top,
+        outcome.layout_box.padding.top,
     );
     assert!(
-        approx_eq(lb.padding.left, 40.0),
+        approx_eq(outcome.layout_box.padding.left, 40.0),
         "padding-left should be 40 (10% of inline size 400), got {}",
-        lb.padding.left,
+        outcome.layout_box.padding.left,
     );
 }
 
@@ -282,7 +282,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let _lb = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
+    let _outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 
     let child_lb = get_layout(&dom, child);
     // margin-top in vertical-rl is inline-start margin.
@@ -334,12 +334,12 @@ fn vertical_lr_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let lb = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
+    let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 
     // 5% of 600 = 30.
     assert!(
-        approx_eq(lb.padding.top, 30.0),
+        approx_eq(outcome.layout_box.padding.top, 30.0),
         "padding-top should be 30 (5% of inline size 600), got {}",
-        lb.padding.top,
+        outcome.layout_box.padding.top,
     );
 }

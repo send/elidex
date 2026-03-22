@@ -215,12 +215,12 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let lb = crate::layout_flex(&mut dom, container, &input, layout_block_only);
+    let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);
     // 10% of inline size 500 = 50.
     assert!(
-        approx_eq(lb.padding.top, 50.0),
+        approx_eq(outcome.layout_box.padding.top, 50.0),
         "padding-top should be 50 (10% of 500), got {}",
-        lb.padding.top,
+        outcome.layout_box.padding.top,
     );
 }
 
@@ -248,12 +248,12 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let lb = crate::layout_flex(&mut dom, container, &input, layout_block_only);
+    let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);
     // 10% of inline size 500 = 50.
     assert!(
-        approx_eq(lb.margin.top, 50.0),
+        approx_eq(outcome.layout_box.margin.top, 50.0),
         "margin-top should be 50 (10% of 500), got {}",
-        lb.margin.top,
+        outcome.layout_box.margin.top,
     );
 }
 

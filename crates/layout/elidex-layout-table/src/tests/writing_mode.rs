@@ -307,13 +307,13 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
     };
-    let lb = crate::layout_table(&mut dom, table, &input, test_layout_child);
+    let outcome = crate::layout_table(&mut dom, table, &input, test_layout_child);
 
     // 10% of 500 = 50.
     assert!(
-        approx_eq(lb.padding.top, 50.0),
+        approx_eq(outcome.layout_box.padding.top, 50.0),
         "padding-top should be 50 (10% of 500), got {}",
-        lb.padding.top,
+        outcome.layout_box.padding.top,
     );
 }
 

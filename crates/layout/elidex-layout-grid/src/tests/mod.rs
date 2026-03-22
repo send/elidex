@@ -37,12 +37,13 @@ fn do_layout_grid(
         break_token: None,
         subgrid: None,
     };
-    layout_grid(dom, entity, &input, layout_child)
+    layout_grid(dom, entity, &input, layout_child).layout_box
 }
 
 mod alignment_box;
 mod baseline;
 mod blockification;
+mod fragmentation;
 mod placement;
 mod subgrid;
 mod track_sizing;
