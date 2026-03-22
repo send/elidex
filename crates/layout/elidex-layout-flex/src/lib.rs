@@ -766,7 +766,11 @@ fn fragment_row_flex(
 /// `horizontal-tb`). Each item in a line is like a block sibling — we accumulate
 /// `item.final_main` and break between items when the consumed size exceeds the
 /// available block size.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::needless_range_loop)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::needless_range_loop
+)]
 fn fragment_column_flex(
     dom: &EcsDom,
     entity: Entity,

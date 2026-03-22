@@ -527,7 +527,7 @@ pub fn layout_grid(
         },
         None => (0, Vec::new()),
     };
-    let _ = &resume_child_bts; // suppress unused warning until spanning item fragmentation
+    let _ = &resume_child_bts; // consumed by fragmentainer (multicol/paged media) for clip/offset
 
     // --- 12. Position items + final layout ---
     // Build SubgridContext for child subgrids that need parent track info.
@@ -771,13 +771,15 @@ fn compute_grid_fragmentation(
                             .is_some_and(|st| is_forced_break(st.break_before, frag_type))
                     });
             if has_forced_before {
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed,
                     child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: row_idx,
-                        child_break_tokens: Vec::new(),
+                        child_break_tokens,
                     }),
                 };
                 return (Some(bt), propagated_before, propagated_after);
@@ -795,13 +797,15 @@ fn compute_grid_fragmentation(
                         .is_some_and(|st| is_forced_break(st.break_after, frag_type))
                 });
             if has_forced_after {
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed,
                     child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: row_idx,
-                        child_break_tokens: Vec::new(),
+                        child_break_tokens,
                     }),
                 };
                 return (Some(bt), propagated_before, propagated_after);
@@ -828,13 +832,15 @@ fn compute_grid_fragmentation(
             if let Some(best_idx) = find_best_break(&candidates, available) {
                 let break_row = candidates[best_idx].child_index;
                 let consumed_at_break = candidates[best_idx].cursor_block;
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, break_row);
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed_at_break,
                     child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: break_row,
-                        child_break_tokens: Vec::new(),
+                        child_break_tokens,
                     }),
                 };
                 return (Some(bt), propagated_before, propagated_after);
@@ -849,6 +855,56 @@ fn compute_grid_fragmentation(
 
     // All rows fit — no break needed.
     (None, propagated_before, propagated_after)
+}
+
+/// Collect break tokens for grid items that span across a row break boundary.
+///
+/// An item spans across `break_row` if `item.row_start < break_row` and
+/// `item.row_start + item.row_span > break_row`. For each such item, the
+/// consumed block size is the sum of row track sizes and gaps from the item's
+/// start row up to (but not including) `break_row`.
+#[must_use]
+fn collect_spanning_item_breaks(
+    items: &[GridItem],
+    row_tracks: &[track::ResolvedTrack],
+    gap_row: f32,
+    break_row: usize,
+) -> Vec<(Entity, Box<BreakToken>)> {
+    let mut result = Vec::new();
+    let num_rows = row_tracks.len();
+
+    for item in items {
+        let item_end = item.row_start + item.row_span;
+        // Item must start before break_row and end after break_row to span the boundary.
+        if item.row_start >= break_row || item_end <= break_row {
+            continue;
+        }
+
+        // Compute consumed block size: sum of tracks from item.row_start to break_row - 1,
+        // plus inter-row gaps between those tracks.
+        let mut consumed: f32 = 0.0;
+        for (row_idx, track) in row_tracks
+            .iter()
+            .enumerate()
+            .skip(item.row_start)
+            .take(break_row.min(num_rows).saturating_sub(item.row_start))
+        {
+            consumed += track.size;
+            if row_idx + 1 < break_row && row_idx + 1 < num_rows {
+                consumed += gap_row;
+            }
+        }
+
+        let item_bt = BreakToken {
+            entity: item.entity,
+            consumed_block_size: consumed,
+            child_break_token: None,
+            mode_data: None,
+        };
+        result.push((item.entity, Box::new(item_bt)));
+    }
+
+    result
 }
 
 /// Check whether breaking between rows at `row_idx` violates an avoid constraint.
