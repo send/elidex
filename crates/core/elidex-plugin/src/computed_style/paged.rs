@@ -43,6 +43,20 @@ impl PageSelector {
             _ => None,
         }
     }
+
+    /// Check whether this selector matches the given page.
+    ///
+    /// Page numbers are 1-based. `:left` matches even pages, `:right`
+    /// matches odd pages (LTR convention per CSS Paged Media L3 §4.1).
+    #[must_use]
+    pub fn matches(self, page_number: usize, is_blank: bool) -> bool {
+        match self {
+            Self::First => page_number == 1,
+            Self::Left => page_number.is_multiple_of(2),
+            Self::Right => !page_number.is_multiple_of(2),
+            Self::Blank => is_blank,
+        }
+    }
 }
 
 /// CSS Paged Media L3 §7 `size` property value.
@@ -180,6 +194,100 @@ pub struct PagedMediaContext {
     pub page_margins: EdgeSizes,
     /// `@page` rules from stylesheets.
     pub page_rules: Vec<PageRule>,
+}
+
+impl PagedMediaContext {
+    /// Compute the content area dimensions (page size minus margins).
+    #[must_use]
+    pub fn content_width(&self) -> f32 {
+        (self.page_width - self.page_margins.left - self.page_margins.right).max(0.0)
+    }
+
+    /// Compute the content area height (page height minus margins).
+    #[must_use]
+    pub fn content_height(&self) -> f32 {
+        (self.page_height - self.page_margins.top - self.page_margins.bottom).max(0.0)
+    }
+
+    /// Resolve the effective page size for a given page, considering `@page`
+    /// rules with matching selectors. Returns `(width, height)` in px.
+    #[must_use]
+    pub fn effective_page_size(&self, page_number: usize, is_blank: bool) -> (f32, f32) {
+        let mut width = self.page_width;
+        let mut height = self.page_height;
+
+        for rule in &self.page_rules {
+            if !selectors_match(&rule.selectors, page_number, is_blank) {
+                continue;
+            }
+            if let Some(size) = &rule.size {
+                let (w, h) = resolve_page_size_dimensions(size);
+                width = w;
+                height = h;
+            }
+        }
+        (width, height)
+    }
+
+    /// Resolve the effective page margins for a given page, considering `@page`
+    /// rules with matching selectors.
+    #[must_use]
+    pub fn effective_margins(&self, page_number: usize, is_blank: bool) -> EdgeSizes {
+        let mut margins = self.page_margins;
+
+        for rule in &self.page_rules {
+            if !selectors_match(&rule.selectors, page_number, is_blank) {
+                continue;
+            }
+            // Apply margin declarations from the rule.
+            for decl in &rule.properties {
+                apply_margin_declaration(&mut margins, decl);
+            }
+        }
+        margins
+    }
+}
+
+/// Check whether page selectors match a given page.
+///
+/// Empty selectors match all pages. Otherwise, all selectors must match.
+fn selectors_match(selectors: &[PageSelector], page_number: usize, is_blank: bool) -> bool {
+    if selectors.is_empty() {
+        return true;
+    }
+    selectors.iter().all(|s| s.matches(page_number, is_blank))
+}
+
+/// Resolve a `PageSize` to `(width, height)` in px.
+#[must_use]
+fn resolve_page_size_dimensions(size: &PageSize) -> (f32, f32) {
+    match *size {
+        PageSize::Auto => (816.0, 1056.0), // Letter default
+        PageSize::Explicit(w, h) | PageSize::PortraitExplicit(w, h) => (w, h),
+        PageSize::Named(named) | PageSize::PortraitNamed(named) => named.dimensions(),
+        PageSize::LandscapeNamed(named) => {
+            let (w, h) = named.dimensions();
+            (h, w)
+        }
+        PageSize::LandscapeExplicit(w, h) => (h, w),
+    }
+}
+
+/// Apply a margin-related property declaration to `EdgeSizes`.
+fn apply_margin_declaration(margins: &mut EdgeSizes, decl: &PropertyDeclaration) {
+    use crate::CssValue;
+    let px = match &decl.value {
+        CssValue::Length(v, _unit) => *v,
+        CssValue::Number(v) if *v == 0.0 => 0.0,
+        _ => return,
+    };
+    match decl.property.as_str() {
+        "margin-top" => margins.top = px,
+        "margin-right" => margins.right = px,
+        "margin-bottom" => margins.bottom = px,
+        "margin-left" => margins.left = px,
+        _ => {}
+    }
 }
 
 #[cfg(test)]

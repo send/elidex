@@ -2022,6 +2022,7 @@ version = "0.1.0"
 dependencies = [
  "elidex-ecs",
  "elidex-form",
+ "elidex-layout",
  "elidex-layout-block",
  "elidex-plugin",
  "elidex-style",

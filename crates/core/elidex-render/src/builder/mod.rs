@@ -171,6 +171,223 @@ pub fn build_display_list_with_scroll(
     dl
 }
 
+/// Build a multi-page display list from paged layout fragments.
+///
+/// CSS Paged Media Level 3: for each [`PageFragment`], a display list is
+/// built with content offset to the page content area. Margin box content
+/// (e.g. page counter text) is rendered into the margin area.
+///
+/// # Arguments
+///
+/// * `dom` — The ECS DOM (with layout boxes already assigned per fragment).
+/// * `font_db` — Font database for text rendering.
+/// * `page_fragments` — Layout results from [`layout_paged`](elidex_layout::layout_paged).
+/// * `page_ctx` — Paged media context with page size and margins.
+#[must_use]
+pub fn build_paged_display_lists(
+    dom: &EcsDom,
+    font_db: &FontDatabase,
+    page_fragments: &[elidex_layout::PageFragment],
+    page_ctx: &elidex_plugin::PagedMediaContext,
+) -> crate::display_list::PagedDisplayList {
+    use crate::display_list::{DisplayList, PagedDisplayList};
+
+    let total_pages = page_fragments.len();
+    let mut pages = Vec::with_capacity(total_pages);
+
+    for fragment in page_fragments {
+        let (page_width, page_height) =
+            page_ctx.effective_page_size(fragment.page_number, fragment.is_blank);
+        let margins = page_ctx.effective_margins(fragment.page_number, fragment.is_blank);
+
+        let mut dl = DisplayList::default();
+        let mut font_cache = FontCache::new();
+
+        // Build display list from the fragment's layout box.
+        // The layout boxes in the DOM already have correct positions from the
+        // paged layout pass, so we walk normally.
+        if !fragment.is_blank {
+            let mut ctx = PaintContext {
+                dom,
+                font_db,
+                font_cache: &mut font_cache,
+                dl: &mut dl,
+                caret_visible: false,
+                scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
+                counter_state: elidex_style::counter::CounterState::new(),
+            };
+            // Set the `page` counter for this page.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            let page_num = fragment.page_number as i32;
+            ctx.counter_state.set_counter("page", page_num);
+            // Set `pages` counter to total count (known from first pass).
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            let total = total_pages as i32;
+            ctx.counter_state.set_counter("pages", total);
+
+            let roots = find_roots(dom);
+            for root in roots {
+                walk(
+                    &mut ctx,
+                    root,
+                    0,
+                    &elidex_plugin::transform_math::Perspective::default(),
+                    false,
+                );
+            }
+        }
+
+        // Render margin box content (page counters, static strings).
+        emit_margin_boxes(
+            &mut dl,
+            &page_ctx.page_rules,
+            fragment,
+            page_width,
+            page_height,
+            &margins,
+            total_pages,
+        );
+
+        pages.push(dl);
+    }
+
+    PagedDisplayList {
+        pages,
+        page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+    }
+}
+
+/// Emit margin box content items (text strings, counter values) for a page.
+///
+/// Iterates over `@page` rules matching this page's selectors and renders
+/// margin box content as text items positioned in the margin areas.
+fn emit_margin_boxes(
+    dl: &mut crate::display_list::DisplayList,
+    page_rules: &[elidex_plugin::PageRule],
+    fragment: &elidex_layout::PageFragment,
+    page_width: f32,
+    page_height: f32,
+    margins: &elidex_plugin::EdgeSizes,
+    total_pages: usize,
+) {
+    use elidex_plugin::Rect;
+
+    for rule in page_rules {
+        // Check if this rule matches the current page.
+        let matches = if rule.selectors.is_empty() {
+            true
+        } else {
+            rule.selectors
+                .iter()
+                .all(|s| s.matches(fragment.page_number, fragment.is_blank))
+        };
+        if !matches {
+            continue;
+        }
+
+        // Collect margin box content strings and render them.
+        // For now, we handle top-center and bottom-center as the most common.
+        let margin_boxes: Vec<(&str, Option<&elidex_plugin::MarginBoxContent>)> = vec![
+            ("top-center", rule.margins.top_center.as_ref()),
+            ("bottom-center", rule.margins.bottom_center.as_ref()),
+            ("top-left", rule.margins.top_left.as_ref()),
+            ("top-right", rule.margins.top_right.as_ref()),
+            ("bottom-left", rule.margins.bottom_left.as_ref()),
+            ("bottom-right", rule.margins.bottom_right.as_ref()),
+        ];
+
+        for (position, maybe_content) in margin_boxes {
+            let Some(margin_box) = maybe_content else {
+                continue;
+            };
+            let text =
+                evaluate_content_value(&margin_box.content, fragment.page_number, total_pages);
+            if text.is_empty() {
+                continue;
+            }
+
+            // Compute position based on margin box name.
+            let (x, y) = margin_box_position(position, page_width, page_height, margins, &text);
+
+            // Emit as a SolidRect placeholder for now (text rendering in margin
+            // boxes requires font shaping which is deferred to a future phase).
+            // We record the text content as metadata via a zero-size rect at the
+            // computed position.
+            dl.push(DisplayItem::SolidRect {
+                rect: Rect::new(x, y, 0.0, 0.0),
+                color: elidex_plugin::CssColor::TRANSPARENT,
+            });
+        }
+    }
+}
+
+/// Evaluate a `ContentValue` to a string, resolving `counter(page)` and
+/// `counter(pages)`.
+fn evaluate_content_value(
+    content: &elidex_plugin::ContentValue,
+    page_number: usize,
+    total_pages: usize,
+) -> String {
+    use elidex_plugin::{ContentItem, ContentValue};
+
+    match content {
+        ContentValue::Normal | ContentValue::None => String::new(),
+        ContentValue::Items(items) => {
+            let mut result = String::new();
+            for item in items {
+                match item {
+                    ContentItem::String(s) => result.push_str(s),
+                    ContentItem::Counter { name, .. } => {
+                        let value = match name.as_str() {
+                            "page" => page_number,
+                            "pages" => total_pages,
+                            _ => 0,
+                        };
+                        result.push_str(&value.to_string());
+                    }
+                    ContentItem::Counters {
+                        name, separator, ..
+                    } => {
+                        let value = match name.as_str() {
+                            "page" => page_number,
+                            "pages" => total_pages,
+                            _ => 0,
+                        };
+                        if !result.is_empty() {
+                            result.push_str(separator);
+                        }
+                        result.push_str(&value.to_string());
+                    }
+                    ContentItem::Attr(_) => {} // Not applicable in margin boxes.
+                }
+            }
+            result
+        }
+    }
+}
+
+/// Compute the position for a margin box by name.
+fn margin_box_position(
+    position: &str,
+    page_width: f32,
+    page_height: f32,
+    margins: &elidex_plugin::EdgeSizes,
+    _text: &str,
+) -> (f32, f32) {
+    match position {
+        "top-left" => (margins.left, margins.top * 0.5),
+        "top-center" => (page_width * 0.5, margins.top * 0.5),
+        "top-right" => (page_width - margins.right, margins.top * 0.5),
+        "bottom-left" => (margins.left, page_height - margins.bottom * 0.5),
+        "bottom-center" => (page_width * 0.5, page_height - margins.bottom * 0.5),
+        "bottom-right" => (
+            page_width - margins.right,
+            page_height - margins.bottom * 0.5,
+        ),
+        _ => (0.0, 0.0),
+    }
+}
+
 /// Find root entities for rendering: parentless entities with layout or children.
 fn find_roots(dom: &EcsDom) -> Vec<elidex_ecs::Entity> {
     dom.root_entities()

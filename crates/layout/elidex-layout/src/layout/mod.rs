@@ -10,7 +10,9 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::positioned;
 use elidex_layout_block::LayoutInput;
-use elidex_plugin::{ComputedStyle, CssSize, Display, LayoutBox, Position, Size};
+use elidex_plugin::{
+    ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
+};
 use elidex_text::FontDatabase;
 
 /// Dispatch child layout based on the element's display type.
@@ -123,6 +125,110 @@ pub fn dispatch_layout_child(
     }
 
     outcome
+}
+
+/// Result of laying out a single page fragment in paged media.
+#[derive(Clone, Debug)]
+pub struct PageFragment {
+    /// The layout box for this page's content.
+    pub layout_box: LayoutBox,
+    /// 1-based page number.
+    pub page_number: usize,
+    /// Page selectors that matched this page (from `@page` rules).
+    pub matched_selectors: Vec<PageSelector>,
+    /// Whether this page is intentionally blank (from a forced break).
+    pub is_blank: bool,
+}
+
+/// Layout content for paged media, producing one [`PageFragment`] per page.
+///
+/// CSS Paged Media Level 3: fragments content across pages using the
+/// fragmentation engine. Each page's content area is determined by the
+/// page size minus margins. Page selectors (`:first`, `:left`, `:right`,
+/// `:blank`) are matched for each page to apply page-specific rules.
+///
+/// Returns a two-pass result: if any margin box content references
+/// `counter(pages)`, the total page count is known after the first pass.
+#[must_use]
+pub fn layout_paged(
+    dom: &mut EcsDom,
+    page_ctx: &PagedMediaContext,
+    font_db: &FontDatabase,
+) -> Vec<PageFragment> {
+    let roots = find_roots(dom);
+    if roots.is_empty() {
+        return Vec::new();
+    }
+
+    // Use the first root for layout (typically the document root).
+    let root = roots[0];
+
+    let content_width = page_ctx.content_width();
+    let content_height = page_ctx.content_height();
+
+    if content_height <= 0.0 || content_width <= 0.0 {
+        return Vec::new();
+    }
+
+    let frag_ctx = elidex_layout_block::FragmentainerContext {
+        available_block_size: content_height,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+
+    let input = LayoutInput {
+        containing: CssSize::definite(content_width, content_height),
+        containing_inline_size: content_width,
+        offset: elidex_plugin::Point::new(page_ctx.page_margins.left, page_ctx.page_margins.top),
+        font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(Size::new(page_ctx.page_width, page_ctx.page_height)),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+    };
+
+    let fragments = layout_fragmented(dom, root, &input, frag_ctx);
+
+    let mut pages = Vec::with_capacity(fragments.len());
+    for (i, frag) in fragments.into_iter().enumerate() {
+        let page_number = i + 1;
+        let is_blank = is_blank_fragment(&frag);
+        let matched = match_page_selectors(&page_ctx.page_rules, page_number, is_blank);
+        pages.push(PageFragment {
+            layout_box: frag.layout_box,
+            page_number,
+            matched_selectors: matched,
+            is_blank,
+        });
+    }
+
+    pages
+}
+
+/// Check whether a layout outcome represents a blank page.
+///
+/// A blank page has zero or near-zero content height, typically produced
+/// by a forced page break with no content between breaks.
+fn is_blank_fragment(outcome: &elidex_layout_block::LayoutOutcome) -> bool {
+    outcome.layout_box.content.size.height < 0.5 && outcome.layout_box.content.size.width < 0.5
+}
+
+/// Collect all page selectors from `@page` rules that match a given page.
+fn match_page_selectors(
+    page_rules: &[elidex_plugin::PageRule],
+    page_number: usize,
+    is_blank: bool,
+) -> Vec<PageSelector> {
+    let mut matched = Vec::new();
+    for rule in page_rules {
+        for sel in &rule.selectors {
+            if sel.matches(page_number, is_blank) && !matched.contains(sel) {
+                matched.push(*sel);
+            }
+        }
+    }
+    matched
 }
 
 /// Maximum number of fragments to prevent infinite loops.

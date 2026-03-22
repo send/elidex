@@ -71,6 +71,30 @@ pub(super) fn run_scripts_and_finalize(
     (session, runtime, viewport_overflow)
 }
 
+/// Build a paged media pipeline result.
+///
+/// Performs style resolution, layout in paged mode, and builds a
+/// [`PagedDisplayList`](elidex_render::PagedDisplayList) with one display
+/// list per page. This is the entry point for print/PDF output.
+///
+/// The DOM must already have been parsed and stylesheets collected.
+#[must_use]
+#[allow(dead_code)] // Exposed for future print/PDF integration.
+pub(super) fn build_paged_pipeline(
+    dom: &mut EcsDom,
+    stylesheets: &[Stylesheet],
+    font_db: &elidex_text::FontDatabase,
+    page_ctx: &elidex_plugin::PagedMediaContext,
+    registry: &elidex_plugin::CssPropertyRegistry,
+) -> elidex_render::PagedDisplayList {
+    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
+    let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
+    resolve_with_compat(dom, &stylesheet_refs, registry, viewport);
+
+    let fragments = elidex_layout::layout_paged(dom, page_ctx, font_db);
+    elidex_render::build_paged_display_lists(dom, font_db, &fragments, page_ctx)
+}
+
 /// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.
 ///
 /// Per the HTML spec:

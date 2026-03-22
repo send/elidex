@@ -231,6 +231,33 @@ impl DisplayList {
     }
 }
 
+/// Multi-page display list for paged media output.
+///
+/// Each element of `pages` is a complete [`DisplayList`] for one printed
+/// page, including margin box content. The `page_size` is the physical
+/// page dimensions (before margins).
+#[derive(Clone, Debug)]
+pub struct PagedDisplayList {
+    /// One display list per page, in page order.
+    pub pages: Vec<DisplayList>,
+    /// Physical page size in pixels.
+    pub page_size: Size,
+}
+
+impl PagedDisplayList {
+    /// Returns the total number of pages.
+    #[must_use]
+    pub fn page_count(&self) -> usize {
+        self.pages.len()
+    }
+
+    /// Returns `true` if there are no pages.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pages.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -47,6 +47,20 @@ impl CounterState {
         self.scope_depth = self.scope_depth.saturating_sub(1);
     }
 
+    /// Set a counter to a specific value at the current scope depth.
+    ///
+    /// If the counter already exists, its top value is overwritten.
+    /// Otherwise, a new entry is created. Used by paged media layout
+    /// to set the `page` and `pages` built-in counters.
+    pub fn set_counter(&mut self, name: &str, value: i32) {
+        let stack = self.counters.entry(name.to_string()).or_default();
+        if let Some(top) = stack.last_mut() {
+            top.1 = value;
+        } else {
+            stack.push((self.scope_depth, value));
+        }
+    }
+
     /// Process counter properties from a computed style.
     ///
     /// Order of operations per CSS Lists L3 §5.4: reset → set → increment.
