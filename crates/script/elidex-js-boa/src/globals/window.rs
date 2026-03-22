@@ -633,6 +633,8 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
     )
     .to_js_function(&realm);
     // cssText — setter that parses and replaces all inline style properties.
+    // Routes through the mutation system (style.removeProperty / style.setProperty)
+    // so that MutationObservers see the changes.
     let b_css_set = bridge.clone();
     let css_text_setter = NativeFunction::from_copy_closure_with_captures(
         |this, args, bridge, ctx| {
@@ -642,24 +644,44 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 .map(|v| v.to_string(ctx))
                 .transpose()?
                 .map_or(String::new(), |s| s.to_std_string_escaped());
-            bridge.with(|_session, dom| {
-                // Clear existing inline style, then set new properties.
-                let _ = dom
-                    .world_mut()
-                    .insert_one(entity, elidex_ecs::InlineStyle::default());
-                let mut style = dom
-                    .world_mut()
-                    .get::<&mut elidex_ecs::InlineStyle>(entity)
-                    .ok();
-                if let Some(ref mut s) = style {
-                    for decl in text.split(';') {
-                        let decl = decl.trim();
-                        if let Some((prop, val)) = decl.split_once(':') {
-                            s.set(prop.trim().to_string(), val.trim().to_string());
-                        }
+
+            // Collect existing property names to remove.
+            let existing_props: Vec<String> = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_ecs::InlineStyle>(entity)
+                    .ok()
+                    .map_or_else(Vec::new, |style| {
+                        style.iter().map(|(k, _)| k.to_string()).collect()
+                    })
+            });
+
+            // Remove each existing property through the mutation system.
+            for prop in &existing_props {
+                let _ = invoke_dom_handler_void(
+                    "style.removeProperty",
+                    entity,
+                    &[ElidexJsValue::String(prop.clone())],
+                    bridge,
+                );
+            }
+
+            // Parse new declarations and set each through the mutation system.
+            for decl in text.split(';') {
+                let decl = decl.trim();
+                if let Some((prop, val)) = decl.split_once(':') {
+                    let prop = prop.trim().to_string();
+                    let val = val.trim().to_string();
+                    if !prop.is_empty() && !val.is_empty() {
+                        let _ = invoke_dom_handler_void(
+                            "style.setProperty",
+                            entity,
+                            &[ElidexJsValue::String(prop), ElidexJsValue::String(val)],
+                            bridge,
+                        );
                     }
                 }
-            });
+            }
+
             Ok(JsValue::undefined())
         },
         b_css_set,

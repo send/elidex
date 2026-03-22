@@ -204,11 +204,13 @@ pub fn create_event_object(
         Some(
             NativeFunction::from_copy_closure_with_captures(
                 |_this, args, (flag, cancel), _ctx| -> boa_engine::JsResult<JsValue> {
-                    // Setter: per WHATWG DOM spec, setting returnValue to false
-                    // on a cancelable event sets the canceled flag (preventDefault).
+                    // Setter: per HTML spec §8.1.7.1, setting returnValue to a
+                    // truthy value (e.g. non-empty string) on a cancelable event
+                    // sets the canceled flag (preventDefault). Setting to falsy
+                    // (empty string) does not cancel.
                     if *cancel {
                         if let Some(val) = args.first() {
-                            if !val.to_boolean() {
+                            if val.to_boolean() {
                                 flag.0.set(true);
                             }
                         }

@@ -580,7 +580,8 @@ fn node_length(node: Entity, dom: &EcsDom) -> usize {
     dom.children_iter(node).count()
 }
 
-/// Compare two boundary points. Returns -1, 0, or 1.
+/// Compare two boundary points per DOM spec §5.2.
+/// Returns -1 (a before b), 0 (equal), or 1 (a after b).
 fn compare_points(
     a_container: Entity,
     a_offset: usize,
@@ -596,11 +597,52 @@ fn compare_points(
         };
     }
 
-    // Use tree_order_cmp.
+    // If A is an ancestor of B, compare A's offset against the child index
+    // of B's ancestor that is a direct child of A.
+    if dom.is_ancestor_or_self(a_container, b_container) {
+        let child_index = child_index_in_ancestor(b_container, a_container, dom);
+        return if a_offset <= child_index { -1 } else { 1 };
+    }
+
+    // If B is an ancestor of A, compare the child index of A's ancestor
+    // that is a direct child of B against B's offset.
+    if dom.is_ancestor_or_self(b_container, a_container) {
+        let child_index = child_index_in_ancestor(a_container, b_container, dom);
+        return if child_index < b_offset { -1 } else { 1 };
+    }
+
+    // Neither is ancestor — use tree order of the containers.
     match dom.tree_order_cmp(a_container, b_container) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
         std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// Find the child index of `descendant`'s ancestor that is a direct child of `ancestor`.
+///
+/// Walks from `descendant` up to `ancestor`, then counts preceding siblings of the
+/// child of `ancestor` on that path.
+fn child_index_in_ancestor(descendant: Entity, ancestor: Entity, dom: &EcsDom) -> usize {
+    let mut current = descendant;
+    loop {
+        let Some(parent) = dom.get_parent(current) else {
+            return 0;
+        };
+        if parent == ancestor {
+            // Count siblings before `current`.
+            let mut index = 0;
+            let mut sib = dom.get_first_child(parent);
+            while let Some(s) = sib {
+                if s == current {
+                    return index;
+                }
+                index += 1;
+                sib = dom.get_next_sibling(s);
+            }
+            return index;
+        }
+        current = parent;
     }
 }
 

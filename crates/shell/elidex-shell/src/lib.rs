@@ -208,12 +208,13 @@ fn apply_cssom_mutations(
                     Some(registry),
                 );
                 if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    // Assign a source_order after the last existing rule.
-                    rule.source_order = sheet
-                        .rules
-                        .last()
-                        .map_or(0, |r| r.source_order.saturating_add(1));
+                    rule.source_order = 0; // placeholder, recomputed below
                     sheet.rules.insert(*rule_index, rule);
+                    // Recompute source_order for all rules so they remain
+                    // monotonically increasing with position.
+                    for (i, r) in sheet.rules.iter_mut().enumerate() {
+                        r.source_order = u32::try_from(i).unwrap_or(u32::MAX);
+                    }
                 }
             }
             elidex_js_boa::bridge::CssomMutation::DeleteRule {
