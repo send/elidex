@@ -548,10 +548,7 @@ mod tests {
 
     #[test]
     fn parse_page_margin_box_counter_with_style() {
-        let rule = parse_page_rule(
-            "",
-            r#"@top-right { content: counter(section, upper-roman); }"#,
-        );
+        let rule = parse_page_rule("", "@top-right { content: counter(section, upper-roman); }");
         assert!(rule.margins.top_right.is_some());
         let tr = rule.margins.top_right.unwrap();
         match &tr.content {

@@ -387,7 +387,7 @@ fn read_span_attributes(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 ///
 /// **Note:** This function always returns the *first* matching anonymous entity.
 /// For wrapping multiple separate runs under the same parent, use
-/// [`collect_anonymous_pool`] + [`take_or_create_anonymous`] instead to avoid
+/// [`collect_anonymous_pool`] + `take_or_create_anonymous` instead to avoid
 /// reusing the same entity for different runs.
 pub(crate) fn find_or_create_anonymous(
     dom: &mut EcsDom,
@@ -428,7 +428,7 @@ pub(crate) fn find_or_create_anonymous(
 /// Collect all anonymous entities with the given `display` from a child list.
 ///
 /// Used to build a reuse pool before wrapping multiple runs. Each entity in the
-/// returned vec can be popped and re-populated via [`take_or_create_anonymous`].
+/// returned vec can be popped and re-populated via `take_or_create_anonymous`.
 ///
 /// Callers supply their own child list (e.g. `composed_children` or
 /// `composed_children_flat`) so the same logic works across crate boundaries.
