@@ -1,6 +1,5 @@
 //! DOM component types stored on ECS entities.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use hecs::Entity;
@@ -8,7 +7,7 @@ use indexmap::IndexMap;
 
 use elidex_plugin::{Size, Vector};
 
-/// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
+/// Generate string-keyed map accessor methods for a struct wrapping an `IndexMap<String, String>`.
 macro_rules! impl_string_map {
     ($type:ty, $field:ident, $key_label:literal) => {
         impl $type {
@@ -29,42 +28,6 @@ macro_rules! impl_string_map {
             #[doc = concat!("Remove a ", $key_label, " by name. Returns the removed value if present.")]
             pub fn remove(&mut self, name: &str) -> Option<String> {
                 self.$field.shift_remove(name)
-            }
-
-            #[doc = concat!("Returns `true` if the ", $key_label, " exists.")]
-            pub fn contains(&self, name: &str) -> bool {
-                self.$field.contains_key(name)
-            }
-
-            #[doc = concat!("Iterate over all ", $key_label, " name-value pairs.")]
-            pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-                self.$field.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-            }
-        }
-    };
-}
-
-/// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
-macro_rules! impl_hash_string_map {
-    ($type:ty, $field:ident, $key_label:literal) => {
-        impl $type {
-            #[doc = concat!("Get a ", $key_label, " value by name.")]
-            pub fn get(&self, name: &str) -> Option<&str> {
-                self.$field.get(name).map(String::as_str)
-            }
-
-            #[doc = concat!("Set a ", $key_label, " value. Returns the previous value if present.")]
-            pub fn set(
-                &mut self,
-                name: impl Into<String>,
-                value: impl Into<String>,
-            ) -> Option<String> {
-                self.$field.insert(name.into(), value.into())
-            }
-
-            #[doc = concat!("Remove a ", $key_label, " by name. Returns the removed value if present.")]
-            pub fn remove(&mut self, name: &str) -> Option<String> {
-                self.$field.remove(name)
             }
 
             #[doc = concat!("Returns `true` if the ", $key_label, " exists.")]
@@ -144,14 +107,15 @@ pub struct TextContent(pub String);
 
 /// Inline style declarations on an element.
 ///
-/// Properties are stored in a `HashMap` to enforce uniqueness (last
-/// declaration wins, matching CSS cascade behavior).
+/// Properties are stored in an `IndexMap` to preserve insertion order
+/// (matching CSSOM `style.cssText` serialization order) while enforcing
+/// uniqueness (last declaration wins, matching CSS cascade behavior).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InlineStyle {
-    properties: HashMap<String, String>,
+    properties: IndexMap<String, String>,
 }
 
-impl_hash_string_map!(InlineStyle, properties, "style property");
+impl_string_map!(InlineStyle, properties, "style property");
 
 impl InlineStyle {
     /// Returns the number of properties.
@@ -176,10 +140,7 @@ impl InlineStyle {
             .join("; ")
     }
 
-    /// Get the property name at the given index.
-    ///
-    /// Order is not guaranteed to match insertion order since properties
-    /// are stored in a `HashMap`.
+    /// Get the property name at the given index (insertion order).
     #[must_use]
     pub fn property_at(&self, index: usize) -> Option<&str> {
         self.properties.keys().nth(index).map(String::as_str)

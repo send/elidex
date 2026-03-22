@@ -136,10 +136,13 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
             // When an axis is not specified, keep the current scroll position.
             let x = opt_x.unwrap_or_else(|| f64::from(bridge.scroll_x()));
             let y = opt_y.unwrap_or_else(|| f64::from(bridge.scroll_y()));
-            // Store as pending scroll; the content thread picks it up on the
-            // next frame, updates viewport_scroll, and syncs back to bridge.
-            #[allow(clippy::cast_possible_truncation)]
-            bridge.set_pending_scroll(x as f32, y as f32);
+            // CSSOM View §4.2: NaN/Infinity values must be ignored.
+            if x.is_finite() && y.is_finite() {
+                // Store as pending scroll; the content thread picks it up on the
+                // next frame, updates viewport_scroll, and syncs back to bridge.
+                #[allow(clippy::cast_possible_truncation)]
+                bridge.set_pending_scroll(x as f32, y as f32);
+            }
             Ok(JsValue::undefined())
         },
         b_scroll,
@@ -156,8 +159,13 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
             let y = opt_y.unwrap_or(0.0);
             let cur_x = f64::from(bridge.scroll_x());
             let cur_y = f64::from(bridge.scroll_y());
-            #[allow(clippy::cast_possible_truncation)]
-            bridge.set_pending_scroll((cur_x + x) as f32, (cur_y + y) as f32);
+            let new_x = cur_x + x;
+            let new_y = cur_y + y;
+            // CSSOM View §4.2: NaN/Infinity values must be ignored.
+            if new_x.is_finite() && new_y.is_finite() {
+                #[allow(clippy::cast_possible_truncation)]
+                bridge.set_pending_scroll(new_x as f32, new_y as f32);
+            }
             Ok(JsValue::undefined())
         },
         b_scroll_by,

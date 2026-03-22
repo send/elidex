@@ -371,10 +371,12 @@ impl DomApiHandler for InsertAdjacentHtml {
             _ => String::new(),
         };
 
-        // NOTE: We do NOT record Mutation::AppendChild here. The DOM is already
-        // modified directly by parse_html_fragment + insert_before/remove_child.
-        // Recording mutations would cause double-insertion during flush.
-        // MutationObserver records should be generated separately.
+        // NOTE: insertAdjacentHTML modifies the DOM directly without recording
+        // mutations. MutationObservers will not see these changes. A dedicated
+        // Mutation::InsertAdjacentHtml variant is needed for full observer support.
+        // We intentionally avoid recording Mutation::AppendChild because the DOM
+        // is already modified by parse_html_fragment + insert_before/remove_child;
+        // recording would cause double-insertion during flush.
         let _ = session; // suppress unused warning
 
         match position.as_str() {
@@ -387,8 +389,10 @@ impl DomApiHandler for InsertAdjacentHtml {
                 let context_tag = tag_of(parent, dom);
                 let nodes =
                     elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
-                // Move nodes before `this` (they were appended at end, need repositioning).
-                for node in nodes.iter().rev() {
+                // Move nodes before `this` in natural order. Each insert_before
+                // places the node immediately before `this`, so iterating in
+                // order gives: [A this] → [A B this] → [A B C this].
+                for node in &nodes {
                     let _ = dom.remove_child(parent, *node);
                     let _ = dom.insert_before(parent, *node, this);
                 }
@@ -398,7 +402,10 @@ impl DomApiHandler for InsertAdjacentHtml {
                 let first_child = dom.get_first_child(this);
                 let nodes = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
                 if let Some(ref_child) = first_child {
-                    for node in nodes.iter().rev() {
+                    // Natural order: each insert_before places the node
+                    // immediately before the original first child, building
+                    // the correct sequence in front of it.
+                    for node in &nodes {
                         let _ = dom.remove_child(this, *node);
                         let _ = dom.insert_before(this, *node, ref_child);
                     }
@@ -422,7 +429,9 @@ impl DomApiHandler for InsertAdjacentHtml {
                 let nodes =
                     elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
                 if let Some(ref_child) = next {
-                    for node in nodes.iter().rev() {
+                    // Natural order with constant ref_child preserves
+                    // document order (same logic as beforebegin).
+                    for node in &nodes {
                         let _ = dom.remove_child(parent, *node);
                         let _ = dom.insert_before(parent, *node, ref_child);
                     }
