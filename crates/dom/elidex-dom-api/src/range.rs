@@ -5,6 +5,7 @@
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 
+use crate::char_data::{utf16_len, utf16_to_byte_offset};
 use crate::element::collect_text_content;
 
 // ---------------------------------------------------------------------------
@@ -204,8 +205,8 @@ impl Range {
         // Simple case: same container, text node.
         if self.start_container == self.end_container {
             if let Ok(tc) = dom.world().get::<&TextContent>(self.start_container) {
-                let start = self.start_offset.min(tc.0.len());
-                let end = self.end_offset.min(tc.0.len());
+                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
                 return tc.0[start..end].to_string();
             }
             // Non-text container: collect text from children in range.
@@ -223,7 +224,7 @@ impl Range {
 
         // Partial start text.
         if let Ok(tc) = dom.world().get::<&TextContent>(self.start_container) {
-            let start = self.start_offset.min(tc.0.len());
+            let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
             result.push_str(&tc.0[start..]);
         }
 
@@ -243,7 +244,7 @@ impl Range {
 
         // Partial end text.
         if let Ok(tc) = dom.world().get::<&TextContent>(self.end_container) {
-            let end = self.end_offset.min(tc.0.len());
+            let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
             result.push_str(&tc.0[..end]);
         }
 
@@ -265,8 +266,8 @@ impl Range {
                 .world_mut()
                 .get::<&mut TextContent>(self.start_container)
             {
-                let start = self.start_offset.min(tc.0.len());
-                let end = self.end_offset.min(tc.0.len());
+                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
                 tc.0 = format!("{}{}", &tc.0[..start], &tc.0[end..]);
                 self.end_offset = self.start_offset;
                 return;
@@ -287,13 +288,13 @@ impl Range {
             .world_mut()
             .get::<&mut TextContent>(self.start_container)
         {
-            let start = self.start_offset.min(tc.0.len());
+            let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
             tc.0 = tc.0[..start].to_string();
         }
 
         // 2. Truncate end text node.
         if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(self.end_container) {
-            let end = self.end_offset.min(tc.0.len());
+            let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
             tc.0 = tc.0[end..].to_string();
         }
 
@@ -348,9 +349,9 @@ impl Range {
             let next_sib = dom.get_next_sibling(self.start_container);
 
             if let Some(parent) = parent {
-                let offset = self.start_offset.min(text.len());
-                let head = text[..offset].to_string();
-                let tail = text[offset..].to_string();
+                let byte_offset = utf16_offset_to_byte_clamped(&text, self.start_offset);
+                let head = text[..byte_offset].to_string();
+                let tail = text[byte_offset..].to_string();
 
                 if let Ok(mut tc) = dom
                     .world_mut()
@@ -384,8 +385,70 @@ impl Range {
 }
 
 // ---------------------------------------------------------------------------
+// Live Range updates (WHATWG DOM §5.5)
+// ---------------------------------------------------------------------------
+
+/// Adjust all live ranges when a child at `index` is removed from `parent`.
+///
+/// Per WHATWG DOM §5.5, when a node is removed, any Range whose boundary
+/// point references the removed node must be adjusted. This simplified
+/// implementation handles the most common cases:
+///
+/// 1. If a boundary container is the removed node, collapse that boundary
+///    to `(parent, index)`.
+/// 2. If a boundary container is `parent` and its offset is greater than
+///    `index`, decrement the offset.
+///
+/// This function should be called before the actual removal from the DOM.
+pub fn adjust_ranges_for_removal(ranges: &mut [Range], node: Entity, parent: Entity, index: usize) {
+    for range in ranges.iter_mut() {
+        // Adjust start boundary.
+        if range.start_container == node {
+            range.start_container = parent;
+            range.start_offset = index;
+        } else if range.start_container == parent && range.start_offset > index {
+            range.start_offset -= 1;
+        }
+
+        // Adjust end boundary.
+        if range.end_container == node {
+            range.end_container = parent;
+            range.end_offset = index;
+        } else if range.end_container == parent && range.end_offset > index {
+            range.end_offset -= 1;
+        }
+    }
+}
+
+/// Adjust all live ranges when text data changes in a character data node.
+///
+/// Per WHATWG DOM §5.5 step for "replace data", if a boundary container is
+/// the modified node and its offset exceeds the new length, clamp it.
+pub fn adjust_ranges_for_text_change(ranges: &mut [Range], node: Entity, new_utf16_len: usize) {
+    for range in ranges.iter_mut() {
+        if range.start_container == node && range.start_offset > new_utf16_len {
+            range.start_offset = new_utf16_len;
+        }
+        if range.end_container == node && range.end_offset > new_utf16_len {
+            range.end_offset = new_utf16_len;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Convert a UTF-16 offset to a byte offset, clamping to string length.
+///
+/// Range offsets are specified in UTF-16 code units per WHATWG DOM §5.
+/// This helper converts to byte offsets for Rust string slicing, clamping
+/// to string boundaries if the offset exceeds the string length.
+fn utf16_offset_to_byte_clamped(s: &str, utf16_offset: usize) -> usize {
+    let len16 = utf16_len(s);
+    let clamped = utf16_offset.min(len16);
+    utf16_to_byte_offset(s, clamped).unwrap_or(s.len())
+}
 
 /// Get the index of a child within its parent.
 fn child_index(parent: Entity, child: Entity, dom: &EcsDom) -> usize {
@@ -394,10 +457,12 @@ fn child_index(parent: Entity, child: Entity, dom: &EcsDom) -> usize {
         .unwrap_or(0)
 }
 
-/// Get the "length" of a node (character count for text, child count otherwise).
+/// Get the "length" of a node (UTF-16 code unit count for text, child count otherwise).
+///
+/// Per WHATWG DOM §5, text node lengths are measured in UTF-16 code units.
 fn node_length(node: Entity, dom: &EcsDom) -> usize {
     if let Ok(tc) = dom.world().get::<&TextContent>(node) {
-        return tc.0.len();
+        return utf16_len(&tc.0);
     }
     dom.children_iter(node).count()
 }
@@ -588,6 +653,123 @@ mod tests {
         // Original text should be "Ho".
         let tc = dom.world().get::<&TextContent>(t1).unwrap();
         assert_eq!(tc.0, "Ho");
+    }
+
+    #[test]
+    fn range_to_string_utf16_offsets() {
+        // Test that Range offsets are treated as UTF-16 code units.
+        // U+1F600 (😀) is 4 bytes in UTF-8 but 2 UTF-16 code units.
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let t = dom.create_text("A\u{1F600}B"); // "A😀B" = 3 chars, 4 UTF-16 units
+        dom.append_child(root, t);
+
+        let mut range = Range::new(t);
+        // UTF-16: A(1) + surrogate pair(2) + B(1) = 4 units
+        // offset 1..3 should extract the emoji (surrogate pair)
+        range.set_start(t, 1);
+        range.set_end(t, 3);
+        assert_eq!(range.to_string(&dom), "\u{1F600}");
+
+        // offset 3..4 should extract "B"
+        range.set_start(t, 3);
+        range.set_end(t, 4);
+        assert_eq!(range.to_string(&dom), "B");
+    }
+
+    #[test]
+    fn range_delete_utf16_offsets() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let t = dom.create_text("A\u{1F600}B");
+        dom.append_child(root, t);
+
+        let mut range = Range::new(t);
+        range.set_start(t, 1);
+        range.set_end(t, 3);
+        range.delete_contents(&mut dom);
+
+        let tc = dom.world().get::<&TextContent>(t).unwrap();
+        assert_eq!(tc.0, "AB");
+    }
+
+    #[test]
+    fn range_select_node_contents_utf16() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let t = dom.create_text("A\u{1F600}B");
+        dom.append_child(root, t);
+
+        let mut range = Range::new(t);
+        range.select_node_contents(t, &dom);
+        assert_eq!(range.start_offset, 0);
+        // UTF-16 length: A(1) + surrogate(2) + B(1) = 4
+        assert_eq!(range.end_offset, 4);
+    }
+
+    #[test]
+    fn adjust_ranges_for_removal_basic() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let c0 = dom.create_element("a", Attributes::default());
+        let c1 = dom.create_element("b", Attributes::default());
+        let c2 = dom.create_element("c", Attributes::default());
+        dom.append_child(parent, c0);
+        dom.append_child(parent, c1);
+        dom.append_child(parent, c2);
+
+        let mut r = Range::new(parent);
+        r.set_start(parent, 1);
+        r.set_end(parent, 3);
+
+        let mut ranges = [r];
+        // Remove child at index 1 (c1).
+        super::adjust_ranges_for_removal(&mut ranges, c1, parent, 1);
+
+        // start_offset was 1 (== index), not > index, so unchanged.
+        assert_eq!(ranges[0].start_offset, 1);
+        // end_offset was 3 (> index 1), so decremented to 2.
+        assert_eq!(ranges[0].end_offset, 2);
+    }
+
+    #[test]
+    fn adjust_ranges_for_removal_container_is_removed() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let child = dom.create_text("hello");
+        dom.append_child(parent, child);
+
+        let mut r = Range::new(child);
+        r.set_start(child, 2);
+        r.set_end(child, 4);
+
+        let mut ranges = [r];
+        super::adjust_ranges_for_removal(&mut ranges, child, parent, 0);
+
+        // Both boundaries should collapse to (parent, 0).
+        assert_eq!(ranges[0].start_container, parent);
+        assert_eq!(ranges[0].start_offset, 0);
+        assert_eq!(ranges[0].end_container, parent);
+        assert_eq!(ranges[0].end_offset, 0);
+    }
+
+    #[test]
+    fn adjust_ranges_for_text_change() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let t = dom.create_text("hello");
+        dom.append_child(root, t);
+
+        let mut r = Range::new(t);
+        r.set_start(t, 2);
+        r.set_end(t, 5);
+
+        let mut ranges = [r];
+        // Shorten text to 3 UTF-16 units.
+        super::adjust_ranges_for_text_change(&mut ranges, t, 3);
+
+        assert_eq!(ranges[0].start_offset, 2); // still valid
+        assert_eq!(ranges[0].end_offset, 3); // clamped from 5 to 3
     }
 
     #[test]

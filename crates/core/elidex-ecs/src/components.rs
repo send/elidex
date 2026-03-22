@@ -456,6 +456,16 @@ pub struct AttrData {
     pub owner_element: Option<Entity>,
 }
 
+/// Cache mapping attribute names to their `Attr` entity representations.
+///
+/// Attached to element entities so that `getAttributeNode("x")` returns the
+/// same `Attr` entity on repeated calls (WHATWG DOM identity semantics).
+#[derive(Debug, Clone, Default)]
+pub struct AttrEntityCache {
+    /// Maps lowercase attribute name to the `Attr` entity.
+    pub entries: std::collections::HashMap<String, Entity>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

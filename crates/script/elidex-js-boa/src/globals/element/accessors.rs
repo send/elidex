@@ -17,6 +17,9 @@ use crate::globals::{
     invoke_dom_handler_void, require_js_string_arg,
 };
 
+/// Read-only attribute for `DOMRect` properties.
+const RO_ATTR: Attribute = Attribute::READONLY;
+
 // ---------------------------------------------------------------------------
 // Node methods (contains, compareDocumentPosition, cloneNode, etc.)
 // ---------------------------------------------------------------------------
@@ -191,7 +194,7 @@ pub(crate) fn register_child_parent_mixin_methods(
 // ---------------------------------------------------------------------------
 
 /// Register additional Element methods (matches, closest, insertAdjacent*, etc.).
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::many_single_char_names)]
 pub(crate) fn register_element_extra_methods(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
@@ -644,33 +647,48 @@ fn build_named_node_map(
 
 /// Register layout query method and property accessors on an element object.
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::many_single_char_names)]
 pub(crate) fn register_layout_query_accessors(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
     realm: &boa_engine::realm::Realm,
 ) {
-    // getBoundingClientRect() — returns a DOMRect-like object.
+    // getBoundingClientRect() — returns a DOMRect object with x,y,width,height,top,right,bottom,left.
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, _args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let result = invoke_dom_handler("getBoundingClientRect", entity, &[], bridge)?;
-                // Parse the JSON string result into a JS object via JSON.parse().
-                if result.is_string() {
-                    let global = ctx.global_object();
-                    if let Ok(json_ns) = global.get(js_string!("JSON"), ctx) {
-                        if let Some(json_obj) = json_ns.as_object() {
-                            if let Ok(parse_fn) = json_obj.get(js_string!("parse"), ctx) {
-                                if let Some(callable) = parse_fn.as_callable() {
-                                    return callable.call(
-                                        &boa_engine::JsValue::undefined(),
-                                        &[result],
-                                        ctx,
-                                    );
-                                }
-                            }
-                        }
+                // The handler returns "x,y,width,height" as a comma-separated string.
+                // Parse and construct a proper DOMRect object.
+                if let Some(s) = result.as_string() {
+                    let s = s.to_std_string_escaped();
+                    let parts: Vec<f64> = s
+                        .split(',')
+                        .filter_map(|p| p.trim().parse::<f64>().ok())
+                        .collect();
+                    if parts.len() == 4 {
+                        let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
+                        let obj = ObjectInitializer::new(ctx)
+                            .property(js_string!("x"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .property(js_string!("y"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(js_string!("width"), boa_engine::JsValue::from(w), RO_ATTR)
+                            .property(js_string!("height"), boa_engine::JsValue::from(h), RO_ATTR)
+                            .property(js_string!("top"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(
+                                js_string!("right"),
+                                boa_engine::JsValue::from(x + w),
+                                RO_ATTR,
+                            )
+                            .property(
+                                js_string!("bottom"),
+                                boa_engine::JsValue::from(y + h),
+                                RO_ATTR,
+                            )
+                            .property(js_string!("left"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .build();
+                        return Ok(boa_engine::JsValue::from(obj));
                     }
                 }
                 Ok(result)

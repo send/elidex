@@ -1,6 +1,6 @@
 //! Attribute get/set/remove handlers.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{AttrEntityCache, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
@@ -59,8 +59,13 @@ impl DomApiHandler for SetAttribute {
         let name = raw_name.to_ascii_lowercase();
         let value = require_string_arg(args, 1)?;
         let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.set(name, value);
+        attrs.set(&name, &value);
         drop(attrs);
+        // Invalidate Attr identity cache for this attribute so the next
+        // getAttributeNode call picks up the new value.
+        if let Ok(mut cache) = dom.world_mut().get::<&mut AttrEntityCache>(this) {
+            cache.entries.remove(&name);
+        }
         dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
@@ -91,6 +96,10 @@ impl DomApiHandler for RemoveAttribute {
         let mut attrs = require_attrs_mut(this, dom)?;
         attrs.remove(&name);
         drop(attrs);
+        // Invalidate Attr identity cache for this attribute.
+        if let Ok(mut cache) = dom.world_mut().get::<&mut AttrEntityCache>(this) {
+            cache.entries.remove(&name);
+        }
         dom.rev_version(this);
         Ok(JsValue::Undefined)
     }

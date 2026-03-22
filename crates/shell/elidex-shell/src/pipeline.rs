@@ -132,6 +132,13 @@ fn dispatch_lifecycle_events(
     );
 
     // 4. load: does NOT bubble (spec), not cancelable.
+    //
+    // Per HTML spec §8.2.6, the `load` event fires on the Window object.
+    // In our architecture, there is no separate Window entity — the document
+    // entity serves as the event target. This is correct because:
+    // - `window.onload` is aliased to document-level in our model
+    // - `addEventListener('load', ...)` on document still fires
+    // - The event does not bubble, so dispatching on document is equivalent
     let mut load_event = DispatchEvent::new("load", document);
     load_event.bubbles = false;
     load_event.cancelable = false;

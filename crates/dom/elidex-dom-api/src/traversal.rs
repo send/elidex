@@ -293,8 +293,52 @@ impl NodeIterator {
         }
     }
 
+    /// Validate that `reference_node` still exists in the DOM tree rooted at
+    /// `root`. If it has been removed (e.g. by a DOM mutation), reset the
+    /// iterator to `root`.
+    ///
+    /// Per WHATWG DOM §7.1, when a node is removed, any `NodeIterator` whose
+    /// `reference_node` is that node must update its reference. This safety
+    /// check is a simplified version: instead of tracking all mutations via
+    /// hooks, we validate on each traversal step.
+    fn validate_reference(&mut self, dom: &EcsDom) {
+        // Check if reference_node is still a descendant of (or equal to) root.
+        if self.reference_node == self.root {
+            return;
+        }
+        if !dom.is_ancestor_or_self(self.root, self.reference_node) {
+            // The reference node is no longer in our subtree; reset to root.
+            self.reference_node = self.root;
+            self.pointer_before_reference = true;
+        }
+    }
+
+    /// Handle a node removal: if `reference_node` is the removed node, advance
+    /// to an adjacent node per WHATWG DOM §7.1.
+    ///
+    /// Call this before actually removing `removed` from the DOM.
+    pub fn pre_remove_check(&mut self, removed: Entity, dom: &EcsDom) {
+        if self.reference_node != removed {
+            return;
+        }
+        // Try to advance to next accepted node.
+        if let Some(next) = next_in_preorder(removed, self.root, dom) {
+            self.reference_node = next;
+            self.pointer_before_reference = true;
+        } else if let Some(prev) = prev_in_preorder(removed, self.root, dom) {
+            // Fall back to previous node.
+            self.reference_node = prev;
+            self.pointer_before_reference = false;
+        } else {
+            // Only node was root; reset.
+            self.reference_node = self.root;
+            self.pointer_before_reference = true;
+        }
+    }
+
     /// Return the next accepted node.
     pub fn next_node(&mut self, dom: &EcsDom) -> Option<Entity> {
+        self.validate_reference(dom);
         if self.pointer_before_reference {
             self.pointer_before_reference = false;
             if accepts(self.reference_node, self.what_to_show, dom) {
@@ -313,6 +357,7 @@ impl NodeIterator {
 
     /// Return the previous accepted node.
     pub fn previous_node(&mut self, dom: &EcsDom) -> Option<Entity> {
+        self.validate_reference(dom);
         if !self.pointer_before_reference {
             self.pointer_before_reference = true;
             if accepts(self.reference_node, self.what_to_show, dom) {
@@ -435,6 +480,40 @@ mod tests {
         assert_eq!(ni.previous_node(&dom), Some(span));
         assert_eq!(ni.previous_node(&dom), Some(root));
         assert_eq!(ni.previous_node(&dom), None);
+    }
+
+    #[test]
+    fn nodeiterator_pre_remove_check_advances() {
+        let (dom, root, span, text1, _p, _text2, _comment) = build_tree();
+        let mut ni = NodeIterator::new(root, SHOW_ALL);
+
+        // Advance to span.
+        ni.next_node(&dom); // root
+        ni.next_node(&dom); // span
+        assert_eq!(ni.reference_node, span);
+
+        // Pre-remove span: should advance to text1.
+        ni.pre_remove_check(span, &dom);
+        assert_eq!(ni.reference_node, text1);
+    }
+
+    #[test]
+    fn nodeiterator_validate_reference_resets_on_removal() {
+        let (mut dom, root, span, _text1, _p, _text2, _comment) = build_tree();
+        let mut ni = NodeIterator::new(root, SHOW_ALL);
+
+        // Advance to span.
+        ni.next_node(&dom); // root
+        ni.next_node(&dom); // span
+        assert_eq!(ni.reference_node, span);
+
+        // Actually remove span from the tree.
+        dom.remove_child(root, span);
+
+        // Next traversal should reset to root since span is no longer in tree.
+        let next = ni.next_node(&dom);
+        // After reset, pointer_before_reference is true, so returns root first.
+        assert_eq!(next, Some(root));
     }
 
     // --- Normalize full-tree test ---

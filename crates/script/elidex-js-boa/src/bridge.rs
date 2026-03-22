@@ -74,6 +74,12 @@ struct HostBridgeInner {
     /// Cached viewport scroll offset.
     scroll_x: f32,
     scroll_y: f32,
+    // --- Attr identity cache ---
+    /// Cache mapping `(element_entity_bits, attr_name)` → `attr_entity_bits`.
+    ///
+    /// Ensures `getAttributeNode("x")` returns the same `Attr` entity on
+    /// repeated calls, per WHATWG DOM §7.5 identity semantics.
+    attr_cache: HashMap<(u64, String), u64>,
     // --- TreeWalker / NodeIterator / Range ---
     /// Active `TreeWalker` instances, keyed by unique ID.
     tree_walkers: HashMap<u64, elidex_dom_api::TreeWalker>,
@@ -114,6 +120,7 @@ impl HostBridge {
                 viewport_height: 600.0,
                 scroll_x: 0.0,
                 scroll_y: 0.0,
+                attr_cache: HashMap::new(),
                 tree_walkers: HashMap::new(),
                 node_iterators: HashMap::new(),
                 ranges: HashMap::new(),
@@ -492,6 +499,44 @@ impl HostBridge {
         inner.mutation_observers.remove_entity(entity);
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
+
+        // Invalidate attr cache entries for this element.
+        inner.attr_cache.retain(|&(elem, _), _| elem != bits);
+    }
+
+    // --- Attr identity cache ---
+
+    /// Look up a cached `Attr` entity for the given element + attribute name.
+    pub fn get_cached_attr(&self, element_bits: u64, name: &str) -> Option<u64> {
+        self.inner
+            .borrow()
+            .attr_cache
+            .get(&(element_bits, name.to_string()))
+            .copied()
+    }
+
+    /// Cache an `Attr` entity for the given element + attribute name.
+    pub fn cache_attr(&self, element_bits: u64, name: String, attr_bits: u64) {
+        self.inner
+            .borrow_mut()
+            .attr_cache
+            .insert((element_bits, name), attr_bits);
+    }
+
+    /// Invalidate the `Attr` cache entry for a specific element + attribute.
+    pub fn invalidate_attr_cache(&self, element_bits: u64, name: &str) {
+        self.inner
+            .borrow_mut()
+            .attr_cache
+            .remove(&(element_bits, name.to_string()));
+    }
+
+    /// Invalidate all `Attr` cache entries for a given element.
+    pub fn invalidate_attr_cache_for_element(&self, element_bits: u64) {
+        self.inner
+            .borrow_mut()
+            .attr_cache
+            .retain(|&(elem, _), _| elem != element_bits);
     }
 
     // --- TreeWalker / NodeIterator / Range ---

@@ -85,6 +85,7 @@ pub struct EventFlags {
 ///
 /// `composed_path_array` is a pre-built JS array of element wrappers for
 /// `composedPath()`. If `None`, `composedPath()` returns an empty array.
+#[allow(clippy::too_many_lines)]
 pub fn create_event_object(
     event: &DispatchEvent,
     target_wrapper: &JsValue,
@@ -179,6 +180,51 @@ pub fn create_event_object(
         ),
         js_string!("stopImmediatePropagation"),
         0,
+    );
+
+    // returnValue — per HTML spec §8.1.7.1, setting event.returnValue to a
+    // non-empty string (or any truthy value) on a beforeunload event prevents
+    // the default action (cancels navigation). We implement this as a setter
+    // that triggers preventDefault() when set to a truthy value.
+    let rv_pd = SharedFlag(Rc::clone(&flags.prevent_default));
+    let rv_cancelable = cancelable;
+    init.accessor(
+        js_string!("returnValue"),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
+                    // Getter: return !defaultPrevented (spec: returnValue="" when not cancelled).
+                    if flag.0.get() {
+                        Ok(JsValue::from(js_string!("")))
+                    } else {
+                        Ok(JsValue::from(true))
+                    }
+                },
+                SharedFlag(Rc::clone(&flags.prevent_default)),
+            )
+            .to_js_function(&realm),
+        ),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, args, (flag, cancel), _ctx| -> boa_engine::JsResult<JsValue> {
+                    // Setter: setting returnValue to any non-empty string value
+                    // calls preventDefault() on a cancelable event.
+                    if *cancel {
+                        if let Some(val) = args.first() {
+                            // Per spec, setting returnValue to any truthy value
+                            // (including non-empty string) triggers preventDefault.
+                            if val.to_boolean() {
+                                flag.0.set(true);
+                            }
+                        }
+                    }
+                    Ok(JsValue::undefined())
+                },
+                (rv_pd, rv_cancelable),
+            )
+            .to_js_function(&realm),
+        ),
+        Attribute::CONFIGURABLE,
     );
 
     // composedPath() — returns the pre-built propagation path array.

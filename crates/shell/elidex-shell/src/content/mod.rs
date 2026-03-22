@@ -134,6 +134,11 @@ impl ContentState {
         self.pipeline.caret_visible = self.caret_visible;
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+        // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
+        self.pipeline.runtime.bridge().set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x,
+            self.viewport_scroll.scroll_offset.y,
+        );
         let mutation_records = crate::re_render(&mut self.pipeline);
 
         // Invalidate focusable cache when DOM structure or focusability changes.

@@ -24,7 +24,11 @@ impl DomApiHandler for GetBoundingClientRect {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let bb = get_border_box(dom, this);
-        Ok(dom_rect_value(bb.0, bb.1, bb.2, bb.3))
+        // Subtract accumulated scroll offsets from ancestor scroll containers
+        // to convert document coordinates to viewport-relative coordinates
+        // (CSSOM View §5 getBoundingClientRect).
+        let (scroll_x, scroll_y) = accumulated_scroll_offset(dom, this);
+        Ok(dom_rect_value(bb.0 - scroll_x, bb.1 - scroll_y, bb.2, bb.3))
     }
 }
 
@@ -245,17 +249,37 @@ fn offset_from_parent(dom: &EcsDom, entity: Entity) -> (f32, f32) {
     (ex - px, ey - py)
 }
 
+/// Compute accumulated scroll offset from all ancestor scroll containers.
+///
+/// Walks up the ancestor chain and sums `ScrollState.scroll_offset` from each
+/// ancestor that has one. This converts document-absolute coordinates to
+/// viewport-relative coordinates for `getBoundingClientRect`.
+fn accumulated_scroll_offset(dom: &EcsDom, entity: Entity) -> (f32, f32) {
+    let mut sx = 0.0_f32;
+    let mut sy = 0.0_f32;
+    let mut current = dom.get_parent(entity);
+    let mut depth = 0;
+    while let Some(ancestor) = current {
+        if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+            break;
+        }
+        if let Ok(scroll) = dom.world().get::<&elidex_ecs::ScrollState>(ancestor) {
+            sx += scroll.scroll_offset.x;
+            sy += scroll.scroll_offset.y;
+        }
+        current = dom.get_parent(ancestor);
+        depth += 1;
+    }
+    (sx, sy)
+}
+
 /// Create a `JsValue` representing a `DOMRect`.
 ///
-/// `DOMRect`: `{ x, y, width, height, top, right, bottom, left }`
+/// Returns coordinates as a comma-separated string `"x,y,width,height"`.
+/// The JS bridge parses this and constructs a proper `DOMRect` object with
+/// all 8 properties (`x`, `y`, `width`, `height`, `top`, `right`, `bottom`, `left`).
 fn dom_rect_value(x: f32, y: f32, w: f32, h: f32) -> JsValue {
-    // Return as a list of numbers: [x, y, width, height, top, right, bottom, left].
-    // The JS bridge will convert this to a DOMRect object.
-    JsValue::String(format!(
-        "{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h},\"top\":{y},\"right\":{},\"bottom\":{},\"left\":{x}}}",
-        x + w,
-        y + h,
-    ))
+    JsValue::String(format!("{x},{y},{w},{h}"))
 }
 
 #[cfg(test)]
@@ -351,10 +375,50 @@ mod tests {
     fn dom_rect_value_format() {
         let rect = dom_rect_value(10.0, 20.0, 100.0, 50.0);
         if let JsValue::String(s) = rect {
-            assert!(s.contains("\"x\":10"));
-            assert!(s.contains("\"top\":20"));
-            assert!(s.contains("\"right\":110"));
-            assert!(s.contains("\"bottom\":70"));
+            // Comma-separated format: "x,y,width,height"
+            let parts: Vec<&str> = s.split(',').collect();
+            assert_eq!(parts.len(), 4);
+            assert!((parts[0].parse::<f32>().unwrap() - 10.0).abs() < f32::EPSILON);
+            assert!((parts[1].parse::<f32>().unwrap() - 20.0).abs() < f32::EPSILON);
+            assert!((parts[2].parse::<f32>().unwrap() - 100.0).abs() < f32::EPSILON);
+            assert!((parts[3].parse::<f32>().unwrap() - 50.0).abs() < f32::EPSILON);
+        } else {
+            panic!("Expected string");
+        }
+    }
+
+    #[test]
+    fn get_bounding_client_rect_subtracts_scroll() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let parent = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, parent);
+        let child = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(parent, child);
+
+        // Give child a layout box at document position (100, 200).
+        let lb = LayoutBox {
+            content: elidex_plugin::Rect::new(100.0, 200.0, 50.0, 30.0),
+            ..Default::default()
+        };
+        let _ = dom.world_mut().insert_one(child, lb);
+
+        // Add a ScrollState to the parent with offset (10, 20).
+        let scroll = elidex_ecs::ScrollState {
+            scroll_offset: elidex_plugin::Vector::new(10.0, 20.0),
+            ..Default::default()
+        };
+        let _ = dom.world_mut().insert_one(parent, scroll);
+
+        let mut session = SessionCore::new();
+        let result = GetBoundingClientRect
+            .invoke(child, &[], &mut session, &mut dom)
+            .unwrap();
+        if let JsValue::String(s) = result {
+            let parts: Vec<f32> = s.split(',').map(|p| p.parse().unwrap()).collect();
+            // x = 100 - 10 = 90, y = 200 - 20 = 180
+            assert!((parts[0] - 90.0).abs() < f32::EPSILON);
+            assert!((parts[1] - 180.0).abs() < f32::EPSILON);
         } else {
             panic!("Expected string");
         }

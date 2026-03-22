@@ -18,6 +18,7 @@ use super::element::{extract_entity, ENTITY_KEY};
 /// `window.scrollX/Y`, `window.scrollTo()`, `window.scrollBy()`, and
 /// `window.matchMedia()`.
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::similar_names)]
 pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
 
@@ -37,68 +38,105 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("getComputedStyle"), 1, get_computed_style)
         .expect("failed to register getComputedStyle");
 
-    // innerWidth (read-only getter)
-    let b_iw = b.clone();
-    let inner_width = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_width()))),
-        b_iw,
-    );
-    ctx.register_global_builtin_callable(js_string!("__elidex_innerWidth"), 0, inner_width)
-        .expect("failed to register innerWidth helper");
-    // Register as property on globalThis.
+    // innerWidth / innerHeight — dynamic getters that read from bridge.
     let global = ctx.global_object();
-    let _ = global.set(
-        js_string!("innerWidth"),
-        JsValue::from(f64::from(bridge.viewport_width())),
-        false,
-        ctx,
-    );
+    {
+        use boa_engine::property::PropertyDescriptorBuilder;
 
-    // innerHeight
-    let _ = global.set(
-        js_string!("innerHeight"),
-        JsValue::from(f64::from(bridge.viewport_height())),
-        false,
-        ctx,
-    );
+        let b_iw = b.clone();
+        let iw_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_width()))),
+            b_iw,
+        )
+        .to_js_function(ctx.realm());
+        let _ = global.define_property_or_throw(
+            js_string!("innerWidth"),
+            PropertyDescriptorBuilder::new()
+                .get(iw_getter)
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
 
-    // scrollX / scrollY (read-only, updated by content thread)
-    let _ = global.set(js_string!("scrollX"), JsValue::from(0.0_f64), false, ctx);
-    let _ = global.set(js_string!("scrollY"), JsValue::from(0.0_f64), false, ctx);
-    // Aliases per spec.
-    let _ = global.set(
-        js_string!("pageXOffset"),
-        JsValue::from(0.0_f64),
-        false,
-        ctx,
-    );
-    let _ = global.set(
-        js_string!("pageYOffset"),
-        JsValue::from(0.0_f64),
-        false,
-        ctx,
-    );
+        let b_ih = b.clone();
+        let ih_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_height()))),
+            b_ih,
+        )
+        .to_js_function(ctx.realm());
+        let _ = global.define_property_or_throw(
+            js_string!("innerHeight"),
+            PropertyDescriptorBuilder::new()
+                .get(ih_getter)
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
+
+        // scrollX / scrollY — dynamic getters reading from bridge scroll offset.
+        let b_sx = b.clone();
+        let sx_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_x()))),
+            b_sx,
+        )
+        .to_js_function(ctx.realm());
+        let _ = global.define_property_or_throw(
+            js_string!("scrollX"),
+            PropertyDescriptorBuilder::new()
+                .get(sx_getter.clone())
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
+        // pageXOffset is an alias for scrollX per spec.
+        let _ = global.define_property_or_throw(
+            js_string!("pageXOffset"),
+            PropertyDescriptorBuilder::new()
+                .get(sx_getter)
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
+
+        let b_sy = b.clone();
+        let sy_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_y()))),
+            b_sy,
+        )
+        .to_js_function(ctx.realm());
+        let _ = global.define_property_or_throw(
+            js_string!("scrollY"),
+            PropertyDescriptorBuilder::new()
+                .get(sy_getter.clone())
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
+        let _ = global.define_property_or_throw(
+            js_string!("pageYOffset"),
+            PropertyDescriptorBuilder::new()
+                .get(sy_getter)
+                .enumerable(true)
+                .configurable(true)
+                .build(),
+            ctx,
+        );
+    }
 
     // scrollTo(x, y) / scrollTo({top, left, behavior})
     let b_scroll = b.clone();
     let scroll_to = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let (x, y) = parse_scroll_args(args, ctx)?;
-            bridge
-                .with(|session, _dom| {
-                    session.enqueue_event(elidex_script_session::QueuedEvent {
-                        event_type: "__scroll_to".to_string(),
-                        target: elidex_ecs::Entity::DANGLING,
-                        bubbles: false,
-                        cancelable: false,
-                        payload: elidex_plugin::EventPayload::None,
-                    });
-                    // Store scroll target in session for content thread to pick up.
-                    // For now, we set it directly via a side channel.
-                    let _ = (x, y); // TODO: propagate via IPC
-                    Ok::<_, elidex_script_session::DomApiError>(())
-                })
-                .map_err(|e| boa_engine::JsNativeError::typ().with_message(e.to_string()))?;
+            // Directly update the bridge's scroll offset. The content thread
+            // will pick up the new scroll position on the next render frame.
+            #[allow(clippy::cast_possible_truncation)]
+            bridge.set_scroll_offset(x as f32, y as f32);
             Ok(JsValue::undefined())
         },
         b_scroll,
@@ -115,27 +153,33 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register scrollBy");
 
     // matchMedia(query) — returns a MediaQueryList-like object.
-    let match_media = NativeFunction::from_copy_closure(|_this, args, ctx| {
-        let query = args
-            .first()
-            .map(|v| v.to_string(ctx))
-            .transpose()?
-            .map_or(String::new(), |s| s.to_std_string_escaped());
+    // Supports basic (min-width), (max-width), (min-height), (max-height) evaluation.
+    let b_mm = b.clone();
+    let match_media = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let query = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or(String::new(), |s| s.to_std_string_escaped());
 
-        // Simplified: always return { matches: false, media: query }.
-        let mut obj = ObjectInitializer::new(ctx);
-        obj.property(
-            js_string!("matches"),
-            JsValue::from(false),
-            Attribute::READONLY,
-        );
-        obj.property(
-            js_string!("media"),
-            JsValue::from(js_string!(query.as_str())),
-            Attribute::READONLY,
-        );
-        Ok(obj.build().into())
-    });
+            let matches = evaluate_media_query(&query, bridge);
+
+            let mut obj = ObjectInitializer::new(ctx);
+            obj.property(
+                js_string!("matches"),
+                JsValue::from(matches),
+                Attribute::READONLY,
+            );
+            obj.property(
+                js_string!("media"),
+                JsValue::from(js_string!(query.as_str())),
+                Attribute::READONLY,
+            );
+            Ok(obj.build().into())
+        },
+        b_mm,
+    );
     ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
         .expect("failed to register matchMedia");
 
@@ -180,6 +224,59 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     });
     ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
         .expect("failed to register getSelection");
+}
+
+/// Evaluate a basic media query string against the current viewport.
+///
+/// Supports:
+/// - `(max-width: Npx)` / `(min-width: Npx)`
+/// - `(max-height: Npx)` / `(min-height: Npx)`
+/// - `(prefers-color-scheme: dark|light)` → false (no theme support yet)
+/// - Other queries → false
+fn evaluate_media_query(query: &str, bridge: &HostBridge) -> bool {
+    let q = query.trim().to_ascii_lowercase();
+
+    // Try to extract a single condition: (feature: value)
+    // Strip outer parens if present.
+    let inner = q
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(&q);
+
+    if let Some((feature, value)) = inner.split_once(':') {
+        let feature = feature.trim();
+        let value = value.trim();
+
+        // Parse pixel value: "Npx" or just "N"
+        let px_value = value
+            .strip_suffix("px")
+            .unwrap_or(value)
+            .trim()
+            .parse::<f32>()
+            .ok();
+
+        match feature {
+            "max-width" => {
+                return px_value.is_some_and(|v| bridge.viewport_width() <= v);
+            }
+            "min-width" => {
+                return px_value.is_some_and(|v| bridge.viewport_width() >= v);
+            }
+            "max-height" => {
+                return px_value.is_some_and(|v| bridge.viewport_height() <= v);
+            }
+            "min-height" => {
+                return px_value.is_some_and(|v| bridge.viewport_height() >= v);
+            }
+            "prefers-color-scheme" => {
+                // No theme support yet — always false.
+                return false;
+            }
+            _ => {}
+        }
+    }
+
+    false
 }
 
 /// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
