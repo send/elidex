@@ -4,29 +4,38 @@
 //! `isConnected`, `getRootNode`, `textContent` (NodeKind-aware), `nodeValue`,
 //! `ownerDocument`, `isSameNode`, `isEqualNode`.
 
+mod clone;
+mod core;
+mod text_content;
+
+pub use clone::CloneNode;
+pub use core::{
+    CompareDocumentPosition, Contains, GetRootNode, IsConnected, IsEqualNode, IsSameNode,
+    Normalize, OwnerDocument,
+};
+#[cfg(test)]
+pub(crate) use core::{
+    DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
+    DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
+    DOCUMENT_POSITION_PRECEDING,
+};
+pub use text_content::{GetTextContentNodeKind, SetNodeValue, SetTextContentNodeKind};
+
 use elidex_ecs::{
-    Attributes, CommentData, DocTypeData, EcsDom, Entity, NodeKind, ShadowRoot, TagType,
-    TextContent,
+    Attributes, CommentData, DocTypeData, EcsDom, Entity, NodeKind, TagType, TextContent,
 };
 use elidex_plugin::JsValue;
-use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
-};
+use elidex_script_session::{DomApiError, DomApiErrorKind, JsObjectRef, SessionCore};
 
-use crate::util::{not_found_error, require_object_ref_arg};
+use crate::util::not_found_error;
 
 // ---------------------------------------------------------------------------
-// Helper
+// Shared helpers (used by sub-modules)
 // ---------------------------------------------------------------------------
-
-/// Collect concatenated text content from an entity and its descendants.
-fn descendant_text_content(entity: Entity, dom: &EcsDom) -> String {
-    crate::element::collect_text_content(entity, dom)
-}
 
 /// Resolve an optional `ObjectRef` arg to an Entity. Returns `None` if the arg
 /// is `Null`, `Undefined`, or missing.
-fn resolve_optional_entity(
+pub(crate) fn resolve_optional_entity(
     args: &[JsValue],
     index: usize,
     session: &SessionCore,
@@ -47,14 +56,8 @@ fn resolve_optional_entity(
     }
 }
 
-/// Walk ancestors to find the tree root, stopping at `ShadowRoot` boundaries
-/// (non-composed root). Delegates to `EcsDom::find_tree_root`.
-fn find_root_non_composed(entity: Entity, dom: &EcsDom) -> Entity {
-    dom.find_tree_root(entity)
-}
-
 /// Walk ancestors to find the composed tree root (crosses shadow boundaries).
-fn find_root(entity: Entity, dom: &EcsDom) -> Entity {
+pub(crate) fn find_root(entity: Entity, dom: &EcsDom) -> Entity {
     let mut current = entity;
     let mut depth = 0;
     while let Some(parent) = dom.get_parent(current) {
@@ -67,8 +70,14 @@ fn find_root(entity: Entity, dom: &EcsDom) -> Entity {
     current
 }
 
+/// Walk ancestors to find the tree root, stopping at `ShadowRoot` boundaries
+/// (non-composed root). Delegates to `EcsDom::find_tree_root`.
+pub(crate) fn find_root_non_composed(entity: Entity, dom: &EcsDom) -> Entity {
+    dom.find_tree_root(entity)
+}
+
 /// Check deep structural equality of two nodes.
-fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
+pub(crate) fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
     let kind_a = dom.node_kind(a);
     let kind_b = dom.node_kind(b);
     if kind_a != kind_b {
@@ -77,13 +86,11 @@ fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
 
     match kind_a {
         Some(NodeKind::Element) => {
-            // Same tag name.
             let tag_a = dom.world().get::<&TagType>(a).ok().map(|t| t.0.clone());
             let tag_b = dom.world().get::<&TagType>(b).ok().map(|t| t.0.clone());
             if tag_a != tag_b {
                 return false;
             }
-            // Same attributes (count + values).
             let attrs_a = dom.world().get::<&Attributes>(a).ok();
             let attrs_b = dom.world().get::<&Attributes>(b).ok();
             match (&attrs_a, &attrs_b) {
@@ -130,18 +137,14 @@ fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
                 return false;
             }
         }
-        Some(NodeKind::Document | NodeKind::DocumentFragment) => {
-            // No data to compare beyond children.
-        }
+        Some(NodeKind::Document | NodeKind::DocumentFragment) => {}
         _ => {
-            // Unknown or missing NodeKind — not equal if both are None.
             if kind_a.is_none() {
                 return false;
             }
         }
     }
 
-    // Compare children recursively.
     let children_a = dom.children(a);
     let children_b = dom.children(b);
     if children_a.len() != children_b.len() {
@@ -153,612 +156,6 @@ fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
         .all(|(&ca, &cb)| nodes_equal(ca, cb, dom))
 }
 
-// ---------------------------------------------------------------------------
-// 1. Contains
-// ---------------------------------------------------------------------------
-
-/// `node.contains(other)` — check if this node contains the argument node.
-pub struct Contains;
-
-impl DomApiHandler for Contains {
-    fn method_name(&self) -> &str {
-        "contains"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let target = resolve_optional_entity(args, 0, session)?;
-        let Some(target) = target else {
-            return Ok(JsValue::Bool(false));
-        };
-        Ok(JsValue::Bool(dom.is_ancestor_or_self(this, target)))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 2. CompareDocumentPosition
-// ---------------------------------------------------------------------------
-
-/// Bitmask constants for `compareDocumentPosition`.
-const DOCUMENT_POSITION_DISCONNECTED: u32 = 1;
-const DOCUMENT_POSITION_PRECEDING: u32 = 2;
-const DOCUMENT_POSITION_FOLLOWING: u32 = 4;
-const DOCUMENT_POSITION_CONTAINS: u32 = 8;
-const DOCUMENT_POSITION_CONTAINED_BY: u32 = 16;
-const DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: u32 = 32;
-
-/// `node.compareDocumentPosition(other)` — returns a bitmask.
-pub struct CompareDocumentPosition;
-
-impl DomApiHandler for CompareDocumentPosition {
-    fn method_name(&self) -> &str {
-        "compareDocumentPosition"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let other_ref = require_object_ref_arg(args, 0)?;
-        let (other, _) = session
-            .identity_map()
-            .get(JsObjectRef::from_raw(other_ref))
-            .ok_or_else(|| not_found_error("other node not found"))?;
-
-        if this == other {
-            return Ok(JsValue::Number(0.0));
-        }
-
-        // Check if they share a common root.
-        let root_this = find_root(this, dom);
-        let root_other = find_root(other, dom);
-
-        if root_this != root_other {
-            // Disconnected — use entity bits for consistent ordering.
-            let dir = if this.to_bits() < other.to_bits() {
-                DOCUMENT_POSITION_PRECEDING
-            } else {
-                DOCUMENT_POSITION_FOLLOWING
-            };
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir,
-            )));
-        }
-
-        // Check containment.
-        if dom.is_ancestor_or_self(other, this) && other != this {
-            // `other` contains `this` — other is an ancestor of this.
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING,
-            )));
-        }
-        if dom.is_ancestor_or_self(this, other) && this != other {
-            // `this` contains `other` — this is an ancestor of other.
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING,
-            )));
-        }
-
-        // Use tree order comparison.
-        match dom.tree_order_cmp(this, other) {
-            std::cmp::Ordering::Less => Ok(JsValue::Number(f64::from(DOCUMENT_POSITION_FOLLOWING))),
-            std::cmp::Ordering::Greater => {
-                Ok(JsValue::Number(f64::from(DOCUMENT_POSITION_PRECEDING)))
-            }
-            std::cmp::Ordering::Equal => Ok(JsValue::Number(0.0)),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 3. CloneNode
-// ---------------------------------------------------------------------------
-
-/// `node.cloneNode(deep?)` — clone a node (optionally deep).
-pub struct CloneNode;
-
-impl CloneNode {
-    /// Clone a single entity (shallow) and return the new entity.
-    fn clone_single(entity: Entity, dom: &mut EcsDom) -> Result<Entity, DomApiError> {
-        let kind = dom.node_kind(entity);
-
-        // ShadowRoot cannot be cloned.
-        if dom.world().get::<&ShadowRoot>(entity).is_ok() {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::NotSupportedError,
-                message: "cloneNode: ShadowRoot cannot be cloned".into(),
-            });
-        }
-
-        match kind {
-            Some(NodeKind::Element) => {
-                let tag = dom
-                    .world()
-                    .get::<&TagType>(entity)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-                let attrs = dom
-                    .world()
-                    .get::<&Attributes>(entity)
-                    .ok()
-                    .map(|a| (*a).clone())
-                    .unwrap_or_default();
-                // Note: InlineStyle is NOT copied per DOM spec (cloneNode does not
-                // copy the CSSOM-level style object).
-                Ok(dom.create_element(tag, attrs))
-            }
-            Some(NodeKind::Text) => {
-                let text = dom
-                    .world()
-                    .get::<&TextContent>(entity)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-                Ok(dom.create_text(text))
-            }
-            Some(NodeKind::Comment) => {
-                let data = dom
-                    .world()
-                    .get::<&CommentData>(entity)
-                    .map(|c| c.0.clone())
-                    .unwrap_or_default();
-                Ok(dom.create_comment(data))
-            }
-            Some(NodeKind::DocumentType) => {
-                let dt = dom
-                    .world()
-                    .get::<&DocTypeData>(entity)
-                    .ok()
-                    .map(|d| (d.name.clone(), d.public_id.clone(), d.system_id.clone()));
-                if let Some((name, public_id, system_id)) = dt {
-                    Ok(dom.create_document_type(name, public_id, system_id))
-                } else {
-                    Ok(dom.create_document_type("", "", ""))
-                }
-            }
-            Some(NodeKind::DocumentFragment) => Ok(dom.create_document_fragment()),
-            Some(NodeKind::Document) => {
-                // Cloning a Document creates a new document root.
-                Ok(dom.create_document_root())
-            }
-            _ => Err(DomApiError {
-                kind: DomApiErrorKind::NotSupportedError,
-                message: "cloneNode: unsupported node kind".into(),
-            }),
-        }
-    }
-
-    /// Deep clone: clone entity and recursively clone all children.
-    fn clone_deep(entity: Entity, dom: &mut EcsDom) -> Result<Entity, DomApiError> {
-        let clone = Self::clone_single(entity, dom)?;
-        let children = dom.children(entity);
-        for child in children {
-            let child_clone = Self::clone_deep(child, dom)?;
-            let _ = dom.append_child(clone, child_clone);
-        }
-        Ok(clone)
-    }
-}
-
-impl DomApiHandler for CloneNode {
-    fn method_name(&self) -> &str {
-        "cloneNode"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let deep = matches!(args.first(), Some(JsValue::Bool(true)));
-
-        let cloned = if deep {
-            Self::clone_deep(this, dom)?
-        } else {
-            Self::clone_single(this, dom)?
-        };
-
-        // Register the new entity in the session (new identity, not copied).
-        let kind = match dom.node_kind(cloned) {
-            Some(nk) => ComponentKind::from_node_kind(nk),
-            None => ComponentKind::Element,
-        };
-        let obj_ref = session.get_or_create_wrapper(cloned, kind);
-        Ok(JsValue::ObjectRef(obj_ref.to_raw()))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 4. Normalize
-// ---------------------------------------------------------------------------
-
-/// `node.normalize()` — merge adjacent text nodes, remove empty text nodes.
-pub struct Normalize;
-
-impl Normalize {
-    fn normalize_entity(entity: Entity, dom: &mut EcsDom) {
-        let mut current = dom.get_first_child(entity);
-        let mut prev_text: Option<Entity> = None;
-
-        while let Some(child) = current {
-            let next = dom.get_next_sibling(child);
-            let is_text = dom.node_kind(child) == Some(NodeKind::Text);
-
-            if is_text {
-                let text = dom
-                    .world()
-                    .get::<&TextContent>(child)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-
-                if text.is_empty() {
-                    // Remove empty text node.
-                    let ok = dom.remove_child(entity, child);
-                    debug_assert!(ok, "remove_child: child from get_first_child walk");
-                    dom.rev_version(entity);
-                    current = next;
-                    continue;
-                }
-
-                if let Some(prev) = prev_text {
-                    // Merge with previous text node.
-                    let prev_text_val = dom
-                        .world()
-                        .get::<&TextContent>(prev)
-                        .map(|t| t.0.clone())
-                        .unwrap_or_default();
-                    let merged = prev_text_val + &text;
-                    if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(prev) {
-                        tc.0 = merged;
-                    }
-                    let ok = dom.remove_child(entity, child);
-                    debug_assert!(ok, "remove_child: child from get_first_child walk");
-                    dom.rev_version(entity);
-                    current = next;
-                    continue;
-                }
-
-                prev_text = Some(child);
-            } else {
-                prev_text = None;
-                // Recurse into element/fragment children.
-                if dom.node_kind(child) == Some(NodeKind::Element)
-                    || dom.node_kind(child) == Some(NodeKind::DocumentFragment)
-                {
-                    Self::normalize_entity(child, dom);
-                }
-            }
-
-            current = next;
-        }
-    }
-}
-
-impl DomApiHandler for Normalize {
-    fn method_name(&self) -> &str {
-        "normalize"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        Self::normalize_entity(this, dom);
-        Ok(JsValue::Undefined)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 5. IsConnected
-// ---------------------------------------------------------------------------
-
-/// `node.isConnected` getter — true if root is a Document node.
-pub struct IsConnected;
-
-impl DomApiHandler for IsConnected {
-    fn method_name(&self) -> &str {
-        "isConnected.get"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let root = find_root(this, dom);
-        let is_doc = dom.node_kind(root) == Some(NodeKind::Document);
-        Ok(JsValue::Bool(is_doc))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 6. GetRootNode
-// ---------------------------------------------------------------------------
-
-/// `node.getRootNode(options?)` — return the root node.
-pub struct GetRootNode;
-
-impl DomApiHandler for GetRootNode {
-    fn method_name(&self) -> &str {
-        "getRootNode"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        // Check for composed option: getRootNode({ composed: true }).
-        // In our handler system, the JS bridge extracts the composed property
-        // and passes it as a boolean arg.
-        let composed = matches!(args.first(), Some(JsValue::Bool(true)));
-
-        let root = if composed {
-            find_root(this, dom)
-        } else {
-            find_root_non_composed(this, dom)
-        };
-
-        let kind = match dom.node_kind(root) {
-            Some(nk) => ComponentKind::from_node_kind(nk),
-            None => ComponentKind::Element,
-        };
-        let obj_ref = session.get_or_create_wrapper(root, kind);
-        Ok(JsValue::ObjectRef(obj_ref.to_raw()))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 7. GetTextContentNodeKind
-// ---------------------------------------------------------------------------
-
-/// `node.textContent` getter — NodeKind-aware behavior.
-pub struct GetTextContentNodeKind;
-
-impl DomApiHandler for GetTextContentNodeKind {
-    fn method_name(&self) -> &str {
-        "textContent.get"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        match dom.node_kind(this) {
-            Some(NodeKind::Document | NodeKind::DocumentType) => Ok(JsValue::Null),
-            Some(NodeKind::Text | NodeKind::CdataSection) => {
-                let text = dom
-                    .world()
-                    .get::<&TextContent>(this)
-                    .map(|t| t.0.clone())
-                    .unwrap_or_default();
-                Ok(JsValue::String(text))
-            }
-            Some(NodeKind::Comment) => {
-                let data = dom
-                    .world()
-                    .get::<&CommentData>(this)
-                    .map(|c| c.0.clone())
-                    .unwrap_or_default();
-                Ok(JsValue::String(data))
-            }
-            _ => {
-                // Element, DocumentFragment, or any other kind.
-                let text = descendant_text_content(this, dom);
-                Ok(JsValue::String(text))
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 8. SetTextContentNodeKind
-// ---------------------------------------------------------------------------
-
-/// `node.textContent` setter — NodeKind-aware behavior.
-pub struct SetTextContentNodeKind;
-
-impl DomApiHandler for SetTextContentNodeKind {
-    fn method_name(&self) -> &str {
-        "textContent.set"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let text = crate::util::require_string_arg(args, 0)?;
-
-        match dom.node_kind(this) {
-            Some(NodeKind::Document | NodeKind::DocumentType) => {
-                // No-op per spec.
-                Ok(JsValue::Undefined)
-            }
-            Some(NodeKind::Text | NodeKind::CdataSection) => {
-                if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(this) {
-                    text.clone_into(&mut tc.0);
-                }
-                dom.rev_version(this);
-                Ok(JsValue::Undefined)
-            }
-            Some(NodeKind::Comment) => {
-                if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(this) {
-                    text.clone_into(&mut cd.0);
-                }
-                dom.rev_version(this);
-                Ok(JsValue::Undefined)
-            }
-            _ => {
-                // Element / DocumentFragment: remove all children, add text node.
-                let children = dom.children(this);
-                for child in children {
-                    session.release(child);
-                    let _ = dom.remove_child(this, child);
-                }
-                if !text.is_empty() {
-                    let text_node = dom.create_text(text);
-                    let _ = dom.append_child(this, text_node);
-                }
-                Ok(JsValue::Undefined)
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 9. SetNodeValue
-// ---------------------------------------------------------------------------
-
-/// `node.nodeValue` setter.
-pub struct SetNodeValue;
-
-impl DomApiHandler for SetNodeValue {
-    fn method_name(&self) -> &str {
-        "nodeValue.set"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let value = crate::util::require_string_arg(args, 0)?;
-
-        match dom.node_kind(this) {
-            Some(NodeKind::Text | NodeKind::CdataSection) => {
-                if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(this) {
-                    value.clone_into(&mut tc.0);
-                }
-                dom.rev_version(this);
-            }
-            Some(NodeKind::Comment) => {
-                if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(this) {
-                    value.clone_into(&mut cd.0);
-                }
-                dom.rev_version(this);
-            }
-            _ => {
-                // Element, Document, DocumentType, DocumentFragment — no-op.
-            }
-        }
-
-        Ok(JsValue::Undefined)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 10. OwnerDocument
-// ---------------------------------------------------------------------------
-
-/// `node.ownerDocument` getter.
-pub struct OwnerDocument;
-
-impl DomApiHandler for OwnerDocument {
-    fn method_name(&self) -> &str {
-        "ownerDocument.get"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        // Document node itself returns null.
-        if dom.node_kind(this) == Some(NodeKind::Document) {
-            return Ok(JsValue::Null);
-        }
-
-        // Per spec, ownerDocument always returns the associated document,
-        // even for disconnected nodes.
-        if let Some(doc_root) = dom.document_root() {
-            let obj_ref = session.get_or_create_wrapper(doc_root, ComponentKind::Document);
-            Ok(JsValue::ObjectRef(obj_ref.to_raw()))
-        } else {
-            Ok(JsValue::Null)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 11. IsSameNode
-// ---------------------------------------------------------------------------
-
-/// `node.isSameNode(other)` — identity comparison.
-pub struct IsSameNode;
-
-impl DomApiHandler for IsSameNode {
-    fn method_name(&self) -> &str {
-        "isSameNode"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let other = resolve_optional_entity(args, 0, session)?;
-        let _ = dom; // Needed for trait signature.
-        match other {
-            None => Ok(JsValue::Bool(false)),
-            Some(other_entity) => Ok(JsValue::Bool(this == other_entity)),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 12. IsEqualNode
-// ---------------------------------------------------------------------------
-
-/// `node.isEqualNode(other)` — deep structural equality.
-pub struct IsEqualNode;
-
-impl DomApiHandler for IsEqualNode {
-    fn method_name(&self) -> &str {
-        "isEqualNode"
-    }
-
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let other = resolve_optional_entity(args, 0, session)?;
-        match other {
-            None => Ok(JsValue::Bool(false)),
-            Some(other_entity) => Ok(JsValue::Bool(nodes_equal(this, other_entity, dom))),
-        }
-    }
-}
 
 // ===========================================================================
 // Tests
@@ -768,7 +165,11 @@ impl DomApiHandler for IsEqualNode {
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
-    use elidex_ecs::{Attributes, InlineStyle};
+    use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle, TextContent, CommentData, DocTypeData};
+    use elidex_plugin::JsValue;
+    use elidex_script_session::{
+        ComponentKind, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
+    };
 
     fn setup() -> (EcsDom, SessionCore) {
         (EcsDom::new(), SessionCore::new())
