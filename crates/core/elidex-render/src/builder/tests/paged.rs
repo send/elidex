@@ -110,15 +110,25 @@ fn page_margin_box_items() {
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
     assert_eq!(paged_dl.page_count(), 1);
-    // The margin box should produce a Text display item for the header.
-    let text_items: Vec<_> = paged_dl.pages[0]
-        .iter()
-        .filter(|i| matches!(i, crate::display_list::DisplayItem::Text { .. }))
-        .collect();
-    assert!(
-        !text_items.is_empty(),
-        "page should have text items from margin box"
-    );
+    // The margin box should produce a Text display item for the header
+    // (only when a serif font is available for shaping).
+    if font_db
+        .query(
+            &["serif"],
+            400,
+            elidex_text::to_fontdb_style(elidex_plugin::FontStyle::Normal),
+        )
+        .is_some()
+    {
+        let text_items: Vec<_> = paged_dl.pages[0]
+            .iter()
+            .filter(|i| matches!(i, crate::display_list::DisplayItem::Text { .. }))
+            .collect();
+        assert!(
+            !text_items.is_empty(),
+            "page should have text items from margin box"
+        );
+    }
 }
 
 #[test]
