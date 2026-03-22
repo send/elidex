@@ -2,7 +2,7 @@
 
 use super::*;
 use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType, LayoutOutcome};
-use elidex_plugin::{BreakInsideValue, BreakValue, FlexWrap, Overflow};
+use elidex_plugin::{BreakInsideValue, BreakValue, FlexDirection, FlexWrap, Overflow};
 
 /// Layout a flex container with fragmentation context and return the full outcome.
 #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
@@ -541,6 +541,218 @@ fn item_with_fragmentable_content() {
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
             assert_eq!(*line_index, 1, "break before second line");
+        }
+        other => panic!("expected Flex break token, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 13. Column flex breaks between items along main axis
+// ---------------------------------------------------------------------------
+
+fn column_container() -> ComputedStyle {
+    ComputedStyle {
+        display: Display::Flex,
+        flex_direction: FlexDirection::Column,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn column_flex_breaks_between_items() {
+    // Column flex with 3 items, each 60px tall. Container width 200px.
+    // Available block size 130px → 2 items (120px) fit, break before item 2.
+    let container = column_container();
+    let items = vec![
+        flex_item(100.0, 60.0),
+        flex_item(100.0, 60.0),
+        flex_item(100.0, 60.0),
+    ];
+    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let fdb = FontDatabase::new();
+
+    let outcome = do_layout_flex_fragmented(
+        &mut dom,
+        entity,
+        200.0,
+        None,
+        Point::ZERO,
+        &fdb,
+        0,
+        layout_block_only,
+        Some(FragmentainerContext {
+            available_block_size: 130.0,
+            fragmentation_type: FragmentationType::Column,
+        }),
+        None,
+    );
+    let bt = outcome
+        .break_token
+        .expect("column flex should produce break token");
+    match &bt.mode_data {
+        Some(BreakTokenData::Flex {
+            line_index,
+            item_index,
+            ..
+        }) => {
+            assert_eq!(*line_index, 0, "break within the first (only) line");
+            assert_eq!(*item_index, 2, "break before item 2");
+        }
+        other => panic!("expected Flex break token, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 14. Column flex resume from break token
+// ---------------------------------------------------------------------------
+
+#[test]
+fn column_flex_resume_from_break_token() {
+    // Same setup as column_flex_breaks_between_items.
+    // First pass breaks at item 2. Second pass resumes from item 2.
+    let container = column_container();
+    let items = vec![
+        flex_item(100.0, 60.0),
+        flex_item(100.0, 60.0),
+        flex_item(100.0, 60.0),
+    ];
+    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let fdb = FontDatabase::new();
+    let frag = Some(FragmentainerContext {
+        available_block_size: 130.0,
+        fragmentation_type: FragmentationType::Column,
+    });
+
+    // First pass: should break.
+    let outcome1 = do_layout_flex_fragmented(
+        &mut dom,
+        entity,
+        200.0,
+        None,
+        Point::ZERO,
+        &fdb,
+        0,
+        layout_block_only,
+        frag,
+        None,
+    );
+    let bt1 = outcome1.break_token.expect("first pass should break");
+
+    // Second pass with break token: item 2 only (60px) fits in 130px.
+    let outcome2 = do_layout_flex_fragmented(
+        &mut dom,
+        entity,
+        200.0,
+        None,
+        Point::ZERO,
+        &fdb,
+        0,
+        layout_block_only,
+        frag,
+        Some(bt1),
+    );
+    assert!(
+        outcome2.break_token.is_none(),
+        "second pass should complete without break"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 15. Column flex forced break-before on item
+// ---------------------------------------------------------------------------
+
+#[test]
+fn column_flex_forced_break() {
+    let container = column_container();
+    let mut item2 = flex_item(100.0, 40.0);
+    item2.break_before = BreakValue::Column;
+
+    let items = vec![flex_item(100.0, 40.0), item2, flex_item(100.0, 40.0)];
+    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let fdb = FontDatabase::new();
+
+    let outcome = do_layout_flex_fragmented(
+        &mut dom,
+        entity,
+        200.0,
+        None,
+        Point::ZERO,
+        &fdb,
+        0,
+        layout_block_only,
+        Some(FragmentainerContext {
+            available_block_size: 500.0,
+            fragmentation_type: FragmentationType::Column,
+        }),
+        None,
+    );
+    let bt = outcome
+        .break_token
+        .expect("forced break should produce token");
+    match &bt.mode_data {
+        Some(BreakTokenData::Flex {
+            line_index,
+            item_index,
+            ..
+        }) => {
+            assert_eq!(*line_index, 0, "break within line 0");
+            assert_eq!(*item_index, 1, "forced break before item 1");
+        }
+        other => panic!("expected Flex break token, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 16. Column nowrap (single line) fragments between items
+// ---------------------------------------------------------------------------
+
+#[test]
+fn column_no_wrap_breaks_within_single_line() {
+    // Column nowrap: all items in one line. Unlike row nowrap (monolithic single line),
+    // column flex CAN break between items since they are along the block axis.
+    let container = ComputedStyle {
+        display: Display::Flex,
+        flex_direction: FlexDirection::Column,
+        flex_wrap: FlexWrap::Nowrap,
+        ..Default::default()
+    };
+    let items = vec![
+        flex_item(100.0, 80.0),
+        flex_item(100.0, 80.0),
+        flex_item(100.0, 80.0),
+    ];
+    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let fdb = FontDatabase::new();
+
+    let outcome = do_layout_flex_fragmented(
+        &mut dom,
+        entity,
+        200.0,
+        None,
+        Point::ZERO,
+        &fdb,
+        0,
+        layout_block_only,
+        Some(FragmentainerContext {
+            available_block_size: 170.0,
+            fragmentation_type: FragmentationType::Column,
+        }),
+        None,
+    );
+    let bt = outcome
+        .break_token
+        .expect("column nowrap should still fragment between items");
+    match &bt.mode_data {
+        Some(BreakTokenData::Flex {
+            line_index,
+            item_index,
+            ..
+        }) => {
+            assert_eq!(*line_index, 0, "single line");
+            assert_eq!(
+                *item_index, 2,
+                "break before item 2 (160px fits, 240px doesn't)"
+            );
         }
         other => panic!("expected Flex break token, got {other:?}"),
     }
