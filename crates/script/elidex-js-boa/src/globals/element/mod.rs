@@ -47,6 +47,7 @@ fn register_all_methods(
     accessors::register_child_parent_mixin_methods(init, bridge);
     accessors::register_element_extra_methods(init, bridge);
     accessors::register_element_extra_accessors(init, bridge, realm);
+    accessors::register_layout_query_accessors(init, bridge, realm);
     accessors::register_dataset_accessor(init, bridge, realm);
     special_nodes::register_char_data_methods(init, bridge, realm);
     special_nodes::register_attr_node_methods(init, bridge);

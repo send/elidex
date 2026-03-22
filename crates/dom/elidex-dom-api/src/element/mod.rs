@@ -2,6 +2,7 @@
 //! getAttribute/setAttribute/removeAttribute, textContent, innerHTML.
 
 mod attrs;
+pub(crate) mod layout_query;
 mod props;
 pub(crate) mod tree;
 
@@ -9,6 +10,11 @@ pub use attrs::{camel_to_data_attr, data_attr_to_camel};
 pub use attrs::{
     DatasetDelete, DatasetGet, DatasetKeys, DatasetSet, GetAttributeNames, GetClassName, GetId,
     HasAttribute, SetClassName, SetId, ToggleAttribute,
+};
+pub use layout_query::{
+    GetBoundingClientRect, GetClientHeight, GetClientLeft, GetClientTop, GetClientWidth,
+    GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight,
+    GetScrollLeft, GetScrollTop, GetScrollWidth,
 };
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{

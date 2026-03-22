@@ -444,6 +444,144 @@ pub(crate) fn register_element_extra_accessors(
 }
 
 // ---------------------------------------------------------------------------
+// Layout query accessors (getBoundingClientRect, offset*, client*, scroll*)
+// ---------------------------------------------------------------------------
+
+/// Register layout query method and property accessors on an element object.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn register_layout_query_accessors(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    // getBoundingClientRect() — returns a DOMRect-like object.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let result = invoke_dom_handler("getBoundingClientRect", entity, &[], bridge)?;
+                // Parse the JSON string result into a JS object via JSON.parse().
+                if result.is_string() {
+                    let global = ctx.global_object();
+                    if let Ok(json_ns) = global.get(js_string!("JSON"), ctx) {
+                        if let Some(json_obj) = json_ns.as_object() {
+                            if let Ok(parse_fn) = json_obj.get(js_string!("parse"), ctx) {
+                                if let Some(callable) = parse_fn.as_callable() {
+                                    return callable.call(
+                                        &boa_engine::JsValue::undefined(),
+                                        &[result],
+                                        ctx,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(result)
+            },
+            b,
+        ),
+        js_string!("getBoundingClientRect"),
+        0,
+    );
+
+    // Read-only numeric property accessors via macro.
+    macro_rules! layout_getter {
+        ($name:expr, $handler:expr) => {{
+            let b = bridge.clone();
+            NativeFunction::from_copy_closure_with_captures(
+                |this, _args, bridge, ctx| {
+                    let entity = extract_entity(this, ctx)?;
+                    invoke_dom_handler($handler, entity, &[], bridge)
+                },
+                b,
+            )
+            .to_js_function(realm)
+        }};
+    }
+
+    init.accessor(
+        js_string!("offsetWidth"),
+        Some(layout_getter!("offsetWidth", "offsetWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetHeight"),
+        Some(layout_getter!("offsetHeight", "offsetHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetTop"),
+        Some(layout_getter!("offsetTop", "offsetTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetLeft"),
+        Some(layout_getter!("offsetLeft", "offsetLeft.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetParent"),
+        Some(layout_getter!("offsetParent", "offsetParent.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientWidth"),
+        Some(layout_getter!("clientWidth", "clientWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientHeight"),
+        Some(layout_getter!("clientHeight", "clientHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientTop"),
+        Some(layout_getter!("clientTop", "clientTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientLeft"),
+        Some(layout_getter!("clientLeft", "clientLeft.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollWidth"),
+        Some(layout_getter!("scrollWidth", "scrollWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollHeight"),
+        Some(layout_getter!("scrollHeight", "scrollHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollTop"),
+        Some(layout_getter!("scrollTop", "scrollTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollLeft"),
+        Some(layout_getter!("scrollLeft", "scrollLeft.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Dataset accessor
 // ---------------------------------------------------------------------------
 
