@@ -966,3 +966,167 @@ fn check_validity_fires_invalid_event_to_js_listener() {
         "Expected checkValidity to return false and fire invalid event, got: {output:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle events (M4-3.8 Step 1)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn readystate_initial_is_loading() {
+    let (_runtime, session, _dom, _doc) = setup();
+    assert_eq!(session.document_ready_state.as_str(), "loading");
+}
+
+#[test]
+fn readystate_transitions_via_pipeline() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // Register listener for readystatechange.
+    runtime.eval(
+        r"
+        var states = [];
+        document.addEventListener('readystatechange', function() {
+            states.push(document.readyState);
+        });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    // Simulate lifecycle dispatch (same as pipeline.rs dispatch_lifecycle_events).
+    // Transition to Interactive.
+    session.document_ready_state = elidex_script_session::ReadyState::Interactive;
+    let mut rs_event = elidex_script_session::DispatchEvent::new("readystatechange", doc);
+    rs_event.bubbles = false;
+    rs_event.cancelable = false;
+    runtime.dispatch_event(&mut rs_event, &mut session, &mut dom, doc);
+    session.flush(&mut dom);
+
+    // DOMContentLoaded.
+    let mut dcl = elidex_script_session::DispatchEvent::new("DOMContentLoaded", doc);
+    dcl.cancelable = false;
+    runtime.dispatch_event(&mut dcl, &mut session, &mut dom, doc);
+    session.flush(&mut dom);
+
+    // Transition to Complete.
+    session.document_ready_state = elidex_script_session::ReadyState::Complete;
+    let mut rs_event2 = elidex_script_session::DispatchEvent::new("readystatechange", doc);
+    rs_event2.bubbles = false;
+    rs_event2.cancelable = false;
+    runtime.dispatch_event(&mut rs_event2, &mut session, &mut dom, doc);
+    session.flush(&mut dom);
+
+    // Verify states captured by listener.
+    runtime.eval(
+        "console.log('states=' + JSON.stringify(states));",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains(r#"states=["interactive","complete"]"#)),
+        "Expected readystatechange to capture interactive then complete, got: {output:?}"
+    );
+}
+
+#[test]
+fn domcontentloaded_fires() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    runtime.eval(
+        r"
+        var dclFired = false;
+        document.addEventListener('DOMContentLoaded', function() {
+            dclFired = true;
+        });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let mut dcl = elidex_script_session::DispatchEvent::new("DOMContentLoaded", doc);
+    dcl.cancelable = false;
+    runtime.dispatch_event(&mut dcl, &mut session, &mut dom, doc);
+
+    runtime.eval(
+        "console.log('dcl=' + dclFired);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("dcl=true")),
+        "DOMContentLoaded should fire, got: {output:?}"
+    );
+}
+
+#[test]
+fn load_event_fires() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // load fires on window (document target), does NOT bubble.
+    runtime.eval(
+        r"
+        var loadFired = false;
+        document.addEventListener('load', function() {
+            loadFired = true;
+        });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let mut load = elidex_script_session::DispatchEvent::new("load", doc);
+    load.bubbles = false;
+    load.cancelable = false;
+    runtime.dispatch_event(&mut load, &mut session, &mut dom, doc);
+
+    runtime.eval(
+        "console.log('load=' + loadFired);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("load=true")),
+        "load event should fire, got: {output:?}"
+    );
+}
+
+#[test]
+fn beforeunload_can_cancel() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    runtime.eval(
+        r"
+        document.addEventListener('beforeunload', function(e) {
+            e.preventDefault();
+        });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let mut beforeunload = elidex_script_session::DispatchEvent::new("beforeunload", doc);
+    beforeunload.cancelable = true;
+    beforeunload.bubbles = false;
+    let prevented = runtime.dispatch_event(&mut beforeunload, &mut session, &mut dom, doc);
+
+    // dispatch_event returns true when preventDefault() was called.
+    assert!(
+        prevented,
+        "beforeunload with preventDefault should be prevented (return true)"
+    );
+}

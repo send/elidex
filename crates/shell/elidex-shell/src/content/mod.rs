@@ -375,7 +375,16 @@ fn run_event_loop(state: &mut ContentState) {
 /// Handle a single message. Returns `false` for Shutdown.
 fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
     match msg {
-        BrowserToContent::Shutdown => return false,
+        BrowserToContent::Shutdown => {
+            // Dispatch beforeunload/unload lifecycle events before shutdown.
+            crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            return false;
+        }
 
         BrowserToContent::Navigate(url) => {
             navigation::handle_navigate(state, &url, false, None);
