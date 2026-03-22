@@ -1,0 +1,296 @@
+//! ECS DOM wrapper providing tree-manipulation API.
+//!
+//! # Tree invariants
+//!
+//! The DOM tree maintained by [`EcsDom`] guarantees:
+//!
+//! - **No cycles**: A node cannot be an ancestor of itself. All mutation
+//!   methods (`append_child`, `insert_before`, `replace_child`) perform an
+//!   ancestor walk to reject operations that would create cycles.
+//! - **Consistent sibling links**: `prev_sibling` / `next_sibling` form a
+//!   doubly-linked list among children of the same parent.
+//! - **Parent <-> child consistency**: A child's `parent` field always matches
+//!   the parent whose `first_child` / `last_child` chain reaches it.
+//! - **Destroyed entity safety**: Operations on entities that have been
+//!   removed from the world via `destroy_entity` return `false` and never
+//!   mutate the tree.
+
+mod shadow;
+mod tree;
+
+use crate::components::{
+    AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot, TagType, TextContent,
+    TreeRelation,
+};
+use hecs::{Entity, World};
+
+/// Maximum ancestor walk depth before assuming tree corruption.
+///
+/// Also used by `elidex-css` selector matching to cap descendant walks.
+pub const MAX_ANCESTOR_DEPTH: usize = 10_000;
+
+/// ECS-backed DOM storage.
+///
+/// Each DOM node is an `Entity` in the `hecs::World`, with component data
+/// describing its type, attributes, tree relationships, and content.
+///
+/// See the module-level documentation for tree invariant guarantees.
+pub struct EcsDom {
+    world: World,
+    /// Cached document root entity, set by [`create_document_root()`](Self::create_document_root).
+    document_root: Option<Entity>,
+}
+
+impl EcsDom {
+    /// Create a new, empty DOM.
+    pub fn new() -> Self {
+        Self {
+            world: World::new(),
+            document_root: None,
+        }
+    }
+
+    /// Provides read-only access to the underlying `hecs::World`.
+    ///
+    /// Use this for queries and component reads. Tree mutations **must** go
+    /// through [`EcsDom`] methods to preserve invariants.
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    /// Returns `true` if the entity exists in this DOM world.
+    #[must_use]
+    pub fn contains(&self, entity: Entity) -> bool {
+        self.world.contains(entity)
+    }
+
+    /// Check if an entity is editable via `contenteditable`, considering ancestor inheritance.
+    ///
+    /// Per HTML 6.6.1: `contenteditable` is inherited. An element with
+    /// `contenteditable="true"` (or empty string) makes itself and its descendants
+    /// editable. `contenteditable="false"` overrides the inherited state.
+    #[must_use]
+    pub fn is_contenteditable(&self, entity: Entity) -> bool {
+        let mut current = Some(entity);
+        for _ in 0..MAX_ANCESTOR_DEPTH {
+            let Some(e) = current else { break };
+            let attr = self
+                .world
+                .get::<&Attributes>(e)
+                .ok()
+                .and_then(|a| a.get("contenteditable").map(String::from));
+            match attr.as_deref() {
+                Some("true" | "") => return true,
+                Some("false") => return false,
+                _ => {}
+            }
+            current = self.get_parent(e);
+        }
+        false
+    }
+
+    /// Provides mutable access to the underlying `hecs::World`.
+    ///
+    /// **Warning:** Tree mutations (parent/child/sibling links) **must** go
+    /// through [`EcsDom`] methods to preserve invariants. Use this only for
+    /// adding or modifying non-tree components (e.g., [`crate::InlineStyle`]).
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
+    }
+
+    /// Create an element node with the given tag and attributes.
+    pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
+        self.world.spawn((
+            TagType(tag.into()),
+            attrs,
+            TreeRelation::default(),
+            NodeKind::Element,
+        ))
+    }
+
+    /// Create a document root entity (no tag, only tree relations).
+    ///
+    /// The document root serves as the parent of the `<html>` element.
+    /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
+    pub fn create_document_root(&mut self) -> Entity {
+        let entity = self
+            .world
+            .spawn((TreeRelation::default(), NodeKind::Document));
+        self.document_root = Some(entity);
+        entity
+    }
+
+    /// Returns the document root entity created by [`create_document_root()`](Self::create_document_root).
+    ///
+    /// Returns `None` if no document root has been created yet.
+    #[must_use]
+    pub fn document_root(&self) -> Option<Entity> {
+        self.document_root
+    }
+
+    /// Create a text node.
+    pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
+        self.world.spawn((
+            TextContent(text.into()),
+            TreeRelation::default(),
+            NodeKind::Text,
+        ))
+    }
+
+    /// Create a document fragment node (WHATWG DOM 4.5).
+    pub fn create_document_fragment(&mut self) -> Entity {
+        self.world
+            .spawn((TreeRelation::default(), NodeKind::DocumentFragment))
+    }
+
+    /// Create a comment node.
+    pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
+        self.world.spawn((
+            CommentData(data.into()),
+            TreeRelation::default(),
+            NodeKind::Comment,
+        ))
+    }
+
+    /// Create a document type node.
+    pub fn create_document_type(
+        &mut self,
+        name: impl Into<String>,
+        public_id: impl Into<String>,
+        system_id: impl Into<String>,
+    ) -> Entity {
+        self.world.spawn((
+            DocTypeData {
+                name: name.into(),
+                public_id: public_id.into(),
+                system_id: system_id.into(),
+            },
+            TreeRelation::default(),
+            NodeKind::DocumentType,
+        ))
+    }
+
+    /// Create an attribute node (WHATWG DOM 4.9).
+    pub fn create_attribute(&mut self, local_name: impl Into<String>) -> Entity {
+        self.world.spawn((
+            AttrData {
+                local_name: local_name.into(),
+                value: String::new(),
+                owner_element: None,
+            },
+            NodeKind::Attribute,
+        ))
+    }
+
+    // ---- Version tracking ----
+
+    /// Bump the `inclusive_descendants_version` on `entity` and propagate to all ancestors.
+    ///
+    /// This is the Servo-style version cache invalidation mechanism: any tree
+    /// mutation on `entity` (child add/remove, text content change, attribute change
+    /// via `elidex-dom-api` handlers) sets the same new version counter on `entity`
+    /// and all its ancestors up to the root.
+    ///
+    /// The new version is computed as `max(entity_version, doc_root_version) + 1`,
+    /// ensuring a globally monotonic value across the entire tree.
+    pub fn rev_version(&mut self, entity: Entity) {
+        // Compute a single new version: max of entity and doc_root versions + 1.
+        let entity_ver = self.read_rel(entity, |rel| rel.inclusive_descendants_version);
+        let doc_root_ver = self.document_root.map_or(0, |dr| {
+            self.read_rel(dr, |rel| rel.inclusive_descendants_version)
+        });
+        let new_version = entity_ver.max(doc_root_ver).wrapping_add(1);
+
+        // Set the same version on entity and all ancestors.
+        // When the parent chain ends at a ShadowRoot (no parent), jump to the
+        // shadow host and continue propagating, so that LiveCollections rooted
+        // at the host see the version change.
+        let mut current = Some(entity);
+        let mut depth = 0;
+        while let Some(e) = current {
+            self.update_rel(e, |rel| {
+                rel.inclusive_descendants_version = new_version;
+            });
+            let parent = self
+                .world
+                .get::<&TreeRelation>(e)
+                .ok()
+                .and_then(|rel| rel.parent);
+            current = if parent.is_some() {
+                parent
+            } else {
+                // No parent -- if this is a ShadowRoot, jump to host.
+                self.world.get::<&ShadowRoot>(e).ok().map(|sr| sr.host)
+            };
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+        }
+    }
+
+    /// Returns the `inclusive_descendants_version` for an entity.
+    ///
+    /// Returns 0 if the entity does not exist or has no `TreeRelation`.
+    #[must_use]
+    pub fn inclusive_descendants_version(&self, entity: Entity) -> u64 {
+        self.read_rel(entity, |rel| rel.inclusive_descendants_version)
+    }
+
+    /// Returns `true` if the entity is an element node.
+    ///
+    /// Checks `NodeKind` first, falls back to `TagType` presence for
+    /// backwards compatibility with entities created before `NodeKind` was added.
+    #[must_use]
+    pub fn is_element(&self, entity: Entity) -> bool {
+        if let Ok(kind) = self.world.get::<&NodeKind>(entity) {
+            return *kind == NodeKind::Element;
+        }
+        self.world.get::<&TagType>(entity).is_ok()
+    }
+
+    /// Returns the `NodeKind` of an entity, if it has one.
+    #[must_use]
+    pub fn node_kind(&self, entity: Entity) -> Option<NodeKind> {
+        self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
+    }
+}
+
+/// Zero-allocation iterator over direct children of a DOM node.
+///
+/// Created by [`EcsDom::children_iter()`].
+pub struct ChildrenIter<'a> {
+    pub(crate) dom: &'a EcsDom,
+    pub(crate) next: Option<Entity>,
+    pub(crate) remaining: usize,
+}
+
+impl Iterator for ChildrenIter<'_> {
+    type Item = Entity;
+
+    fn next(&mut self) -> Option<Entity> {
+        loop {
+            let entity = self.next?;
+            if self.remaining == 0 {
+                self.next = None;
+                return None;
+            }
+            self.remaining -= 1;
+            self.next = self.dom.read_rel(entity, |rel| rel.next_sibling);
+            // M1: Skip ShadowRoot entities -- not exposed as children.
+            if self.dom.world.get::<&ShadowRoot>(entity).is_err() {
+                return Some(entity);
+            }
+        }
+    }
+}
+
+impl Default for EcsDom {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+#[allow(unused_must_use)]
+mod tests;

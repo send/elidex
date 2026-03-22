@@ -13,5 +13,5 @@ pub(super) fn dispatch_animation_events(
     events: &[(u64, AnimationEvent)],
     state: &mut ContentState,
 ) {
-    crate::dispatch_anim_events(events, &mut state.pipeline);
+    crate::animation::dispatch_anim_events(events, &mut state.pipeline);
 }

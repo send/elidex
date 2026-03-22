@@ -1,61 +1,26 @@
 //! CSS custom property and `var()` resolution.
 
+mod collection;
+mod resolution;
+
 use std::collections::{HashMap, HashSet};
 
-use elidex_plugin::{ComputedStyle, CssValue};
+use elidex_plugin::CssValue;
 
 use super::helpers::PropertyMap;
+use collection::expand_resolved_shorthand;
+use resolution::{resolve_var_value, substitute_vars};
 
-/// Maximum recursion depth for resolving `var()` references (cycle protection).
-const MAX_VAR_DEPTH: usize = 32;
-
-/// Maximum length (in bytes) for the output of `substitute_vars()`.
-///
-/// Prevents exponential blowup from patterns like
-/// `--a: var(--b) var(--b); --b: var(--c) var(--c)` which would otherwise
-/// produce 2^depth copies.
-const MAX_SUBSTITUTED_LENGTH: usize = 65_536;
-
-/// Build the custom properties map: inherit all from parent, then override
-/// with any custom properties declared on this element.
-///
-/// Per CSS Variables Level 1:
-/// - `RawTokens`: set the property to the raw value.
-/// - `Initial`: remove the property (custom properties have no initial value;
-///   their initial value is the "guaranteed-invalid value").
-/// - `Inherit`/`Unset`: keep the inherited value (custom properties are
-///   always inherited, so both behave as `inherit` — already handled by the
-///   parent clone).
-pub(super) fn build_custom_properties(
-    winners: &PropertyMap<'_>,
-    parent_style: &ComputedStyle,
-) -> HashMap<String, String> {
-    let mut props = parent_style.custom_properties.clone();
-    for (name, value) in winners {
-        if name.starts_with("--") {
-            match value {
-                CssValue::RawTokens(raw) => {
-                    props.insert((*name).to_string(), raw.clone());
-                }
-                CssValue::Initial => {
-                    props.remove(*name);
-                }
-                // Inherit/Unset: keep inherited value (already cloned from parent).
-                _ => {}
-            }
-        }
-    }
-    props
-}
+pub(super) use collection::{build_custom_properties, merge_winners};
 
 /// Resolve all `var()` references in the winners map.
 ///
 /// Handles two cases:
-/// 1. `CssValue::Var` — whole-value `var()` (e.g. `color: var(--x)`)
-/// 2. `CssValue::RawTokens` containing `var()` — compound values
+/// 1. `CssValue::Var` -- whole-value `var()` (e.g. `color: var(--x)`)
+/// 2. `CssValue::RawTokens` containing `var()` -- compound values
 ///    (e.g. `border: var(--bw) solid var(--bc)`)
 ///
-/// Returns a map of property name → resolved `CssValue` for properties that
+/// Returns a map of property name -> resolved `CssValue` for properties that
 /// had `var()` references.
 pub(super) fn resolve_var_references(
     winners: &PropertyMap<'_>,
@@ -80,7 +45,7 @@ pub(super) fn resolve_var_references(
                 }
             }
             CssValue::RawTokens(raw) if raw.contains("var(") => {
-                // Compound value with var() — substitute and re-parse.
+                // Compound value with var() -- substitute and re-parse.
                 let mut visited = HashSet::new();
                 if let Some(substituted) = substitute_vars(raw, custom_props, 0, &mut visited) {
                     let decl_text = format!("{name}: {substituted}");
@@ -90,311 +55,12 @@ pub(super) fn resolve_var_references(
                     }
                 }
                 // If substitution fails, property is "invalid at computed-value
-                // time" — no entry in resolved, so merge_winners will drop it.
+                // time" -- no entry in resolved, so merge_winners will drop it.
             }
             _ => {}
         }
     }
     resolved
-}
-
-/// Expand a resolved shorthand value into longhand entries.
-///
-/// For simple shorthands where the resolved value maps to a single longhand
-/// (e.g. `background` → `background-color`), insert under the longhand key.
-/// For per-side border shorthands (`border-top`, etc.), insert under the 3
-/// longhand keys with appropriate defaults.
-fn expand_resolved_shorthand(resolved: &mut HashMap<String, CssValue>, name: &str, val: CssValue) {
-    match name {
-        "background" => {
-            resolved.insert("background-color".to_string(), val);
-        }
-        "border-spacing" => {
-            // border-spacing shorthand → 2 longhands (same value for both).
-            resolved.insert("border-spacing-h".to_string(), val.clone());
-            resolved.insert("border-spacing-v".to_string(), val);
-        }
-        "border-radius" => {
-            // border-radius shorthand → 4 longhands (same value for all corners).
-            resolved.insert("border-top-left-radius".to_string(), val.clone());
-            resolved.insert("border-top-right-radius".to_string(), val.clone());
-            resolved.insert("border-bottom-right-radius".to_string(), val.clone());
-            resolved.insert("border-bottom-left-radius".to_string(), val);
-        }
-        "border-top" | "border-right" | "border-bottom" | "border-left" => {
-            // The resolved value is a single color/keyword — treat it as the
-            // most common case: `border-side: <width> <style> <color>` where
-            // only one component was specified via var().
-            // For a single resolved color, store it as the border-side-color.
-            let side = &name["border-".len()..];
-            match &val {
-                CssValue::Color(_) => {
-                    resolved.insert(format!("border-{side}-color"), val);
-                }
-                CssValue::Keyword(k) => {
-                    // Could be a style keyword (solid, dashed, none, etc.)
-                    let style_keywords = [
-                        "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge",
-                        "inset", "outset",
-                    ];
-                    if style_keywords.contains(&k.as_str()) {
-                        resolved.insert(format!("border-{side}-style"), val);
-                    } else {
-                        resolved.insert(format!("border-{side}-color"), val);
-                    }
-                }
-                CssValue::Length(_, _) => {
-                    resolved.insert(format!("border-{side}-width"), val);
-                }
-                _ => {
-                    // Fallback: store under the shorthand name as-is.
-                    resolved.insert(name.to_string(), val);
-                }
-            }
-        }
-        "overflow" => {
-            // overflow shorthand → same value for both axes.
-            resolved.insert("overflow-x".to_string(), val.clone());
-            resolved.insert("overflow-y".to_string(), val);
-        }
-        // NOTE: grid-template and grid shorthands have complex syntax
-        // (rows / columns, areas interleave, auto-flow patterns). When var()
-        // resolves to a shorthand key, we cannot reliably split the value into
-        // longhands. As a fallback, the resolved value is assigned to rows and
-        // columns identically. This matches the simplistic approach used for
-        // other shorthands (border, overflow) and is correct for single-value
-        // cases like `none`. Full shorthand re-parsing after var() substitution
-        // is deferred to the handler dispatch migration (M4-LFS-post).
-        "grid-template" => {
-            resolved.insert("grid-template-rows".to_string(), val.clone());
-            resolved.insert("grid-template-columns".to_string(), val.clone());
-            resolved.insert(
-                "grid-template-areas".to_string(),
-                CssValue::Keyword("none".to_string()),
-            );
-        }
-        "grid" => {
-            resolved.insert("grid-template-rows".to_string(), val.clone());
-            resolved.insert("grid-template-columns".to_string(), val.clone());
-            resolved.insert(
-                "grid-template-areas".to_string(),
-                CssValue::Keyword("none".to_string()),
-            );
-            resolved.insert(
-                "grid-auto-flow".to_string(),
-                CssValue::Keyword("row".to_string()),
-            );
-            resolved.insert("grid-auto-rows".to_string(), CssValue::Auto);
-            resolved.insert("grid-auto-columns".to_string(), CssValue::Auto);
-        }
-        _ => {
-            resolved.insert((*name).to_string(), val);
-        }
-    }
-}
-
-/// Resolve a single `CssValue::Var` to a concrete value.
-///
-/// Uses both depth limiting and a visited set for cycle detection.
-/// If a custom property name is already in the visited set, the reference
-/// is circular and resolution fails (returns `None`).
-#[must_use]
-pub(super) fn resolve_var_value(
-    value: &CssValue,
-    custom_props: &HashMap<String, String>,
-    depth: usize,
-    visited: &mut HashSet<String>,
-) -> Option<CssValue> {
-    if depth > MAX_VAR_DEPTH {
-        return None;
-    }
-
-    let CssValue::Var(ref name, ref fallback) = value else {
-        return Some(value.clone());
-    };
-
-    // Cycle detection: if we've already visited this property, bail out.
-    if !visited.insert(name.clone()) {
-        return None;
-    }
-
-    // Look up the custom property.
-    if let Some(raw) = custom_props.get(name) {
-        // The raw value itself might contain var() references.
-        let parsed = parse_raw_value(raw);
-        if let CssValue::Var(..) = &parsed {
-            // Recursively resolve nested var().
-            let result = resolve_var_value(&parsed, custom_props, depth + 1, visited);
-            visited.remove(name);
-            return result;
-        }
-        visited.remove(name);
-        return Some(parsed);
-    }
-
-    visited.remove(name);
-
-    // Property not found: use fallback if available.
-    match fallback {
-        Some(fb) => {
-            if let CssValue::Var(..) = fb.as_ref() {
-                resolve_var_value(fb, custom_props, depth + 1, visited)
-            } else {
-                Some(*fb.clone())
-            }
-        }
-        None => None, // No fallback, var() unresolvable.
-    }
-}
-
-/// Parse a raw token string into a typed [`CssValue`].
-///
-/// Delegates to `elidex_css::parse_raw_token_value()` which uses cssparser
-/// internally.
-pub(super) fn parse_raw_value(raw: &str) -> CssValue {
-    elidex_css::parse_raw_token_value(raw)
-}
-
-/// Check whether a `CssValue` contains an unresolved `var()` reference.
-fn has_var_reference(value: &CssValue) -> bool {
-    match value {
-        CssValue::Var(..) => true,
-        CssValue::RawTokens(raw) => raw.contains("var("),
-        _ => false,
-    }
-}
-
-/// Substitute all `var()` references in a raw CSS value string.
-///
-/// Returns `None` if any `var()` reference is unresolvable (no custom property
-/// value and no fallback), which makes the property "invalid at computed-value
-/// time" per CSS Variables Level 1 §5.
-///
-/// Uses both depth limiting and a visited set for cycle detection, plus an
-/// output size limit ([`MAX_SUBSTITUTED_LENGTH`]) to prevent exponential blowup.
-fn substitute_vars(
-    raw: &str,
-    custom_props: &HashMap<String, String>,
-    depth: usize,
-    visited: &mut HashSet<String>,
-) -> Option<String> {
-    if depth > MAX_VAR_DEPTH {
-        return None;
-    }
-    if !raw.contains("var(") {
-        return Some(raw.to_string());
-    }
-
-    let mut result = String::with_capacity(raw.len());
-    let mut remaining = raw;
-
-    // NOTE: Simple string search; does not skip var() inside CSS string literals.
-    // This is acceptable since compound var() in string contexts is rare.
-    loop {
-        let Some(var_start) = remaining.find("var(") else {
-            result.push_str(remaining);
-            break;
-        };
-
-        // Copy text before var(
-        result.push_str(&remaining[..var_start]);
-
-        // Parse var() arguments
-        let after_open = &remaining[var_start + 4..];
-        let (name, fallback, consumed) = parse_var_args(after_open)?;
-
-        // Look up the custom property
-        let name = name.trim();
-
-        // Cycle detection: if we've already visited this property, bail out.
-        if visited.contains(name) {
-            return None;
-        }
-
-        if let Some(value) = custom_props.get(name) {
-            // The value might itself contain var() — recurse.
-            visited.insert(name.to_string());
-            let resolved = substitute_vars(value.trim(), custom_props, depth + 1, visited)?;
-            visited.remove(name);
-            result.push_str(&resolved);
-        } else if let Some(fb) = fallback {
-            // Use fallback, which might contain var().
-            let resolved = substitute_vars(fb.trim(), custom_props, depth + 1, visited)?;
-            result.push_str(&resolved);
-        } else {
-            return None; // Unresolvable — invalid at computed-value time.
-        }
-
-        // Check output size limit after each substitution.
-        if result.len() > MAX_SUBSTITUTED_LENGTH {
-            return None;
-        }
-
-        remaining = &after_open[consumed..];
-    }
-
-    Some(result)
-}
-
-/// Parse `var()` arguments from a string positioned after the opening `var(`.
-///
-/// Returns `(name, optional_fallback, bytes_consumed)` including the closing `)`.
-/// Handles nested parentheses in the fallback value (e.g. `var(--x, calc(1px + 2px))`).
-fn parse_var_args(s: &str) -> Option<(&str, Option<&str>, usize)> {
-    let mut depth: u32 = 1;
-    let mut comma_pos = None;
-
-    for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    let name_end = comma_pos.unwrap_or(i);
-                    let name = &s[..name_end];
-                    let fallback = comma_pos.map(|cp| &s[cp + 1..i]);
-                    return Some((name, fallback, i + 1));
-                }
-            }
-            ',' if depth == 1 && comma_pos.is_none() => {
-                comma_pos = Some(i);
-            }
-            _ => {}
-        }
-    }
-    None // Unclosed var()
-}
-
-/// Merge resolved `var()` values back into the winners map.
-pub(super) fn merge_winners<'a>(
-    original: &PropertyMap<'a>,
-    resolved: &'a HashMap<String, CssValue>,
-) -> PropertyMap<'a> {
-    let mut merged: PropertyMap<'a> = HashMap::new();
-    // Copy originals, replacing var()-resolved entries and dropping unresolved
-    // var() references. Unresolved var() should make the property "invalid at
-    // computed-value time" (CSS Variables Level 1 §5), which means downstream
-    // resolvers see no entry and apply inherited/initial as appropriate.
-    for (name, value) in original {
-        if name.starts_with("--") {
-            continue;
-        }
-        if let Some(resolved_val) = resolved.get(*name) {
-            merged.insert(name, resolved_val);
-        } else if !has_var_reference(value) {
-            merged.insert(name, value);
-        }
-        // Unresolved var() references (Var or RawTokens with var()) are
-        // intentionally dropped.
-    }
-    // Include resolved entries with new keys (from shorthand expansion,
-    // e.g. "background" → "background-color").
-    for (name, value) in resolved {
-        if !merged.contains_key(name.as_str()) {
-            merged.insert(name.as_str(), value);
-        }
-    }
-    merged
 }
 
 #[cfg(test)]
@@ -403,7 +69,7 @@ mod tests {
 
     use elidex_plugin::{ComputedStyle, CssColor, CssValue, Display, LengthUnit};
 
-    use super::*;
+    use super::resolution::{parse_raw_value, parse_var_args, resolve_var_value, substitute_vars};
     use crate::resolve::helpers::PropertyMap;
     use crate::resolve::{build_computed_style, ResolveContext};
 
@@ -734,7 +400,7 @@ mod tests {
         );
     }
 
-    // --- Compound var() in multi-token values (CSS Variables Level 1 §3) ---
+    // --- Compound var() in multi-token values (CSS Variables Level 1 3) ---
 
     #[test]
     fn compound_var_border_shorthand() {
@@ -858,12 +524,12 @@ mod tests {
             substitute_vars("0 var(--x)", &props, 0, &mut visited),
             Some("0 10px".to_string())
         );
-        // No var() — passthrough.
+        // No var() -- passthrough.
         assert_eq!(
             substitute_vars("1px solid red", &props, 0, &mut visited),
             Some("1px solid red".to_string())
         );
-        // Undefined with no fallback — None.
+        // Undefined with no fallback -- None.
         assert_eq!(
             substitute_vars("var(--undefined)", &props, 0, &mut visited),
             None
@@ -889,13 +555,13 @@ mod tests {
 
     #[test]
     fn parse_var_args_unit() {
-        // Simple: var(--x) → ("--x", None, consumed)
+        // Simple: var(--x) -> ("--x", None, consumed)
         let (name, fb, consumed) = parse_var_args("--x)").unwrap();
         assert_eq!(name, "--x");
         assert!(fb.is_none());
         assert_eq!(consumed, 4);
 
-        // With fallback: var(--x, 10px) → ("--x", Some(" 10px"), consumed)
+        // With fallback: var(--x, 10px) -> ("--x", Some(" 10px"), consumed)
         let (name, fb, consumed) = parse_var_args("--x, 10px)").unwrap();
         assert_eq!(name, "--x");
         assert_eq!(fb.unwrap().trim(), "10px");
