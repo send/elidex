@@ -28,7 +28,7 @@ fn background_color_emits_solid_rect() {
         panic!("expected SolidRect");
     };
     assert_eq!(*color, elidex_plugin::CssColor::RED);
-    assert!((rect.width - 100.0).abs() < f32::EPSILON);
+    assert!((rect.size.width - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -144,8 +144,8 @@ fn nested_elements_painter_order() {
         ) => {
             assert_eq!(*c1, elidex_plugin::CssColor::RED);
             assert_eq!(*c2, elidex_plugin::CssColor::BLUE);
-            assert!((r1.width - 200.0).abs() < f32::EPSILON);
-            assert!((r2.width - 180.0).abs() < f32::EPSILON);
+            assert!((r1.size.width - 200.0).abs() < f32::EPSILON);
+            assert!((r2.size.width - 180.0).abs() < f32::EPSILON);
         }
         _ => panic!("expected two SolidRects"),
     }
@@ -234,10 +234,10 @@ fn background_uses_border_box() {
         panic!("expected SolidRect");
     };
     // border box: x = 20 - 5 - 2 = 13, width = 100 + 10 + 4 = 114
-    assert!((rect.x - 13.0).abs() < f32::EPSILON);
-    assert!((rect.y - 13.0).abs() < f32::EPSILON);
-    assert!((rect.width - 114.0).abs() < f32::EPSILON);
-    assert!((rect.height - 64.0).abs() < f32::EPSILON);
+    assert!((rect.origin.x - 13.0).abs() < f32::EPSILON);
+    assert!((rect.origin.y - 13.0).abs() < f32::EPSILON);
+    assert!((rect.size.width - 114.0).abs() < f32::EPSILON);
+    assert!((rect.size.height - 64.0).abs() < f32::EPSILON);
 }
 
 #[test]

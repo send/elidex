@@ -157,7 +157,7 @@ fn resolve_single_track(value: &CssValue, ctx: &ResolveContext) -> TrackSize {
                     // Percentage resolved against viewport width as approximation.
                     // Correct resolution against the grid container's available space
                     // happens in track sizing (CSS Grid §7.2.4).
-                    ctx.viewport_width * pct / 100.0
+                    ctx.viewport.width * pct / 100.0
                 }
                 _ => 0.0,
             });
@@ -194,7 +194,7 @@ fn resolve_breadth(value: &CssValue, ctx: &ResolveContext) -> TrackBreadth {
         {
             let limit = items.get(1).map_or(0.0, |v| match v {
                 CssValue::Length(px, unit) => resolve_length(*px, *unit, ctx),
-                CssValue::Percentage(pct) => ctx.viewport_width * pct / 100.0,
+                CssValue::Percentage(pct) => ctx.viewport.width * pct / 100.0,
                 _ => 0.0,
             });
             TrackBreadth::FitContent(limit)

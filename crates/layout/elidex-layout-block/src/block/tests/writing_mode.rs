@@ -61,7 +61,7 @@ fn horizontal_tb_containing_inline_size_equals_width() {
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     // In horizontal-tb, containing_inline_size = containing_width = 800.
     // padding-top = 10% of 800 = 80.
     assert!((lb.padding.top - 80.0).abs() < f32::EPSILON);
@@ -100,10 +100,10 @@ fn horizontal_tb_margin_collapse_still_works() {
     );
 
     let font_db = FontDatabase::new();
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Collapsed margin = max(20, 30) = 30. Total = 50 + 30 + 50 = 130.
-    assert!((parent_box.content.height - 130.0).abs() < f32::EPSILON);
+    assert!((parent_box.content.size.height - 130.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -113,15 +113,15 @@ fn horizontal_tb_basic_block_children() {
         make_vertical_dom(WritingMode::HorizontalTb, &[100.0, 100.0], &[50.0, 60.0]);
     let font_db = FontDatabase::new();
 
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Total height = 50 + 60 = 110
-    assert!((parent_box.content.height - 110.0).abs() < f32::EPSILON);
+    assert!((parent_box.content.size.height - 110.0).abs() < f32::EPSILON);
 
     let child1_box = dom.world().get::<&LayoutBox>(children[0]).unwrap();
-    assert!((child1_box.content.y - 0.0).abs() < f32::EPSILON);
+    assert!((child1_box.content.origin.y - 0.0).abs() < f32::EPSILON);
 
     let child2_box = dom.world().get::<&LayoutBox>(children[1]).unwrap();
-    assert!((child2_box.content.y - 50.0).abs() < f32::EPSILON);
+    assert!((child2_box.content.origin.y - 50.0).abs() < f32::EPSILON);
 }
 
 // -----------------------------------------------------------------------
@@ -138,34 +138,34 @@ fn vertical_rl_children_stack_in_block_direction() {
         make_vertical_dom(WritingMode::VerticalRl, &[100.0, 100.0], &[50.0, 60.0]);
     let font_db = FontDatabase::new();
 
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // In vertical-rl, block direction is X (right to left).
     // Children have width=100 (block-size) each, stacking horizontally.
     // Parent: phys_width = block_size = content-determined = 100 + 100 = 200.
     // Parent: phys_height = inline-size = fills available = 800.
     assert!(
-        (parent_box.content.width - 200.0).abs() < f32::EPSILON,
+        (parent_box.content.size.width - 200.0).abs() < f32::EPSILON,
         "expected width=200 (block-size), got {}",
-        parent_box.content.width
+        parent_box.content.size.width
     );
     assert!(
-        (parent_box.content.height - 800.0).abs() < f32::EPSILON,
+        (parent_box.content.size.height - 800.0).abs() < f32::EPSILON,
         "expected height=800 (inline-size), got {}",
-        parent_box.content.height
+        parent_box.content.size.height
     );
 
     // Child 1 at block-start (x=0), child 2 at x=100 (after child 1's block-size).
     let c1 = dom.world().get::<&LayoutBox>(children[0]).unwrap();
     assert!(
-        (c1.content.x - 0.0).abs() < f32::EPSILON,
+        (c1.content.origin.x - 0.0).abs() < f32::EPSILON,
         "child1 x={}",
-        c1.content.x
+        c1.content.origin.x
     );
     let c2 = dom.world().get::<&LayoutBox>(children[1]).unwrap();
     assert!(
-        (c2.content.x - 100.0).abs() < f32::EPSILON,
+        (c2.content.origin.x - 100.0).abs() < f32::EPSILON,
         "child2 x should be 100, got {}",
-        c2.content.x
+        c2.content.origin.x
     );
 }
 
@@ -177,18 +177,18 @@ fn vertical_lr_children_stack_in_block_direction() {
         make_vertical_dom(WritingMode::VerticalLr, &[100.0, 100.0], &[50.0, 60.0]);
     let font_db = FontDatabase::new();
 
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // phys_width = block-size = 100 + 100 = 200
     // phys_height = inline-size = 800
     assert!(
-        (parent_box.content.width - 200.0).abs() < f32::EPSILON,
+        (parent_box.content.size.width - 200.0).abs() < f32::EPSILON,
         "expected width=200, got {}",
-        parent_box.content.width
+        parent_box.content.size.width
     );
     assert!(
-        (parent_box.content.height - 800.0).abs() < f32::EPSILON,
+        (parent_box.content.size.height - 800.0).abs() < f32::EPSILON,
         "expected height=800, got {}",
-        parent_box.content.height
+        parent_box.content.size.height
     );
 }
 
@@ -209,18 +209,18 @@ fn vertical_rl_auto_sizes() {
     );
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 600.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 600.0, Point::ZERO, &font_db);
     // Auto inline-size (height) fills available = 600 (no containing_height, falls back)
     assert!(
-        (lb.content.height - 600.0).abs() < f32::EPSILON,
+        (lb.content.size.height - 600.0).abs() < f32::EPSILON,
         "expected height=600 (inline-size fills available), got {}",
-        lb.content.height
+        lb.content.size.height
     );
     // Auto block-size (width) = content-determined = 0 (no children)
     assert!(
-        (lb.content.width - 0.0).abs() < f32::EPSILON,
+        (lb.content.size.width - 0.0).abs() < f32::EPSILON,
         "expected width=0 (block-size, no children), got {}",
-        lb.content.width
+        lb.content.size.width
     );
 }
 
@@ -268,7 +268,7 @@ fn vertical_rl_padding_pct_resolves_against_inline_size() {
     //   child_phys_height = Some(content_inline) = Some(600)
     //   child containing_inline_size = compute_inline_containing(VRL, 800, Some(600)) = 600
     // Child padding-top = 10% of 600 = 60.
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     assert!(
@@ -314,7 +314,7 @@ fn vertical_rl_with_definite_parent_height_inline_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // Parent: vertical-rl, content_width=800, child_containing_height = Some(500)
@@ -363,7 +363,7 @@ fn vertical_lr_padding_pct_resolves_against_inline_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // Parent: vertical-lr, height=400 => child_containing_height = Some(400)
@@ -406,7 +406,7 @@ fn vertical_margin_pct_resolves_against_inline_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // Parent: vertical-rl, height=500 => child_containing_height = Some(500)
@@ -452,7 +452,7 @@ fn horizontal_tb_padding_pct_resolves_against_width() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block(&mut dom, parent, 600.0, 0.0, 0.0, &font_db);
+    let _lb = layout_block(&mut dom, parent, 600.0, Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // horizontal-tb: containing_inline_size = containing_width = 600
@@ -514,7 +514,7 @@ fn vertical_mode_child_inherits_writing_mode_for_inline_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let grandchild_box = dom.world().get::<&LayoutBox>(grandchild).unwrap();
     // Parent: vertical-rl, height=300 => child_containing_height = Some(300)
@@ -566,7 +566,7 @@ fn mixed_writing_mode_horizontal_parent_vertical_child() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block(&mut dom, parent, 1000.0, 0.0, 0.0, &font_db);
+    let _lb = layout_block(&mut dom, parent, 1000.0, Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // Parent is horizontal-tb, so child's containing_inline_size =
@@ -617,7 +617,7 @@ fn float_in_vertical_mode_uses_inline_size_for_margins() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     // Parent: vertical-rl, height=500 => child_containing_height = Some(500)
@@ -698,14 +698,14 @@ fn vertical_rl_margin_collapse_between_siblings() {
     );
 
     let font_db = FontDatabase::new();
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Collapsed block-axis margin = max(15, 25) = 25.
     // Total block extent (width) = 100 + 25 + 100 = 225.
     assert!(
-        (parent_box.content.width - 225.0).abs() < f32::EPSILON,
+        (parent_box.content.size.width - 225.0).abs() < f32::EPSILON,
         "expected width=225.0, got {}",
-        parent_box.content.width
+        parent_box.content.size.width
     );
 }
 
@@ -747,14 +747,14 @@ fn vertical_rl_min_max_block_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // block-size requested 500, clamped by max-width=300.
     assert!(
-        (child_box.content.width - 300.0).abs() < f32::EPSILON,
+        (child_box.content.size.width - 300.0).abs() < f32::EPSILON,
         "expected width=300 (max block-size), got {}",
-        child_box.content.width
+        child_box.content.size.width
     );
 }
 
@@ -789,14 +789,14 @@ fn vertical_rl_min_inline_size() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let child_box = dom.world().get::<&LayoutBox>(child).unwrap();
     // inline-size requested 50, expanded by min-height=200.
     assert!(
-        (child_box.content.height - 200.0).abs() < f32::EPSILON,
+        (child_box.content.size.height - 200.0).abs() < f32::EPSILON,
         "expected height=200 (min inline-size), got {}",
-        child_box.content.height
+        child_box.content.size.height
     );
 }
 
@@ -851,28 +851,28 @@ fn vertical_rl_float_clearance() {
     );
 
     let font_db = FontDatabase::new();
-    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), 0.0, 0.0, &font_db);
+    let _lb = layout_block_with_height(&mut dom, parent, 800.0, Some(600.0), Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     let cleared_box = dom.world().get::<&LayoutBox>(cleared).unwrap();
 
     // Float should be placed and have non-zero dimensions.
     assert!(
-        float_box.content.width > 0.0 && float_box.content.height > 0.0,
+        float_box.content.size.width > 0.0 && float_box.content.size.height > 0.0,
         "float should have non-zero size: {}x{}",
-        float_box.content.width,
-        float_box.content.height,
+        float_box.content.size.width,
+        float_box.content.size.height,
     );
     // Cleared element should not overlap with float on block axis (X in VRL).
     // Since FloatContext is physical, clear:left works on physical Y, and the
     // cleared element is placed after the float in block direction (X).
     assert!(
-        cleared_box.content.x != float_box.content.x
-            || cleared_box.content.y >= float_box.content.y + float_box.content.height - 0.5,
+        cleared_box.content.origin.x != float_box.content.origin.x
+            || cleared_box.content.origin.y >= float_box.content.bottom() - 0.5,
         "cleared element should not overlap float: float=({},{}) cleared=({},{})",
-        float_box.content.x,
-        float_box.content.y,
-        cleared_box.content.x,
-        cleared_box.content.y,
+        float_box.content.origin.x,
+        float_box.content.origin.y,
+        cleared_box.content.origin.x,
+        cleared_box.content.origin.y,
     );
 }

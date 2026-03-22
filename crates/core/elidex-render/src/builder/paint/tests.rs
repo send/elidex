@@ -10,23 +10,23 @@ fn area(w: f32, h: f32) -> Rect {
 #[test]
 fn bg_size_auto_auto_uses_intrinsic() {
     let size = resolve_bg_size(&BgSize::default(), &area(400.0, 300.0), 100, 50);
-    assert_eq!(size, (100.0, 50.0));
+    assert_eq!(size, Size::new(100.0, 50.0));
 }
 
 #[test]
 fn bg_size_cover() {
     // 100x50 image in 400x300 area → scale by max(4.0, 6.0) = 6.0
     let size = resolve_bg_size(&BgSize::Cover, &area(400.0, 300.0), 100, 50);
-    assert!((size.0 - 600.0).abs() < 0.1);
-    assert!((size.1 - 300.0).abs() < 0.1);
+    assert!((size.width - 600.0).abs() < 0.1);
+    assert!((size.height - 300.0).abs() < 0.1);
 }
 
 #[test]
 fn bg_size_contain() {
     // 100x50 image in 400x300 area → scale by min(4.0, 6.0) = 4.0
     let size = resolve_bg_size(&BgSize::Contain, &area(400.0, 300.0), 100, 50);
-    assert!((size.0 - 400.0).abs() < 0.1);
-    assert!((size.1 - 200.0).abs() < 0.1);
+    assert!((size.width - 400.0).abs() < 0.1);
+    assert!((size.height - 200.0).abs() < 0.1);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn bg_size_explicit_both() {
         100,
         50,
     );
-    assert_eq!(size, (200.0, 100.0));
+    assert_eq!(size, Size::new(200.0, 100.0));
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn bg_size_explicit_width_auto_height() {
         100,
         50,
     );
-    assert_eq!(size, (200.0, 100.0));
+    assert_eq!(size, Size::new(200.0, 100.0));
 }
 
 #[test]
@@ -66,16 +66,20 @@ fn bg_size_percentage() {
         100,
         50,
     );
-    assert_eq!(size, (200.0, 150.0));
+    assert_eq!(size, Size::new(200.0, 150.0));
 }
 
 // --- resolve_bg_position ---
 
 #[test]
 fn bg_position_default_zero() {
-    let pos = resolve_bg_position(&BgPosition::default(), &area(400.0, 300.0), (100.0, 50.0));
+    let pos = resolve_bg_position(
+        &BgPosition::default(),
+        &area(400.0, 300.0),
+        Size::new(100.0, 50.0),
+    );
     // 0% of (400-100) = 0.0, 0% of (300-50) = 0.0
-    assert_eq!(pos, (0.0, 0.0));
+    assert_eq!(pos, Point::ZERO);
 }
 
 #[test]
@@ -86,11 +90,11 @@ fn bg_position_center() {
             y: BgPositionAxis::Percentage(50.0),
         },
         &area(400.0, 300.0),
-        (100.0, 50.0),
+        Size::new(100.0, 50.0),
     );
     // 50% of (400-100) = 150.0, 50% of (300-50) = 125.0
-    assert!((pos.0 - 150.0).abs() < 0.1);
-    assert!((pos.1 - 125.0).abs() < 0.1);
+    assert!((pos.x - 150.0).abs() < 0.1);
+    assert!((pos.y - 125.0).abs() < 0.1);
 }
 
 #[test]
@@ -101,9 +105,9 @@ fn bg_position_length() {
             y: BgPositionAxis::Length(20.0),
         },
         &area(400.0, 300.0),
-        (100.0, 50.0),
+        Size::new(100.0, 50.0),
     );
-    assert_eq!(pos, (10.0, 20.0));
+    assert_eq!(pos, Point::new(10.0, 20.0));
 }
 
 #[test]
@@ -114,12 +118,12 @@ fn bg_position_right_bottom_edge() {
             y: BgPositionAxis::Edge(PositionEdge::Bottom, 20.0),
         },
         &area(400.0, 300.0),
-        (100.0, 50.0),
+        Size::new(100.0, 50.0),
     );
     // right 10px → 400 - 100 - 10 = 290
     // bottom 20px → 300 - 50 - 20 = 230
-    assert!((pos.0 - 290.0).abs() < 0.1);
-    assert!((pos.1 - 230.0).abs() < 0.1);
+    assert!((pos.x - 290.0).abs() < 0.1);
+    assert!((pos.y - 230.0).abs() < 0.1);
 }
 
 // --- compute_inner_radii ---

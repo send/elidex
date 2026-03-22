@@ -1,6 +1,7 @@
 use super::*;
 use elidex_ecs::Attributes;
 use elidex_layout_block::{layout_block_only, LayoutInput};
+use elidex_plugin::Point;
 use elidex_text::FontDatabase;
 
 mod alignment_gap;
@@ -17,18 +18,18 @@ fn do_layout_flex(
     entity: Entity,
     containing_width: f32,
     containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
         containing_inline_size: containing_width,
-        offset_x,
-        offset_y,
+        offset,
         font_db,
         depth,
         float_ctx: None,

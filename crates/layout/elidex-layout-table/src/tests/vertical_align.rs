@@ -30,8 +30,7 @@ fn vertical_align_top() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -41,10 +40,10 @@ fn vertical_align_top() {
     let lb1 = get_layout(&dom, cells[1]);
     // Top-aligned cells should start at the same y position.
     assert!(
-        approx_eq(lb0.content.y, lb1.content.y),
+        approx_eq(lb0.content.origin.y, lb1.content.origin.y),
         "top-aligned cell y={} should equal tall cell y={}",
-        lb0.content.y,
-        lb1.content.y
+        lb0.content.origin.y,
+        lb1.content.origin.y
     );
 }
 
@@ -60,8 +59,7 @@ fn vertical_align_middle() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -72,10 +70,10 @@ fn vertical_align_middle() {
     // Middle-aligned: offset = (row_height - cell_height) / 2 = (40 - 20) / 2 = 10
     let expected_offset = 10.0;
     assert!(
-        approx_eq(lb0.content.y - lb1.content.y, expected_offset),
+        approx_eq(lb0.content.origin.y - lb1.content.origin.y, expected_offset),
         "middle-aligned cell should be offset by {} from top, got {}",
         expected_offset,
-        lb0.content.y - lb1.content.y
+        lb0.content.origin.y - lb1.content.origin.y
     );
 }
 
@@ -91,8 +89,7 @@ fn vertical_align_bottom() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -103,10 +100,10 @@ fn vertical_align_bottom() {
     // Bottom-aligned: offset = row_height - cell_height = 40 - 20 = 20
     let expected_offset = 20.0;
     assert!(
-        approx_eq(lb0.content.y - lb1.content.y, expected_offset),
+        approx_eq(lb0.content.origin.y - lb1.content.origin.y, expected_offset),
         "bottom-aligned cell should be offset by {} from top, got {}",
         expected_offset,
-        lb0.content.y - lb1.content.y
+        lb0.content.origin.y - lb1.content.origin.y
     );
 }
 
@@ -122,8 +119,7 @@ fn vertical_align_baseline() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -134,7 +130,7 @@ fn vertical_align_baseline() {
     // With no text content, fallback baseline = cell_total_height.
     // The taller cell (40) sets the row baseline. The shorter cell (20) aligns
     // its baseline to the row baseline, pushing it down by (40 - 20) = 20.
-    let offset = lb0.content.y - lb1.content.y;
+    let offset = lb0.content.origin.y - lb1.content.origin.y;
     assert!(
         offset >= 0.0,
         "baseline-aligned shorter cell should not be above the taller cell, offset={offset}",
@@ -154,8 +150,7 @@ fn baseline_alignment_within_row() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -166,16 +161,16 @@ fn baseline_alignment_within_row() {
     let table_lb = get_layout(&dom, table);
     // Row height should be at least 40 (the taller cell).
     assert!(
-        table_lb.content.height >= 40.0,
+        table_lb.content.size.height >= 40.0,
         "table should be tall enough to hold the 40px row, got {}",
-        table_lb.content.height
+        table_lb.content.size.height
     );
     // The shorter cell's y should be >= the taller cell's y (pushed down for baseline alignment).
     assert!(
-        lb0.content.y >= lb1.content.y,
+        lb0.content.origin.y >= lb1.content.origin.y,
         "shorter cell y={} should be >= taller cell y={}",
-        lb0.content.y,
-        lb1.content.y
+        lb0.content.origin.y,
+        lb1.content.origin.y
     );
 }
 
@@ -249,8 +244,7 @@ fn rowspan_interaction() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -264,17 +258,17 @@ fn rowspan_interaction() {
     // With vertical-align: Middle, it should be centered in the combined row slot.
     // Its y should be >= row 0 top (starts at or below row 0 top).
     assert!(
-        lb00.content.y >= lb01.content.y,
+        lb00.content.origin.y >= lb01.content.origin.y,
         "spanning cell y={} should be >= row 0 cell y={}",
-        lb00.content.y,
-        lb01.content.y
+        lb00.content.origin.y,
+        lb01.content.origin.y
     );
     // td11 should be in row 1, strictly below row 0 cells.
     assert!(
-        lb11.content.y > lb01.content.y,
+        lb11.content.origin.y > lb01.content.origin.y,
         "row 1 cell y={} should be below row 0 cell y={}",
-        lb11.content.y,
-        lb01.content.y
+        lb11.content.origin.y,
+        lb01.content.origin.y
     );
 }
 
@@ -290,8 +284,7 @@ fn empty_cell() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -302,10 +295,10 @@ fn empty_cell() {
     // Empty cell with middle alignment: offset = free / 2 = (40 - 0) / 2 = 20
     let expected_offset = 20.0;
     assert!(
-        approx_eq(lb0.content.y - lb1.content.y, expected_offset),
+        approx_eq(lb0.content.origin.y - lb1.content.origin.y, expected_offset),
         "empty middle-aligned cell should be offset by {} from top, got {}",
         expected_offset,
-        lb0.content.y - lb1.content.y
+        lb0.content.origin.y - lb1.content.origin.y
     );
 }
 
@@ -321,8 +314,7 @@ fn table_container_baseline_propagation() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -357,8 +349,7 @@ fn mixed_baseline_and_non_baseline_cells() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -369,7 +360,7 @@ fn mixed_baseline_and_non_baseline_cells() {
     let lb2 = get_layout(&dom, cells[2]);
     // Cell 1 (top): should be at row top.
     // Cell 2 (bottom): offset = 40 - 30 = 10 from row top.
-    let bottom_offset = lb2.content.y - lb1.content.y;
+    let bottom_offset = lb2.content.origin.y - lb1.content.origin.y;
     assert!(
         approx_eq(bottom_offset, 10.0),
         "bottom-aligned cell should be offset by 10 from top, got {bottom_offset}"
@@ -381,10 +372,10 @@ fn mixed_baseline_and_non_baseline_cells() {
     // The cell y should be >= top cell y (may be pushed down if row baseline
     // causes expansion, but with one baseline cell it just sits at top).
     assert!(
-        lb0.content.y >= lb1.content.y,
+        lb0.content.origin.y >= lb1.content.origin.y,
         "baseline cell y={} should be >= top cell y={}",
-        lb0.content.y,
-        lb1.content.y
+        lb0.content.origin.y,
+        lb1.content.origin.y
     );
 }
 
@@ -401,8 +392,7 @@ fn sub_super_treated_as_baseline_in_table() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -413,10 +403,10 @@ fn sub_super_treated_as_baseline_in_table() {
     // Sub in table → baseline fallback. No baseline-aligned cells to set row baseline,
     // so offset = max(0, 0 - cell_baseline) = 0. Cell aligns to top.
     assert!(
-        approx_eq(lb0.content.y, lb1.content.y),
+        approx_eq(lb0.content.origin.y, lb1.content.origin.y),
         "sub-aligned cell should align to top when no baseline cells exist, y0={} y1={}",
-        lb0.content.y,
-        lb1.content.y
+        lb0.content.origin.y,
+        lb1.content.origin.y
     );
 }
 
@@ -492,8 +482,7 @@ fn baseline_rowspan_cell_does_not_contribute() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -505,14 +494,14 @@ fn baseline_rowspan_cell_does_not_contribute() {
     // td01 (single-row, baseline) sets the row baseline.
     // Both should have valid positions.
     assert!(
-        lb01.content.y >= 0.0,
+        lb01.content.origin.y >= 0.0,
         "single-row baseline cell should have valid y={}",
-        lb01.content.y
+        lb01.content.origin.y
     );
     assert!(
-        lb00.content.y >= 0.0,
+        lb00.content.origin.y >= 0.0,
         "rowspan cell should have valid y={}",
-        lb00.content.y
+        lb00.content.origin.y
     );
 }
 
@@ -529,8 +518,7 @@ fn table_baseline_no_baseline_cells_in_row_0() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,

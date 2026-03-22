@@ -2,7 +2,7 @@
 
 use super::*;
 use elidex_ecs::Attributes;
-use elidex_plugin::{Dimension, LayoutBox, TrackSection};
+use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 
 fn get_layout(dom: &EcsDom, entity: Entity) -> LayoutBox {
     dom.world()
@@ -63,7 +63,7 @@ fn layout_tree_assigns_layout_box() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     // All elements should have LayoutBox
     assert!(dom.world().get::<&LayoutBox>(html).is_ok());
@@ -85,31 +85,31 @@ fn nested_divs_position() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     let div_lb = get_layout(&dom, div);
     // div is inside body which has margin: 8px
     // body content_x = 0 + 8 + 0 + 0 = 8
     // div content_x = 8 (inherits body's content offset)
-    assert!((div_lb.content.x - 8.0).abs() < f32::EPSILON);
-    assert!((div_lb.content.y - 8.0).abs() < f32::EPSILON);
+    assert!((div_lb.content.origin.x - 8.0).abs() < f32::EPSILON);
+    assert!((div_lb.content.origin.y - 8.0).abs() < f32::EPSILON);
     // div width = body content width = 800 - 8 - 8 = 784
-    assert!((div_lb.content.width - 784.0).abs() < f32::EPSILON);
+    assert!((div_lb.content.size.width - 784.0).abs() < f32::EPSILON);
 }
 
 #[test]
 fn body_margin_reflected() {
     let (mut dom, _root, _html, body) = build_styled_dom();
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 1024.0, 768.0, &font_db);
+    layout_tree(&mut dom, Size::new(1024.0, 768.0), &font_db);
 
     let body_lb = get_layout(&dom, body);
     assert!((body_lb.margin.top - 8.0).abs() < f32::EPSILON);
     assert!((body_lb.margin.left - 8.0).abs() < f32::EPSILON);
-    assert!((body_lb.content.x - 8.0).abs() < f32::EPSILON);
-    assert!((body_lb.content.y - 8.0).abs() < f32::EPSILON);
+    assert!((body_lb.content.origin.x - 8.0).abs() < f32::EPSILON);
+    assert!((body_lb.content.origin.y - 8.0).abs() < f32::EPSILON);
     // body content width = 1024 - 8 - 8 = 1008
-    assert!((body_lb.content.width - 1008.0).abs() < f32::EPSILON);
+    assert!((body_lb.content.size.width - 1008.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -130,15 +130,15 @@ fn mixed_block_text_content() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     let body_lb = get_layout(&dom, body);
     // Block context (div is block). Text node is wrapped in an anonymous
     // block box (CSS 2.1 §9.2.1.1). Body height >= div height (50).
     assert!(
-        body_lb.content.height >= 50.0,
+        body_lb.content.size.height >= 50.0,
         "body height should be at least div height (50), got {}",
-        body_lb.content.height
+        body_lb.content.size.height
     );
 }
 
@@ -169,7 +169,7 @@ fn grid_container_dispatches() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     // Grid container should have a LayoutBox assigned
     assert!(dom.world().get::<&LayoutBox>(container).is_ok());
@@ -217,21 +217,21 @@ fn grid_nested_in_block() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     let grid_lb = get_layout(&dom, grid);
     let c1_lb = get_layout(&dom, c1);
     let c2_lb = get_layout(&dom, c2);
 
     // Grid is inside body (margin: 8px), so content starts at x=8.
-    assert!(approx_eq(grid_lb.content.x, 8.0));
+    assert!(approx_eq(grid_lb.content.origin.x, 8.0));
     // Grid content width = 800 - 16 = 784.
-    assert!(approx_eq(grid_lb.content.width, 784.0));
+    assert!(approx_eq(grid_lb.content.size.width, 784.0));
     // Each column = 784 / 2 = 392.
-    assert!(approx_eq(c1_lb.content.width, 392.0));
-    assert!(approx_eq(c2_lb.content.width, 392.0));
+    assert!(approx_eq(c1_lb.content.size.width, 392.0));
+    assert!(approx_eq(c2_lb.content.size.width, 392.0));
     // c2 starts at x = 8 + 392.
-    assert!(approx_eq(c2_lb.content.x, 400.0));
+    assert!(approx_eq(c2_lb.content.origin.x, 400.0));
 }
 
 #[test]
@@ -271,17 +271,17 @@ fn grid_item_is_flex_container() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     // Grid item should have LayoutBox.
     let flex_lb = get_layout(&dom, flex_item);
     let inner_lb = get_layout(&dom, inner);
 
     // Grid item gets 200px width from grid.
-    assert!(approx_eq(flex_lb.content.width, 200.0));
+    assert!(approx_eq(flex_lb.content.size.width, 200.0));
     // Inner flex item: width 50px, height 30px.
-    assert!(approx_eq(inner_lb.content.width, 50.0));
-    assert!(approx_eq(inner_lb.content.height, 30.0));
+    assert!(approx_eq(inner_lb.content.size.width, 50.0));
+    assert!(approx_eq(inner_lb.content.size.height, 30.0));
 }
 
 #[test]
@@ -315,14 +315,14 @@ fn inline_grid_dispatches_to_grid() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 600.0), &font_db);
 
     let container_lb = get_layout(&dom, container);
     let c1_lb = get_layout(&dom, c1);
 
     // 2 columns of 200px each -> container width = 400px (shrink-to-fit).
-    assert!(approx_eq(container_lb.content.width, 400.0));
-    assert!(approx_eq(c1_lb.content.width, 200.0));
+    assert!(approx_eq(container_lb.content.size.width, 400.0));
+    assert!(approx_eq(c1_lb.content.size.width, 200.0));
 }
 
 #[test]
@@ -340,11 +340,11 @@ fn viewport_height_enables_root_percentage_height() {
     );
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     let lb = get_layout(&dom, root);
     // 50% of viewport height 600 = 300.
-    assert!(approx_eq(lb.content.height, 300.0));
+    assert!(approx_eq(lb.content.size.height, 300.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -385,12 +385,12 @@ fn table_dispatches_to_table_layout() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     assert!(dom.world().get::<&LayoutBox>(table).is_ok());
     assert!(dom.world().get::<&LayoutBox>(td).is_ok());
     let table_lb = get_layout(&dom, table);
-    assert!(approx_eq(table_lb.content.width, 600.0));
+    assert!(approx_eq(table_lb.content.size.width, 600.0));
 }
 
 #[test]
@@ -428,13 +428,13 @@ fn table_nested_in_block() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 800.0, 600.0, &font_db);
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
 
     let table_lb = get_layout(&dom, table);
     // Table inside body (margin: 8px), so content starts at x=8.
-    assert!(approx_eq(table_lb.content.x, 8.0));
+    assert!(approx_eq(table_lb.content.origin.x, 8.0));
     // Table content width = 800 - 16 = 784.
-    assert!(approx_eq(table_lb.content.width, 784.0));
+    assert!(approx_eq(table_lb.content.size.width, 784.0));
 }
 
 #[test]
@@ -520,14 +520,14 @@ fn table_item_is_flex_container() {
     dom.append_child(flex, inner);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     assert!(dom.world().get::<&LayoutBox>(table).is_ok());
     assert!(dom.world().get::<&LayoutBox>(flex).is_ok());
     assert!(dom.world().get::<&LayoutBox>(inner).is_ok());
     let inner_lb = get_layout(&dom, inner);
     // Flex item height should be preserved.
-    assert!(approx_eq(inner_lb.content.height, 30.0));
+    assert!(approx_eq(inner_lb.content.size.height, 30.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -569,7 +569,7 @@ fn orphan_row_wrapped_in_anonymous_table() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     // The cell should have been laid out (via anonymous table wrapping).
     assert!(dom.world().get::<&LayoutBox>(td).is_ok());
@@ -620,7 +620,7 @@ fn orphan_row_group_wrapped_in_anonymous_table() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     // The cell should have been laid out.
     assert!(dom.world().get::<&LayoutBox>(td).is_ok());
@@ -665,7 +665,7 @@ fn orphan_row_in_grid_wrapped_in_anonymous_table() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     // The cell should have been laid out (via anonymous table wrapping in grid).
     assert!(
@@ -709,7 +709,7 @@ fn orphan_row_in_flex_wrapped_in_anonymous_table() {
     dom.append_child(tr, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     assert!(
         dom.world().get::<&LayoutBox>(td).is_ok(),
@@ -746,7 +746,7 @@ fn orphan_cell_wrapped_in_anonymous_row_and_table() {
     dom.append_child(div, td);
 
     let font_db = FontDatabase::new();
-    layout_tree(&mut dom, 600.0, 400.0, &font_db);
+    layout_tree(&mut dom, Size::new(600.0, 400.0), &font_db);
 
     // The cell should have been laid out via anonymous row + table wrapping.
     assert!(
@@ -777,11 +777,9 @@ fn layout_fragmented_single_fragment_when_content_fits() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
-        containing_width: 400.0,
-        containing_height: Some(1000.0),
+        containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -825,11 +823,9 @@ fn layout_fragmented_two_fragments_on_overflow() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
-        containing_width: 400.0,
-        containing_height: Some(1000.0),
+        containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -895,11 +891,9 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
-        containing_width: 400.0,
-        containing_height: Some(1000.0),
+        containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -931,11 +925,9 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
         fragmentation_type: elidex_layout_block::FragmentationType::Column,
     };
     let input = elidex_layout_block::LayoutInput {
-        containing_width: 400.0,
-        containing_height: Some(1000.0),
+        containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,

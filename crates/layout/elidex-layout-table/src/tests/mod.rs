@@ -3,8 +3,8 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
-    BorderCollapse, BorderStyle, ComputedStyle, Dimension, Display, LayoutBox, TableLayout,
-    TextAlign,
+    BorderCollapse, BorderStyle, ComputedStyle, CssSize, Dimension, Display, LayoutBox, Point,
+    TableLayout, TextAlign,
 };
 use elidex_text::FontDatabase;
 
@@ -50,18 +50,18 @@ fn do_layout_table(
     entity: elidex_ecs::Entity,
     containing_width: f32,
     containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
         containing_inline_size: containing_width,
-        offset_x,
-        offset_y,
+        offset,
         font_db,
         depth,
         float_ctx: None,

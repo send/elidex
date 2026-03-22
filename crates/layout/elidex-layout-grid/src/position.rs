@@ -6,11 +6,11 @@
 use std::collections::HashMap;
 
 use elidex_ecs::EcsDom;
-use elidex_layout_block::{ChildLayoutFn, LayoutInput, SubgridContext};
+use elidex_layout_block::{LayoutEnv, LayoutInput, SubgridContext};
 use elidex_plugin::{
-    AlignItems, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Rect, WritingMode,
+    AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point, Rect,
+    WritingMode,
 };
-use elidex_text::FontDatabase;
 
 use crate::track;
 use crate::{GridItem, LAYOUT_SIZE_EPSILON};
@@ -108,12 +108,11 @@ pub(crate) struct GridPlacement<'a> {
     pub(crate) row_tracks: &'a [track::ResolvedTrack],
     pub(crate) col_positions: &'a [f32],
     pub(crate) row_positions: &'a [f32],
-    pub(crate) content_x: f32,
-    pub(crate) content_y: f32,
+    pub(crate) content_origin: Point,
     /// Container inline-axis size (CSS Writing Modes §6.3, used for RTL mirroring).
     pub(crate) container_inline_size: f32,
     pub(crate) direction: Direction,
-    pub(crate) containing_height: Option<f32>,
+    pub(crate) containing: CssSize,
     /// Subgrid context for passing parent track sizes to subgrid children.
     pub(crate) subgrid_ctx: Option<&'a SubgridContext>,
     /// Container's writing mode (CSS Writing Modes §6.3).
@@ -132,16 +131,14 @@ pub(crate) fn position_items(
     dom: &mut EcsDom,
     items: &[GridItem],
     placement: &GridPlacement<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
+    env: &LayoutEnv<'_>,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
-    let content_x = placement.content_x;
-    let content_y = placement.content_y;
+    let content_x = placement.content_origin.x;
+    let content_y = placement.content_origin.y;
     let container_inline_size = placement.container_inline_size;
-    let containing_height = placement.containing_height;
+    let containing_height = placement.containing.height;
     let col_tracks = placement.col_tracks;
     let row_tracks = placement.row_tracks;
     let col_positions = placement.col_positions;
@@ -183,20 +180,14 @@ pub(crate) fn position_items(
                 bl_area_h
             };
             let prelim_input = LayoutInput {
-                containing_width: avail_w,
-                containing_height,
+                containing: CssSize {
+                    width: avail_w,
+                    height: containing_height,
+                },
                 containing_inline_size: prelim_inline_size,
-                offset_x: 0.0,
-                offset_y: 0.0,
-                font_db,
-                depth: depth + 1,
-                float_ctx: None,
-                viewport: None,
-                fragmentainer: None,
-                break_token: None,
-                subgrid: None,
+                ..LayoutInput::probe(env, avail_w)
             };
-            let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
+            let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
 
             if align_bl {
                 // CSS Grid §10.6: synthesized baseline = border-box bottom from
@@ -207,8 +198,10 @@ pub(crate) fn position_items(
                     *entry = entry.max(baseline);
                 } else {
                     // Border-box bottom from margin-box top.
-                    let baseline =
-                        item.margin.top + item.pb.top + prelim_lb.content.height + item.pb.bottom;
+                    let baseline = item.margin.top
+                        + item.pb.top
+                        + prelim_lb.content.size.height
+                        + item.pb.bottom;
                     let entry = row_baselines.entry(item.row_start).or_insert(0.0_f32);
                     *entry = entry.max(baseline);
                 }
@@ -219,8 +212,10 @@ pub(crate) fn position_items(
                     let entry = col_baselines.entry(item.col_start).or_insert(0.0_f32);
                     *entry = entry.max(baseline);
                 } else {
-                    let baseline =
-                        item.margin.left + item.pb.left + prelim_lb.content.width + item.pb.right;
+                    let baseline = item.margin.left
+                        + item.pb.left
+                        + prelim_lb.content.size.width
+                        + item.pb.right;
                     let entry = col_baselines.entry(item.col_start).or_insert(0.0_f32);
                     *entry = entry.max(baseline);
                 }
@@ -266,7 +261,7 @@ pub(crate) fn position_items(
         let child_style = elidex_layout_block::get_style(dom, item.entity);
         let item_content_w = if item.width_auto && item.justify != JustifyItems::Stretch {
             // Non-stretch: use content width (shrink-wrap).
-            item.content_width
+            item.content_size.width
         } else if item.width_auto {
             (avail_w - item.pb.left - item.pb.right).max(0.0)
         } else {
@@ -288,23 +283,17 @@ pub(crate) fn position_items(
             area_height
         };
         let prelim_input = LayoutInput {
-            containing_width: area_width,
-            containing_height,
+            containing: CssSize {
+                width: area_width,
+                height: containing_height,
+            },
             containing_inline_size: item_inline_size,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
-            subgrid: None,
+            ..LayoutInput::probe(env, area_width)
         };
-        let prelim_lb = layout_child(dom, item.entity, &prelim_input).layout_box;
+        let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
 
         // Resolve item content height: stretch fills the area, otherwise use content.
-        let prelim_content_h = prelim_lb.content.height;
+        let prelim_content_h = prelim_lb.content.size.height;
         let item_content_h = if should_stretch_cross(item.align, item.height_auto) {
             (avail_h - item.pb.top - item.pb.bottom).max(prelim_content_h)
         } else {
@@ -410,27 +399,25 @@ pub(crate) fn position_items(
             area_height
         };
         let final_input = LayoutInput {
-            containing_width: area_width,
-            containing_height: Some(item_content_h),
+            containing: CssSize::definite(area_width, item_content_h),
             containing_inline_size: final_inline_size,
-            offset_x: margin_box_x,
-            offset_y: margin_box_y,
-            font_db,
-            depth: depth + 1,
+            offset: Point::new(margin_box_x, margin_box_y),
+            font_db: env.font_db,
+            depth: env.depth + 1,
             float_ctx: None,
             viewport: None,
             fragmentainer: None,
             break_token: None,
             subgrid: child_subgrid_ctx.as_ref(),
         };
-        let final_lb = layout_child(dom, item.entity, &final_input).layout_box;
+        let final_lb = (env.layout_child)(dom, item.entity, &final_input).layout_box;
 
         // Ensure the content height matches the grid-resolved value.
-        if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {
+        if (item_content_h - final_lb.content.size.height).abs() > LAYOUT_SIZE_EPSILON {
             let corrected = LayoutBox {
                 content: Rect::new(
-                    final_lb.content.x,
-                    final_lb.content.y,
+                    final_lb.content.origin.x,
+                    final_lb.content.origin.y,
                     item_content_w,
                     item_content_h,
                 ),
@@ -454,7 +441,10 @@ pub(crate) fn position_items(
                 dom.world()
                     .get::<&LayoutBox>(first_item.entity)
                     .ok()
-                    .and_then(|lb| lb.first_baseline.map(|bl| lb.content.y - content_y + bl))
+                    .and_then(|lb| {
+                        lb.first_baseline
+                            .map(|bl| lb.content.origin.y - content_y + bl)
+                    })
             })
     }
 }

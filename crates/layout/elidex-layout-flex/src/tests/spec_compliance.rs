@@ -23,8 +23,7 @@ fn flex_item_inline_blockified() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -58,8 +57,7 @@ fn flex_item_inline_flex_to_flex() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -93,8 +91,7 @@ fn flex_item_inline_table_to_table() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -123,8 +120,7 @@ fn flex_item_block_unchanged() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -169,8 +165,7 @@ fn flex_auto_margin_main_both() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -179,9 +174,9 @@ fn flex_auto_margin_main_both() {
     let lb = get_lb(&dom, items[0]);
     // Free space = 400 - 100 = 300. Both auto → 150 each. Item at x=150.
     assert!(
-        approx_eq(lb.content.x, 150.0),
+        approx_eq(lb.content.origin.x, 150.0),
         "both auto margins should center: x={}, expected 150",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -207,8 +202,7 @@ fn flex_auto_margin_main_start() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -217,9 +211,9 @@ fn flex_auto_margin_main_start() {
     let lb = get_lb(&dom, items[0]);
     // Free space = 300. Only start auto → all 300 goes to start. Item at x=300.
     assert!(
-        approx_eq(lb.content.x, 300.0),
+        approx_eq(lb.content.origin.x, 300.0),
         "start auto margin should push right: x={}, expected 300",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -245,8 +239,7 @@ fn flex_auto_margin_main_end() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -255,9 +248,9 @@ fn flex_auto_margin_main_end() {
     let lb = get_lb(&dom, items[0]);
     // End auto only — item stays at x=0.
     assert!(
-        approx_eq(lb.content.x, 0.0),
+        approx_eq(lb.content.origin.x, 0.0),
         "end auto margin should keep at start: x={}, expected 0",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -287,8 +280,7 @@ fn flex_auto_margin_cross_both() {
         c,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -298,9 +290,9 @@ fn flex_auto_margin_cross_both() {
     // With wrap and align-content:stretch, single line stretches to 200.
     // item cross = 50. Auto margins: (200-50)/2 = 75. Item at y=75.
     assert!(
-        approx_eq(lb.content.y, 75.0),
+        approx_eq(lb.content.origin.y, 75.0),
         "both cross auto margins should center: y={}, expected 75",
-        lb.content.y,
+        lb.content.origin.y,
     );
 }
 
@@ -327,8 +319,7 @@ fn flex_auto_margin_overrides_justify() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -338,9 +329,9 @@ fn flex_auto_margin_overrides_justify() {
     // justify-content:center would put item at x=150, but auto margin overrides.
     // margin-left:auto absorbs 300 → item at x=300.
     assert!(
-        approx_eq(lb.content.x, 300.0),
+        approx_eq(lb.content.origin.x, 300.0),
         "auto margin should override justify-content: x={}, expected 300",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -367,8 +358,7 @@ fn flex_auto_margin_negative_space() {
         c,
         100.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -377,9 +367,9 @@ fn flex_auto_margin_negative_space() {
     let lb = get_lb(&dom, items[0]);
     // Negative free space → auto margins are 0. Item at x=0.
     assert!(
-        approx_eq(lb.content.x, 0.0),
+        approx_eq(lb.content.origin.x, 0.0),
         "negative space auto margin should be 0: x={}, expected 0",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -408,8 +398,7 @@ fn flex_auto_margin_main_both_column() {
         c,
         200.0,
         Some(400.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -418,9 +407,9 @@ fn flex_auto_margin_main_both_column() {
     let lb = get_lb(&dom, items[0]);
     // Container main (height) = 400, item main = 100. Free = 300. Both auto → 150 each.
     assert!(
-        approx_eq(lb.content.y, 150.0),
+        approx_eq(lb.content.origin.y, 150.0),
         "column both auto margins should center: y={}, expected 150",
-        lb.content.y,
+        lb.content.origin.y,
     );
 }
 
@@ -448,8 +437,7 @@ fn flex_auto_margin_main_start_column() {
         c,
         200.0,
         Some(400.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -458,9 +446,9 @@ fn flex_auto_margin_main_start_column() {
     let lb = get_lb(&dom, items[0]);
     // Free = 300. Only start (top) auto → all 300 to top. Item at y=300.
     assert!(
-        approx_eq(lb.content.y, 300.0),
+        approx_eq(lb.content.origin.y, 300.0),
         "column start auto margin should push to bottom: y={}, expected 300",
-        lb.content.y,
+        lb.content.origin.y,
     );
 }
 
@@ -483,8 +471,7 @@ fn flex_visibility_collapse_zero_main() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -492,9 +479,9 @@ fn flex_visibility_collapse_zero_main() {
 
     let lb = get_lb(&dom, items[1]);
     assert!(
-        lb.content.width < 1.0,
+        lb.content.size.width < 1.0,
         "collapsed item main size should be ~0: width={}",
-        lb.content.width,
+        lb.content.size.width,
     );
 }
 
@@ -513,8 +500,7 @@ fn flex_visibility_collapse_cross_contributes() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -523,9 +509,9 @@ fn flex_visibility_collapse_cross_contributes() {
     // The container height should reflect the taller (collapsed) item's cross size.
     let container_lb = get_lb(&dom, c);
     assert!(
-        container_lb.content.height >= 80.0,
+        container_lb.content.size.height >= 80.0,
         "line cross should include collapsed item: container_height={}, expected >= 80",
-        container_lb.content.height,
+        container_lb.content.size.height,
     );
 }
 
@@ -559,8 +545,7 @@ fn flex_visibility_collapse_siblings_fill() {
         c,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -570,9 +555,9 @@ fn flex_visibility_collapse_siblings_fill() {
     // With collapsed item's final_main=0 and margin_main=0, free space increases.
     // grow item (flex-grow:1) should expand to fill more space.
     assert!(
-        lb.content.width > 100.0,
+        lb.content.size.width > 100.0,
         "growing sibling should fill freed space: width={}, expected > 100",
-        lb.content.width,
+        lb.content.size.width,
     );
 }
 
@@ -592,8 +577,7 @@ fn flex_visibility_collapse_not_skipped() {
         c,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,

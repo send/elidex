@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 
+use elidex_plugin::{Point, Vector};
 use elidex_render::DisplayList;
 
 /// Winit-independent modifier key state.
@@ -30,10 +31,10 @@ pub struct ModifierState {
 /// and modifier key state for a mouse click.
 #[derive(Clone, Debug)]
 pub struct MouseClickEvent {
-    /// `(x, y)` position in content area (for hit testing).
-    pub point: (f32, f32),
-    /// `(x, y)` position in viewport (for DOM event clientX/clientY).
-    pub client_point: (f64, f64),
+    /// Position in content area (for hit testing).
+    pub point: Point,
+    /// Position in viewport (for DOM event clientX/clientY).
+    pub client_point: Point<f64>,
     /// Mouse button number (DOM spec: 0=primary, 1=aux, 2=secondary).
     pub button: u8,
     /// Modifier keys held during click.
@@ -57,10 +58,10 @@ pub enum BrowserToContent {
     },
     /// Mouse moved to content-relative coordinates.
     MouseMove {
-        /// `(x, y)` position in content area (for hit testing).
-        point: (f32, f32),
-        /// `(x, y)` position in viewport (for DOM event clientX/clientY).
-        client_point: (f64, f64),
+        /// Position in content area (for hit testing).
+        point: Point,
+        /// Position in viewport (for DOM event clientX/clientY).
+        client_point: Point<f64>,
     },
     /// Cursor left the content area.
     CursorLeft,
@@ -101,10 +102,10 @@ pub enum BrowserToContent {
     Reload,
     /// Mouse wheel scrolled in the content area.
     MouseWheel {
-        /// `(horizontal, vertical)` scroll delta in CSS pixels (positive = scroll right/down).
-        delta: (f64, f64),
-        /// `(x, y)` content-relative coordinates for scroll target hit testing.
-        point: (f32, f32),
+        /// Scroll delta in CSS pixels (positive = scroll right/down).
+        delta: Vector<f64>,
+        /// Content-relative coordinates for scroll target hit testing.
+        point: Point,
     },
     /// IME event.
     Ime {

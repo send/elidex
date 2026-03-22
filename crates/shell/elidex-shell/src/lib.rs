@@ -34,7 +34,8 @@ use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_net::FetchHandle;
 use elidex_plugin::{
-    AnimationEventInit, ComputedStyle, EventPayload, TransitionEventInit, ViewportOverflow,
+    AnimationEventInit, ComputedStyle, EventPayload, Size, TransitionEventInit, Vector,
+    ViewportOverflow,
 };
 use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
 use elidex_script_session::{DispatchEvent, SessionCore};
@@ -70,8 +71,7 @@ fn resolve_with_compat(
     dom: &mut EcsDom,
     author_stylesheets: &[&Stylesheet],
     registry: &elidex_plugin::CssPropertyRegistry,
-    viewport_width: f32,
-    viewport_height: f32,
+    viewport: Size,
 ) -> ViewportOverflow {
     let legacy_ua = legacy_ua_stylesheet();
     resolve_styles_with_compat(
@@ -79,8 +79,7 @@ fn resolve_with_compat(
         author_stylesheets,
         &[legacy_ua],
         &get_presentational_hints,
-        viewport_width,
-        viewport_height,
+        viewport,
         Some(registry),
     )
 }
@@ -140,10 +139,8 @@ pub struct PipelineResult {
     pub registry: elidex_plugin::CssPropertyRegistry,
     /// CSS animation/transition engine.
     pub animation_engine: AnimationEngine,
-    /// Current viewport width for layout.
-    pub viewport_width: f32,
-    /// Current viewport height for layout.
-    pub viewport_height: f32,
+    /// Current viewport dimensions for layout.
+    pub viewport: Size,
     /// Whether the text input caret should be visible in the display list.
     ///
     /// Set by the content thread's caret blink timer. Defaults to `true`.
@@ -152,8 +149,8 @@ pub struct PipelineResult {
     pub ancestor_cache: elidex_form::AncestorCache,
     /// Viewport-level overflow propagated from root/body element.
     pub viewport_overflow: ViewportOverflow,
-    /// Viewport scroll offset `(x, y)` synced from content thread before re-render.
-    pub scroll_offset: (f32, f32),
+    /// Viewport scroll offset synced from content thread before re-render.
+    pub scroll_offset: Vector,
 }
 
 impl PipelineResult {
@@ -238,12 +235,11 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         fetch_handle,
         registry,
         animation_engine,
-        viewport_width: DEFAULT_VIEWPORT_WIDTH,
-        viewport_height: DEFAULT_VIEWPORT_HEIGHT,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
-        scroll_offset: (0.0, 0.0),
+        scroll_offset: Vector::<f32>::ZERO,
     };
 
     // Start CSS animations declared in initial styles.
@@ -288,8 +284,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         &mut result.dom,
         &stylesheet_refs,
         &result.registry,
-        result.viewport_width,
-        result.viewport_height,
+        result.viewport,
     );
 
     // Phase 3: Detect transitions by comparing old vs new computed values.
@@ -304,12 +299,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     // Phase 4: Apply animated values from active transitions/animations to ComputedStyle.
     apply_active_animations(result);
 
-    layout_tree(
-        &mut result.dom,
-        result.viewport_width,
-        result.viewport_height,
-        &result.font_db,
-    );
+    layout_tree(&mut result.dom, result.viewport, &result.font_db);
 
     result.display_list = build_display_list_with_scroll(
         &result.dom,
@@ -860,12 +850,11 @@ pub fn build_pipeline_from_loaded(
         fetch_handle,
         registry,
         animation_engine,
-        viewport_width: DEFAULT_VIEWPORT_WIDTH,
-        viewport_height: DEFAULT_VIEWPORT_HEIGHT,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
-        scroll_offset: (0.0, 0.0),
+        scroll_offset: Vector::<f32>::ZERO,
     };
 
     // Start CSS animations declared in initial styles.

@@ -6,6 +6,8 @@ use std::sync::Arc;
 use hecs::Entity;
 use indexmap::IndexMap;
 
+use elidex_plugin::{Size, Vector};
+
 /// Generate string-keyed map accessor methods for a struct wrapping a `HashMap<String, String>`.
 macro_rules! impl_string_map {
     ($type:ty, $field:ident, $key_label:literal) => {
@@ -387,16 +389,12 @@ pub struct DocTypeData {
 /// for scroll containers (CSS Overflow L3 §3).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScrollState {
-    /// Current scroll offset `(x, y)` in CSS pixels.
-    pub scroll_offset: (f32, f32),
-    /// Total scrollable content width.
-    pub scroll_width: f32,
-    /// Total scrollable content height.
-    pub scroll_height: f32,
-    /// Visible client area width (padding box minus scrollbar).
-    pub client_width: f32,
-    /// Visible client area height (padding box minus scrollbar).
-    pub client_height: f32,
+    /// Current scroll offset in CSS pixels (displacement from origin).
+    pub scroll_offset: Vector,
+    /// Total scrollable content size.
+    pub scroll_size: Size,
+    /// Visible client area size (padding box minus scrollbar).
+    pub client_size: Size,
 }
 
 impl ScrollState {
@@ -409,30 +407,34 @@ impl ScrollState {
         client_height: f32,
     ) -> Self {
         Self {
-            scroll_offset: (0.0, 0.0),
-            scroll_width,
-            scroll_height,
-            client_width,
-            client_height,
+            scroll_offset: Vector::<f32>::ZERO,
+            scroll_size: Size {
+                width: scroll_width,
+                height: scroll_height,
+            },
+            client_size: Size {
+                width: client_width,
+                height: client_height,
+            },
         }
     }
 
     /// Maximum horizontal scroll offset (clamped to 0).
     #[must_use]
     pub fn max_scroll_x(&self) -> f32 {
-        (self.scroll_width - self.client_width).max(0.0)
+        (self.scroll_size.width - self.client_size.width).max(0.0)
     }
 
     /// Maximum vertical scroll offset (clamped to 0).
     #[must_use]
     pub fn max_scroll_y(&self) -> f32 {
-        (self.scroll_height - self.client_height).max(0.0)
+        (self.scroll_size.height - self.client_size.height).max(0.0)
     }
 
     /// Clamp scroll offsets to valid range.
     pub fn clamp_scroll(&mut self) {
-        self.scroll_offset.0 = self.scroll_offset.0.clamp(0.0, self.max_scroll_x());
-        self.scroll_offset.1 = self.scroll_offset.1.clamp(0.0, self.max_scroll_y());
+        self.scroll_offset.x = self.scroll_offset.x.clamp(0.0, self.max_scroll_x());
+        self.scroll_offset.y = self.scroll_offset.y.clamp(0.0, self.max_scroll_y());
     }
 }
 
@@ -461,24 +463,24 @@ mod tests {
     #[test]
     fn scroll_state_new_and_defaults() {
         let s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
-        assert_eq!(s.scroll_offset, (0.0, 0.0));
-        assert_eq!(s.scroll_width, 500.0);
-        assert_eq!(s.scroll_height, 1000.0);
-        assert_eq!(s.client_width, 300.0);
-        assert_eq!(s.client_height, 400.0);
+        assert_eq!(s.scroll_offset, Vector::<f32>::ZERO);
+        assert_eq!(s.scroll_size.width, 500.0);
+        assert_eq!(s.scroll_size.height, 1000.0);
+        assert_eq!(s.client_size.width, 300.0);
+        assert_eq!(s.client_size.height, 400.0);
 
         let d = ScrollState::default();
-        assert_eq!(d.scroll_offset, (0.0, 0.0));
-        assert_eq!(d.scroll_width, 0.0);
+        assert_eq!(d.scroll_offset, Vector::<f32>::ZERO);
+        assert_eq!(d.scroll_size.width, 0.0);
     }
 
     #[test]
     fn scroll_state_clamp() {
         let mut s = ScrollState::new(500.0, 1000.0, 300.0, 400.0);
-        s.scroll_offset = (999.0, -10.0);
+        s.scroll_offset = Vector::new(999.0, -10.0);
         s.clamp_scroll();
-        assert!((s.scroll_offset.0 - 200.0).abs() < f32::EPSILON);
-        assert_eq!(s.scroll_offset.1, 0.0);
+        assert!((s.scroll_offset.x - 200.0).abs() < f32::EPSILON);
+        assert_eq!(s.scroll_offset.y, 0.0);
     }
 
     #[test]

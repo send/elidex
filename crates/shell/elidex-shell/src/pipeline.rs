@@ -12,6 +12,8 @@ use elidex_script_session::{DispatchEvent, SessionCore};
 
 use elidex_plugin::ViewportOverflow;
 
+use elidex_plugin::Size;
+
 use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
 
 /// Common script execution and finalization phase shared by pipeline builders.
@@ -40,13 +42,8 @@ pub(super) fn run_scripts_and_finalize(
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer).
-    resolve_with_compat(
-        dom,
-        &stylesheet_refs,
-        registry,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    let default_viewport = Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
+    resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -67,20 +64,9 @@ pub(super) fn run_scripts_and_finalize(
     session.flush(dom);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    let viewport_overflow = resolve_with_compat(
-        dom,
-        &stylesheet_refs,
-        registry,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-    );
+    let viewport_overflow = resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);
 
-    layout_tree(
-        dom,
-        DEFAULT_VIEWPORT_WIDTH,
-        DEFAULT_VIEWPORT_HEIGHT,
-        font_db,
-    );
+    layout_tree(dom, default_viewport, font_db);
 
     (session, runtime, viewport_overflow)
 }

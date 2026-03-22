@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     ComputedStyle, CssSpecLevel, CssValue, DomSpecLevel, HtmlSpecLevel, HttpRequest, HttpResponse,
-    LayoutContext, LayoutResult, NetworkError, WebApiSpecLevel,
+    LayoutContext, LayoutResult, NetworkError, Size, WebApiSpecLevel,
 };
 
 /// Context for resolving relative CSS values to computed values.
@@ -17,10 +17,8 @@ use crate::{
 /// percentage units.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResolveContext {
-    /// Viewport width in px.
-    pub viewport_width: f32,
-    /// Viewport height in px.
-    pub viewport_height: f32,
+    /// Viewport dimensions in px.
+    pub viewport: Size,
     /// Base value for `em` unit resolution. For font-size this is the
     /// parent's font-size; for all other properties it is the element's
     /// own computed font-size.
@@ -50,8 +48,7 @@ impl ResolveContext {
 impl Default for ResolveContext {
     fn default() -> Self {
         Self {
-            viewport_width: 1280.0,
-            viewport_height: 720.0,
+            viewport: Size::new(1280.0, 720.0),
             em_base: 16.0,
             root_font_size: 16.0,
         }
@@ -448,8 +445,8 @@ mod tests {
         assert_eq!(model.name(), "block");
         assert_eq!(model.spec_level(), DomSpecLevel::Living);
         let result = model.layout(&node, &children, &constraints, &ctx);
-        assert_eq!(result.bounds.width, 320.0);
-        assert_eq!(result.bounds.height, 20.0);
+        assert_eq!(result.bounds.size.width, 320.0);
+        assert_eq!(result.bounds.size.height, 20.0);
         let _ = LayoutBox::default();
     }
 
@@ -463,8 +460,8 @@ mod tests {
     #[test]
     fn resolve_context_default() {
         let ctx = ResolveContext::default();
-        assert_eq!(ctx.viewport_width, 1280.0);
-        assert_eq!(ctx.viewport_height, 720.0);
+        assert_eq!(ctx.viewport.width, 1280.0);
+        assert_eq!(ctx.viewport.height, 720.0);
         assert_eq!(ctx.em_base, 16.0);
         assert_eq!(ctx.root_font_size, 16.0);
     }

@@ -6,7 +6,7 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, Rect};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Rect, Vector};
 
 use super::ContentState;
 
@@ -17,8 +17,8 @@ enum ScrollTarget {
 }
 
 /// Handle a `MouseWheel` IPC message.
-pub(super) fn handle_wheel(state: &mut ContentState, delta: (f64, f64), point: (f32, f32)) {
-    if !delta.0.is_finite() || !delta.1.is_finite() {
+pub(super) fn handle_wheel(state: &mut ContentState, delta: Vector<f64>, point: Point) {
+    if !delta.is_finite() {
         return;
     }
 
@@ -29,10 +29,8 @@ pub(super) fn handle_wheel(state: &mut ContentState, delta: (f64, f64), point: (
         return;
     }
 
-    let query = HitTestQuery {
-        point,
-        scroll: state.viewport_scroll.scroll_offset,
-    };
+    let so = state.viewport_scroll.scroll_offset;
+    let query = HitTestQuery { point, scroll: so };
     let hit = hit_test_with_scroll(&state.pipeline.dom, &query);
     let target = hit.map_or(ScrollTarget::Viewport, |h| {
         find_scroll_target(&state.pipeline.dom, h.entity)
@@ -76,11 +74,11 @@ fn find_scroll_target(dom: &EcsDom, hit_entity: Entity) -> ScrollTarget {
 /// Apply scroll delta to the viewport `ScrollState`. Returns `true` if scroll changed.
 fn apply_viewport_scroll(
     state: &mut ContentState,
-    delta: (f64, f64),
+    delta: Vector<f64>,
     can_scroll_x: bool,
     can_scroll_y: bool,
 ) -> bool {
-    let (dx, dy) = delta;
+    let (dx, dy) = (delta.x, delta.y);
     let old = state.viewport_scroll.scroll_offset;
     if can_scroll_x {
         #[allow(clippy::cast_possible_truncation)]
@@ -89,7 +87,7 @@ fn apply_viewport_scroll(
             dx_f32.is_finite(),
             "scroll delta x must be finite after cast"
         );
-        state.viewport_scroll.scroll_offset.0 += dx_f32;
+        state.viewport_scroll.scroll_offset.x += dx_f32;
     }
     if can_scroll_y {
         #[allow(clippy::cast_possible_truncation)]
@@ -98,11 +96,11 @@ fn apply_viewport_scroll(
             dy_f32.is_finite(),
             "scroll delta y must be finite after cast"
         );
-        state.viewport_scroll.scroll_offset.1 += dy_f32;
+        state.viewport_scroll.scroll_offset.y += dy_f32;
     }
     state.viewport_scroll.clamp_scroll();
     let new = state.viewport_scroll.scroll_offset;
-    (new.0 - old.0).abs() > f32::EPSILON || (new.1 - old.1).abs() > f32::EPSILON
+    (new.x - old.x).abs() > f32::EPSILON || (new.y - old.y).abs() > f32::EPSILON
 }
 
 /// Compute the maximum content extent along an axis from all visible `LayoutBox` border boxes.
@@ -131,12 +129,12 @@ fn compute_content_extent(dom: &EcsDom, extent_fn: fn(&Rect) -> f32) -> f32 {
 
 /// Compute the maximum content height from all visible `LayoutBox` border boxes.
 pub(super) fn compute_content_height(dom: &EcsDom) -> f32 {
-    compute_content_extent(dom, |bb| bb.y + bb.height)
+    compute_content_extent(dom, Rect::bottom)
 }
 
 /// Compute the maximum content width from all visible `LayoutBox` border boxes.
 pub(super) fn compute_content_width(dom: &EcsDom) -> f32 {
-    compute_content_extent(dom, |bb| bb.x + bb.width)
+    compute_content_extent(dom, Rect::right)
 }
 
 /// Update `viewport_scroll` dimensions after re-render.
@@ -146,10 +144,10 @@ pub(super) fn compute_content_width(dom: &EcsDom) -> f32 {
 pub(super) fn update_viewport_scroll_dimensions(state: &mut ContentState) {
     let ch = compute_content_height(&state.pipeline.dom);
     let cw = compute_content_width(&state.pipeline.dom);
-    state.viewport_scroll.client_width = state.pipeline.viewport_width;
-    state.viewport_scroll.client_height = state.pipeline.viewport_height;
-    state.viewport_scroll.scroll_width = cw.max(state.viewport_scroll.client_width);
-    state.viewport_scroll.scroll_height = ch.max(state.viewport_scroll.client_height);
+    state.viewport_scroll.client_size.width = state.pipeline.viewport.width;
+    state.viewport_scroll.client_size.height = state.pipeline.viewport.height;
+    state.viewport_scroll.scroll_size.width = cw.max(state.viewport_scroll.client_size.width);
+    state.viewport_scroll.scroll_size.height = ch.max(state.viewport_scroll.client_size.height);
     state.viewport_scroll.clamp_scroll();
 }
 
@@ -161,28 +159,28 @@ mod tests {
     #[test]
     fn viewport_scroll_down() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        let old_y = scroll.scroll_offset.1;
-        scroll.scroll_offset.1 += 100.0;
+        let old_y = scroll.scroll_offset.y;
+        scroll.scroll_offset.y += 100.0;
         scroll.clamp_scroll();
-        assert!(scroll.scroll_offset.1 > old_y);
-        assert!((scroll.scroll_offset.1 - 100.0).abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.y > old_y);
+        assert!((scroll.scroll_offset.y - 100.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn viewport_scroll_clamp_max() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        scroll.scroll_offset.1 += 5000.0;
+        scroll.scroll_offset.y += 5000.0;
         scroll.clamp_scroll();
         // max_scroll_y = 2000 - 768 = 1232
-        assert!((scroll.scroll_offset.1 - 1232.0).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.y - 1232.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn viewport_scroll_clamp_min() {
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        scroll.scroll_offset.1 -= 100.0;
+        scroll.scroll_offset.y -= 100.0;
         scroll.clamp_scroll();
-        assert!(scroll.scroll_offset.1.abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.y.abs() < f32::EPSILON);
     }
 
     #[test]
@@ -190,11 +188,11 @@ mod tests {
         // When overflow is Hidden, allows_scroll is false so handle_wheel
         // returns early. Test that apply_viewport_scroll respects axis flags.
         let mut scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        let old_y = scroll.scroll_offset.1;
+        let old_y = scroll.scroll_offset.y;
         // Simulate: can_scroll_y = false
         // (don't add delta)
         scroll.clamp_scroll();
-        assert!((scroll.scroll_offset.1 - old_y).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.y - old_y).abs() < f32::EPSILON);
 
         // Double-check: Hidden does not create scroll container
         let vp = ViewportOverflow::from_propagated(Overflow::Hidden, Overflow::Hidden);
@@ -204,21 +202,21 @@ mod tests {
     #[test]
     fn viewport_scroll_horizontal() {
         let mut scroll = ScrollState::new(3000.0, 768.0, 1024.0, 768.0);
-        scroll.scroll_offset.0 += 200.0;
+        scroll.scroll_offset.x += 200.0;
         scroll.clamp_scroll();
-        assert!((scroll.scroll_offset.0 - 200.0).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.x - 200.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn nan_delta_is_ignored() {
         // NaN deltas should be rejected before reaching ScrollState.
         let scroll = ScrollState::new(1024.0, 2000.0, 1024.0, 768.0);
-        assert!(scroll.scroll_offset.1.abs() < f32::EPSILON);
+        assert!(scroll.scroll_offset.y.abs() < f32::EPSILON);
         // NaN guard is tested via handle_wheel in integration; here verify
         // ScrollState is not corrupted by validating clamp works on clean state.
         let mut s = scroll;
         s.clamp_scroll();
-        assert!(s.scroll_offset.1.abs() < f32::EPSILON);
+        assert!(s.scroll_offset.y.abs() < f32::EPSILON);
     }
 
     #[test]
@@ -231,7 +229,7 @@ mod tests {
     #[test]
     fn content_height_single_block() {
         use elidex_ecs::{Attributes, EcsDom};
-        use elidex_plugin::{ComputedStyle, LayoutBox, Rect};
+        use elidex_plugin::{ComputedStyle, LayoutBox, Point, Rect, Size};
 
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
@@ -239,10 +237,11 @@ mod tests {
         let _ = dom.append_child(doc, el);
         let lb = LayoutBox {
             content: Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 200.0,
-                height: 500.0,
+                origin: Point::ZERO,
+                size: Size {
+                    width: 200.0,
+                    height: 500.0,
+                },
             },
             ..LayoutBox::default()
         };

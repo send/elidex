@@ -26,7 +26,7 @@ impl App {
 
         // Track cursor position.
         if let WindowEvent::CursorMoved { position, .. } = &event {
-            self.cursor_pos = Some((position.x, position.y));
+            self.cursor_pos = Some(elidex_plugin::Point::new(position.x, position.y));
         }
 
         // Pass to egui first.
@@ -47,7 +47,7 @@ impl App {
             .is_some_and(|tab| tab.chrome.address_focused);
 
         let position = self.tab_bar_position();
-        let (x_offset, y_offset) = chrome::chrome_content_offset(position);
+        let offset = chrome::chrome_content_offset(position);
 
         // Most event arms need a redraw; track exceptions explicitly.
         let mut needs_redraw = true;
@@ -60,7 +60,10 @@ impl App {
                 needs_redraw = false;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_cursor_move_threaded(position.x, position.y, x_offset, y_offset);
+                self.handle_cursor_move_threaded(
+                    elidex_plugin::Point::new(position.x, position.y),
+                    offset,
+                );
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_in_content = false;
@@ -71,7 +74,7 @@ impl App {
                 button,
                 ..
             } => {
-                self.handle_mouse_press_threaded(button, x_offset, y_offset);
+                self.handle_mouse_press_threaded(button, offset);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -83,7 +86,7 @@ impl App {
                 });
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_mouse_wheel_threaded(delta, x_offset, y_offset);
+                self.handle_mouse_wheel_threaded(delta, offset);
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
@@ -175,20 +178,15 @@ impl App {
     /// to clear hover state (otherwise `:hover` stays stuck).
     fn handle_cursor_move_threaded(
         &mut self,
-        client_x: f64,
-        client_y: f64,
-        x_offset: f32,
-        y_offset: f32,
+        client_pos: elidex_plugin::Point<f64>,
+        offset: elidex_plugin::Point,
     ) {
-        #[allow(clippy::cast_possible_truncation)]
-        let x = (client_x as f32) - x_offset;
-        #[allow(clippy::cast_possible_truncation)]
-        let y = (client_y as f32) - y_offset;
-        if x >= 0.0 && y >= 0.0 {
+        let content_pos = client_pos.to_f32() - offset.to_vector();
+        if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
-                point: (x, y),
-                client_point: (client_x, client_y),
+                point: content_pos,
+                client_point: client_pos,
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -200,19 +198,15 @@ impl App {
     fn handle_mouse_press_threaded(
         &mut self,
         button: winit::event::MouseButton,
-        x_offset: f32,
-        y_offset: f32,
+        offset: elidex_plugin::Point,
     ) {
-        if let Some((cx, cy)) = self.cursor_pos {
-            #[allow(clippy::cast_possible_truncation)]
-            let x = (cx as f32) - x_offset;
-            #[allow(clippy::cast_possible_truncation)]
-            let y = (cy as f32) - y_offset;
-            if y >= 0.0 && x >= 0.0 {
+        if let Some(cursor) = self.cursor_pos {
+            let content_pos = cursor.to_f32() - offset.to_vector();
+            if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-                    point: (x, y),
-                    client_point: (cx, cy),
+                    point: content_pos,
+                    client_point: cursor,
                     button: winit_button_to_dom(button),
                     mods,
                 }));
@@ -231,24 +225,24 @@ impl App {
     fn handle_mouse_wheel_threaded(
         &mut self,
         delta: MouseScrollDelta,
-        x_offset: f32,
-        y_offset: f32,
+        offset: elidex_plugin::Point,
     ) {
         const LINE_SCROLL_PX: f64 = 40.0;
-        let (delta_x, delta_y) = match delta {
-            MouseScrollDelta::LineDelta(x, y) => (
+        let scroll_delta = match delta {
+            MouseScrollDelta::LineDelta(x, y) => elidex_plugin::Vector::new(
                 -f64::from(x) * LINE_SCROLL_PX,
                 -f64::from(y) * LINE_SCROLL_PX,
             ),
-            MouseScrollDelta::PixelDelta(pos) => (-pos.x, -pos.y),
+            MouseScrollDelta::PixelDelta(pos) => elidex_plugin::Vector::new(-pos.x, -pos.y),
         };
-        let (x, y) = self.cursor_pos.map_or((0.0_f32, 0.0_f32), |(cx, cy)| {
-            #[allow(clippy::cast_possible_truncation)]
-            ((cx as f32) - x_offset, (cy as f32) - y_offset)
-        });
+        let point = self
+            .cursor_pos
+            .map_or(elidex_plugin::Point::ZERO, |cursor| {
+                cursor.to_f32() - offset.to_vector()
+            });
         self.send_to_content(BrowserToContent::MouseWheel {
-            delta: (delta_x, delta_y),
-            point: (x, y),
+            delta: scroll_delta,
+            point,
         });
     }
 

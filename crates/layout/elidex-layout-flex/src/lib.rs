@@ -10,9 +10,9 @@ use elidex_layout_block::{
     vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, Dimension, Direction,
-    Display, EdgeSizes, FlexBasis, FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
-    Visibility, WritingMode,
+    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, CssSize, Dimension,
+    Direction, Display, EdgeSizes, FlexBasis, FlexDirection, FlexWrap, JustifyContent, LayoutBox,
+    Point, Rect, Visibility, WritingMode,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -171,8 +171,7 @@ impl FlexItem {
 // ---------------------------------------------------------------------------
 
 pub(crate) struct FlexContext {
-    pub(crate) content_x: f32,
-    pub(crate) content_y: f32,
+    pub(crate) content_origin: Point,
     pub(crate) content_width: f32,
     pub(crate) horizontal: bool,
     pub(crate) container_main: f32,
@@ -181,12 +180,11 @@ pub(crate) struct FlexContext {
     pub(crate) justify: JustifyContent,
     pub(crate) align_items: AlignItems,
     pub(crate) align_content: AlignContent,
-    pub(crate) containing_width: f32,
-    pub(crate) containing_height: Option<f32>,
+    pub(crate) containing: CssSize,
     /// Containing block's inline size (for margin/padding % resolution).
     pub(crate) inline_containing: f32,
     /// The container's own definite height (for children's percentage height resolution).
-    pub(crate) container_definite_height: Option<f32>,
+    pub(crate) resolved_height: Option<f32>,
     /// Gap between items on the main axis.
     pub(crate) gap_main: f32,
     /// Gap between lines on the cross axis.
@@ -234,10 +232,10 @@ pub fn layout_flex(
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
@@ -271,8 +269,7 @@ pub fn layout_flex(
             entity,
             &EmptyContainerParams {
                 style: &style,
-                content_x,
-                content_y,
+                content_origin: Point::new(content_x, content_y),
                 content_width,
                 containing_height,
                 padding,
@@ -295,11 +292,10 @@ pub fn layout_flex(
     };
 
     // Container's own definite height for children's percentage height resolution.
-    let container_definite_height = resolve_explicit_height(&style, containing_height);
+    let resolved_height = resolve_explicit_height(&style, containing_height);
 
     let ctx = FlexContext {
-        content_x,
-        content_y,
+        content_origin: Point::new(content_x, content_y),
         content_width,
         horizontal,
         container_main,
@@ -308,10 +304,12 @@ pub fn layout_flex(
         justify: style.justify_content,
         align_items: style.align_items,
         align_content: style.align_content,
-        containing_width,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
         inline_containing,
-        container_definite_height,
+        resolved_height,
         gap_main,
         gap_cross,
         css_direction: style.direction,
@@ -324,7 +322,7 @@ pub fn layout_flex(
         font_db,
         layout_child,
         depth,
-        input_viewport: input.viewport,
+        viewport: input.viewport,
     };
 
     // --- Collect, sort, flex-resolve, layout, position ---
@@ -413,13 +411,21 @@ pub fn layout_flex(
         dom.world()
             .get::<&LayoutBox>(first_item.entity)
             .ok()
-            .and_then(|lb| lb.first_baseline.map(|bl| lb.content.y - content_y + bl))
+            .and_then(|lb| {
+                lb.first_baseline
+                    .map(|bl| lb.content.origin.y - ctx.content_origin.y + bl)
+            })
     } else {
         None
     };
 
     let lb = LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::new(
+            ctx.content_origin.x,
+            ctx.content_origin.y,
+            content_width,
+            content_height,
+        ),
         padding,
         border,
         margin,
@@ -435,18 +441,23 @@ pub fn layout_flex(
     let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
     if is_cb {
         let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
-            dom, &children, content_x, content_y,
+            dom,
+            &children,
+            ctx.content_origin,
         );
         let pb = lb.padding_box();
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+        };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
             &pb,
-            input.viewport,
             &static_positions,
-            font_db,
-            layout_child,
-            depth,
+            &pos_env,
         );
     }
 
@@ -575,24 +586,14 @@ fn collect_flex_items(
                 ctx.content_width
             };
             let child_input = LayoutInput {
-                containing_width: probe_width,
-                containing_height: None,
-                containing_inline_size: probe_width,
-                offset_x: 0.0,
-                offset_y: 0.0,
-                font_db: env.font_db,
-                depth: env.depth + 1,
-                float_ctx: None,
-                viewport: env.input_viewport,
-                fragmentainer: None,
-                break_token: None,
-                subgrid: None,
+                viewport: env.viewport,
+                ..LayoutInput::probe(env, probe_width)
             };
             let child_lb = (env.layout_child)(dom, child, &child_input).layout_box;
             if ctx.horizontal {
-                child_lb.content.width
+                child_lb.content.size.width
             } else {
-                child_lb.content.height
+                child_lb.content.size.height
             }
         };
 
@@ -607,7 +608,7 @@ fn collect_flex_items(
             )
         } else {
             // Column direction: items' containing block is the flex container itself.
-            let ch = ctx.container_definite_height.unwrap_or(0.0);
+            let ch = ctx.resolved_height.unwrap_or(0.0);
             (
                 child_style.min_height,
                 resolve_min_max(child_style.max_height, ch, f32::INFINITY),
@@ -685,24 +686,14 @@ fn compute_automatic_minimum(
 
     // Content-based minimum: probe layout at near-zero width.
     let probe_input = LayoutInput {
-        containing_width: 1.0,
-        containing_height: None,
-        containing_inline_size: 1.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
-        font_db: env.font_db,
-        depth: env.depth + 1,
-        float_ctx: None,
-        viewport: env.input_viewport,
-        fragmentainer: None,
-        break_token: None,
-        subgrid: None,
+        viewport: env.viewport,
+        ..LayoutInput::probe(env, 1.0)
     };
     let probe_lb = (env.layout_child)(dom, child, &probe_input).layout_box;
     let content_min = if ctx.horizontal {
-        probe_lb.content.width
+        probe_lb.content.size.width
     } else {
-        probe_lb.content.height
+        probe_lb.content.size.height
     };
 
     // Specified size suggestion (CSS Flexbox §4.5):

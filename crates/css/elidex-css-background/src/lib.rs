@@ -9,8 +9,8 @@ use elidex_plugin::{
         BackgroundImage, BgAttachment, BgPosition, BgRepeat, BgRepeatAxis, BgSize, BoxArea,
     },
     css_resolve::resolve_color,
-    ComputedStyle, CssColor, CssPropertyHandler, CssValue, LengthUnit, ParseError,
-    PropertyDeclaration, ResolveContext,
+    ComputedStyle, CssColor, CssPropertyHandler, CssValue, LengthUnit, ParseError, Point,
+    PropertyDeclaration, ResolveContext, Size,
 };
 
 mod gradient;
@@ -328,31 +328,31 @@ fn serialize_radial_gradient(rg: &elidex_plugin::background::RadialGradient) -> 
     let mut s = String::from(prefix);
 
     // Emit shape/size if explicit radii are set
-    let has_radii = rg.radii.0 > 0.0 || rg.radii.1 > 0.0;
+    let has_radii = rg.radii.width > 0.0 || rg.radii.height > 0.0;
     if has_radii {
-        let is_circle = (rg.radii.0 - rg.radii.1).abs() < 0.01;
+        let is_circle = (rg.radii.width - rg.radii.height).abs() < 0.01;
         if is_circle {
             s.push_str("circle ");
-            s.push_str(&fmt_f32(rg.radii.0));
+            s.push_str(&fmt_f32(rg.radii.width));
             s.push_str("px");
         } else {
-            s.push_str(&fmt_f32(rg.radii.0));
+            s.push_str(&fmt_f32(rg.radii.width));
             s.push_str("px ");
-            s.push_str(&fmt_f32(rg.radii.1));
+            s.push_str(&fmt_f32(rg.radii.height));
             s.push_str("px");
         }
     }
 
     // Emit center if not default 50% 50%
-    let non_default_center = (rg.center.0 - 50.0).abs() > 0.01 || (rg.center.1 - 50.0).abs() > 0.01;
+    let non_default_center = (rg.center.x - 50.0).abs() > 0.01 || (rg.center.y - 50.0).abs() > 0.01;
     if non_default_center {
         if has_radii {
             s.push(' ');
         }
         s.push_str("at ");
-        s.push_str(&fmt_f32(rg.center.0));
+        s.push_str(&fmt_f32(rg.center.x));
         s.push_str("% ");
-        s.push_str(&fmt_f32(rg.center.1));
+        s.push_str(&fmt_f32(rg.center.y));
         s.push('%');
     }
 
@@ -373,7 +373,7 @@ fn serialize_conic_gradient(cg: &elidex_plugin::background::ConicGradient) -> St
     };
     let mut s = String::from(prefix);
     let non_default_angle = cg.start_angle.abs() > 0.01;
-    let non_default_center = (cg.center.0 - 50.0).abs() > 0.01 || (cg.center.1 - 50.0).abs() > 0.01;
+    let non_default_center = (cg.center.x - 50.0).abs() > 0.01 || (cg.center.y - 50.0).abs() > 0.01;
     if non_default_angle {
         s.push_str("from ");
         s.push_str(&fmt_f32(cg.start_angle));
@@ -386,9 +386,9 @@ fn serialize_conic_gradient(cg: &elidex_plugin::background::ConicGradient) -> St
     }
     if non_default_center {
         s.push_str("at ");
-        s.push_str(&fmt_f32(cg.center.0));
+        s.push_str(&fmt_f32(cg.center.x));
         s.push_str("% ");
-        s.push_str(&fmt_f32(cg.center.1));
+        s.push_str(&fmt_f32(cg.center.y));
         s.push_str("%, ");
     }
     serialize_angular_stops(&cg.stops, &mut s);
@@ -621,7 +621,7 @@ pub fn resolve_bg_image(value: &CssValue) -> BackgroundImage {
                 let resolved_stops = resolve_color_stops(stops);
                 BackgroundImage::RadialGradient(RadialGradient {
                     center,
-                    radii: (0.0, 0.0), // Resolved against painting area at render time
+                    radii: Size::ZERO, // Resolved against painting area at render time
                     stops: resolved_stops,
                     repeating: *repeating,
                 })
@@ -804,10 +804,10 @@ fn resolve_angular_stops(
         .collect()
 }
 
-/// Resolve position pair from parse-stage `CssValue` list to (f32, f32) percentages.
-fn resolve_position_pair(position: Option<&Vec<CssValue>>) -> (f32, f32) {
+/// Resolve position pair from parse-stage `CssValue` list to a `Point` (percentages).
+fn resolve_position_pair(position: Option<&Vec<CssValue>>) -> Point {
     let Some(pos) = position else {
-        return (50.0, 50.0); // center center
+        return Point::new(50.0, 50.0); // center center
     };
     let x = match pos.first() {
         Some(CssValue::Percentage(p)) => *p,
@@ -819,7 +819,7 @@ fn resolve_position_pair(position: Option<&Vec<CssValue>>) -> (f32, f32) {
         Some(CssValue::Length(v, _)) => *v,
         _ => 50.0,
     };
-    (x, y)
+    Point::new(x, y)
 }
 
 /// Convert a `CssValue` to a `BgRepeat`.

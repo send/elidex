@@ -13,12 +13,12 @@ use elidex_layout_block::{
     resolve_padding, sanitize_border, ChildLayoutFn, LayoutInput, LayoutOutcome,
 };
 use elidex_plugin::{
-    BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, Dimension, Display, EdgeSizes, Float,
-    LayoutBox, MulticolInfo, Position, Rect, WritingModeContext,
+    BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, CssSize, Dimension, Display, EdgeSizes,
+    Float, LayoutBox, MulticolInfo, Point, Position, Rect, Size, Vector, WritingModeContext,
 };
 
 use algo::{compute_column_geometry, ColumnGeometry};
-use fill::{fill_columns_balanced, fill_columns_sequential};
+use fill::{fill_columns_balanced, fill_columns_sequential, ColumnFillEnv};
 
 /// Maximum depth for descendant walks to prevent infinite loops on corrupted trees.
 const MAX_DESCENDANT_DEPTH: usize = 10_000;
@@ -34,8 +34,7 @@ enum Segment {
 /// Shared layout context for column fill functions, reducing argument counts.
 #[derive(Clone, Copy)]
 pub(crate) struct ColumnLayoutCtx {
-    pub(crate) content_x: f32,
-    pub(crate) content_y: f32,
+    pub(crate) content_origin: Point,
     pub(crate) block_offset: f32,
     pub(crate) wm: WritingModeContext,
 }
@@ -87,9 +86,9 @@ pub fn layout_multicol(
     };
 
     let available_inline = if is_horizontal {
-        input.containing_width
+        input.containing.width
     } else {
-        input.containing_height.unwrap_or(input.containing_width)
+        input.containing.height_or_width()
     };
 
     // --- Resolve inline-size ---
@@ -126,17 +125,17 @@ pub fn layout_multicol(
     }
 
     // --- Content position ---
-    let (content_x, content_y) = if is_horizontal {
-        (
-            input.offset_x + margin_inline_start + border.left + padding.left,
-            input.offset_y + margin_block_start + border.top + padding.top,
+    let content_origin = if is_horizontal {
+        Point::new(
+            input.offset.x + margin_inline_start + border.left + padding.left,
+            input.offset.y + margin_block_start + border.top + padding.top,
         )
     } else {
         let l_padding = elidex_plugin::LogicalEdges::from_physical(padding, wm);
         let l_border = elidex_plugin::LogicalEdges::from_physical(border, wm);
-        (
-            input.offset_x + margin_block_start + l_border.block_start + l_padding.block_start,
-            input.offset_y + margin_inline_start + l_border.inline_start + l_padding.inline_start,
+        Point::new(
+            input.offset.x + margin_block_start + l_border.block_start + l_padding.block_start,
+            input.offset.y + margin_inline_start + l_border.inline_start + l_padding.inline_start,
         )
     };
 
@@ -151,9 +150,9 @@ pub fn layout_multicol(
 
     // --- Height determination ---
     let containing_block = if is_horizontal {
-        input.containing_height
+        input.containing.height
     } else {
-        Some(input.containing_width)
+        Some(input.containing.width)
     };
     let definite_height =
         resolve_definite_block_size(&style, containing_block, &padding, &border, wm);
@@ -165,9 +164,9 @@ pub fn layout_multicol(
         style.max_width
     };
     let containing_for_minmax = if is_horizontal {
-        input.containing_height.unwrap_or(0.0)
+        input.containing.height_or_zero()
     } else {
-        input.containing_width
+        input.containing.width
     };
     let max_block_size =
         elidex_layout_block::resolve_min_max(max_block_dim, containing_for_minmax, f32::INFINITY);
@@ -178,7 +177,9 @@ pub fn layout_multicol(
 
     // Collect static positions for absolutely positioned children.
     let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
-        dom, &children, content_x, content_y,
+        dom,
+        &children,
+        content_origin,
     );
 
     // --- Lay out segments ---
@@ -192,8 +193,7 @@ pub fn layout_multicol(
                     continue;
                 }
                 let col_ctx = ColumnLayoutCtx {
-                    content_x,
-                    content_y,
+                    content_origin,
                     block_offset: block_cursor,
                     wm,
                 };
@@ -202,17 +202,26 @@ pub fn layout_multicol(
                 } else {
                     None
                 };
+                let layout_env = elidex_layout_block::LayoutEnv {
+                    font_db,
+                    layout_child,
+                    depth,
+                    viewport: input.viewport,
+                };
+                let env = ColumnFillEnv {
+                    input,
+                    geom: &geom,
+                    env: &layout_env,
+                    parent_entity: entity,
+                    col_ctx: &col_ctx,
+                };
                 let (frags, col_height) = layout_normal_segment(
                     dom,
                     seg_children,
-                    input,
-                    &geom,
+                    &env,
                     definite_height,
                     balance_max,
                     &style,
-                    &col_ctx,
-                    layout_child,
-                    entity,
                 );
 
                 // Position column fragments.
@@ -226,24 +235,25 @@ pub fn layout_multicol(
             Segment::Spanner(spanner_entity) => {
                 // Lay out spanner at full container width.
                 let (spanner_x, spanner_y) = if is_horizontal {
-                    (content_x, content_y + block_cursor)
+                    (content_origin.x, content_origin.y + block_cursor)
                 } else {
-                    (content_x + block_cursor, content_y)
+                    (content_origin.x + block_cursor, content_origin.y)
                 };
                 let spanner_input = LayoutInput {
-                    containing_width: if is_horizontal {
-                        content_inline
-                    } else {
-                        input.containing_width
-                    },
-                    containing_height: if is_horizontal {
-                        input.containing_height
-                    } else {
-                        Some(content_inline)
+                    containing: CssSize {
+                        width: if is_horizontal {
+                            content_inline
+                        } else {
+                            input.containing.width
+                        },
+                        height: if is_horizontal {
+                            input.containing.height
+                        } else {
+                            Some(content_inline)
+                        },
                     },
                     containing_inline_size: content_inline,
-                    offset_x: spanner_x,
-                    offset_y: spanner_y,
+                    offset: Point::new(spanner_x, spanner_y),
                     font_db: input.font_db,
                     depth: input.depth + 1,
                     float_ctx: None,
@@ -255,7 +265,11 @@ pub fn layout_multicol(
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
                 // Use margin_box() for spanner block extent.
                 let mb = outcome.layout_box.margin_box();
-                let spanner_block_extent = if is_horizontal { mb.height } else { mb.width };
+                let spanner_block_extent = if is_horizontal {
+                    mb.size.height
+                } else {
+                    mb.size.width
+                };
                 block_cursor += spanner_block_extent;
             }
         }
@@ -302,7 +316,7 @@ pub fn layout_multicol(
     };
 
     let lb = LayoutBox {
-        content: Rect::new(content_x, content_y, phys_width, phys_height),
+        content: Rect::from_origin_size(content_origin, Size::new(phys_width, phys_height)),
         padding,
         border,
         margin,
@@ -325,15 +339,18 @@ pub fn layout_multicol(
     let is_cb = style.position != Position::Static || is_root || style.has_transform;
     if is_cb {
         let pb = lb.padding_box();
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+        };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
             &pb,
-            input.viewport,
             &static_positions,
-            font_db,
-            layout_child,
-            depth,
+            &pos_env,
         );
     }
 
@@ -343,39 +360,24 @@ pub fn layout_multicol(
 /// Lay out a normal (non-spanner) segment across columns.
 ///
 /// Returns the column fragments and the resolved column height.
-#[allow(clippy::too_many_arguments)]
 fn layout_normal_segment(
     dom: &mut EcsDom,
     children: &[Entity],
-    input: &LayoutInput<'_>,
-    geom: &ColumnGeometry,
+    env: &ColumnFillEnv<'_>,
     definite_height: Option<f32>,
     balance_max_height: Option<f32>,
     style: &ComputedStyle,
-    col_ctx: &ColumnLayoutCtx,
-    layout_child: ChildLayoutFn,
-    parent_entity: Entity,
 ) -> (Vec<fill::ColumnFragment>, f32) {
     let fill_and_position =
         |dom: &mut EcsDom, frags: Vec<fill::ColumnFragment>| -> Vec<fill::ColumnFragment> {
-            position_column_fragments(dom, &frags, geom, col_ctx.wm);
+            position_column_fragments(dom, &frags, env.geom, env.col_ctx.wm);
             frags
         };
 
     match (definite_height, style.column_fill) {
         // Definite height + auto fill → sequential
         (Some(h), ColumnFill::Auto) => {
-            let frags = fill_columns_sequential(
-                dom,
-                children,
-                input,
-                geom,
-                h,
-                u32::MAX,
-                layout_child,
-                parent_entity,
-                col_ctx,
-            );
+            let frags = fill_columns_sequential(dom, children, env, h, u32::MAX);
             let frags = fill_and_position(dom, frags);
             (frags, h)
         }
@@ -383,31 +385,13 @@ fn layout_normal_segment(
         (Some(h), ColumnFill::Balance) => {
             // Use min(definite_height, max-block-size) as balance upper bound.
             let max_h = balance_max_height.map_or(h, |m| h.min(m));
-            let (frags, col_height) = fill_columns_balanced(
-                dom,
-                children,
-                input,
-                geom,
-                Some(max_h),
-                layout_child,
-                parent_entity,
-                col_ctx,
-            );
+            let (frags, col_height) = fill_columns_balanced(dom, children, env, Some(max_h));
             let frags = fill_and_position(dom, frags);
             (frags, col_height.min(h))
         }
         // Auto height → always balance (CSS Multi-column L1 §7)
         (None, _) => {
-            let (frags, col_height) = fill_columns_balanced(
-                dom,
-                children,
-                input,
-                geom,
-                balance_max_height,
-                layout_child,
-                parent_entity,
-                col_ctx,
-            );
+            let (frags, col_height) = fill_columns_balanced(dom, children, env, balance_max_height);
             let frags = fill_and_position(dom, frags);
             (frags, col_height)
         }
@@ -428,26 +412,25 @@ fn position_column_fragments(
         }
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
-        let (dx, dy) = if wm.is_horizontal() {
-            (inline_offset, 0.0)
+        let delta = if wm.is_horizontal() {
+            Vector::x_only(inline_offset)
         } else {
-            (0.0, inline_offset)
+            Vector::y_only(inline_offset)
         };
 
         // Shift all children in this column fragment.
         for &child in &frag.children {
-            shift_entity_and_descendants(dom, child, dx, dy);
+            shift_entity_and_descendants(dom, child, delta);
         }
     }
 }
 
-/// Shift an entity and all its descendants by `(dx, dy)`.
+/// Shift an entity and all its descendants by `delta`.
 ///
 /// Depth is capped at [`MAX_DESCENDANT_DEPTH`] to prevent infinite loops.
-fn shift_entity_and_descendants(dom: &mut EcsDom, entity: Entity, dx: f32, dy: f32) {
+fn shift_entity_and_descendants(dom: &mut EcsDom, entity: Entity, delta: Vector) {
     if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(entity) {
-        lb.content.x += dx;
-        lb.content.y += dy;
+        lb.content.origin += delta;
     }
     let mut stack: Vec<(Entity, usize)> = dom.children_iter(entity).map(|c| (c, 0)).collect();
     while let Some((e, depth)) = stack.pop() {
@@ -455,8 +438,7 @@ fn shift_entity_and_descendants(dom: &mut EcsDom, entity: Entity, dx: f32, dy: f
             break;
         }
         if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(e) {
-            lb.content.x += dx;
-            lb.content.y += dy;
+            lb.content.origin += delta;
         }
         for child in dom.children_iter(e) {
             stack.push((child, depth + 1));

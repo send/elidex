@@ -38,7 +38,9 @@ pub use event_types::{
     WheelEventInit,
 };
 pub use js_value::JsValue;
-pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
+pub use layout_types::{
+    CssSize, EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Point, Rect, Size, Vector,
+};
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};

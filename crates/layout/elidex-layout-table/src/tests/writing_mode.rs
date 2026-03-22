@@ -2,7 +2,7 @@
 
 use elidex_ecs::Attributes;
 use elidex_layout_block::LayoutInput;
-use elidex_plugin::{CaptionSide, Dimension, Display, EdgeSizes, WritingMode};
+use elidex_plugin::{CaptionSide, Dimension, Display, EdgeSizes, Point, WritingMode};
 
 use super::*;
 
@@ -59,8 +59,7 @@ fn caption_side_block_start_treated_as_top() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -70,10 +69,10 @@ fn caption_side_block_start_treated_as_top() {
     let cell_lb = get_layout(&dom, td);
     // Caption (block-start) should be above the cell.
     assert!(
-        caption_lb.content.y < cell_lb.content.y,
+        caption_lb.content.origin.y < cell_lb.content.origin.y,
         "caption y ({}) should be < cell y ({})",
-        caption_lb.content.y,
-        cell_lb.content.y,
+        caption_lb.content.origin.y,
+        cell_lb.content.origin.y,
     );
 }
 
@@ -130,8 +129,7 @@ fn caption_side_block_end_treated_as_bottom() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -141,10 +139,10 @@ fn caption_side_block_end_treated_as_bottom() {
     let cell_lb = get_layout(&dom, td);
     // Caption (block-end) should be below the cell.
     assert!(
-        caption_lb.content.y > cell_lb.content.y,
+        caption_lb.content.origin.y > cell_lb.content.origin.y,
         "caption y ({}) should be > cell y ({})",
-        caption_lb.content.y,
-        cell_lb.content.y,
+        caption_lb.content.origin.y,
+        cell_lb.content.origin.y,
     );
 }
 
@@ -166,22 +164,21 @@ fn horizontal_tb_table_regression() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
 
     // Table should have non-zero dimensions.
-    assert!(lb.content.width > 0.0, "table width should be > 0");
-    assert!(lb.content.height > 0.0, "table height should be > 0");
+    assert!(lb.content.size.width > 0.0, "table width should be > 0");
+    assert!(lb.content.size.height > 0.0, "table height should be > 0");
 
     // Cells should be laid out.
     for &cell in &cells {
         let cell_lb = get_layout(&dom, cell);
         assert!(
-            cell_lb.content.width > 0.0 || cell_lb.content.height > 0.0,
+            cell_lb.content.size.width > 0.0 || cell_lb.content.size.height > 0.0,
             "cell should have non-zero size",
         );
     }
@@ -205,19 +202,18 @@ fn vertical_rl_table_layout() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
 
-    assert!(lb.content.width > 0.0, "table width should be > 0");
-    assert!(lb.content.height > 0.0, "table height should be > 0");
+    assert!(lb.content.size.width > 0.0, "table width should be > 0");
+    assert!(lb.content.size.height > 0.0, "table height should be > 0");
     for &cell in &cells {
         let cell_lb = get_layout(&dom, cell);
         assert!(
-            cell_lb.content.width > 0.0 || cell_lb.content.height > 0.0,
+            cell_lb.content.size.width > 0.0 || cell_lb.content.size.height > 0.0,
             "cell should have non-zero size",
         );
     }
@@ -241,19 +237,18 @@ fn vertical_lr_table_layout() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
 
-    assert!(lb.content.width > 0.0, "table width should be > 0");
-    assert!(lb.content.height > 0.0, "table height should be > 0");
+    assert!(lb.content.size.width > 0.0, "table width should be > 0");
+    assert!(lb.content.size.height > 0.0, "table height should be > 0");
     for &cell in &cells {
         let cell_lb = get_layout(&dom, cell);
         assert!(
-            cell_lb.content.width > 0.0 || cell_lb.content.height > 0.0,
+            cell_lb.content.size.width > 0.0 || cell_lb.content.size.height > 0.0,
             "cell should have non-zero size",
         );
     }
@@ -301,11 +296,9 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let font_db = FontDatabase::new();
     let containing_inline_size = 500.0;
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(500.0),
+        containing: CssSize::definite(800.0, 500.0),
         containing_inline_size,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -377,8 +370,7 @@ fn caption_side_top_in_vertical_rl() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -388,15 +380,16 @@ fn caption_side_top_in_vertical_rl() {
     let cell_lb = get_layout(&dom, td);
     // Caption should be placed before the cell in the block direction.
     assert!(
-        caption_lb.content.y < cell_lb.content.y || caption_lb.content.x != cell_lb.content.x,
+        caption_lb.content.origin.y < cell_lb.content.origin.y
+            || caption_lb.content.origin.x != cell_lb.content.origin.x,
         "caption should be positioned separately from cell: caption=({},{}), cell=({},{})",
-        caption_lb.content.x,
-        caption_lb.content.y,
-        cell_lb.content.x,
-        cell_lb.content.y,
+        caption_lb.content.origin.x,
+        caption_lb.content.origin.y,
+        cell_lb.content.origin.x,
+        cell_lb.content.origin.y,
     );
     // Table should have non-zero size.
-    assert!(lb.content.width > 0.0 || lb.content.height > 0.0);
+    assert!(lb.content.size.width > 0.0 || lb.content.size.height > 0.0);
 }
 
 #[test]
@@ -451,8 +444,7 @@ fn caption_side_block_end_in_vertical_lr() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -462,14 +454,15 @@ fn caption_side_block_end_in_vertical_lr() {
     let cell_lb = get_layout(&dom, td);
     // Caption (block-end) should be after the cell in block direction.
     assert!(
-        caption_lb.content.y > cell_lb.content.y || caption_lb.content.x != cell_lb.content.x,
+        caption_lb.content.origin.y > cell_lb.content.origin.y
+            || caption_lb.content.origin.x != cell_lb.content.origin.x,
         "block-end caption should be after cell: caption=({},{}), cell=({},{})",
-        caption_lb.content.x,
-        caption_lb.content.y,
-        cell_lb.content.x,
-        cell_lb.content.y,
+        caption_lb.content.origin.x,
+        caption_lb.content.origin.y,
+        cell_lb.content.origin.x,
+        cell_lb.content.origin.y,
     );
-    assert!(lb.content.width > 0.0 || lb.content.height > 0.0);
+    assert!(lb.content.size.width > 0.0 || lb.content.size.height > 0.0);
 }
 
 #[test]
@@ -492,8 +485,7 @@ fn vertical_rl_cells_positioned_with_axis_swap() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -503,10 +495,10 @@ fn vertical_rl_cells_positioned_with_axis_swap() {
     let c1 = get_layout(&dom, cells[1]);
     // With axis swap: columns → Y, so cells should have different Y positions.
     assert!(
-        (c0.content.y - c1.content.y).abs() > 0.5,
+        (c0.content.origin.y - c1.content.origin.y).abs() > 0.5,
         "cells should be at different Y positions (column=inline=Y): c0.y={}, c1.y={}",
-        c0.content.y,
-        c1.content.y,
+        c0.content.origin.y,
+        c1.content.origin.y,
     );
 }
 
@@ -529,8 +521,7 @@ fn vertical_rl_table_dimensions_swapped() {
         table,
         400.0,
         Some(300.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -538,9 +529,9 @@ fn vertical_rl_table_dimensions_swapped() {
 
     // Table should have non-zero dimensions.
     assert!(
-        lb.content.width > 0.0 && lb.content.height > 0.0,
+        lb.content.size.width > 0.0 && lb.content.size.height > 0.0,
         "table should have non-zero dimensions: {}x{}",
-        lb.content.width,
-        lb.content.height,
+        lb.content.size.width,
+        lb.content.size.height,
     );
 }

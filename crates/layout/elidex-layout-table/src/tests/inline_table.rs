@@ -44,15 +44,14 @@ fn inline_table_layout() {
         table,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
 
     let lb = get_layout(&dom, table);
-    assert!(lb.content.width > 0.0);
+    assert!(lb.content.size.width > 0.0);
     assert!(dom.world().get::<&LayoutBox>(td).is_ok());
 }
 
@@ -73,8 +72,7 @@ fn inline_table_baseline() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,

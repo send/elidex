@@ -4,11 +4,10 @@
 //! and the `TableColumnInput` parameter struct.
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
-use elidex_layout_block::{horizontal_pb, sanitize_border, ChildLayoutFn, LayoutInput};
+use elidex_layout_block::{horizontal_pb, sanitize_border, LayoutEnv, LayoutInput};
 use elidex_plugin::{
-    BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Rect, TableLayout,
+    BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Point, Rect, TableLayout,
 };
-use elidex_text::FontDatabase;
 
 use crate::algo::{auto_column_widths, fixed_column_widths, CollapsedBorders};
 use crate::grid::CellInfo;
@@ -25,7 +24,7 @@ pub(crate) fn box_total_height(lb: &LayoutBox) -> f32 {
     lb.margin.top
         + lb.border.top
         + lb.padding.top
-        + lb.content.height
+        + lb.content.size.height
         + lb.padding.bottom
         + lb.border.bottom
         + lb.margin.bottom
@@ -48,19 +47,22 @@ pub(crate) fn collapse_adjusted_width(
 
 /// Build the final `LayoutBox` for the table element.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_table_layout_box(
     padding: &EdgeSizes,
     border: &EdgeSizes,
     margin: &EdgeSizes,
-    content_x: f32,
-    content_y: f32,
+    content_origin: Point,
     content_width: f32,
     content_height: f32,
     first_baseline: Option<f32>,
 ) -> LayoutBox {
     LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::new(
+            content_origin.x,
+            content_origin.y,
+            content_width,
+            content_height,
+        ),
         padding: *padding,
         border: *border,
         margin: *margin,
@@ -245,9 +247,7 @@ pub(crate) struct TableColumnInput<'a> {
 pub(crate) fn compute_column_widths(
     dom: &mut EcsDom,
     params: &TableColumnInput<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
+    env: &LayoutEnv<'_>,
 ) -> Vec<f32> {
     let style = params.style;
     let cells = params.cells;
@@ -310,44 +310,18 @@ pub(crate) fn compute_column_widths(
             .map(|(i, cell)| {
                 // Layout cell with a very small width to get min-content,
                 // and with a very large width to get max-content.
-                let min_input = LayoutInput {
-                    containing_width: 1.0, // min-content probe
-                    containing_height: None,
-                    containing_inline_size: 1.0,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                    float_ctx: None,
-                    viewport: None,
-                    fragmentainer: None,
-                    break_token: None,
-                    subgrid: None,
-                };
-                let min_lb = layout_child(dom, cell.entity, &min_input).layout_box;
-                let max_input = LayoutInput {
-                    containing_width: f32::MAX / 4.0, // max-content probe
-                    containing_height: None,
-                    containing_inline_size: f32::MAX / 4.0,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                    float_ctx: None,
-                    viewport: None,
-                    fragmentainer: None,
-                    break_token: None,
-                    subgrid: None,
-                };
-                let max_lb = layout_child(dom, cell.entity, &max_input).layout_box;
+                let min_input = LayoutInput::probe(env, 1.0);
+                let min_lb = (env.layout_child)(dom, cell.entity, &min_input).layout_box;
+                let max_input = LayoutInput::probe(env, f32::MAX / 4.0);
+                let max_lb = (env.layout_child)(dom, cell.entity, &max_input).layout_box;
                 let cs = elidex_layout_block::get_style(dom, cell.entity);
                 let p = elidex_layout_block::resolve_padding(&cs, available_for_cols);
                 let b = sanitize_border(&cs);
                 let cell_h_pb = horizontal_pb(&p, &b);
                 // min-content = content width from narrow probe + cell pb
-                let mut min_w = min_lb.content.width + cell_h_pb;
+                let mut min_w = min_lb.content.size.width + cell_h_pb;
                 // max-content = content width from wide probe + cell pb
-                let mut max_w = max_lb.content.width + cell_h_pb;
+                let mut max_w = max_lb.content.size.width + cell_h_pb;
                 // In the collapsing border model, subtract collapsed border half-widths
                 // from intrinsic sizes (CSS 2.1 §17.6.2).
                 if is_collapse {

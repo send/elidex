@@ -35,7 +35,7 @@ fn resolve_single(css: &str) -> (EcsDom, Entity, ComputedStyle) {
     let div = dom.create_element("div", Attributes::default());
     dom.append_child(body, div);
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let style = get_style(&dom, div);
     (dom, div, style)
 }
@@ -48,7 +48,7 @@ fn resolve_with_child(css: &str) -> (EcsDom, Entity, Entity, ComputedStyle, Comp
     dom.append_child(body, div);
     dom.append_child(div, span);
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let div_style = get_style(&dom, div);
     let span_style = get_style(&dom, span);
     (dom, div, span, div_style, span_style)

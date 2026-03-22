@@ -3,7 +3,7 @@
 use elidex_ecs::Attributes;
 use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
-    Dimension, Display, EdgeSizes, GridTrackList, TrackSection, TrackSize, WritingMode,
+    Dimension, Display, EdgeSizes, GridTrackList, Point, TrackSection, TrackSize, WritingMode,
 };
 
 use super::*;
@@ -31,8 +31,7 @@ fn horizontal_tb_regression() {
         grid,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -40,9 +39,9 @@ fn horizontal_tb_regression() {
 
     let child_lb = get_layout(&dom, child);
     assert!(
-        child_lb.content.width <= 200.0 + 0.5,
+        child_lb.content.size.width <= 200.0 + 0.5,
         "child width {} should be <= 200",
-        child_lb.content.width,
+        child_lb.content.size.width,
     );
 }
 
@@ -69,8 +68,7 @@ fn vertical_rl_grid_child_layout() {
         grid,
         600.0,
         Some(400.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -78,7 +76,7 @@ fn vertical_rl_grid_child_layout() {
 
     let child_lb = get_layout(&dom, child);
     assert!(
-        child_lb.content.width > 0.0 || child_lb.content.height > 0.0,
+        child_lb.content.size.width > 0.0 || child_lb.content.size.height > 0.0,
         "child should have non-zero size",
     );
 }
@@ -114,11 +112,9 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     // For vertical-rl, containing_inline_size = 400 (the physical height).
     let containing_inline_size = 400.0;
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(400.0),
+        containing: CssSize::definite(800.0, 400.0),
         containing_inline_size,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -167,8 +163,7 @@ fn vertical_lr_grid_child_layout() {
         grid,
         600.0,
         Some(400.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -176,7 +171,7 @@ fn vertical_lr_grid_child_layout() {
 
     let child_lb = get_layout(&dom, child);
     assert!(
-        child_lb.content.width > 0.0 || child_lb.content.height > 0.0,
+        child_lb.content.size.width > 0.0 || child_lb.content.size.height > 0.0,
         "vertical-lr grid child should have non-zero size",
     );
 }
@@ -208,8 +203,7 @@ fn vertical_rl_two_column_tracks() {
         grid,
         800.0,
         Some(500.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -219,23 +213,23 @@ fn vertical_rl_two_column_tracks() {
     let c2 = get_layout(&dom, child2);
     // Both children should be placed and sized.
     assert!(
-        c1.content.width > 0.0 || c1.content.height > 0.0,
+        c1.content.size.width > 0.0 || c1.content.size.height > 0.0,
         "child1 non-zero"
     );
     assert!(
-        c2.content.width > 0.0 || c2.content.height > 0.0,
+        c2.content.size.width > 0.0 || c2.content.size.height > 0.0,
         "child2 non-zero"
     );
     // Column tracks map to physical Y in vertical-rl.
     // Children should not overlap on the Y axis.
-    let c1_end_y = c1.content.y + c1.content.height;
+    let c1_end_y = c1.content.bottom();
     assert!(
-        c2.content.y >= c1_end_y - 0.5 || c1.content.y >= c2.content.y + c2.content.height - 0.5,
+        c2.content.origin.y >= c1_end_y - 0.5 || c1.content.origin.y >= c2.content.bottom() - 0.5,
         "children should not overlap on Y: c1 y={} h={}, c2 y={} h={}",
-        c1.content.y,
-        c1.content.height,
-        c2.content.y,
-        c2.content.height,
+        c1.content.origin.y,
+        c1.content.size.height,
+        c2.content.origin.y,
+        c2.content.size.height,
     );
 }
 
@@ -277,11 +271,9 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
 
     let font_db = elidex_text::FontDatabase::new();
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(600.0),
+        containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 600.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -331,11 +323,9 @@ fn vertical_lr_padding_percent_resolves_against_inline_size() {
     let font_db = elidex_text::FontDatabase::new();
     let containing_inline_size = 600.0;
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(600.0),
+        containing: CssSize::definite(800.0, 600.0),
         containing_inline_size,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,

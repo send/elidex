@@ -103,7 +103,7 @@ fn styled_segments_x_consecutive() {
         dl.0.iter()
             .filter_map(|i| {
                 if let crate::display_list::DisplayItem::Text { glyphs, .. } = i {
-                    glyphs.first().map(|g| g.position.0)
+                    glyphs.first().map(|g| g.position.x)
                 } else {
                     None
                 }
@@ -363,7 +363,7 @@ fn list_item_square_emits_solid_rect_marker() {
         .0
         .iter()
         .filter(
-            |i| matches!(i, crate::display_list::DisplayItem::SolidRect { rect, .. } if rect.width < 10.0),
+            |i| matches!(i, crate::display_list::DisplayItem::SolidRect { rect, .. } if rect.size.width < 10.0),
         )
         .collect();
     assert!(

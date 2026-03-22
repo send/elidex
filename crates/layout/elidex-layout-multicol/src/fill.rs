@@ -5,12 +5,21 @@
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::{
-    BreakToken, BreakTokenData, ChildLayoutFn, FragmentainerContext, FragmentationType, LayoutInput,
+    BreakToken, BreakTokenData, FragmentainerContext, FragmentationType, LayoutEnv, LayoutInput,
 };
-use elidex_plugin::{ComputedStyle, LayoutBox, Overflow, WritingModeContext};
+use elidex_plugin::{ComputedStyle, CssSize, LayoutBox, Overflow, Point, WritingModeContext};
 
 use crate::algo::ColumnGeometry;
 use crate::ColumnLayoutCtx;
+
+/// Shared environment for column fill algorithms.
+pub struct ColumnFillEnv<'a> {
+    pub input: &'a LayoutInput<'a>,
+    pub geom: &'a ColumnGeometry,
+    pub env: &'a LayoutEnv<'a>,
+    pub parent_entity: Entity,
+    pub col_ctx: &'a ColumnLayoutCtx,
+}
 
 /// Result of laying out content into a single column.
 #[derive(Clone, Debug)]
@@ -48,17 +57,12 @@ fn extract_child_index(token: Option<&BreakToken>) -> Option<usize> {
 /// Uses `stack_block_children` with `FragmentainerContext` for proper
 /// fragmentation. Break tokens are passed between columns so that
 /// mid-child breaks (nested content) are correctly resumed.
-#[allow(clippy::too_many_arguments)]
 pub fn fill_columns_sequential(
     dom: &mut EcsDom,
     children: &[Entity],
-    input: &LayoutInput<'_>,
-    geom: &ColumnGeometry,
+    env: &ColumnFillEnv<'_>,
     column_height: f32,
     max_columns: u32,
-    layout_child: ChildLayoutFn,
-    parent_entity: Entity,
-    col_ctx: &ColumnLayoutCtx,
 ) -> Vec<ColumnFragment> {
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
@@ -79,15 +83,14 @@ pub fn fill_columns_sequential(
 
         // Always lay out at column 0's position. position_column_fragments
         // in lib.rs shifts columns 1+ to their correct inline offset afterward.
-        let (col_x, col_y) = base_column_position(col_ctx);
+        let col_pos = base_column_position(env.col_ctx);
 
         let col_input = build_column_input(
-            input,
-            geom,
+            env.input,
+            env.geom,
             &frag_ctx,
-            col_x,
-            col_y,
-            col_ctx.wm,
+            col_pos,
+            env.col_ctx.wm,
             carry_break_token.as_ref(),
         );
 
@@ -95,9 +98,9 @@ pub fn fill_columns_sequential(
             dom,
             children,
             &col_input,
-            layout_child,
+            env.env.layout_child,
             true, // Each column establishes a BFC
-            parent_entity,
+            env.parent_entity,
         );
 
         // Determine which children ended up in this column.
@@ -146,41 +149,28 @@ pub fn fill_columns_sequential(
 /// content into `geom.count` columns.
 ///
 /// Returns `(fragments, resolved_column_height)`.
-#[allow(clippy::too_many_arguments)]
 pub fn fill_columns_balanced(
     dom: &mut EcsDom,
     children: &[Entity],
-    input: &LayoutInput<'_>,
-    geom: &ColumnGeometry,
+    env: &ColumnFillEnv<'_>,
     max_height: Option<f32>,
-    layout_child: ChildLayoutFn,
-    parent_entity: Entity,
-    col_ctx: &ColumnLayoutCtx,
 ) -> (Vec<ColumnFragment>, f32) {
     if children.is_empty() {
         return (Vec::new(), 0.0);
     }
 
     // Step 1: Unconstrained probe to get total content height.
-    let total_height = probe_total_height(
-        dom,
-        children,
-        input,
-        geom,
-        layout_child,
-        parent_entity,
-        col_ctx,
-    );
+    let total_height = probe_total_height(dom, children, env);
 
     if total_height <= 0.0 {
         return (Vec::new(), 0.0);
     }
 
-    let tallest_monolithic = find_tallest_monolithic(dom, children, col_ctx.wm);
+    let tallest_monolithic = find_tallest_monolithic(dom, children, env.col_ctx.wm);
 
     // Step 2: Binary search bounds.
     #[allow(clippy::cast_precision_loss)]
-    let mut low = (total_height / geom.count as f32)
+    let mut low = (total_height / env.geom.count as f32)
         .max(tallest_monolithic)
         .max(1.0);
     let mut high = if let Some(max_h) = max_height {
@@ -200,22 +190,12 @@ pub fn fill_columns_balanced(
         }
 
         let mid = f32::midpoint(low, high);
-        let frags = fill_columns_sequential(
-            dom,
-            children,
-            input,
-            geom,
-            mid,
-            geom.count,
-            layout_child,
-            parent_entity,
-            col_ctx,
-        );
+        let frags = fill_columns_sequential(dom, children, env, mid, env.geom.count);
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let used_columns = frags.len() as u32;
 
-        if used_columns <= geom.count {
+        if used_columns <= env.geom.count {
             high = mid;
         } else {
             low = mid;
@@ -224,58 +204,42 @@ pub fn fill_columns_balanced(
 
     // Final pass at converged `high` to produce the definitive fragments
     // and ensure children's LayoutBoxes match.
-    let best_frags = fill_columns_sequential(
-        dom,
-        children,
-        input,
-        geom,
-        high,
-        geom.count,
-        layout_child,
-        parent_entity,
-        col_ctx,
-    );
+    let best_frags = fill_columns_sequential(dom, children, env, high, env.geom.count);
 
     (best_frags, high)
 }
 
 /// Probe total content height by laying out with infinite available block size.
-fn probe_total_height(
-    dom: &mut EcsDom,
-    children: &[Entity],
-    input: &LayoutInput<'_>,
-    geom: &ColumnGeometry,
-    layout_child: ChildLayoutFn,
-    parent_entity: Entity,
-    col_ctx: &ColumnLayoutCtx,
-) -> f32 {
-    let is_horizontal = col_ctx.wm.is_horizontal();
-    let (col_x, col_y) = base_column_position(col_ctx);
+fn probe_total_height(dom: &mut EcsDom, children: &[Entity], env: &ColumnFillEnv<'_>) -> f32 {
+    let is_horizontal = env.col_ctx.wm.is_horizontal();
+    let col_pos = base_column_position(env.col_ctx);
 
     let col_input = LayoutInput {
-        containing_width: if is_horizontal {
-            geom.width
-        } else {
-            input.containing_width
+        containing: CssSize {
+            width: if is_horizontal {
+                env.geom.width
+            } else {
+                env.input.containing.width
+            },
+            height: if is_horizontal {
+                None
+            } else {
+                Some(env.geom.width)
+            },
         },
-        containing_height: if is_horizontal {
-            None
-        } else {
-            Some(geom.width)
-        },
-        containing_inline_size: geom.width,
-        offset_x: col_x,
-        offset_y: col_y,
-        font_db: input.font_db,
-        depth: input.depth + 1,
-        float_ctx: None,
-        viewport: input.viewport,
-        fragmentainer: None,
-        break_token: None,
-        subgrid: None,
+        offset: col_pos,
+        viewport: env.input.viewport,
+        ..LayoutInput::probe(env.env, env.geom.width)
     };
 
-    let result = stack_block_children(dom, children, &col_input, layout_child, true, parent_entity);
+    let result = stack_block_children(
+        dom,
+        children,
+        &col_input,
+        env.env.layout_child,
+        true,
+        env.parent_entity,
+    );
     result.height
 }
 
@@ -302,9 +266,9 @@ fn find_tallest_monolithic(dom: &EcsDom, children: &[Entity], wm: WritingModeCon
         if is_monolithic {
             if let Ok(lb) = dom.world().get::<&LayoutBox>(child) {
                 let block_extent = if is_horizontal {
-                    lb.content.height
+                    lb.content.size.height
                 } else {
-                    lb.content.width
+                    lb.content.size.width
                 };
                 tallest = tallest.max(block_extent);
             }
@@ -317,11 +281,17 @@ fn find_tallest_monolithic(dom: &EcsDom, children: &[Entity], wm: WritingModeCon
 ///
 /// All columns are laid out at this position; `position_column_fragments`
 /// in `lib.rs` shifts columns 1+ to their correct inline offset afterward.
-fn base_column_position(ctx: &ColumnLayoutCtx) -> (f32, f32) {
+fn base_column_position(ctx: &ColumnLayoutCtx) -> Point {
     if ctx.wm.is_horizontal() {
-        (ctx.content_x, ctx.content_y + ctx.block_offset)
+        Point::new(
+            ctx.content_origin.x,
+            ctx.content_origin.y + ctx.block_offset,
+        )
     } else {
-        (ctx.content_x + ctx.block_offset, ctx.content_y)
+        Point::new(
+            ctx.content_origin.x + ctx.block_offset,
+            ctx.content_origin.y,
+        )
     }
 }
 
@@ -330,28 +300,28 @@ fn build_column_input<'a>(
     input: &LayoutInput<'a>,
     geom: &ColumnGeometry,
     frag_ctx: &'a FragmentainerContext,
-    col_x: f32,
-    col_y: f32,
+    col_pos: Point,
     wm: WritingModeContext,
     break_token: Option<&'a BreakToken>,
 ) -> LayoutInput<'a> {
     let is_horizontal = wm.is_horizontal();
     LayoutInput {
-        containing_width: if is_horizontal {
-            geom.width
-        } else {
-            input.containing_width
-        },
-        // Column box is an independent formatting context (§3.1):
-        // percentage heights resolve against the column height, not the parent's.
-        containing_height: if is_horizontal {
-            Some(frag_ctx.available_block_size)
-        } else {
-            Some(geom.width)
+        containing: CssSize {
+            width: if is_horizontal {
+                geom.width
+            } else {
+                input.containing.width
+            },
+            // Column box is an independent formatting context (§3.1):
+            // percentage heights resolve against the column height, not the parent's.
+            height: if is_horizontal {
+                Some(frag_ctx.available_block_size)
+            } else {
+                Some(geom.width)
+            },
         },
         containing_inline_size: geom.width,
-        offset_x: col_x,
-        offset_y: col_y,
+        offset: col_pos,
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None, // Each column resets float context (§3)

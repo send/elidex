@@ -1,6 +1,6 @@
 use super::*;
 use elidex_ecs::Attributes;
-use elidex_plugin::{Direction, LayoutBox};
+use elidex_plugin::{Direction, LayoutBox, Point, Size};
 
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < f32::EPSILON * 100.0
@@ -143,8 +143,8 @@ fn apply_relative_offset_top_left() {
         ..Default::default()
     };
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 25.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 25.0));
 }
 
 #[test]
@@ -156,8 +156,8 @@ fn relative_top_offset() {
         ..Default::default()
     };
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
-    assert!(approx_eq(lb.content.y, 20.0));
-    assert!(approx_eq(lb.content.x, 0.0)); // unchanged
+    assert!(approx_eq(lb.content.origin.y, 20.0));
+    assert!(approx_eq(lb.content.origin.x, 0.0)); // unchanged
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn relative_left_offset() {
         ..Default::default()
     };
     apply_relative_offset(&mut lb, &style, 800.0, None);
-    assert!(approx_eq(lb.content.x, 10.0));
+    assert!(approx_eq(lb.content.origin.x, 10.0));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn relative_bottom_when_top_auto() {
     };
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
     // bottom:10px → move up by 10
-    assert!(approx_eq(lb.content.y, 90.0));
+    assert!(approx_eq(lb.content.origin.y, 90.0));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn relative_right_when_left_auto() {
     };
     apply_relative_offset(&mut lb, &style, 800.0, None);
     // right:10px → move left by 10
-    assert!(approx_eq(lb.content.x, 90.0));
+    assert!(approx_eq(lb.content.origin.x, 90.0));
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn relative_top_wins_over_bottom() {
     };
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
     // top always wins
-    assert!(approx_eq(lb.content.y, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 20.0));
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn relative_left_wins_over_right_ltr() {
     };
     apply_relative_offset(&mut lb, &style, 800.0, None);
     // LTR: left wins
-    assert!(approx_eq(lb.content.x, 30.0));
+    assert!(approx_eq(lb.content.origin.x, 30.0));
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn relative_right_wins_over_left_rtl() {
     };
     apply_relative_offset(&mut lb, &style, 800.0, None);
     // RTL: right wins → -10
-    assert!(approx_eq(lb.content.x, -10.0));
+    assert!(approx_eq(lb.content.origin.x, -10.0));
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn relative_percentage_offset() {
     };
     // containing height = 200 → top = 100
     apply_relative_offset(&mut lb, &style, 800.0, Some(200.0));
-    assert!(approx_eq(lb.content.y, 100.0));
+    assert!(approx_eq(lb.content.origin.y, 100.0));
 }
 
 // --- Inline axis constraint equation tests ---
@@ -522,11 +522,11 @@ fn absolute_removed_from_flow() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     // Sibling should be at y=100 (after normal child), not y=300 (after abs)
     let sib_lb = dom.world().get::<&LayoutBox>(sibling).unwrap();
-    assert!(approx_eq(sib_lb.content.y, 100.0));
+    assert!(approx_eq(sib_lb.content.origin.y, 100.0));
 }
 
 #[test]
@@ -545,11 +545,11 @@ fn absolute_top_left_zero() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
-    assert!(approx_eq(lb.content.x, 0.0));
-    assert!(approx_eq(lb.content.y, 0.0));
+    assert!(approx_eq(lb.content.origin.x, 0.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
 }
 
 #[test]
@@ -568,12 +568,12 @@ fn absolute_bottom_right() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // Should be at right-bottom corner of CB (800x600)
-    assert!(approx_eq(lb.content.x, 600.0)); // 800 - 200
-    assert!(approx_eq(lb.content.y, 500.0)); // 600 - 100
+    assert!(approx_eq(lb.content.origin.x, 600.0)); // 800 - 200
+    assert!(approx_eq(lb.content.origin.y, 500.0)); // 600 - 100
 }
 
 #[test]
@@ -592,12 +592,12 @@ fn absolute_width_auto_stretch() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // width auto + left/right specified → stretch: 800 - 50 - 50 = 700
-    assert!(approx_eq(lb.content.width, 700.0));
-    assert!(approx_eq(lb.content.x, 50.0));
+    assert!(approx_eq(lb.content.size.width, 700.0));
+    assert!(approx_eq(lb.content.origin.x, 50.0));
 }
 
 #[test]
@@ -616,11 +616,11 @@ fn absolute_percentage_offsets() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
-    assert!(approx_eq(lb.content.x, 200.0));
-    assert!(approx_eq(lb.content.y, 60.0));
+    assert!(approx_eq(lb.content.origin.x, 200.0));
+    assert!(approx_eq(lb.content.origin.y, 60.0));
 }
 
 #[test]
@@ -665,13 +665,13 @@ fn absolute_cb_is_positioned_ancestor() {
         },
     );
 
-    crate::block::layout_block(&mut dom, outer, 1000.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, outer, 1000.0, Point::ZERO, &font_db());
 
     let rel_lb = dom.world().get::<&LayoutBox>(rel).unwrap();
     let abs_lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // abs_child should be at rel's padding box origin
-    assert!(approx_eq(abs_lb.content.x, rel_lb.content.x));
-    assert!(approx_eq(abs_lb.content.y, rel_lb.content.y));
+    assert!(approx_eq(abs_lb.content.origin.x, rel_lb.content.origin.x));
+    assert!(approx_eq(abs_lb.content.origin.y, rel_lb.content.origin.y));
 }
 
 // --- Fixed positioning test ---
@@ -707,15 +707,13 @@ fn fixed_uses_viewport() {
 
     // Layout with viewport 800x600
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -724,8 +722,8 @@ fn fixed_uses_viewport() {
 
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
     // Fixed to viewport bottom-right: (800-100, 600-50) = (700, 550)
-    assert!(approx_eq(lb.content.x, 700.0));
-    assert!(approx_eq(lb.content.y, 550.0));
+    assert!(approx_eq(lb.content.origin.x, 700.0));
+    assert!(approx_eq(lb.content.origin.y, 550.0));
 }
 
 #[test]
@@ -766,15 +764,13 @@ fn fixed_removed_from_flow() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -783,7 +779,7 @@ fn fixed_removed_from_flow() {
 
     // Sibling should be at y=0, not y=200
     let sib_lb = dom.world().get::<&LayoutBox>(sibling).unwrap();
-    assert!(approx_eq(sib_lb.content.y, 0.0));
+    assert!(approx_eq(sib_lb.content.origin.y, 0.0));
 }
 
 #[test]
@@ -816,15 +812,13 @@ fn fixed_top_left_zero() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -832,8 +826,8 @@ fn fixed_top_left_zero() {
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
-    assert!(approx_eq(lb.content.x, 0.0));
-    assert!(approx_eq(lb.content.y, 0.0));
+    assert!(approx_eq(lb.content.origin.x, 0.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
 }
 
 #[test]
@@ -866,15 +860,13 @@ fn fixed_percentage_against_viewport() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -882,8 +874,8 @@ fn fixed_percentage_against_viewport() {
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
-    assert!(approx_eq(lb.content.x, 200.0));
-    assert!(approx_eq(lb.content.y, 60.0));
+    assert!(approx_eq(lb.content.origin.x, 200.0));
+    assert!(approx_eq(lb.content.origin.y, 60.0));
 }
 
 #[test]
@@ -930,15 +922,13 @@ fn fixed_inside_relative() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -947,8 +937,8 @@ fn fixed_inside_relative() {
 
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
     // Should be at viewport (0,0), not relative to rel parent
-    assert!(approx_eq(lb.content.x, 0.0));
-    assert!(approx_eq(lb.content.y, 0.0));
+    assert!(approx_eq(lb.content.origin.x, 0.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
 }
 
 /// CSS Transforms L1 §2: static element with transform establishes CB for
@@ -1008,15 +998,13 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -1026,8 +1014,8 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
     // Fixed child should be positioned relative to root's padding box (transform CB),
     // not the viewport. Root's padding box starts at (0, 0) with width 600.
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 10.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 10.0));
 }
 
 /// Fixed element with NO transform ancestor should still use viewport.
@@ -1078,15 +1066,13 @@ fn fixed_no_transform_uses_viewport() {
     );
 
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((800.0, 600.0)),
+        viewport: Some(Size::new(800.0, 600.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -1095,8 +1081,8 @@ fn fixed_no_transform_uses_viewport() {
 
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
     // No transform → viewport is CB
-    assert!(approx_eq(lb.content.x, 0.0));
-    assert!(approx_eq(lb.content.y, 0.0));
+    assert!(approx_eq(lb.content.origin.x, 0.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
 }
 
 /// `collect_positioned_descendants` stops fixed collection at transform boundary.
@@ -1170,13 +1156,13 @@ fn horizontal_tb_absolute_regression() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 10.0));
-    assert!(approx_eq(lb.content.width, 100.0));
-    assert!(approx_eq(lb.content.height, 50.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 10.0));
+    assert!(approx_eq(lb.content.size.width, 100.0));
+    assert!(approx_eq(lb.content.size.height, 50.0));
 }
 
 /// In vertical-rl mode, percentage margins/padding resolve against cb.height
@@ -1216,14 +1202,14 @@ fn vertical_rl_absolute_percentage_margin_resolves_against_cb_height() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // In vertical-rl, inline_containing = cb.height = 600.
     // margin-left: 10% of 600 = 60.
     // x = cb.x(0) + left(0) + margin_left(60) + border(0) + padding(0) = 60
-    assert!(approx_eq(lb.content.x, 60.0));
-    assert!(approx_eq(lb.content.y, 0.0));
+    assert!(approx_eq(lb.content.origin.x, 60.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
 }
 
 /// vertical-rl: absolute child with top/left offsets should position correctly.
@@ -1244,13 +1230,13 @@ fn vertical_rl_absolute_basic_positioning() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 10.0));
-    assert!(approx_eq(lb.content.width, 100.0));
-    assert!(approx_eq(lb.content.height, 50.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 10.0));
+    assert!(approx_eq(lb.content.size.width, 100.0));
+    assert!(approx_eq(lb.content.size.height, 50.0));
 }
 
 /// vertical-rl: auto margins on an axis should center the element.
@@ -1274,11 +1260,11 @@ fn vertical_rl_absolute_auto_margins_center() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // Centered horizontally: (800 - 200) / 2 = 300 per auto margin.
-    assert!(approx_eq(lb.content.width, 200.0));
+    assert!(approx_eq(lb.content.size.width, 200.0));
     assert!(approx_eq(lb.margin.left, 300.0));
     assert!(approx_eq(lb.margin.right, 300.0));
 }
@@ -1302,12 +1288,12 @@ fn vertical_rl_absolute_stretch() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // width = cb(800) - left(50) - right(50) - h_pb(0) - margin(0) = 700
-    assert!(approx_eq(lb.content.width, 700.0));
-    assert!(approx_eq(lb.content.x, 50.0));
+    assert!(approx_eq(lb.content.size.width, 700.0));
+    assert!(approx_eq(lb.content.origin.x, 50.0));
 }
 
 /// vertical-lr: basic absolute positioning.
@@ -1328,13 +1314,13 @@ fn vertical_lr_absolute_basic_positioning() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
-    assert!(approx_eq(lb.content.x, 25.0));
-    assert!(approx_eq(lb.content.y, 15.0));
-    assert!(approx_eq(lb.content.width, 80.0));
-    assert!(approx_eq(lb.content.height, 60.0));
+    assert!(approx_eq(lb.content.origin.x, 25.0));
+    assert!(approx_eq(lb.content.origin.y, 15.0));
+    assert!(approx_eq(lb.content.size.width, 80.0));
+    assert!(approx_eq(lb.content.size.height, 60.0));
 }
 
 /// vertical-rl: percentage padding should resolve against cb.height (inline size).
@@ -1375,7 +1361,7 @@ fn vertical_rl_absolute_padding_pct_resolves_against_inline_size() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // vertical-rl: inline_containing = cb.height = 600. 10% of 600 = 60.
@@ -1404,13 +1390,13 @@ fn vertical_rl_absolute_percentage_height() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     assert!(
-        approx_eq(lb.content.height, 300.0),
+        approx_eq(lb.content.size.height, 300.0),
         "height should be 300 (50% of 600), got {}",
-        lb.content.height,
+        lb.content.size.height,
     );
 }
 
@@ -1438,8 +1424,8 @@ fn vertical_rl_relative_offset() {
     //   inline axis (top/bottom): top(inline-start) wins → dy = +10
     //   block axis (left/right): left only specified → dx = +20
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
-    assert!(approx_eq(lb.content.x, 120.0)); // 100 + 20
-    assert!(approx_eq(lb.content.y, 210.0)); // 200 + 10
+    assert!(approx_eq(lb.content.origin.x, 120.0)); // 100 + 20
+    assert!(approx_eq(lb.content.origin.y, 210.0)); // 200 + 10
 }
 
 /// vertical-rl: top+bottom stretch (auto height).
@@ -1461,14 +1447,14 @@ fn vertical_rl_absolute_top_bottom_stretch_height() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // height = cb(600) - top(100) - bottom(100) - v_pb(0) - margins(0) = 400
     assert!(
-        approx_eq(lb.content.height, 400.0),
+        approx_eq(lb.content.size.height, 400.0),
         "height should be 400 (stretched), got {}",
-        lb.content.height,
+        lb.content.size.height,
     );
 }
 
@@ -1493,17 +1479,17 @@ fn vertical_rl_absolute_over_constrained() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // vertical-rl block axis: block-start = right(50), block-end = left(50) (ignored).
     // x = cb_width(800) - right(50) - width(600) = 150
     assert!(
-        approx_eq(lb.content.x, 150.0),
+        approx_eq(lb.content.origin.x, 150.0),
         "expected x=150 (right wins in vertical-rl), got {}",
-        lb.content.x,
+        lb.content.origin.x,
     );
-    assert!(approx_eq(lb.content.width, 600.0));
+    assert!(approx_eq(lb.content.size.width, 600.0));
 }
 
 /// Horizontal-tb relative offset regression.
@@ -1525,10 +1511,10 @@ fn horizontal_tb_relative_offset_regression() {
         ..Default::default()
     };
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 10.0));
-    assert!(approx_eq(lb.content.width, 100.0));
-    assert!(approx_eq(lb.content.height, 50.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 10.0));
+    assert!(approx_eq(lb.content.size.width, 100.0));
+    assert!(approx_eq(lb.content.size.height, 50.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -1556,13 +1542,13 @@ fn vertical_rl_absolute_min_max_block_size() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     assert!(
-        approx_eq(lb.content.width, 500.0),
+        approx_eq(lb.content.size.width, 500.0),
         "min-width should clamp to 500, got {}",
-        lb.content.width,
+        lb.content.size.width,
     );
 }
 
@@ -1585,13 +1571,13 @@ fn vertical_rl_absolute_min_max_inline_size() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     assert!(
-        approx_eq(lb.content.height, 30.0),
+        approx_eq(lb.content.size.height, 30.0),
         "max-height should clamp inline-size to 30, got {}",
-        lb.content.height,
+        lb.content.size.height,
     );
 }
 
@@ -1617,20 +1603,20 @@ fn vertical_rl_rtl_absolute_positioning() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // Physical y = cb.height(600) - bottom(20) - height(50) = 530
     assert!(
-        approx_eq(lb.content.y, 530.0),
+        approx_eq(lb.content.origin.y, 530.0),
         "vertical-rl RTL: y should be 530 (bottom=20 from bottom edge), got {}",
-        lb.content.y,
+        lb.content.origin.y,
     );
     // Physical x: block-start = right(30). x = cb_width(800) - right(30) - width(100) = 670
     assert!(
-        approx_eq(lb.content.x, 670.0),
+        approx_eq(lb.content.origin.x, 670.0),
         "vertical-rl RTL: x should be 670 (right=30), got {}",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -1655,16 +1641,16 @@ fn vertical_rl_absolute_auto_margins_center_inline_axis() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // Inline axis centering: (600 - 200) / 2 = 200 per auto margin.
     // In vertical-rl: inline-axis margins are physical top/bottom.
     // Negative centering absorbs into inline-end (bottom in LTR).
     assert!(
-        approx_eq(lb.content.height, 200.0),
+        approx_eq(lb.content.size.height, 200.0),
         "height should be 200, got {}",
-        lb.content.height,
+        lb.content.size.height,
     );
     assert!(
         approx_eq(lb.margin.top, 200.0),
@@ -1698,17 +1684,17 @@ fn vertical_lr_absolute_over_constrained() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     // vertical-lr: block-start = left(50), block-end = right(50) (ignored).
     // x = left(50)
     assert!(
-        approx_eq(lb.content.x, 50.0),
+        approx_eq(lb.content.origin.x, 50.0),
         "vertical-lr over-constrained: x should be 50 (left wins), got {}",
-        lb.content.x,
+        lb.content.origin.x,
     );
-    assert!(approx_eq(lb.content.width, 600.0));
+    assert!(approx_eq(lb.content.size.width, 600.0));
 }
 
 /// vertical-rl: relative offset with both top+bottom specified.
@@ -1733,9 +1719,9 @@ fn vertical_rl_relative_offset_both_top_bottom() {
     // vertical-rl LTR: top (inline-start) wins over bottom (inline-end).
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
     assert!(
-        approx_eq(lb.content.y, 210.0), // 200 + 10 (top wins)
+        approx_eq(lb.content.origin.y, 210.0), // 200 + 10 (top wins)
         "top (inline-start) should win, got y={}",
-        lb.content.y,
+        lb.content.origin.y,
     );
 }
 
@@ -1761,9 +1747,9 @@ fn vertical_rl_relative_offset_both_left_right() {
     // vertical-rl: block-start = right. When both specified, block-start (right) wins.
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
     assert!(
-        approx_eq(lb.content.x, 80.0), // 100 + (-20) = 80, right wins
+        approx_eq(lb.content.origin.x, 80.0), // 100 + (-20) = 80, right wins
         "right (block-start) should win in vertical-rl, got x={}",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -1789,9 +1775,9 @@ fn vertical_lr_relative_offset_both_left_right() {
     // vertical-lr: block-start = left. Left wins.
     apply_relative_offset(&mut lb, &style, 800.0, Some(600.0));
     assert!(
-        approx_eq(lb.content.x, 110.0), // 100 + 10 (left wins)
+        approx_eq(lb.content.origin.x, 110.0), // 100 + 10 (left wins)
         "left (block-start) should win in vertical-lr, got x={}",
-        lb.content.x,
+        lb.content.origin.x,
     );
 }
 
@@ -1828,15 +1814,13 @@ fn vertical_rl_fixed_positioning() {
 
     // Use viewport 1024x768.
     let input = LayoutInput {
-        containing_width: 1024.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(1024.0),
         containing_inline_size: 1024.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
-        viewport: Some((1024.0, 768.0)),
+        viewport: Some(Size::new(1024.0, 768.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -1846,15 +1830,15 @@ fn vertical_rl_fixed_positioning() {
     let lb = dom.world().get::<&LayoutBox>(fixed_child).unwrap();
     // vertical-rl: block-start = right(10). x = viewport_w(1024) - right(10) - width(100) = 914
     assert!(
-        approx_eq(lb.content.x, 914.0),
+        approx_eq(lb.content.origin.x, 914.0),
         "fixed vertical-rl: x should be 914, got {}",
-        lb.content.x,
+        lb.content.origin.x,
     );
     // inline-start = top(20). y = 20
     assert!(
-        approx_eq(lb.content.y, 20.0),
+        approx_eq(lb.content.origin.y, 20.0),
         "fixed vertical-rl: y should be 20, got {}",
-        lb.content.y,
+        lb.content.origin.y,
     );
 }
 
@@ -1876,13 +1860,13 @@ fn vertical_rl_absolute_percentage_width() {
         },
     );
 
-    crate::block::layout_block(&mut dom, root, 800.0, 0.0, 0.0, &font_db());
+    crate::block::layout_block(&mut dom, root, 800.0, Point::ZERO, &font_db());
 
     let lb = dom.world().get::<&LayoutBox>(abs_child).unwrap();
     assert!(
-        approx_eq(lb.content.width, 400.0),
+        approx_eq(lb.content.size.width, 400.0),
         "width should be 400 (50% of 800), got {}",
-        lb.content.width,
+        lb.content.size.width,
     );
 }
 

@@ -3,24 +3,19 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    clamp_min_max, resolve_explicit_height, sanitize, total_gap, ChildLayoutFn, LayoutInput,
+    clamp_min_max, resolve_explicit_height, sanitize, total_gap, LayoutInput,
 };
 use elidex_plugin::{
-    AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, FlexWrap, LayoutBox, Rect,
+    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, Direction, FlexWrap, LayoutBox,
+    Point, Rect,
 };
 
 use super::align::{apply_justify_safety, compute_justify_offsets};
-use elidex_text::FontDatabase;
 
 use super::{is_reversed, FlexContext, FlexItem};
 
-/// Layout dispatch environment shared across flex algorithm functions.
-pub(crate) struct LayoutEnv<'a> {
-    pub(crate) font_db: &'a FontDatabase,
-    pub(crate) layout_child: ChildLayoutFn,
-    pub(crate) depth: u32,
-    pub(crate) input_viewport: Option<(f32, f32)>,
-}
+/// Re-export shared layout environment from block crate.
+pub(crate) use elidex_layout_block::LayoutEnv;
 
 /// Line geometry for positioning items.
 pub(crate) struct LineGeometry<'a> {
@@ -220,27 +215,22 @@ pub(crate) fn layout_items_cross(
         let child_inline = if ctx.writing_mode.is_horizontal() {
             child_containing
         } else {
-            ctx.container_definite_height.unwrap_or(0.0)
+            ctx.resolved_height.unwrap_or(0.0)
         };
         let child_input = LayoutInput {
-            containing_width: child_containing,
-            containing_height: ctx.container_definite_height,
+            containing: CssSize {
+                width: child_containing,
+                height: ctx.resolved_height,
+            },
             containing_inline_size: child_inline,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db: env.font_db,
-            depth: env.depth + 1,
-            float_ctx: None,
-            viewport: env.input_viewport,
-            fragmentainer: None,
-            break_token: None,
-            subgrid: None,
+            viewport: env.viewport,
+            ..LayoutInput::probe(env, child_containing)
         };
         let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
         item.final_cross = if ctx.horizontal {
-            child_lb.content.height + item.pb_cross
+            child_lb.content.size.height + item.pb_cross
         } else {
-            child_lb.content.width + item.pb_cross
+            child_lb.content.size.width + item.pb_cross
         };
         // child_lb is used only for cross-size computation above; descendants
         // will be re-laid out at the final position in position_items.
@@ -276,9 +266,9 @@ fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Op
         Dimension::Percentage(pct) => {
             // Percentage cross size needs a definite containing size.
             let containing = if ctx.horizontal {
-                ctx.container_definite_height?
+                ctx.resolved_height?
             } else {
-                ctx.containing_width
+                ctx.containing.width
             };
             let resolved = containing * pct / 100.0;
             let pb = if ctx.horizontal {
@@ -372,7 +362,7 @@ pub(crate) fn resolve_container_cross(
     total_line_cross: f32,
 ) -> f32 {
     let explicit = if ctx.horizontal {
-        resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing.height)
     } else {
         match style.width {
             Dimension::Length(px) => Some(sanitize(px)),
@@ -420,8 +410,7 @@ fn relayout_item_at_position(
     dom: &mut EcsDom,
     item: &FlexItem,
     ctx: &FlexContext,
-    margin_box_x: f32,
-    margin_box_y: f32,
+    margin_box_pos: Point,
     env: &LayoutEnv<'_>,
 ) {
     let item_content_width = if ctx.horizontal {
@@ -467,20 +456,20 @@ fn relayout_item_at_position(
     let child_containing_width;
     let child_containing_height;
     if ctx.horizontal {
-        child_containing_width = ctx.containing_width;
+        child_containing_width = ctx.containing.width;
         child_containing_height = if item.align == AlignItems::Stretch && item.cross_size_auto {
             Some(item_content_height)
         } else {
-            ctx.container_definite_height
+            ctx.resolved_height
         };
     } else {
         // Column flex: cross axis is width. Stretched items get a definite width.
         child_containing_width = if item.align == AlignItems::Stretch && item.cross_size_auto {
             item_content_width
         } else {
-            ctx.containing_width
+            ctx.containing.width
         };
-        child_containing_height = ctx.container_definite_height;
+        child_containing_height = ctx.resolved_height;
     }
 
     // Re-layout the item at its final margin-box position so
@@ -493,15 +482,16 @@ fn relayout_item_at_position(
         child_containing_height.unwrap_or(0.0)
     };
     let child_input = LayoutInput {
-        containing_width: child_containing_width,
-        containing_height: child_containing_height,
+        containing: CssSize {
+            width: child_containing_width,
+            height: child_containing_height,
+        },
         containing_inline_size: child_inline_size,
-        offset_x: margin_box_x,
-        offset_y: margin_box_y,
+        offset: margin_box_pos,
         font_db: env.font_db,
         depth: env.depth + 1,
         float_ctx: None,
-        viewport: env.input_viewport,
+        viewport: env.viewport,
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -509,12 +499,12 @@ fn relayout_item_at_position(
     let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 
     // Overwrite the item's LayoutBox with flex-resolved dimensions.
-    // child_lb.content.x/y already include margin + border + padding
+    // child_lb.content.origin.x/y already include margin + border + padding
     // offsets from the margin-box position, so use them directly.
     let lb = LayoutBox {
         content: Rect::new(
-            child_lb.content.x,
-            child_lb.content.y,
+            child_lb.content.origin.x,
+            child_lb.content.origin.y,
             item_content_width,
             item_content_height,
         ),
@@ -642,17 +632,17 @@ pub(crate) fn position_items(
             // Auto main margin shifts the item's start position.
             let (margin_box_x, margin_box_y) = if ctx.horizontal {
                 (
-                    ctx.content_x + main_cursor + auto_margin_main_start,
-                    ctx.content_y + cross_offset + align_offset,
+                    ctx.content_origin.x + main_cursor + auto_margin_main_start,
+                    ctx.content_origin.y + cross_offset + align_offset,
                 )
             } else {
                 (
-                    ctx.content_x + cross_offset + align_offset,
-                    ctx.content_y + main_cursor + auto_margin_main_start,
+                    ctx.content_origin.x + cross_offset + align_offset,
+                    ctx.content_origin.y + main_cursor + auto_margin_main_start,
                 )
             };
 
-            relayout_item_at_position(dom, item, ctx, margin_box_x, margin_box_y, env);
+            relayout_item_at_position(dom, item, ctx, Point::new(margin_box_x, margin_box_y), env);
 
             if reversed_main {
                 main_cursor -= gap;
@@ -673,7 +663,7 @@ pub(crate) fn compute_container_height(
     if ctx.horizontal {
         // Auto height: include cross-axis gaps between lines.
         let cross_gaps = total_gap(line_ranges.len(), ctx.gap_cross);
-        resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing.height)
             .unwrap_or(total_line_cross + cross_gaps)
     } else {
         let max_line_main: f32 = line_ranges
@@ -687,7 +677,7 @@ pub(crate) fn compute_container_height(
                 item_sum + total_gap(e - s, ctx.gap_main)
             })
             .fold(0.0_f32, f32::max);
-        resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
+        resolve_explicit_height(style, ctx.containing.height).unwrap_or(max_line_main)
     }
 }
 

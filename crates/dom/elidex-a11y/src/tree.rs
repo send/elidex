@@ -121,12 +121,8 @@ fn walk_dom(
     // Set bounds from LayoutBox if available.
     if let Ok(lb) = world.get::<&LayoutBox>(entity) {
         let border = lb.border_box();
-        node.set_bounds(accesskit::Rect {
-            x0: f64::from(border.x),
-            y0: f64::from(border.y),
-            x1: f64::from(border.x + border.width),
-            y1: f64::from(border.y + border.height),
-        });
+        let (x0, y0, x1, y1) = border.to_f64_bounds();
+        node.set_bounds(accesskit::Rect { x0, y0, x1, y1 });
     }
 
     // Collect children (composed for shadow DOM support).

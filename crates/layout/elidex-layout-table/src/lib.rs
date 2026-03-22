@@ -30,8 +30,8 @@ use elidex_layout_block::{
     horizontal_pb, sanitize_border, vertical_pb, ChildLayoutFn, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    BorderCollapse, CaptionSide, ComputedStyle, Direction, Display, EdgeSizes, LayoutBox,
-    VerticalAlign,
+    BorderCollapse, CaptionSide, ComputedStyle, CssSize, Direction, Display, EdgeSizes, LayoutBox,
+    Point, VerticalAlign,
 };
 
 use elidex_layout_block::block::resolve_margin;
@@ -58,7 +58,7 @@ pub(crate) use helpers::col_span_count;
 /// (CSS 2.1 §17.5.1: "the baseline is the bottom of the content edge of the cell box").
 fn cell_baseline(cell_lb: &LayoutBox) -> f32 {
     cell_lb.first_baseline.map_or(
-        cell_lb.padding.top + cell_lb.border.top + cell_lb.content.height,
+        cell_lb.padding.top + cell_lb.border.top + cell_lb.content.size.height,
         |b| b + cell_lb.padding.top + cell_lb.border.top,
     )
 }
@@ -189,10 +189,10 @@ pub fn layout_table(
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     if depth >= MAX_LAYOUT_DEPTH {
@@ -290,11 +290,9 @@ pub fn layout_table(
     let mut caption_top_height = 0.0;
     for &cap in &captions_top {
         let cap_input = LayoutInput {
-            containing_width: content_width,
-            containing_height: None,
+            containing: CssSize::width_only(content_width),
             containing_inline_size: child_inline_containing,
-            offset_x: content_x,
-            offset_y: cursor_y,
+            offset: Point::new(content_x, cursor_y),
             font_db,
             depth: depth + 1,
             float_ctx: None,
@@ -341,8 +339,7 @@ pub fn layout_table(
             &padding,
             &border,
             &margin,
-            content_x,
-            offset_y + margin.top + border.top + padding.top,
+            Point::new(content_x, offset_y + margin.top + border.top + padding.top),
             content_width,
             content_height,
             None,
@@ -412,7 +409,13 @@ pub fn layout_table(
         available_for_cols,
         is_collapse,
     };
-    let col_widths = compute_column_widths(dom, &col_input, font_db, depth, layout_child);
+    let table_env = elidex_layout_block::LayoutEnv {
+        font_db,
+        layout_child,
+        depth,
+        viewport: input.viewport,
+    };
+    let col_widths = compute_column_widths(dom, &col_input, &table_env);
 
     // Pre-compute the table's explicit content height for cell percentage-height
     // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
@@ -451,11 +454,12 @@ pub fn layout_table(
         // Pass table explicit height as containing_height so cell percentage
         // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
-            containing_width: effective_width,
-            containing_height: table_explicit_height,
+            containing: CssSize {
+                width: effective_width,
+                height: table_explicit_height,
+            },
             containing_inline_size: effective_width,
-            offset_x: 0.0, // temporary x, will be positioned later
-            offset_y: 0.0, // temporary y
+            offset: Point::ZERO, // temporary position, will be set later
             font_db,
             depth: depth + 1,
             float_ctx: None,
@@ -616,11 +620,9 @@ pub fn layout_table(
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
-            containing_width: cell_phys_w,
-            containing_height: Some(cell_phys_h),
+            containing: CssSize::definite(cell_phys_w, cell_phys_h),
             containing_inline_size: child_inline_containing,
-            offset_x: cell_x,
-            offset_y: cell_y,
+            offset: Point::new(cell_x, cell_y),
             font_db,
             depth: depth + 1,
             float_ctx: None,
@@ -640,11 +642,9 @@ pub fn layout_table(
     let mut caption_bottom_height = 0.0;
     for &cap in &captions_bottom {
         let cap_input = LayoutInput {
-            containing_width: content_width,
-            containing_height: None,
+            containing: CssSize::width_only(content_width),
             containing_inline_size: child_inline_containing,
-            offset_x: content_x,
-            offset_y: cursor_y,
+            offset: Point::new(content_x, cursor_y),
             font_db,
             depth: depth + 1,
             float_ctx: None,
@@ -688,8 +688,7 @@ pub fn layout_table(
         &padding,
         &border,
         &margin,
-        content_x,
-        offset_y + margin.top + border.top + padding.top,
+        Point::new(content_x, offset_y + margin.top + border.top + padding.top),
         final_content_w,
         final_content_h,
         table_baseline,
@@ -704,18 +703,23 @@ pub fn layout_table(
     let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
     if is_cb {
         let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
-            dom, &children, content_x, cursor_y,
+            dom,
+            &children,
+            elidex_plugin::Point::new(content_x, cursor_y),
         );
         let pb = lb.padding_box();
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+        };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
             &pb,
-            input.viewport,
             &static_positions,
-            font_db,
-            layout_child,
-            depth,
+            &pos_env,
         );
     }
 

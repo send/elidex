@@ -9,13 +9,13 @@ fn left_float_positioned_at_left_edge() {
     let floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
-    assert!((float_box.content.x - 0.0).abs() < f32::EPSILON);
-    assert!((float_box.content.y - 0.0).abs() < f32::EPSILON);
-    assert!((float_box.content.width - 200.0).abs() < f32::EPSILON);
-    assert!((float_box.content.height - 100.0).abs() < f32::EPSILON);
+    assert!((float_box.content.origin.x - 0.0).abs() < f32::EPSILON);
+    assert!((float_box.content.origin.y - 0.0).abs() < f32::EPSILON);
+    assert!((float_box.content.size.width - 200.0).abs() < f32::EPSILON);
+    assert!((float_box.content.size.height - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -26,12 +26,12 @@ fn right_float_positioned_at_right_edge() {
     let floated = make_float_child(&mut dom, parent, Float::Right, 200.0, 100.0);
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     // Right float: x = containing_width - width = 800 - 200 = 600
-    assert!((float_box.content.x - 600.0).abs() < f32::EPSILON);
-    assert!((float_box.content.y - 0.0).abs() < f32::EPSILON);
+    assert!((float_box.content.origin.x - 600.0).abs() < f32::EPSILON);
+    assert!((float_box.content.origin.y - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -53,11 +53,11 @@ fn float_excluded_from_normal_flow() {
     );
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Normal flow child starts at y=0 (float is out of flow).
     let normal_box = dom.world().get::<&LayoutBox>(normal).unwrap();
-    assert!((normal_box.content.y - 0.0).abs() < f32::EPSILON);
+    assert!((normal_box.content.origin.y - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -80,11 +80,11 @@ fn clear_left_advances_past_float() {
     );
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Cleared element starts below the left float.
     let cleared_box = dom.world().get::<&LayoutBox>(cleared).unwrap();
-    assert!((cleared_box.content.y - 100.0).abs() < f32::EPSILON);
+    assert!((cleared_box.content.origin.y - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -104,10 +104,10 @@ fn float_extends_bfc_parent_height() {
     let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 150.0);
 
     let font_db = FontDatabase::new();
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // BFC parent height should extend to contain the float.
-    assert!((parent_box.content.height - 150.0).abs() < f32::EPSILON);
+    assert!((parent_box.content.size.height - 150.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -119,10 +119,10 @@ fn float_overflows_non_bfc_parent() {
     let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 150.0);
 
     let font_db = FontDatabase::new();
-    let parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Non-BFC parent height is 0 (float overflows).
-    assert!((parent_box.content.height - 0.0).abs() < f32::EPSILON);
+    assert!((parent_box.content.size.height - 0.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -146,11 +146,11 @@ fn clear_both_advances_past_all_floats() {
     );
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     // Cleared element starts below the tallest float (120).
     let cleared_box = dom.world().get::<&LayoutBox>(cleared).unwrap();
-    assert!((cleared_box.content.y - 120.0).abs() < f32::EPSILON);
+    assert!((cleared_box.content.origin.y - 120.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -174,20 +174,20 @@ fn float_with_nonzero_parent_offset() {
     let floated = make_float_child(&mut dom, parent, Float::Left, 100.0, 50.0);
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     // Float x should include parent's padding-left (20px).
     assert!(
-        (float_box.content.x - 20.0).abs() < f32::EPSILON,
+        (float_box.content.origin.x - 20.0).abs() < f32::EPSILON,
         "expected x=20.0, got {}",
-        float_box.content.x
+        float_box.content.origin.x
     );
     // Float y should include parent's padding-top (10px).
     assert!(
-        (float_box.content.y - 10.0).abs() < f32::EPSILON,
+        (float_box.content.origin.y - 10.0).abs() < f32::EPSILON,
         "expected y=10.0, got {}",
-        float_box.content.y
+        float_box.content.origin.y
     );
 }
 
@@ -225,19 +225,19 @@ fn float_auto_width_shrinks_to_content() {
     let text = dom.create_text("Hi");
     dom.append_child(floated, text);
 
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     // Auto-width float should be narrower than the 800px containing block.
     assert!(
-        float_box.content.width < 780.0,
+        float_box.content.size.width < 780.0,
         "expected shrink-to-fit width < 780, got {}",
-        float_box.content.width
+        float_box.content.size.width
     );
     assert!(
-        float_box.content.width > 0.0,
+        float_box.content.size.width > 0.0,
         "expected positive width, got {}",
-        float_box.content.width
+        float_box.content.size.width
     );
 }
 
@@ -250,13 +250,13 @@ fn float_explicit_width_unchanged() {
     let floated = make_float_child(&mut dom, parent, Float::Left, 300.0, 50.0);
 
     let font_db = FontDatabase::new();
-    let _parent_box = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let float_box = dom.world().get::<&LayoutBox>(floated).unwrap();
     assert!(
-        (float_box.content.width - 300.0).abs() < f32::EPSILON,
+        (float_box.content.size.width - 300.0).abs() < f32::EPSILON,
         "expected explicit width 300, got {}",
-        float_box.content.width
+        float_box.content.size.width
     );
 }
 
@@ -285,13 +285,13 @@ fn float_propagates_through_non_bfc() {
     let _floated = make_float_child(&mut dom, wrapper, Float::Left, 200.0, 150.0);
 
     let font_db = FontDatabase::new();
-    let parent_box = layout_block(&mut dom, bfc_parent, 800.0, 0.0, 0.0, &font_db);
+    let parent_box = layout_block(&mut dom, bfc_parent, 800.0, Point::ZERO, &font_db);
 
     // The BFC parent should expand to contain the float (150px)
     // even though the float is inside the non-BFC wrapper.
     assert!(
-        parent_box.content.height >= 150.0 - f32::EPSILON,
+        parent_box.content.size.height >= 150.0 - f32::EPSILON,
         "expected BFC parent height >= 150 (float containment), got {}",
-        parent_box.content.height
+        parent_box.content.size.height
     );
 }

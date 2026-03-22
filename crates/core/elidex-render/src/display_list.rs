@@ -7,15 +7,15 @@
 
 use std::sync::Arc;
 
-use elidex_plugin::{CssColor, Rect};
+use elidex_plugin::{CssColor, Point, Rect, Size, Vector};
 
 /// A positioned glyph in the display list.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlyphEntry {
     /// Glyph ID in the font.
     pub glyph_id: u32,
-    /// Position `(x, y)` in pixels.
-    pub position: (f32, f32),
+    /// Position in pixels.
+    pub position: Point,
 }
 
 /// A single paint operation in the display list.
@@ -58,10 +58,10 @@ pub enum DisplayItem {
         image_width: u32,
         /// Image height in pixels.
         image_height: u32,
-        /// Position within the painting area `(x, y)`.
-        position: (f32, f32),
-        /// Rendered size `(width, height)` in pixels.
-        size: (f32, f32),
+        /// Position within the painting area.
+        position: Point,
+        /// Rendered size in pixels.
+        size: Size,
         /// Repeat mode for tiling.
         repeat: elidex_plugin::background::BgRepeat,
         /// Element opacity (0.0–1.0).
@@ -84,10 +84,10 @@ pub enum DisplayItem {
     RadialGradient {
         /// The painting area.
         painting_area: Rect,
-        /// Center position `(x, y)` in pixels relative to painting area.
-        center: (f32, f32),
-        /// Ellipse radii `(rx, ry)` in pixels.
-        radii: (f32, f32),
+        /// Center position in pixels relative to painting area.
+        center: Point,
+        /// Ellipse radii in pixels.
+        radii: Size,
         /// Resolved color stops with normalized positions (0.0–1.0).
         stops: Vec<(f32, CssColor)>,
         /// Whether this is a repeating gradient.
@@ -99,8 +99,8 @@ pub enum DisplayItem {
     ConicGradient {
         /// The painting area.
         painting_area: Rect,
-        /// Center position `(x, y)` in pixels relative to painting area.
-        center: (f32, f32),
+        /// Center position in pixels relative to painting area.
+        center: Point,
         /// Start angle in degrees.
         start_angle: f32,
         /// End angle in degrees.
@@ -132,9 +132,9 @@ pub enum DisplayItem {
     /// border edge. Dash patterns and cap styles control the appearance.
     StyledBorderSegment {
         /// Start point of the border line center.
-        start: (f32, f32),
+        start: Point,
         /// End point of the border line center.
-        end: (f32, f32),
+        end: Point,
         /// Border width (stroke width).
         width: f32,
         /// Dash pattern: `[dash_length, gap_length]`. Empty = solid.
@@ -169,8 +169,8 @@ pub enum DisplayItem {
     /// `PopScrollOffset`/`PushScrollOffset` pair around themselves to
     /// cancel the scroll translation.
     PushScrollOffset {
-        /// Scroll offset `(x, y)` in pixels.
-        scroll_offset: (f32, f32),
+        /// Scroll offset `(x, y)` in pixels (displacement).
+        scroll_offset: Vector,
     },
     /// End viewport scroll translation.
     PopScrollOffset,
@@ -221,11 +221,8 @@ impl DisplayList {
     /// This is the fast path for scroll-only updates: the display list
     /// structure (including fixed-element exclusion pairs) is preserved,
     /// and only the scroll offset values are updated in place.
-    pub fn update_scroll_offset(&mut self, scroll_offset: (f32, f32)) {
-        debug_assert!(
-            scroll_offset.0.is_finite() && scroll_offset.1.is_finite(),
-            "scroll offset must be finite"
-        );
+    pub fn update_scroll_offset(&mut self, scroll_offset: Vector) {
+        debug_assert!(scroll_offset.is_finite(), "scroll offset must be finite");
         for item in &mut self.0 {
             if let DisplayItem::PushScrollOffset { scroll_offset: so } = item {
                 *so = scroll_offset;
@@ -258,14 +255,14 @@ mod tests {
     fn push_scroll_offset() {
         let mut dl = DisplayList::default();
         dl.push(DisplayItem::PushScrollOffset {
-            scroll_offset: (10.0, 20.0),
+            scroll_offset: Vector::new(10.0, 20.0),
         });
         assert_eq!(dl.len(), 1);
         assert!(matches!(
             dl.iter().next(),
             Some(DisplayItem::PushScrollOffset {
                 scroll_offset,
-            }) if (scroll_offset.0 - 10.0).abs() < f32::EPSILON && (scroll_offset.1 - 20.0).abs() < f32::EPSILON
+            }) if (scroll_offset.x - 10.0).abs() < f32::EPSILON && (scroll_offset.y - 20.0).abs() < f32::EPSILON
         ));
     }
 
@@ -273,7 +270,7 @@ mod tests {
     fn update_scroll_offset_patches() {
         let mut dl = DisplayList::default();
         dl.push(DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 0.0),
+            scroll_offset: Vector::<f32>::ZERO,
         });
         dl.push(DisplayItem::SolidRect {
             rect: Rect::new(0.0, 0.0, 10.0, 10.0),
@@ -282,11 +279,11 @@ mod tests {
         dl.push(DisplayItem::PopScrollOffset);
         // A second PushScrollOffset (e.g. from fixed re-push).
         dl.push(DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 0.0),
+            scroll_offset: Vector::<f32>::ZERO,
         });
         dl.push(DisplayItem::PopScrollOffset);
 
-        dl.update_scroll_offset((50.0, 100.0));
+        dl.update_scroll_offset(Vector::new(50.0, 100.0));
 
         let pushes: Vec<_> = dl
             .iter()
@@ -296,9 +293,9 @@ mod tests {
             })
             .collect();
         assert_eq!(pushes.len(), 2);
-        for (sx, sy) in pushes {
-            assert!((sx - 50.0).abs() < f32::EPSILON);
-            assert!((sy - 100.0).abs() < f32::EPSILON);
+        for p in pushes {
+            assert!((p.x - 50.0).abs() < f32::EPSILON);
+            assert!((p.y - 100.0).abs() < f32::EPSILON);
         }
     }
 
@@ -310,7 +307,7 @@ mod tests {
             color: CssColor::RED,
         });
         // No PushScrollOffset items — should not panic.
-        dl.update_scroll_offset((10.0, 20.0));
+        dl.update_scroll_offset(Vector::new(10.0, 20.0));
         assert_eq!(dl.len(), 1);
     }
 }

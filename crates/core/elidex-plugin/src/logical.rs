@@ -121,27 +121,27 @@ impl LogicalRect {
     pub fn from_physical(rect: Rect, ctx: WritingModeContext) -> Self {
         if ctx.is_horizontal() {
             let inline_start = if ctx.is_inline_reversed() {
-                rect.x + rect.width // RTL: inline-start is right edge
+                rect.right() // RTL: inline-start is right edge
             } else {
-                rect.x
+                rect.origin.x
             };
             Self {
                 inline_start,
-                block_start: rect.y,
-                inline_size: rect.width,
-                block_size: rect.height,
+                block_start: rect.origin.y,
+                inline_size: rect.size.width,
+                block_size: rect.size.height,
             }
         } else {
             let inline_start = if ctx.is_inline_reversed() {
-                rect.y + rect.height // vertical RTL: inline-start is bottom edge
+                rect.bottom() // vertical RTL: inline-start is bottom edge
             } else {
-                rect.y
+                rect.origin.y
             };
             Self {
                 inline_start,
-                block_start: rect.x,
-                inline_size: rect.height,
-                block_size: rect.width,
+                block_start: rect.origin.x,
+                inline_size: rect.size.height,
+                block_size: rect.size.width,
             }
         }
     }

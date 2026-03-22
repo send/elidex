@@ -3,6 +3,8 @@
 //! Renders an egui overlay at the top of the window containing
 //! back/forward buttons, a reload button, an address bar, and a tab bar.
 
+use elidex_plugin::Point;
+
 use crate::app::tab::TabId;
 
 /// Height of the chrome bar in logical pixels.
@@ -237,16 +239,16 @@ fn truncate_title(title: &str, max_len: usize) -> String {
     }
 }
 
-/// Compute the content area offset (x, y) based on tab bar position.
+/// Compute the content area offset based on tab bar position.
 ///
-/// Returns the `(x_offset, y_offset)` that should be subtracted from mouse
-/// coordinates to get content-relative positions.
+/// Returns the offset that should be subtracted from mouse coordinates
+/// to get content-relative positions.
 #[must_use]
-pub fn chrome_content_offset(position: TabBarPosition) -> (f32, f32) {
+pub fn chrome_content_offset(position: TabBarPosition) -> Point {
     match position {
-        TabBarPosition::Top => (0.0, TAB_BAR_HEIGHT + CHROME_HEIGHT),
-        TabBarPosition::Left => (TAB_SIDEBAR_WIDTH, CHROME_HEIGHT),
-        TabBarPosition::Right => (0.0, CHROME_HEIGHT),
+        TabBarPosition::Top => Point::new(0.0, TAB_BAR_HEIGHT + CHROME_HEIGHT),
+        TabBarPosition::Left => Point::new(TAB_SIDEBAR_WIDTH, CHROME_HEIGHT),
+        TabBarPosition::Right => Point::new(0.0, CHROME_HEIGHT),
     }
 }
 
@@ -281,23 +283,23 @@ mod tests {
 
     #[test]
     fn content_offset_top() {
-        let (x, y) = chrome_content_offset(TabBarPosition::Top);
-        assert_eq!(x, 0.0);
-        assert_eq!(y, TAB_BAR_HEIGHT + CHROME_HEIGHT);
+        let p = chrome_content_offset(TabBarPosition::Top);
+        assert_eq!(p.x, 0.0);
+        assert_eq!(p.y, TAB_BAR_HEIGHT + CHROME_HEIGHT);
     }
 
     #[test]
     fn content_offset_left() {
-        let (x, y) = chrome_content_offset(TabBarPosition::Left);
-        assert_eq!(x, TAB_SIDEBAR_WIDTH);
-        assert_eq!(y, CHROME_HEIGHT);
+        let p = chrome_content_offset(TabBarPosition::Left);
+        assert_eq!(p.x, TAB_SIDEBAR_WIDTH);
+        assert_eq!(p.y, CHROME_HEIGHT);
     }
 
     #[test]
     fn content_offset_right() {
-        let (x, y) = chrome_content_offset(TabBarPosition::Right);
-        assert_eq!(x, 0.0);
-        assert_eq!(y, CHROME_HEIGHT);
+        let p = chrome_content_offset(TabBarPosition::Right);
+        assert_eq!(p.x, 0.0);
+        assert_eq!(p.y, CHROME_HEIGHT);
     }
 
     #[test]

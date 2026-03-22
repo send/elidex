@@ -11,7 +11,9 @@ mod tests;
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, Dimension, Display, Position, Rect, WritingModeContext};
+use elidex_plugin::{
+    ComputedStyle, Dimension, Display, Point, Position, Rect, Size, Vector, WritingModeContext,
+};
 use elidex_text::FontDatabase;
 
 use crate::{
@@ -51,20 +53,19 @@ pub fn is_absolutely_positioned(style: &ComputedStyle) -> bool {
 
 /// Build a static-position map for absolutely positioned children.
 ///
-/// Records `(content_x, content_y)` — the container's content-area origin — as
-/// the hypothetical static position for each abspos child.  Used by flex, grid,
+/// Records `content_origin` — the container's content-area origin — as the
+/// hypothetical static position for each abspos child.  Used by flex, grid,
 /// and table layouts that skip abspos children during item collection.
 #[must_use]
 pub fn collect_abspos_static_positions(
     dom: &EcsDom,
     children: &[Entity],
-    content_x: f32,
-    content_y: f32,
-) -> HashMap<Entity, (f32, f32)> {
+    content_origin: Point,
+) -> HashMap<Entity, Point> {
     let mut map = HashMap::new();
     for &child in children {
         if try_get_style(dom, child).is_some_and(|s| is_absolutely_positioned(&s)) {
-            map.insert(child, (content_x, content_y));
+            map.insert(child, content_origin);
         }
     }
     map
@@ -119,8 +120,7 @@ pub fn apply_relative_offset(
             (None, Some(b)) => -b,
             (None, None) => 0.0,
         };
-        lb.content.x += dx;
-        lb.content.y += dy;
+        lb.content.origin += Vector::new(dx, dy);
     } else {
         // Vertical writing mode: inline axis = vertical, block axis = horizontal.
         // Inline axis (top/bottom): direction determines winner.
@@ -150,8 +150,7 @@ pub fn apply_relative_offset(
             (None, Some(r)) => -r,
             (None, None) => 0.0,
         };
-        lb.content.x += dx;
-        lb.content.y += dy;
+        lb.content.origin += Vector::new(dx, dy);
     }
 }
 
@@ -227,18 +226,15 @@ fn collect_inner(
 ///
 /// Called after the containing block's normal-flow layout is complete.
 /// `static_positions` maps entities to their hypothetical static position.
-#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher)]
 pub fn layout_positioned_children(
     dom: &mut EcsDom,
     entity: Entity,
     cb_padding_box: &Rect,
-    viewport: Option<(f32, f32)>,
-    static_positions: &HashMap<Entity, (f32, f32)>,
-    font_db: &FontDatabase,
-    layout_child: crate::ChildLayoutFn,
-    depth: u32,
+    static_positions: &HashMap<Entity, Point>,
+    env: &crate::LayoutEnv<'_>,
 ) {
-    if depth >= MAX_LAYOUT_DEPTH {
+    if env.depth >= MAX_LAYOUT_DEPTH {
         return;
     }
     let (abs_children, fixed_children) = collect_positioned_descendants(dom, entity);
@@ -248,17 +244,8 @@ pub fn layout_positioned_children(
         let sp = static_positions
             .get(&child)
             .copied()
-            .unwrap_or((cb_padding_box.x, cb_padding_box.y));
-        layout_absolutely_positioned(
-            dom,
-            child,
-            cb_padding_box,
-            sp,
-            font_db,
-            layout_child,
-            depth,
-            viewport,
-        );
+            .unwrap_or(cb_padding_box.origin);
+        layout_absolutely_positioned(dom, child, cb_padding_box, sp, env);
     }
 
     // Layout fixed children.
@@ -273,14 +260,14 @@ pub fn layout_positioned_children(
     let has_transform = try_get_style(dom, entity).is_some_and(|s| s.has_transform);
     for child in fixed_children {
         let (cb, sp_default) = if has_transform {
-            (*cb_padding_box, (cb_padding_box.x, cb_padding_box.y))
-        } else if let Some((vw, vh)) = viewport {
-            (Rect::new(0.0, 0.0, vw, vh), (0.0, 0.0))
+            (*cb_padding_box, cb_padding_box.origin)
+        } else if let Some(vp) = env.viewport {
+            (Rect::new(0.0, 0.0, vp.width, vp.height), Point::ZERO)
         } else {
             continue;
         };
         let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
-        layout_absolutely_positioned(dom, child, &cb, sp, font_db, layout_child, depth, viewport);
+        layout_absolutely_positioned(dom, child, &cb, sp, env);
     }
 }
 
@@ -358,20 +345,13 @@ struct AxisResult {
 /// The inline axis gets shrink-to-fit behavior, direction-dependent over-constrained
 /// handling, and direction-dependent static position. The block axis gets stretch
 /// behavior and always-equal-split auto margins.
-#[allow(
-    clippy::too_many_lines,
-    clippy::too_many_arguments,
-    clippy::similar_names
-)]
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub fn layout_absolutely_positioned(
     dom: &mut EcsDom,
     entity: Entity,
     cb: &Rect,
-    static_position: (f32, f32),
-    font_db: &FontDatabase,
-    layout_child: crate::ChildLayoutFn,
-    depth: u32,
-    viewport: Option<(f32, f32)>,
+    static_position: Point,
+    env: &crate::LayoutEnv<'_>,
 ) {
     let style = get_style(dom, entity);
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
@@ -379,9 +359,9 @@ pub fn layout_absolutely_positioned(
     // CSS Box Model L3 §5.3: percentage padding/margin resolve against the
     // containing block's *inline size*.
     let inline_containing = if wm.is_horizontal() {
-        cb.width
+        cb.size.width
     } else {
-        cb.height
+        cb.size.height
     };
 
     let padding = resolve_padding(&style, inline_containing);
@@ -397,10 +377,10 @@ pub fn layout_absolutely_positioned(
     let margin_right_raw = crate::block::resolve_margin(style.margin_right, inline_containing);
 
     // Resolve all four physical offsets.
-    let left = resolve_offset(&style.left, cb.width);
-    let right = resolve_offset(&style.right, cb.width);
-    let top = resolve_offset(&style.top, cb.height);
-    let bottom = resolve_offset(&style.bottom, cb.height);
+    let left = resolve_offset(&style.left, cb.size.width);
+    let right = resolve_offset(&style.right, cb.size.width);
+    let top = resolve_offset(&style.top, cb.size.height);
+    let bottom = resolve_offset(&style.bottom, cb.size.height);
 
     let intrinsic = crate::get_intrinsic_size(dom, entity);
 
@@ -458,9 +438,9 @@ pub fn layout_absolutely_positioned(
             )
         };
         let static_i = if wm.is_inline_reversed() {
-            cb.width - (static_position.0 - cb.x)
+            cb.size.width - (static_position.x - cb.origin.x)
         } else {
-            static_position.0 - cb.x
+            static_position.x - cb.origin.x
         };
         (
             is,
@@ -483,12 +463,12 @@ pub fn layout_absolutely_positioned(
             me_auto,
             matches!(style.margin_top, Dimension::Auto),
             matches!(style.margin_bottom, Dimension::Auto),
-            cb.width,
-            cb.height,
+            cb.size.width,
+            cb.size.height,
             static_i,
-            static_position.1 - cb.y,
-            intrinsic.map(|(iw, _)| iw),
-            intrinsic.map(|(_, ih)| ih),
+            static_position.y - cb.origin.y,
+            intrinsic.map(|s| s.width),
+            intrinsic.map(|s| s.height),
         )
     } else {
         // vertical-rl / vertical-lr
@@ -537,14 +517,14 @@ pub fn layout_absolutely_positioned(
             )
         };
         let static_i = if wm.is_inline_reversed() {
-            cb.height - (static_position.1 - cb.y)
+            cb.size.height - (static_position.y - cb.origin.y)
         } else {
-            static_position.1 - cb.y
+            static_position.y - cb.origin.y
         };
         let static_b = if wm.is_block_reversed() {
-            cb.width - (static_position.0 - cb.x)
+            cb.size.width - (static_position.x - cb.origin.x)
         } else {
-            static_position.0 - cb.x
+            static_position.x - cb.origin.x
         };
         (
             is,
@@ -567,12 +547,12 @@ pub fn layout_absolutely_positioned(
             ime_auto,
             bms_auto,
             bme_auto,
-            cb.height, // CB inline size
-            cb.width,  // CB block size
+            cb.size.height, // CB inline size
+            cb.size.width,  // CB block size
             static_i,
             static_b,
-            intrinsic.map(|(_, ih)| ih), // intrinsic inline = height
-            intrinsic.map(|(iw, _)| iw), // intrinsic block = width
+            intrinsic.map(|s| s.height), // intrinsic inline = height
+            intrinsic.map(|s| s.width),  // intrinsic block = width
         )
     };
 
@@ -605,7 +585,7 @@ pub fn layout_absolutely_positioned(
         },
         || {
             // Shrink-to-fit: always computes in physical width for now.
-            shrink_to_fit_width(dom, entity, font_db, depth, cb.width, h_pb)
+            shrink_to_fit_width(dom, entity, env.font_db, env.depth, cb.size.width, h_pb)
         },
     );
 
@@ -635,34 +615,16 @@ pub fn layout_absolutely_positioned(
 
     // If block-size is auto, do preliminary layout to get content size.
     let content_block_from_layout = if block_size_specified.is_none() {
-        // Map logical inline size back to physical for child layout input.
-        let (phys_w, phys_h_opt) = if wm.is_horizontal() {
-            (content_inline, None)
-        } else {
-            // In vertical modes: physical width = block size (unknown), height = inline size.
-            // Use content_inline as containing_width approximation.
-            (content_inline, None)
-        };
         let child_input = LayoutInput {
-            containing_width: phys_w,
-            containing_height: phys_h_opt,
-            containing_inline_size: content_inline,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport,
-            fragmentainer: None,
-            break_token: None,
-            subgrid: None,
+            viewport: env.viewport,
+            ..LayoutInput::probe(env, content_inline)
         };
-        let lb = layout_child(dom, entity, &child_input).layout_box;
+        let lb = (env.layout_child)(dom, entity, &child_input).layout_box;
         // Content block from layout: in horizontal = height, in vertical = width.
         Some(if wm.is_horizontal() {
-            lb.content.height
+            lb.content.size.height
         } else {
-            lb.content.width
+            lb.content.size.width
         })
     } else {
         None
@@ -785,8 +747,11 @@ pub fn layout_absolutely_positioned(
     };
 
     // Compute final position relative to viewport (cb origin + offset).
-    let content_x = cb.x + used_left + margin_left + border.left + padding.left;
-    let content_y = cb.y + used_top + margin_top + border.top + padding.top;
+    let content_origin = cb.origin
+        + Vector::new(
+            used_left + margin_left + border.left + padding.left,
+            used_top + margin_top + border.top + padding.top,
+        );
 
     // Final layout with resolved dimensions.
     let child_inline_size = if wm.is_horizontal() {
@@ -795,24 +760,22 @@ pub fn layout_absolutely_positioned(
         content_height
     };
     let child_input = LayoutInput {
-        containing_width: content_width,
-        containing_height: Some(content_height),
+        containing: elidex_plugin::CssSize::definite(content_width, content_height),
         containing_inline_size: child_inline_size,
-        offset_x: content_x,
-        offset_y: content_y,
-        font_db,
-        depth: depth + 1,
+        offset: content_origin,
+        font_db: env.font_db,
+        depth: env.depth + 1,
         float_ctx: None,
-        viewport,
+        viewport: env.viewport,
         fragmentainer: None,
         break_token: None,
         subgrid: None,
     };
-    let child_lb = layout_child(dom, entity, &child_input).layout_box;
+    let child_lb = (env.layout_child)(dom, entity, &child_input).layout_box;
 
     // Overwrite the LayoutBox with correct position and margins.
     let lb = elidex_plugin::LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::from_origin_size(content_origin, Size::new(content_width, content_height)),
         padding,
         border,
         margin: elidex_plugin::EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
@@ -821,11 +784,10 @@ pub fn layout_absolutely_positioned(
     let _ = dom.world_mut().insert_one(entity, lb);
 
     // Shift descendants to match final position.
-    let dx = content_x - child_lb.content.x;
-    let dy = content_y - child_lb.content.y;
-    if dx.abs() > f32::EPSILON || dy.abs() > f32::EPSILON {
+    let delta = content_origin - child_lb.content.origin;
+    if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
         let grandchildren = dom.composed_children(entity);
-        crate::block::children::shift_descendants(dom, &grandchildren, (dx, dy));
+        crate::block::children::shift_descendants(dom, &grandchildren, delta);
     }
 }
 

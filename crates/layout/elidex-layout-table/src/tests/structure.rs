@@ -72,8 +72,7 @@ fn table_colspan() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -155,8 +154,7 @@ fn table_rowspan() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -236,8 +234,7 @@ fn table_colspan_and_rowspan() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -295,8 +292,7 @@ fn table_caption_top() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -305,7 +301,7 @@ fn table_caption_top() {
     let caption_lb = get_layout(&dom, caption);
     let td_lb = get_layout(&dom, td);
     // Caption should be above the table rows.
-    assert!(caption_lb.content.y < td_lb.content.y);
+    assert!(caption_lb.content.origin.y < td_lb.content.origin.y);
 }
 
 #[test]
@@ -355,8 +351,7 @@ fn table_caption_bottom() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -366,10 +361,10 @@ fn table_caption_bottom() {
     let td_lb = get_layout(&dom, td);
     // Caption with caption-side: bottom should be below the table rows.
     assert!(
-        caption_lb.content.y > td_lb.content.y,
+        caption_lb.content.origin.y > td_lb.content.origin.y,
         "caption y={} should be below td y={}",
-        caption_lb.content.y,
-        td_lb.content.y
+        caption_lb.content.origin.y,
+        td_lb.content.origin.y
     );
 }
 
@@ -453,8 +448,7 @@ fn table_header_body_footer() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -464,10 +458,10 @@ fn table_header_body_footer() {
     let body_lb = get_layout(&dom, cell_body);
     // Header row should come before body row.
     assert!(
-        head_lb.content.y < body_lb.content.y,
+        head_lb.content.origin.y < body_lb.content.origin.y,
         "thead should be before tbody: head_y={} body_y={}",
-        head_lb.content.y,
-        body_lb.content.y
+        head_lb.content.origin.y,
+        body_lb.content.origin.y
     );
 }
 
@@ -544,8 +538,7 @@ fn table_tfoot_after_tbody() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -555,10 +548,10 @@ fn table_tfoot_after_tbody() {
     let foot_lb = get_layout(&dom, cell_foot);
     // tbody rows should come before tfoot rows.
     assert!(
-        body_lb.content.y < foot_lb.content.y,
+        body_lb.content.origin.y < foot_lb.content.origin.y,
         "tbody cell y ({}) should be < tfoot cell y ({})",
-        body_lb.content.y,
-        foot_lb.content.y,
+        body_lb.content.origin.y,
+        foot_lb.content.origin.y,
     );
 }
 
@@ -576,8 +569,7 @@ fn table_empty_cells() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -595,14 +587,13 @@ fn table_single_cell() {
         table,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
     let lb = get_layout(&dom, table);
-    assert!(approx_eq(lb.content.width, 300.0));
+    assert!(approx_eq(lb.content.size.width, 300.0));
     assert!(dom.world().get::<&LayoutBox>(cells[0]).is_ok());
 }
 
@@ -643,8 +634,7 @@ fn table_direct_cells_anonymous_row() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -732,8 +722,7 @@ fn table_rowspan_height_extension() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -744,9 +733,9 @@ fn table_rowspan_height_extension() {
     // Row 1 base height = 20, row 2 base height = 20 → total = 40.
     // But td1 needs 100, so row 2 should be extended by 80 → total = 100.
     assert!(
-        td1_lb.content.height >= 100.0 - 1.0,
+        td1_lb.content.size.height >= 100.0 - 1.0,
         "rowspan cell height should be at least 100, got {}",
-        td1_lb.content.height
+        td1_lb.content.size.height
     );
 }
 
@@ -763,15 +752,14 @@ fn table_empty_zero_children() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
     let lb = get_layout(&dom, table);
-    assert!(lb.content.width >= 0.0);
-    assert!(lb.content.height >= 0.0);
+    assert!(lb.content.size.width >= 0.0);
+    assert!(lb.content.size.height >= 0.0);
 }
 
 #[test]
@@ -838,8 +826,7 @@ fn table_display_none_cell_skipped() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -850,14 +837,14 @@ fn table_display_none_cell_skipped() {
     // Two visible cells in a 300px table should each get ~150px (minus spacing).
     // The hidden cell should not create a third column.
     assert!(
-        lb1.content.width > 100.0,
+        lb1.content.size.width > 100.0,
         "td1 width {} should be > 100px (2-col, not 3-col)",
-        lb1.content.width
+        lb1.content.size.width
     );
     assert!(
-        lb2.content.width > 100.0,
+        lb2.content.size.width > 100.0,
         "td2 width {} should be > 100px (2-col, not 3-col)",
-        lb2.content.width
+        lb2.content.size.width
     );
     // td_hidden should not have a LayoutBox.
     assert!(
@@ -886,8 +873,7 @@ fn table_rtl_reverses_column_order() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -899,15 +885,15 @@ fn table_rtl_reverses_column_order() {
 
     // RTL: first column should be rightmost, last column leftmost.
     assert!(
-        lb0.content.x > lb1.content.x,
+        lb0.content.origin.x > lb1.content.origin.x,
         "RTL table: col 0 (x={}) should be right of col 1 (x={})",
-        lb0.content.x,
-        lb1.content.x,
+        lb0.content.origin.x,
+        lb1.content.origin.x,
     );
     assert!(
-        lb1.content.x > lb2.content.x,
+        lb1.content.origin.x > lb2.content.origin.x,
         "RTL table: col 1 (x={}) should be right of col 2 (x={})",
-        lb1.content.x,
-        lb2.content.x,
+        lb1.content.origin.x,
+        lb2.content.origin.x,
     );
 }

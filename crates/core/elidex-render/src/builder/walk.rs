@@ -13,6 +13,7 @@ use elidex_plugin::{
     BorderCollapse, ComputedStyle, Display, EmptyCells, LayoutBox, ListStyleType, MulticolInfo,
     Visibility,
 };
+use elidex_plugin::{Point, Vector};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -32,12 +33,12 @@ pub(crate) struct PaintContext<'a> {
     pub(crate) font_cache: &'a mut FontCache,
     pub(crate) dl: &'a mut DisplayList,
     pub(crate) caret_visible: bool,
-    /// Viewport scroll offset `(x, y)`.
+    /// Viewport scroll offset.
     ///
     /// This is the same value used for the root-level `PushScrollOffset`
     /// in `build_display_list_with_scroll()`. Fixed elements re-push this
     /// value after their `PopScrollOffset`/walk/`PushScrollOffset` sequence.
-    pub(crate) scroll_offset: (f32, f32),
+    pub(crate) scroll_offset: Vector,
 }
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
@@ -146,8 +147,8 @@ pub(crate) fn walk(
                             pixels: Arc::clone(&image_data.pixels),
                             image_width: image_data.width,
                             image_height: image_data.height,
-                            position: (0.0, 0.0),
-                            size: (lb.content.width, lb.content.height),
+                            position: Point::ZERO,
+                            size: lb.content.size,
                             repeat: BgRepeat {
                                 x: BgRepeatAxis::NoRepeat,
                                 y: BgRepeatAxis::NoRepeat,
@@ -163,8 +164,10 @@ pub(crate) fn walk(
                         &lb,
                         &fcs,
                         style,
-                        ctx.font_db,
-                        ctx.font_cache,
+                        &mut super::form::FontEnv {
+                            db: ctx.font_db,
+                            cache: ctx.font_cache,
+                        },
                         ctx.dl,
                         ctx.dom
                             .world()
@@ -232,7 +235,7 @@ pub(crate) fn walk(
 }
 
 /// Paint children in CSS 2.1 Appendix E stacking context layer order.
-#[allow(clippy::similar_names)]
+#[allow(clippy::similar_names)] // layer6 vs layers — intentional CSS layer numbering
 fn paint_stacking_context_layers(
     ctx: &mut PaintContext,
     entity: Entity,

@@ -10,7 +10,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::positioned;
 use elidex_layout_block::LayoutInput;
-use elidex_plugin::{ComputedStyle, Display, LayoutBox, Position};
+use elidex_plugin::{ComputedStyle, CssSize, Display, LayoutBox, Position, Size};
 use elidex_text::FontDatabase;
 
 /// Dispatch child layout based on the element's display type.
@@ -34,16 +34,14 @@ pub fn dispatch_layout_child(
         Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
     ) && style.width == elidex_plugin::Dimension::Auto
     {
-        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(
-            dom,
-            entity,
-            input.font_db,
-            dispatch_layout_child,
-            input.depth,
-        );
-        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, input.containing_width);
+        let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
+        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
+        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, input.containing.width);
         adjusted_input = LayoutInput {
-            containing_width: stf,
+            containing: CssSize {
+                width: stf,
+                height: input.containing.height,
+            },
             containing_inline_size: stf,
             ..*input
         };
@@ -72,7 +70,7 @@ pub fn dispatch_layout_child(
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
         Display::Contents => LayoutBox {
-            content: elidex_plugin::Rect::new(input.offset_x, input.offset_y, 0.0, 0.0),
+            content: elidex_plugin::Rect::from_origin_size(input.offset, elidex_plugin::Size::ZERO),
             padding: elidex_plugin::EdgeSizes::default(),
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),
@@ -116,15 +114,14 @@ pub fn dispatch_layout_child(
         positioned::apply_relative_offset(
             &mut offset_lb,
             &style,
-            input.containing_width,
-            input.containing_height,
+            input.containing.width,
+            input.containing.height,
         );
-        let dx = offset_lb.content.x - lb.content.x;
-        let dy = offset_lb.content.y - lb.content.y;
+        let delta = offset_lb.content.origin - lb.content.origin;
         let _ = dom.world_mut().insert_one(entity, offset_lb);
-        if dx.abs() > f32::EPSILON || dy.abs() > f32::EPSILON {
+        if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
             let children: Vec<_> = dom.children_iter(entity).collect();
-            elidex_layout_block::block::shift_descendants(dom, &children, (dx, dy));
+            elidex_layout_block::block::shift_descendants(dom, &children, delta);
         }
     }
 
@@ -174,15 +171,10 @@ pub fn layout_fragmented(
 ///
 /// `elidex_style::resolve_styles()` must have been called first so that
 /// every element has a [`ComputedStyle`] component.
-pub fn layout_tree(
-    dom: &mut EcsDom,
-    viewport_width: f32,
-    viewport_height: f32,
-    font_db: &FontDatabase,
-) {
+pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     let roots = find_roots(dom);
     for root in roots {
-        layout_root(dom, root, viewport_width, viewport_height, font_db);
+        layout_root(dom, root, viewport, font_db);
     }
 }
 
@@ -201,13 +193,7 @@ fn find_roots(dom: &EcsDom) -> Vec<Entity> {
 /// If the root has a `ComputedStyle` (is an element), layout it directly
 /// via the display-type dispatcher. Otherwise (document root), layout its
 /// children as block-level elements.
-fn layout_root(
-    dom: &mut EcsDom,
-    root: Entity,
-    viewport_width: f32,
-    viewport_height: f32,
-    font_db: &FontDatabase,
-) {
+fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDatabase) {
     let root_display = dom
         .world()
         .get::<&ComputedStyle>(root)
@@ -215,15 +201,13 @@ fn layout_root(
         .ok();
 
     let root_input = LayoutInput {
-        containing_width: viewport_width,
-        containing_height: Some(viewport_height),
-        containing_inline_size: viewport_width,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        containing: CssSize::definite(viewport.width, viewport.height),
+        containing_inline_size: viewport.width,
+        offset: elidex_plugin::Point::ZERO,
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some((viewport_width, viewport_height)),
+        viewport: Some(viewport),
         fragmentainer: None,
         break_token: None,
         subgrid: None,

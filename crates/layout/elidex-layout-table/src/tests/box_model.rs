@@ -44,8 +44,7 @@ fn table_padding_border() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -54,7 +53,7 @@ fn table_padding_border() {
     assert!(approx_eq(lb.padding.top, 5.0));
     assert!(approx_eq(lb.border.top, 2.0));
     // Content width = 400 - 2*5 - 2*2 = 386
-    assert!(approx_eq(lb.content.width, 386.0));
+    assert!(approx_eq(lb.content.size.width, 386.0));
 }
 
 #[test]
@@ -96,8 +95,7 @@ fn table_cell_padding() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -150,8 +148,7 @@ fn table_nested_content() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -159,7 +156,7 @@ fn table_nested_content() {
 
     let td_lb = get_layout(&dom, td);
     // Cell height should accommodate the inner div.
-    assert!(td_lb.content.height >= 40.0);
+    assert!(td_lb.content.size.height >= 40.0);
 }
 
 #[test]
@@ -196,8 +193,7 @@ fn table_cell_align() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -216,8 +212,7 @@ fn table_row_background() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -244,14 +239,13 @@ fn table_collapse_basic() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
     let lb = get_layout(&dom, table);
-    assert!(approx_eq(lb.content.width, 400.0));
+    assert!(approx_eq(lb.content.size.width, 400.0));
 }
 
 #[test]
@@ -271,8 +265,7 @@ fn table_collapse_no_spacing() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -282,7 +275,8 @@ fn table_collapse_no_spacing() {
     let c1 = get_layout(&dom, cells[1]);
     // In collapse mode, spacing should be 0, so cells should be adjacent.
     // c1 should start right after c0 (no spacing gap).
-    let gap = c1.content.x - (c0.content.x + c0.content.width + c0.padding.right + c0.border.right);
+    let gap = c1.content.origin.x
+        - (c0.content.origin.x + c0.content.size.width + c0.padding.right + c0.border.right);
     assert!(
         gap < 2.0,
         "gap between cells should be minimal in collapse mode, got {gap}"
@@ -354,8 +348,7 @@ fn table_collapse_border_merge() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -384,8 +377,7 @@ fn table_collapse_outer_border() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -656,8 +648,7 @@ fn fixed_layout_collapse_aware_sizing() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -727,8 +718,7 @@ fn fixed_layout_collapse_aware_sizing() {
         table2,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -741,8 +731,8 @@ fn fixed_layout_collapse_aware_sizing() {
     // The auto column in collapse mode should be wider (more available space)
     // than in separate mode (where spacing overhead also differs).
     // Just verify both layouts complete and produce valid boxes.
-    assert!(td1_lb.content.width > 0.0);
-    assert!(separate_td1_lb.content.width > 0.0);
+    assert!(td1_lb.content.size.width > 0.0);
+    assert!(separate_td1_lb.content.size.width > 0.0);
 }
 
 #[test]
@@ -797,8 +787,7 @@ fn separate_model_no_collapse_adjustment() {
         table,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,

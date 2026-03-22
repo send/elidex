@@ -1,8 +1,8 @@
 //! Tests for CSS Backgrounds Level 3 property handler.
 
 use elidex_plugin::{
-    background::*, ComputedStyle, CssColor, CssPropertyHandler, CssValue, LengthUnit,
-    PropertyDeclaration, ResolveContext,
+    background::*, ComputedStyle, CssColor, CssPropertyHandler, CssValue, LengthUnit, Point,
+    PropertyDeclaration, ResolveContext, Size,
 };
 
 use crate::BackgroundHandler;
@@ -235,8 +235,7 @@ fn resolve_bg_color() {
     let ctx = ResolveContext {
         em_base: 16.0,
         root_font_size: 16.0,
-        viewport_width: 800.0,
-        viewport_height: 600.0,
+        viewport: elidex_plugin::Size::new(800.0, 600.0),
     };
     BackgroundHandler.resolve(
         "background-color",
@@ -708,8 +707,8 @@ fn get_computed_radial_gradient_serialization() {
         background_layers: Some(
             vec![BackgroundLayer {
                 image: BackgroundImage::RadialGradient(RadialGradient {
-                    center: (50.0, 50.0), // default center
-                    radii: (100.0, 100.0),
+                    center: Point::new(50.0, 50.0), // default center
+                    radii: Size::new(100.0, 100.0),
                     stops: vec![
                         ColorStop {
                             color: CssColor::RED,
@@ -741,8 +740,8 @@ fn get_computed_radial_gradient_custom_center() {
         background_layers: Some(
             vec![BackgroundLayer {
                 image: BackgroundImage::RadialGradient(RadialGradient {
-                    center: (25.0, 75.0),
-                    radii: (100.0, 100.0),
+                    center: Point::new(25.0, 75.0),
+                    radii: Size::new(100.0, 100.0),
                     stops: vec![
                         ColorStop {
                             color: CssColor::RED,
@@ -772,7 +771,7 @@ fn get_computed_conic_gradient_serialization() {
         background_layers: Some(
             vec![BackgroundLayer {
                 image: BackgroundImage::ConicGradient(ConicGradient {
-                    center: (50.0, 50.0),
+                    center: Point::new(50.0, 50.0),
                     start_angle: 45.0,
                     end_angle: 405.0,
                     stops: vec![
@@ -809,7 +808,7 @@ fn get_computed_conic_gradient_default_angle_custom_center() {
         background_layers: Some(
             vec![BackgroundLayer {
                 image: BackgroundImage::ConicGradient(ConicGradient {
-                    center: (30.0, 70.0),
+                    center: Point::new(30.0, 70.0),
                     start_angle: 0.0,
                     end_angle: 360.0,
                     stops: vec![

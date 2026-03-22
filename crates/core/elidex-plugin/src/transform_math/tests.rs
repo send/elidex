@@ -15,7 +15,7 @@ mod tests {
 
     #[test]
     fn mat4_translate() {
-        let m = translate_4x4(10.0, 20.0, 0.0);
+        let m = translate_4x4(Vec3::new(10.0, 20.0, 0.0));
         assert_eq!(m[12], 10.0);
         assert_eq!(m[13], 20.0);
         assert_eq!(m[14], 0.0);
@@ -118,8 +118,8 @@ mod tests {
         // compute_transform should return None for backface-hidden + 180deg Y
         let result = compute_transform(
             &[TransformFunction::RotateY(180.0)],
-            (50.0, 50.0, 0.0),
-            (100.0, 100.0),
+            Vec3::new(50.0, 50.0, 0.0),
+            crate::Size::new(100.0, 100.0),
             &Perspective::default(),
             true,
         );
@@ -131,8 +131,8 @@ mod tests {
         // And Some for backface-visible
         let result = compute_transform(
             &[TransformFunction::RotateY(180.0)],
-            (50.0, 50.0, 0.0),
-            (100.0, 100.0),
+            Vec3::new(50.0, 50.0, 0.0),
+            crate::Size::new(100.0, 100.0),
             &Perspective::default(),
             false,
         );
@@ -187,12 +187,24 @@ mod tests {
         let funcs = vec![TransformFunction::RotateY(45.0)];
         let persp = Perspective {
             distance: Some(500.0),
-            origin: (50.0, 50.0),
+            origin: crate::Point::new(50.0, 50.0),
         };
-        let a =
-            compute_transform(&funcs, (50.0, 50.0, 0.0), (100.0, 100.0), &persp, false).unwrap();
-        let b =
-            compute_transform(&funcs, (50.0, 50.0, 100.0), (100.0, 100.0), &persp, false).unwrap();
+        let a = compute_transform(
+            &funcs,
+            Vec3::new(50.0, 50.0, 0.0),
+            crate::Size::new(100.0, 100.0),
+            &persp,
+            false,
+        )
+        .unwrap();
+        let b = compute_transform(
+            &funcs,
+            Vec3::new(50.0, 50.0, 100.0),
+            crate::Size::new(100.0, 100.0),
+            &persp,
+            false,
+        )
+        .unwrap();
         // The two should differ because origin_z changes the 4x4 matrix
         let differs = a.iter().zip(b.iter()).any(|(x, y)| (x - y).abs() > 1e-6);
         assert!(
@@ -350,10 +362,11 @@ mod tests {
 
     #[test]
     fn compute_perspective_origin_basic() {
-        use crate::Dimension;
+        use crate::{Dimension, Rect};
         let origin = (Dimension::Percentage(50.0), Dimension::Percentage(50.0));
-        let (ox, oy) = compute_perspective_origin(&origin, 10.0, 20.0, 200.0, 100.0);
-        assert_near(ox, 10.0 + 100.0, "origin x");
-        assert_near(oy, 20.0 + 50.0, "origin y");
+        let bb = Rect::new(10.0, 20.0, 200.0, 100.0);
+        let o = compute_perspective_origin(&origin, &bb);
+        assert_near(o.x, 10.0 + 100.0, "origin x");
+        assert_near(o.y, 20.0 + 50.0, "origin y");
     }
 }

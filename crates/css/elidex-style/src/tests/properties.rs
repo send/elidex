@@ -72,7 +72,7 @@ fn line_height_normal() {
     dom.append_child(body, div);
 
     // No line-height set -> default Normal.
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     assert_eq!(style.line_height, elidex_plugin::LineHeight::Normal);
@@ -170,7 +170,7 @@ fn sendsh_style_integration() {
         }
     ";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let body_style = get_style(&dom, body);
     assert_eq!(

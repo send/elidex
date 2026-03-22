@@ -1,6 +1,6 @@
 use super::*;
 use elidex_ecs::Attributes;
-use elidex_plugin::{Dimension, WritingMode};
+use elidex_plugin::{Dimension, Point, WritingMode};
 
 /// Collect only text runs from inline items (for tests that don't need atomics).
 fn collect_styled_runs(
@@ -49,6 +49,7 @@ fn setup_inline_test(text_content: &str) -> Option<(EcsDom, Entity, ComputedStyl
         word_spacing: 0.0,
     };
     measure_text(&font_db, &params, "x")?;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
     Some((dom, parent, style, font_db))
 }
 
@@ -59,21 +60,16 @@ fn empty_text_zero_height() {
     let text = dom.create_text("");
     dom.append_child(parent, text);
 
-    let style = ComputedStyle::default();
     let font_db = FontDatabase::new();
     let children = dom.composed_children(parent);
 
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
 }
 
@@ -81,20 +77,15 @@ fn empty_text_zero_height() {
 fn no_children_zero_height() {
     let mut dom = EcsDom::new();
     let parent_entity = Entity::DANGLING;
-    let style = ComputedStyle::default();
     let font_db = FontDatabase::new();
 
-    let h = layout_inline_context(
-        &mut dom,
-        &[],
-        800.0,
-        &style,
-        &font_db,
-        parent_entity,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
 }
 
@@ -106,17 +97,13 @@ fn single_line_text() {
 
     let css_line_height = style.line_height.resolve_px(style.font_size);
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!((h - css_line_height).abs() < f32::EPSILON);
 }
 
@@ -129,17 +116,13 @@ fn mandatory_newline_break() {
     let css_line_height = style.line_height.resolve_px(style.font_size);
     // Wide container: should still produce 2 lines due to \n
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        8000.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!((h - css_line_height * 2.0).abs() < f32::EPSILON);
 }
 
@@ -153,17 +136,13 @@ fn text_wrapping_increases_height() {
     let css_line_height = style.line_height.resolve_px(style.font_size);
     // Use a very narrow width to force wrapping
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        1.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 1.0, parent, Point::ZERO, &env).height;
     assert!(h > css_line_height);
 }
 
@@ -175,20 +154,18 @@ fn vertical_mode_uses_font_size_line_advance() {
         return;
     };
     style.writing_mode = WritingMode::VerticalRl;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
 
     // In vertical mode, the block-axis advance per line is font_size, not line-height.
     let children = dom.composed_children(parent);
-    let block_dim = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let block_dim =
+        layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     // Single line: block dimension should be font_size.
     assert!(
         (block_dim - style.font_size).abs() < f32::EPSILON,
@@ -204,19 +181,17 @@ fn vertical_lr_same_as_vertical_rl_for_height() {
         return;
     };
     style.writing_mode = WritingMode::VerticalLr;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
 
     let children = dom.composed_children(parent);
-    let block_dim = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let block_dim =
+        layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(
         (block_dim - style.font_size).abs() < f32::EPSILON,
         "vertical-lr single line should be font_size ({}), got {}",
@@ -234,17 +209,13 @@ fn horizontal_tb_uses_line_height() {
 
     let css_line_height = style.line_height.resolve_px(style.font_size);
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(
         (h - css_line_height).abs() < f32::EPSILON,
         "horizontal-tb single line should be line-height ({css_line_height}), got {h}",
@@ -312,17 +283,13 @@ fn multi_style_line_height_uses_max() {
     dom.append_child(span, text2);
 
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     // Line height should be max(parent line height, span line height) = big_line_height
     assert!(
         (h - big_line_height).abs() < 1.0,
@@ -385,15 +352,19 @@ fn inline_span_gets_layout_box() {
     dom.append_child(span, text2);
 
     let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
     let _result = layout_inline_context(
         &mut dom,
         &children,
         800.0,
-        &style,
-        &font_db,
         parent,
-        (10.0, 20.0),
-        crate::layout_block_only,
+        Point::new(10.0, 20.0),
+        &env,
     );
 
     // The span should now have a LayoutBox.
@@ -404,33 +375,39 @@ fn inline_span_gets_layout_box() {
     );
     let lb = lb.unwrap();
     // LayoutBox x should start after "Hello " at content_origin.x + offset.
-    assert!(lb.content.x >= 10.0, "span x should be >= content_origin.x");
     assert!(
-        (lb.content.y - 20.0).abs() < f32::EPSILON,
+        lb.content.origin.x >= 10.0,
+        "span x should be >= content_origin.x"
+    );
+    assert!(
+        (lb.content.origin.y - 20.0).abs() < f32::EPSILON,
         "span y should be content_origin.y"
     );
-    assert!(lb.content.width > 0.0, "span should have positive width");
-    assert!(lb.content.height > 0.0, "span should have positive height");
+    assert!(
+        lb.content.size.width > 0.0,
+        "span should have positive width"
+    );
+    assert!(
+        lb.content.size.height > 0.0,
+        "span should have positive height"
+    );
 }
 
 #[test]
 fn parent_entity_does_not_get_inline_layout_box() {
-    let Some((mut dom, parent, style, font_db)) = setup_inline_test("Hello") else {
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("Hello") else {
         return;
     };
 
     // Parent should NOT get a LayoutBox from inline layout.
     let children = dom.composed_children(parent);
-    let _result = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    );
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let _result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
     // Parent (the <p>) should not get LayoutBox from inline layout
     // (it's the parent_entity, excluded from inline LayoutBox assignment).
@@ -471,26 +448,22 @@ fn inline_block_participates_in_ifc() {
     dom.append_child(parent, text2);
 
     let children = dom.composed_children(parent);
-    let h = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    )
-    .height;
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
 
     // The inline-block should get a LayoutBox from dispatch.
     let ib_lb = dom.world().get::<&LayoutBox>(ib);
     assert!(ib_lb.is_ok(), "inline-block should have a LayoutBox");
     let ib_lb = ib_lb.unwrap();
     assert!(
-        (ib_lb.content.width - 50.0).abs() < f32::EPSILON,
+        (ib_lb.content.size.width - 50.0).abs() < f32::EPSILON,
         "inline-block width should be 50px, got {}",
-        ib_lb.content.width
+        ib_lb.content.size.width
     );
 
     // Line height should be at least 30px (the inline-block's height).
@@ -554,11 +527,9 @@ fn mixed_block_inline_anonymous_box() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -620,11 +591,9 @@ fn block_only_children_no_anonymous_boxes() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -683,11 +652,9 @@ fn display_none_skipped_in_block_context() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -757,16 +724,13 @@ fn inline_baseline_from_text() {
 
     let css_line_height = style.line_height.resolve_px(style.font_size);
     let children = dom.composed_children(parent);
-    let result = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    );
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
     assert!(
         result.first_baseline.is_some(),
@@ -803,16 +767,13 @@ fn inline_baseline_with_atomic_box() {
     dom.append_child(parent, ib);
 
     let children = dom.composed_children(parent);
-    let result = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    );
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
     assert!(
         result.first_baseline.is_some(),
@@ -826,19 +787,15 @@ fn inline_baseline_with_atomic_box() {
 fn empty_inline_no_baseline() {
     let mut dom = EcsDom::new();
     let parent_entity = Entity::DANGLING;
-    let style = ComputedStyle::default();
     let font_db = FontDatabase::new();
 
-    let result = layout_inline_context(
-        &mut dom,
-        &[],
-        800.0,
-        &style,
-        &font_db,
-        parent_entity,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    );
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let result = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env);
 
     assert!(
         result.first_baseline.is_none(),
@@ -852,18 +809,16 @@ fn vertical_writing_mode_no_baseline() {
         return;
     };
     style.writing_mode = WritingMode::VerticalRl;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
 
     let children = dom.composed_children(parent);
-    let result = layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        &style,
-        &font_db,
-        parent,
-        (0.0, 0.0),
-        crate::layout_block_only,
-    );
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+    };
+    let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
     assert!(
         result.first_baseline.is_none(),
@@ -883,11 +838,9 @@ fn block_inline_text_baseline() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -939,11 +892,9 @@ fn nested_block_baseline_propagation() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -992,11 +943,9 @@ fn block_without_baseline_none() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -1050,11 +999,9 @@ fn mixed_block_inline_baseline() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
-        containing_width: 800.0,
-        containing_height: None,
+        containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,

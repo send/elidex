@@ -25,15 +25,14 @@ fn grid_empty_container() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!(approx_eq(lb.content.width, 800.0));
-    assert!(approx_eq(lb.content.height, 100.0));
+    assert!(approx_eq(lb.content.size.width, 800.0));
+    assert!(approx_eq(lb.content.size.height, 100.0));
 }
 
 #[test]
@@ -117,8 +116,7 @@ fn column_track_sizing() {
             container,
             *container_w,
             None,
-            0.0,
-            0.0,
+            Point::ZERO,
             &font_db,
             0,
             layout_block_only,
@@ -127,14 +125,14 @@ fn column_track_sizing() {
         for (i, &(expected_x, expected_w)) in expected.iter().enumerate() {
             let child_lb = get_layout(&dom, children[i]);
             assert!(
-                approx_eq(child_lb.content.x, expected_x),
+                approx_eq(child_lb.content.origin.x, expected_x),
                 "{desc}: child[{i}] x={} expected {expected_x}",
-                child_lb.content.x,
+                child_lb.content.origin.x,
             );
             assert!(
-                approx_eq(child_lb.content.width, expected_w),
+                approx_eq(child_lb.content.size.width, expected_w),
                 "{desc}: child[{i}] width={} expected {expected_w}",
-                child_lb.content.width,
+                child_lb.content.size.width,
             );
         }
     }
@@ -170,8 +168,7 @@ fn grid_auto_rows() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -181,10 +178,10 @@ fn grid_auto_rows() {
     let lb3 = get_layout(&dom, c3);
 
     // Row 0: y=0, Row 1: y=50.
-    assert!(approx_eq(lb1.content.y, 0.0));
-    assert!(approx_eq(lb3.content.y, 50.0));
+    assert!(approx_eq(lb1.content.origin.y, 0.0));
+    assert!(approx_eq(lb3.content.origin.y, 50.0));
     // Container height = 50 + 30 = 80.
-    assert!(approx_eq(lb.content.height, 80.0));
+    assert!(approx_eq(lb.content.size.height, 80.0));
 }
 
 #[test]
@@ -217,8 +214,7 @@ fn grid_explicit_rows() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -228,9 +224,9 @@ fn grid_explicit_rows() {
     let lb2 = get_layout(&dom, c2);
 
     // Row 0: 100px, Row 1: 200px.
-    assert!(approx_eq(lb1.content.y, 0.0));
-    assert!(approx_eq(lb2.content.y, 100.0));
-    assert!(approx_eq(lb.content.height, 300.0));
+    assert!(approx_eq(lb1.content.origin.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.y, 100.0));
+    assert!(approx_eq(lb.content.size.height, 300.0));
 }
 
 #[test]
@@ -261,8 +257,7 @@ fn grid_auto_track_size() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -272,9 +267,9 @@ fn grid_auto_track_size() {
     let lb3 = get_layout(&dom, c3);
 
     // Auto rows should be 50px each.
-    assert!(approx_eq(lb2.content.y, 50.0));
-    assert!(approx_eq(lb3.content.y, 100.0));
-    assert!(approx_eq(lb.content.height, 150.0));
+    assert!(approx_eq(lb2.content.origin.y, 50.0));
+    assert!(approx_eq(lb3.content.origin.y, 100.0));
+    assert!(approx_eq(lb.content.size.height, 150.0));
 }
 
 #[test]
@@ -303,15 +298,14 @@ fn grid_container_auto_height() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
     // Auto height = sum of row heights = 100 + 200 = 300.
-    assert!(approx_eq(lb.content.height, 300.0));
+    assert!(approx_eq(lb.content.size.height, 300.0));
 }
 
 #[test]
@@ -344,8 +338,7 @@ fn grid_minmax_track() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -356,8 +349,8 @@ fn grid_minmax_track() {
 
     // minmax(100px, 1fr): gets remaining space after 200px -> 400px.
     // (But must be at least 100px.)
-    assert!(approx_eq(lb1.content.width, 400.0));
-    assert!(approx_eq(lb2.content.width, 200.0));
+    assert!(approx_eq(lb1.content.size.width, 400.0));
+    assert!(approx_eq(lb2.content.size.width, 200.0));
 }
 
 #[test]
@@ -391,8 +384,7 @@ fn grid_percentage_row_indefinite_height() {
         container,
         400.0,
         None, // Indefinite containing height.
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -401,8 +393,8 @@ fn grid_percentage_row_indefinite_height() {
     let lb = get_layout(&dom, child);
 
     // With indefinite height, 50% row should behave like auto -> use content height (80px).
-    assert!(approx_eq(lb.content.height, 80.0));
-    assert!(approx_eq(clb.content.height, 80.0));
+    assert!(approx_eq(lb.content.size.height, 80.0));
+    assert!(approx_eq(clb.content.size.height, 80.0));
 }
 
 #[test]
@@ -453,8 +445,7 @@ fn grid_minmax_min_content_uses_narrow_size() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -470,9 +461,9 @@ fn grid_minmax_min_content_uses_narrow_size() {
     let lb2_entity = dom.composed_children(container)[1];
     let lb2 = get_layout(&dom, lb2_entity);
     assert!(
-        approx_eq(lb2.content.x, 400.0),
+        approx_eq(lb2.content.origin.x, 400.0),
         "c2 should start at x=400 (track 0 = 400px), got {}",
-        lb2.content.x
+        lb2.content.origin.x
     );
 }
 
@@ -521,8 +512,7 @@ fn grid_minmax_max_content_in_max() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -533,9 +523,9 @@ fn grid_minmax_max_content_in_max() {
     // minmax(100px, max-content): base=100, limit=max-content(150).
     // Track size = max(base, min(limit, max(base, content))) = max(100, min(150, 150)) = 150.
     assert!(
-        approx_eq(lb1.content.width, 150.0),
+        approx_eq(lb1.content.size.width, 150.0),
         "expected 150px (max-content limit), got {}",
-        lb1.content.width
+        lb1.content.size.width
     );
 }
 
@@ -575,8 +565,7 @@ fn auto_fill_200px_in_900px() {
         container,
         900.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -588,11 +577,11 @@ fn auto_fill_200px_in_900px() {
     let lb4 = get_layout(&dom, c4);
 
     // 4 tracks of 200px each.
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb1.content.width, 200.0));
-    assert!(approx_eq(lb2.content.x, 200.0));
-    assert!(approx_eq(lb3.content.x, 400.0));
-    assert!(approx_eq(lb4.content.x, 600.0));
+    assert!(approx_eq(lb1.content.origin.x, 0.0));
+    assert!(approx_eq(lb1.content.size.width, 200.0));
+    assert!(approx_eq(lb2.content.origin.x, 200.0));
+    assert!(approx_eq(lb3.content.origin.x, 400.0));
+    assert!(approx_eq(lb4.content.origin.x, 600.0));
 }
 
 #[test]
@@ -629,8 +618,7 @@ fn auto_fill_multi_pattern_in_900px() {
         container,
         900.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -642,19 +630,19 @@ fn auto_fill_multi_pattern_in_900px() {
     let lb2 = get_layout(&dom, children[2]);
 
     assert!(
-        approx_eq(lb0.content.width, 100.0),
+        approx_eq(lb0.content.size.width, 100.0),
         "child0 width={}",
-        lb0.content.width
+        lb0.content.size.width
     );
     assert!(
-        approx_eq(lb1.content.width, 200.0),
+        approx_eq(lb1.content.size.width, 200.0),
         "child1 width={}",
-        lb1.content.width
+        lb1.content.size.width
     );
     assert!(
-        approx_eq(lb2.content.x, 300.0),
+        approx_eq(lb2.content.origin.x, 300.0),
         "child2 x={}",
-        lb2.content.x
+        lb2.content.origin.x
     );
 }
 
@@ -689,8 +677,7 @@ fn auto_fit_collapses_empty_tracks() {
         container,
         900.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -700,10 +687,10 @@ fn auto_fit_collapses_empty_tracks() {
     let lb2 = get_layout(&dom, c2);
 
     // Items should be in first 2 tracks (200px each).
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb1.content.width, 200.0));
-    assert!(approx_eq(lb2.content.x, 200.0));
-    assert!(approx_eq(lb2.content.width, 200.0));
+    assert!(approx_eq(lb1.content.origin.x, 0.0));
+    assert!(approx_eq(lb1.content.size.width, 200.0));
+    assert!(approx_eq(lb2.content.origin.x, 200.0));
+    assert!(approx_eq(lb2.content.size.width, 200.0));
 }
 
 #[test]
@@ -735,8 +722,7 @@ fn auto_fill_minimum_one_repetition() {
         container,
         250.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -745,7 +731,7 @@ fn auto_fill_minimum_one_repetition() {
     let lb1 = get_layout(&dom, c1);
 
     // Even though 300px > 250px, minimum 1 track.
-    assert!(approx_eq(lb1.content.width, 300.0));
+    assert!(approx_eq(lb1.content.size.width, 300.0));
 }
 
 #[test]
@@ -783,8 +769,7 @@ fn auto_fill_with_fixed_before_after() {
         container,
         900.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -796,30 +781,30 @@ fn auto_fill_with_fixed_before_after() {
 
     // First track: 100px
     assert!(
-        approx_eq(lb0.content.width, 100.0),
+        approx_eq(lb0.content.size.width, 100.0),
         "first track width={}",
-        lb0.content.width
+        lb0.content.size.width
     );
     // Second track: 200px, starts at x=100
     assert!(
-        approx_eq(lb1.content.x, 100.0),
+        approx_eq(lb1.content.origin.x, 100.0),
         "second track x={}",
-        lb1.content.x
+        lb1.content.origin.x
     );
     assert!(
-        approx_eq(lb1.content.width, 200.0),
+        approx_eq(lb1.content.size.width, 200.0),
         "second track width={}",
-        lb1.content.width
+        lb1.content.size.width
     );
     // Last track: 100px, starts at x=100+600=700
     assert!(
-        approx_eq(lb4.content.x, 700.0),
+        approx_eq(lb4.content.origin.x, 700.0),
         "last track x={}",
-        lb4.content.x
+        lb4.content.origin.x
     );
     assert!(
-        approx_eq(lb4.content.width, 100.0),
+        approx_eq(lb4.content.size.width, 100.0),
         "last track width={}",
-        lb4.content.width
+        lb4.content.size.width
     );
 }

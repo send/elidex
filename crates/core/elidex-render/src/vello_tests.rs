@@ -31,8 +31,8 @@ fn image_builds_scene() {
         pixels: Arc::new(vec![255u8; 4 * 2 * 2]), // 2×2 white
         image_width: 2,
         image_height: 2,
-        position: (0.0, 0.0),
-        size: (100.0, 50.0),
+        position: Point::ZERO,
+        size: Size::new(100.0, 50.0),
         repeat: BgRepeat {
             x: BgRepeatAxis::NoRepeat,
             y: BgRepeatAxis::NoRepeat,
@@ -114,8 +114,8 @@ fn image_repeat_builds_scene() {
         pixels: Arc::new(vec![255u8; 4 * 2 * 2]),
         image_width: 2,
         image_height: 2,
-        position: (0.0, 0.0),
-        size: (50.0, 50.0),
+        position: Point::ZERO,
+        size: Size::new(50.0, 50.0),
         repeat: BgRepeat {
             x: BgRepeatAxis::Repeat,
             y: BgRepeatAxis::Repeat,
@@ -133,9 +133,14 @@ fn tile_positions_no_repeat() {
         x: BgRepeatAxis::NoRepeat,
         y: BgRepeatAxis::NoRepeat,
     };
-    let positions = compute_tile_positions(&area, &(10.0, 20.0), &(100.0, 50.0), &repeat);
+    let positions = compute_tile_positions(
+        &area,
+        &Point::new(10.0, 20.0),
+        &Size::new(100.0, 50.0),
+        &repeat,
+    );
     assert_eq!(positions.len(), 1);
-    assert_eq!(positions[0], (10.0, 20.0));
+    assert_eq!(positions[0], Vector::new(10.0, 20.0));
 }
 
 #[test]
@@ -146,12 +151,12 @@ fn tile_positions_repeat() {
         x: BgRepeatAxis::Repeat,
         y: BgRepeatAxis::Repeat,
     };
-    let positions = compute_tile_positions(&area, &(0.0, 0.0), &(50.0, 50.0), &repeat);
+    let positions = compute_tile_positions(&area, &Point::ZERO, &Size::new(50.0, 50.0), &repeat);
     // Must cover the entire painting area — at least 4 columns × 2 rows
     assert!(positions.len() >= 8);
     // All visible tiles must intersect the painting area
-    for &(x, y) in &positions {
-        assert!(x < 200.0 && y < 100.0);
+    for p in &positions {
+        assert!(p.x < 200.0 && p.y < 100.0);
     }
 }
 
@@ -163,12 +168,12 @@ fn tile_positions_space() {
         x: BgRepeatAxis::Space,
         y: BgRepeatAxis::NoRepeat,
     };
-    let positions = compute_tile_positions(&area, &(0.0, 0.0), &(100.0, 50.0), &repeat);
+    let positions = compute_tile_positions(&area, &Point::ZERO, &Size::new(100.0, 50.0), &repeat);
     // floor(250/100) = 2 tiles in x, 1 in y → 2 tiles
     assert_eq!(positions.len(), 2);
     // First tile at x=0, second at x=150 (50px space between)
-    assert!((positions[0].0).abs() < 0.1);
-    assert!((positions[1].0 - 150.0).abs() < 0.1);
+    assert!((positions[0].x).abs() < 0.1);
+    assert!((positions[1].x - 150.0).abs() < 0.1);
 }
 
 #[test]
@@ -180,7 +185,7 @@ fn tile_positions_round() {
         y: BgRepeatAxis::NoRepeat,
     };
     // round(250/100) = 3 tiles, each 250/3 ≈ 83.3px
-    let positions = compute_tile_positions(&area, &(0.0, 0.0), &(100.0, 50.0), &repeat);
+    let positions = compute_tile_positions(&area, &Point::ZERO, &Size::new(100.0, 50.0), &repeat);
     // Must have at least 3 tiles covering the 250px area with ~83px tiles
     assert!(positions.len() >= 3);
 }
@@ -190,8 +195,8 @@ fn styled_border_segment_dashed_builds_scene() {
     let mut scene = Scene::new();
     let mut fc = HashMap::new();
     let dl = DisplayList(vec![DisplayItem::StyledBorderSegment {
-        start: (0.0, 1.0),
-        end: (100.0, 1.0),
+        start: Point::new(0.0, 1.0),
+        end: Point::new(100.0, 1.0),
         width: 2.0,
         dashes: vec![6.0, 2.0],
         round_caps: false,
@@ -206,8 +211,8 @@ fn styled_border_segment_dotted_builds_scene() {
     let mut scene = Scene::new();
     let mut fc = HashMap::new();
     let dl = DisplayList(vec![DisplayItem::StyledBorderSegment {
-        start: (1.5, 0.0),
-        end: (1.5, 50.0),
+        start: Point::new(1.5, 0.0),
+        end: Point::new(1.5, 50.0),
         width: 3.0,
         dashes: vec![0.001, 6.0],
         round_caps: true,
@@ -223,7 +228,7 @@ fn scroll_offset_translates() {
     let mut fc = HashMap::new();
     let dl = DisplayList(vec![
         DisplayItem::PushScrollOffset {
-            scroll_offset: (50.0, 100.0),
+            scroll_offset: Vector::new(50.0, 100.0),
         },
         DisplayItem::SolidRect {
             rect: Rect::new(0.0, 0.0, 10.0, 10.0),
@@ -241,7 +246,7 @@ fn scroll_offset_zero_identity() {
     let mut fc = HashMap::new();
     let dl = DisplayList(vec![
         DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 0.0),
+            scroll_offset: Vector::<f32>::ZERO,
         },
         DisplayItem::SolidRect {
             rect: Rect::new(10.0, 10.0, 50.0, 50.0),
@@ -259,7 +264,7 @@ fn nested_scroll_transform() {
     let mut fc = HashMap::new();
     let dl = DisplayList(vec![
         DisplayItem::PushScrollOffset {
-            scroll_offset: (10.0, 20.0),
+            scroll_offset: Vector::new(10.0, 20.0),
         },
         DisplayItem::PushTransform {
             affine: [1.0, 0.0, 0.0, 1.0, 50.0, 50.0], // translate(50, 50)
@@ -285,7 +290,7 @@ fn fixed_element_scroll_exclusion() {
     let dl = DisplayList(vec![
         // Root scroll
         DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 100.0),
+            scroll_offset: Vector::new(0.0, 100.0),
         },
         // Normal (scrolled) content
         DisplayItem::SolidRect {
@@ -301,7 +306,7 @@ fn fixed_element_scroll_exclusion() {
         },
         // Re-apply scroll
         DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 100.0),
+            scroll_offset: Vector::new(0.0, 100.0),
         },
         // More normal content
         DisplayItem::SolidRect {
@@ -320,7 +325,7 @@ fn fixed_element_scroll_exclusion_update() {
     // including the re-push after a fixed element.
     let mut dl = DisplayList(vec![
         DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 0.0),
+            scroll_offset: Vector::<f32>::ZERO,
         },
         DisplayItem::SolidRect {
             rect: Rect::new(0.0, 0.0, 10.0, 10.0),
@@ -329,12 +334,12 @@ fn fixed_element_scroll_exclusion_update() {
         DisplayItem::PopScrollOffset,
         // Fixed element re-push
         DisplayItem::PushScrollOffset {
-            scroll_offset: (0.0, 0.0),
+            scroll_offset: Vector::<f32>::ZERO,
         },
         DisplayItem::PopScrollOffset,
     ]);
 
-    dl.update_scroll_offset((30.0, 80.0));
+    dl.update_scroll_offset(Vector::new(30.0, 80.0));
 
     let offsets: Vec<_> = dl
         .iter()
@@ -344,8 +349,8 @@ fn fixed_element_scroll_exclusion_update() {
         })
         .collect();
     assert_eq!(offsets.len(), 2);
-    for (sx, sy) in offsets {
-        assert!((sx - 30.0).abs() < f32::EPSILON);
-        assert!((sy - 80.0).abs() < f32::EPSILON);
+    for p in offsets {
+        assert!((p.x - 30.0).abs() < f32::EPSILON);
+        assert!((p.y - 80.0).abs() < f32::EPSILON);
     }
 }

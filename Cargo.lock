@@ -1833,6 +1833,7 @@ dependencies = [
 name = "elidex-ecs"
 version = "0.1.0"
 dependencies = [
+ "elidex-plugin",
  "hecs",
  "indexmap",
 ]

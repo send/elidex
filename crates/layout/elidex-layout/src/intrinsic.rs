@@ -7,12 +7,11 @@
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
     composed_children_flat, get_style, inline, inline_pb, sanitize_border, sanitize_padding,
-    total_gap, ChildLayoutFn, IntrinsicSizes, LayoutInput, MAX_LAYOUT_DEPTH,
+    total_gap, IntrinsicSizes, LayoutEnv, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 #[cfg(test)]
 use elidex_plugin::WritingMode;
 use elidex_plugin::{BoxSizing, Dimension, Display, FlexDirection, FlexWrap, WritingModeContext};
-use elidex_text::FontDatabase;
 
 /// Compute min-content and max-content intrinsic inline sizes for an element.
 ///
@@ -30,11 +29,9 @@ use elidex_text::FontDatabase;
 pub fn compute_intrinsic_sizes(
     dom: &mut EcsDom,
     entity: Entity,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> IntrinsicSizes {
-    if depth >= MAX_LAYOUT_DEPTH {
+    if env.depth >= MAX_LAYOUT_DEPTH {
         return IntrinsicSizes::default();
     }
 
@@ -61,21 +58,14 @@ pub fn compute_intrinsic_sizes(
     }
 
     let content = match style.display {
-        Display::Flex | Display::InlineFlex => {
-            compute_flex_intrinsic(dom, entity, &children, font_db, layout_child, depth)
+        Display::Flex | Display::InlineFlex => compute_flex_intrinsic(dom, entity, &children, env),
+        Display::Grid | Display::InlineGrid => {
+            elidex_layout_grid::compute_grid_intrinsic(dom, entity, &children, env)
         }
-        Display::Grid | Display::InlineGrid => elidex_layout_grid::compute_grid_intrinsic(
-            dom,
-            entity,
-            &children,
-            font_db,
-            layout_child,
-            depth,
-        ),
         Display::Table | Display::InlineTable => {
-            compute_table_intrinsic(dom, entity, &children, font_db, layout_child, depth)
+            compute_table_intrinsic(dom, entity, &children, env)
         }
-        _ => compute_block_intrinsic(dom, entity, &children, font_db, layout_child, depth),
+        _ => compute_block_intrinsic(dom, entity, &children, env),
     };
 
     IntrinsicSizes {
@@ -99,8 +89,12 @@ fn explicit_intrinsic(
         WritingModeContext::new(style.writing_mode, style.direction).is_horizontal();
 
     // Replaced elements: use intrinsic image/form dimensions (inline-axis).
-    if let Some((w, h)) = elidex_layout_block::get_intrinsic_size(dom, entity) {
-        let inline_size = if inline_horizontal { w } else { h };
+    if let Some(intr) = elidex_layout_block::get_intrinsic_size(dom, entity) {
+        let inline_size = if inline_horizontal {
+            intr.width
+        } else {
+            intr.height
+        };
         return Some(IntrinsicSizes {
             min_content: inline_size + pb,
             max_content: inline_size + pb,
@@ -135,9 +129,7 @@ fn compute_block_intrinsic(
     dom: &mut EcsDom,
     entity: Entity,
     children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
     let has_block_children = children.iter().any(|&c| {
@@ -149,14 +141,17 @@ fn compute_block_intrinsic(
         // Block children: max of each child's intrinsic sizes.
         let mut min = 0.0_f32;
         let mut max = 0.0_f32;
+        let deeper = env.deeper();
         for &child in children {
-            let child_sizes = compute_intrinsic_sizes(dom, child, font_db, layout_child, depth + 1);
+            let child_sizes = compute_intrinsic_sizes(dom, child, &deeper);
             min = min.max(child_sizes.min_content);
             max = max.max(child_sizes.max_content);
         }
         // Also check inline content mixed in.
-        let inline_min = inline::min_content_inline_size(dom, children, &style, entity, font_db);
-        let inline_max = inline::max_content_inline_size(dom, children, &style, entity, font_db);
+        let inline_min =
+            inline::min_content_inline_size(dom, children, &style, entity, env.font_db);
+        let inline_max =
+            inline::max_content_inline_size(dom, children, &style, entity, env.font_db);
         IntrinsicSizes {
             min_content: min.max(inline_min),
             max_content: max.max(inline_max),
@@ -164,8 +159,20 @@ fn compute_block_intrinsic(
     } else {
         // Pure inline children.
         IntrinsicSizes {
-            min_content: inline::min_content_inline_size(dom, children, &style, entity, font_db),
-            max_content: inline::max_content_inline_size(dom, children, &style, entity, font_db),
+            min_content: inline::min_content_inline_size(
+                dom,
+                children,
+                &style,
+                entity,
+                env.font_db,
+            ),
+            max_content: inline::max_content_inline_size(
+                dom,
+                children,
+                &style,
+                entity,
+                env.font_db,
+            ),
         }
     }
 }
@@ -175,9 +182,7 @@ fn compute_flex_intrinsic(
     dom: &mut EcsDom,
     entity: Entity,
     children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
     // Determine whether the flex main axis maps to the physical horizontal axis,
@@ -190,8 +195,7 @@ fn compute_flex_intrinsic(
     };
     let nowrap = matches!(style.flex_wrap, FlexWrap::Nowrap);
 
-    let child_sizes_list =
-        collect_child_intrinsic_sizes(dom, children, font_db, layout_child, depth);
+    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env);
 
     if child_sizes_list.is_empty() {
         return IntrinsicSizes::default();
@@ -255,9 +259,7 @@ fn compute_table_intrinsic(
     dom: &mut EcsDom,
     entity: Entity,
     children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> IntrinsicSizes {
     let mut col_min: Vec<f32> = Vec::new();
     let mut col_max: Vec<f32> = Vec::new();
@@ -283,8 +285,7 @@ fn compute_table_intrinsic(
             }
             Some(Display::TableCell) => {
                 // Direct cell (anonymous row): treat as column 0.
-                let cell_sizes =
-                    compute_intrinsic_sizes(dom, child, font_db, layout_child, depth + 1);
+                let cell_sizes = compute_intrinsic_sizes(dom, child, &env.deeper());
                 if col_min.is_empty() {
                     col_min.push(0.0);
                     col_max.push(0.0);
@@ -319,7 +320,7 @@ fn compute_table_intrinsic(
                 .unwrap_or(1)
                 .clamp(1, 1000);
 
-            let cell_sizes = compute_intrinsic_sizes(dom, cell, font_db, layout_child, depth + 1);
+            let cell_sizes = compute_intrinsic_sizes(dom, cell, &env.deeper());
 
             // Grow column vectors as needed.
             while col_min.len() < col_idx + colspan {
@@ -369,9 +370,7 @@ fn compute_table_intrinsic(
 fn collect_child_intrinsic_sizes(
     dom: &mut EcsDom,
     children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> Vec<IntrinsicSizes> {
     let mut result = Vec::new();
     for &child in children {
@@ -384,21 +383,15 @@ fn collect_child_intrinsic_sizes(
         }
         if child_style.is_none() {
             // Text node: measure via probe layout.
-            let probe_min = probe_layout_size(dom, child, 1.0, font_db, layout_child, depth);
-            let probe_max = probe_layout_size(dom, child, 1e6, font_db, layout_child, depth);
+            let probe_min = probe_layout_size(dom, child, 1.0, env);
+            let probe_max = probe_layout_size(dom, child, 1e6, env);
             result.push(IntrinsicSizes {
                 min_content: probe_min,
                 max_content: probe_max,
             });
             continue;
         }
-        result.push(compute_intrinsic_sizes(
-            dom,
-            child,
-            font_db,
-            layout_child,
-            depth + 1,
-        ));
+        result.push(compute_intrinsic_sizes(dom, child, &env.deeper()));
     }
     result
 }
@@ -413,34 +406,19 @@ fn probe_layout_size(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> f32 {
-    let input = LayoutInput {
-        containing_width,
-        containing_height: None,
-        containing_inline_size: containing_width,
-        offset_x: 0.0,
-        offset_y: 0.0,
-        font_db,
-        depth: depth + 1,
-        float_ctx: None,
-        viewport: None,
-        fragmentainer: None,
-        break_token: None,
-        subgrid: None,
-    };
-    let lb = layout_child(dom, entity, &input).layout_box;
+    let input = LayoutInput::probe(env, containing_width);
+    let lb = (env.layout_child)(dom, entity, &input).layout_box;
     // Determine inline axis from the parent's writing mode context.
     // For text/leaf nodes without a style, check ancestor style if available;
     // fallback to horizontal (width).
     let inline_horizontal = elidex_layout_block::try_get_style(dom, entity)
         .is_none_or(|s| WritingModeContext::new(s.writing_mode, s.direction).is_horizontal());
     if inline_horizontal {
-        lb.content.width
+        lb.content.size.width
     } else {
-        lb.content.height
+        lb.content.size.height
     }
 }
 
@@ -460,6 +438,16 @@ mod tests {
     use crate::layout::dispatch_layout_child;
     use elidex_ecs::Attributes;
     use elidex_plugin::{ComputedStyle, Dimension};
+    use elidex_text::FontDatabase;
+
+    fn test_env(font_db: &FontDatabase) -> LayoutEnv<'_> {
+        LayoutEnv {
+            font_db,
+            layout_child: dispatch_layout_child,
+            depth: 0,
+            viewport: None,
+        }
+    }
 
     fn make_dom_with_text() -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
@@ -480,7 +468,7 @@ mod tests {
     fn block_with_text_intrinsic() {
         let (mut dom, parent) = make_dom_with_text();
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, parent, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, parent, &test_env(&font_db));
         // min_content <= max_content
         assert!(sizes.min_content <= sizes.max_content);
     }
@@ -520,7 +508,7 @@ mod tests {
         let _ = dom.append_child(flex, c2);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
         // nowrap: min = sum = 150, max = sum = 150 (both have explicit widths)
         assert!(sizes.min_content >= 0.0);
         assert!(sizes.max_content >= sizes.min_content);
@@ -561,7 +549,7 @@ mod tests {
         let _ = dom.append_child(flex, c2);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
         // wrap: min = max(items) = 100, max = sum = 150
         assert!(sizes.min_content >= 0.0);
         assert!(sizes.max_content >= sizes.min_content);
@@ -590,7 +578,7 @@ mod tests {
         let _ = dom.append_child(outer, inner);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, outer, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, outer, &test_env(&font_db));
         assert!(sizes.min_content >= 0.0);
         assert!(sizes.max_content >= sizes.min_content);
     }
@@ -666,7 +654,7 @@ mod tests {
         // Should create 2 columns of 100px each intrinsic.
         let (mut dom, table) = make_table_with_colspan(&[(2, 200.0)]);
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &test_env(&font_db));
         // With 2 columns of 100px + gap, total should be around 200+gap.
         assert!(sizes.min_content > 0.0);
         assert!(sizes.max_content >= sizes.min_content);
@@ -678,7 +666,7 @@ mod tests {
         // Should create 3 columns: col 0,1 at 100px each, col 2 at 50px.
         let (mut dom, table) = make_table_with_colspan(&[(2, 200.0), (1, 50.0)]);
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &test_env(&font_db));
         assert!(sizes.min_content > 0.0);
         // Total: 100 + 100 + 50 + gaps = ~250+
         assert!(sizes.max_content >= sizes.min_content);
@@ -689,7 +677,7 @@ mod tests {
         // Single cell with colspan=3 and width=300.
         let (mut dom, table) = make_table_with_colspan(&[(3, 300.0)]);
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &test_env(&font_db));
         // 3 columns of 100px each.
         assert!(sizes.min_content > 0.0);
         assert!(sizes.max_content >= sizes.min_content);
@@ -712,7 +700,7 @@ mod tests {
             },
         );
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, block, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, block, &test_env(&font_db));
         // Explicit height = 120 acts as inline-size in vertical-rl.
         assert!((sizes.min_content - 120.0).abs() < 1.0);
         assert!((sizes.max_content - 120.0).abs() < 1.0);
@@ -758,7 +746,7 @@ mod tests {
         let _ = dom.append_child(flex, c2);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
         // In vertical-rl, row is vertical → main axis is NOT horizontal.
         // So we compute column-style intrinsic: max of children = 80.
         // (Row in vertical maps horizontal=false, so column branch runs.)
@@ -807,7 +795,7 @@ mod tests {
         let _ = dom.append_child(flex, c2);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, flex, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
         // Column + vertical-rl: horizontal = true, row branch sums.
         // Children's inline-axis sizes (heights) = 70 + 40 = 110.
         assert!(sizes.min_content >= 40.0);
@@ -862,7 +850,7 @@ mod tests {
         let _ = dom.append_child(tr, td2);
 
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, table, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, table, &test_env(&font_db));
         // 2 cells: 50 + 30 + border_spacing_v(5) gap = 85 (plus pb).
         assert!(sizes.min_content > 0.0);
         assert!(sizes.max_content >= sizes.min_content);
@@ -883,7 +871,7 @@ mod tests {
             },
         );
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, block, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, block, &test_env(&font_db));
         // Explicit width = 200 in horizontal-tb → both min and max = 200.
         assert!((sizes.min_content - 200.0).abs() < 1.0);
         assert!((sizes.max_content - 200.0).abs() < 1.0);
@@ -905,7 +893,7 @@ mod tests {
             },
         );
         let font_db = FontDatabase::new();
-        let sizes = compute_intrinsic_sizes(&mut dom, el, &font_db, dispatch_layout_child, 0);
+        let sizes = compute_intrinsic_sizes(&mut dom, el, &test_env(&font_db));
         // In vertical-rl, height is the inline-axis dimension.
         assert!((sizes.min_content - 150.0).abs() < 1.0);
         assert!((sizes.max_content - 150.0).abs() < 1.0);

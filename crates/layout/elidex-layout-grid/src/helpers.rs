@@ -4,15 +4,23 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    effective_align, sanitize_border, ChildLayoutFn, LayoutInput, SubgridContext,
+    effective_align, sanitize_border, ChildLayoutFn, LayoutEnv, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignmentSafety, ComputedStyle, Dimension, Display, EdgeSizes, GridAutoFlow,
-    JustifyContent, JustifyItems, JustifySelf, Rect, TrackSize,
+    AlignContent, AlignmentSafety, ComputedStyle, CssSize, Dimension, Display, EdgeSizes,
+    GridAutoFlow, JustifyContent, JustifyItems, JustifySelf, Point, Rect, Size, TrackSize,
 };
-use elidex_text::FontDatabase;
 
 use elidex_layout_block::block::resolve_margin;
+
+/// Axis-specific grid track info for abs-pos containing block resolution.
+pub(crate) struct GridAxisInfo<'a> {
+    pub(crate) positions: &'a [f32],
+    pub(crate) tracks: &'a [track::ResolvedTrack],
+    pub(crate) gap: f32,
+    pub(crate) name_map: &'a placement::LineNameMap,
+    pub(crate) explicit_count: usize,
+}
 
 use crate::placement;
 use crate::track;
@@ -74,10 +82,8 @@ pub(crate) fn collect_grid_items(
             justify,
             height_auto: child_style.height == Dimension::Auto,
             width_auto: child_style.width == Dimension::Auto,
-            content_width: 0.0,
-            content_height: 0.0,
-            min_content_width: 0.0,
-            min_content_height: 0.0,
+            content_size: Size::ZERO,
+            min_content_size: Size::ZERO,
             is_subgrid_cols,
             is_subgrid_rows,
         });
@@ -94,18 +100,17 @@ pub(crate) fn collect_grid_items(
 /// `parent_subgrid` is the parent's `SubgridContext`, passed through to subgrid
 /// items during min/max-content probes so nested subgrids receive parent track
 /// sizes (CSS Grid Level 2 §2).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn measure_item_content(
     dom: &mut EcsDom,
     items: &mut [GridItem],
     container_width: f32,
-    containing_height: Option<f32>,
-    containing_inline_size: f32,
-    font_db: &FontDatabase,
-    depth: u32,
+    input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
-    parent_subgrid: Option<&SubgridContext>,
 ) {
+    let containing_height = input.containing.height;
+    let containing_inline_size = input.containing_inline_size;
+    let parent_subgrid = input.subgrid;
+    let probe_env = LayoutEnv::from_input(input, layout_child);
     for item in items.iter_mut() {
         let child_style = elidex_layout_block::get_style(dom, item.entity);
         let padding = elidex_layout_block::resolve_padding(&child_style, containing_inline_size);
@@ -136,43 +141,35 @@ pub(crate) fn measure_item_content(
         // (e.g. flex's relayout_item_at_position overwrites child widths).
         let saved_styles = elidex_layout_block::save_descendant_styles(dom, item.entity);
         let min_input = LayoutInput {
-            containing_width: 1.0,
-            containing_height,
-            containing_inline_size: 1.0,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
+            containing: CssSize {
+                width: 1.0,
+                height: containing_height,
+            },
             subgrid: probe_subgrid,
+            ..LayoutInput::probe(&probe_env, 1.0)
         };
         let min_lb = layout_child(dom, item.entity, &min_input).layout_box;
-        item.min_content_width = min_lb.content.width + item.pb.left + item.pb.right;
-        item.min_content_height = min_lb.content.height + item.pb.top + item.pb.bottom;
+        item.min_content_size = Size::new(
+            min_lb.content.size.width + item.pb.horizontal(),
+            min_lb.content.size.height + item.pb.vertical(),
+        );
         // Restore styles corrupted by the min-content probe.
         elidex_layout_block::restore_descendant_styles(dom, &saved_styles);
 
         // Max-content probe: layout at container width.
         let max_input = LayoutInput {
-            containing_width: container_width,
-            containing_height,
-            containing_inline_size: container_width,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-            float_ctx: None,
-            viewport: None,
-            fragmentainer: None,
-            break_token: None,
+            containing: CssSize {
+                width: container_width,
+                height: containing_height,
+            },
             subgrid: probe_subgrid,
+            ..LayoutInput::probe(&probe_env, container_width)
         };
         let max_lb = layout_child(dom, item.entity, &max_input).layout_box;
-        item.content_width = max_lb.content.width + item.pb.left + item.pb.right;
-        item.content_height = max_lb.content.height + item.pb.top + item.pb.bottom;
+        item.content_size = Size::new(
+            max_lb.content.size.width + item.pb.horizontal(),
+            max_lb.content.size.height + item.pb.vertical(),
+        );
     }
 }
 
@@ -194,15 +191,17 @@ pub(crate) fn build_contributions(
                 track::TrackContribution {
                     start: item.col_start,
                     span: item.col_span,
-                    min_content: item.min_content_width + item.margin.left + item.margin.right,
-                    max_content: item.content_width + item.margin.left + item.margin.right,
+                    min_content: item.min_content_size.width + item.margin.left + item.margin.right,
+                    max_content: item.content_size.width + item.margin.left + item.margin.right,
                 }
             } else {
                 track::TrackContribution {
                     start: item.row_start,
                     span: item.row_span,
-                    min_content: item.min_content_height + item.margin.top + item.margin.bottom,
-                    max_content: item.content_height + item.margin.top + item.margin.bottom,
+                    min_content: item.min_content_size.height
+                        + item.margin.top
+                        + item.margin.bottom,
+                    max_content: item.content_size.height + item.margin.top + item.margin.bottom,
                 }
             }
         })
@@ -374,50 +373,50 @@ pub(crate) fn distribute_tracks<D: Into<ContentDistribution>>(
 /// If all placement is auto, the container padding-box is used.
 /// If one axis is auto and the other is placed, the auto axis uses the
 /// full extent of the container padding-box.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_grid_abspos_cb(
     dom: &EcsDom,
     child: Entity,
-    col_positions: &[f32],
-    row_positions: &[f32],
-    col_tracks: &[track::ResolvedTrack],
-    row_tracks: &[track::ResolvedTrack],
-    gap_col: f32,
-    gap_row: f32,
-    content_x: f32,
-    content_y: f32,
+    col: &GridAxisInfo<'_>,
+    row: &GridAxisInfo<'_>,
+    content_origin: Point,
     padding_box: &Rect,
-    col_name_map: &placement::LineNameMap,
-    row_name_map: &placement::LineNameMap,
-    explicit_cols: usize,
-    explicit_rows: usize,
 ) -> Rect {
     let style = elidex_layout_block::try_get_style(dom, child).unwrap_or_default();
 
     let col_range = resolve_abspos_axis(
         &style.grid_column_start,
         &style.grid_column_end,
-        explicit_cols,
-        col_name_map,
+        col.explicit_count,
+        col.name_map,
     );
     let row_range = resolve_abspos_axis(
         &style.grid_row_start,
         &style.grid_row_end,
-        explicit_rows,
-        row_name_map,
+        row.explicit_count,
+        row.name_map,
     );
 
     let (x, w) = match col_range {
-        Some((start, end)) => {
-            track_range_rect(col_positions, col_tracks, gap_col, start, end, content_x)
-        }
-        None => (padding_box.x, padding_box.width),
+        Some((start, end)) => track_range_rect(
+            col.positions,
+            col.tracks,
+            col.gap,
+            start,
+            end,
+            content_origin.x,
+        ),
+        None => (padding_box.origin.x, padding_box.size.width),
     };
     let (y, h) = match row_range {
-        Some((start, end)) => {
-            track_range_rect(row_positions, row_tracks, gap_row, start, end, content_y)
-        }
-        None => (padding_box.y, padding_box.height),
+        Some((start, end)) => track_range_rect(
+            row.positions,
+            row.tracks,
+            row.gap,
+            start,
+            end,
+            content_origin.y,
+        ),
+        None => (padding_box.origin.y, padding_box.size.height),
     };
 
     Rect::new(x, y, w, h)
@@ -512,9 +511,7 @@ pub fn compute_grid_intrinsic(
     dom: &mut EcsDom,
     entity: Entity,
     children: &[Entity],
-    font_db: &FontDatabase,
-    layout_child: ChildLayoutFn,
-    depth: u32,
+    env: &LayoutEnv<'_>,
 ) -> elidex_layout_block::IntrinsicSizes {
     let style = elidex_layout_block::get_style(dom, entity);
 
@@ -560,17 +557,8 @@ pub fn compute_grid_intrinsic(
     );
 
     // Measure content sizes (min-content + max-content probes)
-    measure_item_content(
-        dom,
-        &mut items,
-        0.0,
-        None,
-        0.0,
-        font_db,
-        depth,
-        layout_child,
-        None,
-    );
+    let probe = LayoutInput::probe(env, 0.0);
+    measure_item_content(dom, &mut items, 0.0, &probe, env.layout_child);
 
     // Build column contributions from actual placement
     let col_contribs = build_contributions(&items, true);

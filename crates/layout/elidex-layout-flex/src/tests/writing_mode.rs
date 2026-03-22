@@ -1,7 +1,7 @@
 //! Writing-mode-aware flex layout tests.
 
 use elidex_layout_block::LayoutInput;
-use elidex_plugin::{Dimension, EdgeSizes, FlexWrap, WritingMode};
+use elidex_plugin::{Dimension, EdgeSizes, FlexWrap, Point, WritingMode};
 
 use super::*;
 
@@ -63,8 +63,7 @@ fn vertical_rl_row_items_stacked_vertically() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -75,10 +74,10 @@ fn vertical_rl_row_items_stacked_vertically() {
     // In vertical writing mode with row direction, main axis = vertical,
     // so item 1's y should be below item 0.
     assert!(
-        lb1.content.y > lb0.content.y,
+        lb1.content.origin.y > lb0.content.origin.y,
         "item1.y ({}) should be > item0.y ({})",
-        lb1.content.y,
-        lb0.content.y,
+        lb1.content.origin.y,
+        lb0.content.origin.y,
     );
 }
 
@@ -99,8 +98,7 @@ fn horizontal_tb_row_regression() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -110,10 +108,10 @@ fn horizontal_tb_row_regression() {
     let lb1 = get_lb(&dom, items[1]);
     // Horizontal row: item 1 should be to the right of item 0.
     assert!(
-        lb1.content.x > lb0.content.x,
+        lb1.content.origin.x > lb0.content.origin.x,
         "item1.x ({}) should be > item0.x ({})",
-        lb1.content.x,
-        lb0.content.x,
+        lb1.content.origin.x,
+        lb0.content.origin.x,
     );
 }
 
@@ -134,8 +132,7 @@ fn vertical_lr_column_items_stacked_horizontally() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -145,10 +142,10 @@ fn vertical_lr_column_items_stacked_horizontally() {
     let lb1 = get_lb(&dom, items[1]);
     // Column in vertical-lr: main axis horizontal, items stack left-to-right.
     assert!(
-        lb1.content.x > lb0.content.x,
+        lb1.content.origin.x > lb0.content.origin.x,
         "item1.x ({}) should be > item0.x ({})",
-        lb1.content.x,
-        lb0.content.x,
+        lb1.content.origin.x,
+        lb0.content.origin.x,
     );
 }
 
@@ -171,8 +168,7 @@ fn vertical_rl_row_reverse_items_stacked_vertically_reversed() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -182,10 +178,10 @@ fn vertical_rl_row_reverse_items_stacked_vertically_reversed() {
     let lb1 = get_lb(&dom, items[1]);
     // row-reverse in vertical mode: item 0 at bottom, item 1 above.
     assert!(
-        lb0.content.y > lb1.content.y,
+        lb0.content.origin.y > lb1.content.origin.y,
         "item0.y ({}) should be > item1.y ({}) in row-reverse",
-        lb0.content.y,
-        lb1.content.y,
+        lb0.content.origin.y,
+        lb1.content.origin.y,
     );
 }
 
@@ -208,11 +204,9 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let (mut dom, container, _items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(500.0),
+        containing: CssSize::definite(800.0, 500.0),
         containing_inline_size: 500.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -243,11 +237,9 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
     let (mut dom, container, _items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
     let input = LayoutInput {
-        containing_width: 800.0,
-        containing_height: Some(500.0),
+        containing: CssSize::definite(800.0, 500.0),
         containing_inline_size: 500.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
@@ -288,8 +280,7 @@ fn vertical_rl_flex_items_non_zero_size() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -298,7 +289,7 @@ fn vertical_rl_flex_items_non_zero_size() {
     for &item in &items {
         let lb = get_lb(&dom, item);
         assert!(
-            lb.content.width > 0.0 || lb.content.height > 0.0,
+            lb.content.size.width > 0.0 || lb.content.size.height > 0.0,
             "flex item should have non-zero size",
         );
     }
@@ -321,8 +312,7 @@ fn vertical_lr_row_items_stacked_vertically() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -332,10 +322,10 @@ fn vertical_lr_row_items_stacked_vertically() {
     let lb1 = get_lb(&dom, items[1]);
     // Row in vertical-lr: main axis = vertical (Y), items stack top-to-bottom.
     assert!(
-        lb1.content.y > lb0.content.y,
+        lb1.content.origin.y > lb0.content.origin.y,
         "item1.y ({}) should be > item0.y ({})",
-        lb1.content.y,
-        lb0.content.y,
+        lb1.content.origin.y,
+        lb0.content.origin.y,
     );
 }
 
@@ -366,8 +356,7 @@ fn vertical_rl_flex_wrap_wraps_on_cross_axis() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -379,12 +368,13 @@ fn vertical_rl_flex_wrap_wraps_on_cross_axis() {
     // Items 0 and 1 fit on first line (50+50=100), item 2 wraps.
     // Wrapped item should be on a different cross position (X axis).
     assert!(
-        approx_eq(lb0.content.y, lb2.content.y) || lb2.content.x != lb0.content.x,
+        approx_eq(lb0.content.origin.y, lb2.content.origin.y)
+            || lb2.content.origin.x != lb0.content.origin.x,
         "item2 should wrap to a new cross-axis line: lb0=({},{}) lb2=({},{})",
-        lb0.content.x,
-        lb0.content.y,
-        lb2.content.x,
-        lb2.content.y,
+        lb0.content.origin.x,
+        lb0.content.origin.y,
+        lb2.content.origin.x,
+        lb2.content.origin.y,
     );
 }
 
@@ -419,8 +409,7 @@ fn vertical_rl_flex_grow_distributes_on_main_axis() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -430,14 +419,14 @@ fn vertical_rl_flex_grow_distributes_on_main_axis() {
     let lb1 = get_lb(&dom, items[1]);
     // Each item should grow to fill half of 300px main (Y) = 150px each.
     assert!(
-        approx_eq(lb0.content.height, 150.0),
+        approx_eq(lb0.content.size.height, 150.0),
         "item0 height should be 150 (grown), got {}",
-        lb0.content.height,
+        lb0.content.size.height,
     );
     assert!(
-        approx_eq(lb1.content.height, 150.0),
+        approx_eq(lb1.content.size.height, 150.0),
         "item1 height should be 150 (grown), got {}",
-        lb1.content.height,
+        lb1.content.size.height,
     );
 }
 
@@ -472,8 +461,7 @@ fn vertical_rl_flex_shrink_reduces_on_main_axis() {
         container,
         800.0,
         Some(600.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -483,13 +471,13 @@ fn vertical_rl_flex_shrink_reduces_on_main_axis() {
     let lb1 = get_lb(&dom, items[1]);
     // Each item should shrink to fit 200px main = 100px each.
     assert!(
-        approx_eq(lb0.content.height, 100.0),
+        approx_eq(lb0.content.size.height, 100.0),
         "item0 height should be 100 (shrunk), got {}",
-        lb0.content.height,
+        lb0.content.size.height,
     );
     assert!(
-        approx_eq(lb1.content.height, 100.0),
+        approx_eq(lb1.content.size.height, 100.0),
         "item1 height should be 100 (shrunk), got {}",
-        lb1.content.height,
+        lb1.content.size.height,
     );
 }

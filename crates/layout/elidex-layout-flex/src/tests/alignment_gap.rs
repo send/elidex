@@ -54,8 +54,7 @@ fn justify_content_variants() {
             container,
             *container_width,
             None,
-            0.0,
-            0.0,
+            Point::ZERO,
             &font_db,
             0,
             layout_block_only,
@@ -64,9 +63,9 @@ fn justify_content_variants() {
         for (i, expected_x) in expected_positions.iter().enumerate() {
             let lb = get_lb(&dom, item_entities[i]);
             assert!(
-                (lb.content.x - expected_x).abs() < 1.0,
+                (lb.content.origin.x - expected_x).abs() < 1.0,
                 "justify-content:{jc:?} item[{i}] x={} expected {expected_x}",
-                lb.content.x,
+                lb.content.origin.x,
             );
         }
     }
@@ -97,8 +96,7 @@ fn align_items_non_stretch() {
             container,
             800.0,
             None,
-            0.0,
-            0.0,
+            Point::ZERO,
             &font_db,
             0,
             layout_block_only,
@@ -106,15 +104,15 @@ fn align_items_non_stretch() {
 
         let lb0 = get_lb(&dom, items[0]);
         assert!(
-            (lb0.content.y - expected_short_y).abs() < 1.0,
+            (lb0.content.origin.y - expected_short_y).abs() < 1.0,
             "align-items:{ai:?} shorter item y={} expected {expected_short_y}",
-            lb0.content.y,
+            lb0.content.origin.y,
         );
         let lb1 = get_lb(&dom, items[1]);
         assert!(
-            (lb1.content.y - expected_tall_y).abs() < 1.0,
+            (lb1.content.origin.y - expected_tall_y).abs() < 1.0,
             "align-items:{ai:?} taller item y={} expected {expected_tall_y}",
-            lb1.content.y,
+            lb1.content.origin.y,
         );
     }
 }
@@ -141,8 +139,7 @@ fn align_items_stretch() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -150,11 +147,11 @@ fn align_items_stretch() {
 
     // Auto-height item should stretch to line cross size (60).
     let lb0 = get_lb(&dom, items[0]);
-    assert!((lb0.content.height - 60.0).abs() < 1.0);
+    assert!((lb0.content.size.height - 60.0).abs() < 1.0);
 
     // Explicit-height item should NOT stretch (remains 60).
     let lb1 = get_lb(&dom, items[1]);
-    assert!((lb1.content.height - 60.0).abs() < 1.0);
+    assert!((lb1.content.size.height - 60.0).abs() < 1.0);
 }
 
 // --- M3-5: Flexbox gap ---
@@ -174,8 +171,7 @@ fn column_gap_row_direction() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -184,8 +180,8 @@ fn column_gap_row_direction() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // Item 0 at x=0, width=100. Gap=20. Item 1 at x=120.
-    assert!((lb0.content.x).abs() < f32::EPSILON);
-    assert!((lb1.content.x - 120.0).abs() < 1.0);
+    assert!((lb0.content.origin.x).abs() < f32::EPSILON);
+    assert!((lb1.content.origin.x - 120.0).abs() < 1.0);
 }
 
 #[test]
@@ -204,8 +200,7 @@ fn row_gap_column_direction() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -214,10 +209,10 @@ fn row_gap_column_direction() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // Item 0 at y=0, height=40. Gap=10. Item 1 at y=50.
-    assert!((lb0.content.y).abs() < f32::EPSILON);
-    assert!((lb1.content.y - 50.0).abs() < 1.0);
+    assert!((lb0.content.origin.y).abs() < f32::EPSILON);
+    assert!((lb1.content.origin.y - 50.0).abs() < 1.0);
     // Container height = 40 + 10 + 40 = 90.
-    assert!((lb.content.height - 90.0).abs() < 1.0);
+    assert!((lb.content.size.height - 90.0).abs() < 1.0);
 }
 
 #[test]
@@ -250,8 +245,7 @@ fn gap_affects_flex_grow() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -260,8 +254,8 @@ fn gap_affects_flex_grow() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // Available = 600 - 100 (gap) = 500. Each grows to 250.
-    assert!((lb0.content.width - 250.0).abs() < 1.0);
-    assert!((lb1.content.width - 250.0).abs() < 1.0);
+    assert!((lb0.content.size.width - 250.0).abs() < 1.0);
+    assert!((lb1.content.size.width - 250.0).abs() < 1.0);
 }
 
 #[test]
@@ -277,8 +271,7 @@ fn gap_zero_default_unchanged() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -287,8 +280,8 @@ fn gap_zero_default_unchanged() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // No gap: item1 starts right after item0.
-    assert!((lb1.content.x - 100.0).abs() < f32::EPSILON);
-    assert!((lb0.content.x).abs() < f32::EPSILON);
+    assert!((lb1.content.origin.x - 100.0).abs() < f32::EPSILON);
+    assert!((lb0.content.origin.x).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -309,8 +302,7 @@ fn gap_with_wrap_cross_axis() {
         container,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -319,12 +311,12 @@ fn gap_with_wrap_cross_axis() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // Items wrap: line 0 has item0 (height 50), gap_cross=20, line 1 has item1.
-    assert!((lb1.content.y - 70.0).abs() < 1.0);
+    assert!((lb1.content.origin.y - 70.0).abs() < 1.0);
     // Container height = 50 + 20 + 50 = 120.
-    assert!((lb.content.height - 120.0).abs() < 1.0);
+    assert!((lb.content.size.height - 120.0).abs() < 1.0);
     // Both items at x=0 (different lines).
-    assert!((lb0.content.x).abs() < f32::EPSILON);
-    assert!((lb1.content.x).abs() < f32::EPSILON);
+    assert!((lb0.content.origin.x).abs() < f32::EPSILON);
+    assert!((lb1.content.origin.x).abs() < f32::EPSILON);
 }
 
 // L5: single item + gap (gap should not affect layout with only one item)
@@ -342,16 +334,15 @@ fn gap_single_item_no_effect() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
     let lb = get_lb(&dom, items[0]);
-    assert!((lb.content.x).abs() < f32::EPSILON);
-    assert!((lb.content.width - 100.0).abs() < 1.0);
+    assert!((lb.content.origin.x).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 100.0).abs() < 1.0);
 }
 
 // L6: gap + justify-content: space-between
@@ -371,8 +362,7 @@ fn gap_with_justify_space_between() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -382,9 +372,9 @@ fn gap_with_justify_space_between() {
     let lb1 = get_lb(&dom, items[1]);
     // space-between distributes free space between items, gap adds on top.
     // Effective gap = max(justify_gap, column_gap) -> items should be well-separated.
-    assert!((lb0.content.x).abs() < f32::EPSILON);
+    assert!((lb0.content.origin.x).abs() < f32::EPSILON);
     // Item 1 should be at right edge: 800 - 100 = 700.
-    assert!((lb1.content.x - 700.0).abs() < 1.0);
+    assert!((lb1.content.origin.x - 700.0).abs() < 1.0);
 }
 
 // L7: gap + flex-direction: row-reverse
@@ -404,8 +394,7 @@ fn gap_with_row_reverse() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -415,9 +404,9 @@ fn gap_with_row_reverse() {
     let lb1 = get_lb(&dom, items[1]);
     // Row-reverse: item 0 at right, item 1 to its left with gap.
     // Item 0 at x = 800 - 100 = 700.
-    assert!((lb0.content.x - 700.0).abs() < 1.0);
+    assert!((lb0.content.origin.x - 700.0).abs() < 1.0);
     // Item 1 at x = 700 - 20 (gap) - 100 = 580.
-    assert!((lb1.content.x - 580.0).abs() < 1.0);
+    assert!((lb1.content.origin.x - 580.0).abs() < 1.0);
 }
 
 // L8: gap + flex-shrink (items shrink, gap is preserved)
@@ -438,8 +427,7 @@ fn gap_with_flex_shrink() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -448,10 +436,10 @@ fn gap_with_flex_shrink() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // Both items shrink equally. Total available = 400 - 20 (gap) = 380. Each gets 190.
-    assert!((lb0.content.width - 190.0).abs() < 1.0);
-    assert!((lb1.content.width - 190.0).abs() < 1.0);
+    assert!((lb0.content.size.width - 190.0).abs() < 1.0);
+    assert!((lb1.content.size.width - 190.0).abs() < 1.0);
     // Gap between items is maintained.
-    let gap = lb1.content.x - (lb0.content.x + lb0.content.width);
+    let gap = lb1.content.origin.x - lb0.content.right();
     assert!((gap - 20.0).abs() < 1.0);
 }
 
@@ -477,8 +465,7 @@ fn row_rtl_reverses_item_order() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -487,10 +474,10 @@ fn row_rtl_reverses_item_order() {
     let lb1 = get_lb(&dom, items[1]);
     // RTL: first item should be to the right of the second item.
     assert!(
-        lb0.content.x > lb1.content.x,
+        lb0.content.origin.x > lb1.content.origin.x,
         "RTL row: item 0 (x={}) should be right of item 1 (x={})",
-        lb0.content.x,
-        lb1.content.x,
+        lb0.content.origin.x,
+        lb1.content.origin.x,
     );
 }
 
@@ -512,8 +499,7 @@ fn row_reverse_rtl_restores_ltr_order() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -522,9 +508,9 @@ fn row_reverse_rtl_restores_ltr_order() {
     let lb1 = get_lb(&dom, items[1]);
     // Double reversal: item 0 should be left of item 1 (same as normal LTR row).
     assert!(
-        lb0.content.x < lb1.content.x,
+        lb0.content.origin.x < lb1.content.origin.x,
         "RTL row-reverse: item 0 (x={}) should be left of item 1 (x={})",
-        lb0.content.x,
-        lb1.content.x,
+        lb0.content.origin.x,
+        lb1.content.origin.x,
     );
 }

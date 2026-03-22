@@ -7,10 +7,10 @@
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::paint_order::{collect_sc_participants, is_positioned};
 use elidex_plugin::transform_math::{
-    compute_element_transform, invert_affine, is_affine_identity, mul_affine,
+    apply_affine, compute_element_transform, invert_affine, is_affine_identity, mul_affine,
     resolve_child_perspective, Perspective, IDENTITY,
 };
-use elidex_plugin::{ComputedStyle, Display, LayoutBox};
+use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Vector};
 
 /// Result of a hit test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,10 +24,10 @@ pub struct HitTestResult {
 /// Groups viewport coordinates and scroll offset so they can be threaded
 /// through the recursive walk by reference instead of as four separate scalars.
 pub struct HitTestQuery {
-    /// Viewport coordinates `(x, y)`.
-    pub point: (f32, f32),
-    /// Viewport scroll offset `(scroll_x, scroll_y)`.
-    pub scroll: (f32, f32),
+    /// Viewport coordinates.
+    pub point: Point,
+    /// Viewport scroll offset (displacement).
+    pub scroll: Vector,
 }
 
 /// Transform + fixed/scroll state propagated through the hit test tree walk.
@@ -52,12 +52,12 @@ struct TransformContext {
 ///
 /// This is a convenience wrapper around [`hit_test_with_scroll`] with zero scroll offset.
 #[must_use]
-pub fn hit_test(dom: &EcsDom, point: (f32, f32)) -> Option<HitTestResult> {
+pub fn hit_test(dom: &EcsDom, point: Point) -> Option<HitTestResult> {
     hit_test_with_scroll(
         dom,
         &HitTestQuery {
             point,
-            scroll: (0.0, 0.0),
+            scroll: Vector::<f32>::ZERO,
         },
     )
 }
@@ -65,20 +65,17 @@ pub fn hit_test(dom: &EcsDom, point: (f32, f32)) -> Option<HitTestResult> {
 /// Find the front-most entity at viewport coordinates,
 /// accounting for viewport scroll offset.
 ///
-/// **Sign convention:** rendering translates content by `(-scroll.0, -scroll.1)`,
+/// **Sign convention:** rendering translates content by `(-scroll.x, -scroll.y)`,
 /// so to find which content-space element is under a viewport point we add
 /// `+scroll` to the point: `content_coord = viewport_point + scroll_offset`.
 /// `position: fixed` elements (without a transform ancestor) bypass this
 /// adjustment and are tested at the original viewport `point`.
 #[must_use]
 pub fn hit_test_with_scroll(dom: &EcsDom, query: &HitTestQuery) -> Option<HitTestResult> {
-    if !query.point.0.is_finite() || !query.point.1.is_finite() {
+    if !query.point.is_finite() {
         return None;
     }
-    debug_assert!(
-        query.scroll.0.is_finite() && query.scroll.1.is_finite(),
-        "scroll offset must be finite"
-    );
+    debug_assert!(query.scroll.is_finite(), "scroll offset must be finite");
     let mut result = None;
     let ctx = TransformContext {
         cumulative: IDENTITY,
@@ -148,30 +145,24 @@ fn hit_test_subtree(
     // Check if this entity's border box contains the point.
     // Fixed elements use viewport coordinates; others use scrolled coordinates.
     if let Some(bb) = cached_bb {
-        let (hit_x, hit_y) = if effective_fixed {
+        let hit = if effective_fixed {
             query.point
         } else {
-            (
-                query.point.0 + query.scroll.0,
-                query.point.1 + query.scroll.1,
-            )
+            query.point + query.scroll
         };
-        let (test_x, test_y) = if is_affine_identity(&local_transform) {
-            (hit_x, hit_y)
+        let test_pt = if is_affine_identity(&local_transform) {
+            hit
         } else if let Some(inv) = invert_affine(local_transform) {
-            let lx = inv[0] * f64::from(hit_x) + inv[2] * f64::from(hit_y) + inv[4];
-            let ly = inv[1] * f64::from(hit_x) + inv[3] * f64::from(hit_y) + inv[5];
-            if !lx.is_finite() || !ly.is_finite() {
-                (f32::MAX, f32::MAX)
+            let local = apply_affine(&inv, hit.to_f64());
+            if local.is_finite() {
+                local.to_f32()
             } else {
-                #[allow(clippy::cast_possible_truncation)]
-                (lx as f32, ly as f32)
+                Point::new(f32::MAX, f32::MAX)
             }
         } else {
-            (hit_x, hit_y)
+            hit
         };
-        if test_x >= bb.x && test_x < bb.x + bb.width && test_y >= bb.y && test_y < bb.y + bb.height
-        {
+        if bb.contains(test_pt) {
             *result = Some(HitTestResult { entity });
         }
     }
@@ -203,7 +194,7 @@ fn hit_test_subtree(
 }
 
 /// Hit test children in stacking context layer order.
-#[allow(clippy::similar_names)]
+#[allow(clippy::similar_names)] // layer6 vs layers — intentional CSS layer numbering
 fn hit_test_sc_layers(
     dom: &EcsDom,
     entity: Entity,
@@ -283,7 +274,7 @@ fn is_block_or_float(dom: &EcsDom, entity: Entity) -> bool {
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
-    use elidex_plugin::{EdgeSizes, Position, Rect};
+    use elidex_plugin::{EdgeSizes, Point, Position, Rect, Vector};
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
         dom.create_element(tag, Attributes::default())
@@ -308,7 +299,7 @@ mod tests {
     #[test]
     fn empty_dom_returns_none() {
         let dom = EcsDom::new();
-        assert_eq!(hit_test(&dom, (100.0, 100.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(100.0, 100.0)), None);
     }
 
     #[test]
@@ -317,7 +308,7 @@ mod tests {
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
         // Click outside the box.
-        assert_eq!(hit_test(&dom, (200.0, 200.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(200.0, 200.0)), None);
     }
 
     #[test]
@@ -325,7 +316,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 10.0, 10.0, 100.0, 50.0);
-        let result = hit_test(&dom, (50.0, 30.0));
+        let result = hit_test(&dom, Point::new(50.0, 30.0));
         assert_eq!(result, Some(HitTestResult { entity: e }));
     }
 
@@ -340,11 +331,11 @@ mod tests {
         set_layout(&mut dom, inner, 50.0, 50.0, 50.0, 50.0);
 
         // Click inside inner.
-        let result = hit_test(&dom, (60.0, 60.0));
+        let result = hit_test(&dom, Point::new(60.0, 60.0));
         assert_eq!(result, Some(HitTestResult { entity: inner }));
 
         // Click outside inner but inside outer.
-        let result = hit_test(&dom, (10.0, 10.0));
+        let result = hit_test(&dom, Point::new(10.0, 10.0));
         assert_eq!(result, Some(HitTestResult { entity: outer }));
     }
 
@@ -362,7 +353,7 @@ mod tests {
         set_layout(&mut dom, a, 0.0, 0.0, 100.0, 100.0);
         set_layout(&mut dom, b, 50.0, 50.0, 100.0, 100.0);
 
-        let result = hit_test(&dom, (75.0, 75.0));
+        let result = hit_test(&dom, Point::new(75.0, 75.0));
         assert_eq!(result, Some(HitTestResult { entity: b }));
     }
 
@@ -378,7 +369,7 @@ mod tests {
         set_style(&mut dom, hidden, Display::None);
 
         // Hidden element should be skipped — parent wins.
-        let result = hit_test(&dom, (50.0, 50.0));
+        let result = hit_test(&dom, Point::new(50.0, 50.0));
         assert_eq!(result, Some(HitTestResult { entity: parent }));
     }
 
@@ -390,14 +381,14 @@ mod tests {
 
         // Exactly at top-left corner.
         assert_eq!(
-            hit_test(&dom, (10.0, 10.0)),
+            hit_test(&dom, Point::new(10.0, 10.0)),
             Some(HitTestResult { entity: e })
         );
         // Exactly at bottom-right (exclusive) — miss.
-        assert_eq!(hit_test(&dom, (110.0, 60.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(110.0, 60.0)), None);
         // Just inside bottom-right.
         assert_eq!(
-            hit_test(&dom, (109.99, 59.99)),
+            hit_test(&dom, Point::new(109.99, 59.99)),
             Some(HitTestResult { entity: e })
         );
     }
@@ -407,7 +398,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 50.0, 50.0, 0.0, 0.0);
-        assert_eq!(hit_test(&dom, (50.0, 50.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(50.0, 50.0)), None);
     }
 
     #[test]
@@ -437,7 +428,7 @@ mod tests {
         }
         let _ = root;
 
-        let result = hit_test(&dom, (250.0, 250.0));
+        let result = hit_test(&dom, Point::new(250.0, 250.0));
         assert_eq!(result, Some(HitTestResult { entity: deepest }));
     }
 
@@ -455,10 +446,10 @@ mod tests {
 
         // Border box: x=10, y=10, w=80, h=80 → [10,90) × [10,90).
         assert_eq!(
-            hit_test(&dom, (10.0, 10.0)),
+            hit_test(&dom, Point::new(10.0, 10.0)),
             Some(HitTestResult { entity: e })
         );
-        assert_eq!(hit_test(&dom, (9.0, 9.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(9.0, 9.0)), None);
     }
 
     #[test]
@@ -467,9 +458,9 @@ mod tests {
         let e = elem(&mut dom, "div");
         set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
 
-        assert_eq!(hit_test(&dom, (f32::NAN, 50.0)), None);
-        assert_eq!(hit_test(&dom, (50.0, f32::NAN)), None);
-        assert_eq!(hit_test(&dom, (f32::INFINITY, 50.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(f32::NAN, 50.0)), None);
+        assert_eq!(hit_test(&dom, Point::new(50.0, f32::NAN)), None);
+        assert_eq!(hit_test(&dom, Point::new(f32::INFINITY, 50.0)), None);
     }
 
     #[test]
@@ -480,15 +471,15 @@ mod tests {
         set_layout(&mut dom, e, 100.0, 100.0, 50.0, 50.0);
 
         // Without scroll, clicking (110, 110) hits.
-        assert!(hit_test(&dom, (110.0, 110.0)).is_some());
+        assert!(hit_test(&dom, Point::new(110.0, 110.0)).is_some());
 
         // With scroll_y=80, viewport (30, 30) maps to layout (30+0, 30+80) = (30, 110).
         // That misses the element at x=100.
         assert!(hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (30.0, 30.0),
-                scroll: (0.0, 80.0)
+                point: Point::new(30.0, 30.0),
+                scroll: Vector::new(0.0, 80.0)
             }
         )
         .is_none());
@@ -498,8 +489,8 @@ mod tests {
             hit_test_with_scroll(
                 &dom,
                 &HitTestQuery {
-                    point: (110.0, 20.0),
-                    scroll: (0.0, 80.0)
+                    point: Point::new(110.0, 20.0),
+                    scroll: Vector::new(0.0, 80.0)
                 }
             ),
             Some(HitTestResult { entity: e })
@@ -513,14 +504,14 @@ mod tests {
         set_layout(&mut dom, e, 0.0, 0.0, 100.0, 100.0);
 
         // Without scroll, (50, 50) hits.
-        assert!(hit_test(&dom, (50.0, 50.0)).is_some());
+        assert!(hit_test(&dom, Point::new(50.0, 50.0)).is_some());
 
         // With scroll_y=200, viewport (50, 50) maps to layout (50, 250) → miss.
         assert!(hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 50.0),
-                scroll: (0.0, 200.0)
+                point: Point::new(50.0, 50.0),
+                scroll: Vector::new(0.0, 200.0)
             }
         )
         .is_none());
@@ -558,8 +549,8 @@ mod tests {
             hit_test_with_scroll(
                 &dom,
                 &HitTestQuery {
-                    point: (50.0, 25.0),
-                    scroll: (0.0, 500.0)
+                    point: Point::new(50.0, 25.0),
+                    scroll: Vector::new(0.0, 500.0)
                 }
             ),
             Some(HitTestResult { entity: fixed })
@@ -598,8 +589,8 @@ mod tests {
         let result = hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 25.0),
-                scroll: (0.0, 200.0),
+                point: Point::new(50.0, 25.0),
+                scroll: Vector::new(0.0, 200.0),
             },
         );
         assert_eq!(result, Some(HitTestResult { entity: parent }));
@@ -608,8 +599,8 @@ mod tests {
         let result = hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 25.0),
-                scroll: (0.0, 0.0),
+                point: Point::new(50.0, 25.0),
+                scroll: Vector::<f32>::ZERO,
             },
         );
         assert_eq!(result, Some(HitTestResult { entity: fixed }));
@@ -622,12 +613,12 @@ mod tests {
         set_layout(&mut dom, e, 10.0, 10.0, 100.0, 50.0);
 
         // hit_test() should give same result as hit_test_with_scroll(0,0).
-        let r1 = hit_test(&dom, (50.0, 30.0));
+        let r1 = hit_test(&dom, Point::new(50.0, 30.0));
         let r2 = hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 30.0),
-                scroll: (0.0, 0.0),
+                point: Point::new(50.0, 30.0),
+                scroll: Vector::<f32>::ZERO,
             },
         );
         assert_eq!(r1, r2);
@@ -647,8 +638,8 @@ mod tests {
             hit_test_with_scroll(
                 &dom,
                 &HitTestQuery {
-                    point: (50.0, 25.0),
-                    scroll: (-10.0, -10.0),
+                    point: Point::new(50.0, 25.0),
+                    scroll: Vector::new(-10.0, -10.0),
                 }
             ),
             Some(HitTestResult { entity: e })
@@ -665,8 +656,8 @@ mod tests {
         assert!(hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 25.0),
-                scroll: (100_000.0, 100_000.0),
+                point: Point::new(50.0, 25.0),
+                scroll: Vector::new(100_000.0, 100_000.0),
             }
         )
         .is_none());
@@ -716,8 +707,8 @@ mod tests {
         let result = hit_test_with_scroll(
             &dom,
             &HitTestQuery {
-                point: (50.0, 25.0),
-                scroll: (0.0, 800.0),
+                point: Point::new(50.0, 25.0),
+                scroll: Vector::new(0.0, 800.0),
             },
         );
         assert_eq!(result, Some(HitTestResult { entity: high_z }));
@@ -767,7 +758,7 @@ mod tests {
         );
 
         // high-z should win
-        let result = hit_test(&dom, (50.0, 50.0));
+        let result = hit_test(&dom, Point::new(50.0, 50.0));
         assert_eq!(result, Some(HitTestResult { entity: high }));
     }
 }

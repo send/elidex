@@ -3,7 +3,7 @@
 //! These types represent fully resolved (computed) background layer values.
 //! Parse-stage gradient values live in [`CssValue::Gradient`](crate::CssValue).
 
-use crate::CssColor;
+use crate::{CssColor, Point, Size};
 
 /// A resolved background image for a single layer.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -36,10 +36,10 @@ pub struct LinearGradient {
 /// A resolved radial gradient.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RadialGradient {
-    /// Center position as (x, y) in pixels relative to the painting area.
-    pub center: (f32, f32),
+    /// Center position in pixels relative to the painting area.
+    pub center: Point,
     /// Horizontal and vertical radii in pixels.
-    pub radii: (f32, f32),
+    pub radii: Size,
     /// Resolved color stops with normalized positions (0.0–1.0).
     pub stops: Vec<ColorStop>,
     /// Whether this is a repeating gradient.
@@ -49,8 +49,8 @@ pub struct RadialGradient {
 /// A resolved conic gradient.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConicGradient {
-    /// Center position as (x, y) in pixels relative to the painting area.
-    pub center: (f32, f32),
+    /// Center position in pixels relative to the painting area.
+    pub center: Point,
     /// Start angle in degrees.
     pub start_angle: f32,
     /// End angle in degrees (typically `start_angle + 360.0`).

@@ -73,8 +73,7 @@ fn rowspan_zero_spans_remaining_rows_in_group() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -86,10 +85,10 @@ fn rowspan_zero_spans_remaining_rows_in_group() {
     let lb_row0_col1 = get_layout(&dom, tds[1]);
     let lb_row2_col1 = get_layout(&dom, tds[3]);
     assert!(
-        lb_row2_col1.content.y > lb_row0_col1.content.y + 10.0,
+        lb_row2_col1.content.origin.y > lb_row0_col1.content.origin.y + 10.0,
         "Row 2 cell (y={}) should be well below row 0 cell (y={}), confirming 3 rows exist",
-        lb_row2_col1.content.y,
-        lb_row0_col1.content.y,
+        lb_row2_col1.content.origin.y,
+        lb_row0_col1.content.origin.y,
     );
     // The rowspan=0 cell should be laid out (not dropped).
     assert!(dom.world().get::<&LayoutBox>(tds[0]).is_ok());
@@ -165,8 +164,7 @@ fn rowspan_zero_with_other_cells() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -223,8 +221,7 @@ fn cell_pct_height_resolved_against_explicit_table_height() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -233,18 +230,18 @@ fn cell_pct_height_resolved_against_explicit_table_height() {
     // Cell height should be influenced by table's explicit height.
     let table_lb = get_layout(&dom, table);
     assert!(
-        table_lb.content.height >= 199.0,
+        table_lb.content.size.height >= 199.0,
         "Table should respect explicit height, got {}",
-        table_lb.content.height,
+        table_lb.content.size.height,
     );
 
     // Cell's containing_height was set to table explicit height (200px),
     // so cell with height:50% should resolve to 100px content height.
     let cell_lb = get_layout(&dom, td);
     assert!(
-        cell_lb.content.height >= 99.0,
+        cell_lb.content.size.height >= 99.0,
         "Cell with height:50% against table height:200px should be ~100px, got {}",
-        cell_lb.content.height,
+        cell_lb.content.size.height,
     );
 }
 
@@ -282,8 +279,7 @@ fn cell_pct_height_ignored_without_explicit_table_height() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,

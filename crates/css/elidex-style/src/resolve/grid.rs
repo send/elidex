@@ -316,8 +316,7 @@ mod tests {
 
     fn default_ctx() -> ResolveContext {
         ResolveContext {
-            viewport_width: 1920.0,
-            viewport_height: 1080.0,
+            viewport: elidex_plugin::Size::new(1920.0, 1080.0),
             em_base: 16.0,
             root_font_size: 16.0,
         }

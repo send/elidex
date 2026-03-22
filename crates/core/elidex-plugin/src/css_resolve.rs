@@ -14,10 +14,10 @@ pub fn resolve_length(value: f32, unit: LengthUnit, ctx: &ResolveContext) -> f32
     let result = match unit {
         LengthUnit::Em => value * ctx.em_base,
         LengthUnit::Rem => value * ctx.root_font_size,
-        LengthUnit::Vw => value * ctx.viewport_width / 100.0,
-        LengthUnit::Vh => value * ctx.viewport_height / 100.0,
-        LengthUnit::Vmin => value * ctx.viewport_width.min(ctx.viewport_height) / 100.0,
-        LengthUnit::Vmax => value * ctx.viewport_width.max(ctx.viewport_height) / 100.0,
+        LengthUnit::Vw => value * ctx.viewport.width / 100.0,
+        LengthUnit::Vh => value * ctx.viewport.height / 100.0,
+        LengthUnit::Vmin => value * ctx.viewport.width.min(ctx.viewport.height) / 100.0,
+        LengthUnit::Vmax => value * ctx.viewport.width.max(ctx.viewport.height) / 100.0,
         // Px, Fr, and unknown units pass through unchanged.
         _ => value,
     };
@@ -364,8 +364,7 @@ mod tests {
 
     fn default_ctx() -> ResolveContext {
         ResolveContext {
-            viewport_width: 1920.0,
-            viewport_height: 1080.0,
+            viewport: crate::Size::new(1920.0, 1080.0),
             em_base: 16.0,
             root_font_size: 16.0,
         }

@@ -12,7 +12,7 @@ mod tests;
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
-use elidex_plugin::{ComputedStyle, Display, EdgeSizes, LayoutBox, Rect};
+use elidex_plugin::{ComputedStyle, Display, EdgeSizes, LayoutBox, Point, Rect};
 use elidex_text::{
     find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
     FontStyle, TextMeasureParams,
@@ -375,7 +375,7 @@ pub struct InlineLayoutResult {
     pub height: f32,
     /// Static positions for absolutely positioned placeholders (CSS 2.1 §10.6.5).
     /// Positions are in content-area-relative coordinates.
-    pub static_positions: HashMap<Entity, (f32, f32)>,
+    pub static_positions: HashMap<Entity, Point>,
     /// First baseline offset from content box top edge.
     ///
     /// CSS 2.1 §10.8.1: computed from the first line box's text run baseline,
@@ -411,7 +411,7 @@ pub struct InlineFragConstraint {
 /// `containing_inline_size` is the available inline-axis space
 /// (width for horizontal, height for vertical).
 ///
-/// `content_origin` is the `(x, y)` position of the parent's content area
+/// `content_origin` is the position of the parent's content area
 /// in layout coordinates, used to assign absolute positions to inline elements.
 ///
 /// `layout_child` dispatches layout for atomic inline-level boxes
@@ -423,44 +423,40 @@ pub struct InlineFragConstraint {
 ///
 /// Inline elements (entities with `ComputedStyle` that are not the parent)
 /// receive a `LayoutBox` with their bounding rectangle across line boxes.
-#[allow(clippy::too_many_arguments)]
 pub fn layout_inline_context(
     dom: &mut EcsDom,
     children: &[Entity],
     containing_inline_size: f32,
-    parent_style: &ComputedStyle,
-    font_db: &FontDatabase,
     parent_entity: Entity,
-    content_origin: (f32, f32),
-    layout_child: crate::ChildLayoutFn,
+    content_origin: Point,
+    env: &crate::LayoutEnv<'_>,
 ) -> InlineLayoutResult {
     layout_inline_context_fragmented(
         dom,
         children,
         containing_inline_size,
-        parent_style,
-        font_db,
         parent_entity,
         content_origin,
-        layout_child,
+        env,
         None,
     )
 }
 
 /// Layout inline content with optional fragmentation constraint.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub fn layout_inline_context_fragmented(
     dom: &mut EcsDom,
     children: &[Entity],
     containing_inline_size: f32,
-    parent_style: &ComputedStyle,
-    font_db: &FontDatabase,
     parent_entity: Entity,
-    content_origin: (f32, f32),
-    layout_child: crate::ChildLayoutFn,
+    content_origin: Point,
+    env: &crate::LayoutEnv<'_>,
     frag_constraint: Option<&InlineFragConstraint>,
 ) -> InlineLayoutResult {
-    let mut items = collect_inline_items(dom, children, parent_style, parent_entity);
+    let parent_style = crate::get_style(dom, parent_entity);
+    let font_db = env.font_db;
+    let layout_child = env.layout_child;
+    let mut items = collect_inline_items(dom, children, &parent_style, parent_entity);
     if items.is_empty() {
         return InlineLayoutResult {
             height: 0.0,
@@ -576,19 +572,25 @@ pub fn layout_inline_context_fragmented(
     assign_inline_layout_boxes(dom, &packer.entity_bounds, content_origin, is_vertical);
 
     // Convert static positions from packer-relative to layout coordinates.
-    let static_positions: HashMap<Entity, (f32, f32)> = packer
+    let static_positions: HashMap<Entity, Point> = packer
         .static_positions
         .into_iter()
-        .map(|(entity, (inline_pos, block_pos))| {
+        .map(|(entity, logical_pos)| {
             if is_vertical {
                 (
                     entity,
-                    (content_origin.0 + block_pos, content_origin.1 + inline_pos),
+                    Point::new(
+                        content_origin.x + logical_pos.y,
+                        content_origin.y + logical_pos.x,
+                    ),
                 )
             } else {
                 (
                     entity,
-                    (content_origin.0 + inline_pos, content_origin.1 + block_pos),
+                    Point::new(
+                        content_origin.x + logical_pos.x,
+                        content_origin.y + logical_pos.y,
+                    ),
                 )
             }
         })
@@ -608,7 +610,7 @@ fn layout_atomic_items(
     dom: &mut EcsDom,
     items: &mut [InlineItem],
     containing_inline_size: f32,
-    content_origin: (f32, f32),
+    content_origin: Point,
     font_db: &FontDatabase,
     layout_child: crate::ChildLayoutFn,
     is_vertical: bool,
@@ -621,11 +623,9 @@ fn layout_atomic_items(
         } = item
         {
             let input = crate::LayoutInput {
-                containing_width: containing_inline_size,
-                containing_height: None,
+                containing: elidex_plugin::CssSize::width_only(containing_inline_size),
                 containing_inline_size,
-                offset_x: content_origin.0,
-                offset_y: content_origin.1,
+                offset: content_origin,
                 font_db,
                 depth: 0,
                 float_ctx: None,
@@ -637,11 +637,11 @@ fn layout_atomic_items(
             let lb = layout_child(dom, *entity, &input).layout_box;
             let margin_box = lb.margin_box();
             if is_vertical {
-                *inline_size = margin_box.height;
-                *block_size = margin_box.width;
+                *inline_size = margin_box.size.height;
+                *block_size = margin_box.size.width;
             } else {
-                *inline_size = margin_box.width;
-                *block_size = margin_box.height;
+                *inline_size = margin_box.size.width;
+                *block_size = margin_box.size.height;
             }
         }
     }
@@ -652,7 +652,8 @@ struct LinePacker {
     line_boxes: Vec<LineBox>,
     entity_bounds: HashMap<Entity, EntityBounds>,
     /// Static positions for absolutely positioned placeholders (CSS 2.1 §10.6.5).
-    static_positions: HashMap<Entity, (f32, f32)>,
+    /// Stored as `Point(inline_pos, block_pos)` in logical coordinates.
+    static_positions: HashMap<Entity, Point>,
     current_inline: f32,
     current_line_height: f32,
     current_block_offset: f32,
@@ -754,7 +755,7 @@ impl LinePacker {
                         // Fallback: content-bottom + padding.bottom + border.bottom + margin.bottom
                         // (the remaining distance from content top to margin-box bottom).
                         let bl = child_lb.first_baseline.unwrap_or(
-                            child_lb.content.height
+                            child_lb.content.size.height
                                 + child_lb.padding.bottom
                                 + child_lb.border.bottom
                                 + child_lb.margin.bottom,
@@ -781,8 +782,10 @@ impl LinePacker {
             PackItem::Placeholder { entity } => {
                 // CSS 2.1 §10.6.5: record static position at current inline/block position.
                 // Zero-width, zero-height — does not advance cursor_x.
-                self.static_positions
-                    .insert(*entity, (self.current_inline, self.current_block_offset));
+                self.static_positions.insert(
+                    *entity,
+                    Point::new(self.current_inline, self.current_block_offset),
+                );
             }
         }
     }
@@ -854,10 +857,10 @@ impl LinePacker {
 fn assign_inline_layout_boxes(
     dom: &mut EcsDom,
     entity_bounds: &HashMap<Entity, EntityBounds>,
-    content_origin: (f32, f32),
+    content_origin: Point,
     is_vertical: bool,
 ) {
-    let (origin_x, origin_y) = content_origin;
+    let (origin_x, origin_y) = (content_origin.x, content_origin.y);
     for (entity, bounds) in entity_bounds {
         if dom.world().get::<&ComputedStyle>(*entity).is_err() {
             continue;

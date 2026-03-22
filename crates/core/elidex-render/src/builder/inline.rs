@@ -2,7 +2,7 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox,
+    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, Point,
     TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, Visibility,
     WritingMode,
 };
@@ -207,7 +207,7 @@ fn emit_styled_segments(
     let align_result = compute_text_align_offset(
         parent_style.text_align,
         parent_style.direction,
-        lb.content.width,
+        lb.content.size.width,
         collapsed,
         segments,
         font_db,
@@ -217,7 +217,7 @@ fn emit_styled_segments(
     let visual_order = bidi_visual_order(collapsed, parent_style.direction);
 
     // Emit display items (single shaping pass per segment).
-    let mut cursor_x = lb.content.x + align_result.offset;
+    let mut cursor_x = lb.content.origin.x + align_result.offset;
 
     for &vi in &visual_order {
         let Some((ref text, idx)) = collapsed.get(vi) else {
@@ -240,7 +240,7 @@ fn emit_styled_segments(
         let metrics = font_db.font_metrics(font_id, seg.font_size);
         let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
         let descent = metrics.map_or(-seg.font_size * DEFAULT_DESCENT_FACTOR, |m| m.descent);
-        let baseline_y = lb.content.y + ascent;
+        let baseline_y = lb.content.origin.y + ascent;
 
         let seg_start_x = cursor_x;
         let glyphs = place_glyphs(
@@ -329,7 +329,7 @@ fn emit_styled_segments_vertical(
     let align_offset = compute_vertical_text_align_offset(
         parent_style.text_align,
         parent_style.direction,
-        lb.content.height,
+        lb.content.size.height,
         collapsed,
         segments,
         font_db,
@@ -352,8 +352,8 @@ fn emit_styled_segments_vertical(
     };
 
     // Vertical: cursor_y advances downward, center_x is the column center.
-    let center_x = lb.content.x + lb.content.width / 2.0;
-    let mut cursor_y = lb.content.y + align_offset;
+    let center_x = lb.content.center().x;
+    let mut cursor_y = lb.content.origin.y + align_offset;
 
     for &vi in &visual_order {
         let Some((ref text, idx)) = collapsed.get(vi) else {
@@ -397,7 +397,7 @@ fn emit_styled_segments_vertical(
                 dl.push(DisplayItem::Text {
                     glyphs: vec![GlyphEntry {
                         glyph_id: u32::from(glyph.glyph_id),
-                        position: (x, y),
+                        position: Point::new(x, y),
                     }],
                     font_blob: font_blob.clone(),
                     font_index,

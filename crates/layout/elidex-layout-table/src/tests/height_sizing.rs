@@ -27,8 +27,7 @@ fn height_redistribution_proportional() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -37,9 +36,9 @@ fn height_redistribution_proportional() {
     let table_lb = get_layout(&dom, table);
     // Table should be at least 200px tall.
     assert!(
-        table_lb.content.height >= 199.0,
+        table_lb.content.size.height >= 199.0,
         "Table with height:200px should be >= 200, got {}",
-        table_lb.content.height,
+        table_lb.content.size.height,
     );
 }
 
@@ -85,8 +84,7 @@ fn height_redistribution_zero_rows() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -94,9 +92,9 @@ fn height_redistribution_zero_rows() {
 
     let table_lb = get_layout(&dom, table);
     assert!(
-        table_lb.content.height >= 99.0,
+        table_lb.content.size.height >= 99.0,
         "Table with height:100px should be >= 100, got {}",
-        table_lb.content.height,
+        table_lb.content.size.height,
     );
 }
 
@@ -118,8 +116,7 @@ fn no_redistribution_when_explicit_less_than_content() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -128,9 +125,9 @@ fn no_redistribution_when_explicit_less_than_content() {
     let table_lb = get_layout(&dom, table);
     // Table height should be at least the content height (> 10).
     assert!(
-        table_lb.content.height > 10.0,
+        table_lb.content.size.height > 10.0,
         "Content height should win over small explicit height, got {}",
-        table_lb.content.height,
+        table_lb.content.size.height,
     );
 }
 
@@ -175,8 +172,7 @@ fn collapse_aware_sizing_shrinks_columns() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
@@ -184,7 +180,7 @@ fn collapse_aware_sizing_shrinks_columns() {
 
     // Should not panic and should produce a valid layout.
     let lb = get_layout(&dom, table);
-    assert!(lb.content.width > 0.0);
+    assert!(lb.content.size.width > 0.0);
 }
 
 #[test]
@@ -202,13 +198,12 @@ fn separate_model_unchanged() {
         table,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         test_layout_child,
     );
 
     let lb = get_layout(&dom, table);
-    assert!(lb.content.width > 0.0);
+    assert!(lb.content.size.width > 0.0);
 }

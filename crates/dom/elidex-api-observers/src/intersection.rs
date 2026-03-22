@@ -3,6 +3,7 @@
 //! Observes visibility changes of elements relative to a root element or viewport.
 
 use elidex_ecs::Entity;
+use elidex_plugin::Rect;
 
 /// A unique identifier for an intersection observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -124,13 +125,13 @@ impl IntersectionObserverRegistry {
 
     /// Gather intersection observations by computing intersection ratios.
     ///
-    /// `rect_fn` provides the current `(x, y, width, height)` bounding rect for an entity.
-    /// `viewport` is the root viewport rect `(x, y, width, height)`.
+    /// `rect_fn` provides the current bounding rect for an entity.
+    /// `viewport` is the root viewport rect.
     /// Returns `(observer_id, entries)` pairs for observers with threshold crossings.
     pub fn gather_observations(
         &mut self,
-        rect_fn: &dyn Fn(Entity) -> Option<(f32, f32, f32, f32)>,
-        viewport: (f32, f32, f32, f32),
+        rect_fn: &dyn Fn(Entity) -> Option<Rect>,
+        viewport: Rect,
     ) -> Vec<(IntersectionObserverId, Vec<IntersectionObserverEntry>)> {
         let mut result = Vec::new();
         for observer in &mut self.observers {
@@ -143,10 +144,10 @@ impl IntersectionObserverRegistry {
 
             let mut entries = Vec::new();
             for &target in &observer.targets {
-                let Some((tx, ty, tw, th)) = rect_fn(target) else {
+                let Some(target_rect) = rect_fn(target) else {
                     continue;
                 };
-                let ratio = compute_intersection_ratio((tx, ty, tw, th), root_rect);
+                let ratio = compute_intersection_ratio(target_rect, root_rect);
                 let last_ratio = observer.last_ratios.get(&target).copied().unwrap_or(-1.0);
 
                 if crossed_threshold(last_ratio, ratio, thresholds) {
@@ -173,22 +174,15 @@ impl IntersectionObserverRegistry {
 }
 
 /// Compute the intersection ratio between a target rect and root rect.
-fn compute_intersection_ratio(target: (f32, f32, f32, f32), root: (f32, f32, f32, f32)) -> f64 {
-    let (tx, ty, tw, th) = target;
-    let (rx, ry, rw, rh) = root;
-
-    let target_area = f64::from(tw) * f64::from(th);
+fn compute_intersection_ratio(target: Rect, root: Rect) -> f64 {
+    let target_area = target.size.area_f64();
     if target_area <= 0.0 {
         return 0.0;
     }
 
-    let ix = f32::max(tx, rx);
-    let iy = f32::max(ty, ry);
-    let ix2 = f32::min(tx + tw, rx + rw);
-    let iy2 = f32::min(ty + th, ry + rh);
-    let iw = f32::max(0.0, ix2 - ix);
-    let ih = f32::max(0.0, iy2 - iy);
-    let intersection_area = f64::from(iw) * f64::from(ih);
+    let intersection_area = target
+        .intersection(&root)
+        .map_or(0.0, |inter| inter.size.area_f64());
 
     (intersection_area / target_area).clamp(0.0, 1.0)
 }
@@ -217,8 +211,8 @@ mod tests {
     #[test]
     fn intersection_ratio_fully_visible() {
         let ratio = compute_intersection_ratio(
-            (10.0, 10.0, 100.0, 100.0), // target
-            (0.0, 0.0, 1024.0, 768.0),  // viewport
+            Rect::new(10.0, 10.0, 100.0, 100.0), // target
+            Rect::new(0.0, 0.0, 1024.0, 768.0),  // viewport
         );
         assert!((ratio - 1.0).abs() < 0.001);
     }
@@ -226,16 +220,18 @@ mod tests {
     #[test]
     fn intersection_ratio_half_visible() {
         let ratio = compute_intersection_ratio(
-            (0.0, 0.0, 100.0, 100.0),
-            (50.0, 0.0, 1000.0, 1000.0), // viewport starts at x=50
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            Rect::new(50.0, 0.0, 1000.0, 1000.0), // viewport starts at x=50
         );
         assert!((ratio - 0.5).abs() < 0.001);
     }
 
     #[test]
     fn intersection_ratio_not_visible() {
-        let ratio =
-            compute_intersection_ratio((0.0, 0.0, 100.0, 100.0), (200.0, 200.0, 100.0, 100.0));
+        let ratio = compute_intersection_ratio(
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            Rect::new(200.0, 200.0, 100.0, 100.0),
+        );
         assert!((ratio - 0.0).abs() < 0.001);
     }
 
@@ -260,12 +256,12 @@ mod tests {
         let id = reg.register(init);
         reg.observe(id, el);
 
-        let viewport = (0.0, 0.0, 1024.0, 768.0);
+        let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
         // Element fully inside viewport.
         let observations = reg.gather_observations(
             &|e| {
                 if e == el {
-                    Some((10.0, 10.0, 100.0, 100.0))
+                    Some(Rect::new(10.0, 10.0, 100.0, 100.0))
                 } else {
                     None
                 }
@@ -290,13 +286,14 @@ mod tests {
         let id = reg.register(init);
         reg.observe(id, el);
 
-        let viewport = (0.0, 0.0, 1024.0, 768.0);
+        let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
 
         // First: fully visible → ratio 1.0, crosses 0.5.
-        reg.gather_observations(&|_| Some((10.0, 10.0, 100.0, 100.0)), viewport);
+        reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
 
         // Still fully visible — same ratio, no crossing.
-        let observations = reg.gather_observations(&|_| Some((20.0, 20.0, 100.0, 100.0)), viewport);
+        let observations =
+            reg.gather_observations(&|_| Some(Rect::new(20.0, 20.0, 100.0, 100.0)), viewport);
         assert!(observations.is_empty());
     }
 
@@ -310,11 +307,12 @@ mod tests {
         let id = reg.register(init);
         reg.observe(id, el);
 
-        let viewport = (0.0, 0.0, 1024.0, 768.0);
-        reg.gather_observations(&|_| Some((10.0, 10.0, 100.0, 100.0)), viewport);
+        let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
+        reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
 
         reg.remove_entity(el);
-        let observations = reg.gather_observations(&|_| Some((10.0, 10.0, 100.0, 100.0)), viewport);
+        let observations =
+            reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
         assert!(observations.is_empty());
     }
 }

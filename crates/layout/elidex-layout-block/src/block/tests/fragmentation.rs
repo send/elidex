@@ -43,11 +43,9 @@ fn make_block_child_with_break(
 /// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
 fn base_input(font_db: &FontDatabase) -> LayoutInput<'_> {
     LayoutInput {
-        containing_width: 400.0,
-        containing_height: Some(1000.0),
+        containing: elidex_plugin::CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db,
         depth: 0,
         float_ctx: None,
@@ -298,7 +296,7 @@ fn monolithic_first_child_overflows_without_break() {
         }
     }
     let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
-    assert!((lb.content.height - 200.0).abs() < 0.01);
+    assert!((lb.content.size.height - 200.0).abs() < 0.01);
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +330,7 @@ fn box_decoration_break_slice_first_fragment() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.layout_box.content.height >= 0.0);
+    assert!(outcome.layout_box.content.size.height >= 0.0);
     assert!(outcome.break_token.is_some());
 }
 
@@ -1030,9 +1028,9 @@ fn fragment_height_clamped_to_break_point() {
     // Fragment height should be clamped to the break point (50px for 1 child),
     // not the full stacking height that includes the overflowing child.
     assert!(
-        outcome.layout_box.content.height <= 80.0,
+        outcome.layout_box.content.size.height <= 80.0,
         "fragment height ({}) should not exceed fragmentainer (80px)",
-        outcome.layout_box.content.height
+        outcome.layout_box.content.size.height
     );
 }
 

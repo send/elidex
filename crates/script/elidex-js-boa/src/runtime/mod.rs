@@ -457,7 +457,7 @@ impl JsRuntime {
             reg.gather_observations(&|entity| {
                 let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
                 let bb = lb.border_box();
-                Some((lb.content.width, lb.content.height, bb.width, bb.height))
+                Some((lb.content.size, bb.size))
             })
         });
 
@@ -504,14 +504,19 @@ impl JsRuntime {
         session: &mut SessionCore,
         dom: &mut EcsDom,
         document_entity: Entity,
-        viewport: (f32, f32, f32, f32),
+        viewport: elidex_plugin::Rect,
     ) {
         let observations = self.bridge.with_intersection_observers(|reg| {
             reg.gather_observations(
                 &|entity| {
                     let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
                     let bb = lb.border_box();
-                    Some((lb.content.x, lb.content.y, bb.width, bb.height))
+                    Some(elidex_plugin::Rect::new(
+                        lb.content.origin.x,
+                        lb.content.origin.y,
+                        bb.size.width,
+                        bb.size.height,
+                    ))
                 },
                 viewport,
             )
@@ -570,22 +575,22 @@ fn resize_entry_to_js(
         )
         .property(
             js_string!("contentBoxWidth"),
-            JsValue::from(f64::from(entry.content_box_size.0)),
+            JsValue::from(f64::from(entry.content_box_size.width)),
             Attribute::all(),
         )
         .property(
             js_string!("contentBoxHeight"),
-            JsValue::from(f64::from(entry.content_box_size.1)),
+            JsValue::from(f64::from(entry.content_box_size.height)),
             Attribute::all(),
         )
         .property(
             js_string!("borderBoxWidth"),
-            JsValue::from(f64::from(entry.border_box_size.0)),
+            JsValue::from(f64::from(entry.border_box_size.width)),
             Attribute::all(),
         )
         .property(
             js_string!("borderBoxHeight"),
-            JsValue::from(f64::from(entry.border_box_size.1)),
+            JsValue::from(f64::from(entry.border_box_size.height)),
             Attribute::all(),
         )
         .build();

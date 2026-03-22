@@ -15,19 +15,15 @@ use vello::peniko::{
 use vello::{AaConfig, AaSupport, Glyph, RenderParams, Renderer, RendererOptions, Scene};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages};
 
-use elidex_plugin::{CssColor, Rect};
+use elidex_plugin::{CssColor, Point, Rect, Size, Vector};
 
 use crate::display_list::{DisplayItem, DisplayList};
 
 /// Convert an elidex [`Rect`] to a Vello [`kurbo::Rect`].
 #[must_use]
 fn to_vello_rect(r: &Rect) -> VelloRect {
-    VelloRect::new(
-        f64::from(r.x),
-        f64::from(r.y),
-        f64::from(r.x + r.width),
-        f64::from(r.y + r.height),
-    )
+    let (x0, y0, x1, y1) = r.to_f64_bounds();
+    VelloRect::new(x0, y0, x1, y1)
 }
 
 /// GPU renderer backed by Vello.
@@ -155,29 +151,29 @@ const MAX_TILES: usize = 10_000;
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn compute_tile_positions(
     painting_area: &Rect,
-    position: &(f32, f32),
-    size: &(f32, f32),
+    position: &Point,
+    size: &Size,
     repeat: &elidex_plugin::background::BgRepeat,
-) -> Vec<(f32, f32)> {
+) -> Vec<Vector> {
     use elidex_plugin::background::BgRepeatAxis;
 
-    let pw = painting_area.width;
-    let ph = painting_area.height;
+    let pw = painting_area.size.width;
+    let ph = painting_area.size.height;
 
     // Compute tile size, adjusting for `round`
     let tile_w = match repeat.x {
-        BgRepeatAxis::Round if size.0 > 0.0 => {
-            let n = (pw / size.0).round().max(1.0);
+        BgRepeatAxis::Round if size.width > 0.0 => {
+            let n = (pw / size.width).round().max(1.0);
             pw / n
         }
-        _ => size.0,
+        _ => size.width,
     };
     let tile_h = match repeat.y {
-        BgRepeatAxis::Round if size.1 > 0.0 => {
-            let n = (ph / size.1).round().max(1.0);
+        BgRepeatAxis::Round if size.height > 0.0 => {
+            let n = (ph / size.height).round().max(1.0);
             ph / n
         }
-        _ => size.1,
+        _ => size.height,
     };
 
     if tile_w <= 0.0 || tile_h <= 0.0 {
@@ -185,16 +181,16 @@ fn compute_tile_positions(
     }
 
     // Compute x positions
-    let xs = axis_tile_positions(repeat.x, position.0, tile_w, pw);
+    let xs = axis_tile_positions(repeat.x, position.x, tile_w, pw);
     // Compute y positions
-    let ys = axis_tile_positions(repeat.y, position.1, tile_h, ph);
+    let ys = axis_tile_positions(repeat.y, position.y, tile_h, ph);
 
     // Cartesian product, capped at MAX_TILES
     let cap = xs.len().saturating_mul(ys.len()).min(MAX_TILES);
     let mut positions = Vec::with_capacity(cap);
     for &y in &ys {
         for &x in &xs {
-            positions.push((x, y));
+            positions.push(Vector::new(x, y));
             if positions.len() >= MAX_TILES {
                 return positions;
             }
@@ -265,18 +261,26 @@ fn gradient_line_from_angle(
     area: &Rect,
 ) -> (vello::kurbo::Point, vello::kurbo::Point) {
     use std::f64::consts::PI;
-    let aw = if area.width.is_finite() {
-        area.width
+    let aw = if area.size.width.is_finite() {
+        area.size.width
     } else {
         0.0
     };
-    let ah = if area.height.is_finite() {
-        area.height
+    let ah = if area.size.height.is_finite() {
+        area.size.height
     } else {
         0.0
     };
-    let ax = if area.x.is_finite() { area.x } else { 0.0 };
-    let ay = if area.y.is_finite() { area.y } else { 0.0 };
+    let ax = if area.origin.x.is_finite() {
+        area.origin.x
+    } else {
+        0.0
+    };
+    let ay = if area.origin.y.is_finite() {
+        area.origin.y
+    } else {
+        0.0
+    };
     let cx = f64::from(ax + aw / 2.0);
     let cy = f64::from(ay + ah / 2.0);
     let w = f64::from(aw);
@@ -413,8 +417,8 @@ pub(crate) fn build_scene(
                     stroke = stroke.with_caps(vello::kurbo::Cap::Round);
                 }
                 let mut path = BezPath::new();
-                path.move_to((f64::from(start.0), f64::from(start.1)));
-                path.line_to((f64::from(end.0), f64::from(end.1)));
+                path.move_to(start.to_f64().to_tuple());
+                path.line_to(end.to_f64().to_tuple());
                 scene.stroke(&stroke, current_transform, vello_color, None, &path);
             }
             DisplayItem::RoundedBorderRing {
@@ -451,10 +455,10 @@ pub(crate) fn build_scene(
             } => {
                 if *image_width > 0
                     && *image_height > 0
-                    && size.0 > 0.0
-                    && size.1 > 0.0
-                    && size.0.is_finite()
-                    && size.1.is_finite()
+                    && size.width > 0.0
+                    && size.height > 0.0
+                    && size.width.is_finite()
+                    && size.height.is_finite()
                 {
                     let clip = to_vello_rect(painting_area);
                     // Always clip to painting area (tiled images must not overflow)
@@ -473,17 +477,16 @@ pub(crate) fn build_scene(
                         width: *image_width,
                         height: *image_height,
                     };
-                    let scale_x = f64::from(size.0) / f64::from(*image_width);
-                    let scale_y = f64::from(size.1) / f64::from(*image_height);
+                    let image_dims = Vector::new(f64::from(*image_width), f64::from(*image_height));
+                    let scale = size.to_vector_f64() / image_dims;
 
                     let tile_positions =
                         compute_tile_positions(painting_area, position, size, repeat);
-                    for (tx, ty) in tile_positions {
-                        let draw_x = f64::from(painting_area.x + tx);
-                        let draw_y = f64::from(painting_area.y + ty);
+                    for tp in tile_positions {
+                        let draw_pt = (painting_area.origin + tp).to_f64();
                         let transform = current_transform
-                            * Affine::translate((draw_x, draw_y))
-                            * Affine::scale_non_uniform(scale_x, scale_y);
+                            * Affine::translate(draw_pt.to_tuple())
+                            * Affine::scale_non_uniform(scale.x, scale.y);
                         scene.draw_image(&image, transform);
                     }
                     scene.pop_layer();
@@ -528,10 +531,20 @@ pub(crate) fn build_scene(
                 opacity,
             } => {
                 let rect = to_vello_rect(painting_area);
-                let cx = f64::from(if center.0.is_finite() { center.0 } else { 0.0 });
-                let cy = f64::from(if center.1.is_finite() { center.1 } else { 0.0 });
-                let rx = f64::from(if radii.0.is_finite() { radii.0 } else { 0.0 }).max(0.001);
-                let ry = f64::from(if radii.1.is_finite() { radii.1 } else { 0.0 }).max(0.001);
+                let cx = f64::from(if center.x.is_finite() { center.x } else { 0.0 });
+                let cy = f64::from(if center.y.is_finite() { center.y } else { 0.0 });
+                let rx = f64::from(if radii.width.is_finite() {
+                    radii.width
+                } else {
+                    0.0
+                })
+                .max(0.001);
+                let ry = f64::from(if radii.height.is_finite() {
+                    radii.height
+                } else {
+                    0.0
+                })
+                .max(0.001);
                 let vello_stops: Vec<(f32, Color)> =
                     stops.iter().map(|(p, c)| (*p, convert_color(*c))).collect();
                 // Use circular gradient with aspect transform for ellipses
@@ -577,8 +590,8 @@ pub(crate) fn build_scene(
                 opacity,
             } => {
                 let rect = to_vello_rect(painting_area);
-                let cx = f64::from(if center.0.is_finite() { center.0 } else { 0.0 });
-                let cy = f64::from(if center.1.is_finite() { center.1 } else { 0.0 });
+                let cx = f64::from(if center.x.is_finite() { center.x } else { 0.0 });
+                let cy = f64::from(if center.y.is_finite() { center.y } else { 0.0 });
                 // Convert degrees to turns for vello sweep gradient
                 let vello_stops: Vec<(f32, Color)> = stops
                     .iter()
@@ -654,18 +667,12 @@ pub(crate) fn build_scene(
                 }
             }
             DisplayItem::PushScrollOffset { scroll_offset } => {
-                debug_assert!(
-                    scroll_offset.0.is_finite() && scroll_offset.1.is_finite(),
-                    "scroll offset must be finite"
-                );
+                debug_assert!(scroll_offset.is_finite(), "scroll offset must be finite");
                 if transform_stack.len() < 256 {
                     let parent = *transform_stack
                         .last()
                         .expect("transform stack is never empty");
-                    let scroll = Affine::translate((
-                        -f64::from(scroll_offset.0),
-                        -f64::from(scroll_offset.1),
-                    ));
+                    let scroll = Affine::translate((-*scroll_offset).to_f64().to_tuple());
                     transform_stack.push(parent * scroll);
                 } else {
                     skipped_push_count += 1;
@@ -699,8 +706,8 @@ pub(crate) fn build_scene(
                     .iter()
                     .map(|g| Glyph {
                         id: g.glyph_id,
-                        x: g.position.0,
-                        y: g.position.1,
+                        x: g.position.x,
+                        y: g.position.y,
                     })
                     .collect();
 

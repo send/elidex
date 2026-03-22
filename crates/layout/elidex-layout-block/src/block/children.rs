@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
     BoxSizing, BreakValue, Clear, ComputedStyle, Dimension, Display, EdgeSizes, Float, LayoutBox,
-    WritingModeContext,
+    Point, Vector, WritingModeContext,
 };
 
 use crate::{
@@ -28,7 +28,7 @@ pub struct StackResult {
     /// Bottom margin of the last block child (for parent-child collapse).
     pub last_child_margin_bottom: Option<f32>,
     /// Static positions for absolutely positioned descendants (CSS 2.1 §10.6.5).
-    pub static_positions: HashMap<Entity, (f32, f32)>,
+    pub static_positions: HashMap<Entity, Point>,
     /// First baseline from children (CSS 2.1 §10.8.1).
     ///
     /// For block formatting contexts: the first in-flow child's baseline,
@@ -90,15 +90,16 @@ pub fn stack_block_children(
     is_bfc: bool,
     parent_entity: Entity,
 ) -> StackResult {
+    let env = crate::LayoutEnv::from_input(input, layout_child);
     let parent_style = crate::get_style(dom, parent_entity);
     let wm = WritingModeContext::new(parent_style.writing_mode, parent_style.direction);
     let is_horizontal = wm.is_horizontal();
 
     // Block-axis cursor: tracks Y in horizontal-tb, X in vertical modes.
     let mut cursor_block = if is_horizontal {
-        input.offset_y
+        input.offset.y
     } else {
-        input.offset_x
+        input.offset.x
     };
     let cursor_block_origin = cursor_block;
 
@@ -124,7 +125,7 @@ pub fn stack_block_children(
     // Array index of the first child in the current inline run.
     // Used for break token child_index when an inline run is fragmented.
     let mut inline_run_start_idx: Option<usize> = None;
-    let mut static_positions: HashMap<Entity, (f32, f32)> = HashMap::new();
+    let mut static_positions: HashMap<Entity, Point> = HashMap::new();
     let mut first_baseline: Option<f32> = None;
 
     // --- Fragmentation: resume from break token ---
@@ -195,9 +196,9 @@ pub fn stack_block_children(
             .is_some_and(crate::positioned::is_absolutely_positioned)
         {
             let static_pos = if is_horizontal {
-                (input.offset_x, cursor_block)
+                Point::new(input.offset.x, cursor_block)
             } else {
-                (cursor_block, input.offset_y)
+                Point::new(cursor_block, input.offset.y)
             };
             static_positions.insert(child, static_pos);
             continue;
@@ -231,7 +232,7 @@ pub fn stack_block_children(
                 wm,
                 cursor_block,
                 cursor_block_origin,
-                layout_child,
+                &env,
                 &mut static_positions,
                 skip_lines,
             );
@@ -393,14 +394,14 @@ pub fn stack_block_children(
         };
         let child_input = if is_horizontal {
             LayoutInput {
-                offset_y: cursor_block,
+                offset: elidex_plugin::Point::new(input.offset.x, cursor_block),
                 float_ctx: Some(float_ctx),
                 break_token: child_bt,
                 ..*input
             }
         } else {
             LayoutInput {
-                offset_x: cursor_block,
+                offset: elidex_plugin::Point::new(cursor_block, input.offset.y),
                 float_ctx: Some(float_ctx),
                 break_token: child_bt,
                 ..*input
@@ -435,9 +436,9 @@ pub fn stack_block_children(
         if first_baseline.is_none() {
             if let Some(child_bl) = child_box.first_baseline {
                 let child_block_pos = if is_horizontal {
-                    child_box.content.y
+                    child_box.content.origin.y
                 } else {
-                    child_box.content.x
+                    child_box.content.origin.x
                 };
                 first_baseline = Some(child_block_pos - cursor_block_origin + child_bl);
             }
@@ -445,9 +446,9 @@ pub fn stack_block_children(
 
         // Advance cursor by the child's block extent (margin box).
         let child_block_extent = if is_horizontal {
-            child_box.margin_box().height
+            child_box.margin_box().size.height
         } else {
-            child_box.margin_box().width
+            child_box.margin_box().size.width
         };
         cursor_block += child_block_extent;
 
@@ -535,7 +536,7 @@ pub fn stack_block_children(
             wm,
             cursor_block,
             cursor_block_origin,
-            layout_child,
+            &env,
             &mut static_positions,
             skip_lines,
         );
@@ -625,8 +626,8 @@ fn flush_inline_run(
     wm: WritingModeContext,
     cursor_block: f32,
     cursor_block_origin: f32,
-    layout_child: crate::ChildLayoutFn,
-    static_positions: &mut HashMap<Entity, (f32, f32)>,
+    env: &crate::LayoutEnv<'_>,
+    static_positions: &mut HashMap<Entity, Point>,
     skip_lines: usize,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
@@ -635,16 +636,16 @@ fn flush_inline_run(
     // Inline-axis available size for line breaking.
     // CSS Writing Modes Level 3 §3.1: In vertical modes, inline axis = vertical.
     let inline_size = if is_horizontal {
-        input.containing_width
+        input.containing.width
     } else {
-        input.containing_height.unwrap_or(input.containing_width)
+        input.containing.height_or_width()
     };
 
     // Content origin: inline-start position is fixed, block position is the cursor.
     let content_origin = if is_horizontal {
-        (input.offset_x, cursor_block)
+        Point::new(input.offset.x, cursor_block)
     } else {
-        (cursor_block, input.offset_y)
+        Point::new(cursor_block, input.offset.y)
     };
 
     // Build fragmentation constraint for inline layout if fragmentainer is active.
@@ -662,11 +663,9 @@ fn flush_inline_run(
         dom,
         inline_children,
         inline_size,
-        &parent_style,
-        input.font_db,
         parent_entity,
         content_origin,
-        layout_child,
+        env,
         frag_constraint.as_ref(),
     );
     static_positions.extend(result.static_positions);
@@ -859,19 +858,20 @@ fn layout_float(
 
     // Layout the float's contents at a temporary position.
     let temp_input = LayoutInput {
-        containing_width: if is_horizontal {
-            shrink_inline.max(0.0)
-        } else {
-            input.containing_width
-        },
-        containing_height: if is_horizontal {
-            input.containing_height
-        } else {
-            Some(shrink_inline.max(0.0))
+        containing: elidex_plugin::CssSize {
+            width: if is_horizontal {
+                shrink_inline.max(0.0)
+            } else {
+                input.containing.width
+            },
+            height: if is_horizontal {
+                input.containing.height
+            } else {
+                Some(shrink_inline.max(0.0))
+            },
         },
         containing_inline_size: shrink_inline.max(0.0),
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: elidex_plugin::Point::ZERO,
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None,
@@ -881,8 +881,8 @@ fn layout_float(
         subgrid: None,
     };
     let child_box = layout_child(dom, child, &temp_input).layout_box;
-    let content_width = child_box.content.width;
-    let content_height = child_box.content.height;
+    let content_width = child_box.content.size.width;
+    let content_height = child_box.content.size.height;
 
     // Physical → inline/block extents for float placement.
     let (content_inline, content_block) = if is_horizontal {
@@ -896,12 +896,13 @@ fn layout_float(
     let margin_box_block = content_block + b_pb + margin_block_start + margin_block_end;
 
     // Place the float via FloatContext (operates in inline/block space).
-    let (float_inline, float_block) = float_ctx.borrow_mut().place_float(
+    let float_pos = float_ctx.borrow_mut().place_float(
         float_side,
         margin_box_inline,
         margin_box_block,
         cursor_block,
     );
+    let (float_inline, float_block) = (float_pos.x, float_pos.y);
 
     // Convert float position from inline/block to physical coordinates.
     // float_inline is relative to the containing block's inline-start edge.
@@ -915,11 +916,11 @@ fn layout_float(
 
     // Convert to physical (x, y).
     let (final_x, final_y) = if is_horizontal {
-        (input.offset_x + final_inline, final_block)
+        (input.offset.x + final_inline, final_block)
     } else {
         // In vertical modes, the inline position maps to Y, block to X.
         // offset_y is the inline-axis origin.
-        (final_block, input.offset_y + final_inline)
+        (final_block, input.offset.y + final_inline)
     };
 
     // Overwrite the LayoutBox that layout_child inserted at a temporary
@@ -934,11 +935,11 @@ fn layout_float(
     let _ = dom.world_mut().insert_one(child, lb);
 
     // Reposition descendants relative to the new origin.
-    let delta_x = final_x - child_box.content.x;
-    let delta_y = final_y - child_box.content.y;
+    let delta_x = final_x - child_box.content.origin.x;
+    let delta_y = final_y - child_box.content.origin.y;
     if delta_x.abs() > f32::EPSILON || delta_y.abs() > f32::EPSILON {
         let grandchildren = dom.composed_children(child);
-        shift_descendants(dom, &grandchildren, (delta_x, delta_y));
+        shift_descendants(dom, &grandchildren, Vector::new(delta_x, delta_y));
     }
 }
 
@@ -957,38 +958,32 @@ pub(super) fn shift_block_children(
     if delta.abs() < f32::EPSILON {
         return;
     }
-    if wm.is_horizontal() {
-        shift_descendants_inner(dom, children, 0.0, delta, true);
+    let v = if wm.is_horizontal() {
+        Vector::y_only(delta)
     } else {
-        shift_descendants_inner(dom, children, delta, 0.0, true);
-    }
+        Vector::x_only(delta)
+    };
+    shift_descendants_inner(dom, children, v, true);
 }
 
 /// Shift descendants by (dx, dy), used to reposition float/positioned contents after placement.
-pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: (f32, f32)) {
-    shift_descendants_inner(dom, children, delta.0, delta.1, false);
+pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: Vector) {
+    shift_descendants_inner(dom, children, delta, false);
 }
 
-/// Iterative tree walk that shifts `LayoutBox` positions by `(dx, dy)`.
+/// Iterative tree walk that shifts `LayoutBox` positions by `delta`.
 ///
 /// When `block_only` is true, only block-level entities (with a `ComputedStyle`)
 /// are shifted; non-block children are skipped (but their descendants are still
 /// walked).
-fn shift_descendants_inner(
-    dom: &mut EcsDom,
-    children: &[Entity],
-    dx: f32,
-    dy: f32,
-    block_only: bool,
-) {
+fn shift_descendants_inner(dom: &mut EcsDom, children: &[Entity], delta: Vector, block_only: bool) {
     let mut stack: Vec<Entity> = children.to_vec();
     while let Some(child) = stack.pop() {
         let skip_shift = block_only
             && !crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !skip_shift {
             if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
-                lb.content.x += dx;
-                lb.content.y += dy;
+                lb.content.origin += delta;
             }
         }
         // Always walk descendants regardless of block_only filter.

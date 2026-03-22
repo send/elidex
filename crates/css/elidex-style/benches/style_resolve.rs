@@ -61,7 +61,7 @@ fn bench_style_resolve(c: &mut Criterion) {
                 (dom, sheet)
             },
             |(mut dom, sheet)| {
-                resolve_styles(&mut dom, &[&sheet], 1280.0, 720.0);
+                resolve_styles(&mut dom, &[&sheet], elidex_plugin::Size::new(1280.0, 720.0));
             },
             criterion::BatchSize::SmallInput,
         );
@@ -75,7 +75,7 @@ fn bench_style_resolve(c: &mut Criterion) {
                 (dom, sheet)
             },
             |(mut dom, sheet)| {
-                resolve_styles(&mut dom, &[&sheet], 1280.0, 720.0);
+                resolve_styles(&mut dom, &[&sheet], elidex_plugin::Size::new(1280.0, 720.0));
             },
             criterion::BatchSize::SmallInput,
         );
@@ -89,7 +89,7 @@ fn bench_style_resolve(c: &mut Criterion) {
                 (dom, sheet)
             },
             |(mut dom, sheet)| {
-                resolve_styles(&mut dom, &[&sheet], 1280.0, 720.0);
+                resolve_styles(&mut dom, &[&sheet], elidex_plugin::Size::new(1280.0, 720.0));
             },
             criterion::BatchSize::SmallInput,
         );

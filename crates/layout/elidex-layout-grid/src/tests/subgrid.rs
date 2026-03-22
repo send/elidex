@@ -100,8 +100,7 @@ fn subgrid_inherits_parent_column_tracks() {
         parent,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -109,9 +108,9 @@ fn subgrid_inherits_parent_column_tracks() {
     let child_lb = get_layout(&dom, subgrid_child);
     // The subgrid child should span the full area (100+200=300)
     assert!(
-        approx_eq(child_lb.content.width, 300.0),
+        approx_eq(child_lb.content.size.width, 300.0),
         "width={}",
-        child_lb.content.width
+        child_lb.content.size.width
     );
 }
 
@@ -169,8 +168,7 @@ fn subgrid_content_contributes_to_parent_tracks() {
         parent,
         500.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -182,14 +180,14 @@ fn subgrid_content_contributes_to_parent_tracks() {
     // With stretch: col1 = 250, col2 = 250 (equal distribution of remaining space).
     // Items with explicit width keep their width inside the stretched track.
     assert!(
-        approx_eq(lb1.content.width, 50.0),
+        approx_eq(lb1.content.size.width, 50.0),
         "child1 width={} expected 50.0",
-        lb1.content.width
+        lb1.content.size.width
     );
     assert!(
-        approx_eq(lb2.content.width, 80.0),
+        approx_eq(lb2.content.size.width, 80.0),
         "child2 width={} expected 80.0",
-        lb2.content.width
+        lb2.content.size.width
     );
 }
 
@@ -244,8 +242,7 @@ fn subgrid_uses_own_gap() {
         parent,
         320.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -254,9 +251,9 @@ fn subgrid_uses_own_gap() {
     let child_lb = get_layout(&dom, subgrid_child);
     // Subgrid spans all 3 parent columns (3*100 + 2*10 gaps = 320).
     assert!(
-        approx_eq(child_lb.content.width, 320.0),
+        approx_eq(child_lb.content.size.width, 320.0),
         "subgrid width={} expected 320.0",
-        child_lb.content.width
+        child_lb.content.size.width
     );
 }
 
@@ -302,8 +299,7 @@ fn subgrid_cols_only_rows_explicit() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -311,17 +307,17 @@ fn subgrid_cols_only_rows_explicit() {
     let child_lb = get_layout(&dom, subgrid_child);
     // Width should span both parent columns
     assert!(
-        approx_eq(child_lb.content.width, 200.0),
+        approx_eq(child_lb.content.size.width, 200.0),
         "w={}",
-        child_lb.content.width
+        child_lb.content.size.width
     );
     // Height: the subgrid has explicit rows (40+40=80) but the parent's auto
     // row is sized by the subgrid's measured content height. The grandchild is
     // 20px; the parent auto row reflects that measurement.
     assert!(
-        approx_eq(child_lb.content.height, 20.0),
+        approx_eq(child_lb.content.size.height, 20.0),
         "h={} expected 20.0",
-        child_lb.content.height
+        child_lb.content.size.height
     );
 }
 
@@ -357,8 +353,7 @@ fn subgrid_empty_no_children() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -401,8 +396,7 @@ fn subgrid_auto_placement() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -461,8 +455,7 @@ fn max_passes_limit() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -547,8 +540,7 @@ fn subgrid_mbp_affects_parent_tracks() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -559,15 +551,15 @@ fn subgrid_mbp_affects_parent_tracks() {
     // increases track sizing beyond content alone.
     let normal_lb = get_layout(&dom, normal_child);
     assert!(
-        approx_eq(normal_lb.content.width, 30.0),
+        approx_eq(normal_lb.content.size.width, 30.0),
         "normal w={} expected 30.0",
-        normal_lb.content.width
+        normal_lb.content.size.width
     );
     // Container should be laid out
     assert!(
-        lb.content.width > 0.0,
+        lb.content.size.width > 0.0,
         "container width={}",
-        lb.content.width
+        lb.content.size.width
     );
 }
 
@@ -613,8 +605,7 @@ fn subgrid_intrinsic_sizing() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -624,9 +615,9 @@ fn subgrid_intrinsic_sizing() {
     // subgrid item (width:auto + stretch) fills the available space.
     let child_lb = get_layout(&dom, subgrid_child);
     assert!(
-        approx_eq(child_lb.content.width, 200.0),
+        approx_eq(child_lb.content.size.width, 200.0),
         "w={} expected 200.0",
-        child_lb.content.width
+        child_lb.content.size.width
     );
 }
 
@@ -694,8 +685,7 @@ fn convergence_two_passes() {
         parent,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -707,15 +697,15 @@ fn convergence_two_passes() {
     let lb1 = get_layout(&dom, child1);
     let lb2 = get_layout(&dom, subgrid_child);
     assert!(
-        approx_eq(lb1.content.width, 40.0),
+        approx_eq(lb1.content.size.width, 40.0),
         "child1 w={} expected 40.0",
-        lb1.content.width
+        lb1.content.size.width
     );
     // Subgrid item (width:auto) stretches to fill its track.
     assert!(
-        lb2.content.width >= 70.0,
+        lb2.content.size.width >= 70.0,
         "subgrid w={} expected >= 70.0",
-        lb2.content.width
+        lb2.content.size.width
     );
 }
 
@@ -769,8 +759,7 @@ fn nested_subgrid() {
         parent,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -778,9 +767,9 @@ fn nested_subgrid() {
     // Outer subgrid spans all 3 columns (300px total)
     let sg1_lb = get_layout(&dom, subgrid1);
     assert!(
-        approx_eq(sg1_lb.content.width, 300.0),
+        approx_eq(sg1_lb.content.size.width, 300.0),
         "subgrid1 w={} expected 300.0",
-        sg1_lb.content.width
+        sg1_lb.content.size.width
     );
 }
 
@@ -839,13 +828,16 @@ fn subgrid_mbp_row_axis() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
-    assert!(lb.content.height > 0.0, "container h={}", lb.content.height);
+    assert!(
+        lb.content.size.height > 0.0,
+        "container h={}",
+        lb.content.size.height
+    );
 }
 
 #[test]
@@ -896,8 +888,7 @@ fn subgrid_min_content_probe_with_parent_context() {
         parent,
         200.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -905,8 +896,8 @@ fn subgrid_min_content_probe_with_parent_context() {
     let child_lb = get_layout(&dom, subgrid_child);
     // Subgrid spans 120+80 = 200px total
     assert!(
-        approx_eq(child_lb.content.width, 200.0),
+        approx_eq(child_lb.content.size.width, 200.0),
         "subgrid w={} expected 200.0",
-        child_lb.content.width
+        child_lb.content.size.width
     );
 }

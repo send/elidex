@@ -9,7 +9,9 @@ use elidex_ecs::{BackgroundImages, EcsDom, Entity};
 use elidex_plugin::background::{
     BackgroundImage, BackgroundLayer, BgPosition, BgPositionAxis, BgSize, BgSizeDimension,
 };
-use elidex_plugin::{BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Rect};
+use elidex_plugin::{
+    BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Point, Rect, Size,
+};
 use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -76,33 +78,33 @@ pub(crate) fn emit_background(
     }
 }
 
-/// Resolve background-size to concrete `(width, height)` in pixels.
+/// Resolve background-size to concrete pixel dimensions.
 ///
 /// CSS Backgrounds Level 3 §3.9: the concrete size depends on the intrinsic
 /// image dimensions and the painting area.
 #[must_use]
-fn resolve_bg_size(size: &BgSize, painting_area: &Rect, img_w: u32, img_h: u32) -> (f32, f32) {
+fn resolve_bg_size(size: &BgSize, painting_area: &Rect, img_w: u32, img_h: u32) -> Size {
     #[allow(clippy::cast_precision_loss)]
     let iw = img_w as f32;
     #[allow(clippy::cast_precision_loss)]
     let ih = img_h as f32;
-    let pw = painting_area.width;
-    let ph = painting_area.height;
+    let pw = painting_area.size.width;
+    let ph = painting_area.size.height;
 
     match size {
         BgSize::Cover => {
             if iw <= 0.0 || ih <= 0.0 {
-                return (pw, ph);
+                return Size::new(pw, ph);
             }
             let scale = (pw / iw).max(ph / ih);
-            (iw * scale, ih * scale)
+            Size::new(iw * scale, ih * scale)
         }
         BgSize::Contain => {
             if iw <= 0.0 || ih <= 0.0 {
-                return (pw, ph);
+                return Size::new(pw, ph);
             }
             let scale = (pw / iw).min(ph / ih);
-            (iw * scale, ih * scale)
+            Size::new(iw * scale, ih * scale)
         }
         BgSize::Explicit(w, h) => {
             let resolved_w = w.as_ref().map(|d| match d {
@@ -114,37 +116,37 @@ fn resolve_bg_size(size: &BgSize, painting_area: &Rect, img_w: u32, img_h: u32) 
                 BgSizeDimension::Percentage(p) => ph * *p / 100.0,
             });
             match (resolved_w, resolved_h) {
-                (Some(w), Some(h)) => (w, h),
+                (Some(w), Some(h)) => Size::new(w, h),
                 (Some(w), None) => {
                     // auto height: preserve aspect ratio
                     if iw > 0.0 {
-                        (w, w * ih / iw)
+                        Size::new(w, w * ih / iw)
                     } else {
-                        (w, ih)
+                        Size::new(w, ih)
                     }
                 }
                 (None, Some(h)) => {
                     if ih > 0.0 {
-                        (h * iw / ih, h)
+                        Size::new(h * iw / ih, h)
                     } else {
-                        (iw, h)
+                        Size::new(iw, h)
                     }
                 }
-                (None, None) => (iw, ih), // auto auto = intrinsic size
+                (None, None) => Size::new(iw, ih), // auto auto = intrinsic size
             }
         }
     }
 }
 
-/// Resolve background-position to `(x, y)` offset within the painting area.
+/// Resolve background-position to an offset within the painting area.
 ///
 /// CSS Backgrounds Level 3 §3.6: percentage positions refer to the difference
 /// between the painting area and image size.
 #[must_use]
-fn resolve_bg_position(pos: &BgPosition, painting_area: &Rect, img_size: (f32, f32)) -> (f32, f32) {
-    let x = resolve_position_axis(&pos.x, painting_area.width, img_size.0);
-    let y = resolve_position_axis(&pos.y, painting_area.height, img_size.1);
-    (x, y)
+fn resolve_bg_position(pos: &BgPosition, painting_area: &Rect, img_size: Size) -> Point {
+    let x = resolve_position_axis(&pos.x, painting_area.size.width, img_size.width);
+    let y = resolve_position_axis(&pos.y, painting_area.size.height, img_size.height);
+    Point::new(x, y)
 }
 
 fn resolve_position_axis(axis: &BgPositionAxis, area_dim: f32, img_dim: f32) -> f32 {
@@ -211,16 +213,19 @@ fn emit_bg_layer(
             });
         }
         BackgroundImage::RadialGradient(rg) => {
-            let cx = painting_area.x + painting_area.width * rg.center.0 / 100.0;
-            let cy = painting_area.y + painting_area.height * rg.center.1 / 100.0;
-            let rx = if rg.radii.0 > 0.0 {
-                rg.radii.0
+            let center = painting_area.point_at_pct(rg.center);
+            let rx = if rg.radii.width > 0.0 {
+                rg.radii.width
             } else {
-                let dx = painting_area.width.max(0.0);
-                let dy = painting_area.height.max(0.0);
+                let dx = painting_area.size.width.max(0.0);
+                let dy = painting_area.size.height.max(0.0);
                 (dx * dx + dy * dy).sqrt() / 2.0
             };
-            let ry = if rg.radii.1 > 0.0 { rg.radii.1 } else { rx };
+            let ry = if rg.radii.height > 0.0 {
+                rg.radii.height
+            } else {
+                rx
+            };
             let stops: Vec<(f32, CssColor)> = rg
                 .stops
                 .iter()
@@ -228,16 +233,15 @@ fn emit_bg_layer(
                 .collect();
             dl.push(DisplayItem::RadialGradient {
                 painting_area,
-                center: (cx, cy),
-                radii: (rx, ry),
+                center,
+                radii: Size::new(rx, ry),
                 stops,
                 repeating: rg.repeating,
                 opacity,
             });
         }
         BackgroundImage::ConicGradient(cg) => {
-            let cx = painting_area.x + painting_area.width * cg.center.0 / 100.0;
-            let cy = painting_area.y + painting_area.height * cg.center.1 / 100.0;
+            let center = painting_area.point_at_pct(cg.center);
             let stops: Vec<(f32, CssColor)> = cg
                 .stops
                 .iter()
@@ -245,7 +249,7 @@ fn emit_bg_layer(
                 .collect();
             dl.push(DisplayItem::ConicGradient {
                 painting_area,
-                center: (cx, cy),
+                center,
                 start_angle: cg.start_angle,
                 end_angle: cg.end_angle,
                 stops,
@@ -372,13 +376,12 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // top (full width)
     if style.border_top.style != BorderStyle::None && lb.border.top > 0.0 {
         let color = apply_opacity(style.border_top.color, opacity);
-        let w = lb.border.top;
-        emit_border_side(
+        emit_h_line(
             style.border_top.style,
-            (bb.x, bb.y + w / 2.0),
-            (bb.x + bb.width, bb.y + w / 2.0),
-            w,
-            elidex_plugin::Rect::new(bb.x, bb.y, bb.width, w),
+            bb.origin.x,
+            bb.right(),
+            bb.origin.y,
+            lb.border.top,
             color,
             dl,
         );
@@ -386,13 +389,12 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // bottom (full width)
     if style.border_bottom.style != BorderStyle::None && lb.border.bottom > 0.0 {
         let color = apply_opacity(style.border_bottom.color, opacity);
-        let w = lb.border.bottom;
-        emit_border_side(
+        emit_h_line(
             style.border_bottom.style,
-            (bb.x, bb.y + bb.height - w / 2.0),
-            (bb.x + bb.width, bb.y + bb.height - w / 2.0),
-            w,
-            elidex_plugin::Rect::new(bb.x, bb.y + bb.height - w, bb.width, w),
+            bb.origin.x,
+            bb.right(),
+            bb.bottom() - lb.border.bottom,
+            lb.border.bottom,
             color,
             dl,
         );
@@ -400,16 +402,15 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // right (inset by top/bottom to avoid corner overlap)
     let v_inset_top = lb.border.top;
     let v_inset_bottom = lb.border.bottom;
-    let v_height = (bb.height - v_inset_top - v_inset_bottom).max(0.0);
+    let v_height = (bb.size.height - v_inset_top - v_inset_bottom).max(0.0);
     if style.border_right.style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
         let color = apply_opacity(style.border_right.color, opacity);
-        let w = lb.border.right;
-        emit_border_side(
+        emit_v_line(
             style.border_right.style,
-            (bb.x + bb.width - w / 2.0, bb.y + v_inset_top),
-            (bb.x + bb.width - w / 2.0, bb.y + v_inset_top + v_height),
-            w,
-            elidex_plugin::Rect::new(bb.x + bb.width - w, bb.y + v_inset_top, w, v_height),
+            bb.origin.y + v_inset_top,
+            bb.origin.y + v_inset_top + v_height,
+            bb.right() - lb.border.right,
+            lb.border.right,
             color,
             dl,
         );
@@ -417,25 +418,72 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
     // left (inset by top/bottom to avoid corner overlap)
     if style.border_left.style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
         let color = apply_opacity(style.border_left.color, opacity);
-        let w = lb.border.left;
-        emit_border_side(
+        emit_v_line(
             style.border_left.style,
-            (bb.x + w / 2.0, bb.y + v_inset_top),
-            (bb.x + w / 2.0, bb.y + v_inset_top + v_height),
-            w,
-            elidex_plugin::Rect::new(bb.x, bb.y + v_inset_top, w, v_height),
+            bb.origin.y + v_inset_top,
+            bb.origin.y + v_inset_top + v_height,
+            bb.origin.x,
+            lb.border.left,
             color,
             dl,
         );
     }
 }
 
+/// Emit a horizontal border/rule line (top or bottom edge).
+///
+/// `x_start`/`x_end` are the horizontal extent, `y` is the line center,
+/// and `w` is the line thickness.
+fn emit_h_line(
+    border_style: BorderStyle,
+    x_start: f32,
+    x_end: f32,
+    y: f32,
+    w: f32,
+    color: CssColor,
+    dl: &mut DisplayList,
+) {
+    emit_border_side(
+        border_style,
+        Point::new(x_start, y + w / 2.0),
+        Point::new(x_end, y + w / 2.0),
+        w,
+        Rect::new(x_start, y, x_end - x_start, w),
+        color,
+        dl,
+    );
+}
+
+/// Emit a vertical border/rule line (left or right edge).
+///
+/// `y_start`/`y_end` are the vertical extent, `x` is the line center,
+/// and `w` is the line thickness.
+fn emit_v_line(
+    border_style: BorderStyle,
+    y_start: f32,
+    y_end: f32,
+    x: f32,
+    w: f32,
+    color: CssColor,
+    dl: &mut DisplayList,
+) {
+    emit_border_side(
+        border_style,
+        Point::new(x + w / 2.0, y_start),
+        Point::new(x + w / 2.0, y_end),
+        w,
+        Rect::new(x, y_start, w, y_end - y_start),
+        color,
+        dl,
+    );
+}
+
 /// Emit a single border side as either a `StyledBorderSegment` (dashed/dotted)
 /// or a `SolidRect` (all other visible styles).
 fn emit_border_side(
     border_style: BorderStyle,
-    start: (f32, f32),
-    end: (f32, f32),
+    start: Point,
+    end: Point,
     width: f32,
     solid_rect: Rect,
     color: CssColor,
@@ -493,7 +541,7 @@ pub(crate) fn emit_list_marker_with_counter(
     dl: &mut DisplayList,
 ) {
     let marker_size = style.font_size * MARKER_SIZE_FACTOR;
-    let marker_x = lb.content.x - style.font_size * MARKER_X_OFFSET_FACTOR;
+    let marker_x = lb.content.origin.x - style.font_size * MARKER_X_OFFSET_FACTOR;
 
     let families = families_as_refs(&style.font_family);
     let font_style = to_fontdb_style(style.font_style);
@@ -501,8 +549,8 @@ pub(crate) fn emit_list_marker_with_counter(
         .query(&families, style.font_weight, font_style)
         .and_then(|fid| font_db.font_metrics(fid, style.font_size))
         .map_or(style.font_size, |m| m.ascent);
-    let marker_y =
-        lb.content.y + ascent * MARKER_Y_CENTER_FACTOR - marker_size * MARKER_Y_CENTER_FACTOR;
+    let marker_y = lb.content.origin.y + ascent * MARKER_Y_CENTER_FACTOR
+        - marker_size * MARKER_Y_CENTER_FACTOR;
 
     let color = apply_opacity(style.color, style.opacity);
 
@@ -548,9 +596,9 @@ pub(crate) fn emit_list_marker_with_counter(
             if !text_width.is_finite() {
                 return;
             }
-            let baseline_y = lb.content.y + ascent;
+            let baseline_y = lb.content.origin.y + ascent;
             let mut text_x =
-                lb.content.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
+                lb.content.origin.x - text_width - style.font_size * DECIMAL_MARKER_GAP_FACTOR;
             let glyphs = place_glyphs(
                 &shaped.glyphs,
                 &mut text_x,
@@ -610,29 +658,27 @@ pub(crate) fn emit_column_rules(
 
             if is_horizontal {
                 // Vertical rule line.
-                let rule_x = pb.x + rule_inline_pos;
-                let rule_y = pb.y + seg_start;
-                let rule_h = seg_extent;
-                emit_border_side(
+                let rule_x = pb.origin.x + rule_inline_pos;
+                let rule_y = pb.origin.y + seg_start;
+                emit_v_line(
                     style.column_rule_style,
-                    (rule_x, rule_y),
-                    (rule_x, rule_y + rule_h),
+                    rule_y,
+                    rule_y + seg_extent,
+                    rule_x - rule_width / 2.0,
                     rule_width,
-                    Rect::new(rule_x - rule_width / 2.0, rule_y, rule_width, rule_h),
                     color,
                     dl,
                 );
             } else {
                 // Horizontal rule line (vertical writing mode).
-                let rule_y = pb.y + rule_inline_pos;
-                let rule_x = pb.x + seg_start;
-                let rule_w = seg_extent;
-                emit_border_side(
+                let rule_y = pb.origin.y + rule_inline_pos;
+                let rule_x = pb.origin.x + seg_start;
+                emit_h_line(
                     style.column_rule_style,
-                    (rule_x, rule_y),
-                    (rule_x + rule_w, rule_y),
+                    rule_x,
+                    rule_x + seg_extent,
+                    rule_y - rule_width / 2.0,
                     rule_width,
-                    Rect::new(rule_x, rule_y - rule_width / 2.0, rule_w, rule_width),
                     color,
                     dl,
                 );

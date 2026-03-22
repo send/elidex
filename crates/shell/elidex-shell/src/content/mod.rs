@@ -157,11 +157,11 @@ impl ContentState {
             self.pipeline.document,
         );
 
-        let viewport = (
+        let viewport = elidex_plugin::Rect::new(
             0.0,
             0.0,
-            self.pipeline.viewport_width,
-            self.pipeline.viewport_height,
+            self.pipeline.viewport.width,
+            self.pipeline.viewport.height,
         );
         self.pipeline.runtime.deliver_intersection_observations(
             &mut self.pipeline.session,
@@ -417,8 +417,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
 
         BrowserToContent::SetViewport { width, height } => {
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
-                state.pipeline.viewport_width = width;
-                state.pipeline.viewport_height = height;
+                state.pipeline.viewport = elidex_plugin::Size::new(width, height);
                 state.re_render();
                 state.send_display_list();
             }

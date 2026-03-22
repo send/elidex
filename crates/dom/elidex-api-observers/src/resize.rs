@@ -3,6 +3,7 @@
 //! Observes changes to the content box / border box size of elements.
 
 use elidex_ecs::Entity;
+use elidex_plugin::Size;
 
 /// A unique identifier for a resize observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,10 +47,10 @@ pub struct ResizeObserverOptions {
 pub struct ResizeObserverEntry {
     /// The observed element.
     pub target: Entity,
-    /// Content box size (width, height).
-    pub content_box_size: (f32, f32),
-    /// Border box size (width, height).
-    pub border_box_size: (f32, f32),
+    /// Content box size.
+    pub content_box_size: Size,
+    /// Border box size.
+    pub border_box_size: Size,
 }
 
 /// Registry for active resize observers.
@@ -60,7 +61,7 @@ pub struct ResizeObserverRegistry {
 }
 
 /// Stored per-observer, per-entity last known sizes for change detection.
-type LastSizes = std::collections::HashMap<Entity, (f32, f32)>;
+type LastSizes = std::collections::HashMap<Entity, Size>;
 
 #[derive(Debug)]
 struct ResizeObserverState {
@@ -134,29 +135,30 @@ impl ResizeObserverRegistry {
 
     /// Gather resize observations by comparing current sizes against last known sizes.
     ///
-    /// `size_fn` provides the current `(content_box_w, content_box_h, border_box_w, border_box_h)`
-    /// for each observed entity. Returns a list of `(observer_id, entries)` pairs for
+    /// `size_fn` provides the current `(content_box_size, border_box_size)` for each
+    /// observed entity. Returns a list of `(observer_id, entries)` pairs for
     /// observers that have at least one changed target.
     pub fn gather_observations(
         &mut self,
-        size_fn: &dyn Fn(Entity) -> Option<(f32, f32, f32, f32)>,
+        size_fn: &dyn Fn(Entity) -> Option<(Size, Size)>,
     ) -> Vec<(ResizeObserverId, Vec<ResizeObserverEntry>)> {
         let mut result = Vec::new();
         for observer in &mut self.observers {
             let mut entries = Vec::new();
             for &(target, _) in &observer.targets {
-                let Some((cw, ch, bw, bh)) = size_fn(target) else {
+                let Some((content_size, border_size)) = size_fn(target) else {
                     continue;
                 };
-                let changed = observer.last_sizes.get(&target).is_none_or(|&(lw, lh)| {
-                    (lw - cw).abs() > f32::EPSILON || (lh - ch).abs() > f32::EPSILON
+                let changed = observer.last_sizes.get(&target).is_none_or(|last| {
+                    (last.width - content_size.width).abs() > f32::EPSILON
+                        || (last.height - content_size.height).abs() > f32::EPSILON
                 });
                 if changed {
-                    observer.last_sizes.insert(target, (cw, ch));
+                    observer.last_sizes.insert(target, content_size);
                     entries.push(ResizeObserverEntry {
                         target,
-                        content_box_size: (cw, ch),
-                        border_box_size: (bw, bh),
+                        content_box_size: content_size,
+                        border_box_size: border_size,
                     });
                 }
             }
@@ -193,7 +195,7 @@ mod tests {
 
         let observations = reg.gather_observations(&|e| {
             if e == el {
-                Some((100.0, 50.0, 110.0, 60.0))
+                Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
             } else {
                 None
             }
@@ -201,8 +203,11 @@ mod tests {
 
         assert_eq!(observations.len(), 1);
         assert_eq!(observations[0].1.len(), 1);
-        assert_eq!(observations[0].1[0].content_box_size, (100.0, 50.0));
-        assert_eq!(observations[0].1[0].border_box_size, (110.0, 60.0));
+        assert_eq!(
+            observations[0].1[0].content_box_size,
+            Size::new(100.0, 50.0)
+        );
+        assert_eq!(observations[0].1[0].border_box_size, Size::new(110.0, 60.0));
     }
 
     #[test]
@@ -215,10 +220,11 @@ mod tests {
         reg.observe(id, el, ResizeObserverOptions::default());
 
         // First gather — initial observation.
-        reg.gather_observations(&|_| Some((100.0, 50.0, 110.0, 60.0)));
+        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
 
         // Same sizes — no observations.
-        let observations = reg.gather_observations(&|_| Some((100.0, 50.0, 110.0, 60.0)));
+        let observations =
+            reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
         assert!(observations.is_empty());
     }
 
@@ -231,12 +237,16 @@ mod tests {
         let id = reg.register();
         reg.observe(id, el, ResizeObserverOptions::default());
 
-        reg.gather_observations(&|_| Some((100.0, 50.0, 110.0, 60.0)));
+        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
 
         // Width changed.
-        let observations = reg.gather_observations(&|_| Some((200.0, 50.0, 210.0, 60.0)));
+        let observations =
+            reg.gather_observations(&|_| Some((Size::new(200.0, 50.0), Size::new(210.0, 60.0))));
         assert_eq!(observations.len(), 1);
-        assert_eq!(observations[0].1[0].content_box_size, (200.0, 50.0));
+        assert_eq!(
+            observations[0].1[0].content_box_size,
+            Size::new(200.0, 50.0)
+        );
     }
 
     #[test]
@@ -247,11 +257,12 @@ mod tests {
         let mut reg = ResizeObserverRegistry::new();
         let id = reg.register();
         reg.observe(id, el, ResizeObserverOptions::default());
-        reg.gather_observations(&|_| Some((100.0, 50.0, 110.0, 60.0)));
+        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
         reg.remove_entity(el);
 
         // After removal, no observations should be produced.
-        let observations = reg.gather_observations(&|_| Some((100.0, 50.0, 110.0, 60.0)));
+        let observations =
+            reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
         assert!(observations.is_empty());
     }
 }

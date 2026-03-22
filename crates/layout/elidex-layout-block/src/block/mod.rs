@@ -16,8 +16,8 @@ mod tests;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{
-    BoxSizing, Dimension, Display, EdgeSizes, Float, LayoutBox, LogicalEdges, Overflow, Position,
-    Rect, WritingModeContext,
+    BoxSizing, CssSize, Dimension, Display, EdgeSizes, Float, LayoutBox, LogicalEdges, Overflow,
+    Point, Position, Rect, WritingModeContext,
 };
 use elidex_text::FontDatabase;
 
@@ -75,16 +75,13 @@ pub fn layout_block(
     dom: &mut EcsDom,
     entity: Entity,
     containing_width: f32,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height: None,
+        containing: CssSize::width_only(containing_width),
         containing_inline_size: containing_width,
-        offset_x,
-        offset_y,
+        offset,
         font_db,
         depth: 0,
         float_ctx: None,
@@ -105,16 +102,16 @@ pub fn layout_block_with_height(
     entity: Entity,
     containing_width: f32,
     containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
         containing_inline_size: containing_width,
-        offset_x,
-        offset_y,
+        offset,
         font_db,
         depth: 0,
         float_ctx: None,
@@ -143,10 +140,10 @@ pub fn layout_block_inner(
     input: &LayoutInput<'_>,
     layout_child: crate::ChildLayoutFn,
 ) -> crate::LayoutOutcome {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
 
@@ -159,9 +156,9 @@ pub fn layout_block_inner(
     // determined by the **containing block's** writing mode.
     let containing_inline = input.containing_inline_size;
     let containing_block: Option<f32> = if is_horizontal {
-        input.containing_height
+        input.containing.height
     } else {
-        Some(input.containing_width)
+        Some(input.containing.width)
     };
     // Available inline space for auto inline-size resolution.
     // This is the containing block's dimension along **this element's** inline axis.
@@ -228,13 +225,20 @@ pub fn layout_block_inner(
         style.height
     };
     let inline_extra = margin_inline_start_raw + margin_inline_end_raw + i_pb;
-    let mut content_inline = if let Some((iw, ih)) = intrinsic {
+    let mut content_inline = if let Some(intr) = intrinsic {
         // Replaced element: resolve physical dimensions, then extract inline-axis.
-        let phys_w = resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border);
+        let phys_w = resolve_replaced_width(
+            &style,
+            containing_width,
+            intr.width,
+            intr.height,
+            &padding,
+            &border,
+        );
         if is_horizontal {
             phys_w
         } else {
-            resolve_replaced_height(&style, phys_w, iw, ih, &padding, &border)
+            resolve_replaced_height(&style, phys_w, intr.width, intr.height, &padding, &border)
         }
     } else {
         sanitize(resolve_dimension_value(
@@ -366,12 +370,26 @@ pub fn layout_block_inner(
         }
     });
 
-    let content_block = if let Some((iw, ih)) = intrinsic {
+    let content_block = if let Some(intr) = intrinsic {
         // Replaced element: resolve block-size from physical dimensions.
         if is_horizontal {
-            resolve_replaced_height(&style, content_inline, iw, ih, &padding, &border)
+            resolve_replaced_height(
+                &style,
+                content_inline,
+                intr.width,
+                intr.height,
+                &padding,
+                &border,
+            )
         } else {
-            resolve_replaced_width(&style, containing_width, iw, ih, &padding, &border)
+            resolve_replaced_width(
+                &style,
+                containing_width,
+                intr.width,
+                intr.height,
+                &padding,
+                &border,
+            )
         }
     } else if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
@@ -387,11 +405,12 @@ pub fn layout_block_inner(
             .break_token
             .and_then(|bt| bt.child_break_token.as_deref());
         let child_input = LayoutInput {
-            containing_width: child_phys_width,
-            containing_height: child_phys_height,
+            containing: CssSize {
+                width: child_phys_width,
+                height: child_phys_height,
+            },
             containing_inline_size: child_containing_inline_size,
-            offset_x: content_x,
-            offset_y: content_y,
+            offset: Point::new(content_x, content_y),
             font_db,
             depth: depth + 1,
             float_ctx: input.float_ctx,
@@ -505,15 +524,14 @@ pub fn layout_block_inner(
                     widows: style.widows,
                     skip_lines: inline_skip_lines,
                 });
+        let env = crate::LayoutEnv::from_input(input, layout_child);
         let inline_result = crate::inline::layout_inline_context_fragmented(
             dom,
             &children,
             inline_size,
-            &style,
-            font_db,
             entity,
-            (content_x, content_y),
-            layout_child,
+            Point::new(content_x, content_y),
+            &env,
             inline_frag_constraint.as_ref(),
         );
         static_positions_stash = inline_result.static_positions;
@@ -599,15 +617,18 @@ pub fn layout_block_inner(
     let is_cb = style.position != Position::Static || is_root || style.has_transform;
     if is_cb {
         let pb = lb.padding_box();
+        let pos_env = crate::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+        };
         crate::positioned::layout_positioned_children(
             dom,
             entity,
             &pb,
-            input.viewport,
             &static_positions_stash,
-            font_db,
-            layout_child,
-            depth,
+            &pos_env,
         );
     }
 

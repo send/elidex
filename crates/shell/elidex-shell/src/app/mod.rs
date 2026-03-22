@@ -27,6 +27,7 @@ use winit::window::{Window, WindowId};
 
 use elidex_ecs::Entity;
 use elidex_navigation::NavigationController;
+use elidex_plugin::Point;
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
 
@@ -71,7 +72,7 @@ pub(super) struct RenderState {
 /// Kept for backward compatibility with `build_pipeline()` test API.
 pub(super) struct InteractiveState {
     pub(super) pipeline: crate::PipelineResult,
-    pub(super) cursor_pos: Option<(f64, f64)>,
+    pub(super) cursor_pos: Option<Point<f64>>,
     pub(super) focus_target: Option<Entity>,
     pub(super) hover_chain: Vec<Entity>,
     pub(super) active_chain: Vec<Entity>,
@@ -87,7 +88,7 @@ pub struct App {
     /// Multi-tab manager (threaded mode).
     tab_manager: Option<TabManager>,
     /// Window-level cursor position (shared across tabs).
-    pub(super) cursor_pos: Option<(f64, f64)>,
+    pub(super) cursor_pos: Option<Point<f64>>,
     /// Window-level modifier state (shared across tabs).
     pub(super) modifiers: Modifiers,
     /// Whether the cursor was in the content area on the last move event.

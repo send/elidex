@@ -38,7 +38,11 @@ pub fn run_test_case(test: &WptTestCase) -> WptTestResult {
     let parsed = parse_html(&test.html);
     let mut dom = parsed.dom;
     let stylesheet = parse_stylesheet(&test.css, Origin::Author);
-    resolve_styles(&mut dom, &[&stylesheet], 1280.0, 720.0);
+    resolve_styles(
+        &mut dom,
+        &[&stylesheet],
+        elidex_plugin::Size::new(1280.0, 720.0),
+    );
 
     let mut failures = Vec::new();
 

@@ -7,6 +7,8 @@
 //! | 0 0 1 |
 //! ```
 
+use crate::Point;
+
 /// 2D affine identity.
 pub const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
@@ -25,6 +27,17 @@ pub fn mul_affine(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
         a[0] * b[4] + a[2] * b[5] + a[4],
         a[1] * b[4] + a[3] * b[5] + a[5],
     ]
+}
+
+/// Apply a 2D affine transform to a point.
+///
+/// Returns the transformed point.
+#[must_use]
+pub fn apply_affine(m: &[f64; 6], p: Point<f64>) -> Point<f64> {
+    Point::new(
+        m[0] * p.x + m[2] * p.y + m[4],
+        m[1] * p.x + m[3] * p.y + m[5],
+    )
 }
 
 /// Invert a 2D affine matrix. Returns `None` if determinant ~ 0.

@@ -21,6 +21,7 @@ mod whitespace;
 mod tests;
 
 use elidex_ecs::EcsDom;
+use elidex_plugin::Vector;
 use elidex_text::FontDatabase;
 
 use crate::display_list::DisplayList;
@@ -119,7 +120,7 @@ pub fn build_display_list_with_caret(
     font_db: &FontDatabase,
     caret_visible: bool,
 ) -> DisplayList {
-    build_display_list_with_scroll(dom, font_db, caret_visible, (0.0, 0.0))
+    build_display_list_with_scroll(dom, font_db, caret_visible, Vector::<f32>::ZERO)
 }
 
 /// Build a display list with viewport scroll offset.
@@ -132,11 +133,11 @@ pub fn build_display_list_with_scroll(
     dom: &EcsDom,
     font_db: &FontDatabase,
     caret_visible: bool,
-    scroll_offset: (f32, f32),
+    scroll_offset: Vector,
 ) -> DisplayList {
     let mut dl = DisplayList::default();
     let mut font_cache = FontCache::new();
-    let has_scroll = scroll_offset.0.abs() > f32::EPSILON || scroll_offset.1.abs() > f32::EPSILON;
+    let has_scroll = scroll_offset.x.abs() > f32::EPSILON || scroll_offset.y.abs() > f32::EPSILON;
 
     if has_scroll {
         dl.push(DisplayItem::PushScrollOffset { scroll_offset });

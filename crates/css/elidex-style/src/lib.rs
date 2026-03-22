@@ -8,7 +8,8 @@
 //! ```ignore
 //! use elidex_style::resolve_styles;
 //!
-//! resolve_styles(&mut dom, &[&author_stylesheet], 1920.0, 1080.0);
+//! use elidex_plugin::Size;
+//! resolve_styles(&mut dom, &[&author_stylesheet], Size::new(1920.0, 1080.0));
 //! ```
 
 pub mod cascade;
@@ -28,7 +29,7 @@ use std::sync::OnceLock;
 
 use elidex_css::{Declaration, Stylesheet};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue};
+use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue, Size};
 
 pub use elidex_plugin::ViewportOverflow;
 pub use resolve::{dimension_to_css_value, get_computed_with_registry};
@@ -84,18 +85,9 @@ fn no_hints(_entity: Entity, _dom: &EcsDom) -> Vec<Declaration> {
 pub fn resolve_styles(
     dom: &mut EcsDom,
     author_stylesheets: &[&Stylesheet],
-    viewport_width: f32,
-    viewport_height: f32,
+    viewport: Size,
 ) -> ViewportOverflow {
-    resolve_styles_with_compat(
-        dom,
-        author_stylesheets,
-        &[],
-        &no_hints,
-        viewport_width,
-        viewport_height,
-        None,
-    )
+    resolve_styles_with_compat(dom, author_stylesheets, &[], &no_hints, viewport, None)
 }
 
 /// Extended style resolution accepting compat layer data.
@@ -110,8 +102,7 @@ pub fn resolve_styles_with_compat(
     author_stylesheets: &[&Stylesheet],
     extra_ua_sheets: &[&Stylesheet],
     hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
-    viewport_width: f32,
-    viewport_height: f32,
+    viewport: Size,
     _registry: Option<&CssPropertyRegistry>,
 ) -> ViewportOverflow {
     let ua = ua::ua_stylesheet();
@@ -124,8 +115,7 @@ pub fn resolve_styles_with_compat(
     all_sheets.extend_from_slice(author_stylesheets);
 
     let ctx = ResolveContext {
-        viewport_width,
-        viewport_height,
+        viewport,
         em_base: 16.0,
         root_font_size: 16.0,
     };

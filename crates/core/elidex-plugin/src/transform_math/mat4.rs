@@ -5,6 +5,33 @@ use super::resolve_translate_value;
 use super::ZERO_EPSILON;
 use crate::TransformFunction;
 
+/// A 3D vector for transform-origin and translation.
+///
+/// Internal to `transform_math` — the public API uses `Point<f64>` for 2D
+/// and this type for the rare 3D cases (CSS `transform-origin` z-component,
+/// `translate3d()`, perspective origin translation).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Vec3 {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) z: f64,
+}
+
+impl Vec3 {
+    pub(super) fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Negate all components.
+    pub(super) fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+}
+
 /// Convert degrees to radians.
 fn deg_to_rad(deg: f32) -> f64 {
     f64::from(deg) * std::f64::consts::PI / 180.0
@@ -115,25 +142,25 @@ pub(super) fn function_to_4x4(
         TransformFunction::Translate(x, y) => {
             let tx = resolve_translate_value(x, ref_width);
             let ty = resolve_translate_value(y, ref_height);
-            translate_4x4(tx, ty, 0.0)
+            translate_4x4(Vec3::new(tx, ty, 0.0))
         }
         TransformFunction::TranslateX(x) => {
             let tx = resolve_translate_value(x, ref_width);
-            translate_4x4(tx, 0.0, 0.0)
+            translate_4x4(Vec3::new(tx, 0.0, 0.0))
         }
         TransformFunction::TranslateY(y) => {
             let ty = resolve_translate_value(y, ref_height);
-            translate_4x4(0.0, ty, 0.0)
+            translate_4x4(Vec3::new(0.0, ty, 0.0))
         }
         TransformFunction::Translate3d(x, y, z) => {
             let tx = resolve_translate_value(x, ref_width);
             let ty = resolve_translate_value(y, ref_height);
             let tz = resolve_translate_value(z, 0.0);
-            translate_4x4(tx, ty, tz)
+            translate_4x4(Vec3::new(tx, ty, tz))
         }
         TransformFunction::TranslateZ(z) => {
             let tz = resolve_translate_value(z, 0.0);
-            translate_4x4(0.0, 0.0, tz)
+            translate_4x4(Vec3::new(0.0, 0.0, tz))
         }
         TransformFunction::Rotate(deg) | TransformFunction::RotateZ(deg) => rotate_z_4x4(*deg),
         TransformFunction::RotateX(deg) => rotate_x_4x4(*deg),
@@ -164,13 +191,29 @@ pub(super) fn function_to_4x4(
     }
 }
 
+/// Apply a sequence of 4x4 multiplications bracketed by translate-to / translate-back.
+///
+/// This encodes the common CSS pattern:
+/// 1. Translate to origin
+/// 2. Apply inner transforms
+/// 3. Translate back from origin
+pub(super) fn apply_around_origin(
+    mat: &mut [f64; 16],
+    origin: Vec3,
+    inner: impl FnOnce(&mut [f64; 16]),
+) {
+    *mat = mul_4x4(mat, &translate_4x4(origin));
+    inner(mat);
+    *mat = mul_4x4(mat, &translate_4x4(origin.neg()));
+}
+
 #[must_use]
-pub(super) fn translate_4x4(tx: f64, ty: f64, tz: f64) -> [f64; 16] {
+pub(super) fn translate_4x4(v: Vec3) -> [f64; 16] {
     [
         1.0, 0.0, 0.0, 0.0, //
         0.0, 1.0, 0.0, 0.0, //
         0.0, 0.0, 1.0, 0.0, //
-        tx, ty, tz, 1.0,
+        v.x, v.y, v.z, 1.0,
     ]
 }
 

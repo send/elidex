@@ -30,7 +30,8 @@ use elidex_layout_block::{
     MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignItems, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox, Rect,
+    AlignItems, CssSize, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox,
+    Point, Rect, Size,
 };
 
 use elidex_layout_block::horizontal_pb;
@@ -76,11 +77,9 @@ struct GridItem {
     /// Whether the item's width is `auto` (for stretch).
     width_auto: bool,
     /// Max-content size from initial layout (at container width).
-    content_width: f32,
-    content_height: f32,
+    content_size: Size,
     /// Min-content size from narrow-probe layout.
-    min_content_width: f32,
-    min_content_height: f32,
+    min_content_size: Size,
     /// Whether this item is a subgrid on the column axis (CSS Grid Level 2 §2).
     is_subgrid_cols: bool,
     /// Whether this item is a subgrid on the row axis (CSS Grid Level 2 §2).
@@ -159,10 +158,10 @@ pub fn layout_grid(
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
@@ -187,6 +186,7 @@ pub fn layout_grid(
     );
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
+    let content_origin = Point::new(content_x, content_y);
 
     // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
     // In vertical writing modes, the inline axis is physical Y (height) and
@@ -239,8 +239,7 @@ pub fn layout_grid(
             entity,
             &EmptyContainerParams {
                 style: &style,
-                content_x,
-                content_y,
+                content_origin,
                 content_width,
                 containing_height,
                 padding,
@@ -340,17 +339,7 @@ pub fn layout_grid(
     for pass in 0..max_passes {
         // --- 8. Measure content sizes (initial layout) ---
         // Measure at inline-available width (column = inline axis).
-        measure_item_content(
-            dom,
-            &mut items,
-            container_inline_size,
-            containing_height,
-            input.containing_inline_size,
-            font_db,
-            depth,
-            layout_child,
-            input.subgrid,
-        );
+        measure_item_content(dom, &mut items, container_inline_size, input, layout_child);
 
         // --- Build per-item intrinsic size contributions ---
         let mut col_contribs = build_contributions(&items, true);
@@ -542,16 +531,23 @@ pub fn layout_grid(
         row_tracks: &row_tracks,
         col_positions: &col_positions,
         row_positions: &row_positions,
-        content_x,
-        content_y,
+        content_origin,
         container_inline_size,
         direction: style.direction,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
         subgrid_ctx: subgrid_ctx.as_ref(),
         writing_mode: style.writing_mode,
     };
-    let grid_baseline =
-        position::position_items(dom, &items, &placement, font_db, depth, layout_child);
+    let grid_env = elidex_layout_block::LayoutEnv {
+        font_db,
+        layout_child,
+        depth,
+        viewport: input.viewport,
+    };
+    let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
 
     // --- 13. Container dimensions ---
     // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
@@ -573,11 +569,9 @@ pub fn layout_grid(
     let first_baseline = grid_baseline;
 
     let lb = LayoutBox {
-        content: Rect::new(
-            content_x,
-            content_y,
-            final_content_width,
-            final_content_height,
+        content: Rect::from_origin_size(
+            content_origin,
+            Size::new(final_content_width, final_content_height),
         ),
         padding,
         border,
@@ -594,43 +588,39 @@ pub fn layout_grid(
     let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
     if is_cb {
         let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
-            dom, &children, content_x, content_y,
+            dom,
+            &children,
+            content_origin,
         );
         let pb = lb.padding_box();
         let (abs_children, fixed_children) =
             elidex_layout_block::positioned::collect_positioned_descendants(dom, entity);
 
+        let col_axis = helpers::GridAxisInfo {
+            positions: &col_positions,
+            tracks: &col_tracks,
+            gap: gap_col,
+            name_map: &col_name_map,
+            explicit_count: explicit_cols,
+        };
+        let row_axis = helpers::GridAxisInfo {
+            positions: &row_positions,
+            tracks: &row_tracks,
+            gap: gap_row,
+            name_map: &row_name_map,
+            explicit_count: explicit_rows,
+        };
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+        };
         for child in abs_children {
-            let cb = resolve_grid_abspos_cb(
-                dom,
-                child,
-                &col_positions,
-                &row_positions,
-                &col_tracks,
-                &row_tracks,
-                gap_col,
-                gap_row,
-                content_x,
-                content_y,
-                &pb,
-                &col_name_map,
-                &row_name_map,
-                explicit_cols,
-                explicit_rows,
-            );
-            let sp = static_positions
-                .get(&child)
-                .copied()
-                .unwrap_or((cb.x, cb.y));
+            let cb = resolve_grid_abspos_cb(dom, child, &col_axis, &row_axis, content_origin, &pb);
+            let sp = static_positions.get(&child).copied().unwrap_or(cb.origin);
             elidex_layout_block::positioned::layout_absolutely_positioned(
-                dom,
-                child,
-                &cb,
-                sp,
-                font_db,
-                layout_child,
-                depth,
-                input.viewport,
+                dom, child, &cb, sp, &pos_env,
             );
         }
 
@@ -638,22 +628,15 @@ pub fn layout_grid(
         let has_transform = style.has_transform;
         for child in fixed_children {
             let (cb, sp_default) = if has_transform {
-                (pb, (pb.x, pb.y))
-            } else if let Some((vw, vh)) = input.viewport {
-                (Rect::new(0.0, 0.0, vw, vh), (0.0, 0.0))
+                (pb, pb.origin)
+            } else if let Some(vp) = input.viewport {
+                (Rect::new(0.0, 0.0, vp.width, vp.height), Point::ZERO)
             } else {
                 continue;
             };
             let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
             elidex_layout_block::positioned::layout_absolutely_positioned(
-                dom,
-                child,
-                &cb,
-                sp,
-                font_db,
-                layout_child,
-                depth,
-                input.viewport,
+                dom, child, &cb, sp, &pos_env,
             );
         }
     }

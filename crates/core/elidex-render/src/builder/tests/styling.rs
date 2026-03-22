@@ -34,9 +34,9 @@ fn text_align_center_offsets_text() {
     // Exact offset = (400 - text_width) / 2, which is > 0 for any short text.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].position.0 > 0.0 && glyphs[0].position.0 < 400.0,
+            glyphs[0].position.x > 0.0 && glyphs[0].position.x < 400.0,
             "center-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].position.0
+            glyphs[0].position.x
         );
     }
 }
@@ -70,16 +70,16 @@ fn text_align_right_offsets_text() {
     // Right-aligned: offset = 400 - text_width, so glyph x > center offset.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].position.0 > 0.0 && glyphs[0].position.0 < 400.0,
+            glyphs[0].position.x > 0.0 && glyphs[0].position.x < 400.0,
             "right-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].position.0
+            glyphs[0].position.x
         );
         // Right offset should be > center offset for the same text.
         // "Hi" in 400px: right offset ≈ 380+, center offset ≈ 190+.
         assert!(
-            glyphs[0].position.0 > 200.0,
+            glyphs[0].position.x > 200.0,
             "right-aligned text should be in right half, got x={}",
-            glyphs[0].position.0
+            glyphs[0].position.x
         );
     }
 }
@@ -446,21 +446,21 @@ fn border_corners_no_overlap() {
     // border-box: x=3, y=2, w=104, h=56 (content 100x50 + border 2+2 / 3+3)
     // top: full width, y=2, h=3
     let top = rects[0];
-    assert!((top.y - 2.0).abs() < f32::EPSILON);
-    assert!((top.height - 3.0).abs() < f32::EPSILON);
-    assert!((top.width - 104.0).abs() < f32::EPSILON);
+    assert!((top.origin.y - 2.0).abs() < f32::EPSILON);
+    assert!((top.size.height - 3.0).abs() < f32::EPSILON);
+    assert!((top.size.width - 104.0).abs() < f32::EPSILON);
     // bottom: full width, y=55, h=3
     let bottom = rects[1];
-    assert!((bottom.y - 55.0).abs() < f32::EPSILON);
-    assert!((bottom.height - 3.0).abs() < f32::EPSILON);
+    assert!((bottom.origin.y - 55.0).abs() < f32::EPSILON);
+    assert!((bottom.size.height - 3.0).abs() < f32::EPSILON);
     // right: inset by top(3)+bottom(3), height=50
     let right = rects[2];
-    assert!((right.y - 5.0).abs() < f32::EPSILON); // 2 + 3
-    assert!((right.height - 50.0).abs() < f32::EPSILON); // 56 - 3 - 3
-                                                         // left: same inset
+    assert!((right.origin.y - 5.0).abs() < f32::EPSILON); // 2 + 3
+    assert!((right.size.height - 50.0).abs() < f32::EPSILON); // 56 - 3 - 3
+                                                              // left: same inset
     let left = rects[3];
-    assert!((left.y - 5.0).abs() < f32::EPSILON);
-    assert!((left.height - 50.0).abs() < f32::EPSILON);
+    assert!((left.origin.y - 5.0).abs() < f32::EPSILON);
+    assert!((left.size.height - 50.0).abs() < f32::EPSILON);
 }
 
 // ---------------------------------------------------------------------------
@@ -528,8 +528,8 @@ fn image_data_emits_image_item() {
             image_height,
             ..
         } => {
-            assert!((painting_area.width - 200.0).abs() < f32::EPSILON);
-            assert!((painting_area.height - 100.0).abs() < f32::EPSILON);
+            assert!((painting_area.size.width - 200.0).abs() < f32::EPSILON);
+            assert!((painting_area.size.height - 100.0).abs() < f32::EPSILON);
             assert_eq!(*image_width, 1);
             assert_eq!(*image_height, 1);
         }

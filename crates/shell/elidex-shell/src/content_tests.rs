@@ -1,5 +1,6 @@
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
+use elidex_plugin::Point;
 use std::time::Duration;
 
 #[test]
@@ -35,8 +36,8 @@ fn content_thread_mouse_move() {
     // Send mouse move.
     browser
         .send(BrowserToContent::MouseMove {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
         })
         .unwrap();
 
@@ -64,8 +65,8 @@ fn content_thread_click() {
     // Send click.
     browser
         .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
         }))
@@ -95,8 +96,8 @@ fn content_thread_mouse_release_clears_active() {
     // Move cursor to set hover chain.
     browser
         .send(BrowserToContent::MouseMove {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
         })
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -104,8 +105,8 @@ fn content_thread_mouse_release_clears_active() {
     // Click (sets ACTIVE).
     browser
         .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
         }))
@@ -156,8 +157,8 @@ fn content_thread_with_script() {
     // Click on the element.
     browser
         .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
         }))
@@ -192,8 +193,8 @@ fn content_thread_keyboard() {
     // Click first to set focus.
     browser
         .send(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-            point: (50.0, 50.0),
-            client_point: (50.0, 86.0),
+            point: Point::new(50.0, 50.0),
+            client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
         }))
@@ -236,8 +237,8 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
     // Send mouse wheel (scroll down).
     browser
         .send(BrowserToContent::MouseWheel {
-            delta: (0.0, 100.0),
-            point: (100.0, 100.0),
+            delta: elidex_plugin::Vector::new(0.0, 100.0),
+            point: Point::new(100.0, 100.0),
         })
         .unwrap();
 
@@ -264,8 +265,8 @@ fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
     // Send mouse wheel — should NOT trigger re-render because overflow: hidden.
     browser
         .send(BrowserToContent::MouseWheel {
-            delta: (0.0, 100.0),
-            point: (100.0, 100.0),
+            delta: elidex_plugin::Vector::new(0.0, 100.0),
+            point: Point::new(100.0, 100.0),
         })
         .unwrap();
 
@@ -293,8 +294,8 @@ fn content_thread_mouse_wheel_small_content() {
     // Send mouse wheel — content fits, so scroll_y stays 0 → no change → no re-render.
     browser
         .send(BrowserToContent::MouseWheel {
-            delta: (0.0, 50.0),
-            point: (50.0, 50.0),
+            delta: elidex_plugin::Vector::new(0.0, 50.0),
+            point: Point::new(50.0, 50.0),
         })
         .unwrap();
 
@@ -331,8 +332,8 @@ fn content_thread_viewport_resize_updates_scroll() {
     // Now scroll should work with the new dimensions.
     browser
         .send(BrowserToContent::MouseWheel {
-            delta: (0.0, 100.0),
-            point: (100.0, 100.0),
+            delta: elidex_plugin::Vector::new(0.0, 100.0),
+            point: Point::new(100.0, 100.0),
         })
         .unwrap();
 

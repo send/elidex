@@ -3,7 +3,7 @@
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
-use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
+use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::DispatchEvent;
 
 use crate::app::events::find_link_ancestor;
@@ -58,8 +58,8 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Use viewport-relative coordinates for DOM event properties (clientX/clientY).
     let mouse_init = MouseEventInit {
-        client_x: click.client_point.0,
-        client_y: click.client_point.1,
+        client_x: click.client_point.x,
+        client_y: click.client_point.y,
         button: i16::from(click.button),
         alt_key: click.mods.alt,
         ctrl_key: click.mods.ctrl,
@@ -184,8 +184,8 @@ pub(super) fn handle_mouse_release(state: &mut ContentState) {
     state.send_display_list();
 }
 
-pub(super) fn handle_mouse_move(state: &mut ContentState, point: (f32, f32)) {
-    let new_chain = if point.0 >= 0.0 && point.1 >= 0.0 {
+pub(super) fn handle_mouse_move(state: &mut ContentState, point: Point) {
+    let new_chain = if point.x >= 0.0 && point.y >= 0.0 {
         hit_test_with_scroll(
             &state.pipeline.dom,
             &HitTestQuery {
@@ -319,7 +319,7 @@ fn update_scroll_offset(state: &mut ContentState, target: elidex_ecs::Entity) {
     let info = {
         let w = state.pipeline.dom.world();
         w.get::<&LayoutBox>(target).ok().and_then(|lb| {
-            let content_w = lb.content.width;
+            let content_w = lb.content.size.width;
             w.get::<&ComputedStyle>(target)
                 .ok()
                 .map(|cs| (content_w, cs.font_size))

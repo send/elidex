@@ -27,8 +27,7 @@ fn single_item_baseline() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -62,8 +61,7 @@ fn multi_item_baseline_alignment() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -80,15 +78,15 @@ fn multi_item_baseline_alignment() {
     // The key assertion: not all items are at y=0 when heights differ and
     // baseline alignment is used — the fallback baseline is the margin-box
     // bottom, so items with smaller height get shifted down.
-    let all_same_y =
-        approx_eq(lb0.content.y, lb1.content.y) && approx_eq(lb1.content.y, lb2.content.y);
+    let all_same_y = approx_eq(lb0.content.origin.y, lb1.content.origin.y)
+        && approx_eq(lb1.content.origin.y, lb2.content.origin.y);
     // With fallback baseline = margin-box bottom edge, the tallest item
     // defines the line baseline, and shorter items are pushed down.
     assert!(
         !all_same_y,
         "baseline alignment with different heights should produce different y offsets: \
          y0={}, y1={}, y2={}",
-        lb0.content.y, lb1.content.y, lb2.content.y,
+        lb0.content.origin.y, lb1.content.origin.y, lb2.content.origin.y,
     );
 }
 
@@ -116,8 +114,7 @@ fn mixed_baseline_and_stretch() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -130,15 +127,15 @@ fn mixed_baseline_and_stretch() {
     // the line cross size (which is at least 30, accounting for baseline offsets).
     // The stretch item's height should be >= 30 (the line cross size).
     assert!(
-        lb_stretch.content.height >= 30.0 - 1.0,
+        lb_stretch.content.size.height >= 30.0 - 1.0,
         "stretch item should stretch to line cross size: height={}, expected >= 30",
-        lb_stretch.content.height,
+        lb_stretch.content.size.height,
     );
     // Baseline item should retain its explicit height.
     assert!(
-        approx_eq(lb_baseline.content.height, 30.0),
+        approx_eq(lb_baseline.content.size.height, 30.0),
         "baseline item should keep explicit height: height={}",
-        lb_baseline.content.height,
+        lb_baseline.content.size.height,
     );
 }
 
@@ -161,8 +158,7 @@ fn wrap_with_baseline_per_line() {
         c,
         100.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -173,10 +169,10 @@ fn wrap_with_baseline_per_line() {
 
     // Item 1 should be on the second line, so its y should be > first line height.
     assert!(
-        lb1.content.y > lb0.content.y,
+        lb1.content.origin.y > lb0.content.origin.y,
         "second line item should have y > first line: y0={}, y1={}",
-        lb0.content.y,
-        lb1.content.y,
+        lb0.content.origin.y,
+        lb1.content.origin.y,
     );
 }
 
@@ -200,8 +196,7 @@ fn column_direction_baseline_fallback() {
         c,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -210,9 +205,9 @@ fn column_direction_baseline_fallback() {
     let lb0 = get_lb(&dom, items[0]);
     // Column flex in horizontal WM: baseline not applicable, items at cross-start (x=0).
     assert!(
-        approx_eq(lb0.content.x, 0.0),
+        approx_eq(lb0.content.origin.x, 0.0),
         "column baseline fallback should act as flex-start: x={}",
-        lb0.content.x,
+        lb0.content.origin.x,
     );
 }
 
@@ -234,8 +229,7 @@ fn reversed_direction_baseline() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -246,19 +240,19 @@ fn reversed_direction_baseline() {
 
     // RowReverse: item 0 should be to the right of item 1.
     assert!(
-        lb0.content.x > lb1.content.x,
+        lb0.content.origin.x > lb1.content.origin.x,
         "row-reverse: item 0 (x={}) should be right of item 1 (x={})",
-        lb0.content.x,
-        lb1.content.x,
+        lb0.content.origin.x,
+        lb1.content.origin.x,
     );
 
     // Baseline alignment should still produce different y positions for
     // items with different heights (fallback baseline = margin-box bottom).
-    let y_differ = !approx_eq(lb0.content.y, lb1.content.y);
+    let y_differ = !approx_eq(lb0.content.origin.y, lb1.content.origin.y);
     assert!(
         y_differ,
         "row-reverse baseline: different heights should give different y: y0={}, y1={}",
-        lb0.content.y, lb1.content.y,
+        lb0.content.origin.y, lb1.content.origin.y,
     );
 }
 
@@ -280,8 +274,7 @@ fn fallback_no_baseline_item() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -292,22 +285,23 @@ fn fallback_no_baseline_item() {
     let lb1 = get_lb(&dom, items[1]);
     // Both items should have valid dimensions.
     assert!(
-        approx_eq(lb0.content.width, 100.0),
+        approx_eq(lb0.content.size.width, 100.0),
         "item 0 width={}",
-        lb0.content.width,
+        lb0.content.size.width,
     );
     assert!(
-        approx_eq(lb1.content.width, 100.0),
+        approx_eq(lb1.content.size.width, 100.0),
         "item 1 width={}",
-        lb1.content.width,
+        lb1.content.size.width,
     );
     // Fallback baseline = margin-box bottom. Taller item (60) has higher
     // baseline, so shorter item (30) is shifted down.
     assert!(
-        lb0.content.y > lb1.content.y || approx_eq(lb0.content.y, lb1.content.y),
+        lb0.content.origin.y > lb1.content.origin.y
+            || approx_eq(lb0.content.origin.y, lb1.content.origin.y),
         "shorter item should be at or below taller: y0={}, y1={}",
-        lb0.content.y,
-        lb1.content.y,
+        lb0.content.origin.y,
+        lb1.content.origin.y,
     );
 }
 
@@ -328,8 +322,7 @@ fn container_baseline_propagation() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -367,8 +360,7 @@ fn auto_cross_margin_excludes_baseline() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -384,17 +376,17 @@ fn auto_cross_margin_excludes_baseline() {
     // With margin_top: Auto on item 0 (height 20), auto margin absorbs
     // the difference: item 0 pushed down by (line_cross - 20).
     assert!(
-        lb0.content.y > 0.0 || lb1.content.y == 0.0,
+        lb0.content.origin.y > 0.0 || lb1.content.origin.y == 0.0,
         "auto cross margin item should be pushed down or normal item at top: y0={}, y1={}",
-        lb0.content.y,
-        lb1.content.y,
+        lb0.content.origin.y,
+        lb1.content.origin.y,
     );
     // The normal item (no auto margin) participates in baseline, so it
     // should be at a stable position.
     assert!(
-        lb1.content.height >= 39.0,
+        lb1.content.size.height >= 39.0,
         "normal item should retain its height: {}",
-        lb1.content.height,
+        lb1.content.size.height,
     );
 }
 
@@ -441,8 +433,7 @@ fn percentage_height_in_stretched_row_item() {
         c,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -451,9 +442,9 @@ fn percentage_height_in_stretched_row_item() {
     let gc_lb = get_lb(&dom, grandchild);
     // Grandchild height should be 50% of stretched cross size (200) = 100.
     assert!(
-        approx_eq(gc_lb.content.height, 100.0),
+        approx_eq(gc_lb.content.size.height, 100.0),
         "grandchild 50% height in stretched item should be 100: height={}",
-        gc_lb.content.height,
+        gc_lb.content.size.height,
     );
 }
 
@@ -494,8 +485,7 @@ fn percentage_width_in_stretched_column_item() {
         c,
         containing_width,
         Some(400.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -505,9 +495,9 @@ fn percentage_width_in_stretched_column_item() {
     // Column flex: cross axis is width. Stretched item gets containing_width.
     // Grandchild 50% of that = 200.
     assert!(
-        approx_eq(gc_lb.content.width, 200.0),
+        approx_eq(gc_lb.content.size.width, 200.0),
         "grandchild 50% width in stretched column item should be 200: width={}",
-        gc_lb.content.width,
+        gc_lb.content.size.width,
     );
 }
 
@@ -547,8 +537,7 @@ fn non_stretch_remains_indefinite() {
         c,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -557,12 +546,12 @@ fn non_stretch_remains_indefinite() {
     let gc_lb = get_lb(&dom, grandchild);
     // Non-stretched item: cross-size is indefinite for percentage children.
     // The grandchild's 50% should NOT resolve to 100 (which would be 50% of 200).
-    // It should resolve against 0 or the container_definite_height, but NOT
+    // It should resolve against 0 or the resolved_height, but NOT
     // against the stretched cross size (since there is no stretch).
     assert!(
-        gc_lb.content.height < 100.0 - 1.0,
+        gc_lb.content.size.height < 100.0 - 1.0,
         "non-stretch item grandchild 50% height should not resolve to 100: height={}",
-        gc_lb.content.height,
+        gc_lb.content.size.height,
     );
 }
 
@@ -594,8 +583,7 @@ fn explicit_cross_size_already_definite() {
         c,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -605,8 +593,8 @@ fn explicit_cross_size_already_definite() {
     // Explicit height: 100 on the flex item makes it definite.
     // Grandchild 50% of 100 = 50.
     assert!(
-        approx_eq(gc_lb.content.height, 50.0),
+        approx_eq(gc_lb.content.size.height, 50.0),
         "grandchild 50% of explicit 100px should be 50: height={}",
-        gc_lb.content.height,
+        gc_lb.content.size.height,
     );
 }

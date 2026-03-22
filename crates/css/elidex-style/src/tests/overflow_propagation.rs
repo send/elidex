@@ -6,7 +6,7 @@ use super::*;
 fn root_propagation_html_hidden() {
     let (mut dom, _root, html, _body) = build_simple_dom();
     let ss = parse_stylesheet("html { overflow: hidden; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // html's overflow should be propagated to viewport and reset to visible.
     assert_eq!(vp.overflow_x, Overflow::Hidden);
     assert_eq!(vp.overflow_y, Overflow::Hidden);
@@ -19,7 +19,7 @@ fn root_propagation_html_hidden() {
 fn root_propagation_body_scroll() {
     let (mut dom, _root, html, body) = build_simple_dom();
     let ss = parse_stylesheet("body { overflow: scroll; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // html is visible → check body. body's overflow propagated to viewport.
     assert_eq!(vp.overflow_x, Overflow::Scroll);
     assert_eq!(vp.overflow_y, Overflow::Scroll);
@@ -35,7 +35,7 @@ fn root_propagation_body_scroll() {
 fn root_propagation_both_visible() {
     let (mut dom, _root, _html, _body) = build_simple_dom();
     let ss = parse_stylesheet("div { overflow: hidden; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // Both html and body are visible → default auto/auto.
     assert_eq!(vp.overflow_x, Overflow::Auto);
     assert_eq!(vp.overflow_y, Overflow::Auto);
@@ -48,7 +48,7 @@ fn root_propagation_html_takes_priority() {
         "html { overflow: hidden; } body { overflow: scroll; }",
         Origin::Author,
     );
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // html has non-visible overflow → html takes priority, body is untouched.
     assert_eq!(vp.overflow_x, Overflow::Hidden);
     assert_eq!(vp.overflow_y, Overflow::Hidden);
@@ -65,7 +65,7 @@ fn root_propagation_per_axis() {
         "body { overflow-x: hidden; overflow-y: scroll; }",
         Origin::Author,
     );
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     assert_eq!(vp.overflow_x, Overflow::Hidden);
     assert_eq!(vp.overflow_y, Overflow::Scroll);
     let body_style = get_style(&dom, body);
@@ -77,7 +77,7 @@ fn root_propagation_per_axis() {
 fn root_propagation_body_clip_becomes_hidden() {
     let (mut dom, _root, _html, _body) = build_simple_dom();
     let ss = parse_stylesheet("body { overflow: clip; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // clip → hidden on viewport.
     assert_eq!(vp.overflow_x, Overflow::Hidden);
     assert_eq!(vp.overflow_y, Overflow::Hidden);
@@ -91,7 +91,7 @@ fn root_propagation_no_html() {
     let div = dom.create_element("div", Attributes::default());
     dom.append_child(root, div);
     let ss = parse_stylesheet("div { overflow: hidden; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     assert_eq!(vp.overflow_x, Overflow::Auto);
     assert_eq!(vp.overflow_y, Overflow::Auto);
 }
@@ -100,7 +100,7 @@ fn root_propagation_no_html() {
 fn root_propagation_body_display_none() {
     let (mut dom, _root, _html, _body) = build_simple_dom();
     let ss = parse_stylesheet("body { display: none; overflow: scroll; }", Origin::Author);
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // CSS Overflow L3 §3.1: display:none body is not a valid propagation
     // source — fall back to default auto/auto.
     assert_eq!(vp.overflow_x, Overflow::Auto);
@@ -114,7 +114,7 @@ fn root_propagation_html_display_none() {
         "html { display: none; overflow: hidden; } body { overflow: scroll; }",
         Origin::Author,
     );
-    let vp = resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     // html display:none → no propagation at all, even from body.
     assert_eq!(vp.overflow_x, Overflow::Auto);
     assert_eq!(vp.overflow_y, Overflow::Auto);

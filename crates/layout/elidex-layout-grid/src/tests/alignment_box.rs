@@ -31,8 +31,7 @@ fn grid_gap_between_items() {
         container,
         420.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -43,14 +42,14 @@ fn grid_gap_between_items() {
     let lb3 = get_layout(&dom, c3);
 
     // 420 - 20 (gap) = 400 / 2 = 200 each.
-    assert!(approx_eq(lb1.content.width, 200.0));
-    assert!(approx_eq(lb2.content.width, 200.0));
+    assert!(approx_eq(lb1.content.size.width, 200.0));
+    assert!(approx_eq(lb2.content.size.width, 200.0));
     // Column gap: c2 starts at 200 + 20 = 220.
-    assert!(approx_eq(lb2.content.x, 220.0));
+    assert!(approx_eq(lb2.content.origin.x, 220.0));
     // Row gap: c3 at y = 50 + 10 = 60.
-    assert!(approx_eq(lb3.content.y, 60.0));
+    assert!(approx_eq(lb3.content.origin.y, 60.0));
     // Container height: 50 + 10 + 30 = 90.
-    assert!(approx_eq(clb.content.height, 90.0));
+    assert!(approx_eq(clb.content.size.height, 90.0));
 }
 
 #[test]
@@ -82,8 +81,7 @@ fn grid_align_items_center() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -92,7 +90,7 @@ fn grid_align_items_center() {
     let lb = get_layout(&dom, child);
 
     // Centered in 100px row: (100 - 40) / 2 = 30.
-    assert!(approx_eq(lb.content.y, 30.0));
+    assert!(approx_eq(lb.content.origin.y, 30.0));
 }
 
 #[test]
@@ -142,8 +140,7 @@ fn grid_with_padding_border() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -152,12 +149,12 @@ fn grid_with_padding_border() {
     let lb = get_layout(&dom, child);
 
     // Content area starts after padding+border: 10+5=15.
-    assert!(approx_eq(clb.content.x, 15.0));
-    assert!(approx_eq(clb.content.y, 15.0));
+    assert!(approx_eq(clb.content.origin.x, 15.0));
+    assert!(approx_eq(clb.content.origin.y, 15.0));
     // Content width: 400 - 2*(10+5) = 370.
-    assert!(approx_eq(clb.content.width, 370.0));
+    assert!(approx_eq(clb.content.size.width, 370.0));
     // Child should fill the grid.
-    assert!(approx_eq(lb.content.width, 370.0));
+    assert!(approx_eq(lb.content.size.width, 370.0));
 }
 
 #[test]
@@ -202,8 +199,7 @@ fn grid_item_margin() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -212,10 +208,10 @@ fn grid_item_margin() {
     let lb = get_layout(&dom, child);
 
     // Item starts at margin offset: x=20, y=10.
-    assert!(approx_eq(lb.content.x, 20.0));
-    assert!(approx_eq(lb.content.y, 10.0));
+    assert!(approx_eq(lb.content.origin.x, 20.0));
+    assert!(approx_eq(lb.content.origin.y, 10.0));
     // Width: 200 - 20 - 20 = 160.
-    assert!(approx_eq(lb.content.width, 160.0));
+    assert!(approx_eq(lb.content.size.width, 160.0));
 }
 
 #[test]
@@ -259,8 +255,7 @@ fn grid_box_sizing_border_box() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -269,8 +264,8 @@ fn grid_box_sizing_border_box() {
     let lb = get_layout(&dom, child);
 
     // border-box: content = 400 - 2*(20+5) = 350.
-    assert!(approx_eq(clb.content.width, 350.0));
-    assert!(approx_eq(lb.content.width, 350.0));
+    assert!(approx_eq(clb.content.size.width, 350.0));
+    assert!(approx_eq(lb.content.size.width, 350.0));
 }
 
 #[test]
@@ -315,8 +310,7 @@ fn grid_align_self_stretch_with_center_container() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -326,8 +320,8 @@ fn grid_align_self_stretch_with_center_container() {
 
     // align-self: stretch should override align-items: center.
     // Item should fill the 100px row (starts at y=0, height=100).
-    assert!(approx_eq(lb.content.y, 0.0));
-    assert!(approx_eq(lb.content.height, 100.0));
+    assert!(approx_eq(lb.content.origin.y, 0.0));
+    assert!(approx_eq(lb.content.size.height, 100.0));
 }
 
 #[test]
@@ -358,8 +352,7 @@ fn grid_negative_track_size_clamped() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -369,10 +362,10 @@ fn grid_negative_track_size_clamped() {
     let lb2 = get_layout(&dom, c2);
 
     // Negative track should be clamped to 0.
-    assert!(lb1.content.width >= 0.0);
-    assert!(lb2.content.width >= 0.0);
+    assert!(lb1.content.size.width >= 0.0);
+    assert!(lb2.content.size.width >= 0.0);
     // The second column (200px) should still work correctly.
-    assert!(approx_eq(lb2.content.width, 200.0));
+    assert!(approx_eq(lb2.content.size.width, 200.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -408,8 +401,7 @@ fn grid_rtl_reverses_column_order() {
         grid,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -420,9 +412,9 @@ fn grid_rtl_reverses_column_order() {
 
     // RTL: first column (100px) should be on the right, second (200px) on the left.
     assert!(
-        lb0.content.x > lb1.content.x,
+        lb0.content.origin.x > lb1.content.origin.x,
         "RTL grid: col 0 (x={}) should be right of col 1 (x={})",
-        lb0.content.x,
-        lb1.content.x,
+        lb0.content.origin.x,
+        lb1.content.origin.x,
     );
 }

@@ -13,8 +13,8 @@ use std::cell::RefCell;
 
 use elidex_ecs::{EcsDom, Entity, ImageData};
 use elidex_plugin::{
-    AlignItems, AlignSelf, BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox,
-    WritingMode, WritingModeContext,
+    AlignItems, AlignSelf, BoxSizing, ComputedStyle, CssSize, Dimension, Display, EdgeSizes,
+    LayoutBox, Point, Size, WritingMode, WritingModeContext,
 };
 use elidex_text::FontDatabase;
 
@@ -151,10 +151,8 @@ pub struct SubgridContext {
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
-    /// Width of the containing block.
-    pub containing_width: f32,
-    /// Height of the containing block (if known).
-    pub containing_height: Option<f32>,
+    /// Containing block size (width always definite, height may be indefinite).
+    pub containing: CssSize,
     /// Inline-axis size of the containing block (for margin/padding % resolution).
     ///
     /// CSS Box Model Level 3 §5.3: margin/padding percentages refer to the
@@ -162,10 +160,8 @@ pub struct LayoutInput<'a> {
     /// `containing_width`. In vertical writing modes, this equals the
     /// physical height of the containing block.
     pub containing_inline_size: f32,
-    /// Horizontal offset from the containing block origin.
-    pub offset_x: f32,
-    /// Vertical offset from the containing block origin.
-    pub offset_y: f32,
+    /// Offset from the containing block origin.
+    pub offset: Point,
     /// Font database for text measurement.
     pub font_db: &'a FontDatabase,
     /// Recursion depth guard.
@@ -180,13 +176,76 @@ pub struct LayoutInput<'a> {
     ///
     /// Set at the root layout and propagated downward. Fixed-positioned
     /// elements use this as their containing block (CSS 2.1 §10.1).
-    pub viewport: Option<(f32, f32)>,
+    pub viewport: Option<Size>,
     /// Fragmentation context (if inside a fragmentainer).
     pub fragmentainer: Option<&'a FragmentainerContext>,
     /// Break token from a previous fragment (for resumption).
     pub break_token: Option<&'a BreakToken>,
     /// Parent grid context for subgrid items (CSS Grid Level 2 §2).
     pub subgrid: Option<&'a SubgridContext>,
+}
+
+impl<'a> LayoutInput<'a> {
+    /// Create a probe `LayoutInput` for intrinsic sizing (min/max-content).
+    ///
+    /// Sets `offset` to zero, all optional context fields to `None`.
+    /// Use struct update syntax to override individual fields if needed:
+    /// ```ignore
+    /// let input = LayoutInput { containing_height: Some(h), ..LayoutInput::probe(&env, w) };
+    /// ```
+    #[must_use]
+    pub fn probe(env: &LayoutEnv<'a>, containing_width: f32) -> Self {
+        Self {
+            containing: CssSize::width_only(containing_width),
+            containing_inline_size: containing_width,
+            offset: Point::ZERO,
+            font_db: env.font_db,
+            depth: env.depth + 1,
+            float_ctx: None,
+            viewport: env.viewport,
+            fragmentainer: None,
+            break_token: None,
+            subgrid: None,
+        }
+    }
+}
+
+/// Shared layout environment: immutable resources passed through layout call chains.
+///
+/// Groups `font_db`, `layout_child`, `depth`, and `viewport` to reduce
+/// parameter count in layout functions.
+#[derive(Clone, Copy)]
+pub struct LayoutEnv<'a> {
+    /// Font database for text measurement.
+    pub font_db: &'a FontDatabase,
+    /// Dispatch function for child layout by display type.
+    pub layout_child: ChildLayoutFn,
+    /// Recursion depth guard.
+    pub depth: u32,
+    /// Viewport dimensions for fixed positioning.
+    pub viewport: Option<Size>,
+}
+
+impl<'a> LayoutEnv<'a> {
+    /// Create from a [`LayoutInput`].
+    #[must_use]
+    pub fn from_input(input: &LayoutInput<'a>, layout_child: ChildLayoutFn) -> Self {
+        Self {
+            font_db: input.font_db,
+            layout_child,
+            depth: input.depth,
+            viewport: input.viewport,
+        }
+    }
+
+    /// Return a copy with `depth` incremented by 1.
+    #[must_use]
+    pub fn deeper(&self) -> Self {
+        Self {
+            depth: self.depth + 1,
+            ..*self
+        }
+    }
 }
 
 /// Callback type for dispatching child layout by display type.
@@ -553,12 +612,8 @@ pub fn resolve_explicit_height(
 
 /// Parameters for [`empty_container_box`].
 pub struct EmptyContainerParams<'a> {
-    /// Computed style of the container.
-    pub style: &'a ComputedStyle,
-    /// Content area X coordinate.
-    pub content_x: f32,
-    /// Content area Y coordinate.
-    pub content_y: f32,
+    /// Content area origin.
+    pub content_origin: Point,
     /// Content area width.
     pub content_width: f32,
     /// Containing block height (if known).
@@ -569,6 +624,8 @@ pub struct EmptyContainerParams<'a> {
     pub border: EdgeSizes,
     /// Resolved margin.
     pub margin: EdgeSizes,
+    /// Computed style of the container.
+    pub style: &'a ComputedStyle,
 }
 
 /// Build a layout box for an empty or depth-limited container.
@@ -582,8 +639,8 @@ pub fn empty_container_box(
 ) -> LayoutBox {
     let lb = LayoutBox {
         content: elidex_plugin::Rect::new(
-            params.content_x,
-            params.content_y,
+            params.content_origin.x,
+            params.content_origin.y,
             params.content_width,
             resolve_explicit_height(params.style, params.containing_height).unwrap_or(0.0),
         ),
@@ -653,22 +710,22 @@ pub fn try_get_style(dom: &EcsDom, entity: Entity) -> Option<ComputedStyle> {
 
 /// Detect intrinsic dimensions from `ImageData` or `FormControlState`.
 ///
-/// Returns `Some((width, height))` for replaced elements (images, form controls),
+/// Returns `Some(Size)` for replaced elements (images, form controls),
 /// `None` otherwise.
 #[allow(clippy::cast_precision_loss)]
 #[must_use]
-pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<(f32, f32)> {
+pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<Size> {
     dom.world()
         .get::<&ImageData>(entity)
         .ok()
-        .map(|img| (img.width as f32, img.height as f32))
+        .map(|img| Size::new(img.width as f32, img.height as f32))
         .or_else(|| {
             dom.world()
                 .get::<&elidex_form::FormControlState>(entity)
                 .ok()
                 .map(|fcs| {
-                    let (w, h) = elidex_form::form_intrinsic_size(&fcs);
-                    (w.max(0.0), h.max(0.0))
+                    let s = elidex_form::form_intrinsic_size(&fcs);
+                    Size::new(s.width.max(0.0), s.height.max(0.0))
                 })
         })
 }
@@ -760,7 +817,7 @@ mod tests {
         let lb = LayoutBox::default();
         let outcome: LayoutOutcome = lb.clone().into();
         assert!(outcome.break_token.is_none());
-        assert_eq!(outcome.layout_box.content.width, lb.content.width);
+        assert_eq!(outcome.layout_box.content.size.width, lb.content.size.width);
     }
 
     #[test]

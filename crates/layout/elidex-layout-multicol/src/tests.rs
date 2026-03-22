@@ -4,8 +4,8 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::{
-    is_multicol, BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, Dimension, Display, EdgeSizes,
-    Float, LayoutBox, MulticolInfo, Position, WritingMode,
+    is_multicol, BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, CssSize, Dimension, Display,
+    EdgeSizes, Float, LayoutBox, MulticolInfo, Point, Position, Size, WritingMode,
 };
 use elidex_text::FontDatabase;
 
@@ -18,15 +18,13 @@ fn make_font_db() -> FontDatabase {
 
 fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
     LayoutInput {
-        containing_width: 600.0,
-        containing_height: Some(800.0),
+        containing: CssSize::definite(600.0, 800.0),
         containing_inline_size: 600.0,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        offset: Point::ZERO,
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some((600.0, 800.0)),
+        viewport: Some(Size::new(600.0, 800.0)),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -137,9 +135,9 @@ fn basic_two_columns() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // Container width = 600
-    assert_eq!(lb.content.width, 600.0);
+    assert_eq!(lb.content.size.width, 600.0);
     // Height should be balanced: total 100 / 2 cols = 50
-    assert!(lb.content.height <= 100.0);
+    assert!(lb.content.size.height <= 100.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     assert_eq!(info.column_gap, 0.0);
@@ -165,9 +163,9 @@ fn basic_three_columns() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.width, 600.0);
+    assert_eq!(lb.content.size.width, 600.0);
     // 6 children × 30px = 180 total, balanced across 3 = 60px height
-    assert!(lb.content.height <= 180.0);
+    assert!(lb.content.size.height <= 180.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     assert!(!info.segments.is_empty());
@@ -189,7 +187,7 @@ fn empty_container() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.height, 0.0);
+    assert_eq!(lb.content.size.height, 0.0);
 }
 
 #[test]
@@ -226,7 +224,7 @@ fn column_span_all_splits_segments() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // Total: segment1(40px balanced) + spanner(20px) + segment2(40px balanced)
-    assert!(lb.content.height > 20.0);
+    assert!(lb.content.size.height > 20.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     // Two normal segments (spanner excluded).
@@ -260,7 +258,7 @@ fn padding_border_on_container() {
     assert_eq!(lb.padding.top, 10.0);
     assert_eq!(lb.padding.left, 10.0);
     // Content width = 600 - 20 (padding) = 580
-    assert_eq!(lb.content.width, 580.0);
+    assert_eq!(lb.content.size.width, 580.0);
 }
 
 #[test]
@@ -285,7 +283,7 @@ fn auto_vs_balance_fill() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // With auto fill and definite height=200, container uses 200.
-    assert_eq!(lb.content.height, 200.0);
+    assert_eq!(lb.content.size.height, 200.0);
 }
 
 #[test]
@@ -306,9 +304,9 @@ fn column_count_one_degenerate() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.width, 600.0);
+    assert_eq!(lb.content.size.width, 600.0);
     // Single column: height = content height
-    assert!(lb.content.height >= 100.0);
+    assert!(lb.content.size.height >= 100.0);
 }
 
 #[test]
@@ -340,7 +338,7 @@ fn spanner_first_child() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert!(lb.content.height >= 30.0);
+    assert!(lb.content.size.height >= 30.0);
 }
 
 #[test]
@@ -372,7 +370,7 @@ fn spanner_last_child() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert!(lb.content.height >= 30.0);
+    assert!(lb.content.size.height >= 30.0);
 }
 
 #[test]
@@ -459,7 +457,7 @@ fn float_context_resets_per_column() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.height, 100.0);
+    assert_eq!(lb.content.size.height, 100.0);
 }
 
 #[test]
@@ -497,7 +495,7 @@ fn nested_content() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert!(lb.content.height > 0.0);
+    assert!(lb.content.size.height > 0.0);
 }
 
 #[test]
@@ -518,7 +516,7 @@ fn vertical_rl_columns() {
 
     let font_db = make_font_db();
     let mut input = make_input(&font_db);
-    input.containing_height = Some(600.0);
+    input.containing.height = Some(600.0);
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let _lb = dom.world().get::<&LayoutBox>(container).unwrap();
@@ -543,7 +541,7 @@ fn vertical_lr_columns() {
 
     let font_db = make_font_db();
     let mut input = make_input(&font_db);
-    input.containing_height = Some(600.0);
+    input.containing.height = Some(600.0);
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
@@ -571,7 +569,7 @@ fn explicit_width_content_box() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.width, 400.0);
+    assert_eq!(lb.content.size.width, 400.0);
 }
 
 #[test]
@@ -601,7 +599,7 @@ fn explicit_width_border_box() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // border-box: 400 - 20 - 20 (padding) = 360 content width
-    assert_eq!(lb.content.width, 360.0);
+    assert_eq!(lb.content.size.width, 360.0);
 }
 
 #[test]
@@ -623,7 +621,7 @@ fn min_max_inline_size() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.width, 300.0);
+    assert_eq!(lb.content.size.width, 300.0);
 }
 
 // --- Positioned children ---
@@ -660,7 +658,7 @@ fn absolute_children_excluded_from_columns() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // Container height should be based on the in-flow child (50px), not the absolute child (200px)
-    assert!(lb.content.height <= 50.0);
+    assert!(lb.content.size.height <= 50.0);
 }
 
 // --- Overflow columns ---
@@ -689,7 +687,7 @@ fn overflow_columns_beyond_count() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // With definite height + auto fill, container height = definite height
-    assert_eq!(lb.content.height, 50.0);
+    assert_eq!(lb.content.size.height, 50.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     // Should have overflow columns (>2)
@@ -744,7 +742,7 @@ fn column_width_only_auto_count() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
-    assert_eq!(lb.content.width, 600.0);
+    assert_eq!(lb.content.size.width, 600.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     // 600 / 150 = 4 columns max, actual width may differ
@@ -890,14 +888,14 @@ fn children_positioned_at_correct_column_offsets() {
     // Child A in column 0: x = 0
     // Child B in column 1: x = 300 (NOT 600)
     assert!(
-        lb_a.content.x < 1.0,
+        lb_a.content.origin.x < 1.0,
         "child_a should be near x=0, got {}",
-        lb_a.content.x
+        lb_a.content.origin.x
     );
     assert!(
-        (lb_b.content.x - 300.0).abs() < 1.0,
+        (lb_b.content.origin.x - 300.0).abs() < 1.0,
         "child_b should be near x=300, got {}",
-        lb_b.content.x
+        lb_b.content.origin.x
     );
 }
 
@@ -930,18 +928,18 @@ fn children_positioned_with_gap() {
     // Column width = (600 - 2*30) / 3 = 180, gap = 30.
     // Col 0: x = 0, Col 1: x = 210, Col 2: x = 420
     assert!(
-        lb_a.content.x < 1.0,
+        lb_a.content.origin.x < 1.0,
         "child_a x={}, expected ~0",
-        lb_a.content.x
+        lb_a.content.origin.x
     );
     assert!(
-        (lb_b.content.x - 210.0).abs() < 1.0,
+        (lb_b.content.origin.x - 210.0).abs() < 1.0,
         "child_b x={}, expected ~210",
-        lb_b.content.x
+        lb_b.content.origin.x
     );
     assert!(
-        (lb_c.content.x - 420.0).abs() < 1.0,
+        (lb_c.content.origin.x - 420.0).abs() < 1.0,
         "child_c x={}, expected ~420",
-        lb_c.content.x
+        lb_c.content.origin.x
     );
 }

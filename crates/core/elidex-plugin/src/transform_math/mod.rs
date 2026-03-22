@@ -10,8 +10,10 @@ pub mod mat4;
 
 mod tests;
 
-use crate::{BackfaceVisibility, ComputedStyle, CssValue, Dimension, Rect, TransformFunction};
-use mat4::{function_to_4x4, perspective_4x4, translate_4x4};
+use crate::{
+    BackfaceVisibility, ComputedStyle, CssValue, Dimension, Point, Rect, Size, TransformFunction,
+};
+use mat4::{apply_around_origin, function_to_4x4, perspective_4x4};
 
 /// Threshold below which a floating-point value is treated as zero.
 ///
@@ -30,20 +32,20 @@ pub struct Perspective {
     /// `perspective` property value (distance in px), or `None` if unset.
     pub distance: Option<f32>,
     /// Resolved `perspective-origin` in viewport coordinates.
-    pub origin: (f64, f64),
+    pub origin: Point<f64>,
 }
 
 impl Default for Perspective {
     fn default() -> Self {
         Self {
             distance: None,
-            origin: (0.0, 0.0),
+            origin: Point::new(0.0, 0.0),
         }
     }
 }
 
 // Re-exports for public API compatibility.
-pub use affine::{invert_affine, mul_affine, IDENTITY};
+pub use affine::{apply_affine, invert_affine, mul_affine, IDENTITY};
 
 /// Check if a 2D affine matrix is approximately the identity.
 #[must_use]
@@ -54,6 +56,16 @@ pub fn is_affine_identity(m: &[f64; 6]) -> bool {
 }
 pub use decompose::{decompose_2d, interpolate_decomposed, recompose_2d, Decomposed2d};
 pub use mat4::{determinant_4x4, mul_4x4, project_to_2d, IDENTITY_4X4};
+
+/// Convert an `f32` to `f64`, returning `0.0` for non-finite values.
+#[must_use]
+fn finite_or_zero(v: f32) -> f64 {
+    if v.is_finite() {
+        f64::from(v)
+    } else {
+        0.0
+    }
+}
 
 /// Resolve a `Dimension` to pixels for transform-origin / perspective-origin.
 ///
@@ -71,6 +83,19 @@ pub fn resolve_origin_dim(dim: &Dimension, ref_size: f32) -> f32 {
     } else {
         0.0
     }
+}
+
+/// Resolve a `(Dimension, Dimension)` pair against a `Rect` to absolute f64
+/// coordinates.
+///
+/// Equivalent to `rect.origin + resolve_origin_dim(dim, rect.size)` per axis,
+/// with non-finite guard.
+#[must_use]
+pub fn resolve_origin_pair(dim: &(Dimension, Dimension), bb: &Rect) -> Point<f64> {
+    Point::new(
+        finite_or_zero(bb.origin.x + resolve_origin_dim(&dim.0, bb.size.width)),
+        finite_or_zero(bb.origin.y + resolve_origin_dim(&dim.1, bb.size.height)),
+    )
 }
 
 /// Resolve a `CssValue` (Length/Percentage) to a pixel value for translate functions.
@@ -110,39 +135,40 @@ pub fn function_to_4x4_no_resolve(func: &TransformFunction) -> [f64; 16] {
 ///
 /// Returns `None` if `backface_hidden` is true and the element faces away.
 #[must_use]
-pub fn compute_transform(
+pub(super) fn compute_transform(
     functions: &[TransformFunction],
-    origin: (f64, f64, f64),
-    ref_size: (f32, f32),
+    origin: mat4::Vec3,
+    ref_size: Size,
     parent_perspective: &Perspective,
     backface_hidden: bool,
 ) -> Option<[f64; 6]> {
     let mut mat = IDENTITY_4X4;
 
-    // 1. Parent perspective
+    // 1. Parent perspective (translate to origin, apply, translate back)
     if let Some(d) = parent_perspective.distance {
         if d > 0.0 {
-            // Translate to perspective origin, apply perspective, translate back
-            let (px, py) = parent_perspective.origin;
-            mat = mul_4x4(&mat, &translate_4x4(px, py, 0.0));
-            mat = mul_4x4(&mat, &perspective_4x4(f64::from(d)));
-            mat = mul_4x4(&mat, &translate_4x4(-px, -py, 0.0));
+            apply_around_origin(
+                &mut mat,
+                mat4::Vec3::new(
+                    parent_perspective.origin.x,
+                    parent_perspective.origin.y,
+                    0.0,
+                ),
+                |m| {
+                    *m = mul_4x4(m, &perspective_4x4(f64::from(d)));
+                },
+            );
         }
     }
 
-    let (origin_x, origin_y, origin_z) = origin;
+    // 2–4. Transform functions around transform-origin
     if !functions.is_empty() {
-        // 2. Translate to transform-origin (CSS Transforms L1 S3: includes Z)
-        mat = mul_4x4(&mat, &translate_4x4(origin_x, origin_y, origin_z));
-
-        // 3. Apply each transform function
-        for f in functions {
-            let fm = function_to_4x4(f, ref_size.0, ref_size.1);
-            mat = mul_4x4(&mat, &fm);
-        }
-
-        // 4. Translate back from transform-origin
-        mat = mul_4x4(&mat, &translate_4x4(-origin_x, -origin_y, -origin_z));
+        apply_around_origin(&mut mat, origin, |m| {
+            for f in functions {
+                let fm = function_to_4x4(f, ref_size.width, ref_size.height);
+                *m = mul_4x4(m, &fm);
+            }
+        });
     }
 
     // CSS Transforms L2 S5: An element is back-facing when the z-component
@@ -176,21 +202,12 @@ pub fn compute_element_transform(
     bb: &Rect,
     parent_perspective: &Perspective,
 ) -> Option<[f64; 6]> {
-    let ox = resolve_origin_dim(&style.transform_origin.0, bb.width);
-    let oy = resolve_origin_dim(&style.transform_origin.1, bb.height);
-    let oz_raw = style.transform_origin.2;
-    let oz = f64::from(if oz_raw.is_finite() { oz_raw } else { 0.0 });
-    // Guard against f32 addition overflow (e.g. bb.x near f32::MAX).
-    let sum_x = bb.x + ox;
-    let sum_y = bb.y + oy;
+    let o = resolve_origin_pair(&(style.transform_origin.0, style.transform_origin.1), bb);
+    let oz = finite_or_zero(style.transform_origin.2);
     compute_transform(
         &style.transform,
-        (
-            f64::from(if sum_x.is_finite() { sum_x } else { 0.0 }),
-            f64::from(if sum_y.is_finite() { sum_y } else { 0.0 }),
-            oz,
-        ),
-        (bb.width, bb.height),
+        mat4::Vec3::new(o.x, o.y, oz),
+        bb.size,
         parent_perspective,
         style.backface_visibility == BackfaceVisibility::Hidden,
     )
@@ -203,15 +220,9 @@ pub fn compute_element_transform(
 #[must_use]
 pub fn compute_perspective_origin(
     perspective_origin: &(Dimension, Dimension),
-    bb_x: f32,
-    bb_y: f32,
-    bb_width: f32,
-    bb_height: f32,
-) -> (f64, f64) {
-    (
-        f64::from(bb_x + resolve_origin_dim(&perspective_origin.0, bb_width)),
-        f64::from(bb_y + resolve_origin_dim(&perspective_origin.1, bb_height)),
-    )
+    bb: &Rect,
+) -> Point<f64> {
+    resolve_origin_pair(perspective_origin, bb)
 }
 
 /// Resolve the perspective and perspective-origin to propagate to children.
@@ -222,9 +233,9 @@ pub fn compute_perspective_origin(
 pub fn resolve_child_perspective(style: &ComputedStyle, bb: &Rect) -> Perspective {
     let distance = style.perspective;
     let origin = if distance.is_some() {
-        compute_perspective_origin(&style.perspective_origin, bb.x, bb.y, bb.width, bb.height)
+        compute_perspective_origin(&style.perspective_origin, bb)
     } else {
-        (0.0, 0.0)
+        Point::new(0.0, 0.0)
     };
     Perspective { distance, origin }
 }

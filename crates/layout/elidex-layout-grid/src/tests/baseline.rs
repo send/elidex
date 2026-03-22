@@ -33,8 +33,7 @@ fn row_baseline_alignment() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -47,15 +46,15 @@ fn row_baseline_alignment() {
     // bottom = 40. The shorter item (20px) should be offset so its
     // margin-box bottom aligns: offset = 40 - 20 = 20.
     assert!(
-        lb1.content.y > lb2.content.y,
+        lb1.content.origin.y > lb2.content.origin.y,
         "shorter item (y={}) should be offset below taller item (y={})",
-        lb1.content.y,
-        lb2.content.y,
+        lb1.content.origin.y,
+        lb2.content.origin.y,
     );
     // The taller item should start at y=0 (no offset needed).
-    assert!(approx_eq(lb2.content.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.y, 0.0));
     // The shorter item offset = row_baseline - item_baseline = 40 - 20 = 20.
-    assert!(approx_eq(lb1.content.y, 20.0));
+    assert!(approx_eq(lb1.content.origin.y, 20.0));
 }
 
 #[test]
@@ -92,8 +91,7 @@ fn column_baseline_alignment() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -108,10 +106,10 @@ fn column_baseline_alignment() {
     // along the x-axis. Both items have width determined by auto sizing.
     // The layout should complete without panic and items should have
     // valid positions.
-    assert!(lb1.content.x >= 0.0);
-    assert!(lb2.content.x >= 0.0);
+    assert!(lb1.content.origin.x >= 0.0);
+    assert!(lb2.content.origin.x >= 0.0);
     // Row positions: c1 in row 0, c2 in row 1 (at y=100).
-    assert!(approx_eq(lb2.content.y, 100.0) || lb2.content.y > lb1.content.y);
+    assert!(approx_eq(lb2.content.origin.y, 100.0) || lb2.content.origin.y > lb1.content.origin.y);
 }
 
 #[test]
@@ -170,8 +168,7 @@ fn mixed_baseline_and_stretch() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -181,17 +178,17 @@ fn mixed_baseline_and_stretch() {
     let lb2 = get_layout(&dom, c2);
 
     // The baseline item has height 30.
-    assert!(approx_eq(lb1.content.height, 30.0));
+    assert!(approx_eq(lb1.content.size.height, 30.0));
     // The stretch item should fill the row height (at least as tall as the
     // baseline item's outer height).
     assert!(
-        lb2.content.height >= lb1.content.height,
+        lb2.content.size.height >= lb1.content.size.height,
         "stretch item (h={}) should fill row >= baseline item (h={})",
-        lb2.content.height,
-        lb1.content.height,
+        lb2.content.size.height,
+        lb1.content.size.height,
     );
     // Stretch item starts at y=0 (fills from top).
-    assert!(approx_eq(lb2.content.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.y, 0.0));
 }
 
 #[test]
@@ -244,8 +241,7 @@ fn spanning_item_fallback() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -255,10 +251,10 @@ fn spanning_item_fallback() {
     let lb2 = get_layout(&dom, c2);
 
     // Both items should have valid layout positions (no panic).
-    assert!(lb1.content.height > 0.0);
-    assert!(lb2.content.height > 0.0);
+    assert!(lb1.content.size.height > 0.0);
+    assert!(lb2.content.size.height > 0.0);
     // Spanning item should start at row 0.
-    assert!(approx_eq(lb1.content.y, 0.0) || lb1.content.y >= 0.0);
+    assert!(approx_eq(lb1.content.origin.y, 0.0) || lb1.content.origin.y >= 0.0);
 }
 
 #[test]
@@ -294,8 +290,7 @@ fn no_baseline_item() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -306,21 +301,21 @@ fn no_baseline_item() {
     let lb3 = get_layout(&dom, c3);
 
     // All items should have valid positions.
-    assert!(lb1.content.width > 0.0);
-    assert!(lb2.content.width > 0.0);
-    assert!(lb3.content.width > 0.0);
+    assert!(lb1.content.size.width > 0.0);
+    assert!(lb2.content.size.width > 0.0);
+    assert!(lb3.content.size.width > 0.0);
 
     // The tallest item (50px) should start at y=0 (it defines the baseline).
-    assert!(approx_eq(lb2.content.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.y, 0.0));
     // Shorter items should be offset downward.
-    assert!(lb1.content.y >= 0.0);
-    assert!(lb3.content.y >= 0.0);
+    assert!(lb1.content.origin.y >= 0.0);
+    assert!(lb3.content.origin.y >= 0.0);
     // Item with height 25 should have a larger offset than item with height 35.
     assert!(
-        lb1.content.y >= lb3.content.y,
+        lb1.content.origin.y >= lb3.content.origin.y,
         "25px item (y={}) should be offset >= 35px item (y={})",
-        lb1.content.y,
-        lb3.content.y,
+        lb1.content.origin.y,
+        lb3.content.origin.y,
     );
 }
 
@@ -354,8 +349,7 @@ fn container_baseline_propagation() {
         container,
         400.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
