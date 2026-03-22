@@ -415,3 +415,188 @@ fn margin_box_all_16_positions_render() {
     // the function doesn't panic and returns at least zero items.
     assert_eq!(paged_dl.page_count(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Margin box styling tests (box model properties)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn margin_box_with_background_color() {
+    use elidex_plugin::{
+        ContentItem, ContentValue, CssColor, CssValue, MarginBoxContent, PageMargins, PageRule,
+        PropertyDeclaration,
+    };
+
+    let page_fragment = elidex_layout::PageFragment {
+        layout_box: elidex_plugin::LayoutBox::default(),
+        page_number: 1,
+        matched_selectors: Vec::new(),
+        is_blank: false,
+    };
+
+    let dom = elidex_ecs::EcsDom::new();
+    let font_db = elidex_text::FontDatabase::new();
+
+    let page_ctx = elidex_plugin::PagedMediaContext {
+        page_width: 816.0,
+        page_height: 1056.0,
+        page_margins: EdgeSizes {
+            top: 50.0,
+            right: 50.0,
+            bottom: 50.0,
+            left: 50.0,
+        },
+        page_rules: vec![PageRule {
+            selectors: Vec::new(),
+            size: None,
+            margins: PageMargins {
+                top_center: Some(MarginBoxContent {
+                    content: ContentValue::Items(vec![ContentItem::String("Title".to_string())]),
+                    properties: vec![PropertyDeclaration::new(
+                        "background-color",
+                        CssValue::Color(CssColor::new(200, 200, 200, 255)),
+                    )],
+                }),
+                ..PageMargins::default()
+            },
+            properties: Vec::new(),
+        }],
+    };
+
+    let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
+
+    // Should have at least a SolidRect (background) item.
+    let rect_items: Vec<_> = paged_dl.pages[0]
+        .iter()
+        .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
+        .collect();
+    assert!(
+        !rect_items.is_empty(),
+        "margin box with background-color should produce SolidRect"
+    );
+}
+
+#[test]
+fn margin_box_with_border() {
+    use elidex_plugin::{
+        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
+        PropertyDeclaration,
+    };
+
+    let page_fragment = elidex_layout::PageFragment {
+        layout_box: elidex_plugin::LayoutBox::default(),
+        page_number: 1,
+        matched_selectors: Vec::new(),
+        is_blank: false,
+    };
+
+    let dom = elidex_ecs::EcsDom::new();
+    let font_db = elidex_text::FontDatabase::new();
+
+    let page_ctx = elidex_plugin::PagedMediaContext {
+        page_width: 816.0,
+        page_height: 1056.0,
+        page_margins: EdgeSizes {
+            top: 50.0,
+            right: 50.0,
+            bottom: 50.0,
+            left: 50.0,
+        },
+        page_rules: vec![PageRule {
+            selectors: Vec::new(),
+            size: None,
+            margins: PageMargins {
+                top_center: Some(MarginBoxContent {
+                    content: ContentValue::Items(vec![ContentItem::String("Header".to_string())]),
+                    properties: vec![PropertyDeclaration::new(
+                        "border-bottom-width",
+                        CssValue::Length(1.0, LengthUnit::Px),
+                    )],
+                }),
+                ..PageMargins::default()
+            },
+            properties: Vec::new(),
+        }],
+    };
+
+    let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
+
+    // Should have a SolidRect for the bottom border.
+    let rect_items: Vec<_> = paged_dl.pages[0]
+        .iter()
+        .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
+        .collect();
+    assert!(
+        !rect_items.is_empty(),
+        "margin box with border-bottom-width should produce border rect"
+    );
+}
+
+#[test]
+fn margin_box_with_explicit_width_height() {
+    use elidex_plugin::{
+        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
+        PropertyDeclaration,
+    };
+
+    let page_fragment = elidex_layout::PageFragment {
+        layout_box: elidex_plugin::LayoutBox::default(),
+        page_number: 1,
+        matched_selectors: Vec::new(),
+        is_blank: false,
+    };
+
+    let dom = elidex_ecs::EcsDom::new();
+    let font_db = elidex_text::FontDatabase::new();
+
+    let page_ctx = elidex_plugin::PagedMediaContext {
+        page_width: 816.0,
+        page_height: 1056.0,
+        page_margins: EdgeSizes {
+            top: 50.0,
+            right: 50.0,
+            bottom: 50.0,
+            left: 50.0,
+        },
+        page_rules: vec![PageRule {
+            selectors: Vec::new(),
+            size: None,
+            margins: PageMargins {
+                top_center: Some(MarginBoxContent {
+                    content: ContentValue::Items(vec![ContentItem::String("W".to_string())]),
+                    properties: vec![
+                        PropertyDeclaration::new("width", CssValue::Length(100.0, LengthUnit::Px)),
+                        PropertyDeclaration::new(
+                            "height",
+                            CssValue::Length(30.0, LengthUnit::Px),
+                        ),
+                    ],
+                }),
+                ..PageMargins::default()
+            },
+            properties: Vec::new(),
+        }],
+    };
+
+    // Should not panic with explicit width/height constraints.
+    let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
+    assert_eq!(paged_dl.page_count(), 1);
+}
+
+#[test]
+fn resolve_margin_box_style_defaults() {
+    use elidex_plugin::{ContentValue, MarginBoxContent};
+
+    let mb = MarginBoxContent {
+        content: ContentValue::Normal,
+        properties: Vec::new(),
+    };
+    let style = super::super::resolve_margin_box_style(&mb);
+    assert!((style.font_size - 12.0).abs() < f32::EPSILON);
+    assert_eq!(style.weight, 400);
+    assert!(style.background_color.is_none());
+    assert!(style.explicit_width.is_none());
+    assert!(style.explicit_height.is_none());
+    assert!((style.padding.top).abs() < f32::EPSILON);
+    assert!((style.border_widths.top).abs() < f32::EPSILON);
+}

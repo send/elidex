@@ -553,17 +553,188 @@ fn emit_margin_boxes(
     }
 }
 
-/// Shape and emit text for a single margin box.
+/// Resolved styling for a margin box (CSS Paged Media L3 §4.2).
+struct MarginBoxStyle {
+    font_size: f32,
+    color: elidex_plugin::CssColor,
+    family: String,
+    weight: u16,
+    font_style: fontdb::Style,
+    text_align: elidex_plugin::TextAlign,
+    padding: elidex_plugin::EdgeSizes,
+    border_widths: elidex_plugin::EdgeSizes,
+    border_color: elidex_plugin::CssColor,
+    background_color: Option<elidex_plugin::CssColor>,
+    explicit_width: Option<f32>,
+    explicit_height: Option<f32>,
+}
+
+impl Default for MarginBoxStyle {
+    fn default() -> Self {
+        Self {
+            font_size: MARGIN_BOX_FONT_SIZE,
+            color: elidex_plugin::CssColor::BLACK,
+            family: String::from("serif"),
+            weight: 400,
+            font_style: fontdb::Style::Normal,
+            text_align: elidex_plugin::TextAlign::Center,
+            padding: elidex_plugin::EdgeSizes::default(),
+            border_widths: elidex_plugin::EdgeSizes::default(),
+            border_color: elidex_plugin::CssColor::BLACK,
+            background_color: None,
+            explicit_width: None,
+            explicit_height: None,
+        }
+    }
+}
+
+/// Resolve all margin box properties from declarations.
+#[allow(clippy::too_many_lines)]
+fn resolve_margin_box_style(margin_box: &elidex_plugin::MarginBoxContent) -> MarginBoxStyle {
+    use elidex_plugin::{CssValue, LengthUnit};
+
+    let mut s = MarginBoxStyle::default();
+    for decl in &margin_box.properties {
+        match decl.property.as_str() {
+            "font-size" => {
+                let v = match &decl.value {
+                    CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => Some(*v),
+                    _ => None,
+                };
+                if let Some(v) = v {
+                    if v.is_finite() && v > 0.0 {
+                        s.font_size = v;
+                    }
+                }
+            }
+            "color" => {
+                if let CssValue::Color(c) = &decl.value {
+                    s.color = *c;
+                }
+            }
+            "font-family" => {
+                let resolved = match &decl.value {
+                    CssValue::String(v) | CssValue::Keyword(v) => Some(v),
+                    CssValue::List(items) => items.first().and_then(|f| match f {
+                        CssValue::String(v) | CssValue::Keyword(v) => Some(v),
+                        _ => None,
+                    }),
+                    _ => None,
+                };
+                if let Some(v) = resolved {
+                    s.family.clone_from(v);
+                }
+            }
+            "font-weight" => match &decl.value {
+                CssValue::Number(w) => {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let w_int = w.clamp(1.0, 1000.0) as u16;
+                    s.weight = w_int;
+                }
+                CssValue::Keyword(k) => match k.as_str() {
+                    "bold" => s.weight = 700,
+                    "normal" => s.weight = 400,
+                    _ => {}
+                },
+                _ => {}
+            },
+            "font-style" => {
+                if let CssValue::Keyword(k) = &decl.value {
+                    match k.as_str() {
+                        "italic" => s.font_style = fontdb::Style::Italic,
+                        "oblique" => s.font_style = fontdb::Style::Oblique,
+                        "normal" => s.font_style = fontdb::Style::Normal,
+                        _ => {}
+                    }
+                }
+            }
+            "text-align" => {
+                if let CssValue::Keyword(k) = &decl.value {
+                    match k.as_str() {
+                        "left" => s.text_align = elidex_plugin::TextAlign::Left,
+                        "center" => s.text_align = elidex_plugin::TextAlign::Center,
+                        "right" => s.text_align = elidex_plugin::TextAlign::Right,
+                        _ => {}
+                    }
+                }
+            }
+            "padding-top" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    s.padding.top = v.max(0.0);
+                }
+            }
+            "padding-right" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    s.padding.right = v.max(0.0);
+                }
+            }
+            "padding-bottom" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    s.padding.bottom = v.max(0.0);
+                }
+            }
+            "padding-left" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    s.padding.left = v.max(0.0);
+                }
+            }
+            "border-width" | "border-top-width" | "border-right-width"
+            | "border-bottom-width" | "border-left-width" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    let w = v.max(0.0);
+                    match decl.property.as_str() {
+                        "border-width" => {
+                            s.border_widths =
+                                elidex_plugin::EdgeSizes::new(w, w, w, w);
+                        }
+                        "border-top-width" => s.border_widths.top = w,
+                        "border-right-width" => s.border_widths.right = w,
+                        "border-bottom-width" => s.border_widths.bottom = w,
+                        "border-left-width" => s.border_widths.left = w,
+                        _ => {}
+                    }
+                }
+            }
+            "border-color" => {
+                if let CssValue::Color(c) = &decl.value {
+                    s.border_color = *c;
+                }
+            }
+            "background-color" => {
+                if let CssValue::Color(c) = &decl.value {
+                    s.background_color = Some(*c);
+                }
+            }
+            "width" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    if v.is_finite() && *v >= 0.0 {
+                        s.explicit_width = Some(*v);
+                    }
+                }
+            }
+            "height" => {
+                if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
+                    if v.is_finite() && *v >= 0.0 {
+                        s.explicit_height = Some(*v);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    s
+}
+
+/// Shape and emit a single margin box with full box model support.
 ///
-/// Resolves `font-size`, `color`, `font-family`, and `font-weight` from the
-/// margin box's property declarations. Falls back to 12px serif black 400 when
-/// a property is absent.
+/// Resolves all CSS properties from the margin box's declarations and renders:
+/// - Background color rectangle
+/// - Border rectangles (4 sides)
+/// - Shaped text positioned by `text-align` within the content area
 ///
-/// The text is positioned according to the margin box type per CSS Paged Media
-/// L3 §4.2:
-/// - Top/bottom edge boxes: centered vertically in the margin strip.
-/// - Left/right edge boxes: centered horizontally in the margin strip.
-/// - Corner boxes: centered in the corner rectangle.
+/// The content area is the margin box area minus padding and border.
+/// If `width`/`height` are explicitly set, the box is constrained and
+/// centered within the allocated margin area.
 #[allow(clippy::too_many_arguments)]
 fn emit_margin_box_text(
     dl: &mut DisplayList,
@@ -576,83 +747,78 @@ fn emit_margin_box_text(
     page_height: f32,
     margins: &elidex_plugin::EdgeSizes,
 ) {
-    // Resolve properties from margin box declarations, falling back to defaults.
-    let mut font_size = MARGIN_BOX_FONT_SIZE;
-    let mut color = elidex_plugin::CssColor::BLACK;
-    let mut family = String::from("serif");
-    let mut weight: u16 = 400;
-    let mut font_style = fontdb::Style::Normal;
+    use elidex_plugin::Rect;
 
-    for decl in &margin_box.properties {
-        match decl.property.as_str() {
-            "font-size" => {
-                let v = match &decl.value {
-                    elidex_plugin::CssValue::Length(v, elidex_plugin::LengthUnit::Px)
-                    | elidex_plugin::CssValue::Number(v) => Some(*v),
-                    _ => None,
-                };
-                if let Some(v) = v {
-                    if v.is_finite() && v > 0.0 {
-                        font_size = v;
-                    }
-                }
-            }
-            "color" => {
-                if let elidex_plugin::CssValue::Color(c) = &decl.value {
-                    color = *c;
-                }
-            }
-            "font-family" => {
-                let resolved = match &decl.value {
-                    elidex_plugin::CssValue::String(s) | elidex_plugin::CssValue::Keyword(s) => {
-                        Some(s)
-                    }
-                    elidex_plugin::CssValue::List(items) => items.first().and_then(|f| match f {
-                        elidex_plugin::CssValue::String(s)
-                        | elidex_plugin::CssValue::Keyword(s) => Some(s),
-                        _ => None,
-                    }),
-                    _ => None,
-                };
-                if let Some(s) = resolved {
-                    family.clone_from(s);
-                }
-            }
-            "font-weight" => match &decl.value {
-                elidex_plugin::CssValue::Number(w) => {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss
-                    )]
-                    let w_int = w.clamp(1.0, 1000.0) as u16;
-                    weight = w_int;
-                }
-                elidex_plugin::CssValue::Keyword(k) => match k.as_str() {
-                    "bold" => weight = 700,
-                    "normal" => weight = 400,
-                    _ => {}
-                },
-                _ => {}
-            },
-            "font-style" => {
-                if let elidex_plugin::CssValue::Keyword(k) = &decl.value {
-                    match k.as_str() {
-                        "italic" => font_style = fontdb::Style::Italic,
-                        "oblique" => font_style = fontdb::Style::Oblique,
-                        "normal" => font_style = fontdb::Style::Normal,
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
+    let s = resolve_margin_box_style(margin_box);
+
+    // Compute the allocated area for this margin box position.
+    let (alloc_x, alloc_y, alloc_w, alloc_h) =
+        margin_box_area(position, page_width, page_height, margins);
+
+    // Apply explicit width/height constraints, centering within the allocated area.
+    let box_w = s.explicit_width.unwrap_or(alloc_w).min(alloc_w);
+    let box_h = s.explicit_height.unwrap_or(alloc_h).min(alloc_h);
+    let box_x = alloc_x + (alloc_w - box_w) * 0.5;
+    let box_y = alloc_y + (alloc_h - box_h) * 0.5;
+
+    // Background (covers border box = full box area).
+    if let Some(bg) = s.background_color {
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(box_x, box_y, box_w, box_h),
+            color: bg,
+        });
     }
 
-    let families = [family.as_str()];
-    let Some(font_id) = font_db.query(&families, weight, font_style) else {
+    // Borders (4 sides as thin rectangles).
+    let bw = &s.border_widths;
+    if bw.top > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(box_x, box_y, box_w, bw.top),
+            color: s.border_color,
+        });
+    }
+    if bw.bottom > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(box_x, box_y + box_h - bw.bottom, box_w, bw.bottom),
+            color: s.border_color,
+        });
+    }
+    if bw.left > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(box_x, box_y + bw.top, bw.left, box_h - bw.top - bw.bottom),
+            color: s.border_color,
+        });
+    }
+    if bw.right > 0.0 {
+        dl.push(DisplayItem::SolidRect {
+            rect: Rect::new(
+                box_x + box_w - bw.right,
+                box_y + bw.top,
+                bw.right,
+                box_h - bw.top - bw.bottom,
+            ),
+            color: s.border_color,
+        });
+    }
+
+    // Content area = box minus border minus padding.
+    let content_x = box_x + bw.left + s.padding.left;
+    let content_y = box_y + bw.top + s.padding.top;
+    let content_w =
+        (box_w - bw.left - bw.right - s.padding.left - s.padding.right).max(0.0);
+    let content_h =
+        (box_h - bw.top - bw.bottom - s.padding.top - s.padding.bottom).max(0.0);
+
+    if content_w <= 0.0 || content_h <= 0.0 {
+        return;
+    }
+
+    // Shape text.
+    let families = [s.family.as_str()];
+    let Some(font_id) = font_db.query(&families, s.weight, s.font_style) else {
         return;
     };
-    let Some(shaped) = elidex_text::shape_text(font_db, font_id, font_size, text) else {
+    let Some(shaped) = elidex_text::shape_text(font_db, font_id, s.font_size, text) else {
         return;
     };
     let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
@@ -663,23 +829,27 @@ fn emit_margin_box_text(
     if !text_width.is_finite() {
         return;
     }
-    let text_height = font_size;
 
-    // Compute the bounding box of the margin area for this position.
-    let (area_x, area_y, area_w, area_h) =
-        margin_box_area(position, page_width, page_height, margins);
-
-    // Center text within the margin box area.
-    let mut text_x = area_x + (area_w - text_width) * 0.5;
-    let baseline_y = area_y + (area_h + text_height) * 0.5;
+    // Horizontal alignment within content area.
+    let text_offset_x = match s.text_align {
+        elidex_plugin::TextAlign::Left | elidex_plugin::TextAlign::Start => 0.0,
+        elidex_plugin::TextAlign::Center | elidex_plugin::TextAlign::Justify => {
+            (content_w - text_width) * 0.5
+        }
+        elidex_plugin::TextAlign::Right | elidex_plugin::TextAlign::End => {
+            content_w - text_width
+        }
+    };
+    let mut text_x = content_x + text_offset_x.max(0.0);
+    let baseline_y = content_y + (content_h + s.font_size) * 0.5;
 
     let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y, 0.0, 0.0, text);
     dl.push(DisplayItem::Text {
         glyphs,
         font_blob,
         font_index,
-        font_size,
-        color,
+        font_size: s.font_size,
+        color: s.color,
     });
 }
 
