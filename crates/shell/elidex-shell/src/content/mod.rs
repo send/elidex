@@ -391,12 +391,18 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
     match msg {
         BrowserToContent::Shutdown => {
             // Dispatch beforeunload/unload lifecycle events before shutdown.
-            crate::pipeline::dispatch_unload_events(
+            // If beforeunload is cancelled, the user wants to stay on the page.
+            let proceed = crate::pipeline::dispatch_unload_events(
                 &mut state.pipeline.runtime,
                 &mut state.pipeline.session,
                 &mut state.pipeline.dom,
                 state.pipeline.document,
             );
+            if !proceed {
+                // beforeunload cancelled — user wants to stay.
+                // (In a real browser, this would show a confirmation dialog.)
+                return true; // Continue event loop.
+            }
             return false;
         }
 

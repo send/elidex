@@ -468,6 +468,9 @@ pub(crate) fn register_element_extra_accessors(
 /// All accessors (`length`, `item()`, `getNamedItem()`) are live: they query
 /// the `Attributes` component on each access, reflecting mutations made after
 /// the `NamedNodeMap` was obtained.
+///
+/// Attribute iteration order follows insertion order per WHATWG DOM spec,
+/// backed by `IndexMap` in the `Attributes` component.
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 fn build_named_node_map(
     entity: Entity,
@@ -822,12 +825,25 @@ pub(crate) fn register_layout_query_accessors(
         None,
         Attribute::CONFIGURABLE,
     );
-    init.accessor(
-        js_string!("offsetParent"),
-        Some(layout_getter!("offsetParent", "offsetParent.get")),
-        None,
-        Attribute::CONFIGURABLE,
-    );
+    // offsetParent returns an element reference (or null), not a number.
+    // Use invoke_dom_handler_ref to resolve ObjectRef to an element wrapper.
+    {
+        let b = bridge.clone();
+        let getter = NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_ref("offsetParent.get", entity, &[], bridge, ctx)
+            },
+            b,
+        )
+        .to_js_function(realm);
+        init.accessor(
+            js_string!("offsetParent"),
+            Some(getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
     init.accessor(
         js_string!("clientWidth"),
         Some(layout_getter!("clientWidth", "clientWidth.get")),

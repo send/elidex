@@ -33,6 +33,32 @@ impl DomApiHandler for GetBoundingClientRect {
 }
 
 // ---------------------------------------------------------------------------
+// Macro for simple layout property handlers
+// ---------------------------------------------------------------------------
+
+/// Macro for simple layout property handlers that return a `JsValue`.
+macro_rules! impl_layout_handler {
+    ($name:ident, $method:expr, |$dom:ident, $entity:ident| $body:expr) => {
+        impl DomApiHandler for $name {
+            fn method_name(&self) -> &str {
+                $method
+            }
+
+            fn invoke(
+                &self,
+                this: Entity,
+                _args: &[JsValue],
+                _session: &mut SessionCore,
+                $dom: &mut EcsDom,
+            ) -> Result<JsValue, DomApiError> {
+                let $entity = this;
+                Ok($body)
+            }
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
 // offset* properties
 // ---------------------------------------------------------------------------
 
@@ -305,30 +331,6 @@ impl DomApiHandler for ScrollIntoView {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Macro for simple layout property handlers that return a `JsValue`.
-macro_rules! impl_layout_handler {
-    ($name:ident, $method:expr, |$dom:ident, $entity:ident| $body:expr) => {
-        impl DomApiHandler for $name {
-            fn method_name(&self) -> &str {
-                $method
-            }
-
-            fn invoke(
-                &self,
-                this: Entity,
-                _args: &[JsValue],
-                _session: &mut SessionCore,
-                $dom: &mut EcsDom,
-            ) -> Result<JsValue, DomApiError> {
-                let $entity = this;
-                Ok($body)
-            }
-        }
-    };
-}
-// Make macro usable above its definition (Rust allows this in the same file).
-use impl_layout_handler;
 
 /// Get border box as (x, y, width, height).
 fn get_border_box(dom: &EcsDom, entity: Entity) -> (f32, f32, f32, f32) {

@@ -182,6 +182,9 @@ pub(crate) fn dispatch_unload_events(
     beforeunload.bubbles = false;
     let prevented = runtime.dispatch_event(&mut beforeunload, session, dom, document);
     if prevented {
+        // Flush any DOM mutations made by the beforeunload handler before
+        // returning, so the page state remains consistent.
+        session.flush(dom);
         return false; // Navigation blocked by beforeunload handler.
     }
 

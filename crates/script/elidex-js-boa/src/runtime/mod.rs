@@ -600,6 +600,10 @@ impl JsRuntime {
             let event_val = JsValue::from(event);
 
             // Build a MediaQueryList-like object to use as `this` per spec.
+            // Note: This creates a fresh object rather than reusing the original
+            // MQL returned by matchMedia(). The `matches` and `media` properties
+            // are correct, but `this !== original_mql` for identity checks.
+            // TODO: Store MQL JS objects in bridge for identity preservation.
             let mql_this = ObjectInitializer::new(&mut self.ctx)
                 .property(
                     js_string!("matches"),

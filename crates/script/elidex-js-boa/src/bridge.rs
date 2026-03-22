@@ -778,7 +778,9 @@ impl HostBridge {
         if rule_index > sheet.rules.len() {
             return None;
         }
-        // Parse a minimal rule representation from the raw text.
+        // Validation uses a lightweight parser; the content thread reparses with
+        // the full CSS parser for spec-compliant handling. Discrepancies are
+        // acceptable since the full parser is authoritative.
         let rule = parse_cssom_rule_from_text(rule_text)?;
         sheet.rules.insert(rule_index, rule);
         inner.cssom_mutations.push(CssomMutation::InsertRule {

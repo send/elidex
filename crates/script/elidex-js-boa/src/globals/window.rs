@@ -132,7 +132,10 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b_scroll = b.clone();
     let scroll_to = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
-            let (x, y) = parse_scroll_args(args, ctx)?;
+            let (opt_x, opt_y) = parse_scroll_args(args, ctx)?;
+            // When an axis is not specified, keep the current scroll position.
+            let x = opt_x.unwrap_or_else(|| f64::from(bridge.scroll_x()));
+            let y = opt_y.unwrap_or_else(|| f64::from(bridge.scroll_y()));
             // Store as pending scroll; the content thread picks it up on the
             // next frame, updates viewport_scroll, and syncs back to bridge.
             #[allow(clippy::cast_possible_truncation)]
@@ -148,7 +151,9 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b_scroll_by = b.clone();
     let scroll_by = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
-            let (x, y) = parse_scroll_args(args, ctx)?;
+            let (opt_x, opt_y) = parse_scroll_args(args, ctx)?;
+            let x = opt_x.unwrap_or(0.0);
+            let y = opt_y.unwrap_or(0.0);
             let cur_x = f64::from(bridge.scroll_x());
             let cur_y = f64::from(bridge.scroll_y());
             #[allow(clippy::cast_possible_truncation)]
@@ -467,34 +472,37 @@ fn extract_mq_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
 }
 
 /// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
-fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(f64, f64)> {
+///
+/// Returns `(Option<x>, Option<y>)` — `None` means the axis was not specified,
+/// so the caller should preserve the current scroll position for that axis.
+fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(Option<f64>, Option<f64>)> {
     if let Some(first) = args.first() {
         if let Some(obj) = first.as_object() {
             // Options object: { top, left, behavior }
             let top_val = obj.get(js_string!("top"), ctx)?;
             let top = if top_val.is_undefined() {
-                0.0
+                None
             } else {
-                top_val.to_number(ctx)?
+                Some(top_val.to_number(ctx)?)
             };
             let left_val = obj.get(js_string!("left"), ctx)?;
             let left = if left_val.is_undefined() {
-                0.0
+                None
             } else {
-                left_val.to_number(ctx)?
+                Some(left_val.to_number(ctx)?)
             };
             return Ok((left, top));
         }
         // Numeric arguments: scrollTo(x, y)
-        let x = first.to_number(ctx)?;
+        let x = Some(first.to_number(ctx)?);
         let y = if let Some(v) = args.get(1) {
-            v.to_number(ctx)?
+            Some(v.to_number(ctx)?)
         } else {
-            0.0
+            Some(0.0)
         };
         return Ok((x, y));
     }
-    Ok((0.0, 0.0))
+    Ok((Some(0.0), Some(0.0)))
 }
 
 /// Create a computed style proxy object for the given element.
