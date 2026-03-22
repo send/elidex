@@ -117,6 +117,21 @@ fn resolve_flex_basis(
 }
 
 // ---------------------------------------------------------------------------
+// Flex line info (bundle for fragmentation helpers)
+// ---------------------------------------------------------------------------
+
+/// Bundles the flex layout results that fragmentation helpers need.
+///
+/// `items`, `line_ranges`, and `line_cross_sizes` are always passed together
+/// to fragmentation functions. This struct avoids passing them as separate
+/// parameters.
+struct FlexLineInfo<'a> {
+    items: &'a [FlexItem],
+    line_ranges: &'a [(usize, usize)],
+    line_cross_sizes: &'a [f32],
+}
+
+// ---------------------------------------------------------------------------
 // Flex item
 // ---------------------------------------------------------------------------
 
@@ -561,7 +576,6 @@ fn compute_flex_fragmentation(
     Option<elidex_plugin::BreakValue>,
 ) {
     let frag_type = frag.fragmentation_type;
-    let available = frag.available_block_size;
 
     // Propagated breaks from first/last items across all lines.
     let propagated_before = line_ranges.first().and_then(|&(s, e)| {
@@ -590,58 +604,39 @@ fn compute_flex_fragmentation(
         }
     });
 
-    if ctx.horizontal {
+    let line_info = FlexLineInfo {
+        items,
+        line_ranges,
+        line_cross_sizes,
+    };
+
+    let break_token = if ctx.horizontal {
         // Row flex: fragment between lines along cross axis (block direction).
-        fragment_row_flex(
-            dom,
-            entity,
-            items,
-            line_ranges,
-            line_cross_sizes,
-            ctx,
-            frag_type,
-            available,
-            resume_line,
-            propagated_before,
-            propagated_after,
-        )
+        fragment_row_flex(dom, entity, &line_info, ctx, frag, resume_line)
     } else {
         // Column flex: fragment between items within lines along main axis (block direction).
-        fragment_column_flex(
-            dom,
-            entity,
-            items,
-            line_ranges,
-            ctx,
-            frag_type,
-            available,
-            resume_line,
-            resume_item,
-            propagated_before,
-            propagated_after,
-        )
-    }
+        fragment_column_flex(dom, entity, &line_info, ctx, frag, resume_line, resume_item)
+    };
+
+    (break_token, propagated_before, propagated_after)
 }
 
 /// Row flex fragmentation: break between flex lines along the cross axis.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn fragment_row_flex(
     dom: &EcsDom,
     entity: Entity,
-    items: &[FlexItem],
-    line_ranges: &[(usize, usize)],
-    line_cross_sizes: &[f32],
+    info: &FlexLineInfo<'_>,
     ctx: &FlexContext,
-    frag_type: elidex_layout_block::FragmentationType,
-    available: f32,
+    frag: elidex_layout_block::FragmentainerContext,
     resume_line: usize,
-    propagated_before: Option<elidex_plugin::BreakValue>,
-    propagated_after: Option<elidex_plugin::BreakValue>,
-) -> (
-    Option<BreakToken>,
-    Option<elidex_plugin::BreakValue>,
-    Option<elidex_plugin::BreakValue>,
-) {
+) -> Option<BreakToken> {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+    let items = info.items;
+    let line_ranges = info.line_ranges;
+    let line_cross_sizes = info.line_cross_sizes;
+
     let mut consumed: f32 = 0.0;
 
     // Account for lines before resume_line (already consumed in a prior fragment).
@@ -678,7 +673,7 @@ fn fragment_row_flex(
                             child_break_token: None,
                         }),
                     };
-                    return (Some(bt), propagated_before, propagated_after);
+                    return Some(bt);
                 }
             }
         }
@@ -701,7 +696,7 @@ fn fragment_row_flex(
                                 child_break_token: None,
                             }),
                         };
-                        return (Some(bt), propagated_before, propagated_after);
+                        return Some(bt);
                     }
                 }
             }
@@ -750,7 +745,7 @@ fn fragment_row_flex(
                         child_break_token: None,
                     }),
                 };
-                return (Some(bt), propagated_before, propagated_after);
+                return Some(bt);
             }
         }
 
@@ -761,7 +756,7 @@ fn fragment_row_flex(
     }
 
     // All lines fit — no break needed.
-    (None, propagated_before, propagated_after)
+    None
 }
 
 /// Column flex fragmentation: break between items within lines along the main axis.
@@ -770,28 +765,21 @@ fn fragment_row_flex(
 /// `horizontal-tb`). Each item in a line is like a block sibling — we accumulate
 /// `item.final_main` and break between items when the consumed size exceeds the
 /// available block size.
-#[allow(
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::needless_range_loop
-)]
+#[allow(clippy::too_many_lines, clippy::needless_range_loop)]
 fn fragment_column_flex(
     dom: &EcsDom,
     entity: Entity,
-    items: &[FlexItem],
-    line_ranges: &[(usize, usize)],
+    info: &FlexLineInfo<'_>,
     ctx: &FlexContext,
-    frag_type: elidex_layout_block::FragmentationType,
-    available: f32,
+    frag: elidex_layout_block::FragmentainerContext,
     resume_line: usize,
     resume_item: usize,
-    propagated_before: Option<elidex_plugin::BreakValue>,
-    propagated_after: Option<elidex_plugin::BreakValue>,
-) -> (
-    Option<BreakToken>,
-    Option<elidex_plugin::BreakValue>,
-    Option<elidex_plugin::BreakValue>,
-) {
+) -> Option<BreakToken> {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+    let items = info.items;
+    let line_ranges = info.line_ranges;
+
     // Walk each line, and within each line walk items along the main axis.
     // For column flex, lines are arranged along the cross axis (horizontal),
     // but fragmentation is along the main axis (vertical = block direction).
@@ -846,7 +834,7 @@ fn fragment_column_flex(
                                 child_break_token: None,
                             }),
                         };
-                        return (Some(bt), propagated_before, propagated_after);
+                        return Some(bt);
                     }
                 }
             }
@@ -867,7 +855,7 @@ fn fragment_column_flex(
                                 child_break_token: None,
                             }),
                         };
-                        return (Some(bt), propagated_before, propagated_after);
+                        return Some(bt);
                     }
                 }
             }
@@ -912,7 +900,7 @@ fn fragment_column_flex(
                             child_break_token: None,
                         }),
                     };
-                    return (Some(bt), propagated_before, propagated_after);
+                    return Some(bt);
                 }
             }
 
@@ -924,7 +912,7 @@ fn fragment_column_flex(
     }
 
     // All items fit — no break needed.
-    (None, propagated_before, propagated_after)
+    None
 }
 
 /// Check whether breaking between column items at `item_abs` violates an avoid constraint.
