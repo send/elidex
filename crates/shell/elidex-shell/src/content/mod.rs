@@ -132,6 +132,12 @@ impl ContentState {
             .bridge()
             .sync_dirty_canvases(&mut self.pipeline.dom);
         self.pipeline.caret_visible = self.caret_visible;
+
+        // Apply any pending JS scroll (scrollTo/scrollBy) to viewport state.
+        if let Some((x, y)) = self.pipeline.runtime.bridge().take_pending_scroll() {
+            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
+        }
+
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
         // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
@@ -378,6 +384,7 @@ fn run_event_loop(state: &mut ContentState) {
 }
 
 /// Handle a single message. Returns `false` for Shutdown.
+#[allow(clippy::too_many_lines)]
 fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
     match msg {
         BrowserToContent::Shutdown => {
@@ -392,6 +399,15 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::Navigate(url) => {
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if !proceed {
+                return true; // Blocked by beforeunload handler.
+            }
             navigation::handle_navigate(state, &url, false, None);
         }
 
@@ -448,20 +464,44 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::GoBack => {
-            if let Some(url) = state.nav_controller.go_back().cloned() {
-                navigation::handle_navigate(state, &url, true, None);
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if proceed {
+                if let Some(url) = state.nav_controller.go_back().cloned() {
+                    navigation::handle_navigate(state, &url, true, None);
+                }
             }
         }
 
         BrowserToContent::GoForward => {
-            if let Some(url) = state.nav_controller.go_forward().cloned() {
-                navigation::handle_navigate(state, &url, true, None);
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if proceed {
+                if let Some(url) = state.nav_controller.go_forward().cloned() {
+                    navigation::handle_navigate(state, &url, true, None);
+                }
             }
         }
 
         BrowserToContent::Reload => {
-            if let Some(url) = state.pipeline.url.clone() {
-                navigation::handle_navigate(state, &url, true, None);
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if proceed {
+                if let Some(url) = state.pipeline.url.clone() {
+                    navigation::handle_navigate(state, &url, true, None);
+                }
             }
         }
 

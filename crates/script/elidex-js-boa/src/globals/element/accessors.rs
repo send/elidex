@@ -464,132 +464,123 @@ pub(crate) fn register_element_extra_accessors(
 }
 
 /// Build a `NamedNodeMap`-like JS object for the given element's attributes.
+///
+/// All accessors (`length`, `item()`, `getNamedItem()`) are live: they query
+/// the `Attributes` component on each access, reflecting mutations made after
+/// the `NamedNodeMap` was obtained.
 #[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
 fn build_named_node_map(
     entity: Entity,
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> boa_engine::JsResult<JsValue> {
-    // Collect attribute names and values.
-    let attrs: Vec<(String, String)> = bridge.with(|_session, dom| {
-        dom.world()
-            .get::<&elidex_ecs::Attributes>(entity)
-            .map(|a| {
-                a.iter()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    });
-
-    // Build Attr wrapper objects via getAttributeNode for each attribute.
-    let attr_objects: Vec<(String, JsValue)> = {
-        let mut result = Vec::with_capacity(attrs.len());
-        for (name, _value) in &attrs {
-            let attr_val = invoke_dom_handler_ref(
-                "getAttributeNode",
-                entity,
-                &[ElidexJsValue::String(name.clone())],
-                bridge,
-                ctx,
-            )?;
-            // Wrap the returned ObjectRef as a proper Attr object.
-            let attr_js = if let Some(obj) = attr_val.as_object() {
-                let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
-                if entity_val.is_undefined() {
-                    attr_val
-                } else {
-                    let attr_entity = super::core::extract_entity(&attr_val, ctx)?;
-                    super::special_nodes::create_attr_object(attr_entity, bridge, ctx)
-                }
-            } else {
-                attr_val
-            };
-            result.push((name.clone(), attr_js));
-        }
-        result
-    };
-
     let mut init = ObjectInitializer::new(ctx);
 
-    // length
-    #[allow(clippy::cast_precision_loss)]
+    // Store entity for dynamic lookups.
     init.property(
-        js_string!("length"),
-        JsValue::from(attr_objects.len() as f64),
-        Attribute::READONLY,
+        js_string!(ENTITY_KEY),
+        JsValue::from(entity_bits_as_f64(entity)),
+        Attribute::empty(),
     );
 
-    // Add indexed properties and named properties.
-    for (i, (name, attr_obj)) in attr_objects.iter().enumerate() {
-        init.property(
-            js_string!(i.to_string().as_str()),
-            attr_obj.clone(),
-            Attribute::READONLY,
-        );
-        init.property(
-            js_string!(name.as_str()),
-            attr_obj.clone(),
-            Attribute::READONLY,
-        );
-    }
+    // length — dynamic getter that reads current attribute count.
+    let realm = init.context().realm().clone();
+    let b_len = bridge.clone();
+    let length_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let len = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_ecs::Attributes>(entity)
+                    .map_or(0, |a| a.iter().count())
+            });
+            #[allow(clippy::cast_precision_loss)]
+            Ok(JsValue::from(len as f64))
+        },
+        b_len,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("length"),
+        Some(length_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
 
-    // item(index)
-    let attrs_clone = attrs.clone();
+    // item(index) — reads attributes at call time.
+    let b_item = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |_this, args, attrs, ctx| {
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let index = args
                     .first()
                     .and_then(JsValue::as_number)
                     .map_or(0, |n| n as usize);
-                if index < attrs.len() {
-                    let (name, value) = &attrs[index];
-                    let mut obj = ObjectInitializer::new(ctx);
-                    obj.property(
-                        js_string!("name"),
-                        JsValue::from(js_string!(name.as_str())),
-                        Attribute::READONLY,
-                    );
-                    obj.property(
-                        js_string!("value"),
-                        JsValue::from(js_string!(value.as_str())),
-                        Attribute::READONLY,
-                    );
-                    obj.property(
-                        js_string!("nodeType"),
-                        JsValue::from(2),
-                        Attribute::READONLY,
-                    );
-                    Ok(obj.build().into())
-                } else {
-                    Ok(JsValue::null())
+                let attr = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| {
+                            a.iter()
+                                .nth(index)
+                                .map(|(k, v)| (k.to_string(), v.to_string()))
+                        })
+                });
+                match attr {
+                    Some((name, value)) => {
+                        let mut obj = ObjectInitializer::new(ctx);
+                        obj.property(
+                            js_string!("name"),
+                            JsValue::from(js_string!(name.as_str())),
+                            Attribute::READONLY,
+                        );
+                        obj.property(
+                            js_string!("value"),
+                            JsValue::from(js_string!(value.as_str())),
+                            Attribute::READONLY,
+                        );
+                        obj.property(
+                            js_string!("nodeType"),
+                            JsValue::from(2),
+                            Attribute::READONLY,
+                        );
+                        Ok(obj.build().into())
+                    }
+                    None => Ok(JsValue::null()),
                 }
             },
-            attrs_clone,
+            b_item,
         ),
         js_string!("item"),
         1,
     );
 
-    // getNamedItem(name)
-    let attrs_clone2 = attrs.clone();
+    // getNamedItem(name) — reads attributes at call time.
+    let b_named = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |_this, args, attrs, ctx| {
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
                 let name = args
                     .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
-                for (k, v) in attrs {
-                    if *k == name {
+                let value = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| a.get(&name).map(str::to_string))
+                });
+                match value {
+                    Some(v) => {
                         let mut obj = ObjectInitializer::new(ctx);
                         obj.property(
                             js_string!("name"),
-                            JsValue::from(js_string!(k.as_str())),
+                            JsValue::from(js_string!(name.as_str())),
                             Attribute::READONLY,
                         );
                         obj.property(
@@ -602,12 +593,12 @@ fn build_named_node_map(
                             JsValue::from(2),
                             Attribute::READONLY,
                         );
-                        return Ok(obj.build().into());
+                        Ok(obj.build().into())
                     }
+                    None => Ok(JsValue::null()),
                 }
-                Ok(JsValue::null())
             },
-            attrs_clone2,
+            b_named,
         ),
         js_string!("getNamedItem"),
         1,
@@ -617,7 +608,8 @@ fn build_named_node_map(
     let b_rm = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            move |_this, args, bridge, ctx| {
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
                 let name = args
                     .first()
                     .map(|v| v.to_string(ctx))

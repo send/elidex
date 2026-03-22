@@ -63,6 +63,29 @@ pub fn build_stylesheet_list(bridge: &HostBridge, ctx: &mut Context) -> JsValue 
         1,
     );
 
+    // Numeric index access via accessor getters (e.g. styleSheets[0], styleSheets[1]).
+    let count = bridge.stylesheet_count();
+    for i in 0..count {
+        let b_idx = bridge.clone();
+        let getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, (bridge, index), ctx| {
+                if *index < bridge.stylesheet_count() {
+                    build_stylesheet_object(*index, bridge, ctx)
+                } else {
+                    Ok(JsValue::undefined())
+                }
+            },
+            (b_idx, i),
+        )
+        .to_js_function(&realm);
+        obj.accessor(
+            js_string!(i.to_string().as_str()),
+            Some(getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
+
     obj.build().into()
 }
 

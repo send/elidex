@@ -74,9 +74,9 @@ pub(crate) fn convert_fragment_children(
     let mut created = Vec::new();
     for child in &*rc_handle.children.borrow() {
         if let Some(entity) = convert_node(child, dom) {
-            let ok = dom.append_child(parent, entity);
-            debug_assert!(ok, "append_child failed during fragment conversion");
-            created.push(entity);
+            if dom.append_child(parent, entity) {
+                created.push(entity);
+            }
         }
     }
     created

@@ -182,12 +182,12 @@ pub fn create_event_object(
         0,
     );
 
-    // returnValue — per HTML spec §8.1.7.1, setting event.returnValue to a
-    // non-empty string (or any truthy value) on a beforeunload event prevents
-    // the default action (cancels navigation). We implement this as a setter
-    // that triggers preventDefault() when set to a truthy value.
+    // returnValue — the setter behavior differs by event type:
+    // - beforeunload (HTML §8.1.7.1): setting to truthy (non-empty string) cancels.
+    // - general Event (legacy spec): setting to false cancels.
     let rv_pd = SharedFlag(Rc::clone(&flags.prevent_default));
     let rv_cancelable = cancelable;
+    let event_type_for_rv = event.event_type.clone();
     init.accessor(
         js_string!("returnValue"),
         Some(
@@ -203,21 +203,25 @@ pub fn create_event_object(
         ),
         Some(
             NativeFunction::from_copy_closure_with_captures(
-                |_this, args, (flag, cancel), _ctx| -> boa_engine::JsResult<JsValue> {
-                    // Setter: per HTML spec §8.1.7.1, setting returnValue to a
-                    // truthy value (e.g. non-empty string) on a cancelable event
-                    // sets the canceled flag (preventDefault). Setting to falsy
-                    // (empty string) does not cancel.
+                |_this, args, (flag, cancel, ev_type), _ctx| -> boa_engine::JsResult<JsValue> {
                     if *cancel {
                         if let Some(val) = args.first() {
-                            if val.to_boolean() {
-                                flag.0.set(true);
+                            if ev_type == "beforeunload" {
+                                // HTML §8.1.7.1: truthy value (non-empty string) cancels.
+                                if val.to_boolean() {
+                                    flag.0.set(true);
+                                }
+                            } else {
+                                // Legacy Event.returnValue: falsy value (false) cancels.
+                                if !val.to_boolean() {
+                                    flag.0.set(true);
+                                }
                             }
                         }
                     }
                     Ok(JsValue::undefined())
                 },
-                (rv_pd, rv_cancelable),
+                (rv_pd, rv_cancelable, event_type_for_rv),
             )
             .to_js_function(&realm),
         ),

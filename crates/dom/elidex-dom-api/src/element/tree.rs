@@ -347,7 +347,7 @@ impl DomApiHandler for InsertAdjacentHtml {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         /// Resolve the tag name for a given entity, defaulting to `"div"`.
@@ -371,6 +371,16 @@ impl DomApiHandler for InsertAdjacentHtml {
             _ => String::new(),
         };
 
+        // Helper: record ChildList mutations for inserted nodes.
+        let record_insertions = |parent: Entity, nodes: &[Entity], session: &mut SessionCore| {
+            for &node in nodes {
+                session.record_mutation(Mutation::AppendChild {
+                    parent,
+                    child: node,
+                });
+            }
+        };
+
         match position.as_str() {
             "beforebegin" => {
                 let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
@@ -382,27 +392,30 @@ impl DomApiHandler for InsertAdjacentHtml {
                 let nodes =
                     elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
                 // Move nodes before `this` (they were appended at end, need repositioning).
-                for node in nodes.into_iter().rev() {
-                    let _ = dom.remove_child(parent, node);
-                    let _ = dom.insert_before(parent, node, this);
+                for node in nodes.iter().rev() {
+                    let _ = dom.remove_child(parent, *node);
+                    let _ = dom.insert_before(parent, *node, this);
                 }
+                record_insertions(parent, &nodes, session);
             }
             "afterbegin" => {
                 let context_tag = tag_of(this, dom);
                 let first_child = dom.get_first_child(this);
                 let nodes = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
                 if let Some(ref_child) = first_child {
-                    for node in nodes.into_iter().rev() {
-                        let _ = dom.remove_child(this, node);
-                        let _ = dom.insert_before(this, node, ref_child);
+                    for node in nodes.iter().rev() {
+                        let _ = dom.remove_child(this, *node);
+                        let _ = dom.insert_before(this, *node, ref_child);
                     }
                 }
                 // If no first_child, nodes are already appended at end (correct).
+                record_insertions(this, &nodes, session);
             }
             "beforeend" => {
                 let context_tag = tag_of(this, dom);
                 // Nodes are appended at end by parse_html_fragment — already correct.
-                let _ = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
+                let nodes = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
+                record_insertions(this, &nodes, session);
             }
             "afterend" => {
                 let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
@@ -415,12 +428,13 @@ impl DomApiHandler for InsertAdjacentHtml {
                 let nodes =
                     elidex_html_parser::parse_html_fragment(&html, &context_tag, parent, dom);
                 if let Some(ref_child) = next {
-                    for node in nodes.into_iter().rev() {
-                        let _ = dom.remove_child(parent, node);
-                        let _ = dom.insert_before(parent, node, ref_child);
+                    for node in nodes.iter().rev() {
+                        let _ = dom.remove_child(parent, *node);
+                        let _ = dom.insert_before(parent, *node, ref_child);
                     }
                 }
                 // If no next sibling, nodes are already at end (correct).
+                record_insertions(parent, &nodes, session);
             }
             _ => {
                 return Err(DomApiError::syntax_error(

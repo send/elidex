@@ -133,10 +133,10 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let scroll_to = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let (x, y) = parse_scroll_args(args, ctx)?;
-            // Directly update the bridge's scroll offset. The content thread
-            // will pick up the new scroll position on the next render frame.
+            // Store as pending scroll; the content thread picks it up on the
+            // next frame, updates viewport_scroll, and syncs back to bridge.
             #[allow(clippy::cast_possible_truncation)]
-            bridge.set_scroll_offset(x as f32, y as f32);
+            bridge.set_pending_scroll(x as f32, y as f32);
             Ok(JsValue::undefined())
         },
         b_scroll,
@@ -152,7 +152,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
             let cur_x = f64::from(bridge.scroll_x());
             let cur_y = f64::from(bridge.scroll_y());
             #[allow(clippy::cast_possible_truncation)]
-            bridge.set_scroll_offset((cur_x + x) as f32, (cur_y + y) as f32);
+            bridge.set_pending_scroll((cur_x + x) as f32, (cur_y + y) as f32);
             Ok(JsValue::undefined())
         },
         b_scroll_by,

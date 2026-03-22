@@ -74,12 +74,8 @@ struct HostBridgeInner {
     /// Cached viewport scroll offset.
     scroll_x: f32,
     scroll_y: f32,
-    // --- Attr identity cache ---
-    /// Cache mapping `(element_entity_bits, attr_name)` → `attr_entity_bits`.
-    ///
-    /// Ensures `getAttributeNode("x")` returns the same `Attr` entity on
-    /// repeated calls, per WHATWG DOM §7.5 identity semantics.
-    attr_cache: HashMap<(u64, String), u64>,
+    /// Pending scroll offset set by JS `scrollTo`/`scrollBy`, picked up by content thread.
+    pending_scroll: Option<(f32, f32)>,
     // --- TreeWalker / NodeIterator / Range ---
     /// Active `TreeWalker` instances, keyed by unique ID.
     tree_walkers: HashMap<u64, elidex_dom_api::TreeWalker>,
@@ -193,7 +189,7 @@ impl HostBridge {
                 viewport_height: 600.0,
                 scroll_x: 0.0,
                 scroll_y: 0.0,
-                attr_cache: HashMap::new(),
+                pending_scroll: None,
                 tree_walkers: HashMap::new(),
                 node_iterators: HashMap::new(),
                 ranges: HashMap::new(),
@@ -410,6 +406,19 @@ impl HostBridge {
         self.inner.borrow().scroll_y
     }
 
+    /// Set a pending scroll offset from JS `scrollTo`/`scrollBy`.
+    ///
+    /// The content thread picks this up on the next frame and applies it
+    /// to the viewport scroll state, then syncs back via `set_scroll_offset`.
+    pub fn set_pending_scroll(&self, x: f32, y: f32) {
+        self.inner.borrow_mut().pending_scroll = Some((x, y));
+    }
+
+    /// Take (remove) the pending scroll offset, if any.
+    pub fn take_pending_scroll(&self) -> Option<(f32, f32)> {
+        self.inner.borrow_mut().pending_scroll.take()
+    }
+
     // --- Registry access ---
 
     /// Access the DOM API handler registry.
@@ -577,44 +586,6 @@ impl HostBridge {
         inner.mutation_observers.remove_entity(entity);
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
-
-        // Invalidate attr cache entries for this element.
-        inner.attr_cache.retain(|&(elem, _), _| elem != bits);
-    }
-
-    // --- Attr identity cache ---
-
-    /// Look up a cached `Attr` entity for the given element + attribute name.
-    pub fn get_cached_attr(&self, element_bits: u64, name: &str) -> Option<u64> {
-        self.inner
-            .borrow()
-            .attr_cache
-            .get(&(element_bits, name.to_string()))
-            .copied()
-    }
-
-    /// Cache an `Attr` entity for the given element + attribute name.
-    pub fn cache_attr(&self, element_bits: u64, name: String, attr_bits: u64) {
-        self.inner
-            .borrow_mut()
-            .attr_cache
-            .insert((element_bits, name), attr_bits);
-    }
-
-    /// Invalidate the `Attr` cache entry for a specific element + attribute.
-    pub fn invalidate_attr_cache(&self, element_bits: u64, name: &str) {
-        self.inner
-            .borrow_mut()
-            .attr_cache
-            .remove(&(element_bits, name.to_string()));
-    }
-
-    /// Invalidate all `Attr` cache entries for a given element.
-    pub fn invalidate_attr_cache_for_element(&self, element_bits: u64) {
-        self.inner
-            .borrow_mut()
-            .attr_cache
-            .retain(|&(elem, _), _| elem != element_bits);
     }
 
     // --- TreeWalker / NodeIterator / Range ---
