@@ -706,16 +706,18 @@ pub(crate) fn register_layout_query_accessors(
             |this, _args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let result = invoke_dom_handler("getClientRects", entity, &[], bridge)?;
-                // The handler returns "x,y,width,height" for a single rect.
-                // Build an array containing one DOMRect object.
+                // Handler returns "x,y,w,h" or newline-separated entries for multi-line inlines.
                 let array = JsArray::new(ctx);
                 if let Some(s) = result.as_string() {
                     let s = s.to_std_string_escaped();
-                    let parts: Vec<f64> = s
-                        .split(',')
-                        .filter_map(|p| p.trim().parse::<f64>().ok())
-                        .collect();
-                    if parts.len() == 4 {
+                    for line in s.lines() {
+                        let parts: Vec<f64> = line
+                            .split(',')
+                            .filter_map(|p| p.trim().parse::<f64>().ok())
+                            .collect();
+                        if parts.len() != 4 {
+                            continue;
+                        }
                         let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
                         let obj = ObjectInitializer::new(ctx)
                             .property(js_string!("x"), boa_engine::JsValue::from(x), RO_ATTR)

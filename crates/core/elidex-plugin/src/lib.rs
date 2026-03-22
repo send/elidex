@@ -41,7 +41,8 @@ pub use event_types::{
 };
 pub use js_value::JsValue;
 pub use layout_types::{
-    CssSize, EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Point, Rect, Size, Vector,
+    CssSize, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult, Point, Rect,
+    Size, Vector,
 };
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;

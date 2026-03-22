@@ -169,9 +169,9 @@ impl_layout_handler!(GetScrollLeft, "scrollLeft.get", |dom, entity| {
 
 /// `element.getClientRects()` — returns a list of `DOMRect` values.
 ///
-/// For block elements, returns a single rect (same as `getBoundingClientRect`).
-/// For inline elements, a simplified single rect is returned (per-line rects
-/// require line box information not yet available).
+/// For inline elements spanning multiple lines, returns one rect per line
+/// via the `InlineClientRects` ECS component (populated during inline layout).
+/// For block elements or single-line inlines, returns one rect (border box).
 pub struct GetClientRects;
 
 impl DomApiHandler for GetClientRects {
@@ -186,10 +186,29 @@ impl DomApiHandler for GetClientRects {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let bb = get_border_box(dom, this);
         let (scroll_x, scroll_y) = accumulated_scroll_offset(dom, this);
-        // Return a single DOMRect as a newline-separated list of "x,y,w,h" entries.
-        // The JS bridge splits on newlines to build the DOMRectList.
+
+        // Check for per-line rects (inline elements spanning multiple lines).
+        // InlineClientRects is stored as Vec<Rect> in the ECS by inline layout.
+        if let Ok(line_rects) = dom.world().get::<&elidex_plugin::InlineClientRects>(this) {
+            let entries: Vec<String> = line_rects
+                .0
+                .iter()
+                .map(|r| {
+                    format!(
+                        "{},{},{},{}",
+                        r.origin.x - scroll_x,
+                        r.origin.y - scroll_y,
+                        r.size.width,
+                        r.size.height
+                    )
+                })
+                .collect();
+            return Ok(JsValue::String(entries.join("\n")));
+        }
+
+        // Fallback: single rect from border box.
+        let bb = get_border_box(dom, this);
         Ok(dom_rect_value(bb.0 - scroll_x, bb.1 - scroll_y, bb.2, bb.3))
     }
 }
