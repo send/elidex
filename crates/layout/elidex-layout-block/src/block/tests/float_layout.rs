@@ -235,7 +235,14 @@ fn float_auto_width_shrinks_to_content() {
         float_box.content.size.width
     );
     // Positive width requires serif font for text shaping — skip if unavailable.
-    if font_db.query(&["serif"], 400, elidex_text::to_fontdb_style(elidex_plugin::FontStyle::Normal)).is_some() {
+    if font_db
+        .query(
+            &["serif"],
+            400,
+            elidex_text::to_fontdb_style(elidex_plugin::FontStyle::Normal),
+        )
+        .is_some()
+    {
         assert!(
             float_box.content.size.width > 0.0,
             "expected positive width, got {}",
