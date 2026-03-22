@@ -6,9 +6,8 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::{
-    collect_nodes, convert_nodes_into_node, ensure_pre_insertion_validity,
-    ensure_replace_validity, insert_node_expanding_fragment, viable_next_sibling,
-    viable_prev_sibling,
+    collect_nodes, convert_nodes_into_node, ensure_pre_insertion_validity, ensure_replace_validity,
+    insert_node_expanding_fragment, viable_next_sibling, viable_prev_sibling,
 };
 
 /// `node.before(...nodes)` — inserts nodes before this node.

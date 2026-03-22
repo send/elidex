@@ -1,17 +1,12 @@
 //! Core Node interface methods: contains, compareDocumentPosition, normalize,
 //! isConnected, getRootNode, ownerDocument, isSameNode, isEqualNode.
 
-use elidex_ecs::{
-    EcsDom, Entity, NodeKind,
-    TextContent,
-};
+use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiHandler, JsObjectRef, SessionCore,
-};
+use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, JsObjectRef, SessionCore};
 
-use crate::util::{not_found_error, require_object_ref_arg};
 use super::{find_root, find_root_non_composed, nodes_equal, resolve_optional_entity};
+use crate::util::{not_found_error, require_object_ref_arg};
 
 // ---------------------------------------------------------------------------
 // 1. Contains

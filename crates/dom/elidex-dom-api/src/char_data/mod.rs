@@ -74,11 +74,7 @@ mod tests {
     }
 
     /// Find the first child element of `parent` with tag matching `tag_name`.
-    fn find_child_element(
-        dom: &EcsDom,
-        parent: Entity,
-        tag_name: &str,
-    ) -> Option<Entity> {
+    fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<Entity> {
         use elidex_ecs::TagType;
         for child in dom.children_iter(parent) {
             if let Ok(tag) = dom.world().get::<&TagType>(child) {

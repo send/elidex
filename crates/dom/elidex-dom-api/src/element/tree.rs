@@ -294,8 +294,8 @@ fn insert_adjacent(
 // innerHTML getter
 // ---------------------------------------------------------------------------
 
-use elidex_ecs::{Attributes, TagType};
 use crate::util::{escape_attr, escape_html};
+use elidex_ecs::{Attributes, TagType};
 
 /// HTML raw text elements whose text children must NOT be escaped during
 /// serialization (the content is literal, not entity-decoded by parsers).

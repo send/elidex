@@ -17,9 +17,7 @@ pub use selectors::{Closest, Matches};
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TagType, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{
-    DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
-};
+use elidex_script_session::{DomApiError, DomApiErrorKind, JsObjectRef, SessionCore};
 
 use crate::util::not_found_error;
 

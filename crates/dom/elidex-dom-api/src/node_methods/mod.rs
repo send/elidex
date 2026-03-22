@@ -156,7 +156,6 @@ pub(crate) fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
         .all(|(&ca, &cb)| nodes_equal(ca, cb, dom))
 }
 
-
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -165,7 +164,9 @@ pub(crate) fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
-    use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle, TextContent, CommentData, DocTypeData};
+    use elidex_ecs::{
+        Attributes, CommentData, DocTypeData, EcsDom, Entity, InlineStyle, TextContent,
+    };
     use elidex_plugin::JsValue;
     use elidex_script_session::{
         ComponentKind, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,

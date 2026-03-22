@@ -5,12 +5,9 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, NativeFunction};
 use elidex_plugin::JsValue as ElidexJsValue;
 
-use crate::bridge::HostBridge;
-use crate::globals::{
-    invoke_dom_handler, invoke_dom_handler_ref,
-    invoke_dom_handler_void,
-};
 use super::core::extract_entity;
+use crate::bridge::HostBridge;
+use crate::globals::{invoke_dom_handler, invoke_dom_handler_ref, invoke_dom_handler_void};
 
 // ---------------------------------------------------------------------------
 // Helper for read-only ref-returning accessors (tree navigation)

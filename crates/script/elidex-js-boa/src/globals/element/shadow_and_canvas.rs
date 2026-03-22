@@ -5,9 +5,9 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, JsNativeError, JsResult, JsValue, NativeFunction};
 use elidex_script_session::ComponentKind;
 
-use crate::bridge::HostBridge;
-use super::core::{extract_entity, create_element_wrapper};
+use super::core::{create_element_wrapper, extract_entity};
 use super::CONTEXT2D_CACHE_KEY;
+use crate::bridge::HostBridge;
 
 /// Register attachShadow method and shadowRoot accessor.
 pub(crate) fn register_shadow_dom_methods(

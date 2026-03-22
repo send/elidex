@@ -8,15 +8,17 @@ use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 use elidex_script_session::JsObjectRef;
 
+use super::core::{create_element_wrapper, entity_bits_as_f64, extract_entity};
+use super::tree_nav::{
+    reg_ref_accessor, reg_val_accessor, register_node_info_accessors, register_tree_nav_accessors,
+};
+use super::ENTITY_KEY;
 use crate::bridge::HostBridge;
 use crate::globals::{
     boa_arg_to_elidex, invoke_dom_handler, invoke_dom_handler_ref, invoke_dom_handler_void,
     require_js_string_arg,
 };
 use crate::value_conv;
-use super::core::{create_element_wrapper, entity_bits_as_f64, extract_entity};
-use super::tree_nav::{reg_ref_accessor, reg_val_accessor, register_tree_nav_accessors, register_node_info_accessors};
-use super::ENTITY_KEY;
 
 // ---------------------------------------------------------------------------
 // CharacterData methods (data, length, substringData, appendData, etc.)
@@ -322,11 +324,7 @@ pub(crate) fn register_attr_node_methods(init: &mut ObjectInitializer<'_>, bridg
 ///
 /// Provides `name` (getter), `value` (getter/setter), `ownerElement` (getter),
 /// and `specified` (getter) — matching the WHATWG `Attr` interface.
-pub fn create_attr_object(
-    entity: Entity,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsValue {
+pub fn create_attr_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity_bits_as_f64(entity);
     let mut init = ObjectInitializer::new(ctx);
     init.property(
@@ -403,11 +401,7 @@ pub fn create_attr_object(
 /// Provides `name`, `publicId`, and `systemId` getters — matching the
 /// WHATWG `DocumentType` interface.
 #[allow(dead_code)] // M4-3.10: Will be used when resolving DocumentType entity wrappers in iframe/multi-Document support.
-pub fn create_doctype_object(
-    entity: Entity,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsValue {
+pub fn create_doctype_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity_bits_as_f64(entity);
     let mut init = ObjectInitializer::new(ctx);
     init.property(

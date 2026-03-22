@@ -8,14 +8,14 @@ use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 
+use super::core::{entity_bits_as_f64, extract_entity};
+use super::DATASET_CACHE_KEY;
+use super::ENTITY_KEY;
 use crate::bridge::HostBridge;
 use crate::globals::{
     boa_arg_to_elidex, boa_args_to_elidex, invoke_dom_handler, invoke_dom_handler_ref,
     invoke_dom_handler_void, require_js_string_arg,
 };
-use super::core::{entity_bits_as_f64, extract_entity};
-use super::ENTITY_KEY;
-use super::DATASET_CACHE_KEY;
 
 // ---------------------------------------------------------------------------
 // Node methods (contains, compareDocumentPosition, cloneNode, etc.)
@@ -142,7 +142,10 @@ pub(crate) fn register_node_methods(init: &mut ObjectInitializer<'_>, bridge: &H
 // ---------------------------------------------------------------------------
 
 /// Register variadic ChildNode/ParentNode mixin methods (before, after, remove, etc.).
-pub(crate) fn register_child_parent_mixin_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+pub(crate) fn register_child_parent_mixin_methods(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+) {
     // Variadic methods: before, after, replaceWith, prepend, append, replaceChildren.
     static VARIADIC_METHODS: &[&str] = &[
         "before",
@@ -189,7 +192,10 @@ pub(crate) fn register_child_parent_mixin_methods(init: &mut ObjectInitializer<'
 
 /// Register additional Element methods (matches, closest, insertAdjacent*, etc.).
 #[allow(clippy::too_many_lines)]
-pub(crate) fn register_element_extra_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+pub(crate) fn register_element_extra_methods(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+) {
     // matches(selector)
     let b = bridge.clone();
     init.function(
@@ -437,7 +443,11 @@ pub(crate) fn register_dataset_accessor(
 }
 
 /// Create a dataset proxy object with get/set/delete methods.
-pub(crate) fn create_dataset_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
+pub(crate) fn create_dataset_object(
+    entity: Entity,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsValue {
     let entity_bits = entity_bits_as_f64(entity);
     let mut init = ObjectInitializer::new(ctx);
     init.property(
@@ -548,7 +558,11 @@ pub(crate) fn register_cached_accessor(
 }
 
 #[allow(clippy::too_many_lines, clippy::similar_names)] // classList registration boilerplate + getter/setter pairs
-pub(crate) fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
+pub(crate) fn create_class_list_object(
+    entity: Entity,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsValue {
     let entity_bits = entity_bits_as_f64(entity);
 
     let mut init = ObjectInitializer::new(ctx);

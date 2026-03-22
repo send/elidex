@@ -80,9 +80,7 @@ impl DomApiHandler for SetTextContentNodeKind {
         let text = crate::util::require_string_arg(args, 0)?;
 
         match dom.node_kind(this) {
-            Some(NodeKind::Document | NodeKind::DocumentType) => {
-                Ok(JsValue::Undefined)
-            }
+            Some(NodeKind::Document | NodeKind::DocumentType) => Ok(JsValue::Undefined),
             Some(NodeKind::Text | NodeKind::CdataSection) => {
                 if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(this) {
                     text.clone_into(&mut tc.0);

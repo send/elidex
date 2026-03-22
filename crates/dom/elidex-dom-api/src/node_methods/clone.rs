@@ -75,9 +75,7 @@ impl CloneNode {
                 }
             }
             Some(NodeKind::DocumentFragment) => Ok(dom.create_document_fragment()),
-            Some(NodeKind::Document) => {
-                Ok(dom.create_document_root())
-            }
+            Some(NodeKind::Document) => Ok(dom.create_document_root()),
             _ => Err(DomApiError {
                 kind: DomApiErrorKind::NotSupportedError,
                 message: "cloneNode: unsupported node kind".into(),

@@ -8,10 +8,10 @@ use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 use elidex_script_session::{ComponentKind, JsObjectRef};
 
+use super::{register_all_methods, ENTITY_KEY};
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_string_arg};
-use super::{register_all_methods, ENTITY_KEY};
 
 /// Extract the entity from a JS value that has an `__elidex_entity__` property.
 pub fn extract_entity(value: &JsValue, ctx: &mut Context) -> JsResult<Entity> {

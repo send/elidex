@@ -5,15 +5,15 @@ mod attrs;
 mod props;
 pub(crate) mod tree;
 
+pub use attrs::{camel_to_data_attr, data_attr_to_camel};
 pub use attrs::{
     DatasetDelete, DatasetGet, DatasetKeys, DatasetSet, GetAttributeNames, GetClassName, GetId,
     HasAttribute, SetClassName, SetId, ToggleAttribute,
 };
-pub use attrs::{camel_to_data_attr, data_attr_to_camel};
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{
-    collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild,
-    GetInnerHtml, InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveChild,
+    collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild, GetInnerHtml,
+    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveChild,
 };
 
 #[cfg(test)]

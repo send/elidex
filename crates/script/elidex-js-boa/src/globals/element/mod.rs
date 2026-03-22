@@ -10,8 +10,8 @@ pub(crate) mod tree_nav;
 pub use core::{create_element_wrapper, extract_entity};
 pub use special_nodes::resolve_object_ref;
 
-use boa_engine::object::ObjectInitializer;
 use crate::bridge::HostBridge;
+use boa_engine::object::ObjectInitializer;
 
 /// Hidden property key storing the entity bits on element wrapper objects.
 pub(crate) const ENTITY_KEY: &str = "__elidex_entity__";

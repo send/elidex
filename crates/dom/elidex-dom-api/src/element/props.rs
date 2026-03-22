@@ -4,8 +4,8 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-use crate::util::{require_attrs, require_attrs_mut, require_string_arg};
 use super::tree::validate_attribute_name;
+use crate::util::{require_attrs, require_attrs_mut, require_string_arg};
 
 // ---------------------------------------------------------------------------
 // getAttribute

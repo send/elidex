@@ -6,12 +6,12 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, NativeFunction};
 use elidex_plugin::JsValue as ElidexJsValue;
 
+use super::accessors::{create_class_list_object, register_cached_accessor};
+use super::core::extract_entity;
+use super::CLASSLIST_CACHE_KEY;
+use super::STYLE_CACHE_KEY;
 use crate::bridge::HostBridge;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_void};
-use super::core::extract_entity;
-use super::accessors::{create_class_list_object, register_cached_accessor};
-use super::STYLE_CACHE_KEY;
-use super::CLASSLIST_CACHE_KEY;
 
 /// Register textContent (getter/setter) and innerHTML (getter) accessors.
 pub(crate) fn register_content_accessors(

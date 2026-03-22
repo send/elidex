@@ -9,16 +9,23 @@
 #[allow(unused_must_use)]
 mod tests;
 
+mod atomic;
+pub(crate) mod measure;
+mod pack;
+
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
-use elidex_plugin::{ComputedStyle, Display, EdgeSizes, LayoutBox, Point, Rect};
-use elidex_text::{
-    find_break_opportunities, measure_text, to_fontdb_style, BreakOpportunity, FontDatabase,
-    FontStyle, TextMeasureParams,
-};
+#[cfg(test)]
+pub(crate) use elidex_plugin::LayoutBox;
+use elidex_plugin::{ComputedStyle, Display, Point};
+#[cfg(test)]
+pub(crate) use elidex_text::FontDatabase;
+use elidex_text::{measure_text, to_fontdb_style, FontStyle, TextMeasureParams};
 
 use crate::MAX_LAYOUT_DEPTH;
+
+pub use measure::{max_content_inline_size, min_content_inline_size};
 
 // ---------------------------------------------------------------------------
 // StyledRun — a segment of text with its originating element's style
@@ -82,7 +89,7 @@ impl StyledRun {
     }
 
     /// Build `TextMeasureParams` borrowing from the given families slice.
-    fn measure_params<'a>(&self, families: &'a [&'a str]) -> TextMeasureParams<'a> {
+    pub(crate) fn measure_params<'a>(&self, families: &'a [&'a str]) -> TextMeasureParams<'a> {
         TextMeasureParams {
             families,
             font_size: self.font_size,
@@ -94,7 +101,7 @@ impl StyledRun {
     }
 
     /// Collect family name references for use with `measure_params`.
-    fn family_refs(&self) -> Vec<&str> {
+    pub(crate) fn family_refs(&self) -> Vec<&str> {
         self.families.iter().map(String::as_str).collect()
     }
 }
@@ -193,176 +200,6 @@ fn collect_inline_items_inner(
         }
     }
     items
-}
-
-/// Compute min-content inline size (maximum word width) for intrinsic sizing.
-///
-/// Min-content = the width of the longest unbreakable segment.
-/// Text is split by whitespace; each word's width is measured individually.
-/// Atomic inline-level boxes contribute zero (their intrinsic width
-/// is not yet computed at this stage).
-pub fn min_content_inline_size(
-    dom: &EcsDom,
-    children: &[Entity],
-    parent_style: &ComputedStyle,
-    parent_entity: Entity,
-    font_db: &FontDatabase,
-) -> f32 {
-    let items = collect_inline_items(dom, children, parent_style, parent_entity);
-    let mut max_word = 0.0_f32;
-    for item in &items {
-        if let InlineItem::Text(run) = item {
-            let families = run.family_refs();
-            let params = run.measure_params(&families);
-            // Split by whitespace and measure each word individually.
-            for word in run.text.split_whitespace() {
-                if let Some(m) = measure_text(font_db, &params, word) {
-                    max_word = max_word.max(m.width);
-                }
-            }
-        }
-    }
-    max_word
-}
-
-/// Compute max-content inline size (no line breaking) for shrink-to-fit width.
-///
-/// Sums the measured width of all text runs without line breaking.
-/// Atomic inline-level boxes contribute zero (their intrinsic width
-/// is not yet computed at this stage).
-pub fn max_content_inline_size(
-    dom: &EcsDom,
-    children: &[Entity],
-    parent_style: &ComputedStyle,
-    parent_entity: Entity,
-    font_db: &FontDatabase,
-) -> f32 {
-    let items = collect_inline_items(dom, children, parent_style, parent_entity);
-    let mut total = 0.0_f32;
-    for item in &items {
-        if let InlineItem::Text(run) = item {
-            let families = run.family_refs();
-            let params = run.measure_params(&families);
-            if let Some(m) = measure_text(font_db, &params, &run.text) {
-                total += m.width;
-            }
-        }
-    }
-    total
-}
-
-// ---------------------------------------------------------------------------
-// Segment measurement
-// ---------------------------------------------------------------------------
-
-/// Measure a segment's full and trimmed widths.
-///
-/// Returns `(full_width, trimmed_width)` where `trimmed_width` excludes trailing
-/// whitespace per CSS Text Level 3 §4.1.2 (trailing spaces "hang" and don't
-/// trigger line overflow).
-fn measure_segment_widths(
-    font_db: &FontDatabase,
-    params: &TextMeasureParams<'_>,
-    segment: &str,
-) -> (f32, f32) {
-    let seg_width = measure_text(font_db, params, segment).map_or(0.0, |m| m.width);
-    let trimmed = segment.trim_end();
-    let trimmed_width = if trimmed.len() == segment.len() {
-        seg_width
-    } else if trimmed.is_empty() {
-        0.0
-    } else {
-        measure_text(font_db, params, trimmed).map_or(0.0, |m| m.width)
-    };
-    (seg_width, trimmed_width)
-}
-
-// ---------------------------------------------------------------------------
-// Break segment — a piece of a StyledRun between break opportunities
-// ---------------------------------------------------------------------------
-
-/// A piece of inline content for line packing — either a text segment or an atomic box.
-enum PackItem {
-    /// Text segment between break opportunities.
-    Text {
-        /// Index into the items array for style lookup.
-        item_index: usize,
-        /// The text of this segment.
-        text: String,
-        /// Break opportunity at the end of this segment, if any.
-        break_after: Option<BreakOpportunity>,
-    },
-    /// An atomic inline box (no break inside).
-    Atomic {
-        /// Index into the items array.
-        item_index: usize,
-    },
-    /// Absolutely positioned placeholder — records static position, zero-width.
-    Placeholder { entity: Entity },
-}
-
-/// Build pack items from inline items.
-///
-/// Text runs are split at break opportunities. Atomic boxes become single pack items.
-fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem> {
-    let mut pack_items = Vec::new();
-    for (idx, item) in items.iter().enumerate() {
-        match item {
-            InlineItem::Text(run) => {
-                if run.text.is_empty() {
-                    continue;
-                }
-                let breaks = find_break_opportunities(&run.text);
-                let mut prev_pos = 0;
-                for &(bp, kind) in &breaks {
-                    if bp > prev_pos {
-                        pack_items.push(PackItem::Text {
-                            item_index: idx,
-                            text: run.text[prev_pos..bp].to_string(),
-                            break_after: Some(kind),
-                        });
-                    }
-                    prev_pos = bp;
-                }
-                if prev_pos < run.text.len() {
-                    pack_items.push(PackItem::Text {
-                        item_index: idx,
-                        text: run.text[prev_pos..].to_string(),
-                        break_after: None,
-                    });
-                }
-            }
-            InlineItem::Atomic { .. } => {
-                pack_items.push(PackItem::Atomic { item_index: idx });
-            }
-            InlineItem::Placeholder(entity) => {
-                pack_items.push(PackItem::Placeholder { entity: *entity });
-            }
-        }
-    }
-    pack_items
-}
-
-// ---------------------------------------------------------------------------
-// Line box — a positioned line within an inline formatting context
-// ---------------------------------------------------------------------------
-
-/// A positioned line box produced during inline layout.
-struct LineBox {
-    /// Block-axis size (height for horizontal writing mode).
-    block_size: f32,
-}
-
-/// Tracks the bounding rectangle of an inline entity across line boxes.
-struct EntityBounds {
-    /// Inline-axis start on the first line.
-    inline_start: f32,
-    /// Inline-axis end on the last line.
-    inline_end: f32,
-    /// Block-axis offset of the first line.
-    block_start: f32,
-    /// Block-axis offset + size of the last line.
-    block_end: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +306,7 @@ pub fn layout_inline_context_fragmented(
 
     let is_vertical = !parent_style.writing_mode.is_horizontal();
     // Layout atomic inline boxes and fill in their dimensions.
-    layout_atomic_items(
+    atomic::layout_atomic_items(
         dom,
         &mut items,
         containing_inline_size,
@@ -501,10 +338,10 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    let pack_items = build_pack_items(&items);
+    let pack_items = pack::build_pack_items(&items);
 
     // Greedy line packing.
-    let mut packer = LinePacker::new(parent_entity);
+    let mut packer = pack::LinePacker::new(parent_entity);
     for pi in &pack_items {
         packer.pack(
             pi,
@@ -569,7 +406,7 @@ pub fn layout_inline_context_fragmented(
         .map(|lb| lb.block_size)
         .sum();
 
-    assign_inline_layout_boxes(dom, &packer.entity_bounds, content_origin, is_vertical);
+    pack::assign_inline_layout_boxes(dom, &packer.entity_bounds, content_origin, is_vertical);
 
     // Convert static positions from packer-relative to layout coordinates.
     let static_positions: HashMap<Entity, Point> = packer
@@ -602,296 +439,5 @@ pub fn layout_inline_context_fragmented(
         first_baseline: packer.first_baseline,
         line_count,
         break_after_line,
-    }
-}
-
-/// Layout all atomic inline items (`inline-block`, etc.) and fill their dimensions.
-fn layout_atomic_items(
-    dom: &mut EcsDom,
-    items: &mut [InlineItem],
-    containing_inline_size: f32,
-    content_origin: Point,
-    font_db: &FontDatabase,
-    layout_child: crate::ChildLayoutFn,
-    is_vertical: bool,
-) {
-    for item in items.iter_mut() {
-        if let InlineItem::Atomic {
-            entity,
-            inline_size,
-            block_size,
-        } = item
-        {
-            let input = crate::LayoutInput {
-                containing: elidex_plugin::CssSize::width_only(containing_inline_size),
-                containing_inline_size,
-                offset: content_origin,
-                font_db,
-                depth: 0,
-                float_ctx: None,
-                viewport: None,
-                fragmentainer: None,
-                break_token: None,
-                subgrid: None,
-            };
-            let lb = layout_child(dom, *entity, &input).layout_box;
-            let margin_box = lb.margin_box();
-            if is_vertical {
-                *inline_size = margin_box.size.height;
-                *block_size = margin_box.size.width;
-            } else {
-                *inline_size = margin_box.size.width;
-                *block_size = margin_box.size.height;
-            }
-        }
-    }
-}
-
-/// Line packer state — extracted to keep the main function under the line limit.
-struct LinePacker {
-    line_boxes: Vec<LineBox>,
-    entity_bounds: HashMap<Entity, EntityBounds>,
-    /// Static positions for absolutely positioned placeholders (CSS 2.1 §10.6.5).
-    /// Stored as `Point(inline_pos, block_pos)` in logical coordinates.
-    static_positions: HashMap<Entity, Point>,
-    current_inline: f32,
-    current_line_height: f32,
-    current_block_offset: f32,
-    on_line: bool,
-    parent_entity: Entity,
-    /// First baseline offset from the inline formatting context top.
-    /// Captured from the first text run on the first line.
-    first_baseline: Option<f32>,
-}
-
-impl LinePacker {
-    fn new(parent_entity: Entity) -> Self {
-        Self {
-            line_boxes: Vec::new(),
-            entity_bounds: HashMap::new(),
-            static_positions: HashMap::new(),
-            current_inline: 0.0,
-            current_line_height: 0.0,
-            current_block_offset: 0.0,
-            on_line: false,
-            parent_entity,
-            first_baseline: None,
-        }
-    }
-
-    fn pack(
-        &mut self,
-        pi: &PackItem,
-        items: &[InlineItem],
-        dom: &EcsDom,
-        font_db: &FontDatabase,
-        containing_inline_size: f32,
-        is_vertical: bool,
-    ) {
-        match pi {
-            PackItem::Text {
-                item_index,
-                text,
-                break_after,
-            } => {
-                let InlineItem::Text(run) = &items[*item_index] else {
-                    return;
-                };
-                let fam = run.family_refs();
-                let params = run.measure_params(&fam);
-                let seg_line_advance = if is_vertical {
-                    run.font_size
-                } else {
-                    run.line_height
-                };
-                let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, text);
-
-                // Capture first baseline: from the first text run on the first line.
-                // CSS 2.1 §10.8.1: baseline = line_y + half_leading + ascent
-                // half_leading = (line_height - (ascent - descent)) / 2
-                if self.first_baseline.is_none() && !is_vertical {
-                    if let Some(metrics) = measure_text(font_db, &params, text) {
-                        let em_height = metrics.ascent - metrics.descent;
-                        // Guard: em_height can be 0/negative (malformed font metrics) or
-                        // line_height can be NaN/inf from bad CSS — sanitize to avoid
-                        // propagating NaN into layout geometry.
-                        let half_leading = if em_height > 0.0 && run.line_height.is_finite() {
-                            (run.line_height - em_height) / 2.0
-                        } else {
-                            0.0
-                        };
-                        self.first_baseline =
-                            Some(self.current_block_offset + half_leading + metrics.ascent);
-                    }
-                }
-
-                self.place_item(
-                    seg_width,
-                    trimmed_width,
-                    seg_line_advance,
-                    run.entity,
-                    containing_inline_size,
-                );
-
-                if *break_after == Some(BreakOpportunity::Mandatory) {
-                    self.force_break();
-                }
-            }
-            PackItem::Atomic { item_index } => {
-                let InlineItem::Atomic {
-                    entity,
-                    inline_size,
-                    block_size,
-                } = &items[*item_index]
-                else {
-                    return;
-                };
-
-                // Capture baseline from atomic box if no text baseline yet.
-                // CSS 2.1 §10.8.1: atomic inline boxes use their own first_baseline,
-                // or fall back to the margin-box bottom edge.
-                if self.first_baseline.is_none() && !is_vertical {
-                    if let Ok(child_lb) = dom.world().get::<&LayoutBox>(*entity) {
-                        // Fallback: content-bottom + padding.bottom + border.bottom + margin.bottom
-                        // (the remaining distance from content top to margin-box bottom).
-                        let bl = child_lb.first_baseline.unwrap_or(
-                            child_lb.content.size.height
-                                + child_lb.padding.bottom
-                                + child_lb.border.bottom
-                                + child_lb.margin.bottom,
-                        );
-                        self.first_baseline = Some(
-                            self.current_block_offset
-                                + child_lb.margin.top
-                                + child_lb.border.top
-                                + child_lb.padding.top
-                                + bl,
-                        );
-                    }
-                }
-
-                // Atomic boxes don't break internally; treat as a single unit.
-                self.place_item(
-                    *inline_size,
-                    *inline_size,
-                    *block_size,
-                    *entity,
-                    containing_inline_size,
-                );
-            }
-            PackItem::Placeholder { entity } => {
-                // CSS 2.1 §10.6.5: record static position at current inline/block position.
-                // Zero-width, zero-height — does not advance cursor_x.
-                self.static_positions.insert(
-                    *entity,
-                    Point::new(self.current_inline, self.current_block_offset),
-                );
-            }
-        }
-    }
-
-    fn place_item(
-        &mut self,
-        full_width: f32,
-        trimmed_width: f32,
-        block_advance: f32,
-        entity: Entity,
-        containing_inline_size: f32,
-    ) {
-        if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
-            self.current_block_offset += self.current_line_height;
-            self.current_inline = 0.0;
-            self.current_line_height = 0.0;
-        }
-
-        let seg_inline_start = self.current_inline;
-        self.current_inline += full_width;
-        self.current_line_height = self.current_line_height.max(block_advance);
-        self.on_line = true;
-
-        if entity != self.parent_entity {
-            let seg_inline_end = seg_inline_start + full_width;
-            let line_block_end = self.current_block_offset + self.current_line_height;
-            self.entity_bounds
-                .entry(entity)
-                .and_modify(|b| {
-                    b.inline_end = seg_inline_end;
-                    b.block_end = line_block_end;
-                })
-                .or_insert(EntityBounds {
-                    inline_start: seg_inline_start,
-                    inline_end: seg_inline_end,
-                    block_start: self.current_block_offset,
-                    block_end: line_block_end,
-                });
-        }
-    }
-
-    fn force_break(&mut self) {
-        self.line_boxes.push(LineBox {
-            block_size: self.current_line_height,
-        });
-        self.current_block_offset += self.current_line_height;
-        self.current_inline = 0.0;
-        self.current_line_height = 0.0;
-        self.on_line = false;
-    }
-
-    fn finish(&mut self) {
-        if self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
-        }
-    }
-}
-
-/// Assign `LayoutBox` to inline elements based on their bounding rects.
-///
-/// Each entity that has a `ComputedStyle` (i.e. is an element, not a text node)
-/// and was tracked during line packing receives a `LayoutBox` with its
-/// bounding rectangle in layout coordinates.
-fn assign_inline_layout_boxes(
-    dom: &mut EcsDom,
-    entity_bounds: &HashMap<Entity, EntityBounds>,
-    content_origin: Point,
-    is_vertical: bool,
-) {
-    let (origin_x, origin_y) = (content_origin.x, content_origin.y);
-    for (entity, bounds) in entity_bounds {
-        if dom.world().get::<&ComputedStyle>(*entity).is_err() {
-            continue;
-        }
-        // Skip entities that already have a LayoutBox (e.g. from layout_child
-        // for atomic inline boxes like inline-block).
-        if dom.world().get::<&LayoutBox>(*entity).is_ok() {
-            continue;
-        }
-        let (x, y, w, h) = if is_vertical {
-            (
-                origin_x + bounds.block_start,
-                origin_y + bounds.inline_start,
-                bounds.block_end - bounds.block_start,
-                bounds.inline_end - bounds.inline_start,
-            )
-        } else {
-            (
-                origin_x + bounds.inline_start,
-                origin_y + bounds.block_start,
-                bounds.inline_end - bounds.inline_start,
-                bounds.block_end - bounds.block_start,
-            )
-        };
-        let lb = LayoutBox {
-            content: Rect::new(x, y, w, h),
-            padding: EdgeSizes::default(),
-            border: EdgeSizes::default(),
-            margin: EdgeSizes::default(),
-            first_baseline: None,
-        };
-        let _ = dom.world_mut().insert_one(*entity, lb);
     }
 }
