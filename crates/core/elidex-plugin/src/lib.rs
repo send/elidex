@@ -26,10 +26,11 @@ pub use computed_style::{
     BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan, ComputedStyle,
     ContentItem, ContentValue, Dimension, Direction, Display, EmptyCells, FlexBasis, FlexDirection,
     FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, GridTemplateAreas, GridTrackList,
-    JustifyContent, JustifyItems, JustifySelf, LineHeight, ListStyleType, MulticolInfo, Overflow,
-    Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation,
-    TextTransform, TrackBreadth, TrackSection, TrackSize, UnicodeBidi, VerticalAlign,
-    ViewportOverflow, Visibility, WhiteSpace, WritingMode,
+    JustifyContent, JustifyItems, JustifySelf, LineHeight, ListStyleType, MarginBoxContent,
+    MulticolInfo, NamedPageSize, Overflow, PageMargins, PageRule, PageSelector, PageSize,
+    PagedMediaContext, Position, TableLayout, TextAlign, TextDecorationLine, TextDecorationStyle,
+    TextOrientation, TextTransform, TrackBreadth, TrackSection, TrackSize, UnicodeBidi,
+    VerticalAlign, ViewportOverflow, Visibility, WhiteSpace, WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{

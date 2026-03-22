@@ -81,6 +81,7 @@ mod flex;
 mod float_visibility;
 mod fragmentation;
 mod grid;
+pub mod paged;
 mod table;
 mod text;
 mod writing_mode;
@@ -97,6 +98,10 @@ pub use fragmentation::{BoxDecorationBreak, BreakInsideValue, BreakValue};
 pub use grid::{
     validate_area_rectangles, AutoRepeatMode, GridAutoFlow, GridLine, GridTemplateAreas,
     GridTrackList, JustifyItems, JustifySelf, TrackBreadth, TrackSection, TrackSize,
+};
+pub use paged::{
+    MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector, PageSize,
+    PagedMediaContext,
 };
 pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
 pub use text::{
