@@ -151,6 +151,7 @@ mod tests {
             layout_child: dispatch_layout_child,
             depth: 0,
             viewport: None,
+            layout_generation: 0,
         }
     }
 

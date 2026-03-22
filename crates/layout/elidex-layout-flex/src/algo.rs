@@ -495,6 +495,7 @@ fn relayout_item_at_position(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: env.layout_generation,
     };
     let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 
@@ -512,6 +513,7 @@ fn relayout_item_at_position(
         border: child_lb.border,
         margin: child_lb.margin,
         first_baseline: child_lb.first_baseline,
+        layout_generation: env.layout_generation,
     };
     let _ = dom.world_mut().insert_one(item.entity, lb);
 }

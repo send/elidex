@@ -95,6 +95,12 @@ pub struct LayoutBox {
     /// CSS 2.1 §10.8.1: the first baseline of a box is the first baseline
     /// of its first in-flow line box or block child that has a baseline.
     pub first_baseline: Option<f32>,
+    /// Layout generation counter for per-fragment paged media rendering.
+    ///
+    /// Each page fragment is laid out with a unique generation value.
+    /// During the render walk, entities whose generation doesn't match the
+    /// current page are skipped. Default 0 (non-paged path — always visible).
+    pub layout_generation: u32,
 }
 
 impl LayoutBox {

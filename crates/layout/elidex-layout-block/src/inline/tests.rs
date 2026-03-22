@@ -68,6 +68,7 @@ fn empty_text_zero_height() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
@@ -84,6 +85,7 @@ fn no_children_zero_height() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
@@ -102,6 +104,7 @@ fn single_line_text() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!((h - css_line_height).abs() < f32::EPSILON);
@@ -121,6 +124,7 @@ fn mandatory_newline_break() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!((h - css_line_height * 2.0).abs() < f32::EPSILON);
@@ -141,6 +145,7 @@ fn text_wrapping_increases_height() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 1.0, parent, Point::ZERO, &env).height;
     assert!(h > css_line_height);
@@ -163,6 +168,7 @@ fn vertical_mode_uses_font_size_line_advance() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let block_dim =
         layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -189,6 +195,7 @@ fn vertical_lr_same_as_vertical_rl_for_height() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let block_dim =
         layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -214,6 +221,7 @@ fn horizontal_tb_uses_line_height() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -288,6 +296,7 @@ fn multi_style_line_height_uses_max() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     // Line height should be max(parent line height, span line height) = big_line_height
@@ -357,6 +366,7 @@ fn inline_span_gets_layout_box() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let _result = layout_inline_context(
         &mut dom,
@@ -406,6 +416,7 @@ fn parent_entity_does_not_get_inline_layout_box() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let _result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -453,6 +464,7 @@ fn inline_block_participates_in_ifc() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
 
@@ -537,6 +549,7 @@ fn mixed_block_inline_anonymous_box() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -601,6 +614,7 @@ fn block_only_children_no_anonymous_boxes() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -662,6 +676,7 @@ fn display_none_skipped_in_block_context() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -729,6 +744,7 @@ fn inline_baseline_from_text() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -772,6 +788,7 @@ fn inline_baseline_with_atomic_box() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -794,6 +811,7 @@ fn empty_inline_no_baseline() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let result = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env);
 
@@ -817,6 +835,7 @@ fn vertical_writing_mode_no_baseline() {
         layout_child: crate::layout_block_only,
         depth: 0,
         viewport: None,
+        layout_generation: 0,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -848,6 +867,7 @@ fn block_inline_text_baseline() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -902,6 +922,7 @@ fn nested_block_baseline_propagation() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -953,6 +974,7 @@ fn block_without_baseline_none() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -1009,6 +1031,7 @@ fn mixed_block_inline_baseline() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let result = crate::block::stack_block_children(
         &mut dom,

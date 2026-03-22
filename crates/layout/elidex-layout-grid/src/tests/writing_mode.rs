@@ -122,6 +122,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 
@@ -281,6 +282,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let _outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 
@@ -333,6 +335,7 @@ fn vertical_lr_padding_percent_resolves_against_inline_size() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
 

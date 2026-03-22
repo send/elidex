@@ -70,6 +70,7 @@ fn do_layout_table(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     layout_table(dom, entity, &input, layout_child).layout_box
 }

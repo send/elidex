@@ -89,6 +89,7 @@ pub fn layout_block(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
@@ -119,6 +120,7 @@ pub fn layout_block_with_height(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
@@ -418,6 +420,7 @@ pub fn layout_block_inner(
             fragmentainer: child_fragmentainer.as_ref(),
             break_token: child_bt_for_stack,
             subgrid: None,
+            layout_generation: input.layout_generation,
         };
         let is_bfc = establishes_bfc(&style);
         let mut result =
@@ -608,6 +611,7 @@ pub fn layout_block_inner(
         border,
         margin,
         first_baseline: block_first_baseline,
+        layout_generation: 0,
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
@@ -622,6 +626,7 @@ pub fn layout_block_inner(
             layout_child,
             depth,
             viewport: input.viewport,
+            layout_generation: input.layout_generation,
         };
         crate::positioned::layout_positioned_children(
             dom,

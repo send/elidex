@@ -298,6 +298,7 @@ pub fn layout_flex(
                 padding,
                 border,
                 margin,
+                layout_generation: input.layout_generation,
             },
         )
         .into();
@@ -347,6 +348,7 @@ pub fn layout_flex(
         layout_child,
         depth,
         viewport: input.viewport,
+        layout_generation: input.layout_generation,
     };
 
     // --- Parse break token for resumption ---
@@ -499,6 +501,7 @@ pub fn layout_flex(
         border,
         margin,
         first_baseline,
+        layout_generation: 0,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
@@ -520,6 +523,7 @@ pub fn layout_flex(
             layout_child,
             depth,
             viewport: input.viewport,
+            layout_generation: input.layout_generation,
         };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,

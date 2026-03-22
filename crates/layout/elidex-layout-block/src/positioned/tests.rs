@@ -717,6 +717,7 @@ fn fixed_uses_viewport() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -774,6 +775,7 @@ fn fixed_removed_from_flow() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -822,6 +824,7 @@ fn fixed_top_left_zero() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -870,6 +873,7 @@ fn fixed_percentage_against_viewport() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -932,6 +936,7 @@ fn fixed_inside_relative() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -1008,6 +1013,7 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -1076,6 +1082,7 @@ fn fixed_no_transform_uses_viewport() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 
@@ -1412,6 +1419,7 @@ fn vertical_rl_relative_offset() {
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         position: Position::Relative,
@@ -1502,6 +1510,7 @@ fn horizontal_tb_relative_offset_regression() {
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         position: Position::Relative,
@@ -1708,6 +1717,7 @@ fn vertical_rl_relative_offset_both_top_bottom() {
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         position: Position::Relative,
@@ -1736,6 +1746,7 @@ fn vertical_rl_relative_offset_both_left_right() {
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         position: Position::Relative,
@@ -1764,6 +1775,7 @@ fn vertical_lr_relative_offset_both_left_right() {
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         position: Position::Relative,
@@ -1824,6 +1836,7 @@ fn vertical_rl_fixed_positioning() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
 

@@ -28,6 +28,7 @@ fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     }
 }
 

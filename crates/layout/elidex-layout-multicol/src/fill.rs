@@ -329,5 +329,6 @@ fn build_column_input<'a>(
         fragmentainer: Some(frag_ctx),
         break_token,
         subgrid: None,
+        layout_generation: input.layout_generation,
     }
 }

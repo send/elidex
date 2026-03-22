@@ -67,6 +67,7 @@ pub(crate) fn build_table_layout_box(
         border: *border,
         margin: *margin,
         first_baseline,
+        layout_generation: 0,
     }
 }
 

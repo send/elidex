@@ -203,6 +203,8 @@ pub struct LayoutInput<'a> {
     pub break_token: Option<&'a BreakToken>,
     /// Parent grid context for subgrid items (CSS Grid Level 2 2).
     pub subgrid: Option<&'a SubgridContext>,
+    /// Layout generation counter for paged media (0 = non-paged, always visible).
+    pub layout_generation: u32,
 }
 
 impl<'a> LayoutInput<'a> {
@@ -226,6 +228,7 @@ impl<'a> LayoutInput<'a> {
             fragmentainer: None,
             break_token: None,
             subgrid: None,
+            layout_generation: 0,
         }
     }
 }
@@ -244,6 +247,8 @@ pub struct LayoutEnv<'a> {
     pub depth: u32,
     /// Viewport dimensions for fixed positioning.
     pub viewport: Option<Size>,
+    /// Layout generation counter for paged media (propagated to child inputs).
+    pub layout_generation: u32,
 }
 
 impl<'a> LayoutEnv<'a> {
@@ -255,6 +260,7 @@ impl<'a> LayoutEnv<'a> {
             layout_child,
             depth: input.depth,
             viewport: input.viewport,
+            layout_generation: input.layout_generation,
         }
     }
 
@@ -263,6 +269,7 @@ impl<'a> LayoutEnv<'a> {
     pub fn deeper(&self) -> Self {
         Self {
             depth: self.depth + 1,
+            // layout_generation propagated via struct update
             ..*self
         }
     }
@@ -309,6 +316,8 @@ pub struct EmptyContainerParams<'a> {
     pub margin: EdgeSizes,
     /// Computed style of the container.
     pub style: &'a elidex_plugin::ComputedStyle,
+    /// Layout generation for paged media (0 = non-paged).
+    pub layout_generation: u32,
 }
 
 /// Build a layout box for an empty or depth-limited container.
@@ -331,6 +340,7 @@ pub fn empty_container_box(
         border: params.border,
         margin: params.margin,
         first_baseline: None,
+        layout_generation: params.layout_generation,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
     lb

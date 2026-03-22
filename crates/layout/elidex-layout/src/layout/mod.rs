@@ -77,6 +77,7 @@ pub fn dispatch_layout_child(
             border: elidex_plugin::EdgeSizes::default(),
             margin: elidex_plugin::EdgeSizes::default(),
             first_baseline: None,
+            layout_generation: 0,
         }
         .into(),
         Display::Flex | Display::InlineFlex => {
@@ -103,6 +104,15 @@ pub fn dispatch_layout_child(
             dispatch_layout_child,
         ),
     };
+
+    // Stamp layout_generation on the entity's LayoutBox for per-fragment
+    // paged media rendering. The walk skips entities whose generation
+    // doesn't match the current page. Non-paged paths use generation=0.
+    if input.layout_generation > 0 {
+        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(entity) {
+            lb.layout_generation = input.layout_generation;
+        }
+    }
 
     // CSS 2.1 §9.4.3: relative offset.
     // Return the original LayoutBox (without offset) so siblings use the
@@ -190,6 +200,7 @@ pub fn layout_paged(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
 
     let fragments = layout_fragmented(dom, root, &input, frag_ctx);
@@ -219,7 +230,7 @@ fn is_blank_fragment(outcome: &elidex_layout_block::LayoutOutcome) -> bool {
 }
 
 /// Collect all page selectors from `@page` rules that match a given page.
-fn match_page_selectors(
+pub fn match_page_selectors(
     page_rules: &[elidex_plugin::PageRule],
     page_number: usize,
     is_blank: bool,
@@ -248,10 +259,30 @@ pub fn layout_fragmented(
     input: &LayoutInput<'_>,
     fragmentainer: elidex_layout_block::FragmentainerContext,
 ) -> Vec<elidex_layout_block::LayoutOutcome> {
+    layout_fragmented_with_tokens(dom, entity, input, fragmentainer).0
+}
+
+/// Like [`layout_fragmented`], but also returns the break token chain.
+///
+/// Each entry in `tokens[i]` is the break token that was used as INPUT to
+/// produce fragment `i` (i.e., `tokens[0] = None` for the first page).
+/// The chain is needed for Phase 2 of interleaved paged media rendering:
+/// each token is replayed to re-layout the corresponding page fragment.
+pub fn layout_fragmented_with_tokens(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    fragmentainer: elidex_layout_block::FragmentainerContext,
+) -> (
+    Vec<elidex_layout_block::LayoutOutcome>,
+    Vec<Option<elidex_layout_block::BreakToken>>,
+) {
     let mut fragments = Vec::new();
+    let mut tokens = Vec::new();
     let mut current_token: Option<elidex_layout_block::BreakToken> = None;
 
     for _ in 0..MAX_FRAGMENTS {
+        tokens.push(current_token.clone());
         let frag_input = LayoutInput {
             fragmentainer: Some(&fragmentainer),
             break_token: current_token.as_ref(),
@@ -266,7 +297,7 @@ pub fn layout_fragmented(
             break;
         }
     }
-    fragments
+    (fragments, tokens)
 }
 
 /// Layout the entire DOM tree.
@@ -318,6 +349,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
 
     if let Some(display) = root_display {

@@ -501,6 +501,7 @@ pub fn layout_absolutely_positioned(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: env.layout_generation,
     };
     let child_lb = (env.layout_child)(dom, entity, &child_input).layout_box;
 
@@ -511,6 +512,7 @@ pub fn layout_absolutely_positioned(
         border,
         margin: elidex_plugin::EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
         first_baseline: child_lb.first_baseline,
+        layout_generation: env.layout_generation,
     };
     let _ = dom.world_mut().insert_one(entity, lb);
 

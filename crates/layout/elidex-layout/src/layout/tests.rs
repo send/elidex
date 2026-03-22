@@ -787,6 +787,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let fragments = layout_fragmented(&mut dom, div, &input, frag);
     assert_eq!(fragments.len(), 1, "content fits → 1 fragment");
@@ -833,6 +834,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let fragments = layout_fragmented(&mut dom, parent, &input, frag);
     assert!(
@@ -901,6 +903,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let fragments = layout_fragmented(&mut dom, parent, &input, frag);
     assert_eq!(fragments.len(), 2, "forced break → 2 fragments");
@@ -935,6 +938,7 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let fragments = layout_fragmented(&mut dom, div, &input, frag);
     assert_eq!(fragments.len(), 1);

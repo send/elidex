@@ -91,8 +91,7 @@ pub(super) fn build_paged_pipeline(
     let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
     resolve_with_compat(dom, &stylesheet_refs, registry, viewport);
 
-    let fragments = elidex_layout::layout_paged(dom, page_ctx, font_db);
-    elidex_render::build_paged_display_lists(dom, font_db, &fragments, page_ctx)
+    elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
 }
 
 /// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.

@@ -32,6 +32,7 @@ fn do_layout_flex_fragmented(
         fragmentainer: fragmentainer.as_ref(),
         break_token: break_token.as_ref(),
         subgrid: None,
+        layout_generation: 0,
     };
     layout_flex(dom, entity, &input, layout_child)
 }

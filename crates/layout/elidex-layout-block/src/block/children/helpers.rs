@@ -295,6 +295,7 @@ pub(super) fn layout_float(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: input.layout_generation,
     };
     let child_box = layout_child(dom, child, &temp_input).layout_box;
     let content_width = child_box.content.size.width;
@@ -347,6 +348,7 @@ pub(super) fn layout_float(
         border,
         margin: EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left),
         first_baseline: child_box.first_baseline,
+        layout_generation: input.layout_generation,
     };
     let _ = dom.world_mut().insert_one(child, lb);
 

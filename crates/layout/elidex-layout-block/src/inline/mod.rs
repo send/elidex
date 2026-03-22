@@ -314,6 +314,7 @@ pub fn layout_inline_context_fragmented(
         font_db,
         layout_child,
         is_vertical,
+        env.layout_generation,
     );
 
     // Verify at least one text run has a usable font (atomics don't need fonts).
@@ -406,7 +407,13 @@ pub fn layout_inline_context_fragmented(
         .map(|lb| lb.block_size)
         .sum();
 
-    pack::assign_inline_layout_boxes(dom, &packer.entity_bounds, content_origin, is_vertical);
+    pack::assign_inline_layout_boxes(
+        dom,
+        &packer.entity_bounds,
+        content_origin,
+        is_vertical,
+        env.layout_generation,
+    );
 
     // Convert static positions from packer-relative to layout coordinates.
     let static_positions: HashMap<Entity, Point> = packer

@@ -47,6 +47,16 @@ pub(crate) struct PaintContext<'a> {
     /// `counter-reset`, modified by `counter-increment` and `counter-set`,
     /// and evaluated by `counter()` / `counters()` functions.
     pub(crate) counter_state: CounterState,
+    /// Expected layout generation for per-fragment paged media rendering.
+    ///
+    /// When `Some(gen)`, the walk skips entities whose `LayoutBox.layout_generation`
+    /// doesn't match. When `None` (non-paged path), all entities are visited.
+    pub(crate) expected_generation: Option<u32>,
+    /// Entities that are continuations from a previous page fragment.
+    ///
+    /// For these entities, `counter-increment` is suppressed per CSS
+    /// Fragmentation Level 3 §4.
+    pub(crate) continuation_entities: Option<std::collections::HashSet<elidex_ecs::Entity>>,
 }
 
 /// Pre-order walk: emit paint commands for this entity, then recurse.
@@ -77,6 +87,18 @@ pub(crate) fn walk(
         return;
     }
 
+    // Per-fragment paged media: skip entities not belonging to this page.
+    // Only check entities that HAVE a LayoutBox — text nodes and other
+    // non-layout entities don't have one and should be visited normally
+    // (their visibility is determined by their parent's generation).
+    if let Some(expected_gen) = ctx.expected_generation {
+        if let Ok(lb) = ctx.dom.world().get::<&LayoutBox>(entity) {
+            if lb.layout_generation != expected_gen {
+                return;
+            }
+        }
+    }
+
     // CSS counter scope: push scope and process counter properties on entry.
     ctx.counter_state.push_scope();
     if let Ok(mut style) = ctx.dom.world().get::<&ComputedStyle>(entity).map(|s| (*s).clone()) {
@@ -96,18 +118,13 @@ pub(crate) fn walk(
             };
             apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
         }
-        // CSS Fragmentation L3 §4: counter-increment should be suppressed on
-        // continuation fragments. Currently always false because:
-        // - The render walk is a single pre-order DOM traversal; each entity
-        //   is visited exactly once per walk (no duplicates).
-        // - Paged media uses a fresh CounterState per page, so counters are
-        //   recalculated from scratch each time.
-        // - Multicol lays out columns without duplicating entities in the tree.
-        //
-        // When the renderer gains per-fragment layout data (so that a
-        // fragmented element can render differently in each fragment), this
-        // should use the fragment's break_token to detect continuations.
-        ctx.counter_state.process_element(&style, false);
+        // CSS Fragmentation L3 §4: suppress counter-increment on continuation
+        // entities (those that started on a previous page fragment).
+        let is_continuation = ctx
+            .continuation_entities
+            .as_ref()
+            .is_some_and(|set| set.contains(&entity));
+        ctx.counter_state.process_element(&style, is_continuation);
     }
 
     // Fetch ComputedStyle once for display/visibility/painting checks.

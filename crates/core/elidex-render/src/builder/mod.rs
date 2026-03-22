@@ -152,6 +152,8 @@ pub fn build_display_list_with_scroll(
         caret_visible,
         scroll_offset,
         counter_state: CounterState::new(),
+        expected_generation: None,
+        continuation_entities: None,
     };
     let roots = find_roots(dom);
     for root in roots {
@@ -223,6 +225,8 @@ pub fn build_paged_display_lists(
                 caret_visible: false,
                 scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
                 counter_state,
+                expected_generation: None,
+                continuation_entities: None,
             };
 
             let roots = find_roots(dom);
@@ -261,6 +265,215 @@ pub fn build_paged_display_lists(
         pages,
         page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
     }
+}
+
+/// Build a multi-page display list with per-fragment layout interleaving.
+///
+/// Solves three problems with the simpler [`build_paged_display_lists`]:
+///
+/// 1. **Layout overwrites**: Each fragment's layout overwrites ECS `LayoutBox`
+///    components. By interleaving layout and render per page, each page sees
+///    the correct positions.
+///
+/// 2. **Fragment-scoped walk**: Only entities belonging to the current page
+///    fragment are rendered, via `layout_generation` tagging.
+///
+/// 3. **Continuation detection**: Entities split across page breaks suppress
+///    `counter-increment` on continuation fragments (CSS Fragmentation L3 §4).
+///
+/// # Two-phase approach
+///
+/// - **Phase 1**: `layout_fragmented_with_tokens()` determines page count and
+///   captures the break token chain. Page count is needed for `counter(pages)`.
+/// - **Phase 2**: For each page, re-layout with a unique generation, then
+///   walk (skipping non-matching generations) and render margin boxes.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn build_paged_display_lists_interleaved(
+    dom: &mut EcsDom,
+    font_db: &FontDatabase,
+    page_ctx: &elidex_plugin::PagedMediaContext,
+) -> crate::display_list::PagedDisplayList {
+    use crate::display_list::{DisplayList, PagedDisplayList};
+
+    let roots = find_roots_mut(dom);
+    let Some(root) = roots.first().copied() else {
+        return PagedDisplayList {
+            pages: Vec::new(),
+            page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+        };
+    };
+
+    let content_width = page_ctx.content_width();
+    let content_height = page_ctx.content_height();
+    if content_height <= 0.0 || content_width <= 0.0 {
+        return PagedDisplayList {
+            pages: Vec::new(),
+            page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+        };
+    }
+
+    let frag_ctx = elidex_layout_block::FragmentainerContext {
+        available_block_size: content_height,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+
+    let base_input = elidex_layout_block::LayoutInput {
+        containing: elidex_plugin::CssSize::definite(content_width, content_height),
+        containing_inline_size: content_width,
+        offset: elidex_plugin::Point::new(page_ctx.page_margins.left, page_ctx.page_margins.top),
+        font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height)),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+    };
+
+    // Phase 1: determine page count + break token chain.
+    let (phase1_fragments, tokens) =
+        elidex_layout::layout_fragmented_with_tokens(dom, root, &base_input, frag_ctx);
+    let total_pages = phase1_fragments.len();
+
+    // Phase 2: interleaved layout + render per page.
+    let mut pages = Vec::with_capacity(total_pages);
+    let mut counter_state = elidex_style::counter::CounterState::new();
+
+    for page_num in 1..=total_pages {
+        let page_index = page_num - 1;
+        let prev_token = tokens.get(page_index).and_then(|t| t.as_ref());
+        #[allow(clippy::cast_possible_truncation)]
+        let generation = page_num as u32;
+
+        // Re-layout this fragment with the correct generation stamp.
+        let frag_input = elidex_layout_block::LayoutInput {
+            fragmentainer: Some(&frag_ctx),
+            break_token: prev_token,
+            layout_generation: generation,
+            ..base_input
+        };
+        let outcome = elidex_layout::dispatch_layout_child(dom, root, &frag_input);
+        let is_blank = outcome.layout_box.content.size.height < 0.5
+            && outcome.layout_box.content.size.width < 0.5;
+
+        // Build PageFragment metadata for margin box rendering.
+        let fragment = elidex_layout::PageFragment {
+            layout_box: outcome.layout_box,
+            page_number: page_num,
+            matched_selectors: elidex_layout::match_page_selectors(
+                &page_ctx.page_rules,
+                page_num,
+                is_blank,
+            ),
+            is_blank,
+        };
+
+        let (page_width, page_height) =
+            page_ctx.effective_page_size(page_num, is_blank);
+        let margins = page_ctx.effective_margins(page_num, is_blank);
+
+        // Set page/pages counters.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let page_i32 = page_num.min(i32::MAX as usize) as i32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let total_i32 = total_pages.min(i32::MAX as usize) as i32;
+        counter_state.set_counter("page", page_i32);
+        counter_state.set_counter("pages", total_i32);
+
+        let mut dl = DisplayList::default();
+        let mut font_cache = FontCache::new();
+
+        if !is_blank {
+            // Build continuation entity set from the previous break token.
+            let continuations = collect_continuation_entities(prev_token);
+
+            let mut ctx = PaintContext {
+                dom: &*dom,
+                font_db,
+                font_cache: &mut font_cache,
+                dl: &mut dl,
+                caret_visible: false,
+                scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
+                counter_state,
+                expected_generation: Some(generation),
+                continuation_entities: if continuations.is_empty() {
+                    None
+                } else {
+                    Some(continuations)
+                },
+            };
+
+            let roots = find_roots(&*dom);
+            for r in roots {
+                walk(
+                    &mut ctx,
+                    r,
+                    0,
+                    &elidex_plugin::transform_math::Perspective::default(),
+                    false,
+                );
+            }
+            counter_state = ctx.counter_state;
+        }
+
+        // Render margin boxes.
+        emit_margin_boxes(
+            &mut dl,
+            font_db,
+            &mut font_cache,
+            &page_ctx.page_rules,
+            &fragment,
+            page_width,
+            page_height,
+            &margins,
+            &counter_state,
+        );
+
+        pages.push(dl);
+
+        // Flatten counter state for cross-page persistence.
+        counter_state.flatten();
+    }
+
+    PagedDisplayList {
+        pages,
+        page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+    }
+}
+
+/// Collect entities that are continuations from a previous fragment.
+///
+/// Walks the break token chain and collects all entities mentioned.
+/// These entities should suppress `counter-increment` on the current page
+/// per CSS Fragmentation L3 §4.
+fn collect_continuation_entities(
+    break_token: Option<&elidex_layout_block::BreakToken>,
+) -> std::collections::HashSet<elidex_ecs::Entity> {
+    let mut set = std::collections::HashSet::new();
+    let mut stack = Vec::new();
+    if let Some(bt) = break_token {
+        stack.push(bt);
+    }
+    while let Some(bt) = stack.pop() {
+        set.insert(bt.entity);
+        if let Some(ref child_bt) = bt.child_break_token {
+            stack.push(child_bt);
+        }
+    }
+    set
+}
+
+/// Find root entities (mutable DOM access version for interleaved layout+render).
+fn find_roots_mut(dom: &EcsDom) -> Vec<elidex_ecs::Entity> {
+    dom.root_entities()
+        .into_iter()
+        .filter(|&e| {
+            dom.world().get::<&elidex_plugin::LayoutBox>(e).is_ok()
+                || dom.get_first_child(e).is_some()
+        })
+        .collect()
 }
 
 /// Default font size for margin box text (CSS Paged Media L3 §4.2).

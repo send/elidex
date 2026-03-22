@@ -214,6 +214,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);
     // 10% of inline size 500 = 50.
@@ -247,6 +248,7 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);
     // 10% of inline size 500 = 50.

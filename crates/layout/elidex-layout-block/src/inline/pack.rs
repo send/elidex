@@ -314,6 +314,7 @@ pub(super) fn assign_inline_layout_boxes(
     entity_bounds: &HashMap<Entity, EntityBounds>,
     content_origin: Point,
     is_vertical: bool,
+    layout_generation: u32,
 ) {
     let (origin_x, origin_y) = (content_origin.x, content_origin.y);
     for (entity, bounds) in entity_bounds {
@@ -346,6 +347,7 @@ pub(super) fn assign_inline_layout_boxes(
             border: EdgeSizes::default(),
             margin: EdgeSizes::default(),
             first_baseline: None,
+            layout_generation,
         };
         let _ = dom.world_mut().insert_one(*entity, lb);
     }

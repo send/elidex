@@ -264,6 +264,7 @@ mod tests {
                 left: 5.0,
             },
             first_baseline: None,
+            layout_generation: 0,
         };
         let mb = b.margin_box();
         assert_eq!(mb.origin.x, 10.0); // 30 - 10(pad) - 5(border) - 5(margin)
@@ -302,6 +303,7 @@ mod tests {
                 left: 0.0,
             },
             first_baseline: None,
+            layout_generation: 0,
         };
         let bb = b.border_box();
         assert_eq!(bb.origin.x, 6.0); // 20 - 10 (pad.left) - 4 (border.left)

@@ -248,6 +248,7 @@ pub fn layout_grid(
                 padding,
                 border,
                 margin,
+                layout_generation: input.layout_generation,
             },
         )
         .into();
@@ -567,6 +568,7 @@ pub fn layout_grid(
         layout_child,
         depth,
         viewport: input.viewport,
+        layout_generation: input.layout_generation,
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
 
@@ -611,6 +613,7 @@ pub fn layout_grid(
         border,
         margin,
         first_baseline,
+        layout_generation: 0,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
 
@@ -649,6 +652,7 @@ pub fn layout_grid(
             layout_child,
             depth,
             viewport: input.viewport,
+            layout_generation: input.layout_generation,
         };
         for child in abs_children {
             let cb = resolve_grid_abspos_cb(dom, child, &col_axis, &row_axis, content_origin, &pb);

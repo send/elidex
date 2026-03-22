@@ -7,6 +7,7 @@ use elidex_text::FontDatabase;
 use super::InlineItem;
 
 /// Layout all atomic inline items (`inline-block`, etc.) and fill their dimensions.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn layout_atomic_items(
     dom: &mut EcsDom,
     items: &mut [InlineItem],
@@ -15,6 +16,7 @@ pub(super) fn layout_atomic_items(
     font_db: &FontDatabase,
     layout_child: crate::ChildLayoutFn,
     is_vertical: bool,
+    layout_generation: u32,
 ) {
     for item in items.iter_mut() {
         if let InlineItem::Atomic {
@@ -34,6 +36,7 @@ pub(super) fn layout_atomic_items(
                 fragmentainer: None,
                 break_token: None,
                 subgrid: None,
+                layout_generation,
             };
             let lb = layout_child(dom, *entity, &input).layout_box;
             let margin_box = lb.margin_box();

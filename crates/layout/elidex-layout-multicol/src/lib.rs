@@ -207,6 +207,7 @@ pub fn layout_multicol(
                     layout_child,
                     depth,
                     viewport: input.viewport,
+                    layout_generation: input.layout_generation,
                 };
                 let env = ColumnFillEnv {
                     input,
@@ -261,6 +262,7 @@ pub fn layout_multicol(
                     fragmentainer: None,
                     break_token: None,
                     subgrid: None,
+                    layout_generation: input.layout_generation,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
                 // Use margin_box() for spanner block extent.
@@ -321,6 +323,7 @@ pub fn layout_multicol(
         border,
         margin,
         first_baseline: None,
+        layout_generation: 0,
     };
 
     let _ = dom.world_mut().insert_one(entity, lb.clone());
@@ -344,6 +347,7 @@ pub fn layout_multicol(
             layout_child,
             depth,
             viewport: input.viewport,
+            layout_generation: input.layout_generation,
         };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,

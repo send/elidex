@@ -216,6 +216,7 @@ fn make_bordered_box(
         },
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let side = BorderSide {
         width: border_width,
@@ -322,6 +323,7 @@ fn make_column_rule_fixtures(
         border: EdgeSizes::default(),
         margin: EdgeSizes::default(),
         first_baseline: None,
+        layout_generation: 0,
     };
     let style = ComputedStyle {
         column_rule_style: rule_style,

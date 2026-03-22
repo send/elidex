@@ -36,6 +36,7 @@ fn do_layout_grid(
         fragmentainer: None,
         break_token: None,
         subgrid: None,
+        layout_generation: 0,
     };
     layout_grid(dom, entity, &input, layout_child).layout_box
 }

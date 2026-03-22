@@ -154,6 +154,27 @@ impl CounterState {
             _ => format_counter_value(0, style),
         }
     }
+    /// Flatten counter state for cross-page persistence.
+    ///
+    /// Preserves the top value of each counter while resetting scope depth
+    /// to 0 and collapsing all stacks to a single entry. Used between pages
+    /// in paged media rendering so that document-order counter values
+    /// accumulate correctly across page boundaries.
+    pub fn flatten(&mut self) {
+        self.scope_depth = 0;
+        for stack in self.counters.values_mut() {
+            if let Some(top) = stack.last() {
+                let value = top.value;
+                let reversed = top.reversed;
+                stack.clear();
+                stack.push(CounterInstance {
+                    scope_depth: 0,
+                    value,
+                    reversed,
+                });
+            }
+        }
+    }
 }
 
 impl Default for CounterState {
