@@ -39,6 +39,12 @@ impl FontDatabase {
         Self { db }
     }
 
+    /// Returns `true` if the database contains at least one font face.
+    #[must_use]
+    pub fn has_fonts(&self) -> bool {
+        self.db.faces().next().is_some()
+    }
+
     /// Queries for a font matching any of the given family names, weight, and style.
     ///
     /// CSS generic family names (`serif`, `sans-serif`, `monospace`,
