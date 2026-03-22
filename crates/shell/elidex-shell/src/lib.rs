@@ -188,6 +188,9 @@ fn apply_cssom_mutations(
     mutations: &[elidex_js_boa::bridge::CssomMutation],
     registry: &elidex_plugin::CssPropertyRegistry,
 ) {
+    // Track which sheets were modified for batched source_order recomputation.
+    let mut dirty_sheets = std::collections::HashSet::new();
+
     for mutation in mutations {
         match mutation {
             elidex_js_boa::bridge::CssomMutation::InsertRule {
@@ -201,20 +204,15 @@ fn apply_cssom_mutations(
                 if *rule_index > sheet.rules.len() {
                     continue;
                 }
-                // Parse the rule using the full CSS parser.
                 let parsed = elidex_css::parse_stylesheet_with_registry(
                     rule_text,
                     sheet.origin,
                     Some(registry),
                 );
                 if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    rule.source_order = 0; // placeholder, recomputed below
+                    rule.source_order = 0;
                     sheet.rules.insert(*rule_index, rule);
-                    // Recompute source_order for all rules so they remain
-                    // monotonically increasing with position.
-                    for (i, r) in sheet.rules.iter_mut().enumerate() {
-                        r.source_order = u32::try_from(i).unwrap_or(u32::MAX);
-                    }
+                    dirty_sheets.insert(*sheet_index);
                 }
             }
             elidex_js_boa::bridge::CssomMutation::DeleteRule {
@@ -226,7 +224,17 @@ fn apply_cssom_mutations(
                 };
                 if *rule_index < sheet.rules.len() {
                     sheet.rules.remove(*rule_index);
+                    dirty_sheets.insert(*sheet_index);
                 }
+            }
+        }
+    }
+
+    // Batch recompute source_order for modified sheets (O(n) per sheet, not per mutation).
+    for &idx in &dirty_sheets {
+        if let Some(sheet) = stylesheets.get_mut(idx) {
+            for (i, r) in sheet.rules.iter_mut().enumerate() {
+                r.source_order = u32::try_from(i).unwrap_or(u32::MAX);
             }
         }
     }
