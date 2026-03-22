@@ -229,26 +229,36 @@ fn set_elapsed_and_pseudo(
     );
 }
 
+fn set_transition_payload(
+    init: &mut ObjectInitializer<'_>,
+    t: &elidex_plugin::TransitionEventInit,
+) {
+    set_elapsed_and_pseudo(init, t.elapsed_time, &t.pseudo_element);
+    init.property(
+        js_string!("propertyName"),
+        JsValue::from(js_string!(t.property_name.as_str())),
+        RO,
+    );
+}
+
+fn set_animation_payload(
+    init: &mut ObjectInitializer<'_>,
+    a: &elidex_plugin::AnimationEventInit,
+) {
+    set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
+    init.property(
+        js_string!("animationName"),
+        JsValue::from(js_string!(a.animation_name.as_str())),
+        RO,
+    );
+}
+
 fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPayload) {
     match payload {
         EventPayload::Mouse(m) => set_mouse_payload(init, m),
         EventPayload::Keyboard(k) => set_keyboard_payload(init, k),
-        EventPayload::Transition(t) => {
-            set_elapsed_and_pseudo(init, t.elapsed_time, &t.pseudo_element);
-            init.property(
-                js_string!("propertyName"),
-                JsValue::from(js_string!(t.property_name.as_str())),
-                RO,
-            );
-        }
-        EventPayload::Animation(a) => {
-            set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
-            init.property(
-                js_string!("animationName"),
-                JsValue::from(js_string!(a.animation_name.as_str())),
-                RO,
-            );
-        }
+        EventPayload::Transition(t) => set_transition_payload(init, t),
+        EventPayload::Animation(a) => set_animation_payload(init, a),
         EventPayload::Input(i) => set_input_payload(init, i),
         EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
         EventPayload::Composition(c) => set_composition_payload(init, c),
