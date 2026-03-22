@@ -12,9 +12,9 @@ pub use attrs::{
     HasAttribute, SetClassName, SetId, ToggleAttribute,
 };
 pub use layout_query::{
-    GetBoundingClientRect, GetClientHeight, GetClientLeft, GetClientTop, GetClientWidth,
-    GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight,
-    GetScrollLeft, GetScrollTop, GetScrollWidth,
+    GetBoundingClientRect, GetClientHeight, GetClientLeft, GetClientRects, GetClientTop,
+    GetClientWidth, GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth,
+    GetScrollHeight, GetScrollLeft, GetScrollTop, GetScrollWidth, ScrollIntoView,
 };
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{

@@ -144,11 +144,19 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("scrollTo"), 2, scroll_to)
         .expect("failed to register scrollTo");
 
-    // scrollBy(x, y) — alias that adds to current scroll.
-    let scroll_by = NativeFunction::from_copy_closure(|_this, _args, _ctx| {
-        // Simplified: scrollBy not yet functional (needs scroll offset addition).
-        Ok(JsValue::undefined())
-    });
+    // scrollBy(x, y) — adds delta to current scroll offset.
+    let b_scroll_by = b.clone();
+    let scroll_by = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let (x, y) = parse_scroll_args(args, ctx)?;
+            let cur_x = f64::from(bridge.scroll_x());
+            let cur_y = f64::from(bridge.scroll_y());
+            #[allow(clippy::cast_possible_truncation)]
+            bridge.set_scroll_offset((cur_x + x) as f32, (cur_y + y) as f32);
+            Ok(JsValue::undefined())
+        },
+        b_scroll_by,
+    );
     ctx.register_global_builtin_callable(js_string!("scrollBy"), 2, scroll_by)
         .expect("failed to register scrollBy");
 
@@ -183,45 +191,118 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
         .expect("failed to register matchMedia");
 
-    // window.getSelection() → returns a simplified Selection object stub
-    let get_selection = NativeFunction::from_fn_ptr(|_this, _args, ctx| {
-        // Simplified Selection stub — returns an object with type="None", rangeCount=0.
-        let mut obj = ObjectInitializer::new(ctx);
-        obj.property(
-            js_string!("type"),
-            JsValue::from(js_string!("None")),
-            Attribute::READONLY,
-        );
-        obj.property(
-            js_string!("rangeCount"),
-            JsValue::from(0),
-            Attribute::READONLY,
-        );
-        obj.property(
-            js_string!("isCollapsed"),
-            JsValue::from(true),
-            Attribute::READONLY,
-        );
-        // toString() → empty string
-        obj.function(
-            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::from(js_string!("")))),
-            js_string!("toString"),
-            0,
-        );
-        // getRangeAt() → stub (throws for now)
-        obj.function(
-            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::null())),
-            js_string!("getRangeAt"),
-            1,
-        );
-        // removeAllRanges() → no-op
-        obj.function(
-            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
-            js_string!("removeAllRanges"),
-            0,
-        );
-        Ok(obj.build().into())
-    });
+    // window.getSelection() → returns a Selection object integrated with Range.
+    let b_sel = b.clone();
+    let get_selection = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, ctx| {
+            let has_range = bridge.selection_range_id().is_some();
+            let range_count = i32::from(has_range);
+
+            let mut obj = ObjectInitializer::new(ctx);
+
+            let sel_type = if has_range {
+                js_string!("Range")
+            } else {
+                js_string!("None")
+            };
+            obj.property(
+                js_string!("type"),
+                JsValue::from(sel_type),
+                Attribute::READONLY,
+            );
+            obj.property(
+                js_string!("rangeCount"),
+                JsValue::from(range_count),
+                Attribute::READONLY,
+            );
+
+            // isCollapsed — read from the underlying Range if present.
+            let collapsed = bridge
+                .selection_range_id()
+                .is_none_or(|rid| bridge.with_range(rid, |r| r.collapsed()).unwrap_or(true));
+            obj.property(
+                js_string!("isCollapsed"),
+                JsValue::from(collapsed),
+                Attribute::READONLY,
+            );
+
+            // toString() → empty string (simplified)
+            obj.function(
+                NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::from(js_string!("")))),
+                js_string!("toString"),
+                0,
+            );
+
+            // getRangeAt(index) → returns the Range JS object if selection exists.
+            let b_gra = bridge.clone();
+            obj.function(
+                NativeFunction::from_copy_closure_with_captures(
+                    |_this, args, bridge, ctx| {
+                        let index = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+                        if index as u32 != 0 {
+                            return Err(boa_engine::JsNativeError::range()
+                                .with_message("index out of range")
+                                .into());
+                        }
+                        match bridge.selection_range_id() {
+                            Some(rid) => {
+                                crate::globals::document::build_range_object(rid, bridge, ctx)
+                            }
+                            None => Err(boa_engine::JsNativeError::range()
+                                .with_message("no range in selection")
+                                .into()),
+                        }
+                    },
+                    b_gra,
+                ),
+                js_string!("getRangeAt"),
+                1,
+            );
+
+            // addRange(range) → store range_id in bridge.selection_range_id.
+            let b_ar = bridge.clone();
+            obj.function(
+                NativeFunction::from_copy_closure_with_captures(
+                    |_this, args, bridge, ctx| {
+                        if let Some(range_obj) = args.first().and_then(JsValue::as_object) {
+                            if let Ok(id_val) =
+                                range_obj.get(js_string!("__elidex_traversal_id__"), ctx)
+                            {
+                                if let Some(id) = id_val.as_number() {
+                                    #[allow(
+                                        clippy::cast_possible_truncation,
+                                        clippy::cast_sign_loss
+                                    )]
+                                    bridge.set_selection_range_id(Some(id as u64));
+                                }
+                            }
+                        }
+                        Ok(JsValue::undefined())
+                    },
+                    b_ar,
+                ),
+                js_string!("addRange"),
+                1,
+            );
+
+            // removeAllRanges() → clears selection_range_id.
+            let b_rar = bridge.clone();
+            obj.function(
+                NativeFunction::from_copy_closure_with_captures(
+                    |_this, _args, bridge, _ctx| {
+                        bridge.set_selection_range_id(None);
+                        Ok(JsValue::undefined())
+                    },
+                    b_rar,
+                ),
+                js_string!("removeAllRanges"),
+                0,
+            );
+
+            Ok(obj.build().into())
+        },
+        b_sel,
+    );
     ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
         .expect("failed to register getSelection");
 }

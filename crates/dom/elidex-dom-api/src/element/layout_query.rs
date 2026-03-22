@@ -164,6 +164,100 @@ impl_layout_handler!(GetScrollLeft, "scrollLeft.get", |dom, entity| {
 });
 
 // ---------------------------------------------------------------------------
+// getClientRects
+// ---------------------------------------------------------------------------
+
+/// `element.getClientRects()` — returns a list of `DOMRect` values.
+///
+/// For block elements, returns a single rect (same as `getBoundingClientRect`).
+/// For inline elements, a simplified single rect is returned (per-line rects
+/// require line box information not yet available).
+pub struct GetClientRects;
+
+impl DomApiHandler for GetClientRects {
+    fn method_name(&self) -> &str {
+        "getClientRects"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let bb = get_border_box(dom, this);
+        let (scroll_x, scroll_y) = accumulated_scroll_offset(dom, this);
+        // Return a single DOMRect as a newline-separated list of "x,y,w,h" entries.
+        // The JS bridge splits on newlines to build the DOMRectList.
+        Ok(dom_rect_value(bb.0 - scroll_x, bb.1 - scroll_y, bb.2, bb.3))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// scrollIntoView
+// ---------------------------------------------------------------------------
+
+/// `element.scrollIntoView()` — scroll the nearest scrollable ancestor so the
+/// element is visible.
+///
+/// Simplified: finds the nearest ancestor with `ScrollState` and adjusts its
+/// scroll offset so that the element's border box top-left is at the scroll
+/// container's top-left. Does nothing if no scrollable ancestor exists.
+pub struct ScrollIntoView;
+
+impl DomApiHandler for ScrollIntoView {
+    fn method_name(&self) -> &str {
+        "scrollIntoView"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let bb = get_border_box(dom, this);
+        let elem_x = bb.0;
+        let elem_y = bb.1;
+
+        // Walk up ancestors to find the nearest scroll container.
+        let mut current = dom.get_parent(this);
+        let mut depth = 0;
+        while let Some(ancestor) = current {
+            if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            if dom
+                .world()
+                .get::<&elidex_ecs::ScrollState>(ancestor)
+                .is_ok()
+            {
+                // Found a scroll container. Compute the container's border box
+                // origin and set scroll offset so the element is visible.
+                let container_bb = get_border_box(dom, ancestor);
+                let target_x = elem_x - container_bb.0;
+                let target_y = elem_y - container_bb.1;
+
+                if let Ok(mut scroll) = dom
+                    .world_mut()
+                    .get::<&mut elidex_ecs::ScrollState>(ancestor)
+                {
+                    scroll.scroll_offset.x = target_x.max(0.0);
+                    scroll.scroll_offset.y = target_y.max(0.0);
+                }
+                break;
+            }
+            current = dom.get_parent(ancestor);
+            depth += 1;
+        }
+
+        Ok(JsValue::Undefined)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -422,5 +516,77 @@ mod tests {
         } else {
             panic!("Expected string");
         }
+    }
+
+    #[test]
+    fn get_client_rects_returns_single_rect() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, div);
+
+        let lb = LayoutBox {
+            content: elidex_plugin::Rect::new(10.0, 20.0, 100.0, 50.0),
+            ..Default::default()
+        };
+        let _ = dom.world_mut().insert_one(div, lb);
+
+        let mut session = SessionCore::new();
+        let result = GetClientRects
+            .invoke(div, &[], &mut session, &mut dom)
+            .unwrap();
+        // Should return same format as getBoundingClientRect.
+        if let JsValue::String(s) = result {
+            let parts: Vec<f32> = s.split(',').map(|p| p.parse().unwrap()).collect();
+            assert_eq!(parts.len(), 4);
+        } else {
+            panic!("Expected string");
+        }
+    }
+
+    #[test]
+    fn scroll_into_view_adjusts_scroll_state() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let scroller = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, scroller);
+        let child = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(scroller, child);
+
+        // Scroller at (0, 0), child at (50, 200).
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(0.0, 0.0, 400.0, 300.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.world_mut().insert_one(
+            child,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(50.0, 200.0, 80.0, 20.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            elidex_ecs::ScrollState {
+                scroll_offset: elidex_plugin::Vector::new(0.0, 0.0),
+                ..Default::default()
+            },
+        );
+
+        let mut session = SessionCore::new();
+        ScrollIntoView
+            .invoke(child, &[], &mut session, &mut dom)
+            .unwrap();
+
+        let scroll = dom
+            .world()
+            .get::<&elidex_ecs::ScrollState>(scroller)
+            .unwrap();
+        // Child at (50, 200), scroller at (0, 0), so scroll should be (50, 200).
+        assert!((scroll.scroll_offset.x - 50.0).abs() < f32::EPSILON);
+        assert!((scroll.scroll_offset.y - 200.0).abs() < f32::EPSILON);
     }
 }

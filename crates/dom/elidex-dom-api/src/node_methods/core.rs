@@ -1,7 +1,7 @@
 //! Core Node interface methods: contains, compareDocumentPosition, normalize,
 //! isConnected, getRootNode, ownerDocument, isSameNode, isEqualNode.
 
-use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
+use elidex_ecs::{AttrData, EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, JsObjectRef, SessionCore};
 
@@ -71,6 +71,60 @@ impl DomApiHandler for CompareDocumentPosition {
         if this == other {
             return Ok(JsValue::Number(0.0));
         }
+
+        // WHATWG DOM §5.4 step 3: If either node is an Attr, use its ownerElement.
+        // If both are Attr nodes on the same element, compare by attribute list order.
+        let this_is_attr = dom.node_kind(this) == Some(NodeKind::Attribute);
+        let other_is_attr = dom.node_kind(other) == Some(NodeKind::Attribute);
+
+        if this_is_attr && other_is_attr {
+            let this_owner = dom
+                .world()
+                .get::<&AttrData>(this)
+                .ok()
+                .and_then(|a| a.owner_element);
+            let other_owner = dom
+                .world()
+                .get::<&AttrData>(other)
+                .ok()
+                .and_then(|a| a.owner_element);
+            if let (Some(to), Some(oo)) = (this_owner, other_owner) {
+                if to == oo {
+                    // Same owner element: compare by attribute list order.
+                    // Use IMPLEMENTATION_SPECIFIC since order is impl-defined.
+                    let dir = if this.to_bits() < other.to_bits() {
+                        DOCUMENT_POSITION_PRECEDING
+                    } else {
+                        DOCUMENT_POSITION_FOLLOWING
+                    };
+                    return Ok(JsValue::Number(f64::from(
+                        DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir,
+                    )));
+                }
+            }
+        }
+
+        // Replace Attr with ownerElement for tree-based comparison.
+        let effective_this = if this_is_attr {
+            dom.world()
+                .get::<&AttrData>(this)
+                .ok()
+                .and_then(|a| a.owner_element)
+                .unwrap_or(this)
+        } else {
+            this
+        };
+        let effective_other = if other_is_attr {
+            dom.world()
+                .get::<&AttrData>(other)
+                .ok()
+                .and_then(|a| a.owner_element)
+                .unwrap_or(other)
+        } else {
+            other
+        };
+
+        let (this, other) = (effective_this, effective_other);
 
         // Check if they share a common root.
         let root_this = find_root(this, dom);

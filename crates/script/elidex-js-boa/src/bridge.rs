@@ -89,6 +89,8 @@ struct HostBridgeInner {
     ranges: HashMap<u64, elidex_dom_api::Range>,
     /// Next ID for TreeWalker/NodeIterator/Range allocation.
     traversal_next_id: u64,
+    /// The Range ID associated with the current Selection, if any.
+    selection_range_id: Option<u64>,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -125,6 +127,7 @@ impl HostBridge {
                 node_iterators: HashMap::new(),
                 ranges: HashMap::new(),
                 traversal_next_id: 1,
+                selection_range_id: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -600,6 +603,16 @@ impl HostBridge {
     ) -> Option<R> {
         let mut inner = self.inner.borrow_mut();
         inner.ranges.get_mut(&id).map(f)
+    }
+
+    /// Get the current selection's Range ID, if any.
+    pub fn selection_range_id(&self) -> Option<u64> {
+        self.inner.borrow().selection_range_id
+    }
+
+    /// Set the selection's Range ID.
+    pub fn set_selection_range_id(&self, id: Option<u64>) {
+        self.inner.borrow_mut().selection_range_id = id;
     }
 }
 

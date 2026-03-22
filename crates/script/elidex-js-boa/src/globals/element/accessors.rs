@@ -699,6 +699,67 @@ pub(crate) fn register_layout_query_accessors(
         0,
     );
 
+    // getClientRects() — returns an array of DOMRect objects.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let result = invoke_dom_handler("getClientRects", entity, &[], bridge)?;
+                // The handler returns "x,y,width,height" for a single rect.
+                // Build an array containing one DOMRect object.
+                let array = JsArray::new(ctx);
+                if let Some(s) = result.as_string() {
+                    let s = s.to_std_string_escaped();
+                    let parts: Vec<f64> = s
+                        .split(',')
+                        .filter_map(|p| p.trim().parse::<f64>().ok())
+                        .collect();
+                    if parts.len() == 4 {
+                        let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
+                        let obj = ObjectInitializer::new(ctx)
+                            .property(js_string!("x"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .property(js_string!("y"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(js_string!("width"), boa_engine::JsValue::from(w), RO_ATTR)
+                            .property(js_string!("height"), boa_engine::JsValue::from(h), RO_ATTR)
+                            .property(js_string!("top"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(
+                                js_string!("right"),
+                                boa_engine::JsValue::from(x + w),
+                                RO_ATTR,
+                            )
+                            .property(
+                                js_string!("bottom"),
+                                boa_engine::JsValue::from(y + h),
+                                RO_ATTR,
+                            )
+                            .property(js_string!("left"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .build();
+                        array.push(boa_engine::JsValue::from(obj), ctx)?;
+                    }
+                }
+                Ok(array.into())
+            },
+            b,
+        ),
+        js_string!("getClientRects"),
+        0,
+    );
+
+    // scrollIntoView() — scroll nearest scrollable ancestor to make element visible.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_void("scrollIntoView", entity, &[], bridge)
+            },
+            b,
+        ),
+        js_string!("scrollIntoView"),
+        0,
+    );
+
     // Read-only numeric property accessors via macro.
     macro_rules! layout_getter {
         ($name:expr, $handler:expr) => {{

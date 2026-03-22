@@ -106,6 +106,8 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("scrollHeight.get", Box::new(super::GetScrollHeight));
     r.register_static("scrollTop.get", Box::new(super::GetScrollTop));
     r.register_static("scrollLeft.get", Box::new(super::GetScrollLeft));
+    r.register_static("getClientRects", Box::new(super::GetClientRects));
+    r.register_static("scrollIntoView", Box::new(super::ScrollIntoView));
 
     // --- Element — insertAdjacent ---
     r.register_static(
@@ -341,6 +343,8 @@ mod tests {
             "attr.value.set",
             "attr.ownerElement.get",
             "attr.specified.get",
+            "getClientRects",
+            "scrollIntoView",
         ];
         for name in expected {
             assert!(

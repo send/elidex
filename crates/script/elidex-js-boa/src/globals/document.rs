@@ -646,7 +646,11 @@ fn build_node_iterator_object(
 /// Build a JS object wrapping a Range.
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::unnecessary_wraps)]
-fn build_range_object(range_id: u64, bridge: &HostBridge, ctx: &mut Context) -> JsResult<JsValue> {
+pub(crate) fn build_range_object(
+    range_id: u64,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
     let mut init = ObjectInitializer::new(ctx);
 
     #[allow(clippy::cast_precision_loss)]

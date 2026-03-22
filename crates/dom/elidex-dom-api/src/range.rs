@@ -320,17 +320,130 @@ impl Range {
 
     /// Extract contents into a document fragment.
     ///
-    /// Simplified: collects text from the range, clears the range, and
-    /// returns a fragment containing the extracted text.
+    /// Handles element and text nodes:
+    /// - Same container text node: splits and extracts the middle portion.
+    /// - Same container element: detaches children in `[start_offset..end_offset]`.
+    /// - Different containers: splits boundary text nodes, detaches fully-contained
+    ///   nodes, and clones partially-contained element ancestors.
+    #[allow(clippy::too_many_lines)]
     pub fn extract_contents(&mut self, dom: &mut EcsDom) -> Entity {
-        let text = self.to_string(dom);
-        self.delete_contents(dom);
-
         let frag = dom.create_document_fragment();
-        if !text.is_empty() {
-            let text_node = dom.create_text(&text);
-            let _ = dom.append_child(frag, text_node);
+
+        if self.collapsed() {
+            return frag;
         }
+
+        // Case 1: Same container.
+        if self.start_container == self.end_container {
+            if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
+                // Text node: extract substring.
+                let text = dom
+                    .world()
+                    .get::<&TextContent>(self.start_container)
+                    .map(|tc| tc.0.clone())
+                    .unwrap_or_default();
+                let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
+                let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
+                let extracted = text[start_byte..end_byte].to_string();
+                let remaining = format!("{}{}", &text[..start_byte], &text[end_byte..]);
+                if let Ok(mut tc) = dom
+                    .world_mut()
+                    .get::<&mut TextContent>(self.start_container)
+                {
+                    tc.0 = remaining;
+                }
+                if !extracted.is_empty() {
+                    let text_node = dom.create_text(&extracted);
+                    let _ = dom.append_child(frag, text_node);
+                }
+                self.end_offset = self.start_offset;
+                return frag;
+            }
+
+            // Non-text container: detach children in range.
+            let children: Vec<_> = dom.children_iter(self.start_container).collect();
+            let end = self.end_offset.min(children.len());
+            let to_move: Vec<_> = children[self.start_offset..end].to_vec();
+            for child in to_move {
+                let _ = dom.remove_child(self.start_container, child);
+                let _ = dom.append_child(frag, child);
+            }
+            self.end_offset = self.start_offset;
+            return frag;
+        }
+
+        // Case 2: Different containers.
+        // 2a. Split start text node: extract tail portion.
+        if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
+            let text = dom
+                .world()
+                .get::<&TextContent>(self.start_container)
+                .map(|tc| tc.0.clone())
+                .unwrap_or_default();
+            let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
+            let tail = text[start_byte..].to_string();
+            let head = text[..start_byte].to_string();
+            if let Ok(mut tc) = dom
+                .world_mut()
+                .get::<&mut TextContent>(self.start_container)
+            {
+                tc.0 = head;
+            }
+            if !tail.is_empty() {
+                let text_node = dom.create_text(&tail);
+                let _ = dom.append_child(frag, text_node);
+            }
+        }
+
+        // 2b. Collect and detach fully-contained nodes between start and end.
+        let mut to_move = Vec::new();
+        let mut current = self.start_container;
+        while let Some(next) = next_in_preorder_global(current, dom) {
+            if next == self.end_container {
+                break;
+            }
+            to_move.push(next);
+            current = next;
+        }
+        // Filter to top-level nodes only (skip descendants of already-collected nodes).
+        let mut top_level = Vec::new();
+        for &node in &to_move {
+            let dominated = top_level
+                .iter()
+                .any(|&tl| dom.is_ancestor_or_self(tl, node));
+            if !dominated {
+                top_level.push(node);
+            }
+        }
+        for node in top_level {
+            if let Some(parent) = dom.get_parent(node) {
+                let _ = dom.remove_child(parent, node);
+            }
+            let _ = dom.append_child(frag, node);
+        }
+
+        // 2c. Split end text node: extract head portion.
+        if dom.node_kind(self.end_container) == Some(NodeKind::Text) {
+            let text = dom
+                .world()
+                .get::<&TextContent>(self.end_container)
+                .map(|tc| tc.0.clone())
+                .unwrap_or_default();
+            let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
+            let head = text[..end_byte].to_string();
+            let tail = text[end_byte..].to_string();
+            if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(self.end_container) {
+                tc.0 = tail;
+            }
+            if !head.is_empty() {
+                let text_node = dom.create_text(&head);
+                let _ = dom.append_child(frag, text_node);
+            }
+        }
+
+        // Collapse range to start.
+        self.end_container = self.start_container;
+        self.end_offset = self.start_offset;
         frag
     }
 
@@ -788,5 +901,59 @@ mod tests {
         let tc = dom.world().get::<&TextContent>(children[0]).unwrap();
         assert_eq!(tc.0, "He");
         assert_eq!(children[1], new_elem);
+    }
+
+    #[test]
+    fn range_extract_contents_element_children() {
+        // Test extracting element nodes (not just text).
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        let a = dom.create_element("a", Attributes::default());
+        let b = dom.create_element("b", Attributes::default());
+        let c = dom.create_element("c", Attributes::default());
+        dom.append_child(div, a);
+        dom.append_child(div, b);
+        dom.append_child(div, c);
+
+        // Range: div children [1..2] → should extract <b>.
+        let mut range = Range::new(div);
+        range.set_start(div, 1);
+        range.set_end(div, 2);
+        let frag = range.extract_contents(&mut dom);
+
+        // Fragment should contain <b>.
+        let frag_children: Vec<_> = dom.children_iter(frag).collect();
+        assert_eq!(frag_children.len(), 1);
+        assert_eq!(frag_children[0], b);
+
+        // Original div should have <a> and <c>.
+        let div_children: Vec<_> = dom.children_iter(div).collect();
+        assert_eq!(div_children.len(), 2);
+        assert_eq!(div_children[0], a);
+        assert_eq!(div_children[1], c);
+    }
+
+    #[test]
+    fn range_extract_contents_cross_container() {
+        // Range spanning from text node t1 to text node t2 across containers.
+        let (mut dom, _root, t1, _span, t2) = build_range_tree();
+        // Tree: root -> [t1("Hello"), span -> [t2(" World")]]
+
+        let mut range = Range::new(t1);
+        range.set_start(t1, 3); // "Hel|lo" → extract "lo"
+        range.set_end(t2, 3); // " Wo|rld" → extract " Wo"
+        let frag = range.extract_contents(&mut dom);
+
+        // t1 should be "Hel".
+        let tc1 = dom.world().get::<&TextContent>(t1).unwrap();
+        assert_eq!(tc1.0, "Hel");
+
+        // t2 should be "rld".
+        let tc2 = dom.world().get::<&TextContent>(t2).unwrap();
+        assert_eq!(tc2.0, "rld");
+
+        // Fragment should contain extracted text nodes.
+        let frag_children: Vec<_> = dom.children_iter(frag).collect();
+        assert!(frag_children.len() >= 2);
     }
 }
