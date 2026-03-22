@@ -1247,3 +1247,68 @@ fn parse_html_fragment_basic() {
         .map(|t| t.0.clone());
     assert_eq!(first_tag.as_deref(), Some("p"));
 }
+
+// ---------------------------------------------------------------------------
+// Window APIs (M4-3.8 Step 4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn window_inner_width_height() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    runtime.eval(
+        "console.log('w=' + innerWidth + ',h=' + innerHeight);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    // Default viewport is 800x600 from HostBridge initialization.
+    assert!(
+        output.iter().any(|m| m.1.contains("w=800")),
+        "innerWidth should be 800, got: {output:?}"
+    );
+}
+
+#[test]
+fn window_match_media() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    runtime.eval(
+        "var mql = matchMedia('(max-width: 600px)'); console.log('m=' + mql.matches + ',q=' + mql.media);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("m=false")),
+        "matchMedia should return matches=false, got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("q=(max-width: 600px)")),
+        "matchMedia should echo query, got: {output:?}"
+    );
+}
+
+#[test]
+fn window_scroll_x_y_initial() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    runtime.eval(
+        "console.log('sx=' + scrollX + ',sy=' + scrollY);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains("sx=0") && m.1.contains("sy=0")),
+        "scrollX/Y should be 0 initially, got: {output:?}"
+    );
+}

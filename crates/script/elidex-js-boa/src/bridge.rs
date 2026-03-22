@@ -68,6 +68,12 @@ struct HostBridgeInner {
     observer_callbacks: HashMap<u64, JsObject>,
     /// Observer ID → JS observer wrapper object (for passing as 2nd arg to callback).
     observer_objects: HashMap<u64, JsObject>,
+    /// Cached viewport dimensions (set by content thread on `SetViewport`).
+    viewport_width: f32,
+    viewport_height: f32,
+    /// Cached viewport scroll offset.
+    scroll_x: f32,
+    scroll_y: f32,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -95,6 +101,10 @@ impl HostBridge {
                 intersection_observers: IntersectionObserverRegistry::new(),
                 observer_callbacks: HashMap::new(),
                 observer_objects: HashMap::new(),
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                scroll_x: 0.0,
+                scroll_y: 0.0,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -264,6 +274,42 @@ impl HostBridge {
     /// Get the session history length.
     pub fn history_length(&self) -> usize {
         self.inner.borrow().history_length
+    }
+
+    // --- Viewport ---
+
+    /// Update cached viewport dimensions (called by content thread on `SetViewport`).
+    pub fn set_viewport(&self, width: f32, height: f32) {
+        let mut inner = self.inner.borrow_mut();
+        inner.viewport_width = width;
+        inner.viewport_height = height;
+    }
+
+    /// Get cached viewport width.
+    pub fn viewport_width(&self) -> f32 {
+        self.inner.borrow().viewport_width
+    }
+
+    /// Get cached viewport height.
+    pub fn viewport_height(&self) -> f32 {
+        self.inner.borrow().viewport_height
+    }
+
+    /// Update cached scroll offset (called by content thread before re-render).
+    pub fn set_scroll_offset(&self, x: f32, y: f32) {
+        let mut inner = self.inner.borrow_mut();
+        inner.scroll_x = x;
+        inner.scroll_y = y;
+    }
+
+    /// Get cached horizontal scroll offset.
+    pub fn scroll_x(&self) -> f32 {
+        self.inner.borrow().scroll_x
+    }
+
+    /// Get cached vertical scroll offset.
+    pub fn scroll_y(&self) -> f32 {
+        self.inner.borrow().scroll_y
     }
 
     // --- Registry access ---

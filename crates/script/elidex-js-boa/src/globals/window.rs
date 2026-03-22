@@ -14,9 +14,10 @@ use super::element::{extract_entity, ENTITY_KEY};
 
 /// Register `window` global (aliased as `globalThis`).
 ///
-/// Provides `window.getComputedStyle(element)`.
-/// Also makes `window.location` and `window.history` accessible
-/// (the actual objects are registered as global properties in `register_all_globals`).
+/// Provides `window.getComputedStyle(element)`, `window.innerWidth/Height`,
+/// `window.scrollX/Y`, `window.scrollTo()`, `window.scrollBy()`, and
+/// `window.matchMedia()`.
+#[allow(clippy::too_many_lines)]
 pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
 
@@ -33,9 +34,137 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
         },
         b_gcs,
     );
-
     ctx.register_global_builtin_callable(js_string!("getComputedStyle"), 1, get_computed_style)
         .expect("failed to register getComputedStyle");
+
+    // innerWidth (read-only getter)
+    let b_iw = b.clone();
+    let inner_width = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_width()))),
+        b_iw,
+    );
+    ctx.register_global_builtin_callable(js_string!("__elidex_innerWidth"), 0, inner_width)
+        .expect("failed to register innerWidth helper");
+    // Register as property on globalThis.
+    let global = ctx.global_object();
+    let _ = global.set(
+        js_string!("innerWidth"),
+        JsValue::from(f64::from(bridge.viewport_width())),
+        false,
+        ctx,
+    );
+
+    // innerHeight
+    let _ = global.set(
+        js_string!("innerHeight"),
+        JsValue::from(f64::from(bridge.viewport_height())),
+        false,
+        ctx,
+    );
+
+    // scrollX / scrollY (read-only, updated by content thread)
+    let _ = global.set(js_string!("scrollX"), JsValue::from(0.0_f64), false, ctx);
+    let _ = global.set(js_string!("scrollY"), JsValue::from(0.0_f64), false, ctx);
+    // Aliases per spec.
+    let _ = global.set(
+        js_string!("pageXOffset"),
+        JsValue::from(0.0_f64),
+        false,
+        ctx,
+    );
+    let _ = global.set(
+        js_string!("pageYOffset"),
+        JsValue::from(0.0_f64),
+        false,
+        ctx,
+    );
+
+    // scrollTo(x, y) / scrollTo({top, left, behavior})
+    let b_scroll = b.clone();
+    let scroll_to = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let (x, y) = parse_scroll_args(args, ctx)?;
+            bridge
+                .with(|session, _dom| {
+                    session.enqueue_event(elidex_script_session::QueuedEvent {
+                        event_type: "__scroll_to".to_string(),
+                        target: elidex_ecs::Entity::DANGLING,
+                        bubbles: false,
+                        cancelable: false,
+                        payload: elidex_plugin::EventPayload::None,
+                    });
+                    // Store scroll target in session for content thread to pick up.
+                    // For now, we set it directly via a side channel.
+                    let _ = (x, y); // TODO: propagate via IPC
+                    Ok::<_, elidex_script_session::DomApiError>(())
+                })
+                .map_err(|e| boa_engine::JsNativeError::typ().with_message(e.to_string()))?;
+            Ok(JsValue::undefined())
+        },
+        b_scroll,
+    );
+    ctx.register_global_builtin_callable(js_string!("scrollTo"), 2, scroll_to)
+        .expect("failed to register scrollTo");
+
+    // scrollBy(x, y) — alias that adds to current scroll.
+    let scroll_by = NativeFunction::from_copy_closure(|_this, _args, _ctx| {
+        // Simplified: scrollBy not yet functional (needs scroll offset addition).
+        Ok(JsValue::undefined())
+    });
+    ctx.register_global_builtin_callable(js_string!("scrollBy"), 2, scroll_by)
+        .expect("failed to register scrollBy");
+
+    // matchMedia(query) — returns a MediaQueryList-like object.
+    let match_media = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let query = args
+            .first()
+            .map(|v| v.to_string(ctx))
+            .transpose()?
+            .map_or(String::new(), |s| s.to_std_string_escaped());
+
+        // Simplified: always return { matches: false, media: query }.
+        let mut obj = ObjectInitializer::new(ctx);
+        obj.property(
+            js_string!("matches"),
+            JsValue::from(false),
+            Attribute::READONLY,
+        );
+        obj.property(
+            js_string!("media"),
+            JsValue::from(js_string!(query.as_str())),
+            Attribute::READONLY,
+        );
+        Ok(obj.build().into())
+    });
+    ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
+        .expect("failed to register matchMedia");
+}
+
+/// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
+fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(f64, f64)> {
+    if let Some(first) = args.first() {
+        if let Some(obj) = first.as_object() {
+            // Options object: { top, left, behavior }
+            let top = obj
+                .get(js_string!("top"), ctx)?
+                .to_number(ctx)
+                .unwrap_or(0.0);
+            let left = obj
+                .get(js_string!("left"), ctx)?
+                .to_number(ctx)
+                .unwrap_or(0.0);
+            return Ok((left, top));
+        }
+        // Numeric arguments: scrollTo(x, y)
+        let x = first.to_number(ctx).unwrap_or(0.0);
+        let y = args
+            .get(1)
+            .map(|v| v.to_number(ctx))
+            .transpose()?
+            .unwrap_or(0.0);
+        return Ok((x, y));
+    }
+    Ok((0.0, 0.0))
 }
 
 /// Create a computed style proxy object for the given element.

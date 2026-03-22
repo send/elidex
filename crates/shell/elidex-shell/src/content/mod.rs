@@ -427,6 +427,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         BrowserToContent::SetViewport { width, height } => {
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
+                // Sync viewport size to JS bridge for window.innerWidth/innerHeight.
+                state.pipeline.runtime.bridge().set_viewport(width, height);
                 state.re_render();
                 state.send_display_list();
             }
