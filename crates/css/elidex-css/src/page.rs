@@ -4,31 +4,48 @@
 
 use cssparser::{Parser, ParserInput};
 use elidex_plugin::{
-    ContentValue, CssValue, MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector,
-    PageSize, PropertyDeclaration,
+    ContentItem, ContentValue, CssValue, ListStyleType, MarginBoxContent, NamedPageSize,
+    PageMargins, PageRule, PageSelector, PageSize, PropertyDeclaration,
 };
 
 use crate::declaration::parse_declaration_block;
 
 /// Parse page pseudo-class selectors from the `@page` prelude.
 ///
-/// Accepts comma-separated `:first`, `:left`, `:right`, `:blank` keywords.
-/// Returns an empty vec if no selectors are present (matches all pages).
+/// Accepts combined pseudo-classes (`:first:right` → both in one Vec, AND
+/// semantics) and comma-separated groups (`:left, :right` → separate Vecs).
+///
+/// Returns a `Vec` of selector groups: each inner `Vec<PageSelector>` is one
+/// comma-separated group whose selectors are combined with AND logic.
+/// An empty outer Vec means no selectors (matches all pages).
 #[must_use]
-pub fn parse_page_selectors(input: &str) -> Vec<PageSelector> {
+pub fn parse_page_selectors(input: &str) -> Vec<Vec<PageSelector>> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Vec::new();
     }
-    let mut selectors = Vec::new();
+    let mut groups = Vec::new();
     for part in trimmed.split(',') {
         let part = part.trim();
-        let name = part.strip_prefix(':').unwrap_or(part);
-        if let Some(sel) = PageSelector::from_keyword(name) {
-            selectors.push(sel);
+        if part.is_empty() {
+            continue;
+        }
+        // Split combined pseudo-classes like `:first:right` on `:` boundaries.
+        let mut selectors = Vec::new();
+        for segment in part.split(':') {
+            let segment = segment.trim();
+            if segment.is_empty() {
+                continue;
+            }
+            if let Some(sel) = PageSelector::from_keyword(segment) {
+                selectors.push(sel);
+            }
+        }
+        if !selectors.is_empty() {
+            groups.push(selectors);
         }
     }
-    selectors
+    groups
 }
 
 /// Parse a `size` property value from a cssparser `Parser`.
@@ -181,24 +198,121 @@ fn content_value_from_css_value(value: &CssValue) -> ContentValue {
     match value {
         CssValue::Keyword(k) if k == "normal" => ContentValue::Normal,
         CssValue::Keyword(k) if k == "none" => ContentValue::None,
-        CssValue::String(s) => {
-            ContentValue::Items(vec![elidex_plugin::ContentItem::String(s.clone())])
+        CssValue::String(s) => ContentValue::Items(vec![ContentItem::String(s.clone())]),
+        CssValue::Keyword(k) => {
+            // The declaration parser encodes counter()/counters() as keyword strings:
+            //   "counter:name:style" or "counters:name:separator:style"
+            if let Some(item) = parse_counter_keyword(k) {
+                ContentValue::Items(vec![item])
+            } else {
+                ContentValue::Normal
+            }
+        }
+        CssValue::List(items) => {
+            let content_items: Vec<ContentItem> = items
+                .iter()
+                .filter_map(css_value_to_content_item)
+                .collect();
+            if content_items.is_empty() {
+                ContentValue::Normal
+            } else {
+                ContentValue::Items(content_items)
+            }
         }
         _ => ContentValue::Normal,
     }
 }
 
+/// Convert a single `CssValue` to a `ContentItem`.
+fn css_value_to_content_item(value: &CssValue) -> Option<ContentItem> {
+    match value {
+        CssValue::String(s) => Some(ContentItem::String(s.clone())),
+        CssValue::Keyword(k) => parse_counter_keyword(k),
+        _ => None,
+    }
+}
+
+/// Parse an encoded counter keyword string into a `ContentItem`.
+///
+/// The declaration parser encodes `counter(name, style)` as `"counter:name:style"`
+/// and `counters(name, sep, style)` as `"counters:name:sep:style"`.
+fn parse_counter_keyword(k: &str) -> Option<ContentItem> {
+    if let Some(rest) = k.strip_prefix("counter:") {
+        // "counter:name:style"
+        let mut parts = rest.splitn(2, ':');
+        let name = parts.next()?.to_string();
+        let style_str = parts.next().unwrap_or("decimal");
+        let style = ListStyleType::from_keyword(style_str).unwrap_or_default();
+        Some(ContentItem::Counter { name, style })
+    } else if let Some(rest) = k.strip_prefix("counters:") {
+        // "counters:name:separator:style"
+        let mut parts = rest.splitn(3, ':');
+        let name = parts.next()?.to_string();
+        let separator = parts.next()?.to_string();
+        let style_str = parts.next().unwrap_or("decimal");
+        let style = ListStyleType::from_keyword(style_str).unwrap_or_default();
+        Some(ContentItem::Counters {
+            name,
+            separator,
+            style,
+        })
+    } else {
+        None
+    }
+}
+
 /// Parse a complete `@page` rule from prelude + block text.
+///
+/// Comma-separated selectors in the prelude produce separate `PageRule`
+/// instances (CSS Paged Media L3 §4.1: commas create independent rules).
+/// Combined selectors like `:first:right` stay in a single rule with AND
+/// semantics.
 ///
 /// Called from the stylesheet parser after recognizing `@page`.
 #[must_use]
-pub fn parse_page_rule(prelude: &str, block: &str) -> PageRule {
-    let selectors = parse_page_selectors(prelude);
+pub fn parse_page_rules(prelude: &str, block: &str) -> Vec<PageRule> {
+    let selector_groups = parse_page_selectors(prelude);
 
-    let mut rule = PageRule {
-        selectors,
-        ..PageRule::default()
-    };
+    // Parse the block content once, then clone for each selector group.
+    let template = parse_page_rule_body(block);
+
+    if selector_groups.is_empty() {
+        // No selectors → single rule matching all pages.
+        return vec![template];
+    }
+
+    selector_groups
+        .into_iter()
+        .map(|selectors| {
+            let mut rule = template.clone();
+            rule.selectors = selectors;
+            rule
+        })
+        .collect()
+}
+
+/// Parse a complete `@page` rule from prelude + block text (legacy API).
+///
+/// Returns a single `PageRule`. For comma-separated selectors, all selectors
+/// are combined into one rule (AND semantics). Prefer `parse_page_rules()`
+/// for correct comma-separated handling.
+#[must_use]
+pub fn parse_page_rule(prelude: &str, block: &str) -> PageRule {
+    let mut rules = parse_page_rules(prelude, block);
+    if rules.len() == 1 {
+        return rules.swap_remove(0);
+    }
+    // Fallback: merge selectors into one rule (backward compat for tests).
+    let mut merged = parse_page_rule_body(block);
+    for rule in rules {
+        merged.selectors.extend(rule.selectors);
+    }
+    merged
+}
+
+/// Parse the body (block) of an `@page` rule into a `PageRule` with empty selectors.
+fn parse_page_rule_body(block: &str) -> PageRule {
+    let mut rule = PageRule::default();
 
     // Parse the block: declarations and nested @margin-box rules.
     // We do a two-pass approach:
@@ -386,8 +500,99 @@ mod tests {
 
     #[test]
     fn parse_page_selectors_multiple() {
-        let selectors = parse_page_selectors(":left, :right");
-        assert_eq!(selectors, vec![PageSelector::Left, PageSelector::Right]);
+        // Comma-separated selectors produce separate groups.
+        let groups = parse_page_selectors(":left, :right");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0], vec![PageSelector::Left]);
+        assert_eq!(groups[1], vec![PageSelector::Right]);
+    }
+
+    #[test]
+    fn parse_page_selectors_combined() {
+        // Combined selectors (no comma) produce a single group with AND semantics.
+        let groups = parse_page_selectors(":first:right");
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], vec![PageSelector::First, PageSelector::Right]);
+    }
+
+    #[test]
+    fn parse_page_rules_comma_separated() {
+        // Comma-separated selectors produce separate PageRule instances.
+        let rules = parse_page_rules(":left, :right", "size: A4;");
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].selectors, vec![PageSelector::Left]);
+        assert_eq!(rules[1].selectors, vec![PageSelector::Right]);
+        // Both share the same block content.
+        assert_eq!(rules[0].size, Some(PageSize::Named(NamedPageSize::A4)));
+        assert_eq!(rules[1].size, Some(PageSize::Named(NamedPageSize::A4)));
+    }
+
+    #[test]
+    fn parse_page_margin_box_counter() {
+        let rule = parse_page_rule("", r#"@bottom-center { content: "Page " counter(page); }"#);
+        assert!(rule.margins.bottom_center.is_some());
+        let bc = rule.margins.bottom_center.unwrap();
+        match &bc.content {
+            ContentValue::Items(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0], ContentItem::String("Page ".to_string()));
+                assert_eq!(
+                    items[1],
+                    ContentItem::Counter {
+                        name: "page".to_string(),
+                        style: elidex_plugin::ListStyleType::Decimal,
+                    }
+                );
+            }
+            other => panic!("expected Items, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_page_margin_box_counter_with_style() {
+        let rule = parse_page_rule(
+            "",
+            r#"@top-right { content: counter(section, upper-roman); }"#,
+        );
+        assert!(rule.margins.top_right.is_some());
+        let tr = rule.margins.top_right.unwrap();
+        match &tr.content {
+            ContentValue::Items(items) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(
+                    items[0],
+                    ContentItem::Counter {
+                        name: "section".to_string(),
+                        style: elidex_plugin::ListStyleType::UpperRoman,
+                    }
+                );
+            }
+            other => panic!("expected Items, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_page_margin_box_counters() {
+        let rule = parse_page_rule(
+            "",
+            r#"@top-left { content: counters(section, "."); }"#,
+        );
+        assert!(rule.margins.top_left.is_some());
+        let tl = rule.margins.top_left.unwrap();
+        match &tl.content {
+            ContentValue::Items(items) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(
+                    items[0],
+                    ContentItem::Counters {
+                        name: "section".to_string(),
+                        separator: ".".to_string(),
+                        style: elidex_plugin::ListStyleType::Decimal,
+                    }
+                );
+            }
+            other => panic!("expected Items, got {other:?}"),
+        }
     }
 
     #[test]

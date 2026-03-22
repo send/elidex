@@ -147,8 +147,12 @@ pub struct PageFragment {
 /// page size minus margins. Page selectors (`:first`, `:left`, `:right`,
 /// `:blank`) are matched for each page to apply page-specific rules.
 ///
-/// Returns a two-pass result: if any margin box content references
-/// `counter(pages)`, the total page count is known after the first pass.
+/// The design plan specifies a 2-pass approach, but 1-pass suffices:
+/// content fragmentation determines the total page count, and
+/// `counter(pages)` is resolved at render time in `build_paged_display_lists`
+/// where the total is already known. A second layout pass would only be
+/// needed if margin box content could affect page breaks, which the spec
+/// does not allow (CSS Paged Media L3 §4.2).
 #[must_use]
 pub fn layout_paged(
     dom: &mut EcsDom,

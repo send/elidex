@@ -211,15 +211,25 @@ impl PagedMediaContext {
 
     /// Resolve the effective page size for a given page, considering `@page`
     /// rules with matching selectors. Returns `(width, height)` in px.
+    ///
+    /// Rules are applied in specificity order per CSS Paged Media L3 §4.1:
+    /// fewer selectors first, more selectors later (higher specificity wins).
+    /// Rules with equal specificity use source order (last wins).
     #[must_use]
     pub fn effective_page_size(&self, page_number: usize, is_blank: bool) -> (f32, f32) {
         let mut width = self.page_width;
         let mut height = self.page_height;
 
-        for rule in &self.page_rules {
-            if !selectors_match(&rule.selectors, page_number, is_blank) {
-                continue;
-            }
+        let mut sorted: Vec<(usize, &PageRule)> = self
+            .page_rules
+            .iter()
+            .enumerate()
+            .filter(|(_, rule)| selectors_match(&rule.selectors, page_number, is_blank))
+            .collect();
+        // Sort by (selector count, source order) — lower specificity first.
+        sorted.sort_by_key(|(idx, rule)| (rule.selectors.len(), *idx));
+
+        for (_, rule) in sorted {
             if let Some(size) = &rule.size {
                 let (w, h) = resolve_page_size_dimensions(size);
                 width = w;
@@ -231,14 +241,24 @@ impl PagedMediaContext {
 
     /// Resolve the effective page margins for a given page, considering `@page`
     /// rules with matching selectors.
+    ///
+    /// Rules are applied in specificity order per CSS Paged Media L3 §4.1:
+    /// fewer selectors first, more selectors later (higher specificity wins).
+    /// Rules with equal specificity use source order (last wins).
     #[must_use]
     pub fn effective_margins(&self, page_number: usize, is_blank: bool) -> EdgeSizes {
         let mut margins = self.page_margins;
 
-        for rule in &self.page_rules {
-            if !selectors_match(&rule.selectors, page_number, is_blank) {
-                continue;
-            }
+        let mut sorted: Vec<(usize, &PageRule)> = self
+            .page_rules
+            .iter()
+            .enumerate()
+            .filter(|(_, rule)| selectors_match(&rule.selectors, page_number, is_blank))
+            .collect();
+        // Sort by (selector count, source order) — lower specificity first.
+        sorted.sort_by_key(|(idx, rule)| (rule.selectors.len(), *idx));
+
+        for (_, rule) in sorted {
             // Apply margin declarations from the rule.
             for decl in &rule.properties {
                 apply_margin_declaration(&mut margins, decl);
@@ -250,11 +270,10 @@ impl PagedMediaContext {
 
 /// Check whether page selectors match a given page.
 ///
-/// Empty selectors match all pages. Otherwise, all selectors must match.
-fn selectors_match(selectors: &[PageSelector], page_number: usize, is_blank: bool) -> bool {
-    if selectors.is_empty() {
-        return true;
-    }
+/// Empty selectors match all pages (`.all()` on an empty iterator returns
+/// `true`). Combined selectors use AND semantics per CSS Paged Media L3 §4.1.
+#[must_use]
+pub fn selectors_match(selectors: &[PageSelector], page_number: usize, is_blank: bool) -> bool {
     selectors.iter().all(|s| s.matches(page_number, is_blank))
 }
 
@@ -343,6 +362,86 @@ mod tests {
         assert!(rule.selectors.is_empty());
         assert!(rule.size.is_none());
         assert!(rule.properties.is_empty());
+    }
+
+    #[test]
+    fn effective_page_size_specificity_order() {
+        // More specific selectors (more pseudo-classes) should win over
+        // less specific ones, regardless of source order.
+
+        let ctx = PagedMediaContext {
+            page_width: 816.0,
+            page_height: 1056.0,
+            page_margins: EdgeSizes {
+                top: 72.0,
+                right: 72.0,
+                bottom: 72.0,
+                left: 72.0,
+            },
+            page_rules: vec![
+                // More specific rule (:first:right) — listed first in source.
+                PageRule {
+                    selectors: vec![PageSelector::First, PageSelector::Right],
+                    size: Some(PageSize::Explicit(500.0, 700.0)),
+                    ..PageRule::default()
+                },
+                // Less specific rule (:first) — listed second in source.
+                PageRule {
+                    selectors: vec![PageSelector::First],
+                    size: Some(PageSize::Explicit(600.0, 800.0)),
+                    ..PageRule::default()
+                },
+            ],
+        };
+
+        // Page 1 is :first and :right. The :first:right rule (2 selectors)
+        // has higher specificity and should win, even though :first appears
+        // later in source order.
+        let (w, h) = ctx.effective_page_size(1, false);
+        assert_eq!(w, 500.0);
+        assert_eq!(h, 700.0);
+    }
+
+    #[test]
+    fn effective_margins_specificity_order() {
+        use crate::{CssValue, LengthUnit};
+
+        let ctx = PagedMediaContext {
+            page_width: 816.0,
+            page_height: 1056.0,
+            page_margins: EdgeSizes {
+                top: 72.0,
+                right: 72.0,
+                bottom: 72.0,
+                left: 72.0,
+            },
+            page_rules: vec![
+                // More specific: :first:right sets margin-top to 50.
+                PageRule {
+                    selectors: vec![PageSelector::First, PageSelector::Right],
+                    size: None,
+                    margins: PageMargins::default(),
+                    properties: vec![PropertyDeclaration::new(
+                        "margin-top",
+                        CssValue::Length(50.0, LengthUnit::Px),
+                    )],
+                },
+                // Less specific: :first sets margin-top to 100.
+                PageRule {
+                    selectors: vec![PageSelector::First],
+                    size: None,
+                    margins: PageMargins::default(),
+                    properties: vec![PropertyDeclaration::new(
+                        "margin-top",
+                        CssValue::Length(100.0, LengthUnit::Px),
+                    )],
+                },
+            ],
+        };
+
+        // :first:right (2 selectors) is more specific, applied last → wins.
+        let margins = ctx.effective_margins(1, false);
+        assert_eq!(margins.top, 50.0);
     }
 
     #[test]

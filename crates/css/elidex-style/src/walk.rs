@@ -348,7 +348,12 @@ fn resolve_and_attach_style(
             .ok()
             .map(|a| (*a).clone())
             .unwrap_or_default();
-        crate::counter::apply_implicit_list_counters(&mut style, &tag.0, &attrs);
+        let li_count = if tag.0 == "ol" {
+            crate::counter::count_li_children(dom, entity)
+        } else {
+            0
+        };
+        crate::counter::apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
     }
 
     // Attach ComputedStyle to the entity.

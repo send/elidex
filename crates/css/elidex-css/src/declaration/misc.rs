@@ -766,9 +766,10 @@ fn parse_color_or_currentcolor(input: &mut Parser) -> Result<CssValue, ()> {
 
 /// Parse `counter-reset`, `counter-increment`, or `counter-set`.
 ///
-/// Syntax: `none` | `[<custom-ident> <integer>?]+`
+/// Syntax: `none` | `[<custom-ident> <integer>? | reversed(<custom-ident>) <integer>?]+`
 /// `default_value` is 0 for counter-reset/counter-set, 1 for counter-increment.
 /// Returns a `CssValue::List` with alternating `Keyword(name)` and `Number(value)` entries.
+/// `reversed(name)` is encoded as `Keyword("reversed:name")` per CSS Lists L3 §5.1.
 pub(super) fn parse_counter_list(
     input: &mut Parser,
     name: &str,
@@ -782,11 +783,45 @@ pub(super) fn parse_counter_list(
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
             let mut items: Vec<CssValue> = Vec::new();
-            // Parse one or more `<custom-ident> <integer>?` pairs.
-            while let Ok(ident) = i.try_parse(|i2| {
-                let tok = i2.expect_ident().map_err(|_| ())?;
-                Ok::<_, ()>(tok.as_ref().to_ascii_lowercase())
-            }) {
+            // Parse one or more `<custom-ident> <integer>?` or
+            // `reversed(<custom-ident>) <integer>?` entries.
+            loop {
+                // Try `reversed(<custom-ident>)` function syntax.
+                let reversed = i.try_parse(|i2| -> Result<String, ()> {
+                    let name_tok = i2.next().map_err(|_| ())?;
+                    match name_tok {
+                        Token::Function(ref fn_name)
+                            if fn_name.eq_ignore_ascii_case("reversed") =>
+                        {
+                            i2.parse_nested_block(
+                                |block| -> Result<String, cssparser::ParseError<'_, ()>> {
+                                    let ident = block.expect_ident()?;
+                                    Ok(ident.as_ref().to_ascii_lowercase())
+                                },
+                            )
+                            .map_err(|_: cssparser::ParseError<'_, ()>| ())
+                        }
+                        _ => Err(()),
+                    }
+                });
+
+                if let Ok(counter_name) = reversed {
+                    items.push(CssValue::Keyword(format!("reversed:{counter_name}")));
+                    let val = i
+                        .try_parse(|i2| i2.expect_integer().map_err(|_| ()))
+                        .unwrap_or(default_value);
+                    #[allow(clippy::cast_precision_loss)]
+                    items.push(CssValue::Number(val as f32));
+                    continue;
+                }
+
+                // Try plain `<custom-ident>`.
+                let Ok(ident) = i.try_parse(|i2| {
+                    let tok = i2.expect_ident().map_err(|_| ())?;
+                    Ok::<_, ()>(tok.as_ref().to_ascii_lowercase())
+                }) else {
+                    break;
+                };
                 // Reject CSS-wide keywords.
                 if matches!(ident.as_str(), "inherit" | "initial" | "unset" | "revert") {
                     return Err(());
@@ -798,7 +833,6 @@ pub(super) fn parse_counter_list(
                     .unwrap_or(default_value);
                 #[allow(clippy::cast_precision_loss)]
                 items.push(CssValue::Number(val as f32));
-                // If no more idents follow, we're done.
             }
             if items.is_empty() {
                 return Err(());

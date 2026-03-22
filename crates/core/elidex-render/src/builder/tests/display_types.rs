@@ -500,7 +500,7 @@ fn list_item_decimal_emits_text_marker() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item", 0)],
             ..Default::default()
         },
     );
@@ -576,7 +576,7 @@ fn list_item_counter_increments() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item", 0)],
             ..Default::default()
         },
     );

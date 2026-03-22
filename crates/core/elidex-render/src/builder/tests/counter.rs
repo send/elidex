@@ -26,7 +26,7 @@ fn list_marker_uses_counter_state() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -99,7 +99,7 @@ fn nested_ol_counter_reset() {
         outer_ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -135,7 +135,7 @@ fn nested_ol_counter_reset() {
         inner_ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -204,7 +204,7 @@ fn counter_in_content_property() {
         container,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("chapter".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("chapter".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -297,7 +297,7 @@ fn counters_concatenation() {
         outer,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("section".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("section".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -331,7 +331,7 @@ fn counters_concatenation() {
         inner,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("section".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("section".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -410,7 +410,7 @@ fn start_attribute_on_ol() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 4)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item".to_string(), 4)],
             ..Default::default()
         },
     );
@@ -479,7 +479,7 @@ fn custom_counter_increment() {
         container,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("section".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("section".to_string(), 0)],
             ..Default::default()
         },
     );
@@ -557,7 +557,7 @@ fn display_none_processes_counter() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            counter_reset: vec![("list-item".to_string(), 0)],
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item".to_string(), 0)],
             ..Default::default()
         },
     );

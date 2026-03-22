@@ -445,12 +445,7 @@ pub(super) fn resolve_content(
     };
 
     // Resolve counter-reset/increment/set (non-inherited).
-    resolve_counter_property(
-        "counter-reset",
-        winners,
-        parent_style,
-        &mut style.counter_reset,
-    );
+    resolve_counter_reset(winners, parent_style, &mut style.counter_reset);
     resolve_counter_property(
         "counter-increment",
         winners,
@@ -489,7 +484,45 @@ fn parse_counters_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
     })
 }
 
-/// Resolve a counter property (`counter-reset`/`counter-increment`/`counter-set`)
+/// Resolve `counter-reset` from cascade winners.
+///
+/// Supports `reversed(name)` syntax (CSS Lists L3 §5.1) encoded as
+/// `Keyword("reversed:name")` by the CSS parser.
+fn resolve_counter_reset(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    target: &mut Vec<elidex_plugin::CounterResetEntry>,
+) {
+    let Some(value) = get_resolved_winner("counter-reset", winners, parent_style) else {
+        return;
+    };
+    match &value {
+        CssValue::Keyword(k) if k == "none" => {}
+        CssValue::List(items) => {
+            let mut iter = items.iter();
+            while let Some(item) = iter.next() {
+                if let CssValue::Keyword(name) = item {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let val = iter
+                        .next()
+                        .and_then(|v| match v {
+                            CssValue::Number(n) => Some(*n as i32),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    if let Some(inner) = name.strip_prefix("reversed:") {
+                        target.push(elidex_plugin::CounterResetEntry::reversed(inner, val));
+                    } else {
+                        target.push(elidex_plugin::CounterResetEntry::new(name.clone(), val));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Resolve a counter property (`counter-increment`/`counter-set`)
 /// from the cascade winners into a `Vec<(String, i32)>`.
 fn resolve_counter_property(
     property: &str,

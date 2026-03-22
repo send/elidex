@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use elidex_ecs::{
-    BackgroundImages, EcsDom, Entity, ImageData, TemplateContent, MAX_ANCESTOR_DEPTH,
+    Attributes, BackgroundImages, EcsDom, Entity, ImageData, TagType, TemplateContent,
+    MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
 use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
@@ -14,7 +15,7 @@ use elidex_plugin::{
     Visibility,
 };
 use elidex_plugin::{Point, Vector};
-use elidex_style::counter::CounterState;
+use elidex_style::counter::{apply_implicit_list_counters, CounterState};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -78,7 +79,34 @@ pub(crate) fn walk(
 
     // CSS counter scope: push scope and process counter properties on entry.
     ctx.counter_state.push_scope();
-    if let Ok(style) = ctx.dom.world().get::<&ComputedStyle>(entity) {
+    if let Ok(mut style) = ctx.dom.world().get::<&ComputedStyle>(entity).map(|s| (*s).clone()) {
+        // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists L3 §5).
+        if let Ok(tag) = ctx.dom.world().get::<&TagType>(entity) {
+            let attrs = ctx
+                .dom
+                .world()
+                .get::<&Attributes>(entity)
+                .ok()
+                .map(|a| (*a).clone())
+                .unwrap_or_default();
+            let li_count = if tag.0 == "ol" {
+                elidex_style::counter::count_li_children(ctx.dom, entity)
+            } else {
+                0
+            };
+            apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
+        }
+        // CSS Fragmentation L3 §4: counter-increment should be suppressed on
+        // continuation fragments. Currently always false because:
+        // - The render walk is a single pre-order DOM traversal; each entity
+        //   is visited exactly once per walk (no duplicates).
+        // - Paged media uses a fresh CounterState per page, so counters are
+        //   recalculated from scratch each time.
+        // - Multicol lays out columns without duplicating entities in the tree.
+        //
+        // When the renderer gains per-fragment layout data (so that a
+        // fragmented element can render differently in each fragment), this
+        // should use the fragment's break_token to detect continuations.
         ctx.counter_state.process_element(&style, false);
     }
 

@@ -100,7 +100,7 @@ pub use grid::{
     GridTrackList, JustifyItems, JustifySelf, TrackBreadth, TrackSection, TrackSize,
 };
 pub use paged::{
-    MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector, PageSize,
+    selectors_match, MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector, PageSize,
     PagedMediaContext,
 };
 pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
@@ -112,6 +112,42 @@ pub use writing_mode::{Direction, TextOrientation, UnicodeBidi, WritingMode};
 
 #[cfg(test)]
 mod tests;
+
+/// Entry in the `counter-reset` property list (CSS Lists L3 §5.1).
+///
+/// The `reversed` flag indicates a descending counter created by
+/// `counter-reset: reversed(name)` or `<ol reversed>`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CounterResetEntry {
+    /// Counter name.
+    pub name: String,
+    /// Initial value (default 0, or derived from `start` attribute).
+    pub value: i32,
+    /// Whether this is a reversed (descending) counter.
+    pub reversed: bool,
+}
+
+impl CounterResetEntry {
+    /// Create a normal (ascending) counter-reset entry.
+    #[must_use]
+    pub fn new(name: impl Into<String>, value: i32) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            reversed: false,
+        }
+    }
+
+    /// Create a reversed (descending) counter-reset entry.
+    #[must_use]
+    pub fn reversed(name: impl Into<String>, value: i32) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            reversed: true,
+        }
+    }
+}
 
 /// Fully resolved CSS property values for an element.
 ///
@@ -358,8 +394,8 @@ pub struct ComputedStyle {
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
-    /// CSS `counter-reset` declarations: (name, value) pairs.
-    pub counter_reset: Vec<(String, i32)>,
+    /// CSS `counter-reset` declarations (CSS Lists L3 §5.1).
+    pub counter_reset: Vec<CounterResetEntry>,
     /// CSS `counter-increment` declarations: (name, value) pairs.
     pub counter_increment: Vec<(String, i32)>,
     /// CSS `counter-set` declarations: (name, value) pairs.

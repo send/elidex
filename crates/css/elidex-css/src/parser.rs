@@ -11,7 +11,7 @@ use cssparser::{
 use elidex_plugin::{CssPropertyRegistry, PageRule};
 
 use crate::declaration::{parse_property_value, Declaration, Origin};
-use crate::page::parse_page_rule;
+use crate::page::parse_page_rules;
 use crate::selector::{parse_selector_list, Selector};
 
 /// A parsed CSS stylesheet.
@@ -173,8 +173,8 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
                 self.keyframes_raw.push((name, body));
             }
             AtRuleKind::Page(prelude_text) => {
-                let page_rule = parse_page_rule(&prelude_text, &body);
-                self.page_rules.push(page_rule);
+                let rules = parse_page_rules(&prelude_text, &body);
+                self.page_rules.extend(rules);
             }
         }
 

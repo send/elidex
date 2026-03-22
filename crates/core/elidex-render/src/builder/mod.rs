@@ -203,9 +203,17 @@ pub fn build_paged_display_lists(
         let mut dl = DisplayList::default();
         let mut font_cache = FontCache::new();
 
+        // Counter state is populated during the walk and then used by margin
+        // box rendering, so it must outlive the PaintContext borrow.
+        let mut counter_state = elidex_style::counter::CounterState::new();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let page_num = fragment.page_number.min(i32::MAX as usize) as i32;
+        counter_state.set_counter("page", page_num);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let total = total_pages.min(i32::MAX as usize) as i32;
+        counter_state.set_counter("pages", total);
+
         // Build display list from the fragment's layout box.
-        // The layout boxes in the DOM already have correct positions from the
-        // paged layout pass, so we walk normally.
         if !fragment.is_blank {
             let mut ctx = PaintContext {
                 dom,
@@ -214,16 +222,8 @@ pub fn build_paged_display_lists(
                 dl: &mut dl,
                 caret_visible: false,
                 scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
-                counter_state: elidex_style::counter::CounterState::new(),
+                counter_state,
             };
-            // Set the `page` counter for this page.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            let page_num = fragment.page_number as i32;
-            ctx.counter_state.set_counter("page", page_num);
-            // Set `pages` counter to total count (known from first pass).
-            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            let total = total_pages as i32;
-            ctx.counter_state.set_counter("pages", total);
 
             let roots = find_roots(dom);
             for root in roots {
@@ -235,17 +235,23 @@ pub fn build_paged_display_lists(
                     false,
                 );
             }
+            // Reclaim counter state after the walk completes.
+            counter_state = ctx.counter_state;
         }
 
-        // Render margin box content (page counters, static strings).
+        // Render margin box content using the counter state populated by the
+        // walk. Custom counters (counter-reset/increment in the document) are
+        // now accessible alongside the built-in page/pages counters.
         emit_margin_boxes(
             &mut dl,
+            font_db,
+            &mut font_cache,
             &page_ctx.page_rules,
             fragment,
             page_width,
             page_height,
             &margins,
-            total_pages,
+            &counter_state,
         );
 
         pages.push(dl);
@@ -257,76 +263,222 @@ pub fn build_paged_display_lists(
     }
 }
 
+/// Default font size for margin box text (CSS Paged Media L3 §4.2).
+const MARGIN_BOX_FONT_SIZE: f32 = 12.0;
+
 /// Emit margin box content items (text strings, counter values) for a page.
 ///
 /// Iterates over `@page` rules matching this page's selectors and renders
-/// margin box content as text items positioned in the margin areas.
+/// margin box content as shaped text items positioned in the 16 margin areas
+/// defined by CSS Paged Media L3 §4.2.
+#[allow(clippy::too_many_arguments)]
 fn emit_margin_boxes(
     dl: &mut crate::display_list::DisplayList,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
     page_rules: &[elidex_plugin::PageRule],
     fragment: &elidex_layout::PageFragment,
     page_width: f32,
     page_height: f32,
     margins: &elidex_plugin::EdgeSizes,
-    total_pages: usize,
+    counter_state: &elidex_style::counter::CounterState,
 ) {
-    use elidex_plugin::Rect;
-
     for rule in page_rules {
         // Check if this rule matches the current page.
-        let matches = if rule.selectors.is_empty() {
-            true
-        } else {
-            rule.selectors
-                .iter()
-                .all(|s| s.matches(fragment.page_number, fragment.is_blank))
-        };
-        if !matches {
+        if !elidex_plugin::selectors_match(
+            &rule.selectors,
+            fragment.page_number,
+            fragment.is_blank,
+        ) {
             continue;
         }
 
-        // Collect margin box content strings and render them.
-        // For now, we handle top-center and bottom-center as the most common.
+        // All 16 margin box types (CSS Paged Media L3 §4.2).
         let margin_boxes: Vec<(&str, Option<&elidex_plugin::MarginBoxContent>)> = vec![
-            ("top-center", rule.margins.top_center.as_ref()),
-            ("bottom-center", rule.margins.bottom_center.as_ref()),
+            // Top edge + corners
+            ("top-left-corner", rule.margins.top_left_corner.as_ref()),
             ("top-left", rule.margins.top_left.as_ref()),
+            ("top-center", rule.margins.top_center.as_ref()),
             ("top-right", rule.margins.top_right.as_ref()),
-            ("bottom-left", rule.margins.bottom_left.as_ref()),
+            ("top-right-corner", rule.margins.top_right_corner.as_ref()),
+            // Right edge
+            ("right-top", rule.margins.right_top.as_ref()),
+            ("right-middle", rule.margins.right_middle.as_ref()),
+            ("right-bottom", rule.margins.right_bottom.as_ref()),
+            // Bottom edge + corners
+            (
+                "bottom-right-corner",
+                rule.margins.bottom_right_corner.as_ref(),
+            ),
             ("bottom-right", rule.margins.bottom_right.as_ref()),
+            ("bottom-center", rule.margins.bottom_center.as_ref()),
+            ("bottom-left", rule.margins.bottom_left.as_ref()),
+            (
+                "bottom-left-corner",
+                rule.margins.bottom_left_corner.as_ref(),
+            ),
+            // Left edge
+            ("left-bottom", rule.margins.left_bottom.as_ref()),
+            ("left-middle", rule.margins.left_middle.as_ref()),
+            ("left-top", rule.margins.left_top.as_ref()),
         ];
 
         for (position, maybe_content) in margin_boxes {
             let Some(margin_box) = maybe_content else {
                 continue;
             };
-            let text =
-                evaluate_content_value(&margin_box.content, fragment.page_number, total_pages);
+            let text = evaluate_content_value(&margin_box.content, counter_state);
             if text.is_empty() {
                 continue;
             }
 
-            // Compute position based on margin box name.
-            let (x, y) = margin_box_position(position, page_width, page_height, margins, &text);
-
-            // Emit as a SolidRect placeholder for now (text rendering in margin
-            // boxes requires font shaping which is deferred to a future phase).
-            // We record the text content as metadata via a zero-size rect at the
-            // computed position.
-            dl.push(DisplayItem::SolidRect {
-                rect: Rect::new(x, y, 0.0, 0.0),
-                color: elidex_plugin::CssColor::TRANSPARENT,
-            });
+            emit_margin_box_text(
+                dl, font_db, font_cache, position, &text, margin_box, page_width, page_height,
+                margins,
+            );
         }
     }
 }
 
-/// Evaluate a `ContentValue` to a string, resolving `counter(page)` and
-/// `counter(pages)`.
+/// Shape and emit text for a single margin box.
+///
+/// Resolves `font-size`, `color`, `font-family`, and `font-weight` from the
+/// margin box's property declarations. Falls back to 12px serif black 400 when
+/// a property is absent.
+///
+/// The text is positioned according to the margin box type per CSS Paged Media
+/// L3 §4.2:
+/// - Top/bottom edge boxes: centered vertically in the margin strip.
+/// - Left/right edge boxes: centered horizontally in the margin strip.
+/// - Corner boxes: centered in the corner rectangle.
+#[allow(clippy::too_many_arguments)]
+fn emit_margin_box_text(
+    dl: &mut DisplayList,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    position: &str,
+    text: &str,
+    margin_box: &elidex_plugin::MarginBoxContent,
+    page_width: f32,
+    page_height: f32,
+    margins: &elidex_plugin::EdgeSizes,
+) {
+    // Resolve properties from margin box declarations, falling back to defaults.
+    let mut font_size = MARGIN_BOX_FONT_SIZE;
+    let mut color = elidex_plugin::CssColor::BLACK;
+    let mut family = String::from("serif");
+    let mut weight: u16 = 400;
+    let mut font_style = fontdb::Style::Normal;
+
+    for decl in &margin_box.properties {
+        match decl.property.as_str() {
+            "font-size" => {
+                let v = match &decl.value {
+                    elidex_plugin::CssValue::Length(v, elidex_plugin::LengthUnit::Px)
+                    | elidex_plugin::CssValue::Number(v) => Some(*v),
+                    _ => None,
+                };
+                if let Some(v) = v {
+                    if v.is_finite() && v > 0.0 {
+                        font_size = v;
+                    }
+                }
+            }
+            "color" => {
+                if let elidex_plugin::CssValue::Color(c) = &decl.value {
+                    color = *c;
+                }
+            }
+            "font-family" => {
+                let resolved = match &decl.value {
+                    elidex_plugin::CssValue::String(s) | elidex_plugin::CssValue::Keyword(s) => {
+                        Some(s)
+                    }
+                    elidex_plugin::CssValue::List(items) => items.first().and_then(|f| match f {
+                        elidex_plugin::CssValue::String(s)
+                        | elidex_plugin::CssValue::Keyword(s) => Some(s),
+                        _ => None,
+                    }),
+                    _ => None,
+                };
+                if let Some(s) = resolved {
+                    family.clone_from(s);
+                }
+            }
+            "font-weight" => match &decl.value {
+                elidex_plugin::CssValue::Number(w) => {
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss
+                    )]
+                    let w_int = w.clamp(1.0, 1000.0) as u16;
+                    weight = w_int;
+                }
+                elidex_plugin::CssValue::Keyword(k) => match k.as_str() {
+                    "bold" => weight = 700,
+                    "normal" => weight = 400,
+                    _ => {}
+                },
+                _ => {}
+            },
+            "font-style" => {
+                if let elidex_plugin::CssValue::Keyword(k) = &decl.value {
+                    match k.as_str() {
+                        "italic" => font_style = fontdb::Style::Italic,
+                        "oblique" => font_style = fontdb::Style::Oblique,
+                        "normal" => font_style = fontdb::Style::Normal,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let families = [family.as_str()];
+    let Some(font_id) = font_db.query(&families, weight, font_style) else {
+        return;
+    };
+    let Some(shaped) = elidex_text::shape_text(font_db, font_id, font_size, text) else {
+        return;
+    };
+    let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+        return;
+    };
+
+    let text_width: f32 = shaped.glyphs.iter().map(|g| g.x_advance).sum();
+    if !text_width.is_finite() {
+        return;
+    }
+    let text_height = font_size;
+
+    // Compute the bounding box of the margin area for this position.
+    let (area_x, area_y, area_w, area_h) =
+        margin_box_area(position, page_width, page_height, margins);
+
+    // Center text within the margin box area.
+    let mut text_x = area_x + (area_w - text_width) * 0.5;
+    let baseline_y = area_y + (area_h + text_height) * 0.5;
+
+    let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y, 0.0, 0.0, text);
+    dl.push(DisplayItem::Text {
+        glyphs,
+        font_blob,
+        font_index,
+        font_size,
+        color,
+    });
+}
+
+/// Evaluate a `ContentValue` to a string using the counter state.
+///
+/// Resolves `counter(name)` and `counters(name, sep)` via the document's
+/// [`CounterState`](elidex_style::counter::CounterState), which includes
+/// the built-in `page`/`pages` counters as well as any document-defined
+/// custom counters (e.g. `counter(chapter)`).
 fn evaluate_content_value(
     content: &elidex_plugin::ContentValue,
-    page_number: usize,
-    total_pages: usize,
+    counter_state: &elidex_style::counter::CounterState,
 ) -> String {
     use elidex_plugin::{ContentItem, ContentValue};
 
@@ -337,26 +489,19 @@ fn evaluate_content_value(
             for item in items {
                 match item {
                     ContentItem::String(s) => result.push_str(s),
-                    ContentItem::Counter { name, .. } => {
-                        let value = match name.as_str() {
-                            "page" => page_number,
-                            "pages" => total_pages,
-                            _ => 0,
-                        };
-                        result.push_str(&value.to_string());
+                    ContentItem::Counter { name, style } => {
+                        result.push_str(&counter_state.evaluate_counter(name, *style));
                     }
                     ContentItem::Counters {
-                        name, separator, ..
+                        name,
+                        separator,
+                        style,
                     } => {
-                        let value = match name.as_str() {
-                            "page" => page_number,
-                            "pages" => total_pages,
-                            _ => 0,
-                        };
                         if !result.is_empty() {
                             result.push_str(separator);
                         }
-                        result.push_str(&value.to_string());
+                        result
+                            .push_str(&counter_state.evaluate_counters(name, separator, *style));
                     }
                     ContentItem::Attr(_) => {} // Not applicable in margin boxes.
                 }
@@ -366,25 +511,89 @@ fn evaluate_content_value(
     }
 }
 
-/// Compute the position for a margin box by name.
-fn margin_box_position(
+/// Compute the bounding area `(x, y, width, height)` for a margin box.
+///
+/// CSS Paged Media L3 §4.2 defines 16 margin box positions:
+///
+/// ```text
+/// ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+/// │ TL corner│ top-left │top-center│top-right │ TR corner│
+/// ├──────────┼──────────┴──────────┴──────────┼──────────┤
+/// │ left-top │                                │ right-top│
+/// ├──────────┤                                ├──────────┤
+/// │left-mid  │       content area             │ right-mid│
+/// ├──────────┤                                ├──────────┤
+/// │left-btm  │                                │right-btm │
+/// ├──────────┼──────────┬──────────┬──────────┼──────────┤
+/// │ BL corner│ bot-left │bot-center│bot-right │ BR corner│
+/// └──────────┴──────────┴──────────┴──────────┴──────────┘
+/// ```
+fn margin_box_area(
     position: &str,
     page_width: f32,
     page_height: f32,
     margins: &elidex_plugin::EdgeSizes,
-    _text: &str,
-) -> (f32, f32) {
+) -> (f32, f32, f32, f32) {
+    let content_x = margins.left;
+    let content_y = margins.top;
+    let content_w = (page_width - margins.left - margins.right).max(0.0);
+    let content_h = (page_height - margins.top - margins.bottom).max(0.0);
+    let third_w = content_w / 3.0;
+    let third_h = content_h / 3.0;
+
     match position {
-        "top-left" => (margins.left, margins.top * 0.5),
-        "top-center" => (page_width * 0.5, margins.top * 0.5),
-        "top-right" => (page_width - margins.right, margins.top * 0.5),
-        "bottom-left" => (margins.left, page_height - margins.bottom * 0.5),
-        "bottom-center" => (page_width * 0.5, page_height - margins.bottom * 0.5),
-        "bottom-right" => (
-            page_width - margins.right,
-            page_height - margins.bottom * 0.5,
+        // Top edge (3 boxes split content width into thirds)
+        "top-left" => (content_x, 0.0, third_w, margins.top),
+        "top-center" => (content_x + third_w, 0.0, third_w, margins.top),
+        "top-right" => (content_x + 2.0 * third_w, 0.0, third_w, margins.top),
+
+        // Bottom edge (3 boxes split content width into thirds)
+        "bottom-left" => (content_x, content_y + content_h, third_w, margins.bottom),
+        "bottom-center" => (
+            content_x + third_w,
+            content_y + content_h,
+            third_w,
+            margins.bottom,
         ),
-        _ => (0.0, 0.0),
+        "bottom-right" => (
+            content_x + 2.0 * third_w,
+            content_y + content_h,
+            third_w,
+            margins.bottom,
+        ),
+
+        // Left edge (3 boxes split content height into thirds)
+        "left-top" => (0.0, content_y, margins.left, third_h),
+        "left-middle" => (0.0, content_y + third_h, margins.left, third_h),
+        "left-bottom" => (0.0, content_y + 2.0 * third_h, margins.left, third_h),
+
+        // Right edge (3 boxes split content height into thirds)
+        "right-top" => (content_x + content_w, content_y, margins.right, third_h),
+        "right-middle" => (
+            content_x + content_w,
+            content_y + third_h,
+            margins.right,
+            third_h,
+        ),
+        "right-bottom" => (
+            content_x + content_w,
+            content_y + 2.0 * third_h,
+            margins.right,
+            third_h,
+        ),
+
+        // 4 corner boxes (intersection of margin strips)
+        "top-left-corner" => (0.0, 0.0, margins.left, margins.top),
+        "top-right-corner" => (content_x + content_w, 0.0, margins.right, margins.top),
+        "bottom-left-corner" => (0.0, content_y + content_h, margins.left, margins.bottom),
+        "bottom-right-corner" => (
+            content_x + content_w,
+            content_y + content_h,
+            margins.right,
+            margins.bottom,
+        ),
+
+        _ => (0.0, 0.0, 0.0, 0.0),
     }
 }
 
