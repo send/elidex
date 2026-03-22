@@ -69,7 +69,7 @@ pub enum Mutation {
         /// New text content.
         text: String,
     },
-    /// Set innerHTML (stub — returns `false` until HTML parser integration).
+    /// Set innerHTML — parses HTML fragment and replaces children.
     SetInnerHtml {
         /// Target entity.
         entity: Entity,
@@ -92,7 +92,7 @@ pub enum Mutation {
         /// CSS property name to remove.
         property: String,
     },
-    /// Insert a CSS rule into a stylesheet (stub for CSSOM).
+    /// Insert a CSS rule into a stylesheet (legacy variant, CSSOM uses bridge).
     InsertCssRule {
         /// Stylesheet entity.
         stylesheet: Entity,
@@ -101,7 +101,7 @@ pub enum Mutation {
         /// CSS rule text.
         rule: String,
     },
-    /// Delete a CSS rule from a stylesheet (stub for CSSOM).
+    /// Delete a CSS rule from a stylesheet (legacy variant, CSSOM uses bridge).
     DeleteCssRule {
         /// Stylesheet entity.
         stylesheet: Entity,
@@ -186,7 +186,9 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
             apply_remove_inline_style(dom, *entity, property)
         }
         Mutation::SetInnerHtml { entity, html } => apply_set_inner_html(dom, *entity, html),
-        // Stubs — CSS rules need CSSOM (Phase 5+).
+        // CSS rule mutations are handled directly by the HostBridge CSSOM layer
+        // (not through the EcsDom mutation system). These variants are kept for
+        // backward compat but are no longer reached in normal operation.
         Mutation::InsertCssRule { .. } | Mutation::DeleteCssRule { .. } => None,
     }
 }
