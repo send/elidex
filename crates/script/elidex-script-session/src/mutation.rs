@@ -76,6 +76,17 @@ pub enum Mutation {
         /// HTML string to parse and insert.
         html: String,
     },
+    /// Insert parsed HTML at a position relative to an element.
+    ///
+    /// Position: `"beforebegin"`, `"afterbegin"`, `"beforeend"`, `"afterend"`.
+    InsertAdjacentHtml {
+        /// Target entity.
+        entity: Entity,
+        /// Insertion position.
+        position: String,
+        /// HTML string to parse and insert.
+        html: String,
+    },
     /// Set an inline style property.
     SetInlineStyle {
         /// Target entity.
@@ -186,6 +197,11 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
             apply_remove_inline_style(dom, *entity, property)
         }
         Mutation::SetInnerHtml { entity, html } => apply_set_inner_html(dom, *entity, html),
+        Mutation::InsertAdjacentHtml {
+            entity,
+            position,
+            html,
+        } => apply_insert_adjacent_html(dom, *entity, position, html),
         // CSS rule mutations are handled directly by the HostBridge CSSOM layer
         // (not through the EcsDom mutation system). These variants are kept for
         // backward compat but are no longer reached in normal operation.
@@ -372,6 +388,75 @@ fn apply_set_inner_html(dom: &mut EcsDom, entity: Entity, html: &str) -> Option<
         added_nodes: added,
         removed_nodes: removed,
         ..empty_record(MutationKind::ChildList, entity)
+    })
+}
+
+/// Apply `insertAdjacentHTML`: parse HTML fragment and insert at position.
+#[allow(clippy::unnecessary_wraps)]
+fn apply_insert_adjacent_html(
+    dom: &mut EcsDom,
+    entity: Entity,
+    position: &str,
+    html: &str,
+) -> Option<MutationRecord> {
+    let tag_of = |e: Entity, dom: &EcsDom| -> String {
+        dom.world()
+            .get::<&elidex_ecs::TagType>(e)
+            .ok()
+            .map_or_else(|| "div".to_string(), |t| t.0.clone())
+    };
+
+    let added = match position {
+        "beforebegin" => {
+            let parent = dom.get_parent(entity)?;
+            let context_tag = tag_of(parent, dom);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom);
+            for &node in &nodes {
+                let _ = dom.remove_child(parent, node);
+                let _ = dom.insert_before(parent, node, entity);
+            }
+            nodes
+        }
+        "afterbegin" => {
+            let context_tag = tag_of(entity, dom);
+            let first_child = dom.get_first_child(entity);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom);
+            if let Some(ref_child) = first_child {
+                for &node in &nodes {
+                    let _ = dom.remove_child(entity, node);
+                    let _ = dom.insert_before(entity, node, ref_child);
+                }
+            }
+            nodes
+        }
+        "beforeend" => {
+            let context_tag = tag_of(entity, dom);
+            elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom)
+        }
+        "afterend" => {
+            let parent = dom.get_parent(entity)?;
+            let context_tag = tag_of(parent, dom);
+            let next = dom.get_next_sibling(entity);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom);
+            if let Some(ref_child) = next {
+                for &node in &nodes {
+                    let _ = dom.remove_child(parent, node);
+                    let _ = dom.insert_before(parent, node, ref_child);
+                }
+            }
+            nodes
+        }
+        _ => return None,
+    };
+
+    let target = match position {
+        "beforebegin" | "afterend" => dom.get_parent(entity).unwrap_or(entity),
+        _ => entity,
+    };
+
+    Some(MutationRecord {
+        added_nodes: added,
+        ..empty_record(MutationKind::ChildList, target)
     })
 }
 

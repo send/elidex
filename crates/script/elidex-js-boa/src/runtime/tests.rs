@@ -1211,11 +1211,16 @@ fn insert_adjacent_html_beforeend() {
     let _ = dom.append_child(div, text);
 
     runtime.eval(
-        "
-        var el = document.querySelector('div');
-        el.insertAdjacentHTML('beforeend', '<b>added</b>');
-        console.log('html=' + el.innerHTML);
-        ",
+        "document.querySelector('div').insertAdjacentHTML('beforeend', '<b>added</b>');",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    // Flush deferred mutation before reading innerHTML.
+    session.flush(&mut dom);
+
+    runtime.eval(
+        "console.log('html=' + document.querySelector('div').innerHTML);",
         &mut session,
         &mut dom,
         doc,

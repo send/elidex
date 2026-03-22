@@ -14,7 +14,6 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 elidex-script-session.workspace = true
-elidex-html-parser.workspace = true
 elidex-css.workspace = true
 elidex-style.workspace = true
 hecs.workspace = true
