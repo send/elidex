@@ -194,13 +194,24 @@ fn build_rule_list(
         rule_objects.push(build_style_rule(sheet_index, i, rule, bridge, ctx)?);
     }
 
+    let realm = ctx.realm().clone();
     let mut obj = ObjectInitializer::new(ctx);
 
-    // length
-    obj.property(
+    // length (dynamic getter — reflects insertRule/deleteRule changes)
+    let b_len = bridge.clone();
+    let len_getter = NativeFunction::from_copy_closure_with_captures(
+        move |_this, _args, bridge, _ctx| {
+            let count = bridge.stylesheet_rules(sheet_index).map_or(0, |r| r.len());
+            Ok(JsValue::from(count as f64))
+        },
+        b_len,
+    )
+    .to_js_function(&realm);
+    obj.accessor(
         js_string!("length"),
-        JsValue::from(rules.len() as f64),
-        Attribute::READONLY,
+        Some(len_getter),
+        None,
+        Attribute::CONFIGURABLE,
     );
 
     // item(index)

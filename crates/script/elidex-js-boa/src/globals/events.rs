@@ -207,8 +207,10 @@ pub fn create_event_object(
                     if *cancel {
                         if let Some(val) = args.first() {
                             if ev_type == "beforeunload" {
-                                // HTML §8.1.7.1: truthy value (non-empty string) cancels.
-                                if val.to_boolean() {
+                                // HTML §8.1.7.1: non-empty string cancels.
+                                let is_non_empty_string =
+                                    val.as_string().is_some_and(|s| !s.is_empty());
+                                if is_non_empty_string {
                                     flag.0.set(true);
                                 }
                             } else {

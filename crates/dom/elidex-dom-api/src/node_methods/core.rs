@@ -90,8 +90,10 @@ impl DomApiHandler for CompareDocumentPosition {
                 .and_then(|a| a.owner_element);
             if let (Some(to), Some(oo)) = (this_owner, other_owner) {
                 if to == oo {
-                    // Same owner element: compare by attribute list order.
-                    // Use IMPLEMENTATION_SPECIFIC since order is impl-defined.
+                    // Same owner element: WHATWG DOM §4.2.8 step 5 says compare
+                    // by attribute list position. We use entity bits as a stable
+                    // ordering proxy (IMPLEMENTATION_SPECIFIC) since Attr entities
+                    // are created in attribute insertion order.
                     let dir = if this.to_bits() < other.to_bits() {
                         DOCUMENT_POSITION_PRECEDING
                     } else {
