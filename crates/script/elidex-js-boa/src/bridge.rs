@@ -74,6 +74,15 @@ struct HostBridgeInner {
     /// Cached viewport scroll offset.
     scroll_x: f32,
     scroll_y: f32,
+    // --- TreeWalker / NodeIterator / Range ---
+    /// Active `TreeWalker` instances, keyed by unique ID.
+    tree_walkers: HashMap<u64, elidex_dom_api::TreeWalker>,
+    /// Active `NodeIterator` instances, keyed by unique ID.
+    node_iterators: HashMap<u64, elidex_dom_api::NodeIterator>,
+    /// Active `Range` instances, keyed by unique ID.
+    ranges: HashMap<u64, elidex_dom_api::Range>,
+    /// Next ID for TreeWalker/NodeIterator/Range allocation.
+    traversal_next_id: u64,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -105,6 +114,10 @@ impl HostBridge {
                 viewport_height: 600.0,
                 scroll_x: 0.0,
                 scroll_y: 0.0,
+                tree_walkers: HashMap::new(),
+                node_iterators: HashMap::new(),
+                ranges: HashMap::new(),
+                traversal_next_id: 1,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -479,6 +492,69 @@ impl HostBridge {
         inner.mutation_observers.remove_entity(entity);
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
+    }
+
+    // --- TreeWalker / NodeIterator / Range ---
+
+    /// Create a new `TreeWalker` and return its ID.
+    pub fn create_tree_walker(&self, root: Entity, what_to_show: u32) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner
+            .tree_walkers
+            .insert(id, elidex_dom_api::TreeWalker::new(root, what_to_show));
+        id
+    }
+
+    /// Access a `TreeWalker` by ID.
+    pub fn with_tree_walker<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::TreeWalker) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.tree_walkers.get_mut(&id).map(f)
+    }
+
+    /// Create a new `NodeIterator` and return its ID.
+    pub fn create_node_iterator(&self, root: Entity, what_to_show: u32) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner
+            .node_iterators
+            .insert(id, elidex_dom_api::NodeIterator::new(root, what_to_show));
+        id
+    }
+
+    /// Access a `NodeIterator` by ID.
+    pub fn with_node_iterator<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::NodeIterator) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.node_iterators.get_mut(&id).map(f)
+    }
+
+    /// Create a new `Range` and return its ID.
+    pub fn create_range(&self, node: Entity) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner.ranges.insert(id, elidex_dom_api::Range::new(node));
+        id
+    }
+
+    /// Access a `Range` by ID.
+    pub fn with_range<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::Range) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.ranges.get_mut(&id).map(f)
     }
 }
 

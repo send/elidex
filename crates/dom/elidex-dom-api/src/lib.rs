@@ -20,8 +20,10 @@ pub mod document;
 pub mod element;
 pub mod live_collection;
 pub mod node_methods;
+pub mod range;
 pub mod registry;
 pub mod style;
+pub mod traversal;
 pub mod tree_nav;
 pub(crate) mod util;
 
@@ -60,7 +62,11 @@ pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
+pub use range::Range;
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
+pub use traversal::{
+    NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
+};
 pub use tree_nav::{
     GetChildElementCount, GetFirstChild, GetFirstElementChild, GetLastChild, GetLastElementChild,
     GetNextElementSibling, GetNextSibling, GetNodeName, GetNodeType, GetNodeValue,

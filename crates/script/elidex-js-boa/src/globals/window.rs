@@ -138,6 +138,48 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     });
     ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
         .expect("failed to register matchMedia");
+
+    // window.getSelection() → returns a simplified Selection object stub
+    let get_selection = NativeFunction::from_fn_ptr(|_this, _args, ctx| {
+        // Simplified Selection stub — returns an object with type="None", rangeCount=0.
+        let mut obj = ObjectInitializer::new(ctx);
+        obj.property(
+            js_string!("type"),
+            JsValue::from(js_string!("None")),
+            Attribute::READONLY,
+        );
+        obj.property(
+            js_string!("rangeCount"),
+            JsValue::from(0),
+            Attribute::READONLY,
+        );
+        obj.property(
+            js_string!("isCollapsed"),
+            JsValue::from(true),
+            Attribute::READONLY,
+        );
+        // toString() → empty string
+        obj.function(
+            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::from(js_string!("")))),
+            js_string!("toString"),
+            0,
+        );
+        // getRangeAt() → stub (throws for now)
+        obj.function(
+            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::null())),
+            js_string!("getRangeAt"),
+            1,
+        );
+        // removeAllRanges() → no-op
+        obj.function(
+            NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+            js_string!("removeAllRanges"),
+            0,
+        );
+        Ok(obj.build().into())
+    });
+    ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
+        .expect("failed to register getSelection");
 }
 
 /// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
