@@ -217,12 +217,17 @@ impl DomApiHandler for GetClientRects {
 // scrollIntoView
 // ---------------------------------------------------------------------------
 
-/// `element.scrollIntoView()` — scroll the nearest scrollable ancestor so the
+/// `element.scrollIntoView(arg?)` — scroll the nearest scrollable ancestor so the
 /// element is visible.
 ///
-/// Simplified: finds the nearest ancestor with `ScrollState` and adjusts its
-/// scroll offset so that the element's border box top-left is at the scroll
-/// container's top-left. Does nothing if no scrollable ancestor exists.
+/// Accepts an optional `args[0]` string specifying the block alignment:
+/// - `"start"` (default): element top aligns with container top
+/// - `"end"`: element bottom aligns with container bottom
+/// - `"center"`: element centered vertically in container
+/// - `"nearest"`: minimal scroll (treated as `"start"` for simplicity)
+///
+/// Scroll offsets are clamped to `[0, max_scroll]` where
+/// `max_scroll = scroll_size - client_size`.
 pub struct ScrollIntoView;
 
 impl DomApiHandler for ScrollIntoView {
@@ -233,13 +238,19 @@ impl DomApiHandler for ScrollIntoView {
     fn invoke(
         &self,
         this: Entity,
-        _args: &[JsValue],
+        args: &[JsValue],
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        let block = match args.first() {
+            Some(JsValue::String(s)) => s.as_str(),
+            _ => "start",
+        };
+
         let bb = get_border_box(dom, this);
         let elem_x = bb.0;
         let elem_y = bb.1;
+        let elem_h = bb.3;
 
         // Walk up ancestors to find the nearest scroll container.
         let mut current = dom.get_parent(this);
@@ -253,18 +264,33 @@ impl DomApiHandler for ScrollIntoView {
                 .get::<&elidex_ecs::ScrollState>(ancestor)
                 .is_ok()
             {
-                // Found a scroll container. Compute the container's border box
-                // origin and set scroll offset so the element is visible.
                 let container_bb = get_border_box(dom, ancestor);
+                let container_h = container_bb.3;
+
                 let target_x = elem_x - container_bb.0;
-                let target_y = elem_y - container_bb.1;
+                let target_y = match block {
+                    "end" => elem_y + elem_h - container_bb.1 - container_h,
+                    "center" => elem_y - container_bb.1 - (container_h - elem_h) / 2.0,
+                    // "start" | "nearest" | _
+                    _ => elem_y - container_bb.1,
+                };
+
+                // Read max scrollable extents from ScrollState dimensions.
+                let (max_scroll_x, max_scroll_y) = dom
+                    .world()
+                    .get::<&elidex_ecs::ScrollState>(ancestor)
+                    .map_or((f32::MAX, f32::MAX), |s| {
+                        let mx = (s.scroll_size.width - s.client_size.width).max(0.0);
+                        let my = (s.scroll_size.height - s.client_size.height).max(0.0);
+                        (mx, my)
+                    });
 
                 if let Ok(mut scroll) = dom
                     .world_mut()
                     .get::<&mut elidex_ecs::ScrollState>(ancestor)
                 {
-                    scroll.scroll_offset.x = target_x.max(0.0);
-                    scroll.scroll_offset.y = target_y.max(0.0);
+                    scroll.scroll_offset.x = target_x.clamp(0.0, max_scroll_x);
+                    scroll.scroll_offset.y = target_y.clamp(0.0, max_scroll_y);
                 }
                 break;
             }
@@ -572,7 +598,7 @@ mod tests {
         let child = dom.create_element("span", Attributes::default());
         let _ = dom.append_child(scroller, child);
 
-        // Scroller at (0, 0), child at (50, 200).
+        // Scroller at (0, 0) with 400x300 border box, child at (50, 200).
         let _ = dom.world_mut().insert_one(
             scroller,
             LayoutBox {
@@ -587,11 +613,13 @@ mod tests {
                 ..Default::default()
             },
         );
+        // scroll_size > client_size so max_scroll allows the target offsets.
         let _ = dom.world_mut().insert_one(
             scroller,
             elidex_ecs::ScrollState {
                 scroll_offset: elidex_plugin::Vector::new(0.0, 0.0),
-                ..Default::default()
+                scroll_size: elidex_plugin::Size::new(800.0, 600.0),
+                client_size: elidex_plugin::Size::new(400.0, 300.0),
             },
         );
 
@@ -607,5 +635,103 @@ mod tests {
         // Child at (50, 200), scroller at (0, 0), so scroll should be (50, 200).
         assert!((scroll.scroll_offset.x - 50.0).abs() < f32::EPSILON);
         assert!((scroll.scroll_offset.y - 200.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn scroll_into_view_block_end() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let scroller = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, scroller);
+        let child = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(scroller, child);
+
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(0.0, 0.0, 400.0, 300.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.world_mut().insert_one(
+            child,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(0.0, 500.0, 80.0, 40.0),
+                ..Default::default()
+            },
+        );
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            elidex_ecs::ScrollState {
+                scroll_offset: elidex_plugin::Vector::new(0.0, 0.0),
+                scroll_size: elidex_plugin::Size::new(400.0, 800.0),
+                client_size: elidex_plugin::Size::new(400.0, 300.0),
+            },
+        );
+
+        let mut session = SessionCore::new();
+        // block: "end" → element bottom aligns with container bottom.
+        ScrollIntoView
+            .invoke(
+                child,
+                &[JsValue::String("end".to_string())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+
+        let scroll = dom
+            .world()
+            .get::<&elidex_ecs::ScrollState>(scroller)
+            .unwrap();
+        // target_y = (500 + 40) - 0 - 300 = 240
+        assert!((scroll.scroll_offset.y - 240.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn scroll_into_view_clamped_to_max() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let scroller = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(root, scroller);
+        let child = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(scroller, child);
+
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(0.0, 0.0, 400.0, 300.0),
+                ..Default::default()
+            },
+        );
+        // Child far down in the document.
+        let _ = dom.world_mut().insert_one(
+            child,
+            LayoutBox {
+                content: elidex_plugin::Rect::new(0.0, 900.0, 80.0, 20.0),
+                ..Default::default()
+            },
+        );
+        // max_scroll_y = 700 - 300 = 400
+        let _ = dom.world_mut().insert_one(
+            scroller,
+            elidex_ecs::ScrollState {
+                scroll_offset: elidex_plugin::Vector::new(0.0, 0.0),
+                scroll_size: elidex_plugin::Size::new(400.0, 700.0),
+                client_size: elidex_plugin::Size::new(400.0, 300.0),
+            },
+        );
+
+        let mut session = SessionCore::new();
+        ScrollIntoView
+            .invoke(child, &[], &mut session, &mut dom)
+            .unwrap();
+
+        let scroll = dom
+            .world()
+            .get::<&elidex_ecs::ScrollState>(scroller)
+            .unwrap();
+        // Target would be 900, but clamped to max_scroll_y = 400.
+        assert!((scroll.scroll_offset.y - 400.0).abs() < f32::EPSILON);
     }
 }

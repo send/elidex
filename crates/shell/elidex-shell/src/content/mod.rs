@@ -433,7 +433,15 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
                 // Sync viewport size to JS bridge for window.innerWidth/innerHeight.
-                state.pipeline.runtime.bridge().set_viewport(width, height);
+                let bridge = state.pipeline.runtime.bridge().clone();
+                bridge.set_viewport(width, height);
+
+                // Re-evaluate media queries and dispatch "change" events to listeners.
+                let changed = bridge.re_evaluate_media_queries(width, height);
+                if !changed.is_empty() {
+                    dispatch_media_query_changes(&changed, state);
+                }
+
                 state.re_render();
                 state.send_display_list();
             }
@@ -466,6 +474,19 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
     }
     true
+}
+
+/// Dispatch "change" events to `MediaQueryList` listeners whose result changed.
+///
+/// Creates a `MediaQueryListEvent`-like object with `matches` and `media` properties
+/// and invokes each registered listener callback via `JsRuntime`.
+fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentState) {
+    state.pipeline.runtime.deliver_media_query_changes(
+        changed,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 /// Focusability-relevant attribute names.

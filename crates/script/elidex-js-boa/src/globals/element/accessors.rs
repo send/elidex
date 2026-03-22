@@ -748,18 +748,40 @@ pub(crate) fn register_layout_query_accessors(
         0,
     );
 
-    // scrollIntoView() — scroll nearest scrollable ancestor to make element visible.
+    // scrollIntoView(arg?) — scroll nearest scrollable ancestor to make element visible.
+    // Parses boolean or options object to determine block alignment.
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
+            |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                invoke_dom_handler_void("scrollIntoView", entity, &[], bridge)
+                // Parse the block alignment from the first argument.
+                let block = if let Some(first) = args.first() {
+                    if let Some(b) = first.as_boolean() {
+                        // scrollIntoView(true) → "start", scrollIntoView(false) → "end"
+                        if b { "start" } else { "end" }.to_string()
+                    } else if let Some(obj) = first.as_object() {
+                        // scrollIntoView({ block: "center" })
+                        obj.get(js_string!("block"), ctx)?
+                            .as_string()
+                            .map_or_else(|| "start".to_string(), |s| s.to_std_string_escaped())
+                    } else {
+                        "start".to_string()
+                    }
+                } else {
+                    "start".to_string()
+                };
+                invoke_dom_handler_void(
+                    "scrollIntoView",
+                    entity,
+                    &[ElidexJsValue::String(block)],
+                    bridge,
+                )
             },
             b,
         ),
         js_string!("scrollIntoView"),
-        0,
+        1,
     );
 
     // Read-only numeric property accessors via macro.

@@ -356,7 +356,9 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)
     init.property(js_string!("all"), JsValue::undefined(), Attribute::READONLY);
 
-    // document.write(...) → no-op (compat stub, TODO(M4-3.8): re-entrant self-built parser)
+    // document.write() requires re-entrant HTML parsing (streaming parser
+    // that can be called during script execution). Deferred to M4-3.10+
+    // when the HTML parser supports incremental/streaming mode.
     init.function(
         NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
         js_string!("write"),

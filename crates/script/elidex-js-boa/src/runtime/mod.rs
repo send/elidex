@@ -558,6 +558,62 @@ impl JsRuntime {
             eprintln!("[JS Microtask Error] {err}");
         }
     }
+
+    /// Dispatch "change" events to `MediaQueryList` listeners whose result changed.
+    ///
+    /// `changed` is a list of `(media_query_id, new_matches)` pairs returned
+    /// by `HostBridge::re_evaluate_media_queries()`.
+    pub fn deliver_media_query_changes(
+        &mut self,
+        changed: &[(u64, bool)],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        if changed.is_empty() {
+            return;
+        }
+
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        for &(id, new_matches) in changed {
+            let listeners = self.bridge.media_query_listeners(id);
+            if listeners.is_empty() {
+                continue;
+            }
+            let media = self.bridge.media_query_string(id).unwrap_or_default();
+
+            // Build a MediaQueryListEvent-like object.
+            let event = ObjectInitializer::new(&mut self.ctx)
+                .property(
+                    js_string!("matches"),
+                    JsValue::from(new_matches),
+                    Attribute::READONLY,
+                )
+                .property(
+                    js_string!("media"),
+                    JsValue::from(js_string!(media.as_str())),
+                    Attribute::READONLY,
+                )
+                .build();
+            let event_val = JsValue::from(event);
+
+            for listener in &listeners {
+                if let Err(err) = listener.call(
+                    &JsValue::undefined(),
+                    std::slice::from_ref(&event_val),
+                    &mut self.ctx,
+                ) {
+                    eprintln!("[JS MediaQueryList Error] {err}");
+                }
+            }
+        }
+
+        if let Err(err) = self.ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+    }
 }
 
 use boa_engine::object::ObjectInitializer;

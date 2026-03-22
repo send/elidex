@@ -91,6 +91,18 @@ struct HostBridgeInner {
     traversal_next_id: u64,
     /// The Range ID associated with the current Selection, if any.
     selection_range_id: Option<u64>,
+    // --- MediaQueryList ---
+    /// Active `MediaQueryList` entries, keyed by unique ID.
+    media_queries: HashMap<u64, MediaQueryEntry>,
+    /// Next ID for `MediaQueryList` allocation.
+    media_query_next_id: u64,
+}
+
+/// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
+struct MediaQueryEntry {
+    query: String,
+    matches: bool,
+    listeners: Vec<JsObject>,
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -128,6 +140,8 @@ impl HostBridge {
                 ranges: HashMap::new(),
                 traversal_next_id: 1,
                 selection_range_id: None,
+                media_queries: HashMap::new(),
+                media_query_next_id: 1,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -614,12 +628,125 @@ impl HostBridge {
     pub fn set_selection_range_id(&self, id: Option<u64>) {
         self.inner.borrow_mut().selection_range_id = id;
     }
+
+    // --- MediaQueryList ---
+
+    /// Create a `MediaQueryList` entry and return its unique ID.
+    pub fn create_media_query(&self, query: &str, matches: bool) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.media_query_next_id;
+        inner.media_query_next_id += 1;
+        inner.media_queries.insert(
+            id,
+            MediaQueryEntry {
+                query: query.to_string(),
+                matches,
+                listeners: Vec::new(),
+            },
+        );
+        id
+    }
+
+    /// Add a "change" event listener to a `MediaQueryList`.
+    pub fn add_media_query_listener(&self, id: u64, callback: JsObject) {
+        let mut inner = self.inner.borrow_mut();
+        if let Some(entry) = inner.media_queries.get_mut(&id) {
+            entry.listeners.push(callback);
+        }
+    }
+
+    /// Remove a "change" event listener from a `MediaQueryList` by reference identity.
+    pub fn remove_media_query_listener(&self, id: u64, callback: &JsObject) {
+        let mut inner = self.inner.borrow_mut();
+        if let Some(entry) = inner.media_queries.get_mut(&id) {
+            entry
+                .listeners
+                .retain(|stored| !JsObject::equals(stored, callback));
+        }
+    }
+
+    /// Re-evaluate all media queries against the given viewport dimensions.
+    ///
+    /// Returns a list of `(id, new_matches)` for entries whose result changed.
+    /// Updates the cached `matches` value for each changed entry.
+    pub fn re_evaluate_media_queries(&self, width: f32, height: f32) -> Vec<(u64, bool)> {
+        let mut inner = self.inner.borrow_mut();
+        let mut changed = Vec::new();
+        for (&id, entry) in &mut inner.media_queries {
+            let new_matches = evaluate_media_query_raw(&entry.query, width, height);
+            if new_matches != entry.matches {
+                entry.matches = new_matches;
+                changed.push((id, new_matches));
+            }
+        }
+        changed
+    }
+
+    /// Get the current `matches` value for a media query.
+    pub fn media_query_matches(&self, id: u64) -> bool {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .is_some_and(|e| e.matches)
+    }
+
+    /// Get the listener callbacks for a media query (cloned for dispatch).
+    pub fn media_query_listeners(&self, id: u64) -> Vec<JsObject> {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .map_or_else(Vec::new, |e| e.listeners.clone())
+    }
+
+    /// Get the query string for a media query entry.
+    pub fn media_query_string(&self, id: u64) -> Option<String> {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .map(|e| e.query.clone())
+    }
 }
 
 impl Default for HostBridge {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Evaluate a media query against explicit viewport dimensions (no bridge needed).
+///
+/// This is the shared implementation used by both `evaluate_media_query` in
+/// `window.rs` (via bridge accessor) and `re_evaluate_media_queries`.
+pub(crate) fn evaluate_media_query_raw(query: &str, width: f32, height: f32) -> bool {
+    let q = query.trim().to_ascii_lowercase();
+    let inner = q
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(&q);
+
+    if let Some((feature, value)) = inner.split_once(':') {
+        let feature = feature.trim();
+        let value = value.trim();
+        let px_value = value
+            .strip_suffix("px")
+            .unwrap_or(value)
+            .trim()
+            .parse::<f32>()
+            .ok();
+
+        match feature {
+            "max-width" => return px_value.is_some_and(|v| width <= v),
+            "min-width" => return px_value.is_some_and(|v| width >= v),
+            "max-height" => return px_value.is_some_and(|v| height <= v),
+            "min-height" => return px_value.is_some_and(|v| height >= v),
+            "prefers-color-scheme" => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 // Implement Trace/Finalize for boa_gc compatibility (used in from_copy_closure_with_captures).
@@ -644,6 +771,11 @@ unsafe impl boa_gc::Trace for HostBridge {
         }
         for obj in inner.observer_objects.values() {
             mark(obj);
+        }
+        for entry in inner.media_queries.values() {
+            for listener in &entry.listeners {
+                mark(listener);
+            }
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever
