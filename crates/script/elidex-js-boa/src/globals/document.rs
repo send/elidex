@@ -351,6 +351,24 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         0,
     );
 
+    // document.styleSheets — read-only accessor returning a StyleSheetList
+    {
+        let b_ss = b.clone();
+        let ss_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, ctx| {
+                Ok(crate::globals::cssom::build_stylesheet_list(bridge, ctx))
+            },
+            b_ss,
+        )
+        .to_js_function(&realm);
+        init.accessor(
+            js_string!("styleSheets"),
+            Some(ss_getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
+
     // --- Legacy compat stubs ---
 
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)

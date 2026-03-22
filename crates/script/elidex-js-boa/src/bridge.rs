@@ -96,6 +96,11 @@ struct HostBridgeInner {
     media_queries: HashMap<u64, MediaQueryEntry>,
     /// Next ID for `MediaQueryList` allocation.
     media_query_next_id: u64,
+    // --- CSSOM ---
+    /// Lightweight stylesheet representations for JS access.
+    stylesheets: Vec<CssomSheet>,
+    /// Pending CSSOM mutations to be picked up by the content thread.
+    cssom_mutations: Vec<CssomMutation>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -103,6 +108,60 @@ struct MediaQueryEntry {
     query: String,
     matches: bool,
     listeners: Vec<JsObject>,
+}
+
+/// A lightweight representation of a CSS rule for CSSOM JS access.
+///
+/// Stores serialized selector and declaration text so the JS layer can
+/// expose `selectorText`, `cssText`, and `style` without depending on
+/// the CSS parser crate.
+#[derive(Clone, Debug)]
+pub struct CssomRule {
+    /// The selector text (e.g. `"div.foo"`).
+    pub selector_text: String,
+    /// Individual declarations as `(property, value)` pairs.
+    pub declarations: Vec<(String, String)>,
+}
+
+impl CssomRule {
+    /// Serialize the rule to its full CSS text representation.
+    #[must_use]
+    pub fn css_text(&self) -> String {
+        let decls: Vec<String> = self
+            .declarations
+            .iter()
+            .map(|(prop, val)| format!("{prop}: {val}"))
+            .collect();
+        format!("{} {{ {} }}", self.selector_text, decls.join("; "))
+    }
+}
+
+/// A lightweight representation of a CSS stylesheet for CSSOM JS access.
+#[derive(Clone, Debug, Default)]
+pub struct CssomSheet {
+    /// Rules in source order.
+    pub rules: Vec<CssomRule>,
+}
+
+/// A pending CSSOM mutation to be applied by the content thread.
+#[derive(Clone, Debug)]
+pub enum CssomMutation {
+    /// Insert a rule at the given index in the given sheet.
+    InsertRule {
+        /// Sheet index in the `stylesheets` list.
+        sheet_index: usize,
+        /// Rule index within the sheet.
+        rule_index: usize,
+        /// Raw CSS rule text to parse.
+        rule_text: String,
+    },
+    /// Delete a rule at the given index in the given sheet.
+    DeleteRule {
+        /// Sheet index in the `stylesheets` list.
+        sheet_index: usize,
+        /// Rule index to delete.
+        rule_index: usize,
+    },
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -142,6 +201,8 @@ impl HostBridge {
                 selection_range_id: None,
                 media_queries: HashMap::new(),
                 media_query_next_id: 1,
+                stylesheets: Vec::new(),
+                cssom_mutations: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -708,6 +769,115 @@ impl HostBridge {
             .get(&id)
             .map(|e| e.query.clone())
     }
+
+    // --- CSSOM ---
+
+    /// Replace the CSSOM stylesheet list (called by content thread after pipeline).
+    pub fn set_stylesheets(&self, sheets: Vec<CssomSheet>) {
+        self.inner.borrow_mut().stylesheets = sheets;
+    }
+
+    /// Get the number of stylesheets.
+    #[must_use]
+    pub fn stylesheet_count(&self) -> usize {
+        self.inner.borrow().stylesheets.len()
+    }
+
+    /// Access a stylesheet's rules by index.
+    #[must_use]
+    pub fn stylesheet_rules(&self, sheet_index: usize) -> Option<Vec<CssomRule>> {
+        self.inner
+            .borrow()
+            .stylesheets
+            .get(sheet_index)
+            .map(|s| s.rules.clone())
+    }
+
+    /// Insert a rule into a stylesheet's CSSOM representation and record a pending mutation.
+    ///
+    /// Returns the actual insertion index on success, or `None` if the sheet/index is invalid.
+    pub fn cssom_insert_rule(
+        &self,
+        sheet_index: usize,
+        rule_index: usize,
+        rule_text: &str,
+    ) -> Option<usize> {
+        let mut inner = self.inner.borrow_mut();
+        let sheet = inner.stylesheets.get_mut(sheet_index)?;
+        if rule_index > sheet.rules.len() {
+            return None;
+        }
+        // Parse a minimal rule representation from the raw text.
+        let rule = parse_cssom_rule_from_text(rule_text)?;
+        sheet.rules.insert(rule_index, rule);
+        inner.cssom_mutations.push(CssomMutation::InsertRule {
+            sheet_index,
+            rule_index,
+            rule_text: rule_text.to_string(),
+        });
+        Some(rule_index)
+    }
+
+    /// Delete a rule from a stylesheet's CSSOM representation and record a pending mutation.
+    ///
+    /// Returns `true` on success, `false` if the sheet/index is invalid.
+    pub fn cssom_delete_rule(&self, sheet_index: usize, rule_index: usize) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let Some(sheet) = inner.stylesheets.get_mut(sheet_index) else {
+            return false;
+        };
+        if rule_index >= sheet.rules.len() {
+            return false;
+        }
+        sheet.rules.remove(rule_index);
+        inner.cssom_mutations.push(CssomMutation::DeleteRule {
+            sheet_index,
+            rule_index,
+        });
+        true
+    }
+
+    /// Take all pending CSSOM mutations (consumed by content thread).
+    pub fn take_cssom_mutations(&self) -> Vec<CssomMutation> {
+        std::mem::take(&mut self.inner.borrow_mut().cssom_mutations)
+    }
+
+    /// Returns `true` if there are pending CSSOM mutations.
+    #[must_use]
+    pub fn has_cssom_mutations(&self) -> bool {
+        !self.inner.borrow().cssom_mutations.is_empty()
+    }
+}
+
+/// Parse a raw CSS rule string into a `CssomRule`.
+///
+/// Performs lightweight parsing without the full CSS parser: splits on `{`
+/// to extract the selector and the declaration block. Returns `None` if
+/// the text doesn't contain a valid `selector { declarations }` structure.
+fn parse_cssom_rule_from_text(text: &str) -> Option<CssomRule> {
+    let text = text.trim();
+    let brace_pos = text.find('{')?;
+    let selector_text = text[..brace_pos].trim().to_string();
+    if selector_text.is_empty() {
+        return None;
+    }
+    let body = text[brace_pos + 1..].trim();
+    let body = body.strip_suffix('}').unwrap_or(body).trim();
+    let declarations: Vec<(String, String)> = body
+        .split(';')
+        .filter_map(|decl| {
+            let decl = decl.trim();
+            if decl.is_empty() {
+                return None;
+            }
+            let (prop, val) = decl.split_once(':')?;
+            Some((prop.trim().to_string(), val.trim().to_string()))
+        })
+        .collect();
+    Some(CssomRule {
+        selector_text,
+        declarations,
+    })
 }
 
 impl Default for HostBridge {

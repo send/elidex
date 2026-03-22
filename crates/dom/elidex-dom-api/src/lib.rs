@@ -44,7 +44,7 @@ pub use class_list::{
     ClassListAdd, ClassListContains, ClassListItem, ClassListLength, ClassListRemove,
     ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
 };
-pub use computed_style::GetComputedStyle;
+pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };

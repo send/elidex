@@ -2,6 +2,7 @@
 
 pub mod canvas;
 pub mod console;
+pub mod cssom;
 pub mod document;
 pub mod element;
 pub(crate) mod element_form;

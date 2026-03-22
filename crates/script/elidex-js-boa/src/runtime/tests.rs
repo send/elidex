@@ -1312,3 +1312,396 @@ fn window_scroll_x_y_initial() {
         "scrollX/Y should be 0 initially, got: {output:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// CSSOM tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn document_stylesheets_empty_by_default() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let result = runtime.eval(
+        "console.log('len=' + document.styleSheets.length);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("len=0")),
+        "styleSheets should be empty by default, got: {output:?}"
+    );
+}
+
+#[test]
+fn document_stylesheets_reflects_bridge_state() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // Set up a stylesheet in the bridge.
+    let sheet = crate::bridge::CssomSheet {
+        rules: vec![crate::bridge::CssomRule {
+            selector_text: "div".to_string(),
+            declarations: vec![("color".to_string(), "red".to_string())],
+        }],
+    };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    let result = runtime.eval(
+        r"
+        var sheets = document.styleSheets;
+        console.log('count=' + sheets.length);
+        var sheet = sheets.item(0);
+        console.log('type=' + sheet.type);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=1")),
+        "should have 1 stylesheet, got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("type=text/css")),
+        "sheet type should be text/css, got: {output:?}"
+    );
+}
+
+#[test]
+fn css_rules_access() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let sheet = crate::bridge::CssomSheet {
+        rules: vec![
+            crate::bridge::CssomRule {
+                selector_text: "div".to_string(),
+                declarations: vec![("color".to_string(), "red".to_string())],
+            },
+            crate::bridge::CssomRule {
+                selector_text: "p".to_string(),
+                declarations: vec![("margin".to_string(), "10px".to_string())],
+            },
+        ],
+    };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    let result = runtime.eval(
+        r"
+        var rules = document.styleSheets.item(0).cssRules;
+        console.log('rlen=' + rules.length);
+        console.log('sel0=' + rules[0].selectorText);
+        console.log('sel1=' + rules[1].selectorText);
+        console.log('type0=' + rules[0].type);
+        console.log('css0=' + rules[0].cssText);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("rlen=2")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("sel0=div")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("sel1=p")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("type0=1")),
+        "got: {output:?}"
+    );
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains("css0=div { color: red }")),
+        "got: {output:?}"
+    );
+}
+
+#[test]
+fn css_rule_style_declaration() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let sheet = crate::bridge::CssomSheet {
+        rules: vec![crate::bridge::CssomRule {
+            selector_text: "body".to_string(),
+            declarations: vec![
+                ("color".to_string(), "blue".to_string()),
+                ("font-size".to_string(), "16px".to_string()),
+            ],
+        }],
+    };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    let result = runtime.eval(
+        r"
+        var style = document.styleSheets.item(0).cssRules[0].style;
+        console.log('slen=' + style.length);
+        console.log('item0=' + style.item(0));
+        console.log('gpv=' + style.getPropertyValue('color'));
+        console.log('csstext=' + style.cssText);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("slen=2")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("gpv=blue")),
+        "got: {output:?}"
+    );
+}
+
+#[test]
+fn insert_rule_and_delete_rule() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let sheet = crate::bridge::CssomSheet {
+        rules: vec![crate::bridge::CssomRule {
+            selector_text: "div".to_string(),
+            declarations: vec![("color".to_string(), "red".to_string())],
+        }],
+    };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    // insertRule
+    let result = runtime.eval(
+        r"
+        var sheet = document.styleSheets.item(0);
+        var idx = sheet.insertRule('p { margin: 0 }', 1);
+        console.log('idx=' + idx);
+        // Read fresh cssRules after insert.
+        var rules = sheet.cssRules;
+        console.log('after_insert=' + rules.length);
+        console.log('new_sel=' + rules[1].selectorText);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("idx=1")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("after_insert=2")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("new_sel=p")),
+        "got: {output:?}"
+    );
+
+    // Verify pending mutations.
+    let mutations = runtime.bridge().take_cssom_mutations();
+    assert_eq!(mutations.len(), 1, "should have 1 pending mutation");
+
+    // deleteRule
+    let result = runtime.eval(
+        r"
+        var sheet = document.styleSheets.item(0);
+        sheet.deleteRule(0);
+        var rules = sheet.cssRules;
+        console.log('after_delete=' + rules.length);
+        console.log('remaining_sel=' + rules[0].selectorText);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output2 = runtime.console_output().messages();
+    assert!(
+        output2.iter().any(|m| m.1.contains("after_delete=1")),
+        "got: {output2:?}"
+    );
+    assert!(
+        output2.iter().any(|m| m.1.contains("remaining_sel=p")),
+        "got: {output2:?}"
+    );
+}
+
+#[test]
+fn insert_rule_invalid_index_throws() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let sheet = crate::bridge::CssomSheet { rules: vec![] };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    // Index 5 is out of range for an empty sheet.
+    let result = runtime.eval(
+        "document.styleSheets.item(0).insertRule('p { }', 5);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(!result.success, "insertRule with invalid index should fail");
+}
+
+#[test]
+fn delete_rule_invalid_index_throws() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let sheet = crate::bridge::CssomSheet { rules: vec![] };
+    runtime.bridge().set_stylesheets(vec![sheet]);
+
+    let result = runtime.eval(
+        "document.styleSheets.item(0).deleteRule(0);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(!result.success, "deleteRule on empty sheet should fail");
+}
+
+#[test]
+fn style_css_text_getter() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+
+    let result = runtime.eval(
+        r"
+        var el = document.querySelector('div');
+        el.style.setProperty('color', 'red');
+        el.style.setProperty('margin', '10px');
+        console.log('len=' + el.style.length);
+        // cssText should contain both properties.
+        var text = el.style.cssText;
+        console.log('has_color=' + (text.indexOf('color') >= 0));
+        console.log('has_margin=' + (text.indexOf('margin') >= 0));
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("len=2")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("has_color=true")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("has_margin=true")),
+        "got: {output:?}"
+    );
+}
+
+#[test]
+fn style_css_text_setter() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+
+    let result = runtime.eval(
+        r"
+        var el = document.querySelector('div');
+        el.style.cssText = 'color: blue; font-size: 14px';
+        console.log('len=' + el.style.length);
+        console.log('color=' + el.style.getPropertyValue('color'));
+        console.log('fs=' + el.style.getPropertyValue('font-size'));
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("len=2")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("color=blue")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("fs=14px")),
+        "got: {output:?}"
+    );
+}
+
+#[test]
+fn style_item_method() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+
+    let result = runtime.eval(
+        r"
+        var el = document.querySelector('div');
+        el.style.setProperty('color', 'red');
+        var name = el.style.item(0);
+        // item(0) should return a property name string.
+        console.log('type=' + typeof name);
+        console.log('empty=' + (name.length > 0));
+        // Out-of-range returns empty string.
+        console.log('oob=' + el.style.item(99));
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("type=string")),
+        "got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("empty=true")),
+        "got: {output:?}"
+    );
+}
+
+#[test]
+fn stylesheets_item_returns_null_for_invalid_index() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let result = runtime.eval(
+        r"
+        var result = document.styleSheets.item(99);
+        console.log('null=' + (result === null));
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("null=true")),
+        "got: {output:?}"
+    );
+}

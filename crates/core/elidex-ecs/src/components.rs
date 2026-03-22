@@ -153,6 +153,39 @@ pub struct InlineStyle {
 
 impl_hash_string_map!(InlineStyle, properties, "style property");
 
+impl InlineStyle {
+    /// Returns the number of properties.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.properties.len()
+    }
+
+    /// Returns `true` if there are no properties.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.properties.is_empty()
+    }
+
+    /// Serialize all properties to a CSS text string.
+    #[must_use]
+    pub fn css_text(&self) -> String {
+        self.properties
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Get the property name at the given index.
+    ///
+    /// Order is not guaranteed to match insertion order since properties
+    /// are stored in a `HashMap`.
+    #[must_use]
+    pub fn property_at(&self, index: usize) -> Option<&str> {
+        self.properties.keys().nth(index).map(String::as_str)
+    }
+}
+
 /// Marker component for pseudo-element entities (`::before`, `::after`).
 ///
 /// Pseudo-element entities are generated during style resolution and

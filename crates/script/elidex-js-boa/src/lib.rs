@@ -40,7 +40,7 @@ macro_rules! impl_empty_trace {
     };
 }
 
-mod bridge;
+pub mod bridge;
 mod error_conv;
 mod globals;
 pub mod runtime;

@@ -2069,6 +2069,7 @@ dependencies = [
  "elidex-a11y",
  "elidex-css",
  "elidex-css-anim",
+ "elidex-dom-api",
  "elidex-dom-compat",
  "elidex-ecs",
  "elidex-form",

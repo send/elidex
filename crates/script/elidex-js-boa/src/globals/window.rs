@@ -538,7 +538,8 @@ fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Co
     obj.build().into()
 }
 
-/// Create a CSSStyleDeclaration-like object for `element.style`.
+/// Create a `CSSStyleDeclaration`-like object for `element.style`.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let entity_bits = entity.to_bits().get() as f64;
 
@@ -607,6 +608,113 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
             b,
         ),
         js_string!("removeProperty"),
+        1,
+    );
+
+    // cssText — getter that serializes all inline style properties.
+    let realm = init.context().realm().clone();
+    let b_css_get = bridge.clone();
+    let css_text_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let text = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_ecs::InlineStyle>(entity)
+                    .ok()
+                    .map_or(String::new(), |style| style.css_text())
+            });
+            Ok(JsValue::from(js_string!(text.as_str())))
+        },
+        b_css_get,
+    )
+    .to_js_function(&realm);
+    // cssText — setter that parses and replaces all inline style properties.
+    let b_css_set = bridge.clone();
+    let css_text_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let text = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or(String::new(), |s| s.to_std_string_escaped());
+            bridge.with(|_session, dom| {
+                // Clear existing inline style, then set new properties.
+                let _ = dom
+                    .world_mut()
+                    .insert_one(entity, elidex_ecs::InlineStyle::default());
+                let mut style = dom
+                    .world_mut()
+                    .get::<&mut elidex_ecs::InlineStyle>(entity)
+                    .ok();
+                if let Some(ref mut s) = style {
+                    for decl in text.split(';') {
+                        let decl = decl.trim();
+                        if let Some((prop, val)) = decl.split_once(':') {
+                            s.set(prop.trim().to_string(), val.trim().to_string());
+                        }
+                    }
+                }
+            });
+            Ok(JsValue::undefined())
+        },
+        b_css_set,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("cssText"),
+        Some(css_text_getter),
+        Some(css_text_setter),
+        Attribute::CONFIGURABLE,
+    );
+
+    // length — getter that returns the number of inline style properties.
+    let b_len = bridge.clone();
+    let length_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let len = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_ecs::InlineStyle>(entity)
+                    .ok()
+                    .map_or(0, |style| style.len())
+            });
+            Ok(JsValue::from(len as f64))
+        },
+        b_len,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("length"),
+        Some(length_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // item(index) — returns the property name at the given index.
+    let b_item = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let index = args
+                    .first()
+                    .and_then(JsValue::as_number)
+                    .map_or(0, |n| n as usize);
+                let name = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::InlineStyle>(entity)
+                        .ok()
+                        .and_then(|style| style.property_at(index).map(str::to_owned))
+                });
+                Ok(name.map_or(JsValue::from(js_string!("")), |n| {
+                    JsValue::from(js_string!(n.as_str()))
+                }))
+            },
+            b_item,
+        ),
+        js_string!("item"),
         1,
     );
 
