@@ -24,7 +24,6 @@ impl Parser<'_> {
 
     /// Apply suffix operators (member, call, optional chain, tagged template).
     /// When `allow_call` is false, `LParen` and templates are not consumed (for `new` callee).
-    #[allow(clippy::too_many_lines)]
     // Single match dispatcher over token/AST variants.
     pub(crate) fn parse_suffix_loop(
         &mut self,

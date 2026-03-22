@@ -291,7 +291,6 @@ fn functions_to_affine(funcs: &[TransformFunction]) -> [f64; 6] {
 }
 
 /// Interpolate a single pair of matching transform functions.
-#[allow(clippy::too_many_lines)]
 fn interpolate_function(a: &TransformFunction, b: &TransformFunction, t: f32) -> TransformFunction {
     match (a, b) {
         (TransformFunction::Translate(ax, ay), TransformFunction::Translate(bx, by)) => {

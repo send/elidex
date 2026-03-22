@@ -243,7 +243,6 @@ pub(crate) struct TableColumnInput<'a> {
 /// In the collapsing border model, cell intrinsic widths are adjusted by
 /// subtracting the collapsed border half-widths (CSS 2.1 §17.6.2).
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub(crate) fn compute_column_widths(
     dom: &mut EcsDom,
     params: &TableColumnInput<'_>,

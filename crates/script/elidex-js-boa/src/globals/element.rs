@@ -716,7 +716,6 @@ fn register_node_info_accessors(
 // ---------------------------------------------------------------------------
 
 /// Register node methods that take entity arguments.
-#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
 fn register_node_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
     // contains(other)
     let b = bridge.clone();
@@ -883,7 +882,7 @@ fn register_child_parent_mixin_methods(init: &mut ObjectInitializer<'_>, bridge:
 // ---------------------------------------------------------------------------
 
 /// Register additional Element methods (matches, closest, insertAdjacent*, etc.).
-#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
+#[allow(clippy::too_many_lines)]
 fn register_element_extra_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
     // matches(selector)
     let b = bridge.clone();
@@ -1464,7 +1463,7 @@ fn create_class_list_object(entity: Entity, bridge: &HostBridge, ctx: &mut Conte
 /// nodes (i.e., anything other than Text/Comment), the handler layer returns
 /// `InvalidStateError`, matching browser behavior where `CharacterData`
 /// methods exist on the prototype chain but throw on incorrect node types.
-#[allow(clippy::too_many_lines)] // Registration boilerplate; splitting would not improve clarity
+#[allow(clippy::too_many_lines)]
 fn register_char_data_methods(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,

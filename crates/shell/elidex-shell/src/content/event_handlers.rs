@@ -231,7 +231,6 @@ pub(super) fn handle_cursor_left(state: &mut ContentState) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn handle_key(
     state: &mut ContentState,
     event_type: &str,
