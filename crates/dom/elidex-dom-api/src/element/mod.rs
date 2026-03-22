@@ -13,7 +13,8 @@ pub use attrs::{
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{
     collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild, GetInnerHtml,
-    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveChild,
+    InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveChild,
+    SetInnerHtml,
 };
 
 #[cfg(test)]

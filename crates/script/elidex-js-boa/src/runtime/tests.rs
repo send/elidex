@@ -1130,3 +1130,120 @@ fn beforeunload_can_cancel() {
         "beforeunload with preventDefault should be prevented (return true)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// innerHTML setter + insertAdjacentHTML (M4-3.8 Step 2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn innerhtml_setter_replaces_children() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+    let text = dom.create_text("old content");
+    let _ = dom.append_child(div, text);
+
+    // Set innerHTML and read it back in the same eval (session.flush happens inside eval).
+    runtime.eval(
+        "
+        var el = document.querySelector('div');
+        el.innerHTML = '<span>new</span>';
+        console.log('html=' + el.innerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    // innerHTML getter reads from DOM which reflects the mutation after flush.
+    // However, flush happens after eval, so the getter sees pre-flush state.
+    // The mutation is deferred — innerHTML won't be updated until flush.
+    // For now, verify the mutation was recorded and applied after flush.
+    session.flush(&mut dom);
+
+    // Re-read after explicit flush.
+    runtime.eval(
+        "console.log('post=' + document.querySelector('div').innerHTML);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output2 = runtime.console_output().messages();
+    assert!(
+        output2.iter().any(|m| m.1.contains("<span>")),
+        "innerHTML setter should replace children after flush, got: {output:?} + {output2:?}"
+    );
+}
+
+#[test]
+fn innerhtml_setter_empty_clears_children() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+    let text = dom.create_text("content");
+    let _ = dom.append_child(div, text);
+
+    runtime.eval(
+        "document.querySelector('div').innerHTML = '';",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    session.flush(&mut dom);
+
+    // After flush, children should be removed.
+    let children: Vec<_> = dom.children(div);
+    assert!(
+        children.is_empty(),
+        "innerHTML='' should clear children, got {} children",
+        children.len()
+    );
+}
+
+#[test]
+fn insert_adjacent_html_beforeend() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, div);
+    let text = dom.create_text("existing");
+    let _ = dom.append_child(div, text);
+
+    runtime.eval(
+        "
+        var el = document.querySelector('div');
+        el.insertAdjacentHTML('beforeend', '<b>added</b>');
+        console.log('html=' + el.innerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("added")),
+        "insertAdjacentHTML beforeend should append, got: {output:?}"
+    );
+}
+
+#[test]
+fn parse_html_fragment_basic() {
+    let mut dom = elidex_ecs::EcsDom::new();
+    let root = dom.create_document_root();
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(root, div);
+
+    let nodes =
+        elidex_html_parser::parse_html_fragment("<p>hello</p><p>world</p>", "div", div, &mut dom);
+
+    assert_eq!(nodes.len(), 2, "should parse 2 <p> elements");
+    // Verify first child is a <p>.
+    let first_tag = dom
+        .world()
+        .get::<&elidex_ecs::TagType>(nodes[0])
+        .ok()
+        .map(|t| t.0.clone());
+    assert_eq!(first_tag.as_deref(), Some("p"));
+}

@@ -85,6 +85,8 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("textContent.get", Box::new(super::GetTextContentNodeKind));
     r.register_static("textContent.set", Box::new(super::SetTextContentNodeKind));
     r.register_static("innerHTML.get", Box::new(super::GetInnerHtml));
+    r.register_static("innerHTML.set", Box::new(super::SetInnerHtml));
+    r.register_static("insertAdjacentHTML", Box::new(super::InsertAdjacentHtml));
 
     // --- Element — insertAdjacent ---
     r.register_static(

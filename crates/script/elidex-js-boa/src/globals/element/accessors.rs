@@ -275,6 +275,27 @@ pub(crate) fn register_element_extra_methods(
         2,
     );
 
+    // insertAdjacentHTML(position, html)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let position = require_js_string_arg(args, 0, "insertAdjacentHTML", ctx)?;
+                let html = require_js_string_arg(args, 1, "insertAdjacentHTML", ctx)?;
+                invoke_dom_handler_void(
+                    "insertAdjacentHTML",
+                    entity,
+                    &[ElidexJsValue::String(position), ElidexJsValue::String(html)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("insertAdjacentHTML"),
+        2,
+    );
+
     // hasAttribute(name)
     let b = bridge.clone();
     init.function(

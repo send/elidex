@@ -50,8 +50,8 @@ pub use element::{
     camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,
     validate_attribute_name, AppendChild, DatasetDelete, DatasetGet, DatasetKeys, DatasetSet,
     GetAttribute, GetAttributeNames, GetClassName, GetId, GetInnerHtml, HasAttribute,
-    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
-    SetAttribute, SetClassName, SetId, ToggleAttribute,
+    InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveAttribute,
+    RemoveChild, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,

@@ -62,6 +62,26 @@ fn convert_children(rc_handle: &Handle, parent: Entity, dom: &mut EcsDom) {
     }
 }
 
+/// Convert fragment children and return the list of newly created entities.
+///
+/// Like [`convert_children`] but returns the created entities for tracking.
+/// Used by [`crate::parse_html_fragment`] to report which nodes were added.
+pub(crate) fn convert_fragment_children(
+    rc_handle: &Handle,
+    parent: Entity,
+    dom: &mut EcsDom,
+) -> Vec<Entity> {
+    let mut created = Vec::new();
+    for child in &*rc_handle.children.borrow() {
+        if let Some(entity) = convert_node(child, dom) {
+            let ok = dom.append_child(parent, entity);
+            debug_assert!(ok, "append_child failed during fragment conversion");
+            created.push(entity);
+        }
+    }
+    created
+}
+
 /// Build element attributes and extract inline style from an element handle.
 fn build_element_data(handle: &Handle) -> Option<(String, Attributes, Option<InlineStyle>)> {
     let NodeData::Element { name, attrs, .. } = &handle.data else {

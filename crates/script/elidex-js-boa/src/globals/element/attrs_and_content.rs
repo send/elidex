@@ -59,7 +59,7 @@ pub(crate) fn register_content_accessors(
         Attribute::CONFIGURABLE,
     );
 
-    // innerHTML getter (read-only for Phase 2)
+    // innerHTML getter + setter
     let b = bridge.clone();
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
@@ -70,10 +70,30 @@ pub(crate) fn register_content_accessors(
     )
     .to_js_function(realm);
 
+    let b2 = bridge.clone();
+    let setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let html = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or(String::new(), |s| s.to_std_string_escaped());
+            invoke_dom_handler_void(
+                "innerHTML.set",
+                entity,
+                &[ElidexJsValue::String(html)],
+                bridge,
+            )
+        },
+        b2,
+    )
+    .to_js_function(realm);
+
     init.accessor(
         js_string!("innerHTML"),
         Some(getter),
-        None,
+        Some(setter),
         Attribute::CONFIGURABLE,
     );
 }

@@ -29,6 +29,7 @@ url.workspace = true
 bytes.workspace = true
 
 [dev-dependencies]
+elidex-html-parser.workspace = true
 wat.workspace = true
 
 [lints]

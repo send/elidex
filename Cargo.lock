@@ -1813,6 +1813,7 @@ version = "0.1.0"
 dependencies = [
  "elidex-css",
  "elidex-ecs",
+ "elidex-html-parser",
  "elidex-plugin",
  "elidex-script-session",
  "elidex-style",
@@ -1878,6 +1879,7 @@ dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-form",
+ "elidex-html-parser",
  "elidex-navigation",
  "elidex-net",
  "elidex-plugin",
@@ -2038,6 +2040,7 @@ name = "elidex-script-session"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-html-parser",
  "elidex-plugin",
  "hecs",
 ]
