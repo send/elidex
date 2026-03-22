@@ -371,15 +371,11 @@ impl DomApiHandler for InsertAdjacentHtml {
             _ => String::new(),
         };
 
-        // Helper: record ChildList mutations for inserted nodes.
-        let record_insertions = |parent: Entity, nodes: &[Entity], session: &mut SessionCore| {
-            for &node in nodes {
-                session.record_mutation(Mutation::AppendChild {
-                    parent,
-                    child: node,
-                });
-            }
-        };
+        // NOTE: We do NOT record Mutation::AppendChild here. The DOM is already
+        // modified directly by parse_html_fragment + insert_before/remove_child.
+        // Recording mutations would cause double-insertion during flush.
+        // MutationObserver records should be generated separately.
+        let _ = session; // suppress unused warning
 
         match position.as_str() {
             "beforebegin" => {
@@ -396,7 +392,6 @@ impl DomApiHandler for InsertAdjacentHtml {
                     let _ = dom.remove_child(parent, *node);
                     let _ = dom.insert_before(parent, *node, this);
                 }
-                record_insertions(parent, &nodes, session);
             }
             "afterbegin" => {
                 let context_tag = tag_of(this, dom);
@@ -409,13 +404,12 @@ impl DomApiHandler for InsertAdjacentHtml {
                     }
                 }
                 // If no first_child, nodes are already appended at end (correct).
-                record_insertions(this, &nodes, session);
             }
             "beforeend" => {
                 let context_tag = tag_of(this, dom);
                 // Nodes are appended at end by parse_html_fragment — already correct.
-                let nodes = elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
-                record_insertions(this, &nodes, session);
+                let _nodes =
+                    elidex_html_parser::parse_html_fragment(&html, &context_tag, this, dom);
             }
             "afterend" => {
                 let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
@@ -434,7 +428,6 @@ impl DomApiHandler for InsertAdjacentHtml {
                     }
                 }
                 // If no next sibling, nodes are already at end (correct).
-                record_insertions(parent, &nodes, session);
             }
             _ => {
                 return Err(DomApiError::syntax_error(

@@ -21,8 +21,10 @@ const RULE_INDEX_KEY: &str = "__elidex_rule_idx__";
 
 /// Build the `document.styleSheets` StyleSheetList-like JS object.
 ///
-/// Returns an array-like object with `length` and `item(index)` method,
-/// plus numeric index access via properties.
+/// Returns an array-like object with `length` (dynamic getter) and `item(index)` method.
+///
+/// **Limitation**: `document.styleSheets[0]` bracket syntax is not supported
+/// (boa does not support Proxy). Use `document.styleSheets.item(0)` instead.
 pub fn build_stylesheet_list(bridge: &HostBridge, ctx: &mut Context) -> JsValue {
     let mut obj = ObjectInitializer::new(ctx);
 
@@ -62,29 +64,6 @@ pub fn build_stylesheet_list(bridge: &HostBridge, ctx: &mut Context) -> JsValue 
         js_string!("item"),
         1,
     );
-
-    // Numeric index access via accessor getters (e.g. styleSheets[0], styleSheets[1]).
-    let count = bridge.stylesheet_count();
-    for i in 0..count {
-        let b_idx = bridge.clone();
-        let getter = NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, (bridge, index), ctx| {
-                if *index < bridge.stylesheet_count() {
-                    build_stylesheet_object(*index, bridge, ctx)
-                } else {
-                    Ok(JsValue::undefined())
-                }
-            },
-            (b_idx, i),
-        )
-        .to_js_function(&realm);
-        obj.accessor(
-            js_string!(i.to_string().as_str()),
-            Some(getter),
-            None,
-            Attribute::CONFIGURABLE,
-        );
-    }
 
     obj.build().into()
 }

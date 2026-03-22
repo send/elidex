@@ -136,6 +136,8 @@ impl ContentState {
         // Apply any pending JS scroll (scrollTo/scrollBy) to viewport state.
         if let Some((x, y)) = self.pipeline.runtime.bridge().take_pending_scroll() {
             self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
+            // Clamp to valid range so JS cannot set out-of-bounds scroll positions.
+            scroll::update_viewport_scroll_dimensions(self);
         }
 
         // Sync viewport scroll offset to pipeline for display list building.

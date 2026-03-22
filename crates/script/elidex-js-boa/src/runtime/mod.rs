@@ -599,12 +599,25 @@ impl JsRuntime {
                 .build();
             let event_val = JsValue::from(event);
 
+            // Build a MediaQueryList-like object to use as `this` per spec.
+            let mql_this = ObjectInitializer::new(&mut self.ctx)
+                .property(
+                    js_string!("matches"),
+                    JsValue::from(new_matches),
+                    Attribute::READONLY,
+                )
+                .property(
+                    js_string!("media"),
+                    JsValue::from(js_string!(media.as_str())),
+                    Attribute::READONLY,
+                )
+                .build();
+            let this_val = JsValue::from(mql_this);
+
             for listener in &listeners {
-                if let Err(err) = listener.call(
-                    &JsValue::undefined(),
-                    std::slice::from_ref(&event_val),
-                    &mut self.ctx,
-                ) {
+                if let Err(err) =
+                    listener.call(&this_val, std::slice::from_ref(&event_val), &mut self.ctx)
+                {
                     eprintln!("[JS MediaQueryList Error] {err}");
                 }
             }

@@ -507,7 +507,7 @@ fn build_named_node_map(
         Attribute::CONFIGURABLE,
     );
 
-    // item(index) — reads attributes at call time.
+    // item(index) — reads attributes at call time, returns proper Attr wrapper.
     let b_item = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -518,35 +518,38 @@ fn build_named_node_map(
                     .first()
                     .and_then(JsValue::as_number)
                     .map_or(0, |n| n as usize);
-                let attr = bridge.with(|_session, dom| {
+                // Get the attribute name at the given index.
+                let attr_name = bridge.with(|_session, dom| {
                     dom.world()
                         .get::<&elidex_ecs::Attributes>(entity)
                         .ok()
-                        .and_then(|a| {
-                            a.iter()
-                                .nth(index)
-                                .map(|(k, v)| (k.to_string(), v.to_string()))
-                        })
+                        .and_then(|a| a.iter().nth(index).map(|(k, _)| k.to_string()))
                 });
-                match attr {
-                    Some((name, value)) => {
-                        let mut obj = ObjectInitializer::new(ctx);
-                        obj.property(
-                            js_string!("name"),
-                            JsValue::from(js_string!(name.as_str())),
-                            Attribute::READONLY,
-                        );
-                        obj.property(
-                            js_string!("value"),
-                            JsValue::from(js_string!(value.as_str())),
-                            Attribute::READONLY,
-                        );
-                        obj.property(
-                            js_string!("nodeType"),
-                            JsValue::from(2),
-                            Attribute::READONLY,
-                        );
-                        Ok(obj.build().into())
+                match attr_name {
+                    Some(name) => {
+                        // Use getAttributeNode DOM handler to get proper Attr entity.
+                        let result = invoke_dom_handler_ref(
+                            "getAttributeNode",
+                            entity,
+                            &[ElidexJsValue::String(name)],
+                            bridge,
+                            ctx,
+                        )?;
+                        if result.is_null() || result.is_undefined() {
+                            return Ok(JsValue::null());
+                        }
+                        if let Some(obj) = result.as_object() {
+                            let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                            if !entity_val.is_undefined() {
+                                let attr_entity = extract_entity(&result, ctx)?;
+                                return Ok(super::special_nodes::create_attr_object(
+                                    attr_entity,
+                                    bridge,
+                                    ctx,
+                                ));
+                            }
+                        }
+                        Ok(result)
                     }
                     None => Ok(JsValue::null()),
                 }
@@ -557,7 +560,7 @@ fn build_named_node_map(
         1,
     );
 
-    // getNamedItem(name) — reads attributes at call time.
+    // getNamedItem(name) — reads attributes at call time, returns proper Attr wrapper.
     let b_named = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -569,34 +572,39 @@ fn build_named_node_map(
                     .transpose()?
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
-                let value = bridge.with(|_session, dom| {
+                // Check attribute exists before invoking handler.
+                let exists = bridge.with(|_session, dom| {
                     dom.world()
                         .get::<&elidex_ecs::Attributes>(entity)
                         .ok()
-                        .and_then(|a| a.get(&name).map(str::to_string))
+                        .is_some_and(|a| a.get(&name).is_some())
                 });
-                match value {
-                    Some(v) => {
-                        let mut obj = ObjectInitializer::new(ctx);
-                        obj.property(
-                            js_string!("name"),
-                            JsValue::from(js_string!(name.as_str())),
-                            Attribute::READONLY,
-                        );
-                        obj.property(
-                            js_string!("value"),
-                            JsValue::from(js_string!(v.as_str())),
-                            Attribute::READONLY,
-                        );
-                        obj.property(
-                            js_string!("nodeType"),
-                            JsValue::from(2),
-                            Attribute::READONLY,
-                        );
-                        Ok(obj.build().into())
-                    }
-                    None => Ok(JsValue::null()),
+                if !exists {
+                    return Ok(JsValue::null());
                 }
+                // Use getAttributeNode DOM handler to get proper Attr entity with identity.
+                let result = invoke_dom_handler_ref(
+                    "getAttributeNode",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                    ctx,
+                )?;
+                if result.is_null() || result.is_undefined() {
+                    return Ok(JsValue::null());
+                }
+                if let Some(obj) = result.as_object() {
+                    let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                    if !entity_val.is_undefined() {
+                        let attr_entity = extract_entity(&result, ctx)?;
+                        return Ok(super::special_nodes::create_attr_object(
+                            attr_entity,
+                            bridge,
+                            ctx,
+                        ));
+                    }
+                }
+                Ok(result)
             },
             b_named,
         ),
