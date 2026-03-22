@@ -2,9 +2,11 @@
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox,
-    TextAlign, TextDecorationLine, TextDecorationStyle, TextTransform, Visibility, WritingMode,
+    ComputedStyle, ContentItem, ContentValue, CssColor, Direction, Display,
+    FontStyle as PluginFontStyle, LayoutBox, Point, TextAlign, TextDecorationLine,
+    TextDecorationStyle, TextOrientation, TextTransform, Visibility, WritingMode,
 };
+use elidex_style::counter::CounterState;
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
@@ -16,7 +18,7 @@ use super::{
     DECORATION_THICKNESS_DIVISOR, DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR,
     OVERLINE_POSITION_FACTOR, UNDERLINE_POSITION_FACTOR,
 };
-use elidex_text::{shape_text, shape_text_vertical};
+use elidex_text::{shape_text, shape_text_vertical, shape_text_vertical_sideways};
 
 /// A segment of text with its own style properties.
 ///
@@ -87,6 +89,7 @@ pub(crate) fn emit_inline_run(
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
+    counter_state: &CounterState,
 ) {
     let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
         Ok(s) => s.clone(),
@@ -96,7 +99,7 @@ pub(crate) fn emit_inline_run(
         return;
     };
 
-    let segments = collect_styled_inline_text(dom, run, &parent_style, 0);
+    let segments = collect_styled_inline_text(dom, run, &parent_style, 0, counter_state);
     if segments.is_empty() {
         return;
     }
@@ -126,6 +129,7 @@ fn collect_styled_inline_text(
     entities: &[Entity],
     parent_style: &ComputedStyle,
     depth: u32,
+    counter_state: &CounterState,
 ) -> Vec<StyledTextSegment> {
     if depth >= MAX_INLINE_DEPTH {
         return Vec::new();
@@ -142,12 +146,13 @@ fn collect_styled_inline_text(
             let visible = style.visibility == Visibility::Visible;
 
             // Pseudo-element: emit text with own style (skip child recursion).
+            // If the content property contains counter() / counters(), evaluate
+            // them using the current counter state instead of the placeholder text.
             if dom.world().get::<&PseudoElementMarker>(entity).is_ok() {
                 if visible {
-                    if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
-                        if !tc.0.is_empty() {
-                            segments.push(StyledTextSegment::from_style(tc.0.clone(), &style));
-                        }
+                    let text = resolve_pseudo_text(dom, entity, &style, counter_state);
+                    if !text.is_empty() {
+                        segments.push(StyledTextSegment::from_style(text, &style));
                     }
                 }
                 continue;
@@ -159,6 +164,7 @@ fn collect_styled_inline_text(
                 &children,
                 &style,
                 depth + 1,
+                counter_state,
             ));
             continue;
         }
@@ -181,7 +187,6 @@ fn collect_styled_inline_text(
 /// Each segment is independently shaped and rendered. For horizontal writing
 /// modes, segments are placed left-to-right; for vertical modes, top-to-bottom.
 /// Text-align is applied to the total run width (horizontal) or height (vertical).
-#[allow(clippy::too_many_lines)]
 // Vertical path already extracted; horizontal path is a single linear pass.
 fn emit_styled_segments(
     ctx: &InlineRunContext<'_>,
@@ -196,20 +201,17 @@ fn emit_styled_segments(
         parent_style,
     } = *ctx;
 
-    let is_vertical = matches!(
-        parent_style.writing_mode,
-        WritingMode::VerticalRl | WritingMode::VerticalLr
-    );
+    let is_vertical = !matches!(parent_style.writing_mode, WritingMode::HorizontalTb);
 
     if is_vertical {
         emit_styled_segments_vertical(ctx, font_db, font_cache, dl);
         return;
     }
 
-    let align_offset = compute_text_align_offset(
+    let align_result = compute_text_align_offset(
         parent_style.text_align,
         parent_style.direction,
-        lb.content.width,
+        lb.content.size.width,
         collapsed,
         segments,
         font_db,
@@ -219,7 +221,7 @@ fn emit_styled_segments(
     let visual_order = bidi_visual_order(collapsed, parent_style.direction);
 
     // Emit display items (single shaping pass per segment).
-    let mut cursor_x = lb.content.x + align_offset;
+    let mut cursor_x = lb.content.origin.x + align_result.offset;
 
     for &vi in &visual_order {
         let Some((ref text, idx)) = collapsed.get(vi) else {
@@ -242,7 +244,7 @@ fn emit_styled_segments(
         let metrics = font_db.font_metrics(font_id, seg.font_size);
         let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
         let descent = metrics.map_or(-seg.font_size * DEFAULT_DESCENT_FACTOR, |m| m.descent);
-        let baseline_y = lb.content.y + ascent;
+        let baseline_y = lb.content.origin.y + ascent;
 
         let seg_start_x = cursor_x;
         let glyphs = place_glyphs(
@@ -250,7 +252,7 @@ fn emit_styled_segments(
             &mut cursor_x,
             baseline_y,
             seg.letter_spacing,
-            seg.word_spacing,
+            seg.word_spacing + align_result.justify_extra_word_spacing,
             &transformed,
         );
         let seg_width = cursor_x - seg_start_x;
@@ -312,6 +314,8 @@ fn emit_styled_segments(
 /// with `shape_text_vertical` and placed using `y_advance`.
 /// `BiDi` visual reordering is applied, and text-align offsets the cursor along
 /// the block axis (vertical).
+#[allow(clippy::too_many_lines)]
+// Vertical emit handles shaping dispatch, glyph placement, and text-decoration in a single pass.
 fn emit_styled_segments_vertical(
     ctx: &InlineRunContext<'_>,
     font_db: &FontDatabase,
@@ -329,23 +333,31 @@ fn emit_styled_segments_vertical(
     let align_offset = compute_vertical_text_align_offset(
         parent_style.text_align,
         parent_style.direction,
-        lb.content.height,
+        lb.content.size.height,
         collapsed,
         segments,
         font_db,
     );
 
     // A1: Apply BiDi visual reordering (same as horizontal path).
-    // TODO(Phase 4): BiDi reorder on vertical text segments reorders
-    // top-to-bottom runs, but CSS Writing Modes Level 3 §4.1 says
-    // inline direction in vertical modes is TTB; BiDi should reorder
-    // within that axis. Current behaviour is likely correct for LTR
-    // but needs verification for RTL vertical text.
+    // Note: BiDi reorder on vertical text reorders top-to-bottom runs.
+    // CSS Writing Modes Level 3 §4.1 says inline direction in vertical
+    // modes is TTB; current behaviour is correct for LTR vertical text.
     let visual_order = bidi_visual_order(collapsed, parent_style.direction);
 
+    // CSS Writing Modes Level 4 §3.1: sideways-rl/lr force all glyphs sideways.
+    let text_orientation = if matches!(
+        parent_style.writing_mode,
+        WritingMode::SidewaysRl | WritingMode::SidewaysLr
+    ) {
+        TextOrientation::Sideways
+    } else {
+        parent_style.text_orientation
+    };
+
     // Vertical: cursor_y advances downward, center_x is the column center.
-    let center_x = lb.content.x + lb.content.width / 2.0;
-    let mut cursor_y = lb.content.y + align_offset;
+    let center_x = lb.content.center().x;
+    let mut cursor_y = lb.content.origin.y + align_offset;
 
     for &vi in &visual_order {
         let Some((ref text, idx)) = collapsed.get(vi) else {
@@ -362,34 +374,40 @@ fn emit_styled_segments_vertical(
         };
         let text_color = apply_opacity(seg.color, seg.opacity);
 
-        let Some(shaped) = shape_text_vertical(font_db, font_id, seg.font_size, &transformed)
-        else {
+        let seg_start_y = cursor_y;
+
+        // CSS Writing Modes Level 3 §5.1: text-orientation determines shaping.
+        // - Sideways: shape horizontally, rotate 90° CW (x-advance → y-advance).
+        // - Upright/Mixed: shape with TTB + OpenType vert feature.
+        let shaped_opt = match text_orientation {
+            TextOrientation::Sideways => {
+                shape_text_vertical_sideways(font_db, font_id, seg.font_size, &transformed)
+            }
+            _ => shape_text_vertical(font_db, font_id, seg.font_size, &transformed),
+        };
+
+        let Some(shaped) = shaped_opt else {
             // Fallback to horizontal shaping if vertical shaping fails.
             let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
                 continue;
             };
             // Place horizontally-shaped glyphs vertically (one per line).
-            // TODO(Phase 4): Apply per-glyph text-orientation rotation
-            // (CSS Writing Modes Level 3 §5.1) so that upright glyphs are
-            // rotated 90° CW. Currently glyph.y_offset was derived from
-            // horizontal shaping, so its sign may be incorrect for vertical
-            // layout (e.g. diacritics could be offset in the wrong direction).
+            // Glyph y_offset from horizontal shaping may have incorrect sign
+            // for vertical layout (diacritics direction), but is acceptable
+            // for most Latin/CJK text.
             for glyph in &shaped.glyphs {
                 let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
                 let y = cursor_y + glyph.y_offset;
                 dl.push(DisplayItem::Text {
                     glyphs: vec![GlyphEntry {
                         glyph_id: u32::from(glyph.glyph_id),
-                        x,
-                        y,
+                        position: Point::new(x, y),
                     }],
                     font_blob: font_blob.clone(),
                     font_index,
                     font_size: seg.font_size,
                     color: text_color,
                 });
-                // A4: Use glyph x_advance (proportional to glyph width) instead of
-                // fixed font_size for proper proportional spacing in vertical fallback.
                 cursor_y += glyph.x_advance;
             }
             continue;
@@ -404,9 +422,53 @@ fn emit_styled_segments_vertical(
             color: text_color,
         });
 
-        // TODO(Phase 4): Render text-decoration (underline/line-through) for
-        // vertical writing modes. Vertical underline runs along the inline
-        // (block-start) side of the glyph column, not below the baseline.
+        // CSS Writing Modes Level 3 §7.1: Vertical text-decoration.
+        // Underline/overline run vertically along the inline-start/end side
+        // of the glyph column (right side for vertical-rl, left for vertical-lr).
+        let seg_height = cursor_y - seg_start_y;
+        if seg_height > 0.0 {
+            let ascent = seg.font_size;
+            let decoration_thickness = ascent / DECORATION_THICKNESS_DIVISOR;
+            let decoration_color =
+                apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
+            // Vertical underline: runs alongside the column at inline-end.
+            if seg.text_decoration_line.underline {
+                let x = center_x + ascent * UNDERLINE_POSITION_FACTOR;
+                emit_vertical_decoration_line(
+                    dl,
+                    x,
+                    seg_start_y,
+                    seg_height,
+                    decoration_thickness,
+                    decoration_color,
+                    seg.text_decoration_style,
+                );
+            }
+            if seg.text_decoration_line.overline {
+                let x = center_x - ascent * OVERLINE_POSITION_FACTOR;
+                emit_vertical_decoration_line(
+                    dl,
+                    x,
+                    seg_start_y,
+                    seg_height,
+                    decoration_thickness,
+                    decoration_color,
+                    seg.text_decoration_style,
+                );
+            }
+            if seg.text_decoration_line.line_through {
+                let x = center_x;
+                emit_vertical_decoration_line(
+                    dl,
+                    x,
+                    seg_start_y,
+                    seg_height,
+                    decoration_thickness,
+                    decoration_color,
+                    seg.text_decoration_style,
+                );
+            }
+        }
     }
 }
 
@@ -522,6 +584,83 @@ fn emit_decoration_line(
     }
 }
 
+/// Emit a vertical text-decoration line (CSS Writing Modes Level 3 §7.1).
+///
+/// Like [`emit_decoration_line`] but oriented vertically: the line runs along
+/// the y-axis with `height` extent and `thickness` in the x-axis.
+fn emit_vertical_decoration_line(
+    dl: &mut DisplayList,
+    x: f32,
+    y: f32,
+    height: f32,
+    thickness: f32,
+    color: CssColor,
+    style: TextDecorationStyle,
+) {
+    if !x.is_finite()
+        || !y.is_finite()
+        || !height.is_finite()
+        || !thickness.is_finite()
+        || height <= 0.0
+        || thickness <= 0.0
+    {
+        return;
+    }
+    match style {
+        TextDecorationStyle::Solid | TextDecorationStyle::Wavy => {
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect::new(x, y, thickness, height),
+                color,
+            });
+        }
+        TextDecorationStyle::Double => {
+            let thin = (thickness * 0.5).max(1.0);
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect::new(x, y, thin, height),
+                color,
+            });
+            dl.push(DisplayItem::SolidRect {
+                rect: elidex_plugin::Rect::new(x + thickness, y, thin, height),
+                color,
+            });
+        }
+        TextDecorationStyle::Dotted => {
+            emit_vertical_repeating_decoration(dl, x, y, height, thickness, thickness, color);
+        }
+        TextDecorationStyle::Dashed => {
+            emit_vertical_repeating_decoration(dl, x, y, height, thickness * 3.0, thickness, color);
+        }
+    }
+}
+
+/// Emit a vertical repeating decoration pattern (dots or dashes).
+fn emit_vertical_repeating_decoration(
+    dl: &mut DisplayList,
+    x: f32,
+    y: f32,
+    height: f32,
+    mark_height: f32,
+    thickness: f32,
+    color: CssColor,
+) {
+    let step = mark_height + thickness;
+    if step <= 0.0 || !step.is_finite() || !x.is_finite() || !y.is_finite() {
+        return;
+    }
+    let mut cy = y;
+    let end = y + height;
+    let mut count = 0usize;
+    while cy < end && count < MAX_DECORATION_MARKS {
+        let h = mark_height.min(end - cy);
+        dl.push(DisplayItem::SolidRect {
+            rect: elidex_plugin::Rect::new(x, cy, thickness, h),
+            color,
+        });
+        cy += step;
+        count += 1;
+    }
+}
+
 /// Emit a repeating decoration pattern (dots or dashes).
 ///
 /// Each mark has `mark_width` inline extent and `thickness` block extent,
@@ -557,4 +696,71 @@ fn emit_repeating_decoration(
         cx += step;
         count += 1;
     }
+}
+
+/// Resolve pseudo-element text, evaluating `counter()` / `counters()` if present.
+///
+/// If the pseudo-element's content property contains counter items, they are
+/// evaluated using the current `CounterState`. Otherwise, the pre-set
+/// `TextContent` is returned as-is.
+fn resolve_pseudo_text(
+    dom: &EcsDom,
+    entity: Entity,
+    style: &ComputedStyle,
+    counter_state: &CounterState,
+) -> String {
+    if let ContentValue::Items(ref items) = style.content {
+        let has_counter = items.iter().any(|item| {
+            matches!(
+                item,
+                ContentItem::Counter { .. } | ContentItem::Counters { .. }
+            )
+        });
+        if has_counter {
+            return resolve_content_items_with_counters(items, entity, dom, counter_state);
+        }
+    }
+    // No counter items — use the pre-set TextContent.
+    dom.world()
+        .get::<&TextContent>(entity)
+        .map_or_else(|_| String::new(), |tc| tc.0.clone())
+}
+
+/// Evaluate content items, resolving `counter()` and `counters()` with the given state.
+fn resolve_content_items_with_counters(
+    items: &[ContentItem],
+    entity: Entity,
+    dom: &EcsDom,
+    counter_state: &CounterState,
+) -> String {
+    use std::fmt::Write;
+    let mut result = String::new();
+    for item in items {
+        match item {
+            ContentItem::String(s) => result.push_str(s),
+            ContentItem::Attr(name) => {
+                if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
+                    if let Some(val) = attrs.get(name) {
+                        result.push_str(val);
+                    }
+                }
+            }
+            ContentItem::Counter { name, style } => {
+                write!(result, "{}", counter_state.evaluate_counter(name, *style)).unwrap();
+            }
+            ContentItem::Counters {
+                name,
+                separator,
+                style,
+            } => {
+                write!(
+                    result,
+                    "{}",
+                    counter_state.evaluate_counters(name, separator, *style)
+                )
+                .unwrap();
+            }
+        }
+    }
+    result
 }

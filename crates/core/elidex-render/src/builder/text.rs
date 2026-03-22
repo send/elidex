@@ -36,11 +36,21 @@ fn align_offset(resolved: TextAlign, free_space: f32) -> f32 {
     }
 }
 
+/// Result of text-align computation: initial offset and optional extra word spacing.
+pub(crate) struct TextAlignResult {
+    /// Horizontal offset from the line start.
+    pub offset: f32,
+    /// Extra word spacing for `text-align: justify` (CSS Text 3 §7.1).
+    /// Added on top of the CSS `word-spacing` property.
+    pub justify_extra_word_spacing: f32,
+}
+
 /// Compute the horizontal offset for `text-align` within a content box.
 ///
 /// For `Left`, returns `0.0` immediately (no measurement needed).
 /// For `Center`/`Right`, measures the total width of all collapsed segments
 /// and returns the appropriate offset within `container_width`.
+/// For `Justify`, distributes free space evenly among word gaps.
 pub(crate) fn compute_text_align_offset(
     align: TextAlign,
     direction: Direction,
@@ -48,26 +58,80 @@ pub(crate) fn compute_text_align_offset(
     collapsed: &[(String, usize)],
     segments: &[StyledTextSegment],
     font_db: &FontDatabase,
-) -> f32 {
+) -> TextAlignResult {
     let resolved = resolve_text_align(align, direction);
     match resolved {
-        TextAlign::Left | TextAlign::Start => 0.0,
-        _ => {
-            let total_width: f32 = collapsed
-                .iter()
-                .filter_map(|(text, idx)| {
-                    segments
-                        .get(*idx)
-                        .map(|seg| measure_segment_width(text, seg, font_db))
-                })
-                .sum();
+        TextAlign::Left | TextAlign::Start => TextAlignResult {
+            offset: 0.0,
+            justify_extra_word_spacing: 0.0,
+        },
+        TextAlign::Justify => {
+            let total_width = measure_total_width(collapsed, segments, font_db);
             if !total_width.is_finite() {
-                return 0.0;
+                return TextAlignResult {
+                    offset: 0.0,
+                    justify_extra_word_spacing: 0.0,
+                };
             }
             let free = (container_width - total_width).max(0.0);
-            align_offset(resolved, free)
+            let word_gaps = count_word_gaps(collapsed, segments);
+            #[allow(clippy::cast_precision_loss)] // word gap count is small
+            let extra_ws = if word_gaps > 0 {
+                free / word_gaps as f32
+            } else {
+                0.0
+            };
+            TextAlignResult {
+                offset: 0.0,
+                justify_extra_word_spacing: extra_ws,
+            }
+        }
+        _ => {
+            let total_width = measure_total_width(collapsed, segments, font_db);
+            if !total_width.is_finite() {
+                return TextAlignResult {
+                    offset: 0.0,
+                    justify_extra_word_spacing: 0.0,
+                };
+            }
+            let free = (container_width - total_width).max(0.0);
+            TextAlignResult {
+                offset: align_offset(resolved, free),
+                justify_extra_word_spacing: 0.0,
+            }
         }
     }
+}
+
+/// Measure total width of all collapsed segments.
+fn measure_total_width(
+    collapsed: &[(String, usize)],
+    segments: &[StyledTextSegment],
+    font_db: &FontDatabase,
+) -> f32 {
+    collapsed
+        .iter()
+        .filter_map(|(text, idx)| {
+            segments
+                .get(*idx)
+                .map(|seg| measure_segment_width(text, seg, font_db))
+        })
+        .sum()
+}
+
+/// Count word separator boundaries across all segments for justify distribution.
+fn count_word_gaps(collapsed: &[(String, usize)], segments: &[StyledTextSegment]) -> usize {
+    let mut count = 0;
+    for (text, idx) in collapsed {
+        if segments.get(*idx).is_none() {
+            continue;
+        }
+        count += text
+            .chars()
+            .filter(|c| elidex_text::is_word_separator(*c))
+            .count();
+    }
+    count
 }
 
 /// Transform text and query the matching font for a segment.
@@ -121,23 +185,24 @@ pub(crate) fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<
     }
 }
 
-/// Capitalize the first letter of each word (whitespace-delimited).
+/// Capitalize the first letter of each word per UAX #29 word boundaries.
 ///
-/// TODO(Phase 4+): Word boundary detection uses `is_whitespace()` as a
-/// simplification. Full CSS Text Level 3 compliance requires UAX #29 word
-/// segmentation (e.g. via the `unicode-segmentation` crate), which would
-/// correctly handle punctuation-adjacent boundaries and non-space separators.
+/// Uses `unicode-segmentation` for word boundary detection (CSS Text Level 3
+/// §2.4). This correctly handles punctuation-adjacent boundaries and
+/// non-space separators (e.g. "hello-world" → "Hello-World").
 #[must_use]
 fn capitalize_words(text: &str) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
     let mut result = String::with_capacity(text.len());
-    let mut prev_was_whitespace = true;
-    for ch in text.chars() {
-        if prev_was_whitespace && ch.is_alphabetic() {
-            result.extend(ch.to_uppercase());
-            prev_was_whitespace = false;
-        } else {
-            result.push(ch);
-            prev_was_whitespace = ch.is_whitespace();
+    for word in text.split_word_bounds() {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            if first.is_alphabetic() {
+                result.extend(first.to_uppercase());
+                result.push_str(chars.as_str());
+            } else {
+                result.push_str(word);
+            }
         }
     }
     result

@@ -3,41 +3,38 @@
 //! Tracks placed floats (left/right) and provides placement and clearance
 //! utilities for content flowing around floats.
 
-use elidex_plugin::{Clear, Float};
+use elidex_plugin::{Clear, Float, Point, Rect};
 
-/// A placed float with its position and dimensions.
-#[derive(Clone, Debug)]
-struct PlacedFloat {
-    /// Left edge of the float's margin box.
-    x: f32,
-    /// Top edge of the float's margin box.
-    y: f32,
-    /// Width of the float's margin box.
-    width: f32,
-    /// Height of the float's margin box.
-    height: f32,
+/// A placed float stored as a `Rect` in **abstract** coordinates.
+///
+/// `FloatContext` itself is axis-agnostic: it treats its `containing_width`
+/// as the inline-axis size and `y` positions as block-axis positions.
+/// Callers (see `layout_float` in `children.rs`) are responsible for
+/// mapping between physical and logical coordinates based on writing mode.
+/// This means `float: left` = inline-start and `float: right` = inline-end
+/// regardless of writing mode (CSS Writing Modes L3 §3.3).
+type PlacedFloat = Rect;
+
+/// Extension helpers for `PlacedFloat`.
+trait PlacedFloatExt {
+    /// Returns `true` if this float overlaps the vertical span `[y, y+height)`.
+    fn overlaps_span(&self, y: f32, height: f32) -> bool;
 }
 
-impl PlacedFloat {
-    /// Bottom edge of the float's margin box.
-    fn bottom(&self) -> f32 {
-        self.y + self.height
-    }
-
-    /// Returns `true` if this float overlaps the vertical span `[y, y+height)`.
+impl PlacedFloatExt for PlacedFloat {
     fn overlaps_span(&self, y: f32, height: f32) -> bool {
-        self.bottom() > y && self.y < y + height
+        self.bottom() > y && self.origin.y < y + height
     }
 }
 
 /// Tracks placed floats within a block formatting context.
 #[derive(Clone, Debug, Default)]
 pub struct FloatContext {
-    /// Left-floated elements.
+    /// Inline-start (left in LTR, top in vertical) floated elements.
     left_floats: Vec<PlacedFloat>,
-    /// Right-floated elements.
+    /// Inline-end (right in LTR, bottom in vertical) floated elements.
     right_floats: Vec<PlacedFloat>,
-    /// Width of the containing block.
+    /// Inline-axis size of the containing block.
     containing_width: f32,
 }
 
@@ -57,7 +54,7 @@ impl FloatContext {
         !self.left_floats.is_empty() || !self.right_floats.is_empty()
     }
 
-    /// Place a float and return its margin-box (x, y) position.
+    /// Place a float and return its margin-box position.
     ///
     /// The float is placed at or below `cursor_y`, on the left or right edge
     /// of its containing block, avoiding overlap with existing floats.
@@ -72,7 +69,7 @@ impl FloatContext {
         margin_box_width: f32,
         margin_box_height: f32,
         cursor_y: f32,
-    ) -> (f32, f32) {
+    ) -> Point {
         // Find the lowest Y at which the float can fit without overlapping
         // existing floats on the same side.
         let mut y = cursor_y;
@@ -115,15 +112,10 @@ impl FloatContext {
                     base_x
                 }
             }
-            Float::None => return (0.0, y), // shouldn't happen
+            Float::None => return Point::new(0.0, y), // shouldn't happen
         };
 
-        let placed = PlacedFloat {
-            x,
-            y,
-            width: margin_box_width,
-            height: margin_box_height,
-        };
+        let placed = Rect::new(x, y, margin_box_width, margin_box_height);
 
         match float_side {
             Float::Left => self.left_floats.push(placed),
@@ -131,19 +123,15 @@ impl FloatContext {
             Float::None => {}
         }
 
-        (x, y)
+        Point::new(x, y)
     }
 
     /// Compute the Y position needed to clear past floats.
     ///
     /// Returns the Y below the relevant floats based on the `clear` value.
     pub fn clear_y(&self, clear: Clear, cursor_y: f32) -> f32 {
-        let max_bottom = |floats: &[PlacedFloat]| {
-            floats
-                .iter()
-                .map(PlacedFloat::bottom)
-                .fold(cursor_y, f32::max)
-        };
+        let max_bottom =
+            |floats: &[PlacedFloat]| floats.iter().map(Rect::bottom).fold(cursor_y, f32::max);
         match clear {
             Clear::None => cursor_y,
             Clear::Left => max_bottom(&self.left_floats),
@@ -161,14 +149,14 @@ impl FloatContext {
             .left_floats
             .iter()
             .filter(|f| f.overlaps_span(y, height))
-            .map(|f| f.x + f.width)
+            .map(Rect::right)
             .fold(0.0_f32, f32::max);
 
         let right_used = self
             .right_floats
             .iter()
             .filter(|f| f.overlaps_span(y, height))
-            .map(|f| self.containing_width - f.x)
+            .map(|f| self.containing_width - f.origin.x)
             .fold(0.0_f32, f32::max);
 
         (left_used, right_used)
@@ -214,9 +202,9 @@ mod tests {
     #[test]
     fn place_left_float() {
         let mut ctx = FloatContext::new(800.0);
-        let (x, y) = ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
-        assert_eq!(x, 0.0);
-        assert_eq!(y, 0.0);
+        let pos = ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
+        assert_eq!(pos.x, 0.0);
+        assert_eq!(pos.y, 0.0);
         assert!(ctx.has_floats());
         assert_eq!(ctx.float_bottom(), 100.0);
     }
@@ -224,28 +212,28 @@ mod tests {
     #[test]
     fn place_right_float() {
         let mut ctx = FloatContext::new(800.0);
-        let (x, y) = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
-        assert_eq!(x, 600.0); // 800 - 200
-        assert_eq!(y, 0.0);
+        let pos = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
+        assert_eq!(pos.x, 600.0); // 800 - 200
+        assert_eq!(pos.y, 0.0);
     }
 
     #[test]
     fn left_floats_stack_horizontally() {
         let mut ctx = FloatContext::new(800.0);
         ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
-        let (x, y) = ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
-        assert_eq!(x, 200.0); // next to the first float
-        assert_eq!(y, 0.0);
+        let pos = ctx.place_float(Float::Left, 200.0, 100.0, 0.0);
+        assert_eq!(pos.x, 200.0); // next to the first float
+        assert_eq!(pos.y, 0.0);
     }
 
     #[test]
     fn right_floats_stack_horizontally() {
         // CSS 2.1 §9.5.1 rule 3: right floats must not overlap.
         let mut ctx = FloatContext::new(800.0);
-        let (x1, _) = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
-        assert_eq!(x1, 600.0); // 800 - 200
-        let (x2, _) = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
-        assert_eq!(x2, 400.0); // 800 - 200 - 200
+        let pos1 = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
+        assert_eq!(pos1.x, 600.0); // 800 - 200
+        let pos2 = ctx.place_float(Float::Right, 200.0, 100.0, 0.0);
+        assert_eq!(pos2.x, 400.0); // 800 - 200 - 200
     }
 
     #[test]
@@ -286,8 +274,8 @@ mod tests {
         let mut ctx = FloatContext::new(400.0);
         ctx.place_float(Float::Left, 250.0, 100.0, 0.0);
         // Second float doesn't fit beside the first (250 + 250 > 400).
-        let (_x, y) = ctx.place_float(Float::Left, 250.0, 100.0, 0.0);
-        assert_eq!(y, 100.0); // Drops below the first float
+        let pos = ctx.place_float(Float::Left, 250.0, 100.0, 0.0);
+        assert_eq!(pos.y, 100.0); // Drops below the first float
     }
 
     #[test]
@@ -298,8 +286,8 @@ mod tests {
         let mut ctx = FloatContext::new(400.0);
         ctx.place_float(Float::Left, 400.0, 80.0, 0.0);
         // Second float can't fit at y=0 (available=0), drops below.
-        let (_, y) = ctx.place_float(Float::Left, 100.0, 50.0, 0.0);
-        assert_eq!(y, 80.0);
+        let pos = ctx.place_float(Float::Left, 100.0, 50.0, 0.0);
+        assert_eq!(pos.y, 80.0);
     }
 
     #[test]
@@ -308,8 +296,8 @@ mod tests {
         // right edge aligned with the containing block (negative x),
         // not clamped to left_used = 0.
         let mut ctx = FloatContext::new(200.0);
-        let (x, _) = ctx.place_float(Float::Right, 300.0, 50.0, 0.0);
-        assert_eq!(x, -100.0); // 200 - 0 - 300 = -100
+        let pos = ctx.place_float(Float::Right, 300.0, 50.0, 0.0);
+        assert_eq!(pos.x, -100.0); // 200 - 0 - 300 = -100
     }
 
     #[test]

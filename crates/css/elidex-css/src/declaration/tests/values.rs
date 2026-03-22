@@ -56,20 +56,20 @@ fn parse_keyword_properties() {
         ("text-align", "right", "text-align", "right"),
         ("text-align", "start", "text-align", "start"),
         ("text-align", "end", "text-align", "end"),
-        // text-align: justify → start (full justification deferred)
-        ("text-align", "justify", "text-align", "start"),
+        ("text-align", "justify", "text-align", "justify"),
         // white-space
         ("white-space", "normal", "white-space", "normal"),
         ("white-space", "pre", "white-space", "pre"),
         ("white-space", "nowrap", "white-space", "nowrap"),
         ("white-space", "pre-wrap", "white-space", "pre-wrap"),
         ("white-space", "pre-line", "white-space", "pre-line"),
-        // overflow (scroll/auto map to hidden)
-        ("overflow", "visible", "overflow", "visible"),
-        ("overflow", "hidden", "overflow", "hidden"),
-        ("overflow", "scroll", "overflow", "hidden"),
-        ("overflow", "auto", "overflow", "hidden"),
-        ("overflow", "clip", "overflow", "hidden"),
+        // overflow-x / overflow-y longhands
+        ("overflow-x", "visible", "overflow-x", "visible"),
+        ("overflow-x", "hidden", "overflow-x", "hidden"),
+        ("overflow-x", "scroll", "overflow-x", "scroll"),
+        ("overflow-x", "auto", "overflow-x", "auto"),
+        ("overflow-x", "clip", "overflow-x", "clip"),
+        ("overflow-y", "hidden", "overflow-y", "hidden"),
         // list-style-type
         ("list-style-type", "disc", "list-style-type", "disc"),
         ("list-style-type", "decimal", "list-style-type", "decimal"),
@@ -108,6 +108,8 @@ fn parse_keyword_properties() {
         ("table-layout", "fixed", "table-layout", "fixed"),
         ("caption-side", "top", "caption-side", "top"),
         ("caption-side", "bottom", "caption-side", "bottom"),
+        ("caption-side", "block-start", "caption-side", "block-start"),
+        ("caption-side", "block-end", "caption-side", "block-end"),
         // currentcolor
         ("color", "currentcolor", "color", "currentcolor"),
         ("color", "CurrentColor", "color", "currentcolor"),
@@ -190,8 +192,6 @@ fn parse_length_properties() {
         ("margin-top", "10px", 10.0, LengthUnit::Px),
         ("padding-bottom", "5px", 5.0, LengthUnit::Px),
         ("border-top-width", "2px", 2.0, LengthUnit::Px),
-        ("border-radius", "5px", 5.0, LengthUnit::Px),
-        ("border-radius", "0", 0.0, LengthUnit::Px),
         ("row-gap", "10px", 10.0, LengthUnit::Px),
         ("column-gap", "20px", 20.0, LengthUnit::Px),
         ("grid-auto-columns", "50px", 50.0, LengthUnit::Px),
@@ -209,6 +209,43 @@ fn parse_length_properties() {
             CssValue::Length(num, unit),
             "{prop}: {input}"
         );
+    }
+}
+
+#[test]
+fn parse_border_radius_shorthand() {
+    // 1 value → all 4 corners
+    let decls = parse_single("border-radius", "5px");
+    assert_eq!(decls.len(), 4);
+    for d in &decls {
+        assert_eq!(d.value, CssValue::Length(5.0, LengthUnit::Px));
+    }
+    assert_eq!(decls[0].property, "border-top-left-radius");
+    assert_eq!(decls[1].property, "border-top-right-radius");
+    assert_eq!(decls[2].property, "border-bottom-right-radius");
+    assert_eq!(decls[3].property, "border-bottom-left-radius");
+
+    // 2 values → TL+BR / TR+BL
+    let decls = parse_single("border-radius", "10px 20px");
+    assert_eq!(decls.len(), 4);
+    assert_eq!(decls[0].value, CssValue::Length(10.0, LengthUnit::Px)); // TL
+    assert_eq!(decls[1].value, CssValue::Length(20.0, LengthUnit::Px)); // TR
+    assert_eq!(decls[2].value, CssValue::Length(10.0, LengthUnit::Px)); // BR
+    assert_eq!(decls[3].value, CssValue::Length(20.0, LengthUnit::Px)); // BL
+
+    // 4 values → TL / TR / BR / BL
+    let decls = parse_single("border-radius", "1px 2px 3px 4px");
+    assert_eq!(decls.len(), 4);
+    assert_eq!(decls[0].value, CssValue::Length(1.0, LengthUnit::Px));
+    assert_eq!(decls[1].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[2].value, CssValue::Length(3.0, LengthUnit::Px));
+    assert_eq!(decls[3].value, CssValue::Length(4.0, LengthUnit::Px));
+
+    // 0 → all corners zero
+    let decls = parse_single("border-radius", "0");
+    assert_eq!(decls.len(), 4);
+    for d in &decls {
+        assert_eq!(d.value, CssValue::Length(0.0, LengthUnit::Px));
     }
 }
 
@@ -732,5 +769,155 @@ fn var_with_trailing_tokens_uses_raw_tokens() {
         matches!(&decls[0].value, CssValue::RawTokens(raw) if raw.contains("var(")),
         "var() with trailing tokens: {:?}",
         decls[0].value
+    );
+}
+
+// =============================================================================
+// Overflow shorthand → longhand expansion
+// =============================================================================
+
+fn assert_decls(css: &str, expected: &[(&str, &str)]) {
+    let (prop, val) = css.split_once(": ").unwrap();
+    let decls = parse_single(prop, val);
+    assert_eq!(
+        decls.len(),
+        expected.len(),
+        "decl count mismatch for `{css}`"
+    );
+    for (d, (ep, ev)) in decls.iter().zip(expected) {
+        assert_eq!(&d.property, ep, "property mismatch for `{css}`");
+        assert_eq!(
+            d.value,
+            CssValue::Keyword(ev.to_string()),
+            "value mismatch for `{css}` property `{ep}`"
+        );
+    }
+}
+
+#[test]
+fn parse_overflow_shorthand_one_value() {
+    assert_decls(
+        "overflow: hidden",
+        &[("overflow-x", "hidden"), ("overflow-y", "hidden")],
+    );
+    assert_decls(
+        "overflow: scroll",
+        &[("overflow-x", "scroll"), ("overflow-y", "scroll")],
+    );
+}
+
+#[test]
+fn parse_overflow_shorthand_two_values() {
+    assert_decls(
+        "overflow: hidden scroll",
+        &[("overflow-x", "hidden"), ("overflow-y", "scroll")],
+    );
+}
+
+#[test]
+fn parse_overflow_shorthand_invalid() {
+    let decls = parse_single("overflow", "overlay");
+    assert!(decls.is_empty());
+}
+
+// =============================================================================
+// Counter properties
+// =============================================================================
+
+#[test]
+fn parse_counter_reset_with_value() {
+    let decls = parse_single("counter-reset", "chapter 0");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-reset");
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("chapter".into()));
+            assert_eq!(items[1], CssValue::Number(0.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_reset_none() {
+    let decls = parse_single("counter-reset", "none");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-reset");
+    assert_eq!(decls[0].value, CssValue::Keyword("none".into()));
+}
+
+#[test]
+fn parse_counter_increment_default() {
+    // Default value for counter-increment is 1.
+    let decls = parse_single("counter-increment", "section");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "counter-increment");
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("section".into()));
+            assert_eq!(items[1], CssValue::Number(1.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_increment_explicit_value() {
+    let decls = parse_single("counter-increment", "section 2");
+    assert_eq!(decls.len(), 1);
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("section".into()));
+            assert_eq!(items[1], CssValue::Number(2.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_counter_set_with_value() {
+    let decls = parse_single("counter-set", "page 5");
+    assert_eq!(decls.len(), 1);
+    match &decls[0].value {
+        CssValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], CssValue::Keyword("page".into()));
+            assert_eq!(items[1], CssValue::Number(5.0));
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_content_counter() {
+    let decls = parse_single("content", "counter(page)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "content");
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counter:page:decimal".into())
+    );
+}
+
+#[test]
+fn parse_content_counter_with_style() {
+    let decls = parse_single("content", "counter(chapter, upper-roman)");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counter:chapter:upper-roman".into())
+    );
+}
+
+#[test]
+fn parse_content_counters() {
+    let decls = parse_single("content", r#"counters(section, ".")"#);
+    assert_eq!(decls.len(), 1);
+    assert_eq!(
+        decls[0].value,
+        CssValue::Keyword("counters:section:.:decimal".into())
     );
 }

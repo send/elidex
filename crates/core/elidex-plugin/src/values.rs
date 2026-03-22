@@ -42,6 +42,135 @@ pub enum CssValue {
     Calc(Box<CalcExpr>),
     /// A time value (e.g. `0.3s`, `200ms`). Stored in seconds.
     Time(f32),
+    /// A CSS `url()` value. Stores the URL string as-is (relative or absolute).
+    Url(String),
+    /// An angle value in degrees (e.g. `45deg`, `0.5turn`).
+    Angle(f32),
+    /// A gradient value (linear, radial, or conic).
+    Gradient(Box<GradientValue>),
+    /// A list of CSS transform functions (CSS Transforms L1 §5 / L2 §6).
+    TransformList(Vec<TransformFunction>),
+}
+
+/// A parsed CSS gradient value before resolution.
+#[derive(Clone, Debug, PartialEq)]
+pub enum GradientValue {
+    /// `linear-gradient()` or `repeating-linear-gradient()`.
+    Linear {
+        /// Direction: angle or `to <side-or-corner>`.
+        direction: AngleOrDirection,
+        /// Color stops with optional positions.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-linear-gradient()`.
+        repeating: bool,
+    },
+    /// `radial-gradient()` or `repeating-radial-gradient()`.
+    Radial {
+        /// Shape: `circle` or `ellipse`.
+        shape: Option<String>,
+        /// Size keyword or explicit lengths.
+        size: Option<String>,
+        /// Center position.
+        position: Option<Vec<CssValue>>,
+        /// Color stops with optional positions.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-radial-gradient()`.
+        repeating: bool,
+    },
+    /// `conic-gradient()` or `repeating-conic-gradient()`.
+    Conic {
+        /// Start angle in degrees.
+        from_angle: Option<f32>,
+        /// Center position.
+        position: Option<Vec<CssValue>>,
+        /// Angular color stops.
+        stops: Vec<CssColorStop>,
+        /// Whether this is a `repeating-conic-gradient()`.
+        repeating: bool,
+    },
+}
+
+/// A color stop in a CSS gradient.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CssColorStop {
+    /// The color value.
+    pub color: CssValue,
+    /// Optional position (length or percentage).
+    pub position: Option<CssValue>,
+}
+
+/// Direction for a linear gradient.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AngleOrDirection {
+    /// An explicit angle in degrees.
+    Angle(f32),
+    /// A `to <side-or-corner>` direction (e.g. `["top"]`, `["top", "right"]`).
+    To(Vec<String>),
+}
+
+/// A single CSS transform function (CSS Transforms L1 §5, L2 §6).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TransformFunction {
+    // --- Level 1 ---
+    /// `translate(<length-percentage>, <length-percentage>?)`
+    Translate(CssValue, CssValue),
+    /// `translateX(<length-percentage>)`
+    TranslateX(CssValue),
+    /// `translateY(<length-percentage>)`
+    TranslateY(CssValue),
+    /// `rotate(<angle>)` — degrees
+    Rotate(f32),
+    /// `scale(<number>, <number>?)`
+    Scale(f32, f32),
+    /// `scaleX(<number>)`
+    ScaleX(f32),
+    /// `scaleY(<number>)`
+    ScaleY(f32),
+    /// `skew(<angle>, <angle>?)` — degrees
+    Skew(f32, f32),
+    /// `skewX(<angle>)` — degrees
+    SkewX(f32),
+    /// `skewY(<angle>)` — degrees
+    SkewY(f32),
+    /// `matrix(a, b, c, d, e, f)`
+    Matrix([f64; 6]),
+    // --- Level 2 (3D) ---
+    /// `translate3d(<length-percentage>, <length-percentage>, <length>)`
+    Translate3d(CssValue, CssValue, CssValue),
+    /// `translateZ(<length>)`
+    TranslateZ(CssValue),
+    /// `rotate3d(<number>, <number>, <number>, <angle>)`
+    Rotate3d(f64, f64, f64, f32),
+    /// `rotateX(<angle>)` — degrees
+    RotateX(f32),
+    /// `rotateY(<angle>)` — degrees
+    RotateY(f32),
+    /// `rotateZ(<angle>)` — degrees (alias for `rotate()`)
+    RotateZ(f32),
+    /// `scale3d(<number>, <number>, <number>)`
+    Scale3d(f32, f32, f32),
+    /// `scaleZ(<number>)`
+    ScaleZ(f32),
+    /// `matrix3d(16 values)`
+    Matrix3d([f64; 16]),
+    /// `perspective(<length>)` — transform function (not property)
+    PerspectiveFunc(f32),
+}
+
+/// CSS `transform-style` property (CSS Transforms L2 §4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TransformStyle {
+    #[default]
+    Flat,
+    Preserve3d,
+}
+
+/// CSS `backface-visibility` property (CSS Transforms L2 §5).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackfaceVisibility {
+    #[default]
+    Visible,
+    Hidden,
 }
 
 /// A node in a `calc()` expression tree.

@@ -2,22 +2,25 @@
 //!
 //! Implements the core flexbox algorithm: item collection, line splitting,
 //! flexible length resolution, and cross/main axis alignment.
-//!
-//! Current simplifications:
-//! - `flex-basis: content` treated as `auto`
-//! - `baseline` alignment treated as `flex-start`
-//! - `inline-flex` treated as block-level
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    adjust_min_max_for_border_box, block::resolve_margin, clamp_min_max, effective_align,
-    horizontal_pb, resolve_explicit_height, resolve_min_max, sanitize, sanitize_border,
-    sanitize_padding, vertical_pb, ChildLayoutFn, EmptyContainerParams, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    adjust_min_max_for_border_box,
+    block::{
+        fragmentation::{
+            find_best_break, is_avoid_break_inside, is_avoid_break_value, is_forced_break,
+            is_monolithic, BreakCandidate, BreakClass,
+        },
+        resolve_margin,
+    },
+    clamp_min_max, effective_align, get_intrinsic_size, horizontal_pb, resolve_explicit_height,
+    resolve_min_max, sanitize, sanitize_border, vertical_pb, BreakToken, BreakTokenData,
+    ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, BoxSizing, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
-    FlexDirection, FlexWrap, JustifyContent, LayoutBox, Rect,
+    AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, CssSize, Dimension,
+    Direction, Display, EdgeSizes, FlexBasis, FlexDirection, FlexWrap, JustifyContent, LayoutBox,
+    Point, Rect, Visibility, WritingMode,
 };
 /// Sentinel value representing an indefinite container main-axis size.
 ///
@@ -26,6 +29,8 @@ use elidex_plugin::{
 const INDEFINITE_MAIN_SIZE: f32 = f32::MAX / 2.0;
 
 mod algo;
+mod align;
+mod baseline;
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -36,8 +41,15 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if the flex main axis is horizontal.
-fn is_main_horizontal(dir: FlexDirection) -> bool {
-    matches!(dir, FlexDirection::Row | FlexDirection::RowReverse)
+///
+/// In `horizontal-tb`, row = horizontal main axis; in vertical writing modes,
+/// row = vertical main axis (CSS Flexbox §9.1, CSS Writing Modes §6.3).
+fn is_main_horizontal(dir: FlexDirection, wm: WritingMode) -> bool {
+    let horizontal_wm = wm.is_horizontal();
+    match dir {
+        FlexDirection::Row | FlexDirection::RowReverse => horizontal_wm,
+        FlexDirection::Column | FlexDirection::ColumnReverse => !horizontal_wm,
+    }
 }
 
 /// Returns `true` if the main axis direction is reversed.
@@ -61,19 +73,23 @@ fn resolve_percentage_main(pct: f32, containing_main: f32) -> Option<f32> {
 
 /// Resolve flex-basis to a main-axis size in pixels.
 ///
-/// Returns `None` when content sizing is needed.
+/// Returns `None` when content sizing is needed (auto with auto main size,
+/// or `content` keyword).
 /// When `box-sizing: border-box`, subtracts main-axis padding and border
 /// from the resolved value so it represents content size.
 fn resolve_flex_basis(
     style: &ComputedStyle,
     direction: FlexDirection,
     containing_main: f32,
+    inline_containing: f32,
+    wm: WritingMode,
 ) -> Option<f32> {
     let raw = match style.flex_basis {
-        Dimension::Length(px) => Some(px),
-        Dimension::Percentage(pct) => resolve_percentage_main(pct, containing_main),
-        Dimension::Auto => {
-            let fallback = if is_main_horizontal(direction) {
+        FlexBasis::Length(px) => Some(px),
+        FlexBasis::Percentage(pct) => resolve_percentage_main(pct, containing_main),
+        FlexBasis::Content => None,
+        FlexBasis::Auto => {
+            let fallback = if is_main_horizontal(direction, wm) {
                 style.width
             } else {
                 style.height
@@ -88,9 +104,9 @@ fn resolve_flex_basis(
     let px = raw?;
     // Adjust for box-sizing: border-box — convert from border-box to content size.
     if style.box_sizing == BoxSizing::BorderBox {
-        let p = sanitize_padding(style);
+        let p = elidex_layout_block::resolve_padding(style, inline_containing);
         let b = sanitize_border(style);
-        let pb = if is_main_horizontal(direction) {
+        let pb = if is_main_horizontal(direction, wm) {
             horizontal_pb(&p, &b)
         } else {
             vertical_pb(&p, &b)
@@ -101,10 +117,26 @@ fn resolve_flex_basis(
 }
 
 // ---------------------------------------------------------------------------
+// Flex line info (bundle for fragmentation helpers)
+// ---------------------------------------------------------------------------
+
+/// Bundles the flex layout results that fragmentation helpers need.
+///
+/// `items`, `line_ranges`, and `line_cross_sizes` are always passed together
+/// to fragmentation functions. This struct avoids passing them as separate
+/// parameters.
+struct FlexLineInfo<'a> {
+    items: &'a [FlexItem],
+    line_ranges: &'a [(usize, usize)],
+    line_cross_sizes: &'a [f32],
+}
+
+// ---------------------------------------------------------------------------
 // Flex item
 // ---------------------------------------------------------------------------
 
 /// A flex item with resolved metrics.
+#[allow(clippy::struct_excessive_bools)] // auto margin + collapsed flags are spec-mandated
 pub(crate) struct FlexItem {
     pub(crate) entity: Entity,
     pub(crate) source_order: usize,
@@ -130,6 +162,31 @@ pub(crate) struct FlexItem {
     pub(crate) min_main: f32,
     /// Maximum content size on the main axis (from max-width/max-height).
     pub(crate) max_main: f32,
+    /// Flex §8.1: auto margin flags for free-space distribution.
+    pub(crate) margin_main_start_auto: bool,
+    pub(crate) margin_main_end_auto: bool,
+    pub(crate) margin_cross_start_auto: bool,
+    pub(crate) margin_cross_end_auto: bool,
+    /// Flex §4.4: visibility:collapse — item participates in sizing but renders at zero main size.
+    pub(crate) collapsed: bool,
+    /// First baseline offset from the item's margin-box cross-start edge.
+    ///
+    /// Populated after `layout_items_cross` by reading the child's `LayoutBox`.
+    /// Used for baseline alignment (CSS Flexbox §9.4, §9.6).
+    pub(crate) first_baseline: Option<f32>,
+    /// Cross-start margin (top for row, left for column).
+    ///
+    /// Needed to compute the baseline offset from the margin-box edge.
+    pub(crate) margin_cross_start: f32,
+}
+
+impl FlexItem {
+    /// Returns the item's baseline for alignment, or a synthesized baseline
+    /// at the border-box bottom (CSS Flexbox §9.4) when no intrinsic baseline exists.
+    pub(crate) fn baseline_or_synthesized(&self) -> f32 {
+        self.first_baseline
+            .unwrap_or(self.margin_cross_start + self.final_cross)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,8 +194,7 @@ pub(crate) struct FlexItem {
 // ---------------------------------------------------------------------------
 
 pub(crate) struct FlexContext {
-    pub(crate) content_x: f32,
-    pub(crate) content_y: f32,
+    pub(crate) content_origin: Point,
     pub(crate) content_width: f32,
     pub(crate) horizontal: bool,
     pub(crate) container_main: f32,
@@ -147,16 +203,23 @@ pub(crate) struct FlexContext {
     pub(crate) justify: JustifyContent,
     pub(crate) align_items: AlignItems,
     pub(crate) align_content: AlignContent,
-    pub(crate) containing_width: f32,
-    pub(crate) containing_height: Option<f32>,
+    pub(crate) containing: CssSize,
+    /// Containing block's inline size (for margin/padding % resolution).
+    pub(crate) inline_containing: f32,
     /// The container's own definite height (for children's percentage height resolution).
-    pub(crate) container_definite_height: Option<f32>,
+    pub(crate) resolved_height: Option<f32>,
     /// Gap between items on the main axis.
     pub(crate) gap_main: f32,
     /// Gap between lines on the cross axis.
     pub(crate) gap_cross: f32,
     /// CSS `direction` property (LTR/RTL) — affects main-axis order for row layouts.
     pub(crate) css_direction: Direction,
+    /// CSS Box Alignment L3: safe/unsafe modifier for justify-content.
+    pub(crate) justify_content_safety: AlignmentSafety,
+    /// CSS Box Alignment L3: safe/unsafe modifier for align-content.
+    pub(crate) align_content_safety: AlignmentSafety,
+    /// Container's writing mode (CSS Writing Modes §6.3).
+    pub(crate) writing_mode: WritingMode,
 }
 
 // ---------------------------------------------------------------------------
@@ -191,21 +254,22 @@ pub fn layout_flex(
     entity: Entity,
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
-) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+) -> elidex_layout_block::LayoutOutcome {
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
-    let padding = sanitize_padding(&style);
+    let inline_containing = input.containing_inline_size;
+    let padding = elidex_layout_block::resolve_padding(&style, inline_containing);
     let border = sanitize_border(&style);
-    let margin_top = resolve_margin(style.margin_top, containing_width);
-    let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
-    let margin_left = resolve_margin(style.margin_left, containing_width);
-    let margin_right = resolve_margin(style.margin_right, containing_width);
+    let margin_top = resolve_margin(style.margin_top, inline_containing);
+    let margin_bottom = resolve_margin(style.margin_bottom, inline_containing);
+    let margin_left = resolve_margin(style.margin_left, inline_containing);
+    let margin_right = resolve_margin(style.margin_right, inline_containing);
     let h_pb = horizontal_pb(&padding, &border);
     let content_width = elidex_layout_block::resolve_content_width(
         &style,
@@ -216,7 +280,7 @@ pub fn layout_flex(
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
     let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
-    let horizontal = is_main_horizontal(style.flex_direction);
+    let horizontal = is_main_horizontal(style.flex_direction, style.writing_mode);
     let container_main =
         resolve_container_main(&style, horizontal, content_width, containing_height);
 
@@ -228,38 +292,35 @@ pub fn layout_flex(
             entity,
             &EmptyContainerParams {
                 style: &style,
-                content_x,
-                content_y,
+                content_origin: Point::new(content_x, content_y),
                 content_width,
                 containing_height,
                 padding,
                 border,
                 margin,
+                layout_generation: input.layout_generation,
             },
-        );
+        )
+        .into();
     }
 
     // Resolve gap: row-gap applies between rows, column-gap between columns.
     // For flex-direction: row, main axis is horizontal → gap_main = column_gap, gap_cross = row_gap.
     // For flex-direction: column, main axis is vertical → gap_main = row_gap, gap_cross = column_gap.
+    let resolve_gap = |dim: elidex_plugin::Dimension| {
+        elidex_layout_block::resolve_dimension_value(dim, content_width, 0.0).max(0.0)
+    };
     let (gap_main, gap_cross) = if horizontal {
-        (
-            sanitize(style.column_gap).max(0.0),
-            sanitize(style.row_gap).max(0.0),
-        )
+        (resolve_gap(style.column_gap), resolve_gap(style.row_gap))
     } else {
-        (
-            sanitize(style.row_gap).max(0.0),
-            sanitize(style.column_gap).max(0.0),
-        )
+        (resolve_gap(style.row_gap), resolve_gap(style.column_gap))
     };
 
     // Container's own definite height for children's percentage height resolution.
-    let container_definite_height = resolve_explicit_height(&style, containing_height);
+    let resolved_height = resolve_explicit_height(&style, containing_height);
 
     let ctx = FlexContext {
-        content_x,
-        content_y,
+        content_origin: Point::new(content_x, content_y),
         content_width,
         horizontal,
         container_main,
@@ -268,19 +329,44 @@ pub fn layout_flex(
         justify: style.justify_content,
         align_items: style.align_items,
         align_content: style.align_content,
-        containing_width,
-        containing_height,
-        container_definite_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
+        inline_containing,
+        resolved_height,
         gap_main,
         gap_cross,
         css_direction: style.direction,
+        justify_content_safety: style.justify_content_safety,
+        align_content_safety: style.align_content_safety,
+        writing_mode: style.writing_mode,
     };
 
     let env = algo::LayoutEnv {
         font_db,
         layout_child,
         depth,
+        viewport: input.viewport,
+        layout_generation: input.layout_generation,
     };
+
+    // --- Parse break token for resumption ---
+    let (resume_line, resume_item, resume_child_bt) = match input.break_token {
+        Some(bt) => match &bt.mode_data {
+            Some(BreakTokenData::Flex {
+                line_index,
+                item_index,
+                child_break_token,
+            }) => (*line_index, *item_index, child_break_token.clone()),
+            _ => (0, 0, None),
+        },
+        None => (0, 0, None),
+    };
+    debug_assert!(
+        resume_line == 0 || input.break_token.is_some(),
+        "resume_line > 0 without break token"
+    );
 
     // --- Collect, sort, flex-resolve, layout, position ---
     let mut items = collect_flex_items(dom, &children, &ctx, &env);
@@ -295,15 +381,40 @@ pub fn layout_flex(
         algo::resolve_flexible_lengths(&mut items[start..end], ctx.container_main, ctx.gap_main);
     }
 
+    // Flex §4.4: After flexible length resolution, collapsed items have their
+    // main size and main-axis margins zeroed so they occupy no main-axis space,
+    // but they still participate in cross-size computation (act as a strut).
+    for item in items.iter_mut().filter(|i| i.collapsed) {
+        item.final_main = 0.0;
+        item.margin_main = 0.0;
+        // Clear auto margin flags so collapsed items don't participate
+        // in auto margin free-space distribution in position_items.
+        item.margin_main_start_auto = false;
+        item.margin_main_end_auto = false;
+    }
+
     algo::layout_items_cross(dom, &mut items, &ctx, &env);
-    let (line_cross_sizes, total_line_cross) = algo::compute_line_cross_sizes(&items, &line_ranges);
+
+    // Read baselines from children after cross-size layout.
+    baseline::read_item_baselines(dom, &mut items, &ctx);
+
+    let line_baselines = baseline::compute_line_baselines(&items, &line_ranges, horizontal);
+    let (line_cross_sizes, total_line_cross) =
+        algo::compute_line_cross_sizes(&items, &line_ranges, &line_baselines);
 
     let container_cross =
         algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross);
-    let align_result = algo::compute_align_content_offsets(
+    let align_content = align::apply_align_content_safety(
+        ctx.align_content,
+        container_cross,
+        &line_cross_sizes,
+        ctx.gap_cross,
+        ctx.align_content_safety,
+    );
+    let align_result = align::compute_align_content_offsets(
         &line_cross_sizes,
         container_cross,
-        ctx.align_content,
+        align_content,
         ctx.wrap,
         ctx.gap_cross,
     );
@@ -315,21 +426,589 @@ pub fn layout_flex(
         line_ranges: &line_ranges,
         line_cross_sizes: &align_result.effective_line_sizes,
         line_offsets: &align_result.offsets,
+        line_baselines: &line_baselines,
         container_cross,
     };
     algo::position_items(dom, &items, &lines, &ctx, &env);
 
+    // --- Fragmentation (CSS Flexbox L1 §12) ---
+    // If inside a fragmentainer, check whether flex lines overflow the available
+    // block size and produce a break token to resume in the next fragment.
+    let (result_break_token, propagated_break_before, propagated_break_after) =
+        if let Some(&frag) = input.fragmentainer {
+            compute_flex_fragmentation(
+                dom,
+                entity,
+                &items,
+                &line_ranges,
+                &align_result.effective_line_sizes,
+                &ctx,
+                frag,
+                resume_line,
+                resume_item,
+                resume_child_bt,
+            )
+        } else {
+            (None, None, None)
+        };
+
     // --- Container LayoutBox ---
     let content_height =
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross);
+
+    // Flex container baseline (CSS Flexbox §9.4): first line's max baseline.
+    let wrap_reverse = matches!(ctx.wrap, FlexWrap::WrapReverse);
+    let first_baseline = if !line_baselines.is_empty() && line_baselines[0] > 0.0 {
+        // First logical line's max baseline, content-box relative.
+        // wrap-reverse mirrors cross positions: visual offset = container_cross - off - line_cross.
+        align_result.offsets.first().map(|&off| {
+            let cross_off = if wrap_reverse {
+                container_cross - off - align_result.effective_line_sizes[0]
+            } else {
+                off
+            };
+            cross_off + line_baselines[0]
+        })
+    } else if !items.is_empty() {
+        // Fallback: first item's own baseline.
+        let first_item = &items[0];
+        dom.world()
+            .get::<&LayoutBox>(first_item.entity)
+            .ok()
+            .and_then(|lb| {
+                lb.first_baseline
+                    .map(|bl| lb.content.origin.y - ctx.content_origin.y + bl)
+            })
+    } else {
+        None
+    };
+
+    // If fragmentation produced a break, clamp content height to consumed size.
+    let content_height = if let Some(ref bt) = result_break_token {
+        content_height.min(bt.consumed_block_size)
+    } else {
+        content_height
+    };
+
     let lb = LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::new(
+            ctx.content_origin.x,
+            ctx.content_origin.y,
+            content_width,
+            content_height,
+        ),
         padding,
         border,
         margin,
+        first_baseline,
+        layout_generation: 0,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
-    lb
+
+    // Layout positioned descendants owned by this containing block.
+    // CSS Flexbox §4.1: the flex container establishes a CB for absolute children
+    // when it is itself positioned (or is the root).
+    // CSS Transforms L1 §2: transform establishes CB for all descendants.
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom,
+            &children,
+            ctx.content_origin,
+        );
+        let pb = lb.padding_box();
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+            layout_generation: input.layout_generation,
+        };
+        elidex_layout_block::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            &static_positions,
+            &pos_env,
+        );
+    }
+
+    elidex_layout_block::LayoutOutcome {
+        layout_box: lb,
+        break_token: result_break_token,
+        propagated_break_before,
+        propagated_break_after,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fragmentation (CSS Flexbox L1 §12)
+// ---------------------------------------------------------------------------
+
+/// CSS Flexbox Level 1 §12: Fragmenting Flex Layout.
+///
+/// For **row flex** (`horizontal == true`), fragmentation happens between flex
+/// lines along the cross axis (which is the block axis in `horizontal-tb`).
+///
+/// For **column flex** (`horizontal == false`), the main axis is vertical
+/// (block direction in `horizontal-tb`), so fragmentation happens between
+/// items within each line along the main axis.
+///
+/// **Writing mode limitation**: In vertical writing modes (`vertical-rl`,
+/// `vertical-lr`), the block direction is horizontal. This function currently
+/// assumes `horizontal-tb` mapping (row→cross=block, column→main=block).
+/// Vertical writing mode interaction with flex fragmentation direction is not
+/// yet handled and may produce incorrect results.
+///
+/// Returns `(break_token, propagated_break_before, propagated_break_after)`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn compute_flex_fragmentation(
+    dom: &EcsDom,
+    entity: Entity,
+    items: &[FlexItem],
+    line_ranges: &[(usize, usize)],
+    line_cross_sizes: &[f32],
+    ctx: &FlexContext,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_line: usize,
+    resume_item: usize,
+    _resume_child_bt: Option<Box<BreakToken>>,
+) -> (
+    Option<BreakToken>,
+    Option<elidex_plugin::BreakValue>,
+    Option<elidex_plugin::BreakValue>,
+) {
+    let frag_type = frag.fragmentation_type;
+
+    // Propagated breaks from first/last items across all lines.
+    let propagated_before = line_ranges.first().and_then(|&(s, e)| {
+        if s < e {
+            let first_style = elidex_layout_block::try_get_style(dom, items[s].entity)?;
+            if is_forced_break(first_style.break_before, frag_type) {
+                Some(first_style.break_before)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    let propagated_after = line_ranges.last().and_then(|&(s, e)| {
+        if s < e {
+            let last_style = elidex_layout_block::try_get_style(dom, items[e - 1].entity)?;
+            if is_forced_break(last_style.break_after, frag_type) {
+                Some(last_style.break_after)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
+    let line_info = FlexLineInfo {
+        items,
+        line_ranges,
+        line_cross_sizes,
+    };
+
+    let break_token = if ctx.horizontal {
+        // Row flex: fragment between lines along cross axis (block direction).
+        fragment_row_flex(dom, entity, &line_info, ctx, frag, resume_line)
+    } else {
+        // Column flex: fragment between items within lines along main axis (block direction).
+        fragment_column_flex(dom, entity, &line_info, ctx, frag, resume_line, resume_item)
+    };
+
+    (break_token, propagated_before, propagated_after)
+}
+
+/// Row flex fragmentation: break between flex lines along the cross axis.
+#[allow(clippy::too_many_lines)]
+fn fragment_row_flex(
+    dom: &EcsDom,
+    entity: Entity,
+    info: &FlexLineInfo<'_>,
+    ctx: &FlexContext,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_line: usize,
+) -> Option<BreakToken> {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+    let items = info.items;
+    let line_ranges = info.line_ranges;
+    let line_cross_sizes = info.line_cross_sizes;
+
+    let mut consumed: f32 = 0.0;
+
+    // Account for lines before resume_line (already consumed in a prior fragment).
+    for line_idx in 0..resume_line.min(line_ranges.len()) {
+        consumed += line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
+        if line_idx + 1 < line_ranges.len() {
+            consumed += ctx.gap_cross;
+        }
+    }
+
+    let mut candidates: Vec<BreakCandidate> = Vec::new();
+
+    for line_idx in resume_line..line_ranges.len() {
+        let &(start, end) = &line_ranges[line_idx];
+        let line_cross = line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
+
+        // Skip zero-height lines — they don't consume space or create break opportunities.
+        if line_cross <= 0.0 {
+            continue;
+        }
+
+        // Check forced break-before on the first item of this line (if not the first line).
+        if line_idx > resume_line && start < end {
+            if let Some(first_style) = elidex_layout_block::try_get_style(dom, items[start].entity)
+            {
+                if is_forced_break(first_style.break_before, frag_type) {
+                    let bt = BreakToken {
+                        entity,
+                        consumed_block_size: consumed,
+                        child_break_token: None,
+                        mode_data: Some(BreakTokenData::Flex {
+                            line_index: line_idx,
+                            item_index: 0,
+                            child_break_token: None,
+                        }),
+                    };
+                    return Some(bt);
+                }
+            }
+        }
+
+        // Check forced break-after on the last item of the previous line.
+        if line_idx > resume_line && line_idx > 0 {
+            let prev = &line_ranges[line_idx - 1];
+            if prev.1 > prev.0 {
+                if let Some(last_style) =
+                    elidex_layout_block::try_get_style(dom, items[prev.1 - 1].entity)
+                {
+                    if is_forced_break(last_style.break_after, frag_type) {
+                        let bt = BreakToken {
+                            entity,
+                            consumed_block_size: consumed,
+                            child_break_token: None,
+                            mode_data: Some(BreakTokenData::Flex {
+                                line_index: line_idx,
+                                item_index: 0,
+                                child_break_token: None,
+                            }),
+                        };
+                        return Some(bt);
+                    }
+                }
+            }
+        }
+
+        // Record a break candidate between lines (Class A break opportunity).
+        if line_idx > resume_line {
+            let violates_avoid =
+                check_avoid_between_lines(dom, items, line_ranges, line_idx, frag_type);
+            candidates.push(BreakCandidate {
+                child_index: line_idx,
+                class: BreakClass::A,
+                cursor_block: consumed,
+                violates_avoid,
+                orphan_widow_penalty: false,
+            });
+        }
+
+        // Add this line's cross size to consumed.
+        consumed += line_cross;
+
+        // Check if consumed exceeds available space (need to break).
+        if consumed > available && !candidates.is_empty() {
+            // Check if the current line is monolithic.
+            let line_monolithic = items[start..end].iter().all(|item| {
+                let s = elidex_layout_block::try_get_style(dom, item.entity);
+                s.is_some_and(|st| {
+                    is_monolithic(&st, get_intrinsic_size(dom, item.entity).is_some())
+                })
+            });
+            if line_monolithic {
+                // Monolithic line that overflows — can't break within it, continue.
+                continue;
+            }
+
+            if let Some(best_idx) = find_best_break(&candidates, available) {
+                let break_line = candidates[best_idx].child_index;
+                let consumed_at_break = candidates[best_idx].cursor_block;
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed_at_break,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Flex {
+                        line_index: break_line,
+                        item_index: 0,
+                        child_break_token: None,
+                    }),
+                };
+                return Some(bt);
+            }
+        }
+
+        // Add cross-axis gap after this line (before the next line).
+        if line_idx + 1 < line_ranges.len() {
+            consumed += ctx.gap_cross;
+        }
+    }
+
+    // All lines fit — no break needed.
+    None
+}
+
+/// Column flex fragmentation: break between items within lines along the main axis.
+///
+/// For `flex-direction: column`, the main axis is vertical (block direction in
+/// `horizontal-tb`). Each item in a line is like a block sibling — we accumulate
+/// `item.final_main` and break between items when the consumed size exceeds the
+/// available block size.
+#[allow(clippy::too_many_lines, clippy::needless_range_loop)]
+fn fragment_column_flex(
+    dom: &EcsDom,
+    entity: Entity,
+    info: &FlexLineInfo<'_>,
+    ctx: &FlexContext,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_line: usize,
+    resume_item: usize,
+) -> Option<BreakToken> {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+    let items = info.items;
+    let line_ranges = info.line_ranges;
+
+    // Walk each line, and within each line walk items along the main axis.
+    // For column flex, lines are arranged along the cross axis (horizontal),
+    // but fragmentation is along the main axis (vertical = block direction).
+    // Each line is independently fragmented along the main axis.
+    for line_idx in resume_line..line_ranges.len() {
+        let &(start, end) = &line_ranges[line_idx];
+        if start >= end {
+            continue;
+        }
+
+        // Determine the first item index within this line to process.
+        let first_item_in_line = if line_idx == resume_line {
+            resume_item
+        } else {
+            0
+        };
+
+        let mut consumed: f32 = 0.0;
+
+        // Account for items before first_item_in_line (already consumed).
+        for item_rel in 0..first_item_in_line.min(end - start) {
+            let item = &items[start + item_rel];
+            consumed += item.final_main + item.margin_main;
+            if item_rel + 1 < end - start {
+                consumed += ctx.gap_main;
+            }
+        }
+
+        let mut candidates: Vec<BreakCandidate> = Vec::new();
+
+        for item_rel in first_item_in_line..(end - start) {
+            let item_abs = start + item_rel;
+            let item = &items[item_abs];
+            let item_size = item.final_main + item.margin_main;
+
+            // Skip zero-height items — they don't consume space.
+            if item_size <= 0.0 {
+                continue;
+            }
+
+            // Check forced break-before on this item (if not the first item).
+            if item_rel > first_item_in_line {
+                if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
+                    if is_forced_break(st.break_before, frag_type) {
+                        let bt = BreakToken {
+                            entity,
+                            consumed_block_size: consumed,
+                            child_break_token: None,
+                            mode_data: Some(BreakTokenData::Flex {
+                                line_index: line_idx,
+                                item_index: item_rel,
+                                child_break_token: None,
+                            }),
+                        };
+                        return Some(bt);
+                    }
+                }
+            }
+
+            // Check forced break-after on the previous item.
+            if item_rel > first_item_in_line && item_abs > 0 {
+                if let Some(prev_st) =
+                    elidex_layout_block::try_get_style(dom, items[item_abs - 1].entity)
+                {
+                    if is_forced_break(prev_st.break_after, frag_type) {
+                        let bt = BreakToken {
+                            entity,
+                            consumed_block_size: consumed,
+                            child_break_token: None,
+                            mode_data: Some(BreakTokenData::Flex {
+                                line_index: line_idx,
+                                item_index: item_rel,
+                                child_break_token: None,
+                            }),
+                        };
+                        return Some(bt);
+                    }
+                }
+            }
+
+            // Record a break candidate between items (Class A break opportunity).
+            if item_rel > first_item_in_line {
+                let violates_avoid =
+                    check_avoid_between_column_items(dom, items, item_abs, frag_type);
+                candidates.push(BreakCandidate {
+                    child_index: item_rel,
+                    class: BreakClass::A,
+                    cursor_block: consumed,
+                    violates_avoid,
+                    orphan_widow_penalty: false,
+                });
+            }
+
+            // Add this item's main-axis size to consumed.
+            consumed += item_size;
+
+            // Check if consumed exceeds available space.
+            if consumed > available && !candidates.is_empty() {
+                // Check if item is monolithic.
+                let item_monolithic = elidex_layout_block::try_get_style(dom, item.entity)
+                    .is_some_and(|st| {
+                        is_monolithic(&st, get_intrinsic_size(dom, item.entity).is_some())
+                    });
+                if item_monolithic {
+                    continue;
+                }
+
+                if let Some(best_idx) = find_best_break(&candidates, available) {
+                    let break_item = candidates[best_idx].child_index;
+                    let consumed_at_break = candidates[best_idx].cursor_block;
+                    let bt = BreakToken {
+                        entity,
+                        consumed_block_size: consumed_at_break,
+                        child_break_token: None,
+                        mode_data: Some(BreakTokenData::Flex {
+                            line_index: line_idx,
+                            item_index: break_item,
+                            child_break_token: None,
+                        }),
+                    };
+                    return Some(bt);
+                }
+            }
+
+            // Add main-axis gap after this item (before the next item).
+            if item_rel + 1 < end - start {
+                consumed += ctx.gap_main;
+            }
+        }
+    }
+
+    // All items fit — no break needed.
+    None
+}
+
+/// Check whether breaking between column items at `item_abs` violates an avoid constraint.
+fn check_avoid_between_column_items(
+    dom: &EcsDom,
+    items: &[FlexItem],
+    item_abs: usize,
+    frag_type: elidex_layout_block::FragmentationType,
+) -> bool {
+    // Check break-after on previous item.
+    if item_abs > 0 {
+        if let Some(prev_st) = elidex_layout_block::try_get_style(dom, items[item_abs - 1].entity) {
+            if is_avoid_break_value(prev_st.break_after, frag_type) {
+                return true;
+            }
+        }
+    }
+
+    // Check break-before on current item.
+    if let Some(st) = elidex_layout_block::try_get_style(dom, items[item_abs].entity) {
+        if is_avoid_break_value(st.break_before, frag_type) {
+            return true;
+        }
+    }
+
+    // Check break-inside on previous item.
+    if item_abs > 0 {
+        if let Some(prev_st) = elidex_layout_block::try_get_style(dom, items[item_abs - 1].entity) {
+            if is_avoid_break_inside(prev_st.break_inside, frag_type) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check whether breaking between lines at `line_idx` violates an avoid constraint.
+///
+/// Checks `break-after` on the last item of the previous line and `break-before`
+/// on the first item of the current line, plus `break-inside` on the container.
+fn check_avoid_between_lines(
+    dom: &EcsDom,
+    items: &[FlexItem],
+    line_ranges: &[(usize, usize)],
+    line_idx: usize,
+    frag_type: elidex_layout_block::FragmentationType,
+) -> bool {
+    // Check break-inside on the container's parent style via items' styles.
+    // Actually, the container's break-inside is checked by the caller (block layout).
+    // Here we check the items at the boundary.
+
+    // break-after on last item of previous line.
+    if line_idx > 0 {
+        let prev = &line_ranges[line_idx - 1];
+        if prev.1 > prev.0 {
+            if let Some(last_style) =
+                elidex_layout_block::try_get_style(dom, items[prev.1 - 1].entity)
+            {
+                if is_avoid_break_value(last_style.break_after, frag_type) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // break-before on first item of current line.
+    let &(start, end) = &line_ranges[line_idx];
+    if start < end {
+        if let Some(first_style) = elidex_layout_block::try_get_style(dom, items[start].entity) {
+            if is_avoid_break_value(first_style.break_before, frag_type) {
+                return true;
+            }
+        }
+    }
+
+    // Check break-inside: avoid on items spanning the boundary.
+    // For flex, break-inside on the container is the relevant check,
+    // but the container's style is handled by the parent fragmentainer.
+    // We check break-inside on individual items that might be avoided.
+    if line_idx > 0 {
+        let prev = &line_ranges[line_idx - 1];
+        for item in &items[prev.0..prev.1] {
+            if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
+                if is_avoid_break_inside(st.break_inside, frag_type) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +1019,7 @@ pub fn layout_flex(
 // Item collection
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 fn collect_flex_items(
     dom: &mut EcsDom,
     children: &[Entity],
@@ -348,16 +1028,82 @@ fn collect_flex_items(
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
+        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue;
         };
         if child_style.display == Display::None {
             continue;
         }
+        // Absolutely positioned flex children are removed from flex layout.
+        if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
+            continue;
+        }
 
-        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal);
+        // Flex §4.2: blockify flex items.
+        let blockified = child_style.display.blockify();
+        if blockified != child_style.display {
+            child_style.display = blockified;
+            let _ = dom.world_mut().insert_one(child, child_style.clone());
+        }
+
+        let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.inline_containing);
+
+        // Flex §8.1: detect auto margins before resolving to 0.
+        let (
+            margin_main_start_auto,
+            margin_main_end_auto,
+            margin_cross_start_auto,
+            margin_cross_end_auto,
+        ) = if ctx.horizontal {
+            let (ms, me) = if is_reversed(ctx.direction) {
+                (
+                    child_style.margin_right == Dimension::Auto,
+                    child_style.margin_left == Dimension::Auto,
+                )
+            } else {
+                (
+                    child_style.margin_left == Dimension::Auto,
+                    child_style.margin_right == Dimension::Auto,
+                )
+            };
+            (
+                ms,
+                me,
+                child_style.margin_top == Dimension::Auto,
+                child_style.margin_bottom == Dimension::Auto,
+            )
+        } else {
+            let (ms, me) = if is_reversed(ctx.direction) {
+                (
+                    child_style.margin_bottom == Dimension::Auto,
+                    child_style.margin_top == Dimension::Auto,
+                )
+            } else {
+                (
+                    child_style.margin_top == Dimension::Auto,
+                    child_style.margin_bottom == Dimension::Auto,
+                )
+            };
+            (
+                ms,
+                me,
+                child_style.margin_left == Dimension::Auto,
+                child_style.margin_right == Dimension::Auto,
+            )
+        };
+
         let (margin_main, margin_cross) =
-            compute_margins(&child_style, ctx.horizontal, ctx.containing_width);
+            compute_margins(&child_style, ctx.horizontal, ctx.inline_containing);
+
+        // Cross-start margin for baseline offset computation.
+        let margin_cross_start = if ctx.horizontal {
+            resolve_margin(child_style.margin_top, ctx.inline_containing)
+        } else {
+            resolve_margin(child_style.margin_left, ctx.inline_containing)
+        };
+
+        // Flex §4.4: visibility:collapse detection.
+        let collapsed = child_style.visibility == Visibility::Collapse;
 
         // CSS spec: stretch only applies when the cross-size property is auto.
         let cross_size_auto = if ctx.horizontal {
@@ -366,23 +1112,35 @@ fn collect_flex_items(
             matches!(child_style.width, Dimension::Auto)
         };
 
-        let basis = resolve_flex_basis(&child_style, ctx.direction, ctx.container_main);
+        let basis = resolve_flex_basis(
+            &child_style,
+            ctx.direction,
+            ctx.container_main,
+            ctx.inline_containing,
+            ctx.writing_mode,
+        );
+        // CSS Flexbox §9.2 step 3(B): flex-basis: content → max-content size.
+        // flex-basis: auto with width: auto → layout at container width.
+        let is_content_basis = matches!(child_style.flex_basis, FlexBasis::Content);
         let hypo_main = if let Some(px) = basis {
             sanitize(px).max(0.0)
         } else {
-            let child_input = LayoutInput {
-                containing_width: ctx.content_width,
-                containing_height: None,
-                offset_x: 0.0,
-                offset_y: 0.0,
-                font_db: env.font_db,
-                depth: env.depth + 1,
-            };
-            let child_lb = (env.layout_child)(dom, child, &child_input);
-            if ctx.horizontal {
-                child_lb.content.width
+            // content: probe at very large width for max-content.
+            // auto (width: auto): probe at container width.
+            let probe_width = if is_content_basis {
+                1e6
             } else {
-                child_lb.content.height
+                ctx.content_width
+            };
+            let child_input = LayoutInput {
+                viewport: env.viewport,
+                ..LayoutInput::probe(env, probe_width)
+            };
+            let child_lb = (env.layout_child)(dom, child, &child_input).layout_box;
+            if ctx.horizontal {
+                child_lb.content.size.width
+            } else {
+                child_lb.content.size.height
             }
         };
 
@@ -390,18 +1148,24 @@ fn collect_flex_items(
         // For box-sizing: border-box, subtract padding+border from min/max
         // so they compare correctly with content-level hypo_main.
         let containing_main = ctx.container_main;
-        let (mut min_main, mut max_main) = if ctx.horizontal {
+        let (raw_min_dim, mut max_main) = if ctx.horizontal {
             (
-                resolve_min_max(child_style.min_width, containing_main, 0.0),
+                child_style.min_width,
                 resolve_min_max(child_style.max_width, containing_main, f32::INFINITY),
             )
         } else {
             // Column direction: items' containing block is the flex container itself.
-            let ch = ctx.container_definite_height.unwrap_or(0.0);
+            let ch = ctx.resolved_height.unwrap_or(0.0);
             (
-                resolve_min_max(child_style.min_height, ch, 0.0),
+                child_style.min_height,
                 resolve_min_max(child_style.max_height, ch, f32::INFINITY),
             )
+        };
+        // Flex §4.5: auto min → automatic minimum size (content-based).
+        let mut min_main = if raw_min_dim == Dimension::Auto {
+            compute_automatic_minimum(dom, child, &child_style, ctx, env, pb_main)
+        } else {
+            resolve_min_max(raw_min_dim, containing_main, 0.0)
         };
         if child_style.box_sizing == BoxSizing::BorderBox {
             adjust_min_max_for_border_box(&mut min_main, &mut max_main, pb_main);
@@ -429,13 +1193,82 @@ fn collect_flex_items(
             cross_size_auto,
             min_main,
             max_main,
+            margin_main_start_auto,
+            margin_main_end_auto,
+            margin_cross_start_auto,
+            margin_cross_end_auto,
+            collapsed,
+            first_baseline: None,
+            margin_cross_start,
         });
     }
     items
 }
 
-fn compute_pb(style: &ComputedStyle, horizontal: bool) -> (f32, f32) {
-    let p = sanitize_padding(style);
+/// Compute Flex §4.5 automatic minimum size for a flex item with `min-width: auto`.
+///
+/// `automatic_minimum` = min(`content_based_minimum`, `specified_size_suggestion`)
+/// `content_based_minimum` = min-content size (content probe at 1px)
+/// `specified_size_suggestion` = flex-basis or width/height if definite, else infinity
+/// overflow != visible → return 0 (clamped minimum)
+fn compute_automatic_minimum(
+    dom: &mut EcsDom,
+    child: Entity,
+    child_style: &ComputedStyle,
+    ctx: &FlexContext,
+    env: &algo::LayoutEnv<'_>,
+    pb_main: f32,
+) -> f32 {
+    use elidex_plugin::Overflow;
+
+    // Flex §4.5: overflow != visible → clamped minimum (0).
+    let overflow = if ctx.horizontal {
+        child_style.overflow_x
+    } else {
+        child_style.overflow_y
+    };
+    if overflow != Overflow::Visible {
+        return 0.0;
+    }
+
+    // Content-based minimum: probe layout at near-zero width.
+    let probe_input = LayoutInput {
+        viewport: env.viewport,
+        ..LayoutInput::probe(env, 1.0)
+    };
+    let probe_lb = (env.layout_child)(dom, child, &probe_input).layout_box;
+    let content_min = if ctx.horizontal {
+        probe_lb.content.size.width
+    } else {
+        probe_lb.content.size.height
+    };
+
+    // Specified size suggestion (CSS Flexbox §4.5):
+    // Comes from the item's computed main size property (width/height),
+    // NOT from flex-basis.
+    let specified_suggestion = {
+        let dim = if ctx.horizontal {
+            child_style.width
+        } else {
+            child_style.height
+        };
+        match dim {
+            Dimension::Length(px) if px.is_finite() => {
+                if child_style.box_sizing == BoxSizing::BorderBox {
+                    (px - pb_main).max(0.0)
+                } else {
+                    px
+                }
+            }
+            _ => f32::INFINITY,
+        }
+    };
+
+    content_min.min(specified_suggestion)
+}
+
+fn compute_pb(style: &ComputedStyle, horizontal: bool, containing_width: f32) -> (f32, f32) {
+    let p = elidex_layout_block::resolve_padding(style, containing_width);
     let b = sanitize_border(style);
     let h = horizontal_pb(&p, &b);
     let v = vertical_pb(&p, &b);

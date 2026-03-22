@@ -3,8 +3,19 @@ description = "Run cargo check"
 run = "cargo check --workspace --all-targets"
 
 [tasks.test]
-description = "Run all tests"
-run = "cargo test --workspace"
+description = "Run all tests (nextest, no doc-tests)"
+run = "cargo nextest run --workspace"
+
+[tasks.test-doc]
+description = "Run doc-tests only"
+run = "cargo test --workspace --doc"
+
+[tasks.test-all]
+description = "Run all tests including doc-tests"
+run = """
+cargo nextest run --workspace
+cargo test --workspace --doc
+"""
 
 [tasks.lint-clippy]
 description = "Run clippy"
@@ -32,7 +43,7 @@ run = "cargo deny check"
 
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test", "deny"]
+depends = ["check", "lint", "test-all", "deny"]
 
 [tasks.bench]
 description = "Run all benchmarks"

@@ -3,6 +3,7 @@
 //! This crate defines the core plugin traits, spec-level enums, and the
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
+pub mod background;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -15,24 +16,33 @@ mod registry;
 pub mod sandbox;
 mod spec_level;
 mod traits;
+pub mod transform_math;
 pub mod url_security;
 mod values;
 
 pub use computed_style::{
-    AlignContent, AlignItems, AlignSelf, BorderCollapse, BorderSide, BorderStyle, BoxSizing,
-    CaptionSide, Clear, ComputedStyle, ContentItem, ContentValue, Dimension, Direction, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine, JustifyContent, LineHeight,
-    ListStyleType, Overflow, Position, TableLayout, TextAlign, TextDecorationLine,
-    TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth, TrackSize, UnicodeBidi,
-    VerticalAlign, Visibility, WhiteSpace, WritingMode,
+    is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
+    AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
+    BoxSizing, BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan,
+    ComputedStyle, ContentItem, ContentValue, CounterResetEntry, Dimension, Direction, Display,
+    EmptyCells, FlexBasis, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine,
+    GridTemplateAreas, GridTrackList, JustifyContent, JustifyItems, JustifySelf, LineHeight,
+    ListStyleType, MarginBoxContent, MulticolInfo, NamedPageSize, Overflow, PageMargins, PageRule,
+    PageSelector, PageSize, PagedMediaContext, Position, TableLayout, TextAlign,
+    TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth,
+    TrackSection, TrackSize, UnicodeBidi, VerticalAlign, ViewportOverflow, Visibility, WhiteSpace,
+    WritingMode,
 };
 pub use error::ParseError;
 pub use event_types::{
     AnimationEventInit, ClipboardEventInit, CompositionEventInit, EventPayload, EventPhase,
     FocusEventInit, InputEventInit, KeyboardEventInit, MouseEventInit, TransitionEventInit,
+    WheelEventInit,
 };
 pub use js_value::JsValue;
-pub use layout_types::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Rect, Size};
+pub use layout_types::{
+    CssSize, EdgeSizes, LayoutBox, LayoutContext, LayoutResult, Point, Rect, Size, Vector,
+};
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
@@ -41,7 +51,10 @@ pub use traits::{
     ElementData, HtmlElementHandler, LayoutModel, LayoutNode, NetworkMiddleware, ParseBehavior,
     PropertyDeclaration, ResolveContext,
 };
-pub use values::{CalcExpr, CssColor, CssValue, LengthUnit};
+pub use values::{
+    AngleOrDirection, BackfaceVisibility, CalcExpr, CssColor, CssColorStop, CssValue,
+    GradientValue, LengthUnit, TransformFunction, TransformStyle,
+};
 
 // ---------------------------------------------------------------------------
 // Process model

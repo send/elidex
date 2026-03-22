@@ -1,0 +1,599 @@
+//! Tree mutation and navigation methods for [`EcsDom`].
+
+use crate::components::{ShadowRoot, TagType, TreeRelation};
+use hecs::Entity;
+
+use super::{EcsDom, MAX_ANCESTOR_DEPTH};
+
+impl EcsDom {
+    // ---- Tree mutation ----
+
+    /// Append `child` as the last child of `parent`.
+    ///
+    /// If `child` already has a parent, it is first detached.
+    /// Returns `false` if:
+    /// - `parent == child` (self-append),
+    /// - either entity has been destroyed,
+    /// - `child` is an ancestor of `parent` (would create a cycle).
+    #[must_use = "returns false if the operation failed"]
+    pub fn append_child(&mut self, parent: Entity, child: Entity) -> bool {
+        if parent == child {
+            return false;
+        }
+        if !self.all_exist(&[parent, child]) {
+            return false;
+        }
+        if self.is_ancestor(child, parent) {
+            return false;
+        }
+
+        self.detach(child);
+
+        let last_child = self.read_rel(parent, |rel| rel.last_child);
+        self.link_node(parent, child, last_child, None);
+        self.rev_version(parent);
+
+        true
+    }
+
+    /// Remove `child` from `parent`.
+    ///
+    /// Returns `false` if either entity is destroyed or `child` is not a
+    /// child of `parent`.
+    #[must_use = "returns false if the operation failed"]
+    pub fn remove_child(&mut self, parent: Entity, child: Entity) -> bool {
+        if !self.all_exist(&[parent, child]) {
+            return false;
+        }
+        if !self.is_child_of(child, parent) {
+            return false;
+        }
+        self.detach(child);
+        self.rev_version(parent);
+        true
+    }
+
+    /// Insert `new_child` before `ref_child` under `parent`.
+    ///
+    /// Returns `false` if any entity is destroyed, `ref_child` is not a child
+    /// of `parent`, `new_child == parent`, `new_child == ref_child`, or
+    /// `new_child` is an ancestor of `parent` (would create a cycle).
+    #[must_use = "returns false if the operation failed"]
+    pub fn insert_before(&mut self, parent: Entity, new_child: Entity, ref_child: Entity) -> bool {
+        if new_child == parent || new_child == ref_child {
+            return false;
+        }
+        if !self.all_exist(&[parent, new_child, ref_child]) {
+            return false;
+        }
+        if self.is_ancestor(new_child, parent) {
+            return false;
+        }
+        if !self.is_child_of(ref_child, parent) {
+            return false;
+        }
+
+        // Detach new_child from its current position.
+        self.detach(new_child);
+
+        // Re-read ref_child's prev_sibling AFTER detach (it may have changed
+        // if new_child was an adjacent sibling).
+        let ref_prev = self.read_rel(ref_child, |rel| rel.prev_sibling);
+        self.link_node(parent, new_child, ref_prev, Some(ref_child));
+        self.rev_version(parent);
+
+        true
+    }
+
+    /// Replace `old_child` with `new_child` under `parent`.
+    ///
+    /// `old_child` is detached from the tree. Returns `false` if any entity
+    /// is destroyed, `old_child` is not a child of `parent`, or `new_child`
+    /// is an ancestor of `parent` (would create a cycle).
+    ///
+    /// Validation is performed **before** detaching `new_child`, so the tree
+    /// is never left in a corrupted state on failure.
+    #[must_use = "returns false if the operation failed"]
+    pub fn replace_child(&mut self, parent: Entity, new_child: Entity, old_child: Entity) -> bool {
+        if new_child == parent || new_child == old_child {
+            return false;
+        }
+        if !self.all_exist(&[parent, new_child, old_child]) {
+            return false;
+        }
+        if self.is_ancestor(new_child, parent) {
+            return false;
+        }
+
+        // Verify old_child is a child of parent BEFORE detaching new_child.
+        if !self.is_child_of(old_child, parent) {
+            return false;
+        }
+
+        // Detach new_child from its current position (validation passed).
+        self.detach(new_child);
+
+        // Re-read old_child's siblings AFTER detach (they may have changed
+        // if new_child was an adjacent sibling).
+        let (old_prev, old_next) =
+            self.read_rel(old_child, |rel| (rel.prev_sibling, rel.next_sibling));
+
+        // Place new_child in old_child's position.
+        self.link_node(parent, new_child, old_prev, old_next);
+
+        // Clear old_child's tree links.
+        self.clear_rel(old_child);
+        self.rev_version(parent);
+
+        true
+    }
+
+    /// Destroy an entity and remove it from the world entirely.
+    ///
+    /// The entity is first detached from its parent. Children are NOT
+    /// recursively destroyed; they become clean orphans (parent and sibling
+    /// links are cleared so they do not hold dangling references to the destroyed entity).
+    ///
+    /// Shadow DOM cleanup: if the entity is a shadow root, the host's
+    /// `ShadowHost` component is removed. If the entity is a shadow host,
+    /// the shadow root's `ShadowRoot` component is removed. This prevents
+    /// stale cross-references after destruction.
+    ///
+    /// Returns `false` if the entity does not exist.
+    #[must_use = "returns false if the entity does not exist"]
+    pub fn destroy_entity(&mut self, entity: Entity) -> bool {
+        if !self.contains(entity) {
+            return false;
+        }
+
+        // Clean up shadow DOM cross-references before despawn.
+        // Extract references first to avoid borrow conflicts.
+        let shadow_host_of = self.world.get::<&ShadowRoot>(entity).ok().map(|sr| sr.host);
+        let shadow_root_of = self
+            .world
+            .get::<&crate::components::ShadowHost>(entity)
+            .ok()
+            .map(|sh| sh.shadow_root);
+        // If destroying a shadow root, remove ShadowHost from the host.
+        if let Some(host) = shadow_host_of {
+            let _ = self.world.remove_one::<crate::components::ShadowHost>(host);
+        }
+        // If destroying a shadow host, remove ShadowRoot from the shadow root.
+        if let Some(sr) = shadow_root_of {
+            let _ = self.world.remove_one::<ShadowRoot>(sr);
+        }
+
+        // Capture parent for version bump before detach.
+        let parent = self.get_parent(entity);
+
+        self.detach(entity);
+
+        // Orphan all children: clear their parent and sibling links so they
+        // do not hold dangling references to the destroyed entity.
+        let first_child = self.read_rel(entity, |rel| rel.first_child);
+        let mut child = first_child;
+        while let Some(c) = child {
+            let next = self.read_rel(c, |rel| rel.next_sibling);
+            self.clear_rel(c);
+            child = next;
+        }
+
+        let _ = self.world.despawn(entity);
+
+        // Bump version on parent after successful removal.
+        if let Some(p) = parent {
+            self.rev_version(p);
+        }
+
+        true
+    }
+
+    /// Place `node` into `parent`'s child list between `prev` and `next`.
+    ///
+    /// Updates all affected sibling pointers and parent's first/last child.
+    pub(super) fn link_node(
+        &mut self,
+        parent: Entity,
+        node: Entity,
+        prev: Option<Entity>,
+        next: Option<Entity>,
+    ) {
+        self.update_rel(node, |rel| {
+            rel.parent = Some(parent);
+            rel.prev_sibling = prev;
+            rel.next_sibling = next;
+        });
+
+        if let Some(prev_entity) = prev {
+            self.update_rel(prev_entity, |rel| rel.next_sibling = Some(node));
+        } else {
+            self.update_rel(parent, |rel| rel.first_child = Some(node));
+        }
+
+        if let Some(next_entity) = next {
+            self.update_rel(next_entity, |rel| rel.prev_sibling = Some(node));
+        } else {
+            self.update_rel(parent, |rel| rel.last_child = Some(node));
+        }
+    }
+
+    /// Detach an entity from its parent and siblings.
+    pub(super) fn detach(&mut self, entity: Entity) {
+        let (parent, prev, next) = self.read_rel(entity, |rel| {
+            (rel.parent, rel.prev_sibling, rel.next_sibling)
+        });
+        if parent.is_none() {
+            return;
+        }
+
+        if let Some(prev_entity) = prev {
+            self.update_rel(prev_entity, |rel| rel.next_sibling = next);
+        }
+
+        if let Some(next_entity) = next {
+            self.update_rel(next_entity, |rel| rel.prev_sibling = prev);
+        }
+
+        if let Some(parent_entity) = parent {
+            self.update_rel(parent_entity, |rel| {
+                if rel.first_child == Some(entity) {
+                    rel.first_child = next;
+                }
+                if rel.last_child == Some(entity) {
+                    rel.last_child = prev;
+                }
+            });
+        }
+
+        self.clear_rel(entity);
+    }
+
+    // ---- Tree navigation ----
+
+    /// Returns the parent of `entity`, or `None` if it has no parent or does not exist.
+    #[must_use]
+    pub fn get_parent(&self, entity: Entity) -> Option<Entity> {
+        self.read_rel(entity, |rel| rel.parent)
+    }
+
+    /// Returns the first child of `entity`, or `None` if it has no children or does not exist.
+    #[must_use]
+    pub fn get_first_child(&self, entity: Entity) -> Option<Entity> {
+        self.read_rel(entity, |rel| rel.first_child)
+    }
+
+    /// Returns the last child of `entity`, or `None` if it has no children or does not exist.
+    #[must_use]
+    pub fn get_last_child(&self, entity: Entity) -> Option<Entity> {
+        self.read_rel(entity, |rel| rel.last_child)
+    }
+
+    /// Returns the next sibling of `entity`, or `None` if it is the last sibling or does not exist.
+    #[must_use]
+    pub fn get_next_sibling(&self, entity: Entity) -> Option<Entity> {
+        self.read_rel(entity, |rel| rel.next_sibling)
+    }
+
+    /// Returns the previous sibling of `entity`, or `None` if it is the first sibling or does not exist.
+    #[must_use]
+    pub fn get_prev_sibling(&self, entity: Entity) -> Option<Entity> {
+        self.read_rel(entity, |rel| rel.prev_sibling)
+    }
+
+    /// Check if the entity's tag matches `tag`.
+    ///
+    /// Returns `false` for text nodes and entities without a `TagType` component.
+    #[must_use]
+    pub fn has_tag(&self, entity: Entity, tag: &str) -> bool {
+        self.world
+            .get::<&TagType>(entity)
+            .ok()
+            .is_some_and(|t| t.0 == tag)
+    }
+
+    /// Returns the tag name of an entity, or `None` for text nodes.
+    #[must_use]
+    pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
+        self.world.get::<&TagType>(entity).ok().map(|t| t.0.clone())
+    }
+
+    /// Compare two entities by tree order (pre-order depth-first traversal).
+    ///
+    /// Walks ancestor chains to find the lowest common ancestor, then compares
+    /// sibling order. Handles the case where one node is an ancestor of the other.
+    /// Falls back to entity bits comparison if the nodes are in different trees.
+    #[must_use]
+    pub fn tree_order_cmp(&self, a: Entity, b: Entity) -> std::cmp::Ordering {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        // Build ancestor chains (child -> root order).
+        let chain_a = self.ancestor_chain(a);
+        let chain_b = self.ancestor_chain(b);
+        // Find the lowest common ancestor by walking from the root end.
+        // chain[last] is the root.
+        let mut ia = chain_a.len();
+        let mut ib = chain_b.len();
+        // If roots differ, nodes are in different trees -- fall back to entity bits.
+        if chain_a.last() != chain_b.last() {
+            return a.to_bits().cmp(&b.to_bits());
+        }
+        // Walk from root toward leaves, finding where paths diverge.
+        loop {
+            if ia == 0 {
+                // `a` is an ancestor of `b` -> `a` comes first.
+                return std::cmp::Ordering::Less;
+            }
+            if ib == 0 {
+                // `b` is an ancestor of `a` -> `b` comes first.
+                return std::cmp::Ordering::Greater;
+            }
+            ia -= 1;
+            ib -= 1;
+            if chain_a[ia] != chain_b[ib] {
+                // These are siblings under the same parent -- compare sibling order.
+                return self.sibling_order(chain_a[ia], chain_b[ib]);
+            }
+        }
+    }
+
+    /// Build the ancestor chain from entity to root (entity first, root last).
+    fn ancestor_chain(&self, entity: Entity) -> Vec<Entity> {
+        let mut chain = vec![entity];
+        let mut current = entity;
+        let mut depth = 0;
+        while let Some(parent) = self.get_parent(current) {
+            chain.push(parent);
+            current = parent;
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+        }
+        chain
+    }
+
+    /// Compare sibling order: walk from `first_child` of their parent.
+    /// Returns `Less` if `a` appears before `b`, `Greater` otherwise.
+    fn sibling_order(&self, a: Entity, b: Entity) -> std::cmp::Ordering {
+        // Walk from `a` forward; if we find `b`, then a < b.
+        let mut cursor = self.get_next_sibling(a);
+        let mut steps = 0;
+        while let Some(sib) = cursor {
+            if sib == b {
+                return std::cmp::Ordering::Less;
+            }
+            cursor = self.get_next_sibling(sib);
+            steps += 1;
+            if steps > 100_000 {
+                break;
+            }
+        }
+        // `b` was not found after `a`, so `b` must come before `a`.
+        std::cmp::Ordering::Greater
+    }
+
+    /// Check if `ancestor` is an ancestor of `descendant` (or is `descendant` itself).
+    ///
+    /// Uses a depth counter to prevent infinite loops on corrupted trees.
+    #[must_use]
+    pub fn is_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
+        self.is_ancestor(ancestor, descendant)
+    }
+
+    /// Like `is_ancestor_or_self`, but when the walk reaches a `ShadowRoot`,
+    /// it jumps to the host element and continues upward (host-including
+    /// inclusive ancestor per WHATWG DOM 4.2.1).
+    #[must_use]
+    pub fn is_host_including_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
+        if ancestor == descendant {
+            return true;
+        }
+        let mut current = descendant;
+        let mut depth = 0;
+        loop {
+            if let Some(parent) = self.get_parent(current) {
+                if parent == ancestor {
+                    return true;
+                }
+                current = parent;
+            } else if let Ok(sr) = self.world.get::<&ShadowRoot>(current) {
+                let host = sr.host;
+                drop(sr);
+                if host == ancestor {
+                    return true;
+                }
+                current = host;
+            } else {
+                return false;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return false;
+            }
+        }
+    }
+
+    /// Find the tree root of an entity.
+    ///
+    /// For nodes inside a shadow tree, the root is the `ShadowRoot` entity
+    /// (not the document root). For normal DOM nodes, it's the topmost ancestor.
+    /// If `entity` itself is a `ShadowRoot`, returns `entity`.
+    #[must_use]
+    pub fn find_tree_root(&self, entity: Entity) -> Entity {
+        // L7: If entity itself is a ShadowRoot, it IS the tree root.
+        if self.world.get::<&ShadowRoot>(entity).is_ok() {
+            return entity;
+        }
+        let mut current = entity;
+        let mut depth = 0;
+        while let Some(parent) = self.get_parent(current) {
+            if self.world.get::<&ShadowRoot>(parent).is_ok() {
+                return parent;
+            }
+            current = parent;
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+        }
+        current
+    }
+
+    /// Like `find_tree_root`, but when reaching a `ShadowRoot`, jumps to
+    /// the host and continues upward (composed tree root).
+    #[must_use]
+    pub fn find_tree_root_composed(&self, entity: Entity) -> Entity {
+        let mut current = entity;
+        let mut depth = 0;
+        loop {
+            if let Some(parent) = self.get_parent(current) {
+                current = parent;
+            } else if let Ok(sr) = self.world.get::<&ShadowRoot>(current) {
+                current = sr.host;
+            } else {
+                return current;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return current;
+            }
+        }
+    }
+
+    /// Collect all direct children of `parent` in order.
+    ///
+    /// Shadow root entities are excluded from the result -- use
+    /// [`get_shadow_root()`](Self::get_shadow_root) to access them.
+    ///
+    /// Uses a depth counter (capped at `MAX_ANCESTOR_DEPTH`) to prevent
+    /// infinite loops on corrupted sibling chains.
+    #[must_use]
+    pub fn children(&self, parent: Entity) -> Vec<Entity> {
+        let mut result = Vec::new();
+        let mut current = self.read_rel(parent, |rel| rel.first_child);
+        let mut count = 0;
+        while let Some(entity) = current {
+            count += 1;
+            if count > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            // M1: ShadowRoot entities are internal -- not exposed as children.
+            if self.world.get::<&ShadowRoot>(entity).is_err() {
+                result.push(entity);
+            }
+            current = self.read_rel(entity, |rel| rel.next_sibling);
+        }
+        result
+    }
+
+    /// Returns a zero-allocation iterator over direct children of `parent`.
+    ///
+    /// Yields entities in sibling order. Stops after `MAX_ANCESTOR_DEPTH`
+    /// iterations to guard against corrupted sibling chains.
+    #[must_use]
+    pub fn children_iter(&self, parent: Entity) -> super::ChildrenIter<'_> {
+        let next = self.read_rel(parent, |rel| rel.first_child);
+        super::ChildrenIter {
+            dom: self,
+            next,
+            remaining: MAX_ANCESTOR_DEPTH,
+        }
+    }
+
+    /// Find all element entities with the given tag name.
+    ///
+    /// Comparison is **case-sensitive**. Callers should pass lowercase tag names
+    /// to match the parser's normalized output.
+    ///
+    /// **Complexity:** O(n) full scan over all entities with a `TagType`
+    /// component. Consider caching results or adding a tag->entity index if
+    /// this becomes a hot path (e.g., CSS selector matching).
+    #[must_use]
+    pub fn query_by_tag(&self, tag: &str) -> Vec<Entity> {
+        self.world
+            .query::<(Entity, &TagType)>()
+            .iter()
+            .filter(|(_, t)| t.0 == tag)
+            .map(|(entity, _)| entity)
+            .collect()
+    }
+
+    /// Returns all entities that have no parent, sorted by entity ID.
+    ///
+    /// Useful for finding layout roots or document roots for tree walks.
+    #[must_use]
+    pub fn root_entities(&self) -> Vec<Entity> {
+        let mut roots: Vec<Entity> = self
+            .world
+            .query::<Entity>()
+            .iter()
+            .filter(|&entity| self.get_parent(entity).is_none())
+            .collect();
+        roots.sort_by_key(|e| e.to_bits());
+        roots
+    }
+
+    // ---- Internal helpers ----
+
+    /// Returns `true` if all given entities exist in this DOM world.
+    pub(super) fn all_exist(&self, entities: &[Entity]) -> bool {
+        entities.iter().all(|e| self.world.contains(*e))
+    }
+
+    /// Check if `ancestor` is an ancestor of `descendant` by walking up the tree.
+    ///
+    /// Uses a depth counter to prevent infinite loops on corrupted trees.
+    pub(super) fn is_ancestor(&self, ancestor: Entity, descendant: Entity) -> bool {
+        let mut current = Some(descendant);
+        let mut depth = 0;
+        while let Some(entity) = current {
+            if entity == ancestor {
+                return true;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            current = self.get_parent(entity);
+        }
+        false
+    }
+
+    /// Returns `true` if `child`'s parent is `parent`.
+    pub(super) fn is_child_of(&self, child: Entity, parent: Entity) -> bool {
+        self.world
+            .get::<&TreeRelation>(child)
+            .ok()
+            .is_some_and(|rel| rel.parent == Some(parent))
+    }
+
+    /// Read a field from an entity's `TreeRelation` component.
+    pub(super) fn read_rel<R>(&self, entity: Entity, f: impl FnOnce(&TreeRelation) -> R) -> R
+    where
+        R: Default,
+    {
+        self.world
+            .get::<&TreeRelation>(entity)
+            .ok()
+            .map(|rel| f(&rel))
+            .unwrap_or_default()
+    }
+
+    /// Mutate an entity's `TreeRelation` component in-place.
+    pub(super) fn update_rel(&mut self, entity: Entity, f: impl FnOnce(&mut TreeRelation)) {
+        if let Ok(mut rel) = self.world.get::<&mut TreeRelation>(entity) {
+            f(&mut rel);
+        }
+    }
+
+    /// Clear parent and sibling links on an entity, preserving its own
+    /// `first_child` / `last_child` (children stay with the node).
+    pub(super) fn clear_rel(&mut self, entity: Entity) {
+        self.update_rel(entity, |rel| {
+            rel.parent = None;
+            rel.prev_sibling = None;
+            rel.next_sibling = None;
+        });
+    }
+}

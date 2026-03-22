@@ -119,6 +119,17 @@ pub struct FocusEventInit {
     pub related_target: Option<u64>,
 }
 
+/// Initialization data for wheel events (UI Events §5.4).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WheelEventInit {
+    /// Horizontal scroll amount.
+    pub delta_x: f64,
+    /// Vertical scroll amount.
+    pub delta_y: f64,
+    /// Delta mode: 0 = pixel, 1 = line, 2 = page (`DOM_DELTA_*`).
+    pub delta_mode: u32,
+}
+
 /// Payload carried by a DOM event.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
@@ -139,6 +150,10 @@ pub enum EventPayload {
     Composition(CompositionEventInit),
     /// Focus event data (focus/blur/focusin/focusout).
     Focus(FocusEventInit),
+    /// Wheel event data.
+    Wheel(WheelEventInit),
+    /// Scroll event (no additional data — target is the scroll container).
+    Scroll,
     /// No additional data (e.g. generic events).
     #[default]
     None,

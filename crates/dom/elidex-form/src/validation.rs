@@ -1,6 +1,19 @@
 //! Form validation (HTML §4.10.15).
 
+use std::sync::OnceLock;
+
 use crate::{FormControlKind, FormControlState};
+
+/// WHATWG HTML §4.10.5.1.6 email validation regex, compiled once.
+fn email_regex() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+        )
+        .expect("email regex is valid")
+    })
+}
 
 /// Validity state for a form control (HTML §4.10.14.2).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -174,19 +187,17 @@ fn check_number_bad_input(validity: &mut ValidityState, state: &FormControlState
     }
 }
 
-/// Check email `type_mismatch` (simplified per HTML §4.10.5.1.6).
+/// Check email `type_mismatch` per WHATWG HTML §4.10.5.1.6.
 ///
-/// Full RFC 5322 validation deferred to Phase 5. Current check:
-/// exactly one `@`, non-empty local and domain parts.
+/// Uses the spec-defined regex which validates local-part and domain labels
+/// (each label: starts/ends with alphanumeric, up to 63 chars, hyphens allowed internally).
+///
 /// Note: `user@localhost` is valid per WHATWG (dot in domain not required).
-/// L2: WHATWG email regex places no restriction on the local-part characters,
-/// which this implementation already handles by only checking for `@` split.
 fn check_email_type(validity: &mut ValidityState, state: &FormControlState) {
     if state.value.is_empty() {
         return;
     }
-    let parts: Vec<&str> = state.value.splitn(3, '@').collect();
-    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+    if !email_regex().is_match(&state.value) {
         tracing::debug!(kind = ?state.kind, name = %state.name, value_len = state.value.len(), "validation: email type_mismatch");
         validity.type_mismatch = true;
     }
@@ -876,5 +887,62 @@ mod tests {
         state.value.clear();
         let v = validate_control(&state);
         assert!(!v.bad_input);
+    }
+
+    fn email_state(value: &str) -> FormControlState {
+        FormControlState {
+            kind: FormControlKind::Email,
+            value: value.to_string(),
+            char_count: value.chars().count(),
+            ..FormControlState::default()
+        }
+    }
+
+    #[test]
+    fn email_whatwg_valid_simple() {
+        assert!(!validate_control(&email_state("user@example.com")).type_mismatch);
+    }
+
+    #[test]
+    fn email_whatwg_valid_plus_tag() {
+        assert!(!validate_control(&email_state("user+tag@example.com")).type_mismatch);
+    }
+
+    #[test]
+    fn email_whatwg_invalid_leading_hyphen_domain() {
+        // Domain label must start with [a-zA-Z0-9], not hyphen.
+        assert!(validate_control(&email_state("user@-example.com")).type_mismatch);
+    }
+
+    #[test]
+    fn email_whatwg_invalid_empty_label() {
+        // "example..com" contains an empty label between the dots.
+        assert!(validate_control(&email_state("user@example..com")).type_mismatch);
+    }
+
+    #[test]
+    fn email_whatwg_invalid_no_local_part() {
+        assert!(validate_control(&email_state("@example.com")).type_mismatch);
+    }
+
+    #[test]
+    fn email_whatwg_invalid_no_domain() {
+        assert!(validate_control(&email_state("user@")).type_mismatch);
+    }
+
+    #[test]
+    fn pattern_unicode_false_digit_shorthand() {
+        // Verify \d{3} works with unicode(false) — matches ASCII digits only.
+        let mut attrs = Attributes::default();
+        attrs.set("pattern", r"\d{3}");
+        attrs.set("value", "123");
+        let state = FormControlState::from_element("input", &attrs).unwrap();
+        assert!(!validate_control(&state).pattern_mismatch);
+
+        let mut attrs2 = Attributes::default();
+        attrs2.set("pattern", r"\d{3}");
+        attrs2.set("value", "12a");
+        let state2 = FormControlState::from_element("input", &attrs2).unwrap();
+        assert!(validate_control(&state2).pattern_mismatch);
     }
 }

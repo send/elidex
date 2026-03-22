@@ -11,7 +11,7 @@ use boa_engine::object::builtins::{JsArray, JsPromise};
 use boa_engine::object::{IntegrityLevel, ObjectInitializer};
 use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsSymbol, JsValue, NativeFunction};
-use elidex_wasm_runtime::{WasmError, WasmInstance, WasmModule, WasmRuntime};
+use elidex_wasm_runtime::{WasmError, WasmErrorKind, WasmInstance, WasmModule, WasmRuntime};
 
 use crate::bridge::HostBridge;
 
@@ -109,11 +109,29 @@ pub fn register_wasm(ctx: &mut Context, bridge: &HostBridge) {
 }
 
 /// Convert a `WasmError` to the appropriate boa `JsNativeError`.
+///
+/// Maps `WasmErrorKind` to the closest standard JS error type:
+/// - `CompileError`  -> `TypeError` (compilation/validation failure)
+/// - `LinkError`     -> `TypeError` (import resolution failure)
+/// - `RuntimeError`  -> `RangeError` (trap, stack overflow, OOM)
+///
+/// The error message is prefixed with the WebAssembly error class name
+/// (e.g. "`CompileError`: ...") so JS code can pattern-match on the name.
+/// Boa 0.21 does not support custom error subclasses (WebAssembly.CompileError
+/// etc. are not standard JS built-ins); once boa adds WebIDL/custom error
+/// class support, these can be replaced with proper subclass instances.
 fn wasm_error_to_js(e: &WasmError) -> JsNativeError {
-    // TODO: Use proper WebAssembly.CompileError/LinkError/RuntimeError subclasses
-    // when elidex-js provides custom error class support. For now, set the error
-    // name via the message prefix so JS code can at least pattern-match.
-    JsNativeError::error().with_message(e.to_string())
+    match e.kind {
+        WasmErrorKind::Compile => {
+            JsNativeError::typ().with_message(format!("CompileError: {}", e.message()))
+        }
+        WasmErrorKind::Link => {
+            JsNativeError::typ().with_message(format!("LinkError: {}", e.message()))
+        }
+        WasmErrorKind::Runtime => {
+            JsNativeError::range().with_message(format!("RuntimeError: {}", e.message()))
+        }
+    }
 }
 
 /// Return a rejected promise wrapping a `WasmError`.
@@ -348,7 +366,11 @@ fn build_exports_object(
             } else if let Some(size) = inst.memory_byte_size(&name) {
                 memories.push((name, size));
             }
-            // TODO: globals, tables (Phase 4)
+            // Known limitation: Wasm globals and tables are not exposed as
+            // exports. These are uncommon in practice (most modules export
+            // only functions and memory). Supporting them requires mapping
+            // wasmtime Global/Table types to JS wrapper objects with get/set
+            // semantics, which is deferred to a future milestone.
         }
         (funcs, memories)
     };

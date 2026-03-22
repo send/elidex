@@ -1,5 +1,5 @@
 //! CSS box model property handler plugin (display, position, margin, padding,
-//! border, opacity, box-sizing, overflow, background-color, content, gap).
+//! border, opacity, box-sizing, overflow, content, gap).
 
 use elidex_plugin::{
     css_resolve::{
@@ -7,9 +7,10 @@ use elidex_plugin::{
         parse_length_percentage_auto_or_none, parse_non_negative_length_or_percentage,
         resolve_color, resolve_dimension, resolve_to_px,
     },
-    parse_css_keyword as parse_keyword, BorderStyle, BoxSizing, ComputedStyle, ContentItem,
-    ContentValue, CssColor, CssPropertyHandler, CssValue, Dimension, Display, LengthUnit, Overflow,
-    ParseError, Position, PropertyDeclaration, ResolveContext,
+    parse_css_keyword as parse_keyword, BorderStyle, BoxDecorationBreak, BoxSizing,
+    BreakInsideValue, BreakValue, ComputedStyle, ContentItem, ContentValue, CssPropertyHandler,
+    CssValue, Dimension, Display, LengthUnit, ListStyleType, Overflow, ParseError, Position,
+    PropertyDeclaration, ResolveContext,
 };
 
 /// CSS box model property handler.
@@ -89,12 +90,28 @@ const BOX_PROPERTIES: &[&str] = &[
     "border-left-color",
     "box-sizing",
     "border-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
     "opacity",
     "overflow",
-    "background-color",
+    "overflow-x",
+    "overflow-y",
     "content",
     "row-gap",
     "column-gap",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "z-index",
+    "break-before",
+    "break-after",
+    "break-inside",
+    "box-decoration-break",
+    "orphans",
+    "widows",
 ];
 
 impl CssPropertyHandler for BoxHandler {
@@ -111,7 +128,7 @@ impl CssPropertyHandler for BoxHandler {
             "display" => parse_keyword(input, DISPLAY_KEYWORDS)?,
             "position" => parse_keyword(input, POSITION_KEYWORDS)?,
             "box-sizing" => parse_keyword(input, BOX_SIZING_KEYWORDS)?,
-            "overflow" => parse_keyword(input, OVERFLOW_KEYWORDS)?,
+            "overflow-x" | "overflow-y" => parse_keyword(input, OVERFLOW_KEYWORDS)?,
 
             "border-top-style"
             | "border-right-style"
@@ -139,12 +156,35 @@ impl CssPropertyHandler for BoxHandler {
             "border-top-color"
             | "border-right-color"
             | "border-bottom-color"
-            | "border-left-color"
-            | "background-color" => elidex_css::parse_color_with_currentcolor(input)?,
+            | "border-left-color" => elidex_css::parse_color_with_currentcolor(input)?,
 
             "opacity" => parse_opacity(input)?,
             "content" => parse_content(input)?,
 
+            "break-before" | "break-after" => parse_keyword(
+                input,
+                &[
+                    "auto",
+                    "avoid",
+                    "avoid-page",
+                    "avoid-column",
+                    "page",
+                    "column",
+                    "left",
+                    "right",
+                    "recto",
+                    "verso",
+                ],
+            )?,
+            "break-inside" => {
+                parse_keyword(input, &["auto", "avoid", "avoid-page", "avoid-column"])?
+            }
+            "box-decoration-break" => parse_keyword(input, &["slice", "clone"])?,
+            "orphans" | "widows" => parse_positive_integer(input, name)?,
+
+            // "overflow" shorthand is expanded into overflow-x/y by elidex-css
+            // before reaching this handler. It remains in BOX_PROPERTIES for
+            // get_computed() / initial_value() shorthand queries.
             _ => return Ok(vec![]),
         };
         Ok(vec![PropertyDeclaration::new(name, value)])
@@ -168,13 +208,14 @@ impl CssPropertyHandler for BoxHandler {
             "box-sizing" => {
                 elidex_plugin::resolve_keyword!(value, style.box_sizing, BoxSizing);
             }
-            "overflow" => {
+            "overflow-x" => {
                 if let CssValue::Keyword(ref k) = value {
-                    // scroll, auto, clip all map to Hidden
-                    style.overflow = match k.as_str() {
-                        "visible" => Overflow::Visible,
-                        _ => Overflow::Hidden,
-                    };
+                    style.overflow_x = Overflow::from_keyword(k).unwrap_or_default();
+                }
+            }
+            "overflow-y" => {
+                if let CssValue::Keyword(ref k) = value {
+                    style.overflow_y = Overflow::from_keyword(k).unwrap_or_default();
                 }
             }
 
@@ -190,10 +231,10 @@ impl CssPropertyHandler for BoxHandler {
             "margin-bottom" => style.margin_bottom = resolve_dimension(value, ctx),
             "margin-left" => style.margin_left = resolve_dimension(value, ctx),
 
-            "padding-top" => style.padding.top = resolve_to_px(value, ctx).max(0.0),
-            "padding-right" => style.padding.right = resolve_to_px(value, ctx).max(0.0),
-            "padding-bottom" => style.padding.bottom = resolve_to_px(value, ctx).max(0.0),
-            "padding-left" => style.padding.left = resolve_to_px(value, ctx).max(0.0),
+            "padding-top" => style.padding.top = resolve_padding_dimension(value, ctx),
+            "padding-right" => style.padding.right = resolve_padding_dimension(value, ctx),
+            "padding-bottom" => style.padding.bottom = resolve_padding_dimension(value, ctx),
+            "padding-left" => style.padding.left = resolve_padding_dimension(value, ctx),
 
             "border-top-width" => style.border_top.width = resolve_to_px(value, ctx).max(0.0),
             "border-right-width" => style.border_right.width = resolve_to_px(value, ctx).max(0.0),
@@ -236,7 +277,22 @@ impl CssPropertyHandler for BoxHandler {
             "border-bottom-color" => style.border_bottom.color = resolve_color(value, style.color),
             "border-left-color" => style.border_left.color = resolve_color(value, style.color),
 
-            "border-radius" => style.border_radius = resolve_to_px(value, ctx).max(0.0),
+            "border-radius" => {
+                let r = resolve_to_px(value, ctx).max(0.0);
+                style.border_radii = [r; 4];
+            }
+            "border-top-left-radius" => {
+                style.border_radii[0] = resolve_to_px(value, ctx).max(0.0);
+            }
+            "border-top-right-radius" => {
+                style.border_radii[1] = resolve_to_px(value, ctx).max(0.0);
+            }
+            "border-bottom-right-radius" => {
+                style.border_radii[2] = resolve_to_px(value, ctx).max(0.0);
+            }
+            "border-bottom-left-radius" => {
+                style.border_radii[3] = resolve_to_px(value, ctx).max(0.0);
+            }
 
             "opacity" => {
                 if let CssValue::Number(n) = value {
@@ -244,10 +300,55 @@ impl CssPropertyHandler for BoxHandler {
                 }
             }
 
-            "background-color" => style.background_color = resolve_color(value, style.color),
             "content" => resolve_content(value, &mut style.content),
-            "row-gap" => style.row_gap = resolve_to_px(value, ctx).max(0.0),
-            "column-gap" => style.column_gap = resolve_to_px(value, ctx).max(0.0),
+            "row-gap" => style.row_gap = resolve_gap_dimension(value, ctx),
+            "column-gap" => style.column_gap = resolve_gap_dimension(value, ctx),
+
+            "top" => style.top = resolve_dimension(value, ctx),
+            "right" => style.right = resolve_dimension(value, ctx),
+            "bottom" => style.bottom = resolve_dimension(value, ctx),
+            "left" => style.left = resolve_dimension(value, ctx),
+            "z-index" => {
+                style.z_index = if let CssValue::Number(n) = value {
+                    #[allow(clippy::cast_possible_truncation)]
+                    Some(*n as i32)
+                } else {
+                    None
+                };
+            }
+
+            "break-before" => {
+                elidex_plugin::resolve_keyword!(value, style.break_before, BreakValue);
+            }
+            "break-after" => {
+                elidex_plugin::resolve_keyword!(value, style.break_after, BreakValue);
+            }
+            "break-inside" => {
+                elidex_plugin::resolve_keyword!(value, style.break_inside, BreakInsideValue);
+            }
+            "box-decoration-break" => {
+                elidex_plugin::resolve_keyword!(
+                    value,
+                    style.box_decoration_break,
+                    BoxDecorationBreak
+                );
+            }
+            "orphans" => {
+                if let CssValue::Number(n) = value {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    {
+                        style.orphans = (*n as u32).max(1);
+                    }
+                }
+            }
+            "widows" => {
+                if let CssValue::Number(n) = value {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    {
+                        style.widows = (*n as u32).max(1);
+                    }
+                }
+            }
 
             _ => {}
         }
@@ -258,13 +359,26 @@ impl CssPropertyHandler for BoxHandler {
             "display" => CssValue::Keyword("inline".to_string()),
             "position" => CssValue::Keyword("static".to_string()),
 
-            "width" | "height" | "max-width" | "max-height" => CssValue::Auto,
+            "width" | "height" | "max-width" | "max-height" | "top" | "right" | "bottom"
+            | "left" | "z-index" => CssValue::Auto,
 
-            "min-width" | "min-height" | "margin-top" | "margin-right" | "margin-bottom"
-            | "margin-left" | "padding-top" | "padding-right" | "padding-bottom"
-            | "padding-left" | "border-radius" | "row-gap" | "column-gap" => {
-                CssValue::Length(0.0, LengthUnit::Px)
-            }
+            "min-width"
+            | "min-height"
+            | "margin-top"
+            | "margin-right"
+            | "margin-bottom"
+            | "margin-left"
+            | "padding-top"
+            | "padding-right"
+            | "padding-bottom"
+            | "padding-left"
+            | "border-radius"
+            | "border-top-left-radius"
+            | "border-top-right-radius"
+            | "border-bottom-right-radius"
+            | "border-bottom-left-radius"
+            | "row-gap"
+            | "column-gap" => CssValue::Length(0.0, LengthUnit::Px),
 
             "border-top-width"
             | "border-right-width"
@@ -283,23 +397,27 @@ impl CssPropertyHandler for BoxHandler {
 
             "box-sizing" => CssValue::Keyword("content-box".to_string()),
             "opacity" => CssValue::Number(1.0),
-            "overflow" => CssValue::Keyword("visible".to_string()),
-            "background-color" => CssValue::Color(CssColor::TRANSPARENT),
+            "overflow" | "overflow-x" | "overflow-y" => CssValue::Keyword("visible".to_string()),
             "content" => CssValue::Keyword("normal".to_string()),
+
+            "break-before" | "break-after" | "break-inside" => {
+                CssValue::Keyword("auto".to_string())
+            }
+            "box-decoration-break" => CssValue::Keyword("slice".to_string()),
+            "orphans" | "widows" => CssValue::Number(2.0),
 
             _ => CssValue::Initial,
         }
     }
 
-    fn is_inherited(&self, _name: &str) -> bool {
-        false
+    fn is_inherited(&self, name: &str) -> bool {
+        matches!(name, "orphans" | "widows")
     }
 
     fn affects_layout(&self, name: &str) -> bool {
         !matches!(
             name,
             "opacity"
-                | "background-color"
                 | "border-top-color"
                 | "border-right-color"
                 | "border-bottom-color"
@@ -312,7 +430,15 @@ impl CssPropertyHandler for BoxHandler {
             "display" => keyword_from(&style.display),
             "position" => keyword_from(&style.position),
             "box-sizing" => keyword_from(&style.box_sizing),
-            "overflow" => keyword_from(&style.overflow),
+            "overflow" => {
+                if style.overflow_x == style.overflow_y {
+                    keyword_from(&style.overflow_x)
+                } else {
+                    CssValue::Keyword(format!("{} {}", style.overflow_x, style.overflow_y))
+                }
+            }
+            "overflow-x" => keyword_from(&style.overflow_x),
+            "overflow-y" => keyword_from(&style.overflow_y),
 
             "width" => dimension_to_css_value(style.width),
             "height" => dimension_to_css_value(style.height),
@@ -332,10 +458,10 @@ impl CssPropertyHandler for BoxHandler {
             "margin-bottom" => dimension_to_css_value(style.margin_bottom),
             "margin-left" => dimension_to_css_value(style.margin_left),
 
-            "padding-top" => CssValue::Length(style.padding.top, LengthUnit::Px),
-            "padding-right" => CssValue::Length(style.padding.right, LengthUnit::Px),
-            "padding-bottom" => CssValue::Length(style.padding.bottom, LengthUnit::Px),
-            "padding-left" => CssValue::Length(style.padding.left, LengthUnit::Px),
+            "padding-top" => dimension_to_css_value(style.padding.top),
+            "padding-right" => dimension_to_css_value(style.padding.right),
+            "padding-bottom" => dimension_to_css_value(style.padding.bottom),
+            "padding-left" => dimension_to_css_value(style.padding.left),
 
             "border-top-width" => CssValue::Length(style.border_top.width, LengthUnit::Px),
             "border-right-width" => CssValue::Length(style.border_right.width, LengthUnit::Px),
@@ -352,33 +478,39 @@ impl CssPropertyHandler for BoxHandler {
             "border-bottom-color" => CssValue::Color(style.border_bottom.color),
             "border-left-color" => CssValue::Color(style.border_left.color),
 
-            "border-radius" => CssValue::Length(style.border_radius, LengthUnit::Px),
+            "border-radius" => {
+                // Return uniform value if all corners are equal.
+                CssValue::Length(style.border_radii[0], LengthUnit::Px)
+            }
+            "border-top-left-radius" => CssValue::Length(style.border_radii[0], LengthUnit::Px),
+            "border-top-right-radius" => CssValue::Length(style.border_radii[1], LengthUnit::Px),
+            "border-bottom-right-radius" => CssValue::Length(style.border_radii[2], LengthUnit::Px),
+            "border-bottom-left-radius" => CssValue::Length(style.border_radii[3], LengthUnit::Px),
             "opacity" => CssValue::Number(style.opacity),
 
-            "background-color" => CssValue::Color(style.background_color),
+            "content" => computed_content(style),
 
-            "content" => match &style.content {
-                ContentValue::Normal => CssValue::Keyword("normal".to_string()),
-                ContentValue::None => CssValue::Keyword("none".to_string()),
-                ContentValue::Items(items) => {
-                    let mut parts: Vec<CssValue> = items
-                        .iter()
-                        .map(|item| match item {
-                            ContentItem::String(s) => CssValue::String(s.clone()),
-                            ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
-                        })
-                        .collect();
-                    if parts.len() == 1 {
-                        // len checked above; pop cannot fail.
-                        parts.pop().expect("len == 1")
-                    } else {
-                        CssValue::List(parts)
-                    }
-                }
+            "row-gap" => dimension_to_css_value(style.row_gap),
+            "column-gap" => dimension_to_css_value(style.column_gap),
+
+            "top" => dimension_to_css_value(style.top),
+            "right" => dimension_to_css_value(style.right),
+            "bottom" => dimension_to_css_value(style.bottom),
+            "left" => dimension_to_css_value(style.left),
+            #[allow(clippy::cast_precision_loss)]
+            "z-index" => match style.z_index {
+                Some(z) => CssValue::Number(z as f32),
+                None => CssValue::Auto,
             },
 
-            "row-gap" => CssValue::Length(style.row_gap, LengthUnit::Px),
-            "column-gap" => CssValue::Length(style.column_gap, LengthUnit::Px),
+            "break-before" => keyword_from(&style.break_before),
+            "break-after" => keyword_from(&style.break_after),
+            "break-inside" => keyword_from(&style.break_inside),
+            "box-decoration-break" => keyword_from(&style.box_decoration_break),
+            #[allow(clippy::cast_precision_loss)]
+            "orphans" => CssValue::Number(style.orphans as f32),
+            #[allow(clippy::cast_precision_loss)]
+            "widows" => CssValue::Number(style.widows as f32),
 
             _ => CssValue::Initial,
         }
@@ -408,6 +540,26 @@ fn parse_border_width(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue,
 }
 
 /// Parse opacity: a number clamped to 0.0..=1.0.
+fn parse_positive_integer(
+    input: &mut cssparser::Parser<'_, '_>,
+    prop: &str,
+) -> Result<CssValue, ParseError> {
+    let n = input.expect_integer().map_err(|_| ParseError {
+        property: prop.into(),
+        input: String::new(),
+        message: "expected positive integer".into(),
+    })?;
+    if n < 1 {
+        return Err(ParseError {
+            property: prop.into(),
+            input: n.to_string(),
+            message: "value must be >= 1".into(),
+        });
+    }
+    #[allow(clippy::cast_precision_loss)]
+    Ok(CssValue::Number(n as f32))
+}
+
 fn parse_opacity(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let token = input.next().map_err(|_| ParseError {
         property: String::new(),
@@ -500,11 +652,61 @@ fn resolve_border_style_and_zero_width(value: &CssValue, style: &mut BorderStyle
     }
 }
 
+/// Resolve a padding value to a `Dimension`, preserving percentages.
+///
+/// CSS Box Model §4: padding cannot be negative, and `auto` is invalid.
+fn resolve_padding_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
+    match resolve_dimension(value, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO,
+    }
+}
+
+/// Resolve a gap value to a `Dimension`, preserving percentages.
+fn resolve_gap_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
+    match resolve_dimension(value, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO,
+    }
+}
+
 /// Resolve `max-width`/`max-height`: `none` keyword maps to `Auto`.
 fn resolve_max_dimension(value: &CssValue, ctx: &ResolveContext) -> Dimension {
     match value {
         CssValue::Keyword(k) if k == "none" => Dimension::Auto,
         _ => resolve_dimension(value, ctx),
+    }
+}
+
+/// Convert `ComputedStyle.content` to a `CssValue` for `get_computed`.
+fn computed_content(style: &ComputedStyle) -> CssValue {
+    match &style.content {
+        ContentValue::Normal => CssValue::Keyword("normal".to_string()),
+        ContentValue::None => CssValue::Keyword("none".to_string()),
+        ContentValue::Items(items) => {
+            let mut parts: Vec<CssValue> = items
+                .iter()
+                .map(|item| match item {
+                    ContentItem::String(s) => CssValue::String(s.clone()),
+                    ContentItem::Attr(a) => CssValue::Keyword(format!("attr:{a}")),
+                    ContentItem::Counter { name, style } => {
+                        CssValue::Keyword(format!("counter:{name}:{style}"))
+                    }
+                    ContentItem::Counters {
+                        name,
+                        separator,
+                        style,
+                    } => CssValue::Keyword(format!("counters:{name}:{separator}:{style}")),
+                })
+                .collect();
+            if parts.len() == 1 {
+                parts.pop().expect("len == 1")
+            } else {
+                CssValue::List(parts)
+            }
+        }
     }
 }
 
@@ -532,6 +734,12 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
                     CssValue::Keyword(kw) if kw.starts_with("attr:") => kw
                         .strip_prefix("attr:")
                         .map(|attr_name| ContentItem::Attr(attr_name.to_string())),
+                    CssValue::Keyword(kw) if kw.starts_with("counter:") => {
+                        parse_counter_keyword_to_item(kw)
+                    }
+                    CssValue::Keyword(kw) if kw.starts_with("counters:") => {
+                        parse_counters_keyword_to_item(kw)
+                    }
                     _ => None,
                 })
                 .collect();
@@ -541,6 +749,31 @@ fn resolve_content(value: &CssValue, target: &mut ContentValue) {
         }
         _ => {}
     }
+}
+
+/// Parse a `counter:name:style` keyword into a `ContentItem::Counter`.
+fn parse_counter_keyword_to_item(k: &str) -> Option<ContentItem> {
+    let rest = k.strip_prefix("counter:")?;
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counter { name, style })
+}
+
+/// Parse a `counters:name:separator:style` keyword into a `ContentItem::Counters`.
+fn parse_counters_keyword_to_item(k: &str) -> Option<ContentItem> {
+    let rest = k.strip_prefix("counters:")?;
+    let mut parts = rest.splitn(3, ':');
+    let name = parts.next()?.to_string();
+    let separator = parts.next().unwrap_or(".").to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counters {
+        name,
+        separator,
+        style,
+    })
 }
 
 #[cfg(test)]

@@ -175,8 +175,8 @@ mod tests {
         };
         let children = vec![LayoutNode::default(); 3];
         let result = block.layout(&LayoutNode::default(), &children, &constraints, &test_ctx());
-        assert_eq!(result.bounds.width, 500.0);
-        assert_eq!(result.bounds.height, 30.0);
+        assert_eq!(result.bounds.size.width, 500.0);
+        assert_eq!(result.bounds.size.height, 30.0);
 
         assert!(registry.resolve("unknown").is_none());
     }

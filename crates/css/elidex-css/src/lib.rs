@@ -5,12 +5,14 @@
 
 mod color;
 mod declaration;
+pub mod page;
 mod parser;
 mod selector;
 mod values;
 
 pub use color::parse_color;
 pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
+pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
 pub use parser::{parse_stylesheet, parse_stylesheet_with_registry, CssRule, Stylesheet};
 pub use selector::{
     parse_selector_from_str, parse_selector_list, PseudoElement, Selector, SelectorComponent,

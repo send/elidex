@@ -17,6 +17,7 @@ mod box_model;
 mod flex;
 mod font;
 mod grid;
+mod grid_shorthand;
 mod misc;
 
 #[cfg(test)]
@@ -252,7 +253,8 @@ pub(crate) fn parse_property_value(
             box_model::parse_border_width_property(input, name)
         }
 
-        // TODO(Phase 4): `font` shorthand property (CSS Fonts Level 3 §4).
+        // --- Font shorthand ---
+        "font" => font::parse_font_shorthand(input),
 
         // --- Font properties ---
         "font-size" => font::parse_font_size(input),
@@ -266,6 +268,12 @@ pub(crate) fn parse_property_value(
         // --- Box model ---
         "box-sizing" => parse_keyword_property(input, name, &["content-box", "border-box"]),
         "border-radius" => misc::parse_border_radius(input),
+        "border-top-left-radius"
+        | "border-top-right-radius"
+        | "border-bottom-right-radius"
+        | "border-bottom-left-radius" => {
+            parse_value_property(input, name, parse_non_negative_length_or_percentage)
+        }
         "opacity" => misc::parse_opacity(input),
 
         // --- Text alignment ---
@@ -299,6 +307,11 @@ pub(crate) fn parse_property_value(
 
         // --- Overflow ---
         "overflow" => misc::parse_overflow(input),
+        "overflow-x" | "overflow-y" => parse_keyword_property(
+            input,
+            name,
+            &["visible", "hidden", "scroll", "auto", "clip"],
+        ),
 
         // --- Min/max sizing ---
         "min-width" | "min-height" => {
@@ -386,17 +399,26 @@ pub(crate) fn parse_property_value(
 
         // --- Grid container properties ---
         "grid-template-columns" | "grid-template-rows" => grid::parse_grid_template(input, name),
-        "grid-auto-flow" => grid::parse_grid_auto_flow(input),
-        "grid-auto-columns" | "grid-auto-rows" => grid::parse_grid_auto_track(input, name),
+        "grid-template-areas" => grid_shorthand::parse_grid_template_areas(input),
+        "grid-auto-flow" => grid_shorthand::parse_grid_auto_flow(input),
+        "grid-auto-columns" | "grid-auto-rows" => {
+            grid_shorthand::parse_grid_auto_track(input, name)
+        }
 
         // --- Grid item properties ---
         "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
-            grid::parse_grid_line(input, name)
+            grid_shorthand::parse_grid_line(input, name)
         }
 
         // --- Grid shorthands ---
-        "grid-column" | "grid-row" => grid::parse_grid_line_shorthand(input, name),
-        "grid-area" => grid::parse_grid_area(input),
+        "grid-column" | "grid-row" => grid_shorthand::parse_grid_line_shorthand(input, name),
+        "grid-area" => grid_shorthand::parse_grid_area(input),
+        "grid-template" => grid_shorthand::parse_grid_template_shorthand(input),
+        "grid" => grid_shorthand::parse_grid_shorthand(input),
+
+        // --- Multi-column shorthands ---
+        "column-rule" => misc::parse_column_rule_shorthand(input),
+        "columns" => misc::parse_columns_shorthand(input),
 
         // --- Writing mode / BiDi properties ---
         "direction" => parse_keyword_property(input, name, &["ltr", "rtl"]),
@@ -421,6 +443,20 @@ pub(crate) fn parse_property_value(
             parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
         }
 
+        // --- Position offsets ---
+        "top" | "right" | "bottom" | "left" => {
+            if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
+                return single_decl(name, val);
+            }
+            parse_value_property(input, name, parse_length_or_percentage)
+        }
+        "z-index" => {
+            if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
+                return single_decl(name, val);
+            }
+            flex::parse_integer_property(input, name)
+        }
+
         // --- Float/clear/visibility ---
         "float" => parse_keyword_property(input, name, &["none", "left", "right"]),
         "clear" => parse_keyword_property(input, name, &["none", "left", "right", "both"]),
@@ -431,10 +467,16 @@ pub(crate) fn parse_property_value(
         "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
         "border-spacing" => misc::parse_border_spacing(input),
         "table-layout" => parse_keyword_property(input, name, &["auto", "fixed"]),
-        "caption-side" => parse_keyword_property(input, name, &["top", "bottom"]),
+        "caption-side" => {
+            parse_keyword_property(input, name, &["top", "bottom", "block-start", "block-end"])
+        }
 
         // --- Content property ---
         "content" => misc::parse_content(input),
+
+        // --- Counter properties ---
+        "counter-reset" | "counter-set" => misc::parse_counter_list(input, name, 0),
+        "counter-increment" => misc::parse_counter_list(input, name, 1),
 
         // --- Fallback: dispatch to plugin handler registry ---
         _ => {
@@ -626,7 +668,23 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
         ],
         "gap" => vec!["row-gap".to_string(), "column-gap".to_string()],
         "list-style" => vec!["list-style-type".to_string()],
-        "background" => vec!["background-color".to_string()],
+        "font" => vec![
+            "font-style".to_string(),
+            "font-weight".to_string(),
+            "font-size".to_string(),
+            "line-height".to_string(),
+            "font-family".to_string(),
+        ],
+        "background" => vec![
+            "background-color".to_string(),
+            "background-image".to_string(),
+            "background-position".to_string(),
+            "background-size".to_string(),
+            "background-repeat".to_string(),
+            "background-origin".to_string(),
+            "background-clip".to_string(),
+            "background-attachment".to_string(),
+        ],
         "border-spacing" => vec![
             "border-spacing-h".to_string(),
             "border-spacing-v".to_string(),
@@ -642,6 +700,25 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "grid-row-end".to_string(),
             "grid-column-end".to_string(),
         ],
+        "grid-template" => vec![
+            "grid-template-rows".to_string(),
+            "grid-template-columns".to_string(),
+            "grid-template-areas".to_string(),
+        ],
+        "grid" => vec![
+            "grid-template-rows".to_string(),
+            "grid-template-columns".to_string(),
+            "grid-template-areas".to_string(),
+            "grid-auto-flow".to_string(),
+            "grid-auto-rows".to_string(),
+            "grid-auto-columns".to_string(),
+        ],
+        "column-rule" => vec![
+            "column-rule-width".to_string(),
+            "column-rule-style".to_string(),
+            "column-rule-color".to_string(),
+        ],
+        "columns" => vec!["column-width".to_string(), "column-count".to_string()],
         // Longhand properties: single declaration.
         _ => return single_decl(name, val),
     };

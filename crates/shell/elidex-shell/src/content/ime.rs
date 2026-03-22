@@ -79,10 +79,10 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                         .world()
                         .get::<&FormControlState>(target)
                         .ok()
-                        .filter(|fcs| fcs.selection_start != fcs.selection_end)
+                        .filter(|fcs| fcs.selection_start() != fcs.selection_end())
                         .map(|fcs| {
                             let (s, e) = fcs.safe_selection_range();
-                            fcs.value[s..e].to_string()
+                            fcs.value()[s..e].to_string()
                         })
                         .unwrap_or_default();
                     let mut start_event = DispatchEvent::new_composed("compositionstart", target);
@@ -111,7 +111,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 );
 
                 // Re-render to show preedit text visually (P12).
-                crate::re_render(&mut state.pipeline);
+                state.re_render();
                 state.send_display_list();
             }
         }
@@ -130,12 +130,12 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                     .get::<&mut FormControlState>(target)
                 {
                     fcs.composition_text = None;
-                    if fcs.selection_start != fcs.selection_end {
+                    if fcs.selection_start() != fcs.selection_end() {
                         elidex_form::delete_selection(&mut fcs);
                     }
                     // Enforce maxlength on committed text (P13).
                     let insert_text = if let Some(max) = fcs.maxlength {
-                        let available = max.saturating_sub(fcs.char_count);
+                        let available = max.saturating_sub(fcs.char_count());
                         if available == 0 {
                             String::new()
                         } else {
@@ -145,11 +145,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                         text.clone()
                     };
                     if !insert_text.is_empty() {
-                        let pos = fcs.safe_cursor_pos();
-                        fcs.value.insert_str(pos, &insert_text);
-                        fcs.cursor_pos = pos + insert_text.len();
-                        fcs.dirty_value = true;
-                        fcs.update_char_count();
+                        fcs.insert_at_cursor(&insert_text);
                     }
                 }
 
@@ -170,7 +166,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
             }
 
             state.reset_caret_blink();
-            crate::re_render(&mut state.pipeline);
+            state.re_render();
             state.send_display_list();
         }
         ImeKind::Enabled | ImeKind::Disabled => {

@@ -6,7 +6,8 @@
 
 use std::collections::HashMap;
 
-use crate::{CssColor, EdgeSizes};
+use crate::background::BackgroundLayer;
+use crate::{BackfaceVisibility, CssColor, EdgeSizes, TransformFunction, TransformStyle};
 
 /// Define a CSS keyword enum with `Default` (first variant), `AsRef<str>`, and
 /// `fmt::Display` implementations.
@@ -74,20 +75,35 @@ macro_rules! keyword_enum {
 }
 
 mod box_model;
+mod columns;
 mod display;
 mod flex;
 mod float_visibility;
+mod fragmentation;
 mod grid;
+pub mod paged;
 mod table;
 mod text;
 mod writing_mode;
 
 pub use box_model::{BorderSide, BorderStyle, BoxSizing, ContentItem, ContentValue, Dimension};
-pub use display::{Display, Overflow, Position};
-pub use flex::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
+pub use columns::{is_multicol, ColumnFill, ColumnSpan, MulticolInfo};
+pub use display::{Display, Overflow, Position, ViewportOverflow};
+pub use flex::{
+    AlignContent, AlignItems, AlignSelf, AlignmentSafety, FlexBasis, FlexDirection, FlexWrap,
+    JustifyContent,
+};
 pub use float_visibility::{Clear, Float, VerticalAlign, Visibility};
-pub use grid::{GridAutoFlow, GridLine, TrackBreadth, TrackSize};
-pub use table::{BorderCollapse, CaptionSide, TableLayout};
+pub use fragmentation::{BoxDecorationBreak, BreakInsideValue, BreakValue};
+pub use grid::{
+    validate_area_rectangles, AutoRepeatMode, GridAutoFlow, GridLine, GridTemplateAreas,
+    GridTrackList, JustifyItems, JustifySelf, TrackBreadth, TrackSection, TrackSize,
+};
+pub use paged::{
+    selectors_match, MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector,
+    PageSize, PagedMediaContext,
+};
+pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
 pub use text::{
     FontStyle, LineHeight, ListStyleType, TextAlign, TextDecorationLine, TextDecorationStyle,
     TextTransform, WhiteSpace,
@@ -97,11 +113,48 @@ pub use writing_mode::{Direction, TextOrientation, UnicodeBidi, WritingMode};
 #[cfg(test)]
 mod tests;
 
+/// Entry in the `counter-reset` property list (CSS Lists L3 §5.1).
+///
+/// The `reversed` flag indicates a descending counter created by
+/// `counter-reset: reversed(name)` or `<ol reversed>`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CounterResetEntry {
+    /// Counter name.
+    pub name: String,
+    /// Initial value (default 0, or derived from `start` attribute).
+    pub value: i32,
+    /// Whether this is a reversed (descending) counter.
+    pub reversed: bool,
+}
+
+impl CounterResetEntry {
+    /// Create a normal (ascending) counter-reset entry.
+    #[must_use]
+    pub fn new(name: impl Into<String>, value: i32) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            reversed: false,
+        }
+    }
+
+    /// Create a reversed (descending) counter-reset entry.
+    #[must_use]
+    pub fn reversed(name: impl Into<String>, value: i32) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            reversed: true,
+        }
+    }
+}
+
 /// Fully resolved CSS property values for an element.
 ///
 /// Attached as an ECS component by `elidex_style::resolve_styles()`.
 /// All relative units have been resolved to absolute pixel values.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // Stacking context flags are independent CSS conditions.
 pub struct ComputedStyle {
     // --- Inherited properties ---
     /// Foreground color. Initial: black.
@@ -142,9 +195,14 @@ pub struct ComputedStyle {
     pub unicode_bidi: UnicodeBidi,
     /// Background color. Initial: transparent.
     pub background_color: CssColor,
+    /// Background image layers (CSS Backgrounds Level 3).
+    /// `None` = no background images (zero-cost default).
+    pub background_layers: Option<Box<[BackgroundLayer]>>,
 
-    /// Overflow behavior. Initial: Visible.
-    pub overflow: Overflow,
+    /// Overflow behavior on the x-axis. Initial: Visible.
+    pub overflow_x: Overflow,
+    /// Overflow behavior on the y-axis. Initial: Visible.
+    pub overflow_y: Overflow,
 
     /// Content width. Initial: Auto.
     pub width: Dimension,
@@ -168,8 +226,8 @@ pub struct ComputedStyle {
     /// Margin left. Initial: Length(0.0).
     pub margin_left: Dimension,
 
-    /// Padding edges in pixels. Initial: all 0.0.
-    pub padding: EdgeSizes,
+    /// Padding edges (computed value — may contain percentages). Initial: all 0.
+    pub padding: EdgeSizes<Dimension>,
 
     /// Top border. Computed initial: width 0.0 (medium=3px, but 0 when style=none).
     pub border_top: BorderSide,
@@ -199,16 +257,23 @@ pub struct ComputedStyle {
     // --- Box model (non-inherited) ---
     /// Box sizing model. Initial: content-box.
     pub box_sizing: BoxSizing,
-    /// Border radius (uniform, all corners) in pixels. Initial: 0.0.
-    pub border_radius: f32,
+    /// Per-corner border radii in pixels `[top-left, top-right, bottom-right, bottom-left]`.
+    /// Initial: `[0.0; 4]`.
+    pub border_radii: [f32; 4],
     /// Opacity (0.0–1.0). Initial: 1.0.
     pub opacity: f32,
 
     // --- Flex gap properties (non-inherited) ---
-    /// Row gap in pixels. Initial: 0.0.
-    pub row_gap: f32,
-    /// Column gap in pixels. Initial: 0.0.
-    pub column_gap: f32,
+    /// Row gap (computed value — may contain percentages). Initial: 0.
+    pub row_gap: Dimension,
+    /// Column gap (computed value — may contain percentages). Initial: 0.
+    pub column_gap: Dimension,
+
+    // --- Alignment safety (non-inherited) ---
+    /// Justify-content alignment safety. Initial: `Unsafe`.
+    pub justify_content_safety: AlignmentSafety,
+    /// Align-content alignment safety. Initial: `Unsafe`.
+    pub align_content_safety: AlignmentSafety,
 
     // --- Flex container properties (non-inherited) ---
     /// Flex direction. Initial: `Row`.
@@ -228,7 +293,7 @@ pub struct ComputedStyle {
     /// Flex shrink factor. Initial: `1.0`.
     pub flex_shrink: f32,
     /// Flex basis. Initial: `Auto`.
-    pub flex_basis: Dimension,
+    pub flex_basis: FlexBasis,
     /// Order. Initial: `0`.
     pub order: i32,
     /// Align self. Initial: `Auto`.
@@ -236,15 +301,21 @@ pub struct ComputedStyle {
 
     // --- Grid container properties (non-inherited) ---
     /// Grid template column track sizes. Initial: empty (= `none`).
-    pub grid_template_columns: Vec<TrackSize>,
+    pub grid_template_columns: GridTrackList,
     /// Grid template row track sizes. Initial: empty (= `none`).
-    pub grid_template_rows: Vec<TrackSize>,
+    pub grid_template_rows: GridTrackList,
     /// Grid auto-flow direction. Initial: `Row`.
     pub grid_auto_flow: GridAutoFlow,
-    /// Implicit column track size. Initial: `Auto`.
-    pub grid_auto_columns: TrackSize,
-    /// Implicit row track size. Initial: `Auto`.
-    pub grid_auto_rows: TrackSize,
+    /// Implicit column track sizes (cycled for implicit tracks). Initial: `[Auto]`.
+    pub grid_auto_columns: Vec<TrackSize>,
+    /// Implicit row track sizes (cycled for implicit tracks). Initial: `[Auto]`.
+    pub grid_auto_rows: Vec<TrackSize>,
+    /// Grid template areas (CSS Grid §8.2). Initial: `none` (empty).
+    pub grid_template_areas: GridTemplateAreas,
+    /// Justify items for grid children. Initial: `Stretch`.
+    pub justify_items: JustifyItems,
+    /// Justify self for grid items. Initial: `Auto`.
+    pub justify_self: JustifySelf,
 
     // --- Grid item properties (non-inherited) ---
     /// Grid column start line. Initial: `Auto`.
@@ -257,6 +328,8 @@ pub struct ComputedStyle {
     pub grid_row_end: GridLine,
 
     // --- Table properties ---
+    /// Empty cells visibility. Initial: `Show`. **Inherited.**
+    pub empty_cells: EmptyCells,
     /// Border collapse model. Initial: `Separate`. **Inherited.**
     pub border_collapse: BorderCollapse,
     /// Horizontal border spacing in pixels (separate model only). Initial: 0.0. **Inherited.**
@@ -268,6 +341,18 @@ pub struct ComputedStyle {
     /// Caption placement. Initial: `Top`. **Inherited.**
     pub caption_side: CaptionSide,
 
+    // --- Position offsets (non-inherited) ---
+    /// Top offset. Initial: Auto.
+    pub top: Dimension,
+    /// Right offset. Initial: Auto.
+    pub right: Dimension,
+    /// Bottom offset. Initial: Auto.
+    pub bottom: Dimension,
+    /// Left offset. Initial: Auto.
+    pub left: Dimension,
+    /// Stacking order. Initial: `None` (auto).
+    pub z_index: Option<i32>,
+
     // --- Float/clear properties (non-inherited) ---
     /// Float positioning. Initial: `None`.
     pub float: Float,
@@ -276,9 +361,85 @@ pub struct ComputedStyle {
     /// Vertical alignment for inline/table-cell. Initial: `Baseline`.
     pub vertical_align: VerticalAlign,
 
+    // --- Fragmentation properties ---
+    /// Break before the element. Initial: `Auto`.
+    pub break_before: BreakValue,
+    /// Break after the element. Initial: `Auto`.
+    pub break_after: BreakValue,
+    /// Break inside the element. Initial: `Auto`.
+    pub break_inside: BreakInsideValue,
+    /// Box decoration break. Initial: `Slice`.
+    pub box_decoration_break: BoxDecorationBreak,
+    /// Minimum lines at bottom of page/column. Initial: `2`. **Inherited.**
+    pub orphans: u32,
+    /// Minimum lines at top of page/column. Initial: `2`. **Inherited.**
+    pub widows: u32,
+
+    // --- Multi-column properties (non-inherited) ---
+    /// Column count. Initial: `None` (= `auto`).
+    pub column_count: Option<u32>,
+    /// Column width. Initial: `Auto`.
+    pub column_width: Dimension,
+    /// Column fill. Initial: `Balance`.
+    pub column_fill: ColumnFill,
+    /// Column span. Initial: `None`.
+    pub column_span: ColumnSpan,
+    /// Column rule width in pixels. Initial: `3.0` (medium).
+    pub column_rule_width: f32,
+    /// Column rule style. Initial: `None`.
+    pub column_rule_style: BorderStyle,
+    /// Column rule color. Initial: `currentColor`.
+    pub column_rule_color: CssColor,
+
     // --- Generated content (non-inherited) ---
     /// The `content` property. Initial: `Normal`.
     pub content: ContentValue,
+    /// CSS `counter-reset` declarations (CSS Lists L3 §5.1).
+    pub counter_reset: Vec<CounterResetEntry>,
+    /// CSS `counter-increment` declarations: (name, value) pairs.
+    pub counter_increment: Vec<(String, i32)>,
+    /// CSS `counter-set` declarations: (name, value) pairs.
+    pub counter_set: Vec<(String, i32)>,
+
+    // --- Stacking context flags (non-inherited) ---
+    // Set by CSS property handlers when resolved; default = initial value (no stacking context).
+    // Parsing/resolution of these CSS properties is deferred to future milestones.
+    /// `true` when `transform` is not `none` (CSS Transforms L1 §2).
+    pub has_transform: bool,
+    /// `true` when `filter` is not `none` (CSS Filter Effects L1 §2).
+    pub has_filter: bool,
+    /// `true` when `backdrop-filter` is not `none` (CSS Filter Effects L2).
+    pub has_backdrop_filter: bool,
+    /// `true` when `clip-path` is not `none` (CSS Masking L1 §3.1).
+    pub has_clip_path: bool,
+    /// `true` when `mask`/`mask-image` is not `none` (CSS Masking L1 §3.1).
+    pub has_mask: bool,
+    /// `true` when `perspective` is not `none` (CSS Transforms L2 §3.1).
+    pub has_perspective: bool,
+    /// `true` when `will-change` specifies a stacking-context-creating property (CSS Will Change L1 §2.2).
+    pub will_change_stacking: bool,
+    /// `true` when `isolation` is `isolate` (CSS Compositing L1 §3).
+    pub isolation_isolate: bool,
+    /// `true` when `mix-blend-mode` is not `normal` (CSS Compositing L1 §3).
+    pub has_mix_blend: bool,
+    /// `true` when `contain` includes `paint`, `layout`, `strict`, or `content` (CSS Containment L2 §3).
+    pub contain_stacking: bool,
+
+    // --- Transform properties (non-inherited, CSS Transforms L1/L2) ---
+    /// Parsed transform function list. Empty vec = `none`.
+    pub transform: Vec<TransformFunction>,
+    /// Transform origin (x, y, z). Z is always in px. Default: (50%, 50%, 0).
+    pub transform_origin: (Dimension, Dimension, f32),
+    /// CSS `perspective` property value in px. `None` = `none`.
+    pub perspective: Option<f32>,
+    /// Perspective origin (x, y). Default: (50%, 50%).
+    pub perspective_origin: (Dimension, Dimension),
+    /// CSS `transform-style`. Default: `flat`.
+    pub transform_style: TransformStyle,
+    /// CSS `backface-visibility`. Default: `visible`.
+    pub backface_visibility: BackfaceVisibility,
+    /// CSS `will-change` property values. Empty vec = `auto`.
+    pub will_change: Vec<String>,
 
     // --- Custom properties (CSS Variables) ---
     /// Custom property values (e.g. `--bg: #0d1117`).
@@ -289,6 +450,7 @@ pub struct ComputedStyle {
 }
 
 impl Default for ComputedStyle {
+    #[allow(clippy::too_many_lines)] // All CSS initial values need explicit initialization.
     fn default() -> Self {
         let color = CssColor::BLACK;
         Self {
@@ -313,7 +475,9 @@ impl Default for ComputedStyle {
             position: Position::default(),
             unicode_bidi: UnicodeBidi::default(),
             background_color: CssColor::TRANSPARENT,
-            overflow: Overflow::default(),
+            background_layers: None,
+            overflow_x: Overflow::default(),
+            overflow_y: Overflow::default(),
 
             width: Dimension::Auto,
             height: Dimension::Auto,
@@ -327,7 +491,7 @@ impl Default for ComputedStyle {
             margin_bottom: Dimension::ZERO,
             margin_left: Dimension::ZERO,
 
-            padding: EdgeSizes::default(),
+            padding: EdgeSizes::<Dimension>::default(),
 
             // CSS initial value is `medium` (3px), but computed value is 0
             // when border-style is `none` (the default).
@@ -360,12 +524,12 @@ impl Default for ComputedStyle {
 
             // Box model
             box_sizing: BoxSizing::default(),
-            border_radius: 0.0,
+            border_radii: [0.0; 4],
             opacity: 1.0,
 
             // Flex gap
-            row_gap: 0.0,
-            column_gap: 0.0,
+            row_gap: Dimension::ZERO,
+            column_gap: Dimension::ZERO,
 
             // Flex container
             flex_direction: FlexDirection::default(),
@@ -377,16 +541,23 @@ impl Default for ComputedStyle {
             // Flex item
             flex_grow: 0.0,
             flex_shrink: 1.0,
-            flex_basis: Dimension::Auto,
+            flex_basis: FlexBasis::Auto,
             order: 0,
             align_self: AlignSelf::default(),
 
+            // Alignment safety
+            justify_content_safety: AlignmentSafety::default(),
+            align_content_safety: AlignmentSafety::default(),
+
             // Grid container
-            grid_template_columns: Vec::new(),
-            grid_template_rows: Vec::new(),
+            grid_template_columns: GridTrackList::default(),
+            grid_template_rows: GridTrackList::default(),
             grid_auto_flow: GridAutoFlow::default(),
-            grid_auto_columns: TrackSize::Auto,
-            grid_auto_rows: TrackSize::Auto,
+            grid_auto_columns: vec![TrackSize::Auto],
+            grid_auto_rows: vec![TrackSize::Auto],
+            grid_template_areas: GridTemplateAreas::default(),
+            justify_items: JustifyItems::default(),
+            justify_self: JustifySelf::default(),
 
             // Grid item
             grid_column_start: GridLine::Auto,
@@ -395,22 +566,134 @@ impl Default for ComputedStyle {
             grid_row_end: GridLine::Auto,
 
             // Table
+            empty_cells: EmptyCells::default(),
             border_collapse: BorderCollapse::default(),
             border_spacing_h: 0.0,
             border_spacing_v: 0.0,
             table_layout: TableLayout::default(),
             caption_side: CaptionSide::default(),
 
+            // Position offsets
+            top: Dimension::Auto,
+            right: Dimension::Auto,
+            bottom: Dimension::Auto,
+            left: Dimension::Auto,
+            z_index: None,
+
             // Float/clear
             float: Float::default(),
             clear: Clear::default(),
             vertical_align: VerticalAlign::default(),
 
+            // Fragmentation
+            break_before: BreakValue::default(),
+            break_after: BreakValue::default(),
+            break_inside: BreakInsideValue::default(),
+            box_decoration_break: BoxDecorationBreak::default(),
+            orphans: 2,
+            widows: 2,
+
+            // Multi-column
+            column_count: None,
+            column_width: Dimension::Auto,
+            column_fill: ColumnFill::default(),
+            column_span: ColumnSpan::default(),
+            column_rule_width: 3.0,
+            column_rule_style: BorderStyle::None,
+            column_rule_color: color,
+
             // Generated content
             content: ContentValue::Normal,
+            counter_reset: Vec::new(),
+            counter_increment: Vec::new(),
+            counter_set: Vec::new(),
+
+            // Stacking context flags
+            has_transform: false,
+            has_filter: false,
+            has_backdrop_filter: false,
+            has_clip_path: false,
+            has_mask: false,
+            has_perspective: false,
+            will_change_stacking: false,
+            isolation_isolate: false,
+            has_mix_blend: false,
+            contain_stacking: false,
+
+            // Transform properties
+            transform: Vec::new(),
+            transform_origin: (
+                Dimension::Percentage(50.0),
+                Dimension::Percentage(50.0),
+                0.0,
+            ),
+            perspective: None,
+            perspective_origin: (Dimension::Percentage(50.0), Dimension::Percentage(50.0)),
+            transform_style: TransformStyle::default(),
+            backface_visibility: BackfaceVisibility::default(),
+            will_change: Vec::new(),
 
             // Custom properties
             custom_properties: HashMap::new(),
         }
+    }
+}
+
+impl ComputedStyle {
+    /// Returns `true` if this element is a scroll container on either axis.
+    #[must_use]
+    pub fn is_scroll_container(&self) -> bool {
+        self.overflow_x.is_scroll_container() || self.overflow_y.is_scroll_container()
+    }
+
+    /// Returns `true` if overflow is clipped on either axis.
+    #[must_use]
+    pub fn clips_overflow(&self) -> bool {
+        self.overflow_x.clips() || self.overflow_y.clips()
+    }
+
+    /// Returns `true` if this element creates a stacking context.
+    ///
+    /// Full condition list per current CSS specifications:
+    /// - CSS Positioned Layout L3 §3: position absolute/fixed (any z-index)
+    /// - CSS 2.1 §9.9.1: position relative/sticky with z-index != auto
+    /// - CSS Color L4: opacity < 1.0
+    /// - CSS Overflow L3 §3: overflow != visible on either axis
+    /// - CSS Transforms L1 §2: transform != none
+    /// - CSS Filter Effects L1 §2: filter != none
+    /// - CSS Filter Effects L2: backdrop-filter != none
+    /// - CSS Transforms L2 §3.1: perspective != none
+    /// - CSS Will Change L1 §2.2: will-change creates stacking context
+    /// - CSS Compositing L1 §3: isolation: isolate
+    /// - CSS Compositing L1 §3: mix-blend-mode != normal
+    /// - CSS Masking L1 §3.1: clip-path != none
+    /// - CSS Masking L1 §3.1: mask/mask-image != none
+    /// - CSS Containment L2 §3: contain includes paint/layout/strict/content
+    #[must_use]
+    pub fn creates_stacking_context(&self) -> bool {
+        // CSS 2.1 §9.9.1: positioned + z-index: <integer> → stacking context.
+        // positioned + z-index: auto → NOT a stacking context (children bubble up).
+        if self.position != Position::Static && self.z_index.is_some() {
+            return true;
+        }
+        // Visual effects
+        if self.opacity < 1.0 {
+            return true;
+        }
+        // Overflow
+        if self.overflow_x != Overflow::Visible || self.overflow_y != Overflow::Visible {
+            return true;
+        }
+        // Transform, filter, masking, compositing, containment
+        self.has_transform
+            || self.has_filter
+            || self.has_backdrop_filter
+            || self.has_clip_path
+            || self.has_mask
+            || self.has_perspective
+            || self.will_change_stacking
+            || self.isolation_isolate
+            || self.has_mix_blend
+            || self.contain_stacking
     }
 }

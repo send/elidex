@@ -24,20 +24,17 @@ impl App {
             let Some(interactive) = &mut self.interactive else {
                 return;
             };
-            let Some((cx, cy)) = interactive.cursor_pos else {
+            let Some(cursor) = interactive.cursor_pos else {
                 return;
             };
-            #[allow(clippy::cast_possible_truncation)]
-            let x = cx as f32;
-            // Offset Y by chrome bar height so hit testing is relative to content.
-            #[allow(clippy::cast_possible_truncation)]
-            let y = (cy as f32) - crate::chrome::CHROME_HEIGHT;
-            if y < 0.0 {
+            let content_pos =
+                cursor.to_f32() - elidex_plugin::Vector::y_only(crate::chrome::CHROME_HEIGHT);
+            if content_pos.y < 0.0 {
                 return; // Click is within the chrome bar.
             }
 
             let pipeline = &mut interactive.pipeline;
-            let Some(hit) = elidex_layout::hit_test(&pipeline.dom, x, y) else {
+            let Some(hit) = elidex_layout::hit_test(&pipeline.dom, content_pos) else {
                 return;
             };
             let hit_entity = hit.entity;
@@ -59,8 +56,8 @@ impl App {
 
             let mods = interactive.modifiers.state();
             let mouse_init = MouseEventInit {
-                client_x: cx,
-                client_y: cy,
+                client_x: cursor.x,
+                client_y: cursor.y,
                 button: i16::from(button_num),
                 alt_key: mods.alt_key(),
                 ctrl_key: mods.control_key(),

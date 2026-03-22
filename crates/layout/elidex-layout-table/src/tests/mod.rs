@@ -3,16 +3,25 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
-    BorderCollapse, BorderStyle, ComputedStyle, Dimension, Display, LayoutBox, TableLayout,
-    TextAlign,
+    BorderCollapse, BorderStyle, ComputedStyle, CssSize, Dimension, Display, LayoutBox, Point,
+    TableLayout, TextAlign,
 };
 use elidex_text::FontDatabase;
 
 use crate::{algo, layout_table, CellInfo};
 
+mod anon_wrapping;
+mod border_collapse;
 mod box_model;
+mod col_span;
+mod fragmentation;
+mod height_sizing;
+mod inline_table;
+mod rowspan;
 mod sizing;
 mod structure;
+mod vertical_align;
+mod writing_mode;
 
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 1.0
@@ -31,7 +40,7 @@ fn test_layout_child(
     dom: &mut EcsDom,
     entity: elidex_ecs::Entity,
     input: &LayoutInput<'_>,
-) -> LayoutBox {
+) -> elidex_layout_block::LayoutOutcome {
     elidex_layout_block::block::layout_block_inner(dom, entity, input, test_layout_child)
 }
 
@@ -42,21 +51,28 @@ fn do_layout_table(
     entity: elidex_ecs::Entity,
     containing_width: f32,
     containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height,
-        offset_x,
-        offset_y,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
+        containing_inline_size: containing_width,
+        offset,
         font_db,
         depth,
+        float_ctx: None,
+        viewport: None,
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
     };
-    layout_table(dom, entity, &input, layout_child)
+    layout_table(dom, entity, &input, layout_child).layout_box
 }
 
 /// Helper: create a simple table with N rows and M cols.

@@ -29,11 +29,6 @@ pub(super) fn set_focus(state: &mut ContentState, entity: Entity) {
 
     let old_focus = state.focus_target;
 
-    // N6: Dispatch "change" on text input blur if value changed since focus.
-    if let Some(old) = old_focus {
-        dispatch_change_on_blur(state, old);
-    }
-
     // UI Events §5.2.1 order: focusout → focusin → blur → focus.
     // Per UI Events §5.2: relatedTarget is the element gaining/losing focus.
     if let Some(old) = old_focus {
@@ -48,6 +43,8 @@ pub(super) fn set_focus(state: &mut ContentState, entity: Entity) {
                 s.remove(DomElementState::FOCUS);
             });
             dispatch_focus_event_with_related(state, "blur", old, false, Some(entity));
+            // HTML §4.10.5.4: "change" fires during unfocusing steps (after blur).
+            dispatch_change_on_blur(state, old);
         }
     }
     update_element_state(&mut state.pipeline.dom, entity, |s| {
@@ -64,7 +61,7 @@ pub(super) fn set_focus(state: &mut ContentState, entity: Entity) {
         .get::<&FormControlState>(entity)
         .ok()
         .filter(|fcs| fcs.kind.is_text_control())
-        .map(|fcs| fcs.value.clone());
+        .map(|fcs| fcs.value().to_string());
 }
 
 /// Remove focus from the current target without setting a new one.
@@ -72,13 +69,14 @@ pub(super) fn blur_current(state: &mut ContentState) {
     let Some(old) = state.focus_target.take() else {
         return;
     };
-    dispatch_change_on_blur(state, old);
     if state.pipeline.dom.contains(old) {
         dispatch_focus_event_with_related(state, "focusout", old, true, None);
         update_element_state(&mut state.pipeline.dom, old, |s| {
             s.remove(DomElementState::FOCUS);
         });
         dispatch_focus_event_with_related(state, "blur", old, false, None);
+        // HTML §4.10.5.4: "change" fires during unfocusing steps (after blur).
+        dispatch_change_on_blur(state, old);
     }
     state.focus_initial_value = None;
 }
@@ -119,7 +117,7 @@ fn dispatch_change_on_blur(state: &mut ContentState, entity: Entity) {
         .world()
         .get::<&FormControlState>(entity)
         .ok()
-        .is_some_and(|fcs| fcs.value != *initial);
+        .is_some_and(|fcs| fcs.value() != *initial);
     if changed {
         // "change" event does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);

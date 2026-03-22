@@ -6,10 +6,14 @@
 use std::fmt;
 use std::sync::Arc;
 
+use std::collections::HashMap;
+
 use elidex_css::{Origin, Stylesheet};
 use elidex_dom_compat::parse_compat_stylesheet;
-use elidex_ecs::{EcsDom, Entity, ImageData};
+use elidex_ecs::{BackgroundImages, EcsDom, Entity, ImageData};
 use elidex_net::{FetchHandle, NetError};
+use elidex_plugin::background::BackgroundImage;
+use elidex_plugin::ComputedStyle;
 
 use crate::resource::{
     extract_image_sources, extract_script_sources, extract_style_sources, ScriptSource, StyleSource,
@@ -218,8 +222,7 @@ pub fn load_document(
 /// Resolve a potentially relative URL against a base and fetch the response.
 ///
 /// Shared by [`resolve_and_fetch_binary`] and [`resolve_and_fetch_text`].
-// TODO: `data:` URIs are not supported — `send_blocking` only handles HTTP/HTTPS.
-// Add `NetClient::load()` path for data/file scheme support.
+/// Supports `http:`, `https:`, and `data:` schemes.
 fn resolve_and_fetch(
     base: &url::Url,
     href: &str,
@@ -228,6 +231,16 @@ fn resolve_and_fetch(
     let resolved = base
         .join(href)
         .map_err(|e| LoadError::InvalidUrl(format!("{href}: {e}")))?;
+    if resolved.scheme() == "data" {
+        let parsed = elidex_net::data_url::parse_data_url(&resolved)?;
+        return Ok(elidex_net::Response {
+            status: 200,
+            headers: Vec::new(),
+            body: parsed.body,
+            url: resolved,
+            version: elidex_net::HttpVersion::H1,
+        });
+    }
     let response = fetch_handle.send_blocking(make_get_request(resolved))?;
     if !(200..300).contains(&response.status) {
         tracing::warn!("HTTP {}: {}", response.status, response.url);
@@ -272,6 +285,84 @@ fn resolve_and_fetch_text(
         );
     }
     Ok(String::from_utf8_lossy(&response.body).into_owned())
+}
+
+/// Fetch a single image URL, using a cache to avoid duplicate requests.
+///
+/// Returns `Some(ImageData)` on success, `None` on failure (logged).
+fn fetch_and_cache<S: std::hash::BuildHasher>(
+    url_str: &str,
+    base: &url::Url,
+    fetch_handle: &FetchHandle,
+    cache: &mut HashMap<String, Arc<ImageData>, S>,
+) -> Option<Arc<ImageData>> {
+    if let Some(cached) = cache.get(url_str) {
+        return Some(Arc::clone(cached));
+    }
+    match resolve_and_fetch_binary(base, url_str, fetch_handle) {
+        Ok(data) => match decode_image(&data) {
+            Ok(image_data) => {
+                let arc = Arc::new(image_data);
+                cache.insert(url_str.to_string(), Arc::clone(&arc));
+                Some(arc)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to decode background image {url_str}: {e}");
+                None
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Failed to fetch background image {url_str}: {e}");
+            None
+        }
+    }
+}
+
+/// Fetch and attach background images for all elements with `background_layers`.
+///
+/// Walks all entities with a `ComputedStyle`, checks for URL-based background
+/// layers, fetches/decodes images, and inserts `BackgroundImages` components.
+/// Uses a URL cache to avoid duplicate fetches (shared with `<img>` images).
+pub fn fetch_background_images<S: std::hash::BuildHasher>(
+    dom: &mut EcsDom,
+    base_url: &url::Url,
+    fetch_handle: &FetchHandle,
+    url_cache: &mut std::collections::HashMap<String, Arc<ImageData>, S>,
+) {
+    // Collect entities that need background images.
+    let mut entities_with_bg: Vec<(Entity, Vec<BackgroundImage>)> = Vec::new();
+    {
+        let world = dom.world();
+        for (entity, style) in &mut world.query::<(Entity, &ComputedStyle)>() {
+            if let Some(ref layers) = style.background_layers {
+                let images: Vec<BackgroundImage> = layers.iter().map(|l| l.image.clone()).collect();
+                entities_with_bg.push((entity, images));
+            }
+        }
+    }
+
+    for (entity, images) in entities_with_bg {
+        let has_url = images
+            .iter()
+            .any(|img| matches!(img, BackgroundImage::Url(_)));
+        if !has_url {
+            continue;
+        }
+
+        let layers: Vec<Option<Arc<ImageData>>> = images
+            .iter()
+            .map(|img| match img {
+                BackgroundImage::Url(url_str) => {
+                    fetch_and_cache(url_str, base_url, fetch_handle, url_cache)
+                }
+                _ => None,
+            })
+            .collect();
+
+        let _ = dom
+            .world_mut()
+            .insert_one(entity, BackgroundImages { layers });
+    }
 }
 
 #[cfg(test)]

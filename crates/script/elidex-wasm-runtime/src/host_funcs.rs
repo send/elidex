@@ -180,9 +180,23 @@ fn invoke_handler(
 /// Invoke a DOM handler that returns an entity (`ObjectRef`).
 /// Translates the result back to entity bits as `i64`.
 ///
-/// TODO(Phase 4+): All host functions return 0 on error with no way for Wasm
-/// to distinguish "not found" from "invalid entity" or "UTF-8 error". Consider
-/// an `errno`-style global or multi-value return for richer error reporting.
+/// ## Error reporting limitation
+///
+/// All host functions return 0 on error with no way for Wasm guests to
+/// distinguish "entity not found" from "invalid entity handle" or "UTF-8
+/// decode error". Improving this requires one of:
+///
+/// - **errno-style global**: A Wasm global (e.g. `__elidex_errno`) set by
+///   each host function before returning 0. The guest reads it after each call.
+///   Downside: requires the guest to export a mutable global, adding ABI
+///   complexity.
+///
+/// - **Multi-value return**: Return `(result: i64, error_code: i32)` from
+///   each host function. Clean but requires updating all function signatures
+///   and guest-side call conventions.
+///
+/// Both approaches require coordinated changes to the guest SDK and are
+/// deferred until the elidex Wasm SDK stabilizes.
 fn invoke_entity_handler(
     caller: &mut Caller<'_, HostState>,
     handler_name: &str,

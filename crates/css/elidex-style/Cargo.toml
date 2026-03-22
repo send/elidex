@@ -22,6 +22,9 @@ elidex-css-grid.workspace = true
 elidex-css-table.workspace = true
 elidex-css-float.workspace = true
 elidex-css-anim.workspace = true
+elidex-css-background.workspace = true
+elidex-css-transform.workspace = true
+elidex-css-multicol.workspace = true
 rayon = { workspace = true, optional = true }
 
 [features]

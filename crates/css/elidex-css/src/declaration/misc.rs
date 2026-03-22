@@ -12,21 +12,67 @@ use super::{single_decl, Declaration};
 
 // --- Border radius parsing ---
 
-/// Parse `border-radius` as a non-negative `<length>`.
+/// Parse `border-radius` shorthand into 4 longhand declarations.
 ///
-/// TODO(Phase 4): Support multi-value shorthand (per-corner radii) and
-/// percentage values (CSS Backgrounds and Borders Level 3 §5.3).
-/// Percentages require box dimensions for resolution.
+/// CSS Backgrounds and Borders Level 3 §5.3:
+/// - 1 value: all corners
+/// - 2 values: top-left+bottom-right / top-right+bottom-left
+/// - 3 values: top-left / top-right+bottom-left / bottom-right
+/// - 4 values: top-left / top-right / bottom-right / bottom-left
+///
+/// Percentages are rejected (require box dimensions for resolution).
 /// Negative values are rejected per spec.
 pub(super) fn parse_border_radius(input: &mut Parser) -> Vec<Declaration> {
     input
         .try_parse(|i| -> Result<Vec<Declaration>, ()> {
-            let val = parse_non_negative_length_or_percentage(i)?;
-            // Reject percentages — cannot resolve without box dimensions.
-            if matches!(val, CssValue::Percentage(_)) {
+            let mut values = Vec::with_capacity(4);
+            for _ in 0..4 {
+                match i.try_parse(parse_non_negative_length_or_percentage) {
+                    Ok(val) => {
+                        if matches!(val, CssValue::Percentage(_)) {
+                            return Err(());
+                        }
+                        values.push(val);
+                    }
+                    Err(()) => break,
+                }
+            }
+            if values.is_empty() {
                 return Err(());
             }
-            Ok(single_decl("border-radius", val))
+            // Expand 1-4 values per CSS shorthand rules.
+            let (tl, tr, br, bl) = match values.len() {
+                1 => (
+                    values[0].clone(),
+                    values[0].clone(),
+                    values[0].clone(),
+                    values[0].clone(),
+                ),
+                2 => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[0].clone(),
+                    values[1].clone(),
+                ),
+                3 => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[2].clone(),
+                    values[1].clone(),
+                ),
+                _ => (
+                    values[0].clone(),
+                    values[1].clone(),
+                    values[2].clone(),
+                    values[3].clone(),
+                ),
+            };
+            Ok(vec![
+                Declaration::new("border-top-left-radius", tl),
+                Declaration::new("border-top-right-radius", tr),
+                Declaration::new("border-bottom-right-radius", br),
+                Declaration::new("border-bottom-left-radius", bl),
+            ])
         })
         .unwrap_or_default()
 }
@@ -262,9 +308,6 @@ fn parse_mapped_keyword(
 // --- Text-align ---
 
 /// Parse `text-align` (CSS Text Level 3 §7.1).
-///
-// TODO(Phase 4): `justify` is mapped to `start` because full inter-word
-// justification (CSS Text 3 §7.1) is not yet implemented.
 pub(super) fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
     parse_mapped_keyword(
         input,
@@ -275,7 +318,7 @@ pub(super) fn parse_text_align(input: &mut Parser) -> Vec<Declaration> {
             (&["left"], "left"),
             (&["center"], "center"),
             (&["right"], "right"),
-            (&["justify"], "start"),
+            (&["justify"], "justify"),
         ],
     )
 }
@@ -309,16 +352,43 @@ pub(super) fn parse_gap_shorthand(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Overflow parsing ---
 
-/// Parse `overflow`. Maps `scroll`/`auto` to `hidden` (Phase 3 simplification).
+/// Parse `overflow` shorthand into `overflow-x`/`overflow-y` longhands.
+///
+/// Accepts 1 or 2 values: `overflow: <x> [<y>]`.
+/// If only one value is given, it applies to both axes.
 pub(super) fn parse_overflow(input: &mut Parser) -> Vec<Declaration> {
-    parse_mapped_keyword(
-        input,
-        "overflow",
-        &[
-            (&["visible"], "visible"),
-            (&["hidden", "scroll", "auto", "clip"], "hidden"),
-        ],
-    )
+    const KEYWORDS: &[&str] = &["visible", "hidden", "scroll", "auto", "clip"];
+    let first = input.try_parse(|i| -> Result<String, cssparser::ParseError<'_, ()>> {
+        let tok = i.expect_ident()?;
+        let lower = tok.as_ref().to_ascii_lowercase();
+        if KEYWORDS.contains(&lower.as_str()) {
+            Ok(lower)
+        } else {
+            Err(i.new_custom_error(()))
+        }
+    });
+    let Ok(first) = first else {
+        return vec![];
+    };
+    let second = input
+        .try_parse(|i| -> Result<String, cssparser::ParseError<'_, ()>> {
+            let tok = i.expect_ident()?;
+            let lower = tok.as_ref().to_ascii_lowercase();
+            if KEYWORDS.contains(&lower.as_str()) {
+                Ok(lower)
+            } else {
+                Err(i.new_custom_error(()))
+            }
+        })
+        .ok();
+    let y_decl = Declaration::new(
+        "overflow-y",
+        CssValue::Keyword(second.unwrap_or_else(|| first.clone())),
+    );
+    vec![
+        Declaration::new("overflow-x", CssValue::Keyword(first)),
+        y_decl,
+    ]
 }
 
 // --- Max dimension parsing ---
@@ -377,7 +447,7 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
         return single_decl("content", val);
     }
 
-    // Collect one or more content items: quoted strings or attr() functions.
+    // Collect one or more content items: quoted strings, attr(), counter(), counters().
     let mut items: Vec<CssValue> = Vec::new();
     loop {
         // Try quoted string.
@@ -397,6 +467,46 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
                                     Err(e) => return Err(e.into()),
                                 };
                                 items.push(CssValue::Keyword(format!("attr:{attr_name}")));
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+                        Ok(())
+                    }
+                    Token::Function(ref name) if name.eq_ignore_ascii_case("counter") => {
+                        i.parse_nested_block(
+                            |block| -> Result<(), cssparser::ParseError<'_, ()>> {
+                                let counter_name = block.expect_ident()?.as_ref().to_string();
+                                // Optional list-style-type after comma.
+                                let style = if block.try_parse(Parser::expect_comma).is_ok() {
+                                    block.expect_ident()?.as_ref().to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                items.push(CssValue::Keyword(format!(
+                                    "counter:{counter_name}:{style}"
+                                )));
+                                Ok(())
+                            },
+                        )
+                        .map_err(|_: cssparser::ParseError<'_, ()>| ())?;
+                        Ok(())
+                    }
+                    Token::Function(ref name) if name.eq_ignore_ascii_case("counters") => {
+                        i.parse_nested_block(
+                            |block| -> Result<(), cssparser::ParseError<'_, ()>> {
+                                let counter_name = block.expect_ident()?.as_ref().to_string();
+                                block.expect_comma()?;
+                                let separator = block.expect_string()?.as_ref().to_string();
+                                // Optional list-style-type after comma.
+                                let style = if block.try_parse(Parser::expect_comma).is_ok() {
+                                    block.expect_ident()?.as_ref().to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                items.push(CssValue::Keyword(format!(
+                                    "counters:{counter_name}:{separator}:{style}"
+                                )));
                                 Ok(())
                             },
                         )
@@ -481,12 +591,253 @@ pub(super) fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Background shorthand ---
 
-/// Parse the `background` shorthand, extracting only `background-color`.
+/// Parse the `background` shorthand, extracting `background-color`.
 ///
-/// TODO(Phase 4): Support full `background` shorthand (CSS Backgrounds Level 3 §3.10):
-/// background-image, background-position, background-size, background-repeat,
-/// background-origin, background-clip, background-attachment, and multi-layer values.
-/// For now, try to parse the value as a color and emit `background-color`.
+/// Currently extracts only the color layer from the shorthand (CSS Backgrounds
+/// Level 3 §3.10). Full multi-layer support (background-image, -position, -size,
+/// -repeat, -origin, -clip, -attachment) is not yet implemented — those layers
+/// are silently discarded when the value is parsed as a single color.
 pub(super) fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
     parse_color_property(input, "background-color")
+}
+
+// --- Multi-column shorthands ---
+
+/// Border-style keywords shared by column-rule parsing.
+const BORDER_STYLE_KEYWORDS: &[&str] = &[
+    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+];
+
+/// Parse `column-rule` shorthand: `<width> || <style> || <color>` (CSS Multi-col Level 1 §5).
+///
+/// Each component may appear at most once, in any order.
+pub(super) fn parse_column_rule_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut width = None;
+            let mut style = None;
+            let mut color = None;
+
+            for _ in 0..3 {
+                if width.is_none() {
+                    if let Ok(v) = i.try_parse(parse_border_width_value) {
+                        width = Some(v);
+                        continue;
+                    }
+                }
+                if style.is_none() {
+                    if let Ok(kw) = i.try_parse(|i2| try_parse_keyword(i2, BORDER_STYLE_KEYWORDS)) {
+                        style = Some(CssValue::Keyword(kw));
+                        continue;
+                    }
+                }
+                if color.is_none() {
+                    if let Ok(v) = i.try_parse(parse_color_or_currentcolor) {
+                        color = Some(v);
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            if width.is_none() && style.is_none() && color.is_none() {
+                return Err(());
+            }
+
+            // CSS shorthand: omitted components reset to initial values.
+            let w = width.unwrap_or(CssValue::Length(3.0, LengthUnit::Px)); // medium
+            let s = style.unwrap_or(CssValue::Keyword("none".into()));
+            let c = color.unwrap_or(CssValue::Keyword("currentcolor".into()));
+            Ok(vec![
+                Declaration::new("column-rule-width", w),
+                Declaration::new("column-rule-style", s),
+                Declaration::new("column-rule-color", c),
+            ])
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `columns` shorthand: `<column-width> || <column-count>` (CSS Multi-col Level 1 §3).
+pub(super) fn parse_columns_shorthand(input: &mut Parser) -> Vec<Declaration> {
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut width = None;
+            let mut count = None;
+
+            for _ in 0..2 {
+                // Try count first so bare integers and "auto" map to column-count.
+                if count.is_none() {
+                    if let Ok(v) = i.try_parse(parse_column_count_value) {
+                        count = Some(v);
+                        continue;
+                    }
+                }
+                if width.is_none() {
+                    if let Ok(v) = i.try_parse(parse_column_width_value) {
+                        width = Some(v);
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            if width.is_none() && count.is_none() {
+                return Err(());
+            }
+
+            // CSS shorthand: omitted components reset to initial values.
+            let w = width.unwrap_or(CssValue::Auto);
+            let c = count.unwrap_or(CssValue::Auto);
+            Ok(vec![
+                Declaration::new("column-width", w),
+                Declaration::new("column-count", c),
+            ])
+        })
+        .unwrap_or_default()
+}
+
+/// Parse a border-width value: `thin` | `medium` | `thick` | non-negative length.
+fn parse_border_width_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if let Ok(ident) = input.try_parse(|i| i.expect_ident().map(|s| s.to_ascii_lowercase())) {
+        return match ident.as_str() {
+            "thin" => Ok(CssValue::Length(1.0, LengthUnit::Px)),
+            "medium" => Ok(CssValue::Length(3.0, LengthUnit::Px)),
+            "thick" => Ok(CssValue::Length(5.0, LengthUnit::Px)),
+            _ => Err(()),
+        };
+    }
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        Token::Dimension {
+            value, ref unit, ..
+        } if value >= 0.0 => {
+            let u = crate::values::parse_length_unit(unit)?;
+            Ok(CssValue::Length(value, u))
+        }
+        Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
+}
+
+/// Parse `column-count` value: `auto` | positive integer.
+fn parse_column_count_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    let n = input.expect_integer().map_err(|_| ())?;
+    if n < 1 {
+        return Err(());
+    }
+    #[allow(clippy::cast_precision_loss)]
+    Ok(CssValue::Number(n as f32))
+}
+
+/// Parse `column-width` value: `auto` | non-negative length.
+fn parse_column_width_value(input: &mut Parser) -> Result<CssValue, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return Ok(CssValue::Auto);
+    }
+    let token = input.next().map_err(|_| ())?;
+    match *token {
+        Token::Dimension {
+            value, ref unit, ..
+        } if value >= 0.0 => {
+            let u = crate::values::parse_length_unit(unit)?;
+            Ok(CssValue::Length(value, u))
+        }
+        Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
+        _ => Err(()),
+    }
+}
+
+/// Parse a color value, including `currentcolor` keyword.
+fn parse_color_or_currentcolor(input: &mut Parser) -> Result<CssValue, ()> {
+    if input
+        .try_parse(|i| i.expect_ident_matching("currentcolor"))
+        .is_ok()
+    {
+        return Ok(CssValue::Keyword("currentcolor".to_string()));
+    }
+    let c = crate::color::parse_color(input)?;
+    Ok(CssValue::Color(c))
+}
+
+// --- Counter properties ---
+
+/// Parse `counter-reset`, `counter-increment`, or `counter-set`.
+///
+/// Syntax: `none` | `[<custom-ident> <integer>? | reversed(<custom-ident>) <integer>?]+`
+/// `default_value` is 0 for counter-reset/counter-set, 1 for counter-increment.
+/// Returns a `CssValue::List` with alternating `Keyword(name)` and `Number(value)` entries.
+/// `reversed(name)` is encoded as `Keyword("reversed:name")` per CSS Lists L3 §5.1.
+pub(super) fn parse_counter_list(
+    input: &mut Parser,
+    name: &str,
+    default_value: i32,
+) -> Vec<Declaration> {
+    // `none` produces an empty list.
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return single_decl(name, CssValue::Keyword("none".to_string()));
+    }
+
+    input
+        .try_parse(|i| -> Result<Vec<Declaration>, ()> {
+            let mut items: Vec<CssValue> = Vec::new();
+            // Parse one or more `<custom-ident> <integer>?` or
+            // `reversed(<custom-ident>) <integer>?` entries.
+            loop {
+                // Try `reversed(<custom-ident>)` function syntax.
+                let reversed = i.try_parse(|i2| -> Result<String, ()> {
+                    let name_tok = i2.next().map_err(|_| ())?;
+                    match name_tok {
+                        Token::Function(ref fn_name)
+                            if fn_name.eq_ignore_ascii_case("reversed") =>
+                        {
+                            i2.parse_nested_block(
+                                |block| -> Result<String, cssparser::ParseError<'_, ()>> {
+                                    let ident = block.expect_ident()?;
+                                    Ok(ident.as_ref().to_ascii_lowercase())
+                                },
+                            )
+                            .map_err(|_: cssparser::ParseError<'_, ()>| ())
+                        }
+                        _ => Err(()),
+                    }
+                });
+
+                if let Ok(counter_name) = reversed {
+                    items.push(CssValue::Keyword(format!("reversed:{counter_name}")));
+                    let val = i
+                        .try_parse(|i2| i2.expect_integer().map_err(|_| ()))
+                        .unwrap_or(default_value);
+                    #[allow(clippy::cast_precision_loss)]
+                    items.push(CssValue::Number(val as f32));
+                    continue;
+                }
+
+                // Try plain `<custom-ident>`.
+                let Ok(ident) = i.try_parse(|i2| {
+                    let tok = i2.expect_ident().map_err(|_| ())?;
+                    Ok::<_, ()>(tok.as_ref().to_ascii_lowercase())
+                }) else {
+                    break;
+                };
+                // Reject CSS-wide keywords.
+                if matches!(ident.as_str(), "inherit" | "initial" | "unset" | "revert") {
+                    return Err(());
+                }
+                items.push(CssValue::Keyword(ident));
+                // Optional integer value.
+                let val = i
+                    .try_parse(|i2| i2.expect_integer().map_err(|_| ()))
+                    .unwrap_or(default_value);
+                #[allow(clippy::cast_precision_loss)]
+                items.push(CssValue::Number(val as f32));
+            }
+            if items.is_empty() {
+                return Err(());
+            }
+            Ok(single_decl(name, CssValue::List(items)))
+        })
+        .unwrap_or_default()
 }

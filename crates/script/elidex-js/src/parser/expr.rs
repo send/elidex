@@ -380,7 +380,6 @@ impl Parser<'_> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     // Single match dispatcher over token/AST variants.
     fn parse_infix(&mut self, lhs: NodeId<Expr>, next_bp: Bp) -> NodeId<Expr> {
         let lhs_span = self.exprs.get(lhs).span;

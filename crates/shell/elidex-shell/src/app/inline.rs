@@ -6,6 +6,7 @@ use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 
 use elidex_ecs::ElementState as DomElementState;
+use elidex_plugin::{Point, Vector};
 use elidex_render::DisplayList;
 
 use super::hover;
@@ -26,7 +27,7 @@ impl App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_cursor_move_inline(position.x, position.y);
+                self.handle_cursor_move_inline(Point::new(position.x, position.y));
             }
             WindowEvent::CursorLeft { .. } => {
                 self.handle_cursor_left_inline();
@@ -79,14 +80,13 @@ impl App {
     }
 
     /// Handle `CursorMoved` in legacy inline mode (hover tracking).
-    fn handle_cursor_move_inline(&mut self, px: f64, py: f64) {
+    fn handle_cursor_move_inline(&mut self, client_pos: Point<f64>) {
         let hover_changed = if let Some(interactive) = &mut self.interactive {
-            interactive.cursor_pos = Some((px, py));
+            interactive.cursor_pos = Some(client_pos);
 
-            #[allow(clippy::cast_possible_truncation)]
-            let (x, y) = (px as f32, (py as f32) - crate::chrome::CHROME_HEIGHT);
-            let new_chain = if y >= 0.0 {
-                elidex_layout::hit_test(&interactive.pipeline.dom, x, y)
+            let content_pos = client_pos.to_f32() - Vector::y_only(crate::chrome::CHROME_HEIGHT);
+            let new_chain = if content_pos.y >= 0.0 {
+                elidex_layout::hit_test(&interactive.pipeline.dom, content_pos)
                     .map(|hit| hover::collect_hover_chain(&interactive.pipeline.dom, hit.entity))
                     .unwrap_or_default()
             } else {

@@ -16,7 +16,6 @@ use elidex_plugin::{
     TextOrientation, UnicodeBidi, VerticalAlign, Visibility, WritingMode,
 };
 
-use helpers::resolve_dimension;
 pub(crate) use helpers::PropertyMap;
 
 use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
@@ -28,7 +27,7 @@ use font::{
 use box_model::{
     resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,
     resolve_display, resolve_gap_properties, resolve_overflow, resolve_position,
-    resolve_table_properties,
+    resolve_position_offsets, resolve_table_properties,
 };
 
 use flex::resolve_flex_properties;
@@ -117,6 +116,7 @@ pub(crate) fn build_computed_style(
     // Phase 5: Display, positioning, overflow.
     resolve_display(&mut style, &winners, parent_style);
     resolve_position(&mut style, &winners, parent_style);
+    resolve_position_offsets(&mut style, &winners, parent_style, &elem_ctx);
     resolve_overflow(&mut style, &winners, parent_style);
 
     // Phase 6: Box model — dimensions, margin, padding, border, extras.
@@ -125,8 +125,7 @@ pub(crate) fn build_computed_style(
     resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
 
     // Phase 7: Flex, grid, and gap properties.
-    let dim = |v: &CssValue| resolve_dimension(v, &elem_ctx);
-    resolve_flex_properties(&mut style, &winners, parent_style, dim);
+    resolve_flex_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
     resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
 
@@ -141,6 +140,12 @@ pub(crate) fn build_computed_style(
 
     // Phase 11: Float, clear, visibility, vertical-align.
     resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+
+    // Phase 12: Background layers (CSS Backgrounds Level 3).
+    resolve_background_layers(&winners, &mut style);
+
+    // Phase 13: Transform properties (CSS Transforms L1/L2, will-change).
+    resolve_transform_properties(&mut style, &winners, parent_style, &elem_ctx);
 
     style
 }
@@ -211,25 +216,7 @@ fn resolve_float_visibility_properties(
 /// `display: contents` is excluded — it generates no box, so blockification
 /// does not apply (browsers preserve `contents` when combined with `float`).
 fn blockify_display(display: Display) -> Display {
-    match display {
-        // Inline-level and table-internal values become block.
-        Display::Inline
-        | Display::InlineBlock
-        | Display::TableRow
-        | Display::TableCell
-        | Display::TableRowGroup
-        | Display::TableHeaderGroup
-        | Display::TableFooterGroup
-        | Display::TableColumn
-        | Display::TableColumnGroup
-        | Display::TableCaption => Display::Block,
-        Display::InlineFlex => Display::Flex,
-        Display::InlineGrid => Display::Grid,
-        Display::InlineTable => Display::Table,
-        // Block, Flex, Grid, Table, ListItem, None — already block-level
-        // or special, unchanged.
-        other => other,
-    }
+    display.blockify()
 }
 
 /// Compute the element's line-height in pixels for percentage resolution.
@@ -288,6 +275,137 @@ fn resolve_writing_mode_properties(
         parent_style.text_orientation,
         TextOrientation::from_keyword,
     );
+}
+
+/// Resolve CSS Transforms L1/L2 and will-change properties.
+///
+/// Delegates to `TransformHandler::resolve()` for each of the 7 transform
+/// properties that have cascade winners.
+fn resolve_transform_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    use elidex_plugin::CssPropertyHandler;
+
+    const TRANSFORM_PROPS: &[&str] = &[
+        "transform",
+        "transform-origin",
+        "perspective",
+        "perspective-origin",
+        "transform-style",
+        "backface-visibility",
+        "will-change",
+    ];
+
+    let handler = elidex_css_transform::TransformHandler;
+    for &prop in TRANSFORM_PROPS {
+        if let Some(value) = helpers::get_resolved_winner(prop, winners, parent_style) {
+            handler.resolve(prop, &value, ctx, style);
+        }
+    }
+}
+
+/// Resolve background layer properties from the winning property map.
+///
+/// Reads `background-image`, `background-position`, `background-size`,
+/// `background-repeat`, `background-origin`, `background-clip`, and
+/// `background-attachment` from `winners` and assembles resolved
+/// `BackgroundLayer` values into `style.background_layers`.
+///
+/// If all layers have `background-image: none`, the field is set to `None`
+/// (zero-cost default).
+fn resolve_background_layers(winners: &PropertyMap<'_>, style: &mut ComputedStyle) {
+    use elidex_plugin::background::{BackgroundImage, BackgroundLayer};
+
+    let image_value = winners.get("background-image").copied();
+    let Some(img_val) = image_value else {
+        return;
+    };
+
+    // Build image list
+    let images: Vec<BackgroundImage> = match img_val {
+        CssValue::List(items) => items
+            .iter()
+            .map(elidex_css_background::resolve_bg_image)
+            .collect(),
+        other => vec![elidex_css_background::resolve_bg_image(other)],
+    };
+
+    // If all images are None, no layers needed.
+    if images.iter().all(|i| *i == BackgroundImage::None) {
+        style.background_layers = None;
+        return;
+    }
+
+    // Helper: get per-layer values from a winning property, cycling as needed.
+    let get_list = |prop: &str| -> Vec<&CssValue> {
+        match winners.get(prop).copied() {
+            Some(CssValue::List(items)) => items.iter().collect(),
+            Some(v) => vec![v],
+            None => vec![],
+        }
+    };
+
+    let positions = get_list("background-position");
+    let sizes = get_list("background-size");
+    let repeats = get_list("background-repeat");
+    let origins = get_list("background-origin");
+    let clips = get_list("background-clip");
+    let attachments = get_list("background-attachment");
+
+    let layers: Vec<BackgroundLayer> = images
+        .into_iter()
+        .enumerate()
+        .map(|(i, image)| {
+            let position = positions
+                .get(i % positions.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_position(v)
+                });
+            let size = sizes
+                .get(i % sizes.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_size(v)
+                });
+            let repeat = repeats
+                .get(i % repeats.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_repeat(v)
+                });
+            let origin = origins
+                .get(i % origins.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_box_area_keyword(v)
+                });
+            let clip = clips.get(i % clips.len().max(1)).map_or_else(
+                || elidex_plugin::background::BoxArea::BorderBox,
+                |v| elidex_css_background::resolve_box_area_keyword(v),
+            );
+            let attachment = attachments
+                .get(i % attachments.len().max(1))
+                .map_or_else(Default::default, |v| {
+                    elidex_css_background::resolve_bg_attachment(v)
+                });
+
+            BackgroundLayer {
+                image,
+                position,
+                size,
+                repeat,
+                origin,
+                clip,
+                attachment,
+            }
+        })
+        .collect();
+
+    style.background_layers = if layers.is_empty() {
+        None
+    } else {
+        Some(layers.into_boxed_slice())
+    };
 }
 
 #[cfg(test)]
@@ -396,8 +514,7 @@ mod tests {
         let winners = HashMap::new();
         let parent = ComputedStyle::default();
         let ctx = ResolveContext {
-            viewport_width: 1920.0,
-            viewport_height: 1080.0,
+            viewport: elidex_plugin::Size::new(1920.0, 1080.0),
             em_base: 16.0,
             root_font_size: 16.0,
         };
@@ -446,5 +563,64 @@ mod tests {
             ..base
         };
         assert!((computed_line_height_px(&s3) - 19.2).abs() < 0.01);
+    }
+
+    #[test]
+    fn resolve_transform_from_cascade() {
+        use elidex_plugin::{BackfaceVisibility, TransformFunction};
+
+        let mut winners = HashMap::new();
+        let transform_val = CssValue::TransformList(vec![TransformFunction::Rotate(45.0)]);
+        winners.insert("transform", &transform_val);
+        let backface_val = CssValue::Keyword("hidden".to_string());
+        winners.insert("backface-visibility", &backface_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport: elidex_plugin::Size::new(800.0, 600.0),
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.has_transform);
+        assert_eq!(style.transform.len(), 1);
+        assert!(
+            matches!(style.transform[0], TransformFunction::Rotate(deg) if (deg - 45.0).abs() < f32::EPSILON)
+        );
+        assert_eq!(style.backface_visibility, BackfaceVisibility::Hidden);
+    }
+
+    #[test]
+    fn resolve_perspective_from_cascade() {
+        let mut winners = HashMap::new();
+        let perspective_val = CssValue::Length(800.0, LengthUnit::Px);
+        winners.insert("perspective", &perspective_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport: elidex_plugin::Size::new(800.0, 600.0),
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.has_perspective);
+        assert_eq!(style.perspective, Some(800.0));
+    }
+
+    #[test]
+    fn resolve_will_change_sets_stacking() {
+        let mut winners = HashMap::new();
+        let wc_val = CssValue::List(vec![CssValue::Keyword("transform".to_string())]);
+        winners.insert("will-change", &wc_val);
+
+        let parent = ComputedStyle::default();
+        let ctx = ResolveContext {
+            viewport: elidex_plugin::Size::new(800.0, 600.0),
+            em_base: 16.0,
+            root_font_size: 16.0,
+        };
+        let style = build_computed_style(&winners, &parent, &ctx);
+        assert!(style.will_change_stacking);
+        assert_eq!(style.will_change, vec!["transform".to_string()]);
     }
 }

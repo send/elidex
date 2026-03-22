@@ -103,7 +103,7 @@ fn styled_segments_x_consecutive() {
         dl.0.iter()
             .filter_map(|i| {
                 if let crate::display_list::DisplayItem::Text { glyphs, .. } = i {
-                    glyphs.first().map(|g| g.x)
+                    glyphs.first().map(|g| g.position.x)
                 } else {
                     None
                 }
@@ -169,7 +169,8 @@ fn overflow_hidden_emits_clip() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            overflow: elidex_plugin::Overflow::Hidden,
+            overflow_x: elidex_plugin::Overflow::Hidden,
+            overflow_y: elidex_plugin::Overflow::Hidden,
             background_color: elidex_plugin::CssColor::WHITE,
             ..Default::default()
         },
@@ -195,7 +196,8 @@ fn overflow_visible_no_clip() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
-            overflow: elidex_plugin::Overflow::Visible,
+            overflow_x: elidex_plugin::Overflow::Visible,
+            overflow_y: elidex_plugin::Overflow::Visible,
             background_color: elidex_plugin::CssColor::RED,
             ..Default::default()
         },
@@ -227,7 +229,8 @@ fn nested_overflow_hidden_balanced_clips() {
             entity,
             elidex_plugin::ComputedStyle {
                 display: elidex_plugin::Display::Block,
-                overflow: elidex_plugin::Overflow::Hidden,
+                overflow_x: elidex_plugin::Overflow::Hidden,
+                overflow_y: elidex_plugin::Overflow::Hidden,
                 background_color: elidex_plugin::CssColor::WHITE,
                 ..Default::default()
             },
@@ -360,7 +363,7 @@ fn list_item_square_emits_solid_rect_marker() {
         .0
         .iter()
         .filter(
-            |i| matches!(i, crate::display_list::DisplayItem::SolidRect { rect, .. } if rect.width < 10.0),
+            |i| matches!(i, crate::display_list::DisplayItem::SolidRect { rect, .. } if rect.size.width < 10.0),
         )
         .collect();
     assert!(
@@ -497,6 +500,7 @@ fn list_item_decimal_emits_text_marker() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item", 0)],
             ..Default::default()
         },
     );
@@ -514,6 +518,7 @@ fn list_item_decimal_emits_text_marker() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::ListItem,
             list_style_type: elidex_plugin::ListStyleType::Decimal,
+            counter_increment: vec![("list-item".to_string(), 1)],
             ..Default::default()
         },
     );
@@ -571,6 +576,7 @@ fn list_item_counter_increments() {
         ol,
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
+            counter_reset: vec![elidex_plugin::CounterResetEntry::new("list-item", 0)],
             ..Default::default()
         },
     );
@@ -589,6 +595,7 @@ fn list_item_counter_increments() {
             elidex_plugin::ComputedStyle {
                 display: elidex_plugin::Display::ListItem,
                 list_style_type: elidex_plugin::ListStyleType::Disc,
+                counter_increment: vec![("list-item".to_string(), 1)],
                 ..Default::default()
             },
         );

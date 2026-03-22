@@ -98,6 +98,9 @@ impl JsRuntime {
 
         drop(guard);
 
+        // Drain any events queued during eval (e.g. checkValidity → "invalid").
+        self.drain_queued_events(session, dom, document_entity);
+
         match (result, jobs_result) {
             (Err(err), _) => {
                 let msg = err.to_string();
@@ -143,9 +146,25 @@ impl JsRuntime {
 
     /// Dispatch a DOM event through the propagation path, invoking JS listeners.
     ///
-    /// The bridge is bound for the duration of dispatch, then unbound.
-    /// Returns `true` if `preventDefault()` was called.
+    /// After dispatch completes, drains any queued events (e.g. from
+    /// `checkValidity()`) and dispatches them. Returns `true` if
+    /// `preventDefault()` was called on the original event.
     pub fn dispatch_event(
+        &mut self,
+        event: &mut DispatchEvent,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) -> bool {
+        let prevented = self.dispatch_event_inner(event, session, dom, document_entity);
+        self.drain_queued_events(session, dom, document_entity);
+        prevented
+    }
+
+    /// Internal dispatch without draining the event queue.
+    ///
+    /// Used by `drain_queued_events` to avoid recursion.
+    fn dispatch_event_inner(
         &mut self,
         event: &mut DispatchEvent,
         session: &mut SessionCore,
@@ -272,6 +291,37 @@ impl JsRuntime {
         event.flags.default_prevented
     }
 
+    /// Drain and dispatch all queued events from the session's event queue.
+    ///
+    /// Queued events are dispatched via `dispatch_event_inner` (which does
+    /// not recurse into this method). Iterates up to `MAX_EVENT_DRAIN_ITERATIONS`
+    /// to prevent infinite loops from events that enqueue more events.
+    fn drain_queued_events(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        const MAX_EVENT_DRAIN_ITERATIONS: usize = 16;
+
+        for _ in 0..MAX_EVENT_DRAIN_ITERATIONS {
+            let queued = session.drain_event_queue();
+            if queued.is_empty() {
+                break;
+            }
+            for qe in queued {
+                if !dom.contains(qe.target) {
+                    continue;
+                }
+                let mut event = DispatchEvent::new(&qe.event_type, qe.target);
+                event.cancelable = qe.cancelable;
+                event.payload = qe.payload;
+                // Non-composed by default for form validation events.
+                self.dispatch_event_inner(&mut event, session, dom, document_entity);
+            }
+        }
+    }
+
     /// Returns captured console output.
     pub fn console_output(&self) -> &ConsoleOutput {
         &self.console_output
@@ -313,6 +363,262 @@ impl JsRuntime {
     pub fn next_timer_deadline(&self) -> Option<std::time::Instant> {
         self.timer_queue.borrow().next_deadline()
     }
+
+    /// Deliver mutation records to all `MutationObserver` callbacks.
+    ///
+    /// Feeds session-level `MutationRecord`s to the observer registries,
+    /// then invokes JS callbacks for observers with pending records.
+    pub fn deliver_mutation_records(
+        &mut self,
+        records: &[elidex_script_session::MutationRecord],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        // Feed records to the registry.
+        for record in records {
+            self.bridge.with_mutation_observers(|reg| {
+                reg.notify(record, &|target, ancestor| {
+                    // Walk up the tree from target to check if ancestor is an ancestor.
+                    let mut current = dom.get_parent(target);
+                    while let Some(node) = current {
+                        if node == ancestor {
+                            return true;
+                        }
+                        current = dom.get_parent(node);
+                    }
+                    false
+                });
+            });
+        }
+
+        // Collect observer IDs with pending records.
+        let observer_ids: Vec<u64> = self.bridge.with_mutation_observers(|reg| {
+            reg.observers_with_records()
+                .map(elidex_api_observers::mutation::MutationObserverId::raw)
+                .collect()
+        });
+
+        if observer_ids.is_empty() {
+            return;
+        }
+
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        for observer_id in observer_ids {
+            let mo_id = elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
+            let records = self
+                .bridge
+                .with_mutation_observers(|reg| reg.take_records(mo_id));
+            if records.is_empty() {
+                continue;
+            }
+
+            let Some(callback) = self.bridge.get_observer_callback(observer_id) else {
+                continue;
+            };
+            let observer_obj = self
+                .bridge
+                .get_observer_object(observer_id)
+                .map_or(JsValue::undefined(), JsValue::from);
+
+            let arr = boa_engine::object::builtins::JsArray::new(&mut self.ctx);
+            for record in &records {
+                let obj = crate::globals::observers::mutation_record_to_js(record, &mut self.ctx);
+                let _ = arr.push(obj, &mut self.ctx);
+            }
+
+            if let Err(err) = callback.call(
+                &observer_obj,
+                &[JsValue::from(arr), observer_obj.clone()],
+                &mut self.ctx,
+            ) {
+                eprintln!("[JS MutationObserver Error] {err}");
+            }
+        }
+
+        if let Err(err) = self.ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+    }
+
+    /// Deliver resize observations to all `ResizeObserver` callbacks.
+    ///
+    /// Compares current element sizes against last known sizes and invokes
+    /// callbacks for observers with changed targets.
+    pub fn deliver_resize_observations(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        let observations = self.bridge.with_resize_observers(|reg| {
+            reg.gather_observations(&|entity| {
+                let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+                let bb = lb.border_box();
+                Some((lb.content.size, bb.size))
+            })
+        });
+
+        if observations.is_empty() {
+            return;
+        }
+
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        for (observer_id_typed, entries) in &observations {
+            let observer_id = observer_id_typed.raw();
+            let Some(callback) = self.bridge.get_observer_callback(observer_id) else {
+                continue;
+            };
+            let observer_obj = self
+                .bridge
+                .get_observer_object(observer_id)
+                .map_or(JsValue::undefined(), JsValue::from);
+
+            let arr = boa_engine::object::builtins::JsArray::new(&mut self.ctx);
+            for entry in entries {
+                let obj = resize_entry_to_js(entry, &mut self.ctx);
+                let _ = arr.push(obj, &mut self.ctx);
+            }
+
+            if let Err(err) = callback.call(
+                &observer_obj,
+                &[JsValue::from(arr), observer_obj.clone()],
+                &mut self.ctx,
+            ) {
+                eprintln!("[JS ResizeObserver Error] {err}");
+            }
+        }
+
+        if let Err(err) = self.ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+    }
+
+    /// Deliver intersection observations to all `IntersectionObserver` callbacks.
+    pub fn deliver_intersection_observations(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+        viewport: elidex_plugin::Rect,
+    ) {
+        let observations = self.bridge.with_intersection_observers(|reg| {
+            reg.gather_observations(
+                &|entity| {
+                    let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+                    let bb = lb.border_box();
+                    Some(elidex_plugin::Rect::new(
+                        lb.content.origin.x,
+                        lb.content.origin.y,
+                        bb.size.width,
+                        bb.size.height,
+                    ))
+                },
+                viewport,
+            )
+        });
+
+        if observations.is_empty() {
+            return;
+        }
+
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        for (observer_id_typed, entries) in &observations {
+            let observer_id = observer_id_typed.raw();
+            let Some(callback) = self.bridge.get_observer_callback(observer_id) else {
+                continue;
+            };
+            let observer_obj = self
+                .bridge
+                .get_observer_object(observer_id)
+                .map_or(JsValue::undefined(), JsValue::from);
+
+            let arr = boa_engine::object::builtins::JsArray::new(&mut self.ctx);
+            for entry in entries {
+                let obj = intersection_entry_to_js(entry, &mut self.ctx);
+                let _ = arr.push(obj, &mut self.ctx);
+            }
+
+            if let Err(err) = callback.call(
+                &observer_obj,
+                &[JsValue::from(arr), observer_obj.clone()],
+                &mut self.ctx,
+            ) {
+                eprintln!("[JS IntersectionObserver Error] {err}");
+            }
+        }
+
+        if let Err(err) = self.ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+    }
+}
+
+use boa_engine::object::ObjectInitializer;
+use boa_engine::property::Attribute;
+
+fn resize_entry_to_js(
+    entry: &elidex_api_observers::resize::ResizeObserverEntry,
+    ctx: &mut Context,
+) -> JsValue {
+    let obj = ObjectInitializer::new(ctx)
+        .property(
+            js_string!("target"),
+            JsValue::from(entry.target.to_bits().get() as f64),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("contentBoxWidth"),
+            JsValue::from(f64::from(entry.content_box_size.width)),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("contentBoxHeight"),
+            JsValue::from(f64::from(entry.content_box_size.height)),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("borderBoxWidth"),
+            JsValue::from(f64::from(entry.border_box_size.width)),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("borderBoxHeight"),
+            JsValue::from(f64::from(entry.border_box_size.height)),
+            Attribute::all(),
+        )
+        .build();
+    JsValue::from(obj)
+}
+
+fn intersection_entry_to_js(
+    entry: &elidex_api_observers::intersection::IntersectionObserverEntry,
+    ctx: &mut Context,
+) -> JsValue {
+    let obj = ObjectInitializer::new(ctx)
+        .property(
+            js_string!("target"),
+            JsValue::from(entry.target.to_bits().get() as f64),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("intersectionRatio"),
+            JsValue::from(entry.intersection_ratio),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("isIntersecting"),
+            JsValue::from(entry.is_intersecting),
+            Attribute::all(),
+        )
+        .build();
+    JsValue::from(obj)
 }
 
 impl ScriptEngine for JsRuntime {

@@ -307,6 +307,11 @@ pub struct Keyframe {
     pub offset: f32,
     /// Property declarations at this keyframe.
     pub declarations: Vec<PropertyDeclaration>,
+    /// Per-keyframe timing function (CSS Animations L1 §3.9.1).
+    ///
+    /// If `Some`, this timing function is used for the interval starting at
+    /// this keyframe. If `None`, the animation's overall timing function applies.
+    pub timing_function: Option<TimingFunction>,
 }
 
 /// Parse `@keyframes <name> { ... }` rule body.
@@ -351,7 +356,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         let decl_text = &after_brace[..brace_end];
 
         // Parse declarations (simplified — just property: value pairs)
-        let declarations = parse_keyframe_declarations(decl_text);
+        let (declarations, timing_function) = parse_keyframe_declarations_with_timing(decl_text);
 
         for offset in offsets {
             if keyframes.len() >= MAX_KEYFRAMES {
@@ -360,6 +365,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
             keyframes.push(Keyframe {
                 offset,
                 declarations: declarations.clone(),
+                timing_function: timing_function.clone(),
             });
         }
 
@@ -399,6 +405,10 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
                     earlier.declarations.push(decl);
                 }
             }
+            // Later keyframe's timing function wins if present.
+            if later.timing_function.is_some() {
+                earlier.timing_function = later.timing_function.take();
+            }
             true // Remove `later`
         } else {
             false
@@ -414,6 +424,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
             Keyframe {
                 offset: 0.0,
                 declarations: Vec::new(),
+                timing_function: None,
             },
         );
     }
@@ -421,6 +432,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         keyframes.push(Keyframe {
             offset: 1.0,
             declarations: Vec::new(),
+            timing_function: None,
         });
     }
 
@@ -499,6 +511,31 @@ fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
             }
         })
         .collect()
+}
+
+/// Parse keyframe declarations and extract `animation-timing-function` if present.
+///
+/// Per CSS Animations L1 §3.9.1, `animation-timing-function` declared inside a
+/// keyframe block sets the timing function for the interval starting at that keyframe.
+/// It is removed from the regular declarations list and returned separately.
+fn parse_keyframe_declarations_with_timing(
+    text: &str,
+) -> (Vec<PropertyDeclaration>, Option<TimingFunction>) {
+    let mut decls = parse_keyframe_declarations(text);
+    let timing = decls
+        .iter()
+        .position(|d| d.property == "animation-timing-function")
+        .and_then(|idx| {
+            let decl = decls.remove(idx);
+            let val_str = match &decl.value {
+                CssValue::String(s) | CssValue::RawTokens(s) | CssValue::Keyword(s) => s.as_str(),
+                _ => return None,
+            };
+            let mut pi = cssparser::ParserInput::new(val_str);
+            let mut parser = cssparser::Parser::new(&mut pi);
+            parse_timing_function(&mut parser).ok()
+        });
+    (decls, timing)
 }
 
 fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {

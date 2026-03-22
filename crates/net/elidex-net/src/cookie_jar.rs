@@ -6,6 +6,8 @@
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use psl::Psl;
+
 /// Maximum cookies per domain (Chromium uses 180).
 const MAX_COOKIES_PER_DOMAIN: usize = 180;
 
@@ -204,19 +206,10 @@ impl CookieJar {
     /// Check if storing a cookie from `cookie_domain` for a request to
     /// `request_domain` would be a third-party cookie.
     ///
-    /// # Limitations (M2-1)
-    ///
-    /// This implementation compares domain strings directly, without
-    /// consulting a Public Suffix List (PSL). This means:
-    /// - `sub.example.com` and `example.com` are treated as different sites
-    /// - Country-code TLDs like `example.co.jp` are not correctly scoped
-    ///
-    /// # TODO(M2-7): Full eTLD+1 comparison
-    ///
-    /// Integrate `publicsuffix` crate (or similar) to extract registrable
-    /// domains (eTLD+1) for accurate same-site determination. This is
-    /// required for correct third-party cookie blocking on real-world sites.
-    /// See: <https://publicsuffix.org/>
+    /// Uses the Mozilla Public Suffix List (via the `psl` crate) to extract
+    /// registrable domains (eTLD+1) for accurate same-site determination.
+    /// This prevents Cookie Monster attacks where a cookie set on a public
+    /// suffix (e.g. `co.jp`) would be sent to all sites under that suffix.
     pub fn is_third_party(request_domain: &str, cookie_domain: &str) -> bool {
         !is_same_site(request_domain, cookie_domain)
     }
@@ -294,11 +287,10 @@ fn parse_set_cookie(
         None // session cookie
     };
 
-    // Reject single-label domains (public suffixes like "com", "org", "net").
-    // A proper implementation would use a Public Suffix List, but rejecting
-    // domains with no dots catches the most obvious cases.
-    let bare_domain = domain.strip_prefix('.').unwrap_or(&domain);
-    if !bare_domain.contains('.') {
+    // Reject cookies whose domain is a public suffix (RFC 6265 §5.3 step 5).
+    // This prevents Cookie Monster attacks (e.g. setting a cookie on "co.jp"
+    // that would be sent to all sites under that TLD).
+    if is_public_suffix(&domain) {
         return None;
     }
 
@@ -363,15 +355,48 @@ fn path_matches(request_path: &str, cookie_path: &str) -> bool {
     false
 }
 
-/// Simplified same-site check (M2-1).
+/// Same-site check using the Public Suffix List (eTLD+1 comparison).
 ///
-/// Delegates to [`domain_matches`] — the matching logic is identical
-/// (request domain must be the same as or a subdomain of the cookie domain,
-/// per RFC 6265 §5.1.3 / §5.3 step 6).
-///
-/// See [`CookieJar::is_third_party`] docs for known limitations.
+/// Two domains are considered same-site if they share the same registrable
+/// domain (eTLD+1). For example, `www.example.co.jp` and `api.example.co.jp`
+/// are same-site because both have registrable domain `example.co.jp`.
 fn is_same_site(request_domain: &str, cookie_domain: &str) -> bool {
-    domain_matches(request_domain, cookie_domain)
+    let req = request_domain.to_ascii_lowercase();
+    let cookie = cookie_domain.to_ascii_lowercase();
+
+    // If either domain is a public suffix itself, they can only be same-site
+    // if they are identical.
+    match (registrable_domain(&req), registrable_domain(&cookie)) {
+        (Some(r), Some(c)) => r == c,
+        _ => req == cookie,
+    }
+}
+
+/// Extract the registrable domain (eTLD+1) using the Public Suffix List.
+///
+/// Returns `None` if the domain is itself a public suffix (e.g. "com", "co.jp")
+/// or is not a valid domain.
+fn registrable_domain(domain: &str) -> Option<String> {
+    let bytes = domain.as_bytes();
+    let d = psl::List.domain(bytes)?;
+    Some(std::str::from_utf8(d.as_bytes()).ok()?.to_ascii_lowercase())
+}
+
+/// Check if a domain is a public suffix (e.g. "com", "co.jp", "github.io").
+///
+/// Public suffixes must not be used as cookie domains (RFC 6265 §5.3 step 5).
+fn is_public_suffix(domain: &str) -> bool {
+    let bare = domain.strip_prefix('.').unwrap_or(domain);
+    let bytes = bare.as_bytes();
+    // If psl::List.domain() returns None, the domain is a public suffix.
+    // Also check that the suffix is known (not a wildcard/unknown rule).
+    if psl::List.domain(bytes).is_some() {
+        return false;
+    }
+    // It's a public suffix if the suffix lookup matches the whole domain.
+    psl::List
+        .suffix(bytes)
+        .is_some_and(|s: psl::Suffix<'_>| s.as_bytes() == bytes)
 }
 
 #[cfg(test)]
@@ -530,7 +555,16 @@ mod tests {
     fn is_third_party_check() {
         assert!(!CookieJar::is_third_party("example.com", "example.com"));
         assert!(!CookieJar::is_third_party("www.example.com", "example.com"));
+        assert!(!CookieJar::is_third_party(
+            "api.example.com",
+            "cdn.example.com"
+        ));
         assert!(CookieJar::is_third_party("example.com", "tracker.com"));
+        // Different github.io subdomains are different sites (github.io is a public suffix).
+        assert!(CookieJar::is_third_party(
+            "user1.github.io",
+            "user2.github.io"
+        ));
     }
 
     #[test]
@@ -550,11 +584,52 @@ mod tests {
     }
 
     #[test]
-    fn domain_match_psl_limitation() {
-        // Without a Public Suffix List, domain_matches treats "com" as a
-        // valid cookie domain. A PSL-aware implementation (M2-7) would
-        // reject this because "com" is a public suffix.
-        assert!(domain_matches("example.com", "com"));
+    fn public_suffix_cookie_rejected() {
+        // Cookies set on public suffixes must be rejected (Cookie Monster prevention).
+        assert!(is_public_suffix("com"));
+        assert!(is_public_suffix("co.jp"));
+        assert!(is_public_suffix("github.io"));
+        assert!(!is_public_suffix("example.com"));
+        assert!(!is_public_suffix("example.co.jp"));
+        assert!(!is_public_suffix("user.github.io"));
+
+        // parse_set_cookie rejects public suffix domains.
+        let result = parse_set_cookie("k=v; Domain=co.jp", "example.co.jp", "/");
+        assert!(result.is_none(), "co.jp is a public suffix");
+
+        let result = parse_set_cookie("k=v; Domain=github.io", "user.github.io", "/");
+        assert!(result.is_none(), "github.io is a public suffix");
+    }
+
+    #[test]
+    fn registrable_domain_extraction() {
+        assert_eq!(
+            registrable_domain("www.example.com"),
+            Some("example.com".to_string())
+        );
+        assert_eq!(
+            registrable_domain("sub.example.co.jp"),
+            Some("example.co.jp".to_string())
+        );
+        assert_eq!(
+            registrable_domain("user.github.io"),
+            Some("user.github.io".to_string())
+        );
+        // Public suffixes have no registrable domain.
+        assert_eq!(registrable_domain("com"), None);
+        assert_eq!(registrable_domain("co.jp"), None);
+    }
+
+    #[test]
+    fn same_site_etld1() {
+        // Same registrable domain = same site.
+        assert!(is_same_site("www.example.com", "example.com"));
+        assert!(is_same_site("api.example.com", "cdn.example.com"));
+        assert!(is_same_site("sub.example.co.jp", "example.co.jp"));
+
+        // Different registrable domain = different site.
+        assert!(!is_same_site("example.com", "other.com"));
+        assert!(!is_same_site("user1.github.io", "user2.github.io"));
     }
 
     #[test]
@@ -578,24 +653,26 @@ mod tests {
     }
 
     #[test]
-    fn single_label_domain_rejected() {
-        // Cookies with single-label domains (public suffixes like "com")
-        // should be rejected.
+    fn public_suffix_domain_rejected_in_set_cookie() {
+        // Cookies with public suffix domains should be rejected.
         let result = parse_set_cookie("k=v; Domain=com", "example.com", "/");
-        assert!(
-            result.is_none(),
-            "single-label domain 'com' should be rejected"
-        );
+        assert!(result.is_none(), "TLD 'com' should be rejected");
 
         let result = parse_set_cookie("k=v; Domain=org", "example.org", "/");
-        assert!(
-            result.is_none(),
-            "single-label domain 'org' should be rejected"
-        );
+        assert!(result.is_none(), "TLD 'org' should be rejected");
 
-        // Multi-label domains should still work
+        let result = parse_set_cookie("k=v; Domain=co.uk", "example.co.uk", "/");
+        assert!(result.is_none(), "ccTLD 'co.uk' should be rejected");
+
+        // Registrable domains should still work.
         let result = parse_set_cookie("k=v; Domain=example.com", "example.com", "/");
-        assert!(result.is_some(), "multi-label domain should be accepted");
+        assert!(result.is_some(), "registrable domain should be accepted");
+
+        let result = parse_set_cookie("k=v; Domain=example.co.jp", "example.co.jp", "/");
+        assert!(
+            result.is_some(),
+            "registrable ccTLD domain should be accepted"
+        );
     }
 
     #[test]

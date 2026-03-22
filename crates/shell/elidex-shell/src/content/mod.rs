@@ -9,6 +9,7 @@ pub(crate) mod focus;
 mod form_input;
 mod ime;
 mod navigation;
+mod scroll;
 
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -49,6 +50,8 @@ struct ContentState {
     caret_last_toggle: Instant,
     /// Cached list of focusable entities for Tab navigation (invalidated on DOM changes).
     focusable_cache: Option<Vec<Entity>>,
+    /// Viewport-level scroll state (not attached to a DOM entity).
+    viewport_scroll: elidex_ecs::ScrollState,
 }
 
 impl ContentState {
@@ -107,8 +110,68 @@ impl ContentState {
             caret_visible: true,
             caret_last_toggle: Instant::now(),
             focusable_cache: None,
+            viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
         }
+    }
+
+    /// Sync canvas pixels and `caret_visible` to the pipeline, then re-render.
+    ///
+    /// Canvas `ImageData` sync is deferred to this point (once per frame)
+    /// instead of per-draw-call for efficiency.
+    ///
+    /// After re-render, delivers observer callbacks (`MutationObserver`,
+    /// `ResizeObserver`, `IntersectionObserver`) per WHATWG spec ordering:
+    /// mutations first, then resize, then intersection.
+    ///
+    /// Invalidates `focusable_cache` when mutations affect DOM structure or
+    /// focusability-related attributes (childList, tabindex, disabled, etc.).
+    fn re_render(&mut self) {
+        self.pipeline
+            .runtime
+            .bridge()
+            .sync_dirty_canvases(&mut self.pipeline.dom);
+        self.pipeline.caret_visible = self.caret_visible;
+        // Sync viewport scroll offset to pipeline for display list building.
+        self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+        let mutation_records = crate::re_render(&mut self.pipeline);
+
+        // Invalidate focusable cache when DOM structure or focusability changes.
+        if should_invalidate_focusable_cache(&mutation_records) {
+            self.focusable_cache = None;
+        }
+
+        // Deliver observer callbacks after layout is complete.
+        if !mutation_records.is_empty() {
+            self.pipeline.runtime.deliver_mutation_records(
+                &mutation_records,
+                &mut self.pipeline.session,
+                &mut self.pipeline.dom,
+                self.pipeline.document,
+            );
+        }
+
+        self.pipeline.runtime.deliver_resize_observations(
+            &mut self.pipeline.session,
+            &mut self.pipeline.dom,
+            self.pipeline.document,
+        );
+
+        let viewport = elidex_plugin::Rect::new(
+            0.0,
+            0.0,
+            self.pipeline.viewport.width,
+            self.pipeline.viewport.height,
+        );
+        self.pipeline.runtime.deliver_intersection_observations(
+            &mut self.pipeline.session,
+            &mut self.pipeline.dom,
+            self.pipeline.document,
+            viewport,
+        );
+
+        // Update viewport scroll dimensions after layout completes.
+        scroll::update_viewport_scroll_dimensions(self);
     }
 
     /// Reset caret blink timer (call on key input to keep caret visible).
@@ -186,6 +249,7 @@ fn content_thread_main(
 ) {
     let pipeline = crate::build_pipeline_interactive(html, css);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
+    scroll::update_viewport_scroll_dimensions(&mut state);
     state.send_display_list();
     run_event_loop(&mut state);
 }
@@ -210,6 +274,7 @@ fn content_thread_main_url(
     nav_controller.push(url.clone());
 
     let mut state = ContentState::new(channel, nav_controller, pipeline);
+    scroll::update_viewport_scroll_dimensions(&mut state);
     state.notify_navigation(url);
     run_event_loop(&mut state);
 }
@@ -301,9 +366,7 @@ fn run_event_loop(state: &mut ContentState) {
         }
 
         if needs_render {
-            // JS timers or event handlers may have mutated the DOM.
-            state.focusable_cache = None;
-            crate::re_render(&mut state.pipeline);
+            state.re_render();
             state.send_display_list();
         }
     }
@@ -326,8 +389,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event_handlers::handle_mouse_release(state);
         }
 
-        BrowserToContent::MouseMove { x, y, .. } => {
-            event_handlers::handle_mouse_move(state, x, y);
+        BrowserToContent::MouseMove { point, .. } => {
+            event_handlers::handle_mouse_move(state, point);
         }
 
         BrowserToContent::CursorLeft => {
@@ -354,9 +417,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
 
         BrowserToContent::SetViewport { width, height } => {
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
-                state.pipeline.viewport_width = width;
-                state.pipeline.viewport_height = height;
-                crate::re_render(&mut state.pipeline);
+                state.pipeline.viewport = elidex_plugin::Size::new(width, height);
+                state.re_render();
                 state.send_display_list();
             }
         }
@@ -379,11 +441,38 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             }
         }
 
+        BrowserToContent::MouseWheel { delta, point } => {
+            scroll::handle_wheel(state, delta, point);
+        }
+
         BrowserToContent::Ime { kind } => {
             ime::handle_ime(state, kind);
         }
     }
     true
+}
+
+/// Focusability-relevant attribute names.
+///
+/// Changes to these attributes affect whether an element is focusable or
+/// its position in the sequential focus navigation order (HTML §6.6.3).
+const FOCUSABLE_ATTRIBUTES: &[&str] = &["tabindex", "disabled", "contenteditable", "hidden"];
+
+/// Check whether any mutation record requires invalidating the focusable cache.
+///
+/// Returns `true` for `ChildList` mutations (elements added/removed) and
+/// `Attribute` mutations on focusability-relevant attributes.
+fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationRecord]) -> bool {
+    use elidex_script_session::MutationKind;
+
+    records.iter().any(|r| match r.kind {
+        MutationKind::ChildList => true,
+        MutationKind::Attribute => r
+            .attribute_name
+            .as_deref()
+            .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
+        _ => false,
+    })
 }
 
 #[cfg(test)]

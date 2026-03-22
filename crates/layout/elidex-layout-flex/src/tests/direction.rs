@@ -12,21 +12,20 @@ fn row_basic_layout() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.width - 800.0).abs() < f32::EPSILON);
-    assert!((lb.content.height - 50.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 800.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 50.0).abs() < f32::EPSILON);
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.width - 100.0).abs() < f32::EPSILON);
-    assert!((lb1.content.width - 200.0).abs() < f32::EPSILON);
-    assert!(lb1.content.x > lb0.content.x);
+    assert!((lb0.content.size.width - 100.0).abs() < f32::EPSILON);
+    assert!((lb1.content.size.width - 200.0).abs() < f32::EPSILON);
+    assert!(lb1.content.origin.x > lb0.content.origin.x);
 }
 
 #[test]
@@ -44,18 +43,17 @@ fn column_layout() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.height - 120.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 120.0).abs() < f32::EPSILON);
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
-    assert!(lb1.content.y > lb0.content.y);
+    assert!(lb1.content.origin.y > lb0.content.origin.y);
 }
 
 #[test]
@@ -75,8 +73,7 @@ fn column_reverse_layout() {
         container,
         800.0,
         Some(200.0),
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -86,10 +83,10 @@ fn column_reverse_layout() {
     let lb1 = get_lb(&dom, items[1]);
     // In column-reverse, first item appears below the second.
     assert!(
-        lb0.content.y > lb1.content.y,
+        lb0.content.origin.y > lb1.content.origin.y,
         "column-reverse: item[0] y={} should be below item[1] y={}",
-        lb0.content.y,
-        lb1.content.y,
+        lb0.content.origin.y,
+        lb1.content.origin.y,
     );
 }
 
@@ -109,18 +106,17 @@ fn wrap_splits_lines() {
         container,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 100.0).abs() < f32::EPSILON);
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
-    assert!(lb1.content.y > lb0.content.y);
+    assert!(lb1.content.origin.y > lb0.content.origin.y);
 }
 
 #[test]
@@ -139,23 +135,22 @@ fn wrap_reverse_layout() {
         container,
         300.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 100.0).abs() < f32::EPSILON);
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     // In wrap-reverse, later line appears above earlier line.
     assert!(
-        lb0.content.y > lb1.content.y,
+        lb0.content.origin.y > lb1.content.origin.y,
         "wrap-reverse: line 1 y={} should be above line 0 y={}",
-        lb1.content.y,
-        lb0.content.y,
+        lb1.content.origin.y,
+        lb0.content.origin.y,
     );
 }
 
@@ -178,14 +173,13 @@ fn display_none_skipped() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.height - 50.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 50.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -197,15 +191,14 @@ fn empty_flex_container() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
-    assert!((lb.content.width - 800.0).abs() < f32::EPSILON);
-    assert!((lb.content.height).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 800.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -235,16 +228,15 @@ fn nested_flex_containers() {
         outer,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
-    assert!((outer_lb.content.width - 800.0).abs() < f32::EPSILON);
+    assert!((outer_lb.content.size.width - 800.0).abs() < f32::EPSILON);
 
     let inner_lb = get_lb(&dom, inner);
-    assert!((inner_lb.content.width - 400.0).abs() < 1.0);
+    assert!((inner_lb.content.size.width - 400.0).abs() < 1.0);
 }
 
 #[test]
@@ -272,8 +264,7 @@ fn order_sorting() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -281,6 +272,6 @@ fn order_sorting() {
 
     let lb0 = get_lb(&dom, items[0]); // order=2
     let lb1 = get_lb(&dom, items[1]); // order=1
-    assert!(lb1.content.x < lb0.content.x);
-    assert!((lb1.content.width - 200.0).abs() < f32::EPSILON);
+    assert!(lb1.content.origin.x < lb0.content.origin.x);
+    assert!((lb1.content.size.width - 200.0).abs() < f32::EPSILON);
 }

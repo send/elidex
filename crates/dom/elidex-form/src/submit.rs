@@ -252,14 +252,7 @@ pub fn reset_form(dom: &mut EcsDom, form_entity: Entity) {
     let controls: Vec<Entity> = collect_form_entities(dom, form_entity);
     for entity in controls {
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(entity) {
-            let dv = fcs.default_value.clone();
-            fcs.value = dv;
-            fcs.cursor_pos = fcs.value.len();
-            fcs.dirty_value = false;
-            fcs.checked = fcs.default_checked;
-            fcs.selection_start = 0;
-            fcs.selection_end = 0;
-            fcs.update_char_count();
+            fcs.reset_value();
         }
     }
 }

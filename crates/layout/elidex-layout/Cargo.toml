@@ -19,6 +19,7 @@ elidex-layout-block.workspace = true
 elidex-layout-flex.workspace = true
 elidex-layout-grid.workspace = true
 elidex-layout-table.workspace = true
+elidex-layout-multicol.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

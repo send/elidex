@@ -6,7 +6,7 @@ fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
 }
 
 /// Setup a shadow DOM: root > host > shadow root > shadow child.
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values // Test setup calls dom.append_child() etc. without checking return values
 fn setup_shadow_dom(mode: elidex_ecs::ShadowRootMode) -> (EcsDom, Entity, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
@@ -240,7 +240,7 @@ fn shadow_retarget_to_host() {
 }
 
 #[test]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 fn slotted_element_not_retargeted() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
@@ -302,7 +302,7 @@ fn non_composed_stops_at_shadow_boundary() {
 }
 
 #[test]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 fn nested_shadow_dom_retarget() {
     // Nested shadow: root > host1 > [shadow1] > host2 > [shadow2] > target
     // Listener on root should see host1 as target (retarget through both boundaries).
@@ -344,7 +344,7 @@ fn nested_shadow_dom_retarget() {
 }
 
 #[test]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 fn composed_path_populated() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
@@ -438,7 +438,7 @@ fn composed_path_for_js_empty_outside_dispatch() {
 }
 
 #[test]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 fn composed_path_for_js_filters_closed_shadow() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");

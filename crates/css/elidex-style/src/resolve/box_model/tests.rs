@@ -10,8 +10,7 @@ use crate::resolve::{build_computed_style, ResolveContext};
 
 fn default_ctx() -> ResolveContext {
     ResolveContext {
-        viewport_width: 1920.0,
-        viewport_height: 1080.0,
+        viewport: elidex_plugin::Size::new(1920.0, 1080.0),
         em_base: 16.0,
         root_font_size: 16.0,
     }
@@ -60,7 +59,8 @@ fn overflow_defaults_to_visible() {
     let winners: PropertyMap = HashMap::new();
     let ctx = default_ctx();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.overflow, Overflow::Visible);
+    assert_eq!(style.overflow_x, Overflow::Visible);
+    assert_eq!(style.overflow_y, Overflow::Visible);
 }
 
 // --- Box model ---
@@ -73,7 +73,7 @@ fn build_style_resolves_padding() {
     winners.insert("padding-top", &padding);
     let ctx = default_ctx();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.padding.top, 10.0);
+    assert_eq!(style.padding.top, Dimension::Length(10.0));
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn resolve_border_radius_px() {
     let val = CssValue::Length(8.0, LengthUnit::Px);
     winners.insert("border-radius", &val);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert!((style.border_radius - 8.0).abs() < f32::EPSILON);
+    assert_eq!(style.border_radii, [8.0; 4]);
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn resolve_opacity() {
 fn get_computed_box_model_properties() {
     let style = ComputedStyle {
         box_sizing: BoxSizing::BorderBox,
-        border_radius: 10.0,
+        border_radii: [10.0; 4],
         opacity: 0.75,
         ..ComputedStyle::default()
     };
@@ -175,7 +175,7 @@ fn resolve_row_gap_px() {
     winners.insert("row-gap", &val);
     let parent = ComputedStyle::default();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert!((style.row_gap - 10.0).abs() < f32::EPSILON);
+    assert_eq!(style.row_gap, Dimension::Length(10.0));
 }
 
 #[test]
@@ -186,14 +186,14 @@ fn resolve_column_gap_negative_clamped() {
     winners.insert("column-gap", &val);
     let parent = ComputedStyle::default();
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert!((style.column_gap).abs() < f32::EPSILON);
+    assert_eq!(style.column_gap, Dimension::ZERO);
 }
 
 #[test]
 fn resolve_gap_computed_value() {
     let style = ComputedStyle {
-        row_gap: 8.0,
-        column_gap: 16.0,
+        row_gap: Dimension::Length(8.0),
+        column_gap: Dimension::Length(16.0),
         ..ComputedStyle::default()
     };
     assert_eq!(
@@ -210,8 +210,8 @@ fn resolve_gap_computed_value() {
 fn resolve_gap_inherit_from_parent() {
     let ctx = default_ctx();
     let parent = ComputedStyle {
-        row_gap: 8.0,
-        column_gap: 16.0,
+        row_gap: Dimension::Length(8.0),
+        column_gap: Dimension::Length(16.0),
         ..ComputedStyle::default()
     };
     let mut winners: PropertyMap = HashMap::new();
@@ -219,16 +219,8 @@ fn resolve_gap_inherit_from_parent() {
     winners.insert("row-gap", &inherit_val);
     winners.insert("column-gap", &inherit_val);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert!(
-        (style.row_gap - 8.0).abs() < f32::EPSILON,
-        "expected row-gap=8 from parent, got {}",
-        style.row_gap
-    );
-    assert!(
-        (style.column_gap - 16.0).abs() < f32::EPSILON,
-        "expected column-gap=16 from parent, got {}",
-        style.column_gap
-    );
+    assert_eq!(style.row_gap, Dimension::Length(8.0));
+    assert_eq!(style.column_gap, Dimension::Length(16.0));
 }
 
 // --- Overflow resolution ---
@@ -239,21 +231,81 @@ fn resolve_overflow_keyword() {
     let parent = ComputedStyle::default();
     let mut winners: PropertyMap = HashMap::new();
     let val = CssValue::Keyword("hidden".to_string());
-    winners.insert("overflow", &val);
+    winners.insert("overflow-x", &val);
     let style = build_computed_style(&winners, &parent, &ctx);
-    assert_eq!(style.overflow, Overflow::Hidden);
+    assert_eq!(style.overflow_x, Overflow::Hidden);
 }
 
 #[test]
 fn resolve_overflow_computed_value() {
     let style = ComputedStyle {
-        overflow: Overflow::Hidden,
+        overflow_x: Overflow::Hidden,
+        overflow_y: Overflow::Hidden,
         ..ComputedStyle::default()
     };
     assert_eq!(
         crate::get_computed("overflow", &style),
         CssValue::Keyword("hidden".to_string())
     );
+}
+
+#[test]
+fn resolve_overflow_normalization_visible_to_auto() {
+    // CSS Overflow L3 §3.2: visible + scroll → auto + scroll
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let visible = CssValue::Keyword("visible".to_string());
+    let scroll = CssValue::Keyword("scroll".to_string());
+    winners.insert("overflow-x", &visible);
+    winners.insert("overflow-y", &scroll);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Auto);
+    assert_eq!(style.overflow_y, Overflow::Scroll);
+}
+
+#[test]
+fn resolve_overflow_normalization_clip_to_hidden() {
+    // CSS Overflow L3 §3.2: clip + scroll → hidden + scroll
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let clip = CssValue::Keyword("clip".to_string());
+    let scroll = CssValue::Keyword("scroll".to_string());
+    winners.insert("overflow-x", &clip);
+    winners.insert("overflow-y", &scroll);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Hidden);
+    assert_eq!(style.overflow_y, Overflow::Scroll);
+}
+
+#[test]
+fn resolve_overflow_normalization_both_visible_no_change() {
+    // Both visible → no normalization needed
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let visible = CssValue::Keyword("visible".to_string());
+    winners.insert("overflow-x", &visible);
+    winners.insert("overflow-y", &visible);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Visible);
+    assert_eq!(style.overflow_y, Overflow::Visible);
+}
+
+#[test]
+fn resolve_overflow_normalization_clip_and_visible_no_change() {
+    // clip + visible → both are visible/clip group, no normalization
+    let ctx = default_ctx();
+    let parent = ComputedStyle::default();
+    let mut winners: PropertyMap = HashMap::new();
+    let clip = CssValue::Keyword("clip".to_string());
+    let visible = CssValue::Keyword("visible".to_string());
+    winners.insert("overflow-x", &clip);
+    winners.insert("overflow-y", &visible);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.overflow_x, Overflow::Clip);
+    assert_eq!(style.overflow_y, Overflow::Visible);
 }
 
 // --- min/max width/height ---
@@ -301,6 +353,19 @@ fn resolve_min_height_percentage() {
     winners.insert("min-height", &val);
     let style = build_computed_style(&winners, &parent, &ctx);
     assert_eq!(style.min_height, Dimension::Percentage(25.0));
+}
+
+// --- Padding percentage preserved ---
+
+#[test]
+fn padding_percentage_preserved_in_computed() {
+    let parent = ComputedStyle::default();
+    let ctx = default_ctx();
+    let mut winners: PropertyMap = HashMap::new();
+    let val = CssValue::Percentage(10.0);
+    winners.insert("padding-top", &val);
+    let style = build_computed_style(&winners, &parent, &ctx);
+    assert_eq!(style.padding.top, Dimension::Percentage(10.0));
 }
 
 // --- Display variants ---

@@ -1,0 +1,9 @@
+[profile.default]
+# Fail fast on first failure in local dev
+fail-fast = true
+# Use all available CPUs for test execution
+test-threads = "num-cpus"
+
+[profile.ci]
+# CI: run all tests even if some fail
+fail-fast = false

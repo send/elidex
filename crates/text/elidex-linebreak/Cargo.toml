@@ -12,6 +12,7 @@ keywords = ["browser-engine", "text", "linebreak"]
 categories = ["web-programming"]
 
 [dependencies]
+unicode-linebreak.workspace = true
 
 [lints]
 workspace = true

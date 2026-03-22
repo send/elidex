@@ -100,7 +100,23 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
             }
             Some(dom.create_text(text))
         }
-        // Comment, Doctype, ProcessingInstruction — skip for Phase 1
+        NodeData::Comment { contents } => {
+            let data = contents.to_string();
+            Some(dom.create_comment(data))
+        }
+        NodeData::Doctype {
+            name,
+            public_id,
+            system_id,
+        } => {
+            let entity = dom.create_document_type(
+                name.to_string(),
+                public_id.to_string(),
+                system_id.to_string(),
+            );
+            Some(entity)
+        }
+        // ProcessingInstruction, Document — skip
         _ => None,
     }
 }
@@ -263,16 +279,60 @@ mod tests {
     }
 
     #[test]
-    fn comments_skipped() {
+    fn comments_preserved() {
         let result = parse_html("<div><!-- comment -->text</div>");
         let dom = &result.dom;
         let doc = result.document;
 
         let div = find_tag(dom, doc, "div").expect("div");
         let children = dom.children(div);
-        // Only the text node, no comment
-        assert_eq!(children.len(), 1);
-        assert_eq!(child_text(dom, div), "text");
+        // Comment node + text node
+        assert_eq!(children.len(), 2);
+        // First child is the comment
+        let comment = children[0];
+        let comment_data = dom
+            .world()
+            .get::<&elidex_ecs::CommentData>(comment)
+            .unwrap();
+        assert_eq!(comment_data.0, " comment ");
+        // Second child is text
+        let tc = dom
+            .world()
+            .get::<&elidex_ecs::TextContent>(children[1])
+            .unwrap();
+        assert_eq!(tc.0, "text");
+    }
+
+    #[test]
+    fn doctype_preserved() {
+        let result = parse_html("<!DOCTYPE html><html><body>test</body></html>");
+        let dom = &result.dom;
+        let doc = result.document;
+
+        // First child of document should be the doctype
+        let children = dom.children(doc);
+        let doctype = children
+            .iter()
+            .find(|&&e| dom.node_kind(e) == Some(elidex_ecs::NodeKind::DocumentType))
+            .expect("should have doctype");
+        let dt = dom
+            .world()
+            .get::<&elidex_ecs::DocTypeData>(*doctype)
+            .unwrap();
+        assert_eq!(dt.name, "html");
+    }
+
+    #[test]
+    fn doctype_before_html() {
+        let result = parse_html("<!DOCTYPE html><html><body></body></html>");
+        let dom = &result.dom;
+        let doc = result.document;
+
+        let children = dom.children(doc);
+        // Doctype should come before html element
+        assert!(children.len() >= 2);
+        let first_kind = dom.node_kind(children[0]);
+        assert_eq!(first_kind, Some(elidex_ecs::NodeKind::DocumentType));
     }
 
     #[test]

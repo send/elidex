@@ -10,11 +10,11 @@ fn grid_explicit_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 ..Default::default()
             },
         )
@@ -41,8 +41,7 @@ fn grid_explicit_placement() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -51,8 +50,8 @@ fn grid_explicit_placement() {
     let lb = get_layout(&dom, child);
 
     // Should start at column 1 (x=100) and span 2 columns (width=200).
-    assert!(approx_eq(lb.content.x, 100.0));
-    assert!(approx_eq(lb.content.width, 200.0));
+    assert!(approx_eq(lb.content.origin.x, 100.0));
+    assert!(approx_eq(lb.content.size.width, 200.0));
 }
 
 #[test]
@@ -65,11 +64,11 @@ fn grid_span_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 ..Default::default()
             },
         )
@@ -97,8 +96,7 @@ fn grid_span_placement() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -108,10 +106,10 @@ fn grid_span_placement() {
     let lb2 = get_layout(&dom, c2);
 
     // c1 spans columns 0-1 (200px), c2 goes to column 2 (100px).
-    assert!(approx_eq(lb1.content.width, 200.0));
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb2.content.x, 200.0));
-    assert!(approx_eq(lb2.content.width, 100.0));
+    assert!(approx_eq(lb1.content.size.width, 200.0));
+    assert!(approx_eq(lb1.content.origin.x, 0.0));
+    assert!(approx_eq(lb2.content.origin.x, 200.0));
+    assert!(approx_eq(lb2.content.size.width, 100.0));
 }
 
 #[test]
@@ -124,7 +122,10 @@ fn grid_auto_placement_row() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(100.0), TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -140,8 +141,7 @@ fn grid_auto_placement_row() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -152,12 +152,12 @@ fn grid_auto_placement_row() {
     let lb3 = get_layout(&dom, c3);
 
     // Row 0: c1(0,0) c2(0,1), Row 1: c3(1,0)
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb1.content.y, 0.0));
-    assert!(approx_eq(lb2.content.x, 100.0));
-    assert!(approx_eq(lb2.content.y, 0.0));
-    assert!(approx_eq(lb3.content.x, 0.0));
-    assert!(approx_eq(lb3.content.y, 40.0));
+    assert!(approx_eq(lb1.content.origin.x, 0.0));
+    assert!(approx_eq(lb1.content.origin.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.x, 100.0));
+    assert!(approx_eq(lb2.content.origin.y, 0.0));
+    assert!(approx_eq(lb3.content.origin.x, 0.0));
+    assert!(approx_eq(lb3.content.origin.y, 40.0));
 }
 
 #[test]
@@ -170,8 +170,14 @@ fn grid_auto_placement_column() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(100.0), TrackSize::Length(100.0)],
-                grid_template_rows: vec![TrackSize::Length(40.0), TrackSize::Length(40.0)],
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                ])),
+                grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(40.0),
+                    TrackSize::Length(40.0),
+                ])),
                 grid_auto_flow: GridAutoFlow::Column,
                 ..Default::default()
             },
@@ -188,8 +194,7 @@ fn grid_auto_placement_column() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -200,12 +205,12 @@ fn grid_auto_placement_column() {
     let lb3 = get_layout(&dom, c3);
 
     // Column flow: c1(0,0) c2(1,0) c3(0,1)
-    assert!(approx_eq(lb1.content.x, 0.0));
-    assert!(approx_eq(lb1.content.y, 0.0));
-    assert!(approx_eq(lb2.content.x, 0.0));
-    assert!(approx_eq(lb2.content.y, 40.0));
-    assert!(approx_eq(lb3.content.x, 100.0));
-    assert!(approx_eq(lb3.content.y, 0.0));
+    assert!(approx_eq(lb1.content.origin.x, 0.0));
+    assert!(approx_eq(lb1.content.origin.y, 0.0));
+    assert!(approx_eq(lb2.content.origin.x, 0.0));
+    assert!(approx_eq(lb2.content.origin.y, 40.0));
+    assert!(approx_eq(lb3.content.origin.x, 100.0));
+    assert!(approx_eq(lb3.content.origin.y, 0.0));
 }
 
 #[test]
@@ -218,11 +223,11 @@ fn grid_dense_placement() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 grid_auto_flow: GridAutoFlow::RowDense,
                 ..Default::default()
             },
@@ -268,8 +273,7 @@ fn grid_dense_placement() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -278,8 +282,8 @@ fn grid_dense_placement() {
     let lb3 = get_layout(&dom, c3);
 
     // Dense placement: c3 should be placed at (0,2) to fill the gap.
-    assert!(approx_eq(lb3.content.x, 200.0));
-    assert!(approx_eq(lb3.content.y, 0.0));
+    assert!(approx_eq(lb3.content.origin.x, 200.0));
+    assert!(approx_eq(lb3.content.origin.y, 0.0));
 }
 
 #[test]
@@ -292,11 +296,11 @@ fn grid_order_property() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 ..Default::default()
             },
         )
@@ -351,8 +355,7 @@ fn grid_order_property() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -363,9 +366,9 @@ fn grid_order_property() {
     let lb3 = get_layout(&dom, c3);
 
     // order: c2(1) -> col 0, c3(2) -> col 1, c1(3) -> col 2.
-    assert!(approx_eq(lb2.content.x, 0.0));
-    assert!(approx_eq(lb3.content.x, 100.0));
-    assert!(approx_eq(lb1.content.x, 200.0));
+    assert!(approx_eq(lb2.content.origin.x, 0.0));
+    assert!(approx_eq(lb3.content.origin.x, 100.0));
+    assert!(approx_eq(lb1.content.origin.x, 200.0));
 }
 
 #[test]
@@ -379,11 +382,11 @@ fn grid_negative_line_number() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 ..Default::default()
             },
         )
@@ -410,8 +413,7 @@ fn grid_negative_line_number() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -424,7 +426,7 @@ fn grid_negative_line_number() {
     // With the current algorithm: resolve_line(-1, 3) = 3 + (-1) + 1 = 3.
     // An item starting at index 3 spans 1 implicit column.
     // The explicit columns occupy x=0..300. Item starts at x=300.
-    assert!(approx_eq(lb.content.x, 300.0));
+    assert!(approx_eq(lb.content.origin.x, 300.0));
 }
 
 #[test]
@@ -437,11 +439,11 @@ fn grid_negative_line_start_end() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
                     TrackSize::Length(100.0),
-                ],
+                ])),
                 ..Default::default()
             },
         )
@@ -468,8 +470,7 @@ fn grid_negative_line_start_end() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -480,8 +481,8 @@ fn grid_negative_line_start_end() {
     // -3 with 3 explicit cols: 3 + (-3) + 1 = 1 (0-based index 1)
     // -1 with 3 explicit cols: 3 + (-1) + 1 = 3 (0-based index 3)
     // Span = 3 - 1 = 2 columns -> width = 200px, starts at x=100.
-    assert!(approx_eq(lb.content.x, 100.0));
-    assert!(approx_eq(lb.content.width, 200.0));
+    assert!(approx_eq(lb.content.origin.x, 100.0));
+    assert!(approx_eq(lb.content.size.width, 200.0));
 }
 
 #[test]
@@ -495,7 +496,9 @@ fn grid_extreme_line_number_capped() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -522,8 +525,7 @@ fn grid_extreme_line_number_capped() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -531,14 +533,14 @@ fn grid_extreme_line_number_capped() {
 
     // Container should still produce a valid LayoutBox with finite dimensions.
     assert!(
-        lb.content.height.is_finite() && lb.content.height >= 0.0,
+        lb.content.size.height.is_finite() && lb.content.size.height >= 0.0,
         "extreme line: height={} should be finite non-negative",
-        lb.content.height
+        lb.content.size.height
     );
     assert!(
-        approx_eq(lb.content.width, 400.0),
+        approx_eq(lb.content.size.width, 400.0),
         "extreme line: width={} should match container width 400",
-        lb.content.width
+        lb.content.size.width
     );
 }
 
@@ -552,7 +554,9 @@ fn grid_extreme_span_capped() {
             container,
             ComputedStyle {
                 display: Display::Grid,
-                grid_template_columns: vec![TrackSize::Length(100.0)],
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                ])),
                 ..Default::default()
             },
         )
@@ -579,21 +583,89 @@ fn grid_extreme_span_capped() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
     assert!(
-        lb.content.height.is_finite() && lb.content.height >= 0.0,
+        lb.content.size.height.is_finite() && lb.content.size.height >= 0.0,
         "extreme span: height={} should be finite non-negative",
-        lb.content.height
+        lb.content.size.height
     );
     assert!(
-        approx_eq(lb.content.width, 400.0),
+        approx_eq(lb.content.size.width, 400.0),
         "extreme span: width={} should match container width 400",
-        lb.content.width
+        lb.content.size.width
+    );
+}
+
+#[test]
+fn auto_placement_cursor_advances_past_semi_definite() {
+    // CSS Grid §8.5: In sparse mode, auto-placed items should not backfill
+    // before semi-definite items placed in Phase 2.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                    TrackSize::Length(100.0),
+                ])),
+                // Default: row flow, sparse (not dense).
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Item 1: semi-definite — placed in column 2 (0-based index 1).
+    let c1 = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(container, c1);
+    dom.world_mut()
+        .insert_one(
+            c1,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(40.0),
+                grid_column_start: GridLine::Line(2), // column index 1
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    // Item 2: fully auto — should be placed AFTER c1 in sparse mode.
+    let c2 = make_grid_child(&mut dom, container, 40.0);
+
+    let font_db = FontDatabase::new();
+    do_layout_grid(
+        &mut dom,
+        container,
+        400.0,
+        None,
+        Point::ZERO,
+        &font_db,
+        0,
+        layout_block_only,
+    );
+
+    let lb1 = get_layout(&dom, c1);
+    let lb2 = get_layout(&dom, c2);
+
+    // c1 is at column 1 (x=100). In sparse mode, c2 should be placed
+    // at column 2 or later (x >= 200), not backfilling column 0.
+    assert!(
+        approx_eq(lb1.content.origin.x, 100.0),
+        "c1 should be at x=100, got {}",
+        lb1.content.origin.x
+    );
+    assert!(
+        lb2.content.origin.x >= 200.0 - 0.5,
+        "c2 should be at x >= 200 (after c1), got {}",
+        lb2.content.origin.x
     );
 }

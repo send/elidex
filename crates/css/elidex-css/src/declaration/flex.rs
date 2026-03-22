@@ -57,8 +57,11 @@ pub(super) fn parse_flex_basis(input: &mut Parser) -> Vec<Declaration> {
         let ident = i.expect_ident().map_err(|_| ())?;
         let lower = ident.to_ascii_lowercase();
         match lower.as_str() {
-            // `content` treated as `auto` in Phase 2.
-            "auto" | "content" => Ok(single_decl("flex-basis", CssValue::Auto)),
+            "auto" => Ok(single_decl("flex-basis", CssValue::Auto)),
+            "content" => Ok(single_decl(
+                "flex-basis",
+                CssValue::Keyword("content".to_string()),
+            )),
             _ => Err(()),
         }
     }) {
@@ -124,7 +127,8 @@ pub(super) fn parse_flex_shorthand(input: &mut Parser) -> Vec<Declaration> {
                         if let Ok(val) = i3.try_parse(|i4| -> Result<CssValue, ()> {
                             let ident = i4.expect_ident().map_err(|_| ())?;
                             match ident.to_ascii_lowercase().as_str() {
-                                "auto" | "content" => Ok(CssValue::Auto),
+                                "auto" => Ok(CssValue::Auto),
+                                "content" => Ok(CssValue::Keyword("content".to_string())),
                                 _ => Err(()),
                             }
                         }) {

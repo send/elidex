@@ -60,7 +60,13 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
     };
 
     finalize_control(dom, entity, &mut state);
-    // TODO(M4-3.7): check ancestor fieldset disabled state and propagate to this control.
+    // Check ancestor fieldset disabled state and propagate to this control.
+    if !state.disabled && fieldset::is_fieldset_disabled(entity, dom) {
+        state.disabled = true;
+        if let Ok(mut es) = dom.world_mut().get::<&mut ElementState>(entity) {
+            es.insert(ElementState::DISABLED);
+        }
+    }
     let _ = dom.world_mut().insert_one(entity, state);
     true
 }
@@ -72,10 +78,7 @@ fn finalize_control(dom: &mut EcsDom, entity: Entity, state: &mut FormControlSta
         if let Some(text) = first_child_text(dom, entity) {
             // HTML §4.10.7.2: strip one leading newline from textarea content.
             let text = text.strip_prefix('\n').unwrap_or(&text).to_string();
-            state.cursor_pos = text.len();
-            state.default_value.clone_from(&text);
-            state.value = text;
-            state.update_char_count();
+            state.set_value_initial(text);
         }
     }
     // For <select>, walk child <option>/<optgroup> elements.

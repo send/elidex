@@ -25,8 +25,7 @@
 //! - `document.write` full implementation (re-entrant parser)
 //! - `document.all` as `HTMLAllCollection` (callable + typeof === "undefined")
 //! - `document.images/forms/links` live collections
-//! - `-webkit-box-*` old flexbox mapping
-//! - `-webkit-text-size-adjust`, `-webkit-font-smoothing` (non-standard)
+//! - `-webkit-text-size-adjust`, `-webkit-font-smoothing` (non-standard, dropped)
 //! - `<font size="+2">` relative font sizes (requires parent reference in cascade)
 //! - `cellpadding` nested table propagation (direct children only)
 //! - `<marquee>`, `<blink>` (animation mechanism required)

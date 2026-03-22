@@ -56,11 +56,21 @@ pub struct DispatchEvent {
     /// Contains all entities in the event propagation path, including shadow
     /// root entities for composed events. Built by `dispatch_event()`.
     ///
-    /// TODO(L8): WHATWG DOM §2.10 specifies per-entry metadata (invocationTarget,
-    /// invocationTargetInShadowTree, shadowAdjustedTarget, relatedTarget,
-    /// touchTargets) for each path entry. Currently, per-listener filtering is
-    /// done lazily via `composed_path_for_js()` which is sufficient for
-    /// correctness but does not expose the full metadata.
+    /// WHATWG DOM §2.10 specifies per-entry metadata for each path entry:
+    /// - `invocationTarget`: the event target for this entry
+    /// - `invocationTargetInShadowTree`: whether the target is in a shadow tree
+    /// - `shadowAdjustedTarget`: the retargeted target for this listener scope
+    /// - `relatedTarget`: retargeted related target (for mouse/focus events)
+    /// - `touchTargets`: retargeted touch targets (for touch events)
+    ///
+    /// Currently we store only the entity list; per-listener filtering and
+    /// retargeting is done lazily in `composed_path_for_js()` and
+    /// `apply_retarget()`. This is sufficient for correctness: the retarget
+    /// algorithm produces the same result whether computed eagerly per-entry
+    /// or lazily per-listener. The `relatedTarget` and `touchTargets` fields
+    /// are not yet needed (mouse `relatedTarget` is not yet implemented;
+    /// touch events are not supported). When those features are added, this
+    /// should be changed to `Vec<PathEntry>` with the full metadata.
     pub composed_path: Vec<Entity>,
     /// Whether the event is currently being dispatched.
     ///

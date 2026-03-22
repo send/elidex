@@ -1,5 +1,7 @@
 //! Intrinsic sizing for form controls.
 
+use elidex_plugin::Size;
+
 use crate::{FormControlKind, FormControlState};
 
 /// Default intrinsic width for text inputs (CSS pixels).
@@ -31,16 +33,18 @@ const SELECT_CHAR_WIDTH: f32 = 7.0;
 /// Padding for select dropdown arrow.
 const SELECT_ARROW_WIDTH: f32 = 20.0;
 
-/// Returns the intrinsic (width, height) for a form control.
+/// Returns the intrinsic size for a form control.
 ///
 /// Used by the layout engine as a replaced-element fallback when no
 /// explicit CSS width/height is set.
 #[must_use]
-pub fn form_intrinsic_size(state: &FormControlState) -> (f32, f32) {
+pub fn form_intrinsic_size(state: &FormControlState) -> Size {
     match state.kind {
-        FormControlKind::Checkbox | FormControlKind::Radio => (CHECKBOX_SIZE, CHECKBOX_SIZE),
+        FormControlKind::Checkbox | FormControlKind::Radio => {
+            Size::new(CHECKBOX_SIZE, CHECKBOX_SIZE)
+        }
         FormControlKind::SubmitButton | FormControlKind::ResetButton | FormControlKind::Button => {
-            (BUTTON_MIN_WIDTH, BUTTON_HEIGHT)
+            Size::new(BUTTON_MIN_WIDTH, BUTTON_HEIGHT)
         }
         FormControlKind::TextArea => {
             let rows = state.rows.max(1);
@@ -49,12 +53,12 @@ pub fn form_intrinsic_size(state: &FormControlState) -> (f32, f32) {
             let w = (cols as f32) * TEXTAREA_CHAR_WIDTH;
             #[allow(clippy::cast_precision_loss)]
             let h = (rows as f32) * TEXTAREA_LINE_HEIGHT;
-            (w, h)
+            Size::new(w, h)
         }
         FormControlKind::Select => {
             // Size based on longest option text.
             if state.options.is_empty() {
-                return (SELECT_WIDTH, SELECT_HEIGHT);
+                return Size::new(SELECT_WIDTH, SELECT_HEIGHT);
             }
             let max_len = state
                 .options
@@ -64,10 +68,10 @@ pub fn form_intrinsic_size(state: &FormControlState) -> (f32, f32) {
                 .unwrap_or(0);
             #[allow(clippy::cast_precision_loss)]
             let w = ((max_len as f32) * SELECT_CHAR_WIDTH + SELECT_ARROW_WIDTH).max(SELECT_WIDTH);
-            (w, SELECT_HEIGHT)
+            Size::new(w, SELECT_HEIGHT)
         }
         // Hidden inputs have no visual footprint.
-        FormControlKind::Hidden => (0.0, 0.0),
+        FormControlKind::Hidden => Size::ZERO,
         // Text-like inputs, specialised types, and output elements use text input size.
         FormControlKind::TextInput
         | FormControlKind::Password
@@ -83,7 +87,7 @@ pub fn form_intrinsic_size(state: &FormControlState) -> (f32, f32) {
         | FormControlKind::File
         | FormControlKind::Output
         | FormControlKind::Meter
-        | FormControlKind::Progress => (TEXT_INPUT_WIDTH, TEXT_INPUT_HEIGHT),
+        | FormControlKind::Progress => Size::new(TEXT_INPUT_WIDTH, TEXT_INPUT_HEIGHT),
     }
 }
 
@@ -103,31 +107,31 @@ mod tests {
     #[test]
     fn text_input_size() {
         let state = make_state(FormControlKind::TextInput, 0, 0);
-        let (w, h) = form_intrinsic_size(&state);
-        assert!(w > 0.0);
-        assert!(h > 0.0);
+        let size = form_intrinsic_size(&state);
+        assert!(size.width > 0.0);
+        assert!(size.height > 0.0);
     }
 
     #[test]
     fn textarea_size_from_rows_cols() {
         let state = make_state(FormControlKind::TextArea, 5, 40);
-        let (w, h) = form_intrinsic_size(&state);
-        assert_eq!(w, 40.0 * 8.0);
-        assert_eq!(h, 5.0 * 18.0);
+        let size = form_intrinsic_size(&state);
+        assert_eq!(size.width, 40.0 * 8.0);
+        assert_eq!(size.height, 5.0 * 18.0);
     }
 
     #[test]
     fn textarea_default_rows_cols() {
         let state = make_state(FormControlKind::TextArea, 2, 20);
-        let (w, h) = form_intrinsic_size(&state);
-        assert_eq!(w, 20.0 * 8.0);
-        assert_eq!(h, 2.0 * 18.0);
+        let size = form_intrinsic_size(&state);
+        assert_eq!(size.width, 20.0 * 8.0);
+        assert_eq!(size.height, 2.0 * 18.0);
     }
 
     #[test]
     fn checkbox_is_square() {
         let state = make_state(FormControlKind::Checkbox, 0, 0);
-        let (w, h) = form_intrinsic_size(&state);
-        assert_eq!(w, h);
+        let size = form_intrinsic_size(&state);
+        assert_eq!(size.width, size.height);
     }
 }

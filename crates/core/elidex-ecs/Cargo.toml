@@ -13,6 +13,8 @@ categories = ["web-programming"]
 
 [dependencies]
 hecs.workspace = true
+indexmap = "2"
+elidex-plugin.workspace = true
 
 [lints]
 workspace = true

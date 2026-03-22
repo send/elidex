@@ -1,8 +1,9 @@
 //! Box model resolution: dimensions, margin, padding, border, extras, gap.
 
 use elidex_plugin::{
-    BorderCollapse, BorderStyle, BoxSizing, CaptionSide, ComputedStyle, CssColor, CssValue,
-    Dimension, Overflow, Position, TableLayout,
+    BorderCollapse, BorderStyle, BoxDecorationBreak, BoxSizing, BreakInsideValue, BreakValue,
+    CaptionSide, ColumnFill, ColumnSpan, ComputedStyle, CssColor, CssValue, Dimension, EmptyCells,
+    Overflow, Position, TableLayout,
 };
 
 use super::helpers::resolve_keyword_enum_prop;
@@ -47,22 +48,28 @@ pub(super) fn resolve_box_dimensions(
     ] {
         resolve_prop(prop, winners, parent_style, dim, |d| setter(style, d));
     }
-    // CSS Box Model §4: padding cannot be negative.
-    let px = |v: &CssValue| resolve_to_px(v, ctx).max(0.0);
+    // CSS Box Model §4: padding cannot be negative. Preserve percentages for
+    // layout-time resolution (CSS 2.1 §8.4: % refers to containing block width).
+    let dim_nn = |v: &CssValue| match resolve_dimension(v, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO, // padding cannot be auto
+    };
     for (prop, setter) in [
         (
             "padding-top",
-            (|s: &mut ComputedStyle, v| s.padding.top = v) as fn(&mut ComputedStyle, f32),
+            (|s: &mut ComputedStyle, d| s.padding.top = d) as fn(&mut ComputedStyle, Dimension),
         ),
-        ("padding-right", |s, v| s.padding.right = v),
-        ("padding-bottom", |s, v| s.padding.bottom = v),
-        ("padding-left", |s, v| s.padding.left = v),
+        ("padding-right", |s, d| s.padding.right = d),
+        ("padding-bottom", |s, d| s.padding.bottom = d),
+        ("padding-left", |s, d| s.padding.left = d),
     ] {
-        resolve_prop(prop, winners, parent_style, px, |v| setter(style, v));
+        resolve_prop(prop, winners, parent_style, dim_nn, |d| setter(style, d));
     }
 }
 
 /// Resolve box-sizing, border-radius, and opacity.
+#[allow(clippy::needless_borrows_for_generic_args)]
 pub(super) fn resolve_box_model_extras(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
@@ -77,9 +84,34 @@ pub(super) fn resolve_box_model_extras(
         BoxSizing::from_keyword
     );
     let px = |v: &CssValue| resolve_to_px(v, ctx);
-    resolve_prop("border-radius", winners, parent_style, px, |v| {
-        style.border_radius = v.max(0.0);
+    resolve_prop("border-radius", winners, parent_style, &px, |v| {
+        let r = v.max(0.0);
+        style.border_radii = [r; 4];
     });
+    resolve_prop("border-top-left-radius", winners, parent_style, &px, |v| {
+        style.border_radii[0] = v.max(0.0);
+    });
+    resolve_prop("border-top-right-radius", winners, parent_style, &px, |v| {
+        style.border_radii[1] = v.max(0.0);
+    });
+    resolve_prop(
+        "border-bottom-right-radius",
+        winners,
+        parent_style,
+        &px,
+        |v| {
+            style.border_radii[2] = v.max(0.0);
+        },
+    );
+    resolve_prop(
+        "border-bottom-left-radius",
+        winners,
+        parent_style,
+        &px,
+        |v| {
+            style.border_radii[3] = v.max(0.0);
+        },
+    );
     resolve_prop(
         "opacity",
         winners,
@@ -94,21 +126,24 @@ pub(super) fn resolve_box_model_extras(
 
 /// Resolve row-gap and column-gap.
 ///
-/// NOTE: gap percentages resolve to 0 because `resolve_to_px` has no
-/// containing block width. Proper percentage gap requires layout-time
-/// resolution with Dimension storage (Phase 4).
+/// Preserves percentages for layout-time resolution against the containing
+/// block size (CSS Box Alignment §6).
 pub(super) fn resolve_gap_properties(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) {
-    let px = |v: &CssValue| resolve_to_px(v, ctx);
-    resolve_prop("row-gap", winners, parent_style, px, |v| {
-        style.row_gap = v.max(0.0);
+    let dim_nn = |v: &CssValue| match resolve_dimension(v, ctx) {
+        Dimension::Length(px) => Dimension::Length(px.max(0.0)),
+        Dimension::Percentage(p) => Dimension::Percentage(p.max(0.0)),
+        Dimension::Auto => Dimension::ZERO,
+    };
+    resolve_prop("row-gap", winners, parent_style, dim_nn, |d| {
+        style.row_gap = d;
     });
-    resolve_prop("column-gap", winners, parent_style, px, |v| {
-        style.column_gap = v.max(0.0);
+    resolve_prop("column-gap", winners, parent_style, dim_nn, |d| {
+        style.column_gap = d;
     });
 }
 
@@ -285,18 +320,64 @@ pub(super) fn resolve_position(
     );
 }
 
+/// Resolve position offset properties (top/right/bottom/left) and z-index.
+#[allow(clippy::needless_borrows_for_generic_args)]
+pub(super) fn resolve_position_offsets(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    let dim = |v: &CssValue| resolve_dimension(v, ctx);
+    resolve_prop("top", winners, parent_style, &dim, |d| style.top = d);
+    resolve_prop("right", winners, parent_style, &dim, |d| style.right = d);
+    resolve_prop("bottom", winners, parent_style, &dim, |d| style.bottom = d);
+    resolve_prop("left", winners, parent_style, &dim, |d| style.left = d);
+    if let Some(CssValue::Number(n)) = get_resolved_winner("z-index", winners, parent_style) {
+        if n.is_finite() {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                style.z_index = Some(n as i32);
+            }
+        }
+    }
+}
+
 pub(super) fn resolve_overflow(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
 ) {
     resolve_keyword_enum_prop!(
-        "overflow",
+        "overflow-x",
         winners,
         parent_style,
-        style.overflow,
+        style.overflow_x,
         Overflow::from_keyword
     );
+    resolve_keyword_enum_prop!(
+        "overflow-y",
+        winners,
+        parent_style,
+        style.overflow_y,
+        Overflow::from_keyword
+    );
+
+    // CSS Overflow L3 §3.2: If one axis is `visible` or `clip` and the other
+    // is neither `visible` nor `clip`, then `visible` computes to `auto` and
+    // `clip` computes to `hidden`.
+    let (ox, oy) = (style.overflow_x, style.overflow_y);
+    let other_is_scrollable = |o: Overflow| o != Overflow::Visible && o != Overflow::Clip;
+    if ox == Overflow::Visible && other_is_scrollable(oy) {
+        style.overflow_x = Overflow::Auto;
+    } else if ox == Overflow::Clip && other_is_scrollable(oy) {
+        style.overflow_x = Overflow::Hidden;
+    }
+    if oy == Overflow::Visible && other_is_scrollable(ox) {
+        style.overflow_y = Overflow::Auto;
+    } else if oy == Overflow::Clip && other_is_scrollable(ox) {
+        style.overflow_y = Overflow::Hidden;
+    }
 }
 
 // --- Content property resolution ---
@@ -305,7 +386,8 @@ pub(super) fn resolve_overflow(
 ///
 /// `content` is non-inherited. Keywords `normal` and `none` map directly;
 /// string values produce `ContentValue::Items`. `attr:name` convention
-/// (from the parser) becomes `ContentItem::Attr`.
+/// (from the parser) becomes `ContentItem::Attr`. `counter:` and `counters:`
+/// prefixed keywords become `ContentItem::Counter`/`ContentItem::Counters`.
 pub(super) fn resolve_content(
     style: &mut ComputedStyle,
     winners: &PropertyMap<'_>,
@@ -323,6 +405,20 @@ pub(super) fn resolve_content(
             k if k.starts_with("attr:") => {
                 ContentValue::Items(vec![ContentItem::Attr(k["attr:".len()..].to_string())])
             }
+            k if k.starts_with("counter:") => {
+                if let Some(item) = parse_counter_keyword(k) {
+                    ContentValue::Items(vec![item])
+                } else {
+                    ContentValue::Normal
+                }
+            }
+            k if k.starts_with("counters:") => {
+                if let Some(item) = parse_counters_keyword(k) {
+                    ContentValue::Items(vec![item])
+                } else {
+                    ContentValue::Normal
+                }
+            }
             _ => ContentValue::Normal,
         },
         CssValue::String(s) => ContentValue::Items(vec![ContentItem::String(s.clone())]),
@@ -334,6 +430,8 @@ pub(super) fn resolve_content(
                     CssValue::Keyword(k) if k.starts_with("attr:") => {
                         Some(ContentItem::Attr(k["attr:".len()..].to_string()))
                     }
+                    CssValue::Keyword(k) if k.starts_with("counter:") => parse_counter_keyword(k),
+                    CssValue::Keyword(k) if k.starts_with("counters:") => parse_counters_keyword(k),
                     _ => None,
                 })
                 .collect();
@@ -345,6 +443,119 @@ pub(super) fn resolve_content(
         }
         _ => ContentValue::Normal,
     };
+
+    // Resolve counter-reset/increment/set (non-inherited).
+    resolve_counter_reset(winners, parent_style, &mut style.counter_reset);
+    resolve_counter_property(
+        "counter-increment",
+        winners,
+        parent_style,
+        &mut style.counter_increment,
+    );
+    resolve_counter_property("counter-set", winners, parent_style, &mut style.counter_set);
+}
+
+/// Parse a `counter:name:style` keyword into a `ContentItem::Counter`.
+fn parse_counter_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
+    use elidex_plugin::{ContentItem, ListStyleType};
+
+    let rest = &k["counter:".len()..];
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counter { name, style })
+}
+
+/// Parse a `counters:name:separator:style` keyword into a `ContentItem::Counters`.
+fn parse_counters_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
+    use elidex_plugin::{ContentItem, ListStyleType};
+
+    let rest = &k["counters:".len()..];
+    let mut parts = rest.splitn(3, ':');
+    let name = parts.next()?.to_string();
+    let separator = parts.next().unwrap_or(".").to_string();
+    let style_str = parts.next().unwrap_or("decimal");
+    let style = ListStyleType::from_keyword(style_str).unwrap_or(ListStyleType::Decimal);
+    Some(ContentItem::Counters {
+        name,
+        separator,
+        style,
+    })
+}
+
+/// Resolve `counter-reset` from cascade winners.
+///
+/// Supports `reversed(name)` syntax (CSS Lists L3 §5.1) encoded as
+/// `Keyword("reversed:name")` by the CSS parser.
+fn resolve_counter_reset(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    target: &mut Vec<elidex_plugin::CounterResetEntry>,
+) {
+    let Some(value) = get_resolved_winner("counter-reset", winners, parent_style) else {
+        return;
+    };
+    match &value {
+        CssValue::Keyword(k) if k == "none" => {}
+        CssValue::List(items) => {
+            let mut iter = items.iter();
+            while let Some(item) = iter.next() {
+                if let CssValue::Keyword(name) = item {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let val = iter
+                        .next()
+                        .and_then(|v| match v {
+                            CssValue::Number(n) => Some(*n as i32),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    if let Some(inner) = name.strip_prefix("reversed:") {
+                        target.push(elidex_plugin::CounterResetEntry::reversed(inner, val));
+                    } else {
+                        target.push(elidex_plugin::CounterResetEntry::new(name.clone(), val));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Resolve a counter property (`counter-increment`/`counter-set`)
+/// from the cascade winners into a `Vec<(String, i32)>`.
+fn resolve_counter_property(
+    property: &str,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    target: &mut Vec<(String, i32)>,
+) {
+    let Some(value) = get_resolved_winner(property, winners, parent_style) else {
+        return; // not declared → default (empty)
+    };
+    match &value {
+        CssValue::Keyword(k) if k == "none" => {
+            // Explicit `none` → empty list.
+        }
+        CssValue::List(items) => {
+            // Alternating Keyword(name), Number(value) pairs.
+            let mut iter = items.iter();
+            while let Some(item) = iter.next() {
+                if let CssValue::Keyword(name) = item {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let val = iter
+                        .next()
+                        .and_then(|v| match v {
+                            CssValue::Number(n) => Some(*n as i32),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    target.push((name.clone(), val));
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 // --- Table property resolution ---
@@ -412,6 +623,156 @@ pub(super) fn resolve_table_properties(
         parent_style.caption_side,
         CaptionSide::from_keyword,
     );
+
+    // empty-cells (inherited)
+    style.empty_cells = resolve_inherited_keyword_enum(
+        "empty-cells",
+        winners,
+        parent_style,
+        parent_style.empty_cells,
+        EmptyCells::from_keyword,
+    );
+
+    // break-before / break-after (non-inherited)
+    resolve_keyword_enum_prop!(
+        "break-before",
+        winners,
+        parent_style,
+        style.break_before,
+        BreakValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "break-after",
+        winners,
+        parent_style,
+        style.break_after,
+        BreakValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "break-inside",
+        winners,
+        parent_style,
+        style.break_inside,
+        BreakInsideValue::from_keyword
+    );
+    resolve_keyword_enum_prop!(
+        "box-decoration-break",
+        winners,
+        parent_style,
+        style.box_decoration_break,
+        BoxDecorationBreak::from_keyword
+    );
+
+    // orphans / widows (inherited)
+    if let Some(CssValue::Number(n)) = get_resolved_winner("orphans", winners, parent_style) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            style.orphans = (n as u32).max(1);
+        }
+    } else if !winners.contains_key("orphans") {
+        style.orphans = parent_style.orphans;
+    }
+    if let Some(CssValue::Number(n)) = get_resolved_winner("widows", winners, parent_style) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            style.widows = (n as u32).max(1);
+        }
+    } else if !winners.contains_key("widows") {
+        style.widows = parent_style.widows;
+    }
+
+    // Multi-column properties.
+    resolve_multicol_properties(style, winners, parent_style, ctx);
+}
+
+/// Resolve CSS Multi-column Layout Level 1 properties (all non-inherited).
+fn resolve_multicol_properties(
+    style: &mut ComputedStyle,
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+) {
+    // column-count: integer ≥ 1, or None for auto
+    match get_resolved_winner("column-count", winners, parent_style) {
+        Some(CssValue::Number(n)) if n.is_finite() => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                style.column_count = Some((n as u32).max(1));
+            }
+        }
+        Some(CssValue::Auto) => {
+            style.column_count = None;
+        }
+        _ => {}
+    }
+
+    // column-width: length ≥ 0, or Auto
+    match get_resolved_winner("column-width", winners, parent_style) {
+        Some(CssValue::Auto) => {
+            style.column_width = Dimension::Auto;
+        }
+        Some(ref v) => {
+            let px = resolve_to_px(v, ctx).max(0.0);
+            style.column_width = Dimension::Length(px);
+        }
+        None => {}
+    }
+
+    // column-fill
+    resolve_keyword_enum_prop!(
+        "column-fill",
+        winners,
+        parent_style,
+        style.column_fill,
+        ColumnFill::from_keyword
+    );
+
+    // column-span
+    resolve_keyword_enum_prop!(
+        "column-span",
+        winners,
+        parent_style,
+        style.column_span,
+        ColumnSpan::from_keyword
+    );
+
+    // column-rule-style (must be resolved before width)
+    resolve_keyword_enum_prop!(
+        "column-rule-style",
+        winners,
+        parent_style,
+        style.column_rule_style,
+        BorderStyle::from_keyword
+    );
+
+    // column-rule-width: 0 when style is none/hidden
+    if let Some(ref v) = get_resolved_winner("column-rule-width", winners, parent_style) {
+        let px = if matches!(
+            style.column_rule_style,
+            BorderStyle::None | BorderStyle::Hidden
+        ) {
+            0.0
+        } else {
+            resolve_to_px(v, ctx).max(0.0)
+        };
+        style.column_rule_width = px;
+    }
+
+    // column-rule-color (initial = currentcolor)
+    let current_color = style.color;
+    match get_resolved_winner("column-rule-color", winners, parent_style) {
+        Some(CssValue::Color(c)) => {
+            style.column_rule_color = c;
+        }
+        Some(_) => {
+            // currentcolor keyword or any other value → resolve to current color.
+            style.column_rule_color = current_color;
+        }
+        None => {
+            // No declaration: initial value is currentcolor.
+            style.column_rule_color = current_color;
+        }
+    }
 }
 
 #[cfg(test)]

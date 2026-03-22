@@ -103,7 +103,7 @@ pub fn parse_global_keyword(ident: &str) -> Option<CssValue> {
 }
 
 /// Map a CSS unit string to a `LengthUnit`.
-fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
+pub(crate) fn parse_length_unit(unit: &str) -> Result<LengthUnit, ()> {
     match unit.to_ascii_lowercase().as_str() {
         "px" => Ok(LengthUnit::Px),
         "em" => Ok(LengthUnit::Em),

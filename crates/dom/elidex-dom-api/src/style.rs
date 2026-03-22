@@ -107,7 +107,7 @@ impl DomApiHandler for StyleRemoveProperty {
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;

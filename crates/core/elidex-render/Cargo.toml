@@ -17,9 +17,12 @@ elidex-text.workspace = true
 fontdb.workspace = true
 elidex-ecs.workspace = true
 elidex-layout-block.workspace = true
+elidex-layout.workspace = true
 elidex-form.workspace = true
+elidex-style.workspace = true
 vello.workspace = true
 wgpu.workspace = true
+unicode-segmentation.workspace = true
 
 [lints]
 workspace = true

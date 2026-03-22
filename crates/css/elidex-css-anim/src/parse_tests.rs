@@ -396,3 +396,49 @@ fn keyframes_with_content_brace_in_string() {
     assert_eq!(rule.keyframes.len(), 2);
     assert!(!rule.keyframes[0].declarations.is_empty());
 }
+
+// Per-keyframe timing function (CSS Animations L1 §3.9.1).
+#[test]
+fn keyframes_per_keyframe_timing_function() {
+    let rule = parse_keyframes(
+        "test",
+        "from { opacity: 0; animation-timing-function: ease-in; } to { opacity: 1; }",
+    );
+    assert_eq!(rule.keyframes.len(), 2);
+    // The from keyframe should have a per-keyframe timing function.
+    assert_eq!(
+        rule.keyframes[0].timing_function,
+        Some(TimingFunction::EASE_IN),
+    );
+    // animation-timing-function should be removed from declarations.
+    assert!(
+        rule.keyframes[0]
+            .declarations
+            .iter()
+            .all(|d| d.property != "animation-timing-function"),
+        "animation-timing-function should not be in declarations"
+    );
+    // The to keyframe should have no per-keyframe timing function.
+    assert_eq!(rule.keyframes[1].timing_function, None);
+}
+
+// Per-keyframe timing with steps().
+#[test]
+fn keyframes_per_keyframe_timing_steps() {
+    let rule = parse_keyframes(
+        "test",
+        "0% { width: 0px; animation-timing-function: steps(4, end); } 100% { width: 100px; }",
+    );
+    assert_eq!(
+        rule.keyframes[0].timing_function,
+        Some(TimingFunction::Steps(4, StepPosition::JumpEnd)),
+    );
+}
+
+// No per-keyframe timing when not declared.
+#[test]
+fn keyframes_no_per_keyframe_timing() {
+    let rule = parse_keyframes("test", "from { opacity: 0; } to { opacity: 1; }");
+    assert_eq!(rule.keyframes[0].timing_function, None);
+    assert_eq!(rule.keyframes[1].timing_function, None);
+}

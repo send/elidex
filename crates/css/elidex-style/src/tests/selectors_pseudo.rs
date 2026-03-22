@@ -14,7 +14,7 @@ fn attr_selector_style_integration() {
 
     let css = r#"[type="text"] { color: red; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let input_style = get_style(&dom, input);
     assert_eq!(input_style.color, CssColor::RED);
@@ -33,7 +33,7 @@ fn adjacent_sibling_style_integration() {
 
     let css = "h1 + p { color: blue; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let p_style = get_style(&dom, p);
     assert_eq!(p_style.color, CssColor::BLUE);
@@ -50,7 +50,7 @@ fn first_child_style_integration() {
     // Use background-color (non-inherited) to avoid inheritance leaks.
     let css = "li:first-child { background-color: green; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let li1_style = get_style(&dom, li1);
     assert_eq!(li1_style.background_color, CssColor::new(0, 128, 0, 255));
@@ -70,7 +70,7 @@ fn not_selector_style_integration() {
 
     let css = "div:not(.hidden) { color: red; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let hidden_style = get_style(&dom, hidden);
     assert_ne!(hidden_style.color, CssColor::RED);
@@ -90,7 +90,7 @@ fn child_first_child_combined_style_integration() {
 
     let css = "ul > li:first-child { color: red; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let li1_style = get_style(&dom, li1);
     assert_eq!(li1_style.color, CssColor::RED);
@@ -108,7 +108,7 @@ fn pseudo_before_generates_entity() {
 
     let css = r#"p::before { content: ">>"; color: red; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     // p should have a pseudo-element child.
     let children: Vec<Entity> = dom.children_iter(p).collect();
@@ -133,7 +133,7 @@ fn pseudo_after_generates_entity() {
 
     let css = r#"p::after { content: "<<"; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children: Vec<Entity> = dom.children_iter(p).collect();
     let last = children.last().unwrap();
@@ -150,7 +150,7 @@ fn pseudo_content_none_no_entity() {
 
     let css = r"p::before { content: none; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children: Vec<Entity> = dom.children_iter(p).collect();
     let has_pe = children
@@ -169,7 +169,7 @@ fn pseudo_content_attr() {
 
     let css = r"p::before { content: attr(title); }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children: Vec<Entity> = dom.children_iter(p).collect();
     let pe = children
@@ -190,7 +190,7 @@ fn pseudo_cascade_later_wins() {
 
     let css = r#".x::before { content: "A"; } .x::before { content: "B"; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children: Vec<Entity> = dom.children_iter(p).collect();
     let pe = children
@@ -211,7 +211,7 @@ fn pseudo_re_resolve_removes_old() {
 
     let css = r#"p::before { content: ">>"; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     // First resolution: one pseudo entity + one text node.
     let pe_count1 = dom
@@ -221,7 +221,7 @@ fn pseudo_re_resolve_removes_old() {
     assert_eq!(pe_count1, 1);
 
     // Re-resolve: should still have exactly one PE.
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let pe_count2 = dom
         .children_iter(p)
         .filter(|&c| dom.world().get::<&PseudoElementMarker>(c).is_ok())
@@ -238,7 +238,7 @@ fn pseudo_does_not_affect_normal_element_matching() {
 
     let css = r#"p::before { content: ">>"; color: red; } p { color: blue; }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     // p itself should be blue, not red.
     let p_style = get_style(&dom, p);
@@ -253,7 +253,7 @@ fn link_element_gets_link_state() {
     let a = dom.create_element("a", attrs);
     dom.append_child(body, a);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let state = dom
         .world()
@@ -274,7 +274,7 @@ fn ua_link_gets_blue_color() {
     dom.append_child(body, a);
     dom.append_child(a, text);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, a);
     // UA a:link color is #0000ee = rgb(0, 0, 238)
@@ -293,7 +293,7 @@ fn pseudo_before_after_full_pipeline() {
     let css =
         "p::before { content: \">> \"; color: red; } p::after { content: \" <<\"; color: blue; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children = dom.children(p);
     // Should have: ::before PE, text node, ::after PE = 3 children
@@ -335,7 +335,7 @@ fn hover_pseudo_class_applies_style() {
     let ss = parse_stylesheet(css, Origin::Author);
 
     // Without hover: color is black.
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let style_no_hover = get_style(&dom, div);
     assert_eq!(style_no_hover.color, CssColor::new(0, 0, 0, 255));
 
@@ -343,7 +343,7 @@ fn hover_pseudo_class_applies_style() {
     let mut state = DomState::default();
     state.insert(DomState::HOVER);
     dom.world_mut().insert_one(div, state);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let style_hover = get_style(&dom, div);
     assert_eq!(style_hover.color, CssColor::new(255, 0, 0, 255));
@@ -359,7 +359,7 @@ fn pseudo_content_var_resolution() {
 
     let css = r#":root { --icon: ">>"; } p::before { content: var(--icon); }"#;
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     // The ::before pseudo-element should have content from var(--icon).
     let children = dom.children(p);
@@ -385,7 +385,7 @@ fn hover_pseudo_element_combined() {
     let ss = parse_stylesheet(css, Origin::Author);
 
     // Without hover: no pseudo-element generated.
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let children = dom.children(div);
     let pe_count = children
         .iter()
@@ -397,7 +397,7 @@ fn hover_pseudo_element_combined() {
     let mut state = DomState::default();
     state.insert(DomState::HOVER);
     dom.world_mut().insert_one(div, state);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let children = dom.children(div);
     let pe_children: Vec<_> = children

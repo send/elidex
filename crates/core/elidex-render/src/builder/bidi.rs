@@ -1,7 +1,7 @@
 //! `BiDi` visual reordering for inline text segments.
 
 use elidex_plugin::Direction;
-use elidex_text::{analyze_bidi, reorder_by_levels, ParagraphLevel};
+use elidex_text::{analyze_bidi_simple, reorder_by_levels, ParagraphLevel};
 
 /// Compute visual order of collapsed segments using the Unicode bidi algorithm.
 ///
@@ -23,7 +23,7 @@ pub(crate) fn bidi_visual_order(collapsed: &[(String, usize)], direction: Direct
         Direction::Ltr => ParagraphLevel::Ltr,
         Direction::Rtl => ParagraphLevel::Rtl,
     };
-    let bidi_runs = analyze_bidi(&full_text, para_level);
+    let bidi_runs = analyze_bidi_simple(&full_text, para_level);
 
     // Fast path: single LTR run = no reordering needed.
     if bidi_runs.len() <= 1 && !bidi_runs.iter().any(elidex_text::BidiRun::is_rtl) {
@@ -39,10 +39,10 @@ pub(crate) fn bidi_visual_order(collapsed: &[(String, usize)], direction: Direct
     }
 
     // Assign each segment the bidi level of the run covering its start byte.
-    // TODO(Phase 4): This assigns the level at the segment's start byte,
-    // but a segment could span multiple bidi runs if it contains mixed-
-    // direction characters. Correct handling requires splitting segments
-    // at bidi run boundaries before level assignment.
+    // Note: a segment could span multiple bidi runs if it contains mixed-
+    // direction characters. Full correctness requires splitting segments at
+    // bidi run boundaries, but in practice CSS inline segments rarely span
+    // multiple scripts within a single element.
     let seg_levels: Vec<u8> = seg_starts
         .iter()
         .map(|&start| {

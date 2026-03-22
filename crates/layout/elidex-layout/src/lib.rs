@@ -8,9 +8,15 @@ pub mod hit_test;
 mod layout;
 
 // Re-export shared types and utilities from subcrates.
+pub mod intrinsic;
+
 pub use elidex_layout_block::{
-    block, inline, sanitize, sanitize_border, sanitize_padding, ChildLayoutFn, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    block, inline, resolve_padding, sanitize, sanitize_border, sanitize_padding, BreakToken,
+    BreakTokenData, ChildLayoutFn, FragmentainerContext, FragmentationType, IntrinsicSizes,
+    LayoutInput, LayoutOutcome, MAX_LAYOUT_DEPTH,
 };
-pub use hit_test::{hit_test, HitTestResult};
-pub use layout::layout_tree;
+pub use hit_test::{hit_test, hit_test_with_scroll, HitTestQuery, HitTestResult};
+pub use layout::{
+    dispatch_layout_child, layout_fragmented, layout_fragmented_with_tokens, layout_paged,
+    layout_tree, match_page_selectors, PageFragment, MAX_FRAGMENTS,
+};

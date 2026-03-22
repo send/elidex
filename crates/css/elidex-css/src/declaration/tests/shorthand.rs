@@ -99,9 +99,13 @@ fn global_keyword_expands_text_decoration_shorthand() {
 #[test]
 fn global_keyword_expands_background_shorthand() {
     let decls = parse_single("background", "inherit");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 8);
     assert_eq!(decls[0].property, "background-color");
     assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[1].property, "background-image");
+    assert_eq!(decls[1].value, CssValue::Inherit);
+    assert_eq!(decls[7].property, "background-attachment");
+    assert_eq!(decls[7].value, CssValue::Inherit);
 }
 
 #[test]
@@ -326,6 +330,140 @@ fn parse_list_style_shorthand_with_important() {
     assert!(decls[0].important);
 }
 
+// --- Font shorthand ---
+
+#[test]
+fn font_shorthand_size_and_family() {
+    let decls = parse_single("font", "16px Arial");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[1].property, "font-weight");
+    assert_eq!(decls[1].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[2].property, "font-size");
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].property, "line-height");
+    assert_eq!(decls[3].value, CssValue::Keyword("normal".into()));
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("Arial".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_full() {
+    let decls = parse_single("font", r#"italic bold 16px/1.5 "Times New Roman", serif"#);
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Keyword("italic".into()));
+    assert_eq!(decls[1].property, "font-weight");
+    assert_eq!(decls[1].value, CssValue::Keyword("bold".into()));
+    assert_eq!(decls[2].property, "font-size");
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].property, "line-height");
+    assert_eq!(decls[3].value, CssValue::Number(1.5));
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![
+            CssValue::String("Times New Roman".into()),
+            CssValue::Keyword("serif".into()),
+        ])
+    );
+}
+
+#[test]
+fn font_shorthand_weight_only() {
+    let decls = parse_single("font", "bold 14px sans-serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into())); // style
+    assert_eq!(decls[1].value, CssValue::Keyword("bold".into())); // weight
+    assert_eq!(decls[2].value, CssValue::Length(14.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_numeric_weight() {
+    let decls = parse_single("font", "300 12px monospace");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("normal".into())); // style
+    assert_eq!(decls[1].value, CssValue::Number(300.0)); // weight
+    assert_eq!(decls[2].value, CssValue::Length(12.0, LengthUnit::Px));
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("monospace".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_style_and_numeric_weight() {
+    let decls = parse_single("font", "italic 700 20px Georgia");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].value, CssValue::Keyword("italic".into()));
+    assert_eq!(decls[1].value, CssValue::Number(700.0));
+    assert_eq!(decls[2].value, CssValue::Length(20.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_line_height_length() {
+    let decls = parse_single("font", "16px/24px Arial");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[2].value, CssValue::Length(16.0, LengthUnit::Px));
+    assert_eq!(decls[3].value, CssValue::Length(24.0, LengthUnit::Px));
+}
+
+#[test]
+fn font_shorthand_keyword_size() {
+    let decls = parse_single("font", "small serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[2].value, CssValue::Keyword("small".into()));
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("serif".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_multi_word_family() {
+    let decls = parse_single("font", "16px Times New Roman");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![CssValue::Keyword("Times New Roman".into())])
+    );
+}
+
+#[test]
+fn font_shorthand_multiple_families() {
+    let decls = parse_single("font", "16px Arial, Helvetica, sans-serif");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(
+        decls[4].value,
+        CssValue::List(vec![
+            CssValue::Keyword("Arial".into()),
+            CssValue::Keyword("Helvetica".into()),
+            CssValue::Keyword("sans-serif".into()),
+        ])
+    );
+}
+
+#[test]
+fn font_shorthand_global_keyword_expand() {
+    let decls = parse_single("font", "inherit");
+    assert_eq!(decls.len(), 5);
+    assert_eq!(decls[0].property, "font-style");
+    assert_eq!(decls[0].value, CssValue::Inherit);
+    assert_eq!(decls[4].property, "font-family");
+    assert_eq!(decls[4].value, CssValue::Inherit);
+}
+
+#[test]
+fn font_shorthand_invalid_missing_family() {
+    // font-size without font-family is invalid.
+    let decls = parse_single("font", "16px");
+    assert!(decls.is_empty());
+}
+
 // --- Background shorthand ---
 
 #[test]
@@ -372,4 +510,88 @@ fn parse_content_attr() {
     let decls = parse_single("content", "attr(title)");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].value, CssValue::Keyword("attr:title".to_string()));
+}
+
+// --- column-rule shorthand ---
+
+#[test]
+fn column_rule_all_three() {
+    let decls = parse_single("column-rule", "2px solid red");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(2.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("solid".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+    assert_eq!(
+        decls[2].value,
+        CssValue::Color(CssColor {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        })
+    );
+}
+
+#[test]
+fn column_rule_style_only() {
+    // Omitted components reset to initial values.
+    let decls = parse_single("column-rule", "dashed");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(3.0, LengthUnit::Px)); // medium
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dashed".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+    assert_eq!(
+        decls[2].value,
+        CssValue::Keyword("currentcolor".to_string())
+    );
+}
+
+#[test]
+fn column_rule_any_order() {
+    // Input order differs from output — output always: width, style, color.
+    let decls = parse_single("column-rule", "red thick dotted");
+    assert_eq!(decls.len(), 3);
+    assert_eq!(decls[0].property, "column-rule-width");
+    assert_eq!(decls[0].value, CssValue::Length(5.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-rule-style");
+    assert_eq!(decls[1].value, CssValue::Keyword("dotted".to_string()));
+    assert_eq!(decls[2].property, "column-rule-color");
+}
+
+// --- columns shorthand ---
+
+#[test]
+fn columns_both() {
+    let decls = parse_single("columns", "200px 3");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Length(200.0, LengthUnit::Px));
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Number(3.0));
+}
+
+#[test]
+fn columns_auto() {
+    // "auto" matches column-count; omitted column-width resets to auto.
+    let decls = parse_single("columns", "auto");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Auto);
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Auto);
+}
+
+#[test]
+fn columns_count_only() {
+    // Omitted column-width resets to initial (auto).
+    let decls = parse_single("columns", "3");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "column-width");
+    assert_eq!(decls[0].value, CssValue::Auto);
+    assert_eq!(decls[1].property, "column-count");
+    assert_eq!(decls[1].value, CssValue::Number(3.0));
 }

@@ -37,7 +37,14 @@ fn compat_extra_ua_and_hints_combined() {
         Vec::new()
     };
 
-    resolve_styles_with_compat(&mut dom, &[], &[&extra_ua], &hint_gen, 1920.0, 1080.0, None);
+    resolve_styles_with_compat(
+        &mut dom,
+        &[],
+        &[&extra_ua],
+        &hint_gen,
+        Size::new(1920.0, 1080.0),
+        None,
+    );
 
     // <b> should pick up font-weight: bolder from extra UA sheet.
     let b_style = get_style(&dom, b);
@@ -65,7 +72,14 @@ fn compat_hint_loses_to_author_selector() {
         )]
     };
 
-    resolve_styles_with_compat(&mut dom, &[&author], &[], &hint_gen, 1920.0, 1080.0, None);
+    resolve_styles_with_compat(
+        &mut dom,
+        &[&author],
+        &[],
+        &hint_gen,
+        Size::new(1920.0, 1080.0),
+        None,
+    );
 
     let style = get_style(&dom, div);
     assert_eq!(style.background_color, CssColor::BLUE);
@@ -83,7 +97,7 @@ fn a2_host_rule_applied_to_shadow_host() {
     let inner = dom.create_element("span", Attributes::default());
     dom.append_child(sr, inner);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, host);
     assert_eq!(style.color, CssColor::RED);
@@ -100,7 +114,7 @@ fn a2_outer_rule_beats_host_rule() {
     dom.append_child(sr, inner);
 
     let outer = parse_stylesheet("div { color: blue; }", Origin::Author);
-    resolve_styles(&mut dom, &[&outer], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&outer], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, host);
     assert_eq!(style.color, CssColor::BLUE);
@@ -119,7 +133,7 @@ fn a3_slotted_rule_applied_to_slotted_node() {
     let slot = dom.create_element("slot", Attributes::default());
     dom.append_child(sr, slot);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, light_p);
     assert_eq!(style.color, CssColor::RED);
@@ -139,7 +153,7 @@ fn a3_outer_rule_beats_slotted_rule() {
     dom.append_child(sr, slot);
 
     let outer = parse_stylesheet("p { color: blue; }", Origin::Author);
-    resolve_styles(&mut dom, &[&outer], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&outer], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, light_p);
     assert_eq!(style.color, CssColor::BLUE);
@@ -160,7 +174,7 @@ fn a1_nested_slot_gets_styled() {
     dom.append_child(sr, wrapper);
     dom.append_child(wrapper, slot);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, light);
     assert_eq!(style.color, CssColor::GREEN);
@@ -177,7 +191,7 @@ fn shadow_inherited_props_cross_boundary() {
     dom.append_child(sr, inner);
 
     let outer = parse_stylesheet("div { font-size: 24px; }", Origin::Author);
-    resolve_styles(&mut dom, &[&outer], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&outer], Size::new(1920.0, 1080.0));
 
     let host_style = get_style(&dom, host);
     assert_eq!(host_style.font_size, 24.0);
@@ -195,7 +209,7 @@ fn b2_host_not_matched_outside_shadow_context() {
     let _sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
 
     let outer_with_host = parse_stylesheet(":host { color: red; }", Origin::Author);
-    resolve_styles(&mut dom, &[&outer_with_host], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&outer_with_host], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, host);
     assert_ne!(style.color, CssColor::RED);
@@ -213,7 +227,7 @@ fn host_function_rule_matches_host() {
     let inner = dom.create_element("span", Attributes::default());
     dom.append_child(sr, inner);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, host);
     assert_eq!(style.color, CssColor::RED);
@@ -235,7 +249,7 @@ fn nested_shadow_hosts_have_isolated_styles() {
     let leaf = dom.create_element("span", Attributes::default());
     dom.append_child(inner_sr, leaf);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     // Each shadow context is isolated: outer gets red, inner gets blue.
     let outer_style = get_style(&dom, outer_host);

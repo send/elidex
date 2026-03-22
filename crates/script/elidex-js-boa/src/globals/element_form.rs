@@ -122,7 +122,7 @@ fn register_value_accessor(
                     .world()
                     .get::<&elidex_form::FormControlState>(entity)
                     .ok()
-                    .map(|fcs| fcs.value.clone());
+                    .map(|fcs| fcs.value().to_string());
                 match val {
                     Some(v) => Ok(JsValue::from(js_string!(v))),
                     None => Ok(JsValue::undefined()),
@@ -157,10 +157,7 @@ fn register_value_accessor(
                     // HTML spec §4.10.5.4: setting .value IDL does NOT enforce
                     // maxlength (intentional per spec). maxlength only constrains
                     // user input (keyboard, paste).
-                    fcs.cursor_pos = sanitized.len();
-                    fcs.value = sanitized;
-                    fcs.dirty_value = true;
-                    fcs.update_char_count();
+                    fcs.set_value(sanitized);
                 }
                 Ok(JsValue::undefined())
             })
@@ -467,7 +464,7 @@ fn register_usize_fcs_accessor(
                 }
                 let val = fcs.map_or(0, |fcs| {
                     let byte_pos = getter(&fcs);
-                    elidex_form::util::byte_offset_to_utf16(&fcs.value, byte_pos)
+                    elidex_form::util::byte_offset_to_utf16(fcs.value(), byte_pos)
                 });
                 Ok(JsValue::from(val as f64))
             })
@@ -490,7 +487,7 @@ fn register_usize_fcs_accessor(
                     .world_mut()
                     .get::<&mut elidex_form::FormControlState>(entity)
                 {
-                    let byte_offset = elidex_form::util::utf16_to_byte_offset(&fcs.value, val);
+                    let byte_offset = elidex_form::util::utf16_to_byte_offset(fcs.value(), val);
                     setter(&mut fcs, byte_offset);
                 }
                 Ok(JsValue::undefined())
@@ -519,9 +516,9 @@ fn register_selection_accessors(
         bridge,
         realm,
         "selectionStart",
-        |fcs| fcs.selection_start,
+        elidex_form::FormControlState::selection_start,
         |fcs, v| {
-            fcs.selection_start = v;
+            fcs.set_selection_start(v);
         },
     );
     register_usize_fcs_accessor(
@@ -529,9 +526,9 @@ fn register_selection_accessors(
         bridge,
         realm,
         "selectionEnd",
-        |fcs| fcs.selection_end,
+        elidex_form::FormControlState::selection_end,
         |fcs, v| {
-            fcs.selection_end = v;
+            fcs.set_selection_end(v);
         },
     );
 }
@@ -541,28 +538,29 @@ fn register_selection_accessors(
 /// WHATWG §4.10.15.5: if the control is invalid, fires an `invalid` event
 /// (cancelable, not composed). Returns `true` if valid, `false` if invalid.
 ///
-/// Limitation: the `invalid` event is dispatched via `dispatch_event()` with
-/// a no-op callback (boa does not support re-entering the JS engine from a
-/// native function). JS `addEventListener("invalid", ...)` listeners will
-/// fire once event queue deferred dispatch is implemented (M4-3.7+).
+/// The `invalid` event is enqueued for deferred dispatch (after the current
+/// JS call stack unwinds) to avoid boa re-entrancy issues.
 fn register_check_validity_method(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, _args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                bridge.with(|_session, dom| {
+                bridge.with(|session, dom| {
                     let valid = dom
                         .world()
                         .get::<&elidex_form::FormControlState>(entity)
                         .ok()
                         .is_none_or(|fcs| elidex_form::validate_control(&fcs).is_valid());
                     if !valid {
-                        // WHATWG §4.10.15.5: fire "invalid" event (cancelable, not composed).
-                        let mut event =
-                            elidex_script_session::DispatchEvent::new("invalid", entity);
-                        event.cancelable = true;
-                        elidex_script_session::dispatch_event(dom, &mut event, &mut |_, _, _| {});
+                        // WHATWG §4.10.15.5: enqueue "invalid" event (cancelable, not composed).
+                        session.enqueue_event(elidex_script_session::QueuedEvent {
+                            event_type: "invalid".to_string(),
+                            target: entity,
+                            bubbles: false,
+                            cancelable: true,
+                            payload: elidex_plugin::EventPayload::default(),
+                        });
                     }
                     Ok(JsValue::from(valid))
                 })
@@ -626,12 +624,10 @@ fn register_set_selection_range_method(init: &mut ObjectInitializer<'_>, bridge:
                         .world_mut()
                         .get::<&mut elidex_form::FormControlState>(entity)
                     {
-                        let byte_start = elidex_form::util::utf16_to_byte_offset(&fcs.value, start);
-                        let byte_end = elidex_form::util::utf16_to_byte_offset(&fcs.value, end);
-                        fcs.selection_start =
-                            elidex_form::util::snap_to_char_boundary(&fcs.value, byte_start);
-                        fcs.selection_end =
-                            elidex_form::util::snap_to_char_boundary(&fcs.value, byte_end);
+                        let byte_start =
+                            elidex_form::util::utf16_to_byte_offset(fcs.value(), start);
+                        let byte_end = elidex_form::util::utf16_to_byte_offset(fcs.value(), end);
+                        fcs.set_selection(byte_start, byte_end);
                         // HTML spec §4.10.5.2.10: if direction is omitted (undefined),
                         // preserve the existing direction. Only reset to None when
                         // explicitly set to "none".

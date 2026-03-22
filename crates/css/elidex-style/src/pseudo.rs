@@ -1,5 +1,7 @@
 //! Pseudo-element (`::before`/`::after`) generation for style resolution.
 
+use std::fmt::Write;
+
 use elidex_css::{PseudoElement, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity, PseudoElementMarker};
 use elidex_plugin::{ComputedStyle, ContentItem, ContentValue, Display};
@@ -89,6 +91,16 @@ fn resolve_content_text(items: &[ContentItem], entity: Entity, dom: &EcsDom) -> 
                         result.push_str(val);
                     }
                 }
+            }
+            // Counter values require counter state from the document tree;
+            // placeholder output until counter evaluation is implemented.
+            ContentItem::Counter { name, .. } => {
+                write!(result, "[counter:{name}]").unwrap();
+            }
+            ContentItem::Counters {
+                name, separator, ..
+            } => {
+                write!(result, "[counters:{name},{separator}]").unwrap();
             }
         }
     }

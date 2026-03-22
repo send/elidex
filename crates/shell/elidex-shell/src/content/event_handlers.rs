@@ -2,8 +2,8 @@
 
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
-use elidex_layout::hit_test;
-use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
+use elidex_layout::{hit_test_with_scroll, HitTestQuery};
+use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::DispatchEvent;
 
 use crate::app::events::find_link_ancestor;
@@ -32,7 +32,11 @@ fn clear_active_chain(state: &mut ContentState) {
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseClickEvent) {
-    let Some(hit) = hit_test(&state.pipeline.dom, click.x, click.y) else {
+    let query = HitTestQuery {
+        point: click.point,
+        scroll: state.viewport_scroll.scroll_offset,
+    };
+    let Some(hit) = hit_test_with_scroll(&state.pipeline.dom, &query) else {
         return;
     };
     let hit_entity = hit.entity;
@@ -54,8 +58,8 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Use viewport-relative coordinates for DOM event properties (clientX/clientY).
     let mouse_init = MouseEventInit {
-        client_x: click.client_x,
-        client_y: click.client_y,
+        client_x: click.client_point.x,
+        client_y: click.client_point.y,
         button: i16::from(click.button),
         alt_key: click.mods.alt,
         ctrl_key: click.mods.ctrl,
@@ -112,7 +116,11 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
         match control_kind {
             Some(FormControlKind::Radio) => {
-                if elidex_form::toggle_radio(&mut state.pipeline.dom, hit_entity) {
+                if elidex_form::toggle_radio(
+                    &mut state.pipeline.dom,
+                    hit_entity,
+                    &mut state.pipeline.ancestor_cache,
+                ) {
                     dispatch_state_change_events(state, hit_entity);
                 }
             }
@@ -143,10 +151,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
         handle_label_click(state, hit_entity, checkbox_toggled);
     }
 
-    crate::re_render(&mut state.pipeline);
-    // TODO(M4-3.7): invalidate focusable_cache via MutationObserver instead
-    // of clearing on every click. Current approach is conservative but correct.
-    state.focusable_cache = None;
+    state.re_render();
 
     if process_pending_actions(state) {
         return;
@@ -175,15 +180,21 @@ pub(super) fn handle_mouse_release(state: &mut ContentState) {
         return;
     }
     clear_active_chain(state);
-    crate::re_render(&mut state.pipeline);
+    state.re_render();
     state.send_display_list();
 }
 
-pub(super) fn handle_mouse_move(state: &mut ContentState, x: f32, y: f32) {
-    let new_chain = if x >= 0.0 && y >= 0.0 {
-        hit_test(&state.pipeline.dom, x, y)
-            .map(|hit| collect_hover_chain(&state.pipeline.dom, hit.entity))
-            .unwrap_or_default()
+pub(super) fn handle_mouse_move(state: &mut ContentState, point: Point) {
+    let new_chain = if point.x >= 0.0 && point.y >= 0.0 {
+        hit_test_with_scroll(
+            &state.pipeline.dom,
+            &HitTestQuery {
+                point,
+                scroll: state.viewport_scroll.scroll_offset,
+            },
+        )
+        .map(|hit| collect_hover_chain(&state.pipeline.dom, hit.entity))
+        .unwrap_or_default()
     } else {
         Vec::new()
     };
@@ -196,7 +207,7 @@ pub(super) fn handle_mouse_move(state: &mut ContentState, x: f32, y: f32) {
     apply_hover_diff(&mut state.pipeline.dom, &old_chain, &new_chain);
     state.hover_chain = new_chain;
 
-    crate::re_render(&mut state.pipeline);
+    state.re_render();
     state.send_display_list();
 }
 
@@ -215,12 +226,11 @@ pub(super) fn handle_cursor_left(state: &mut ContentState) {
     }
 
     if had_hover || had_active {
-        crate::re_render(&mut state.pipeline);
+        state.re_render();
         state.send_display_list();
     }
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn handle_key(
     state: &mut ContentState,
     event_type: &str,
@@ -263,7 +273,7 @@ pub(super) fn handle_key(
         if let Some(next) = find_next_focusable(state, forward) {
             set_focus(state, next);
         }
-        crate::re_render(&mut state.pipeline);
+        state.re_render();
         state.send_display_list();
         return;
     }
@@ -289,7 +299,7 @@ pub(super) fn handle_key(
         update_scroll_offset(state, target);
     }
 
-    crate::re_render(&mut state.pipeline);
+    state.re_render();
 
     if !process_pending_actions(state) {
         state.send_display_list();
@@ -308,7 +318,7 @@ fn update_scroll_offset(state: &mut ContentState, target: elidex_ecs::Entity) {
     let info = {
         let w = state.pipeline.dom.world();
         w.get::<&LayoutBox>(target).ok().and_then(|lb| {
-            let content_w = lb.content.width;
+            let content_w = lb.content.size.width;
             w.get::<&ComputedStyle>(target)
                 .ok()
                 .map(|cs| (content_w, cs.font_size))
@@ -329,7 +339,7 @@ fn update_scroll_offset(state: &mut ContentState, target: elidex_ecs::Entity) {
         // Estimate caret x by counting chars up to cursor_pos.
         // Approximate average char width as font_size * 0.6 (P8/R13).
         let caret_pos = fcs.safe_cursor_pos();
-        let before_cursor = &fcs.value[..caret_pos];
+        let before_cursor = &fcs.value()[..caret_pos];
         let char_width = font_size * 0.6;
         #[allow(clippy::cast_precision_loss)]
         let estimated_caret_x = (before_cursor.chars().count() as f32) * char_width;
@@ -454,9 +464,9 @@ fn handle_key_text(
             .world_mut()
             .get::<&mut FormControlState>(target)
         {
-            if fcs.selection_start == fcs.selection_end {
-                fcs.selection_start = fcs.cursor_pos;
-                fcs.selection_end = fcs.cursor_pos;
+            if fcs.selection_start() == fcs.selection_end() {
+                let pos = fcs.cursor_pos();
+                fcs.set_selection(pos, pos);
             }
             elidex_form::extend_selection(&mut fcs, key == "ArrowRight");
         }
@@ -523,7 +533,11 @@ fn handle_key_widget(
         }
         Some(FormControlKind::Radio) => {
             if key == " " {
-                if elidex_form::toggle_radio(&mut state.pipeline.dom, target) {
+                if elidex_form::toggle_radio(
+                    &mut state.pipeline.dom,
+                    target,
+                    &mut state.pipeline.ancestor_cache,
+                ) {
                     dispatch_input_event(state, target);
                 }
             } else if key == "ArrowDown" || key == "ArrowRight" {
@@ -564,11 +578,18 @@ fn handle_key_widget(
 
 /// Toggle a radio button via arrow navigation and dispatch input + change events.
 fn toggle_radio_with_events(state: &mut ContentState, current: elidex_ecs::Entity, forward: bool) {
-    if let Some(next) =
-        elidex_form::radio::radio_arrow_navigate(&state.pipeline.dom, current, forward)
-    {
+    if let Some(next) = elidex_form::radio::radio_arrow_navigate(
+        &state.pipeline.dom,
+        current,
+        forward,
+        &mut state.pipeline.ancestor_cache,
+    ) {
         set_focus(state, next);
-        if elidex_form::toggle_radio(&mut state.pipeline.dom, next) {
+        if elidex_form::toggle_radio(
+            &mut state.pipeline.dom,
+            next,
+            &mut state.pipeline.ancestor_cache,
+        ) {
             dispatch_state_change_events(state, next);
         }
     }

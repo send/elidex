@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use elidex_ecs::NodeKind;
+
 /// Opaque reference to a JavaScript object wrapper.
 ///
 /// Each `JsObjectRef` uniquely identifies a (Entity, [`ComponentKind`]) pair
@@ -34,18 +36,94 @@ impl fmt::Display for JsObjectRef {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum ComponentKind {
+    // --- Node types (map to NodeKind) ---
     /// The element node itself.
     Element,
+    /// An Attr node (WHATWG DOM §4.9).
+    Attribute,
+    /// A text node.
+    TextNode,
+    /// A CDATA section node.
+    CdataSection,
+    /// A processing instruction node.
+    ProcessingInstruction,
+    /// A comment node.
+    Comment,
+    /// The document node.
+    Document,
+    /// A document type node.
+    DocumentType,
+    /// A document fragment node.
+    DocumentFragment,
+
+    // --- Sub-object types (not node kinds) ---
     /// The element's computed/inline style object.
     Style,
     /// The element's `classList`.
     ClassList,
-    /// The element's `attributes` collection.
-    Attributes,
-    /// The element's `dataset` (`data-*` attributes).
-    Dataset,
     /// The element's `childNodes` live collection.
     ChildNodes,
+    /// The element's `dataset` (`data-*` attributes).
+    Dataset,
+}
+
+impl ComponentKind {
+    /// Convert a `NodeKind` to the corresponding `ComponentKind`.
+    #[must_use]
+    pub fn from_node_kind(kind: NodeKind) -> Self {
+        match kind {
+            NodeKind::Element => Self::Element,
+            NodeKind::Attribute => Self::Attribute,
+            NodeKind::Text => Self::TextNode,
+            NodeKind::CdataSection => Self::CdataSection,
+            NodeKind::ProcessingInstruction => Self::ProcessingInstruction,
+            NodeKind::Comment => Self::Comment,
+            NodeKind::Document => Self::Document,
+            NodeKind::DocumentType => Self::DocumentType,
+            NodeKind::DocumentFragment => Self::DocumentFragment,
+        }
+    }
+
+    /// Returns the WHATWG `Node.nodeType` value if this is a node kind, or `None` for sub-objects.
+    #[must_use]
+    pub fn node_type(&self) -> Option<u32> {
+        match self {
+            Self::Element => Some(1),
+            Self::Attribute => Some(2),
+            Self::TextNode => Some(3),
+            Self::CdataSection => Some(4),
+            Self::ProcessingInstruction => Some(7),
+            Self::Comment => Some(8),
+            Self::Document => Some(9),
+            Self::DocumentType => Some(10),
+            Self::DocumentFragment => Some(11),
+            Self::Style | Self::ClassList | Self::ChildNodes | Self::Dataset => None,
+        }
+    }
+}
+
+/// Document ready state (WHATWG HTML §12.2.8).
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum ReadyState {
+    /// The document is still loading.
+    #[default]
+    Loading,
+    /// The document has been parsed; sub-resources still loading.
+    Interactive,
+    /// The document and all sub-resources have finished loading.
+    Complete,
+}
+
+impl ReadyState {
+    /// Returns the string representation per WHATWG HTML spec.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loading => "loading",
+            Self::Interactive => "interactive",
+            Self::Complete => "complete",
+        }
+    }
 }
 
 /// Error returned by DOM API handler invocations.
@@ -109,6 +187,14 @@ pub enum DomApiErrorKind {
     SyntaxError,
     /// A value is not of the expected type (`TypeError`).
     TypeError,
+    /// An index is out of the allowed range (`IndexSizeError`).
+    IndexSizeError,
+    /// A string contains invalid characters (`InvalidCharacterError`).
+    InvalidCharacterError,
+    /// An attribute is already in use by another element (`InUseAttributeError`).
+    InUseAttributeError,
+    /// The operation is not supported (`NotSupportedError`).
+    NotSupportedError,
     /// An unclassified error.
     #[default]
     Other,
@@ -122,6 +208,10 @@ impl fmt::Display for DomApiErrorKind {
             Self::InvalidStateError => f.write_str("InvalidStateError"),
             Self::SyntaxError => f.write_str("SyntaxError"),
             Self::TypeError => f.write_str("TypeError"),
+            Self::IndexSizeError => f.write_str("IndexSizeError"),
+            Self::InvalidCharacterError => f.write_str("InvalidCharacterError"),
+            Self::InUseAttributeError => f.write_str("InUseAttributeError"),
+            Self::NotSupportedError => f.write_str("NotSupportedError"),
             Self::Other => f.write_str("Error"),
         }
     }
@@ -164,5 +254,56 @@ mod tests {
     #[test]
     fn dom_api_error_kind_default() {
         assert_eq!(DomApiErrorKind::default(), DomApiErrorKind::Other);
+    }
+
+    #[test]
+    fn component_kind_from_node_kind() {
+        assert_eq!(
+            ComponentKind::from_node_kind(NodeKind::Element),
+            ComponentKind::Element
+        );
+        assert_eq!(
+            ComponentKind::from_node_kind(NodeKind::Text),
+            ComponentKind::TextNode
+        );
+        assert_eq!(
+            ComponentKind::from_node_kind(NodeKind::Comment),
+            ComponentKind::Comment
+        );
+        assert_eq!(
+            ComponentKind::from_node_kind(NodeKind::Document),
+            ComponentKind::Document
+        );
+        assert_eq!(
+            ComponentKind::from_node_kind(NodeKind::DocumentFragment),
+            ComponentKind::DocumentFragment
+        );
+    }
+
+    #[test]
+    fn component_kind_node_type_sub_objects_none() {
+        assert!(ComponentKind::Style.node_type().is_none());
+        assert!(ComponentKind::ClassList.node_type().is_none());
+        assert!(ComponentKind::ChildNodes.node_type().is_none());
+        assert!(ComponentKind::Dataset.node_type().is_none());
+    }
+
+    #[test]
+    fn component_kind_node_type_nodes() {
+        assert_eq!(ComponentKind::Element.node_type(), Some(1));
+        assert_eq!(ComponentKind::TextNode.node_type(), Some(3));
+        assert_eq!(ComponentKind::Document.node_type(), Some(9));
+    }
+
+    #[test]
+    fn ready_state_as_str() {
+        assert_eq!(ReadyState::Loading.as_str(), "loading");
+        assert_eq!(ReadyState::Interactive.as_str(), "interactive");
+        assert_eq!(ReadyState::Complete.as_str(), "complete");
+    }
+
+    #[test]
+    fn ready_state_default() {
+        assert_eq!(ReadyState::default(), ReadyState::Loading);
     }
 }

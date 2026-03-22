@@ -4,13 +4,10 @@
 //! `canvas.getContext("2d")`. Drawing methods delegate to the
 //! `Canvas2dContext` stored in the `HostBridge`.
 
-use std::sync::Arc;
-
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
-use elidex_ecs::ImageData;
 use elidex_plugin::CssColor;
 use elidex_web_canvas::{serialize_canvas_color, Canvas2dContext};
 
@@ -19,6 +16,14 @@ use crate::globals::element::ENTITY_KEY;
 
 /// Key for storing the canvas element reference on the context2d object.
 const CANVAS_ELEMENT_KEY: &str = "__elidex_canvas_element__";
+
+/// Key for storing the high 32 bits of entity ID on context2d objects.
+/// Entity bits are split into two f64 properties (high/low 32 bits) to
+/// avoid precision loss for u64 values > 2^53.
+const ENTITY_HI_KEY: &str = "__elidex_entity_hi__";
+
+/// Key for storing the low 32 bits of entity ID on context2d objects.
+const ENTITY_LO_KEY: &str = "__elidex_entity_lo__";
 
 /// Register a canvas drawing method on an `ObjectInitializer`.
 ///
@@ -41,7 +46,7 @@ macro_rules! canvas_method {
             0,
         );
     };
-    // Zero-arg method (function pointer), with ImageData sync.
+    // Zero-arg method (function pointer), marks canvas dirty for per-frame sync.
     ($init:expr, $bridge:expr, $name:literal, $method:expr, sync) => {
         let b = $bridge.clone();
         $init.function(
@@ -49,7 +54,7 @@ macro_rules! canvas_method {
                 |this, _args, bridge, ctx| {
                     let bits = extract_entity_bits(this, ctx)?;
                     bridge.with_canvas(bits, $method);
-                    sync_canvas_to_image_data(bridge, bits);
+                    bridge.mark_canvas_dirty(bits);
                     Ok(JsValue::undefined())
                 },
                 b,
@@ -81,7 +86,7 @@ macro_rules! canvas_method {
             $n,
         );
     };
-    // N f32-arg method, with ImageData sync.
+    // N f32-arg method, marks canvas dirty for per-frame sync.
     ($init:expr, $bridge:expr, $name:literal, $n:literal,
      |$c:ident, $($p:ident),+| $body:expr, sync) => {
         let b = $bridge.clone();
@@ -96,7 +101,7 @@ macro_rules! canvas_method {
                     )+
                     let _ = _i;
                     bridge.with_canvas(bits, |$c| $body);
-                    sync_canvas_to_image_data(bridge, bits);
+                    bridge.mark_canvas_dirty(bits);
                     Ok(JsValue::undefined())
                 },
                 b,
@@ -105,37 +110,6 @@ macro_rules! canvas_method {
             $n,
         );
     };
-}
-
-/// Sync the canvas pixel buffer to the ECS `ImageData` component.
-///
-/// Called after each drawing operation to ensure the next render frame
-/// picks up the updated pixels via the existing `DisplayItem::Image` path.
-///
-/// # Implementation note
-///
-/// Pixel extraction (`with_canvas`) and ECS insertion (`with`) must be
-/// separate calls because both borrow the `HostBridge` inner `RefCell`.
-/// Nesting them would cause a double-borrow panic.
-// TODO(Phase 4): defer ImageData sync to once-per-frame instead of per-draw-call.
-fn sync_canvas_to_image_data(bridge: &HostBridge, entity_bits: u64) {
-    let Some((width, height, pixels)) = bridge.with_canvas(entity_bits, |ctx| {
-        (ctx.width(), ctx.height(), ctx.to_rgba8_straight())
-    }) else {
-        return;
-    };
-
-    bridge.with(|_session, dom| {
-        let image_data = ImageData {
-            pixels: Arc::new(pixels),
-            width,
-            height,
-        };
-        let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
-            return;
-        };
-        let _ = dom.world_mut().insert_one(entity, image_data);
-    });
 }
 
 /// Create a `CanvasRenderingContext2D` JS object for the given canvas entity.
@@ -152,9 +126,22 @@ pub(crate) fn create_context2d_object(
 ) -> JsValue {
     let mut init = ObjectInitializer::new(ctx);
 
-    // Store entity reference for identity.
-    // TODO(Phase 4): entity bits stored as f64 loses precision for values > 2^53.
-    // hecs entity IDs are typically small, so this is safe for now.
+    // Store entity reference for identity. Split into high/low 32-bit halves
+    // to avoid f64 precision loss for u64 values > 2^53.
+    let entity_hi = (entity_bits >> 32) as f64;
+    let entity_lo = (entity_bits & 0xFFFF_FFFF) as f64;
+    init.property(
+        js_string!(ENTITY_HI_KEY),
+        JsValue::from(entity_hi),
+        Attribute::empty(),
+    );
+    init.property(
+        js_string!(ENTITY_LO_KEY),
+        JsValue::from(entity_lo),
+        Attribute::empty(),
+    );
+    // Also store as single f64 for backward compatibility with extract_entity
+    // in element.rs (which reads ENTITY_KEY for DOM element wrappers).
     init.property(
         js_string!(ENTITY_KEY),
         JsValue::from(entity_bits as f64),
@@ -293,6 +280,12 @@ fn register_arc_method(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
                 let start = arg_f32(args, 3, ctx)?;
                 let end = arg_f32(args, 4, ctx)?;
                 let ccw = args.get(5).is_some_and(JsValue::to_boolean);
+                // Canvas 2D §4.12.5.1.9: negative radius throws IndexSizeError.
+                if r < 0.0 {
+                    return Err(boa_engine::JsNativeError::range()
+                        .with_message("Failed to execute 'arc': radius must be non-negative")
+                        .into());
+                }
                 bridge.with_canvas(bits, |c| c.arc(x, y, r, start, end, ccw));
                 Ok(JsValue::undefined())
             },
@@ -338,7 +331,10 @@ fn register_measure_text(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) 
 /// Register `getImageData`, `putImageData`, and `createImageData` methods.
 fn register_image_data_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
     // getImageData(sx, sy, sw, sh)
-    // TODO(Phase 4): return Uint8ClampedArray instead of plain Array for spec compliance.
+    // Known spec divergence: per WHATWG Canvas §4.12.5.1.15, ImageData.data should
+    // be a Uint8ClampedArray. We return a plain Array because boa_engine does not
+    // expose Uint8ClampedArray as a built-in type. This is functionally equivalent
+    // for read/write access but may cause issues with code that checks `instanceof`.
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -403,7 +399,7 @@ fn register_image_data_methods(init: &mut ObjectInitializer<'_>, bridge: &HostBr
                     *pixel = n.clamp(0.0, 255.0) as u8;
                 }
                 bridge.with_canvas(bits, |c| c.put_image_data(&pixels, dx, dy, sw, sh));
-                sync_canvas_to_image_data(bridge, bits);
+                bridge.mark_canvas_dirty(bits);
                 Ok(JsValue::undefined())
             },
             b,
@@ -535,12 +531,30 @@ fn register_f32_accessor(
 
 // --- Arg extraction helpers ---
 
-/// Extract entity bits from a context2d object's `__elidex_entity__` property.
+/// Extract entity bits from a context2d object.
+///
+/// Uses the split high/low 32-bit properties to reconstruct the full u64
+/// without f64 precision loss. Falls back to the single `__elidex_entity__`
+/// property for backward compatibility.
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 fn extract_entity_bits(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
     let obj = this
         .as_object()
         .ok_or_else(|| JsNativeError::typ().with_message("expected a context object"))?;
+
+    // Try split hi/lo properties first (precision-safe for all u64 values).
+    let hi_val = obj.get(js_string!(ENTITY_HI_KEY), ctx)?;
+    let lo_val = obj.get(js_string!(ENTITY_LO_KEY), ctx)?;
+    if !hi_val.is_undefined() && !lo_val.is_undefined() {
+        let hi = hi_val.to_number(ctx)?;
+        let lo = lo_val.to_number(ctx)?;
+        if hi.is_finite() && lo.is_finite() && hi >= 0.0 && lo >= 0.0 {
+            let bits = ((hi as u64) << 32) | (lo as u64);
+            return Ok(bits);
+        }
+    }
+
+    // Fallback: single f64 property (legacy, loses precision for values > 2^53).
     let val = obj.get(js_string!(ENTITY_KEY), ctx)?;
     let n = val.to_number(ctx)?;
     if !n.is_finite() || n < 0.0 {

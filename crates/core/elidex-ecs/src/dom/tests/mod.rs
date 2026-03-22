@@ -1,5 +1,9 @@
+use super::shadow::VALID_SHADOW_HOST_TAGS;
 use super::*;
-use crate::components::{Attributes, ShadowRootMode, SlotAssignment, TextContent};
+use crate::components::{
+    AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowHost, ShadowRootMode,
+    SlotAssignment, TextContent,
+};
 
 fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {
     dom.create_element(tag, Attributes::default())
@@ -7,5 +11,7 @@ fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {
 
 mod creation;
 mod destroy;
+mod node_kind;
 mod shadow_dom;
 mod tree_ops;
+mod version;

@@ -248,7 +248,7 @@ fn find_by_id(root: Entity, id: &str, dom: &EcsDom) -> Option<Entity> {
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
 

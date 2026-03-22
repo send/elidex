@@ -96,10 +96,7 @@ a:visited {
     text-decoration-line: underline;
 }
 
-/* TODO(Phase 4): WHATWG 15.3.6 specifies `bdi { direction: ltr; }` as
-   the initial direction for the bidi-isolation context. Currently omitted
-   because elidex defaults to LTR, but should be explicit for correctness. */
-bdi { unicode-bidi: isolate; }
+bdi { unicode-bidi: isolate; direction: ltr; }
 bdo { unicode-bidi: bidi-override; }
 bdo[dir='ltr'] { direction: ltr; }
 bdo[dir='rtl'] { direction: rtl; }

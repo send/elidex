@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 
+use elidex_plugin::{Point, Vector};
 use elidex_render::DisplayList;
 
 /// Winit-independent modifier key state.
@@ -30,14 +31,10 @@ pub struct ModifierState {
 /// and modifier key state for a mouse click.
 #[derive(Clone, Debug)]
 pub struct MouseClickEvent {
-    /// X position in content area (for hit testing).
-    pub x: f32,
-    /// Y position in content area (for hit testing).
-    pub y: f32,
-    /// X position in viewport (for DOM event clientX).
-    pub client_x: f64,
-    /// Y position in viewport (for DOM event clientY).
-    pub client_y: f64,
+    /// Position in content area (for hit testing).
+    pub point: Point,
+    /// Position in viewport (for DOM event clientX/clientY).
+    pub client_point: Point<f64>,
     /// Mouse button number (DOM spec: 0=primary, 1=aux, 2=secondary).
     pub button: u8,
     /// Modifier keys held during click.
@@ -61,14 +58,10 @@ pub enum BrowserToContent {
     },
     /// Mouse moved to content-relative coordinates.
     MouseMove {
-        /// X position in content area (for hit testing).
-        x: f32,
-        /// Y position in content area (for hit testing).
-        y: f32,
-        /// X position in viewport (for DOM event clientX).
-        client_x: f64,
-        /// Y position in viewport (for DOM event clientY).
-        client_y: f64,
+        /// Position in content area (for hit testing).
+        point: Point,
+        /// Position in viewport (for DOM event clientX/clientY).
+        client_point: Point<f64>,
     },
     /// Cursor left the content area.
     CursorLeft,
@@ -107,6 +100,13 @@ pub enum BrowserToContent {
     GoForward,
     /// Reload the current page.
     Reload,
+    /// Mouse wheel scrolled in the content area.
+    MouseWheel {
+        /// Scroll delta in CSS pixels (positive = scroll right/down).
+        delta: Vector<f64>,
+        /// Content-relative coordinates for scroll target hit testing.
+        point: Point,
+    },
     /// IME event.
     Ime {
         /// The IME event kind.

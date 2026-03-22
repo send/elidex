@@ -1,18 +1,16 @@
-//! CSS Grid layout algorithm (CSS Grid Level 1, simplified).
+//! CSS Grid layout algorithm (CSS Grid Level 1 + Level 2 subgrid).
 //!
 //! Implements the core grid algorithm: track sizing, item placement,
-//! and cell positioning.
+//! and cell positioning. Supports named grid lines, `grid-template-areas`,
+//! grid shorthand properties, and subgrid (CSS Grid Level 2 §2).
 //!
-//! Current simplifications:
-//! - No named grid lines (numeric only)
-//! - No `grid-template-areas`
-//! - No subgrid
-//! - `repeat(auto-fill/auto-fit, ...)` treated as `repeat(1, ...)`
-//! - `fit-content()` treated as `auto`
-//! - `inline-grid` treated as block-level
-//! - `baseline` alignment treated as `start`
+// Current simplifications:
+// - `inline-grid` treated as block-level
 
+mod helpers;
+mod occupancy;
 mod placement;
+pub(crate) mod position;
 mod track;
 
 /// Threshold for correcting layout sizes after final child layout.
@@ -24,24 +22,34 @@ const LAYOUT_SIZE_EPSILON: f32 = 0.5;
 #[cfg(test)]
 mod tests;
 
+pub use helpers::compute_grid_intrinsic;
+
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    effective_align, horizontal_pb, resolve_explicit_height, sanitize, sanitize_border,
-    sanitize_padding, ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
+    block::fragmentation::{
+        find_best_break, is_avoid_break_value, is_forced_break, BreakCandidate, BreakClass,
+    },
+    resolve_explicit_height, BreakToken, BreakTokenData, ChildLayoutFn, EmptyContainerParams,
+    LayoutInput, SubgridContext, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Direction, Display, EdgeSizes, GridAutoFlow, GridLine,
-    LayoutBox, Rect, TrackSize,
+    AlignItems, CssSize, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox,
+    Point, Rect, Size,
 };
-use elidex_text::FontDatabase;
 
-use elidex_layout_block::block::resolve_margin;
+use elidex_layout_block::horizontal_pb;
+
+use helpers::{
+    build_contributions, build_track_definitions, collect_grid_items, distribute_tracks,
+    measure_item_content, percentage_tracks_to_auto, resolve_grid_abspos_cb,
+};
 
 // ---------------------------------------------------------------------------
 // GridItem
 // ---------------------------------------------------------------------------
 
 /// A grid item with resolved placement and sizing metrics.
+#[allow(clippy::struct_excessive_bools)]
 struct GridItem {
     entity: Entity,
     source_order: usize,
@@ -65,13 +73,79 @@ struct GridItem {
     pb: EdgeSizes,
     /// Align-self for this item.
     align: AlignItems,
+    /// Justify-self for this item.
+    justify: JustifyItems,
     /// Whether the item's height is `auto` (for stretch).
     height_auto: bool,
     /// Whether the item's width is `auto` (for stretch).
     width_auto: bool,
-    /// Content size from initial layout.
-    content_width: f32,
-    content_height: f32,
+    /// Max-content size from initial layout (at container width).
+    content_size: Size,
+    /// Min-content size from narrow-probe layout.
+    min_content_size: Size,
+    /// Whether this item is a subgrid on the column axis (CSS Grid Level 2 §2).
+    is_subgrid_cols: bool,
+    /// Whether this item is a subgrid on the row axis (CSS Grid Level 2 §2).
+    is_subgrid_rows: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Extract inherited parent track sizes for a subgridded axis, if applicable.
+///
+/// Returns `Some(tracks)` when `track_list` is `Subgrid` and the parent
+/// provided sizes for this axis; `None` otherwise.
+fn inherited_parent_tracks(
+    track_list: &GridTrackList,
+    subgrid: Option<&SubgridContext>,
+    is_col: bool,
+) -> Option<Vec<track::ResolvedTrack>> {
+    if !track_list.is_subgrid() {
+        return None;
+    }
+    let sg = subgrid?;
+    let sizes = if is_col {
+        sg.col_sizes.as_ref()?
+    } else {
+        sg.row_sizes.as_ref()?
+    };
+    Some(
+        sizes
+            .iter()
+            .map(|&size| track::ResolvedTrack::from_fixed_size(size))
+            .collect(),
+    )
+}
+
+/// Add a subgrid's margin/border/padding contribution to the first and last
+/// tracks it spans on one axis (CSS Grid L2 §2.5).
+///
+/// `contribs` are the per-track intrinsic size contributions;
+/// `start` and `span` identify the spanned tracks; `mbp_start`/`mbp_end`
+/// are the axis-start/end m/b/p values already mapped through writing mode.
+fn add_subgrid_axis_mbp(
+    contribs: &mut [track::TrackContribution],
+    start: usize,
+    span: usize,
+    mbp_start: f32,
+    mbp_end: f32,
+) {
+    let span = span.max(1);
+    if start < contribs.len() {
+        contribs[start].min_content += mbp_start;
+        contribs[start].max_content += mbp_start;
+    }
+    let last = start.saturating_add(span - 1);
+    if last < contribs.len() && last != start {
+        contribs[last].min_content += mbp_end;
+        contribs[last].max_content += mbp_end;
+    } else if start < contribs.len() && span == 1 {
+        // Single-track span: add end m/b/p to the same track.
+        contribs[start].min_content += mbp_end;
+        contribs[start].max_content += mbp_end;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -86,23 +160,25 @@ pub fn layout_grid(
     entity: Entity,
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
-) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+) -> elidex_layout_block::LayoutOutcome {
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
 
     // --- 1. Container box model resolution ---
-    let padding = sanitize_padding(&style);
-    let border = sanitize_border(&style);
-    let margin_top = resolve_margin(style.margin_top, containing_width);
-    let margin_bottom = resolve_margin(style.margin_bottom, containing_width);
-    let margin_left = resolve_margin(style.margin_left, containing_width);
-    let margin_right = resolve_margin(style.margin_right, containing_width);
-    let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
+    // Percentage margins/padding resolve against the containing block's inline size
+    // (CSS Box Model §4/§5), not the physical width.
+    let containing_inline = input.containing_inline_size;
+    let (padding, border, margin) =
+        elidex_layout_block::resolve_box_model(&style, containing_inline);
+    let margin_top = margin.top;
+    let margin_bottom = margin.bottom;
+    let margin_left = margin.left;
+    let margin_right = margin.right;
 
     let h_pb = horizontal_pb(&padding, &border);
     let content_width = elidex_layout_block::resolve_content_width(
@@ -113,9 +189,50 @@ pub fn layout_grid(
     );
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
+    let content_origin = Point::new(content_x, content_y);
 
-    let gap_col = sanitize(style.column_gap).max(0.0);
-    let gap_row = sanitize(style.row_gap).max(0.0);
+    // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
+    // In vertical writing modes, the inline axis is physical Y (height) and
+    // block axis is physical X (width).
+    let is_horizontal_wm = style.writing_mode.is_horizontal();
+    let (container_inline_size, block_available) = if is_horizontal_wm {
+        // Horizontal: inline = width, block = height
+        let avail_h = resolve_explicit_height(&style, containing_height);
+        (content_width, avail_h)
+    } else {
+        // Vertical: inline = height (physical Y), block = width (physical X)
+        let v_pb = elidex_layout_block::vertical_pb(&padding, &border);
+        let v_margin = margin_top + margin_bottom;
+        let inline_h = {
+            let auto_val = (containing_inline - v_pb - v_margin).max(0.0);
+            let mut h =
+                elidex_layout_block::sanitize(elidex_layout_block::resolve_dimension_value(
+                    style.height,
+                    containing_inline,
+                    auto_val,
+                ));
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                if let elidex_plugin::Dimension::Length(_)
+                | elidex_plugin::Dimension::Percentage(_) = style.height
+                {
+                    h = (h - v_pb).max(0.0);
+                }
+            }
+            h
+        };
+        // Block available = content_width (physical width = block direction).
+        (inline_h, Some(content_width))
+    };
+
+    let mut gap_col =
+        elidex_layout_block::resolve_dimension_value(style.column_gap, container_inline_size, 0.0)
+            .max(0.0);
+    let mut gap_row = elidex_layout_block::resolve_dimension_value(
+        style.row_gap,
+        block_available.unwrap_or(0.0),
+        0.0,
+    )
+    .max(0.0);
 
     // --- Early return for empty containers ---
     let children = elidex_layout_block::composed_children_flat(dom, entity);
@@ -125,15 +242,16 @@ pub fn layout_grid(
             entity,
             &EmptyContainerParams {
                 style: &style,
-                content_x,
-                content_y,
+                content_origin,
                 content_width,
                 containing_height,
                 padding,
                 border,
                 margin,
+                layout_generation: input.layout_generation,
             },
-        );
+        )
+        .into();
     }
 
     // --- 2. Collect child items (skip display:none) ---
@@ -146,9 +264,35 @@ pub fn layout_grid(
             .then(a.source_order.cmp(&b.source_order))
     });
 
-    // --- 4. Determine explicit grid size ---
-    let explicit_cols = style.grid_template_columns.len();
-    let explicit_rows = style.grid_template_rows.len();
+    // --- 4. Expand auto-repeat and determine explicit grid size ---
+    let col_track_list = &style.grid_template_columns;
+    let row_track_list = &style.grid_template_rows;
+
+    // CSS Grid L2 §2.4: subgridded axes inherit parent gap.
+    if col_track_list.is_subgrid() {
+        if let Some(pg) = input.subgrid.and_then(|sg| sg.col_gap) {
+            gap_col = pg;
+        }
+    }
+    if row_track_list.is_subgrid() {
+        if let Some(pg) = input.subgrid.and_then(|sg| sg.row_gap) {
+            gap_row = pg;
+        }
+    }
+
+    // Column tracks expand against inline available, row tracks against block available.
+    let col_section = col_track_list.expand_with_names(container_inline_size, gap_col);
+    let row_section = row_track_list.expand_with_names(block_available.unwrap_or(0.0), gap_row);
+    let expanded_cols = &col_section.tracks;
+    let expanded_rows = &row_section.tracks;
+    let explicit_cols = expanded_cols.len();
+    let explicit_rows = expanded_rows.len();
+
+    // --- 4b. Build line name maps ---
+    let col_name_map =
+        placement::build_line_name_map(&col_section.line_names, &style.grid_template_areas, true);
+    let row_name_map =
+        placement::build_line_name_map(&row_section.line_names, &style.grid_template_areas, false);
 
     // --- 5-7. Placement ---
     let column_flow = matches!(
@@ -159,455 +303,687 @@ pub fn layout_grid(
         style.grid_auto_flow,
         GridAutoFlow::RowDense | GridAutoFlow::ColumnDense
     );
-    placement::place_items(&mut items, explicit_cols, explicit_rows, column_flow, dense);
+    placement::place_items(
+        &mut items,
+        explicit_cols,
+        explicit_rows,
+        column_flow,
+        dense,
+        &col_name_map,
+        &row_name_map,
+    );
 
     // --- Determine actual grid dimensions (may exceed explicit) ---
     let actual_cols = items
         .iter()
-        .map(|item| item.col_start + item.col_span)
+        .map(|item| item.col_start.saturating_add(item.col_span))
         .max()
         .unwrap_or(explicit_cols)
         .max(explicit_cols);
     let actual_rows = items
         .iter()
-        .map(|item| item.row_start + item.row_span)
+        .map(|item| item.row_start.saturating_add(item.row_span))
         .max()
         .unwrap_or(explicit_rows)
         .max(explicit_rows);
 
-    // --- 8. Measure content sizes (initial layout) ---
-    measure_item_content(
-        dom,
-        &mut items,
-        content_width,
-        containing_height,
-        font_db,
-        depth,
-        layout_child,
-    );
+    // --- Subgrid: check if parent provided track context ---
+    let has_subgrid = items.iter().any(|i| i.is_subgrid_cols || i.is_subgrid_rows);
+    let max_passes = if has_subgrid { 3 } else { 1 };
+    let mut prev_col_sizes: Vec<f32> = Vec::new();
+    let mut prev_row_sizes: Vec<f32> = Vec::new();
 
-    // --- Build per-track max content sizes for intrinsic sizing ---
-    let col_content_sizes = compute_max_content_per_track(&items, actual_cols, true);
-    let row_content_sizes = compute_max_content_per_track(&items, actual_rows, false);
+    // Subgrid multi-pass convergence loop (CSS Grid Level 2 §2).
+    // Phases 8-11 may iterate when subgrid items contribute content sizes
+    // that change parent track sizing. Max 3 passes, early exit on convergence.
+    let mut col_tracks: Vec<track::ResolvedTrack> = Vec::new();
+    let mut row_tracks: Vec<track::ResolvedTrack> = Vec::new();
+    let mut col_positions: Vec<f32> = Vec::new();
+    let mut row_positions: Vec<f32> = Vec::new();
 
-    // --- 9. Resolve column tracks ---
-    let col_defs = build_track_definitions(
-        &style.grid_template_columns,
-        &style.grid_auto_columns,
-        actual_cols,
-    );
-    let col_tracks = track::resolve_tracks(&col_defs, content_width, gap_col, &col_content_sizes);
+    for pass in 0..max_passes {
+        // --- 8. Measure content sizes (initial layout) ---
+        // Measure at inline-available width (column = inline axis).
+        measure_item_content(dom, &mut items, container_inline_size, input, layout_child);
 
-    // --- 10. Resolve row tracks ---
-    let available_height = resolve_explicit_height(&style, containing_height);
-    let row_defs = build_track_definitions(
-        &style.grid_template_rows,
-        &style.grid_auto_rows,
-        actual_rows,
-    );
-    // When the container height is indefinite, percentage row tracks should
-    // behave like auto (CSS Grid §7.2.1).
-    let row_defs = if available_height.is_none() {
-        percentage_tracks_to_auto(row_defs)
-    } else {
-        row_defs
+        // --- Build per-item intrinsic size contributions ---
+        let mut col_contribs = build_contributions(&items, true);
+        let mut row_contribs = build_contributions(&items, false);
+
+        // CSS Grid L2 §2.5: subgrid m/b/p contributes to parent track sizing.
+        // A subgrid's margin, border, and padding on the subgridded axis are
+        // added to the first and last tracks it spans. The edges must be
+        // mapped through writing mode: columns = inline axis, rows = block axis.
+        for item in &items {
+            if item.is_subgrid_cols {
+                // Inline-axis (column) m/b/p: horizontal→left/right, vertical→top/bottom.
+                let (mbp_start, mbp_end) = if is_horizontal_wm {
+                    (
+                        item.margin.left + item.pb.left,
+                        item.margin.right + item.pb.right,
+                    )
+                } else {
+                    (
+                        item.margin.top + item.pb.top,
+                        item.margin.bottom + item.pb.bottom,
+                    )
+                };
+                add_subgrid_axis_mbp(
+                    &mut col_contribs,
+                    item.col_start,
+                    item.col_span,
+                    mbp_start,
+                    mbp_end,
+                );
+            }
+            if item.is_subgrid_rows {
+                // Block-axis (row) m/b/p: horizontal→top/bottom, vertical→left/right.
+                let (mbp_start, mbp_end) = if is_horizontal_wm {
+                    (
+                        item.margin.top + item.pb.top,
+                        item.margin.bottom + item.pb.bottom,
+                    )
+                } else {
+                    (
+                        item.margin.left + item.pb.left,
+                        item.margin.right + item.pb.right,
+                    )
+                };
+                add_subgrid_axis_mbp(
+                    &mut row_contribs,
+                    item.row_start,
+                    item.row_span,
+                    mbp_start,
+                    mbp_end,
+                );
+            }
+        }
+
+        // --- 9. Resolve column tracks ---
+        // If this grid is itself a subgrid on columns, use parent track sizes.
+        col_tracks =
+            if let Some(parent) = inherited_parent_tracks(col_track_list, input.subgrid, true) {
+                parent
+            } else {
+                let col_defs =
+                    build_track_definitions(expanded_cols, &style.grid_auto_columns, actual_cols);
+                let mut ct = track::resolve_tracks(
+                    &col_defs,
+                    container_inline_size,
+                    gap_col,
+                    &col_contribs,
+                    false,
+                );
+                if col_track_list.is_auto_fit() {
+                    collapse_empty_auto_tracks(
+                        &mut ct,
+                        col_track_list,
+                        container_inline_size,
+                        gap_col,
+                        &items,
+                        true,
+                    );
+                }
+                ct
+            };
+
+        // --- 10. Resolve row tracks ---
+        row_tracks =
+            if let Some(parent) = inherited_parent_tracks(row_track_list, input.subgrid, false) {
+                parent
+            } else {
+                let row_defs =
+                    build_track_definitions(expanded_rows, &style.grid_auto_rows, actual_rows);
+                let row_defs = if block_available.is_none() {
+                    percentage_tracks_to_auto(row_defs)
+                } else {
+                    row_defs
+                };
+                let mut rt = track::resolve_tracks(
+                    &row_defs,
+                    block_available.unwrap_or(0.0),
+                    gap_row,
+                    &row_contribs,
+                    false,
+                );
+                if row_track_list.is_auto_fit() {
+                    collapse_empty_auto_tracks(
+                        &mut rt,
+                        row_track_list,
+                        block_available.unwrap_or(0.0),
+                        gap_row,
+                        &items,
+                        false,
+                    );
+                }
+                rt
+            };
+
+        // --- 11. Compute track positions ---
+        col_positions = track::compute_track_positions(&col_tracks, gap_col);
+        row_positions = track::compute_track_positions(&row_tracks, gap_row);
+
+        // --- 11b. Track distribution (justify-content / align-content) ---
+        if !col_track_list.is_subgrid()
+            || input.subgrid.and_then(|sg| sg.col_sizes.as_ref()).is_none()
+        {
+            distribute_tracks(
+                &mut col_positions,
+                &col_tracks,
+                gap_col,
+                container_inline_size,
+                style.justify_content,
+                style.justify_content_safety,
+            );
+        }
+        if !row_track_list.is_subgrid()
+            || input.subgrid.and_then(|sg| sg.row_sizes.as_ref()).is_none()
+        {
+            if let Some(h) = block_available {
+                distribute_tracks(
+                    &mut row_positions,
+                    &row_tracks,
+                    gap_row,
+                    h,
+                    style.align_content,
+                    style.align_content_safety,
+                );
+            }
+        }
+
+        // Convergence check for subgrid multi-pass.
+        if has_subgrid && pass < max_passes - 1 {
+            let cur_col: Vec<f32> = col_tracks.iter().map(|t| t.size).collect();
+            let cur_row: Vec<f32> = row_tracks.iter().map(|t| t.size).collect();
+            if pass > 0 {
+                let cols_converged = cur_col.len() == prev_col_sizes.len()
+                    && cur_col.iter().zip(prev_col_sizes.iter()).all(|(a, b)| {
+                        let diff = (a - b).abs();
+                        diff.is_finite() && diff < LAYOUT_SIZE_EPSILON
+                    });
+                let rows_converged = cur_row.len() == prev_row_sizes.len()
+                    && cur_row.iter().zip(prev_row_sizes.iter()).all(|(a, b)| {
+                        let diff = (a - b).abs();
+                        diff.is_finite() && diff < LAYOUT_SIZE_EPSILON
+                    });
+                if cols_converged && rows_converged {
+                    break;
+                }
+            }
+            prev_col_sizes = cur_col;
+            prev_row_sizes = cur_row;
+        } else {
+            break;
+        }
+    }
+
+    // --- Parse break token for resumption ---
+    let (resume_row, resume_child_bts) = match input.break_token {
+        Some(bt) => match &bt.mode_data {
+            Some(BreakTokenData::Grid {
+                row_index,
+                child_break_tokens,
+            }) => (*row_index, child_break_tokens.clone()),
+            _ => (0, Vec::new()),
+        },
+        None => (0, Vec::new()),
     };
-    let row_tracks = track::resolve_tracks(
-        &row_defs,
-        available_height.unwrap_or(0.0),
-        gap_row,
-        &row_content_sizes,
+    let _ = &resume_child_bts; // consumed by fragmentainer (multicol/paged media) for clip/offset
+    debug_assert!(
+        resume_row == 0 || input.break_token.is_some(),
+        "resume_row > 0 without break token"
     );
-
-    // --- 11. Compute track positions ---
-    let col_positions = track::compute_track_positions(&col_tracks, gap_col);
-    let row_positions = track::compute_track_positions(&row_tracks, gap_row);
 
     // --- 12. Position items + final layout ---
-    let placement = GridPlacement {
+    // Build SubgridContext for child subgrids that need parent track info.
+    let subgrid_ctx = if has_subgrid {
+        Some(SubgridContext {
+            col_sizes: Some(col_tracks.iter().map(|t| t.size).collect()),
+            row_sizes: Some(row_tracks.iter().map(|t| t.size).collect()),
+            col_line_names: col_section.line_names.clone(),
+            row_line_names: row_section.line_names.clone(),
+            col_gap: Some(gap_col),
+            row_gap: Some(gap_row),
+        })
+    } else {
+        None
+    };
+    let placement = position::GridPlacement {
         col_tracks: &col_tracks,
         row_tracks: &row_tracks,
         col_positions: &col_positions,
         row_positions: &row_positions,
-        content_x,
-        content_y,
-        content_width,
+        content_origin,
+        container_inline_size,
         direction: style.direction,
-        containing_height,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
+        subgrid_ctx: subgrid_ctx.as_ref(),
+        writing_mode: style.writing_mode,
     };
-    position_items(dom, &items, &placement, font_db, depth, layout_child);
+    let grid_env = elidex_layout_block::LayoutEnv {
+        font_db,
+        layout_child,
+        depth,
+        viewport: input.viewport,
+        layout_generation: input.layout_generation,
+    };
+    let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
 
-    // --- 13. Container height ---
+    // --- 12b. Fragmentation (CSS Grid L1 §10) ---
+    let (result_break_token, propagated_break_before, propagated_break_after) =
+        if let Some(&frag) = input.fragmentainer {
+            compute_grid_fragmentation(dom, entity, &items, &row_tracks, gap_row, frag, resume_row)
+        } else {
+            (None, None, None)
+        };
+
+    // --- 13. Container dimensions ---
+    // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
+    // In horizontal: width = inline, height = block.
+    // In vertical: width = block, height = inline.
+    let total_col_size = track::total_track_size(&col_tracks, gap_col);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
-    let content_height = available_height.unwrap_or(total_row_size);
+    let (final_content_width, mut final_content_height) = if is_horizontal_wm {
+        (content_width, block_available.unwrap_or(total_row_size))
+    } else {
+        // Vertical: width = block-size (row tracks), height = inline-size
+        let block_size = block_available.unwrap_or(total_row_size);
+        let _ = total_col_size; // inline tracks used for container_inline_size
+        (block_size, container_inline_size)
+    };
+
+    // If fragmentation produced a break, clamp content height to consumed size.
+    if let Some(ref bt) = result_break_token {
+        final_content_height = final_content_height.min(bt.consumed_block_size);
+    }
 
     // --- 14. LayoutBox ---
+    // Grid container baseline (CSS Grid §4.2).
+    let first_baseline = grid_baseline;
+
     let lb = LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
+        content: Rect::from_origin_size(
+            content_origin,
+            Size::new(final_content_width, final_content_height),
+        ),
         padding,
         border,
         margin,
+        first_baseline,
+        layout_generation: 0,
     };
     let _ = dom.world_mut().insert_one(entity, lb.clone());
-    lb
+
+    // --- 15. Layout positioned descendants ---
+    // CSS Grid §11: Grid containers establish containing blocks for abs-pos
+    // children. When placement properties specify grid lines, the grid area
+    // is the CB; otherwise, the container padding-box is used.
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom,
+            &children,
+            content_origin,
+        );
+        let pb = lb.padding_box();
+        let (abs_children, fixed_children) =
+            elidex_layout_block::positioned::collect_positioned_descendants(dom, entity);
+
+        let col_axis = helpers::GridAxisInfo {
+            positions: &col_positions,
+            tracks: &col_tracks,
+            gap: gap_col,
+            name_map: &col_name_map,
+            explicit_count: explicit_cols,
+        };
+        let row_axis = helpers::GridAxisInfo {
+            positions: &row_positions,
+            tracks: &row_tracks,
+            gap: gap_row,
+            name_map: &row_name_map,
+            explicit_count: explicit_rows,
+        };
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+            layout_generation: input.layout_generation,
+        };
+        for child in abs_children {
+            let cb = resolve_grid_abspos_cb(dom, child, &col_axis, &row_axis, content_origin, &pb);
+            let sp = static_positions.get(&child).copied().unwrap_or(cb.origin);
+            elidex_layout_block::positioned::layout_absolutely_positioned(
+                dom, child, &cb, sp, &pos_env,
+            );
+        }
+
+        // Fixed children use viewport CB (or transform CB).
+        let has_transform = style.has_transform;
+        for child in fixed_children {
+            let (cb, sp_default) = if has_transform {
+                (pb, pb.origin)
+            } else if let Some(vp) = input.viewport {
+                (Rect::new(0.0, 0.0, vp.width, vp.height), Point::ZERO)
+            } else {
+                continue;
+            };
+            let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
+            elidex_layout_block::positioned::layout_absolutely_positioned(
+                dom, child, &cb, sp, &pos_env,
+            );
+        }
+    }
+
+    elidex_layout_block::LayoutOutcome {
+        layout_box: lb,
+        break_token: result_break_token,
+        propagated_break_before,
+        propagated_break_after,
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Item collection
+// Grid fragmentation (CSS Grid L1 §10)
 // ---------------------------------------------------------------------------
 
-/// Collect grid items from children, skipping `display:none` and text nodes.
-fn collect_grid_items(
+/// CSS Grid Level 1 §10: Fragmenting Grid Layout.
+///
+/// When the grid container is inside a fragmentainer, the block-axis extent
+/// of row tracks is checked against the available block size. Between rows,
+/// break opportunities are evaluated (forced breaks, avoid constraints).
+///
+/// Returns `(break_token, propagated_break_before, propagated_break_after)`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn compute_grid_fragmentation(
     dom: &EcsDom,
-    children: &[Entity],
-    container_style: &ComputedStyle,
-) -> Vec<GridItem> {
-    let mut items = Vec::new();
-    for (i, &child) in children.iter().enumerate() {
-        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
-            continue; // Text node — skip.
-        };
-        if child_style.display == Display::None {
+    entity: Entity,
+    items: &[GridItem],
+    row_tracks: &[track::ResolvedTrack],
+    gap_row: f32,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_row: usize,
+) -> (
+    Option<BreakToken>,
+    Option<elidex_plugin::BreakValue>,
+    Option<elidex_plugin::BreakValue>,
+) {
+    let frag_type = frag.fragmentation_type;
+    let available = frag.available_block_size;
+    let num_rows = row_tracks.len();
+
+    // Propagated breaks: break-before from items in the first row,
+    // break-after from items in the last row.
+    let propagated_before = items
+        .iter()
+        .filter(|item| item.row_start == 0)
+        .find_map(|item| {
+            let st = elidex_layout_block::try_get_style(dom, item.entity)?;
+            if is_forced_break(st.break_before, frag_type) {
+                Some(st.break_before)
+            } else {
+                None
+            }
+        });
+
+    let last_row = if num_rows > 0 { num_rows - 1 } else { 0 };
+    let propagated_after = items
+        .iter()
+        .filter(|item| item.row_start + item.row_span > last_row)
+        .find_map(|item| {
+            let st = elidex_layout_block::try_get_style(dom, item.entity)?;
+            if is_forced_break(st.break_after, frag_type) {
+                Some(st.break_after)
+            } else {
+                None
+            }
+        });
+
+    if num_rows == 0 {
+        return (None, propagated_before, propagated_after);
+    }
+
+    // Accumulate consumed block size from row tracks.
+    let mut consumed: f32 = 0.0;
+
+    // Account for rows before resume_row (already consumed in prior fragment).
+    for (row_idx, track) in row_tracks.iter().enumerate().take(resume_row.min(num_rows)) {
+        consumed += track.size;
+        if row_idx + 1 < num_rows {
+            consumed += gap_row;
+        }
+    }
+
+    let mut candidates: Vec<BreakCandidate> = Vec::new();
+
+    for (row_idx, track) in row_tracks
+        .iter()
+        .enumerate()
+        .skip(resume_row)
+        .take(num_rows - resume_row)
+    {
+        let row_size = track.size;
+
+        // Check forced break-before on items starting at this row (not first row).
+        if row_idx > resume_row {
+            let has_forced_before =
+                items
+                    .iter()
+                    .filter(|item| item.row_start == row_idx)
+                    .any(|item| {
+                        elidex_layout_block::try_get_style(dom, item.entity)
+                            .is_some_and(|st| is_forced_break(st.break_before, frag_type))
+                    });
+            if has_forced_before {
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Grid {
+                        row_index: row_idx,
+                        child_break_tokens,
+                    }),
+                };
+                return (Some(bt), propagated_before, propagated_after);
+            }
+        }
+
+        // Check forced break-after on items ending at the previous row.
+        if row_idx > resume_row && row_idx > 0 {
+            let prev_row_end = row_idx; // items ending at row_idx-1 have row_start + row_span == row_idx
+            let has_forced_after = items
+                .iter()
+                .filter(|item| item.row_start + item.row_span == prev_row_end)
+                .any(|item| {
+                    elidex_layout_block::try_get_style(dom, item.entity)
+                        .is_some_and(|st| is_forced_break(st.break_after, frag_type))
+                });
+            if has_forced_after {
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Grid {
+                        row_index: row_idx,
+                        child_break_tokens,
+                    }),
+                };
+                return (Some(bt), propagated_before, propagated_after);
+            }
+        }
+
+        // Record a break candidate between rows (Class A break opportunity).
+        if row_idx > resume_row {
+            let violates_avoid = check_avoid_between_rows(dom, items, row_idx, frag_type);
+            candidates.push(BreakCandidate {
+                child_index: row_idx,
+                class: BreakClass::A,
+                cursor_block: consumed,
+                violates_avoid,
+                orphan_widow_penalty: false,
+            });
+        }
+
+        // Add this row's size to consumed.
+        consumed += row_size;
+
+        // Check if consumed exceeds available space.
+        if consumed > available && !candidates.is_empty() {
+            if let Some(best_idx) = find_best_break(&candidates, available) {
+                let break_row = candidates[best_idx].child_index;
+                let consumed_at_break = candidates[best_idx].cursor_block;
+                let child_break_tokens =
+                    collect_spanning_item_breaks(items, row_tracks, gap_row, break_row);
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed_at_break,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Grid {
+                        row_index: break_row,
+                        child_break_tokens,
+                    }),
+                };
+                return (Some(bt), propagated_before, propagated_after);
+            }
+        }
+
+        // Add row gap after this row (before the next).
+        if row_idx + 1 < num_rows {
+            consumed += gap_row;
+        }
+    }
+
+    // All rows fit — no break needed.
+    (None, propagated_before, propagated_after)
+}
+
+/// Collect break tokens for grid items that span across a row break boundary.
+///
+/// An item spans across `break_row` if `item.row_start < break_row` and
+/// `item.row_start + item.row_span > break_row`. For each such item, the
+/// consumed block size is the sum of row track sizes and gaps from the item's
+/// start row up to (but not including) `break_row`.
+#[must_use]
+fn collect_spanning_item_breaks(
+    items: &[GridItem],
+    row_tracks: &[track::ResolvedTrack],
+    gap_row: f32,
+    break_row: usize,
+) -> Vec<(Entity, Box<BreakToken>)> {
+    let mut result = Vec::new();
+    let num_rows = row_tracks.len();
+
+    for item in items {
+        let item_end = item.row_start + item.row_span;
+        // Item must start before break_row and end after break_row to span the boundary.
+        if item.row_start >= break_row || item_end <= break_row {
             continue;
         }
 
-        let align = effective_align(child_style.align_self, container_style.align_items);
-
-        items.push(GridItem {
-            entity: child,
-            source_order: i,
-            order: child_style.order,
-            row_start: 0,
-            col_start: 0,
-            row_span: 1,
-            col_span: 1,
-            grid_row_start: child_style.grid_row_start,
-            grid_row_end: child_style.grid_row_end,
-            grid_column_start: child_style.grid_column_start,
-            grid_column_end: child_style.grid_column_end,
-            margin: EdgeSizes::default(),
-            pb: EdgeSizes::default(),
-            align,
-            height_auto: child_style.height == Dimension::Auto,
-            width_auto: child_style.width == Dimension::Auto,
-            content_width: 0.0,
-            content_height: 0.0,
-        });
-    }
-    items
-}
-
-// ---------------------------------------------------------------------------
-// Content measurement
-// ---------------------------------------------------------------------------
-
-/// Measure each item's content size via a preliminary layout.
-fn measure_item_content(
-    dom: &mut EcsDom,
-    items: &mut [GridItem],
-    container_width: f32,
-    containing_height: Option<f32>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) {
-    for item in items.iter_mut() {
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let padding = sanitize_padding(&child_style);
-        let border = sanitize_border(&child_style);
-        item.pb = EdgeSizes::new(
-            padding.top + border.top,
-            padding.right + border.right,
-            padding.bottom + border.bottom,
-            padding.left + border.left,
-        );
-        item.margin = EdgeSizes::new(
-            resolve_margin(child_style.margin_top, container_width),
-            resolve_margin(child_style.margin_right, container_width),
-            resolve_margin(child_style.margin_bottom, container_width),
-            resolve_margin(child_style.margin_left, container_width),
-        );
-
-        // Preliminary layout at container width to get intrinsic sizes.
-        let child_input = LayoutInput {
-            containing_width: container_width,
-            containing_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-        };
-        let lb = layout_child(dom, item.entity, &child_input);
-        item.content_width = lb.content.width + item.pb.left + item.pb.right;
-        item.content_height = lb.content.height + item.pb.top + item.pb.bottom;
-    }
-}
-
-/// Compute the maximum content size per track for intrinsic sizing.
-///
-/// For items spanning a single track, contribute their full size.
-/// For multi-span items, distribute proportionally.
-#[allow(clippy::cast_precision_loss)]
-fn compute_max_content_per_track(
-    items: &[GridItem],
-    track_count: usize,
-    is_column: bool,
-) -> Vec<f32> {
-    let mut sizes = vec![0.0_f32; track_count];
-    for item in items {
-        let (start, span, content_size) = if is_column {
-            (
-                item.col_start,
-                item.col_span,
-                item.content_width + item.margin.left + item.margin.right,
-            )
-        } else {
-            (
-                item.row_start,
-                item.row_span,
-                item.content_height + item.margin.top + item.margin.bottom,
-            )
-        };
-        if span == 1 && start < track_count {
-            sizes[start] = sizes[start].max(content_size);
-        } else if span > 1 {
-            let per_track = content_size / span as f32;
-            for size in sizes.iter_mut().skip(start).take(span) {
-                *size = size.max(per_track);
-            }
-        }
-    }
-    sizes
-}
-
-// ---------------------------------------------------------------------------
-// Track definitions
-// ---------------------------------------------------------------------------
-
-/// Convert percentage tracks to auto (CSS Grid §7.2.1).
-///
-/// When the available size on an axis is indefinite, percentage-sized tracks
-/// are treated as auto so that intrinsic content sizing takes over.
-fn percentage_tracks_to_auto(defs: Vec<TrackSize>) -> Vec<TrackSize> {
-    defs.into_iter()
-        .map(|def| match def {
-            TrackSize::Percentage(_) => TrackSize::Auto,
-            other => other,
-        })
-        .collect()
-}
-
-/// Build the full list of track definitions (explicit + implicit).
-fn build_track_definitions(
-    explicit: &[TrackSize],
-    auto_track: &TrackSize,
-    actual_count: usize,
-) -> Vec<TrackSize> {
-    (0..actual_count)
-        .map(|i| {
-            explicit
-                .get(i)
-                .cloned()
-                .unwrap_or_else(|| auto_track.clone())
-        })
-        .collect()
-}
-
-// ---------------------------------------------------------------------------
-// Item positioning
-// ---------------------------------------------------------------------------
-
-/// Grid track layout and positioning context.
-struct GridPlacement<'a> {
-    col_tracks: &'a [track::ResolvedTrack],
-    row_tracks: &'a [track::ResolvedTrack],
-    col_positions: &'a [f32],
-    row_positions: &'a [f32],
-    content_x: f32,
-    content_y: f32,
-    content_width: f32,
-    direction: Direction,
-    containing_height: Option<f32>,
-}
-
-/// Position each item within its grid area and perform final layout.
-fn position_items(
-    dom: &mut EcsDom,
-    items: &[GridItem],
-    placement: &GridPlacement<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) {
-    let is_rtl = placement.direction == Direction::Rtl;
-    let content_x = placement.content_x;
-    let content_y = placement.content_y;
-    let content_width = placement.content_width;
-    let containing_height = placement.containing_height;
-    let col_tracks = placement.col_tracks;
-    let row_tracks = placement.row_tracks;
-    let col_positions = placement.col_positions;
-    let row_positions = placement.row_positions;
-    for item in items {
-        // Compute the grid area rectangle.
-        let ltr_area_x = col_positions.get(item.col_start).copied().unwrap_or(0.0);
-        let area_width = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-        // RTL: mirror column position so columns flow right-to-left.
-        let area_x = if is_rtl {
-            (content_width - ltr_area_x - area_width).max(0.0)
-        } else {
-            ltr_area_x
-        };
-        let area_y = row_positions.get(item.row_start).copied().unwrap_or(0.0);
-        let area_height = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
-
-        // Available space for the item after subtracting margins.
-        let avail_w = (area_width - item.margin.left - item.margin.right).max(0.0);
-        let avail_h = (area_height - item.margin.top - item.margin.bottom).max(0.0);
-
-        // Resolve item content width.
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let item_content_w = if item.width_auto {
-            (avail_w - item.pb.left - item.pb.right).max(0.0)
-        } else {
-            resolve_item_dimension(
-                child_style.width,
-                avail_w,
-                item.pb.left + item.pb.right,
-                child_style.box_sizing,
-            )
-            .max(0.0)
-        };
-
-        // Preliminary layout to measure content height.
-        let prelim_input = LayoutInput {
-            containing_width: avail_w,
-            containing_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db,
-            depth: depth + 1,
-        };
-        let prelim_lb = layout_child(dom, item.entity, &prelim_input);
-
-        // Resolve item content height: stretch fills the area, otherwise use content.
-        let prelim_content_h = prelim_lb.content.height;
-        let item_content_h = if should_stretch_cross(item.align, item.height_auto) {
-            (avail_h - item.pb.top - item.pb.bottom).max(prelim_content_h)
-        } else {
-            prelim_content_h
-        };
-
-        let item_outer_h =
-            item_content_h + item.pb.top + item.pb.bottom + item.margin.top + item.margin.bottom;
-
-        // Cross-axis alignment (vertical).
-        let y_offset = compute_alignment_offset(item.align, area_height, item_outer_h);
-
-        // Override the child's width/height so layout_block_inner uses grid-resolved values.
+        // Compute consumed block size: sum of tracks from item.row_start to break_row - 1,
+        // plus inter-row gaps between those tracks.
+        let mut consumed: f32 = 0.0;
+        for (row_idx, track) in row_tracks
+            .iter()
+            .enumerate()
+            .skip(item.row_start)
+            .take(break_row.min(num_rows).saturating_sub(item.row_start))
         {
-            let mut style = elidex_layout_block::get_style(dom, item.entity);
-            style.width = Dimension::Length(item_content_w);
-            style.height = Dimension::Length(item_content_h);
-            let _ = dom.world_mut().insert_one(item.entity, style);
+            consumed += track.size;
+            if row_idx + 1 < break_row && row_idx + 1 < num_rows {
+                consumed += gap_row;
+            }
         }
 
-        // Margin-box position: layout_child (layout_block_inner) adds
-        // margin + border + padding offsets from here.
-        let margin_box_x = content_x + area_x;
-        let margin_box_y = content_y + area_y + y_offset;
-
-        // Final layout at resolved position.
-        let final_input = LayoutInput {
-            containing_width: area_width,
-            containing_height: Some(item_content_h),
-            offset_x: margin_box_x,
-            offset_y: margin_box_y,
-            font_db,
-            depth: depth + 1,
+        let item_bt = BreakToken {
+            entity: item.entity,
+            consumed_block_size: consumed,
+            child_break_token: None,
+            mode_data: None,
         };
-        let final_lb = layout_child(dom, item.entity, &final_input);
+        result.push((item.entity, Box::new(item_bt)));
+    }
 
-        // Ensure the content height matches the grid-resolved value.
-        if (item_content_h - final_lb.content.height).abs() > LAYOUT_SIZE_EPSILON {
-            let corrected = LayoutBox {
-                content: Rect::new(
-                    final_lb.content.x,
-                    final_lb.content.y,
-                    item_content_w,
-                    item_content_h,
-                ),
-                ..final_lb
-            };
-            let _ = dom.world_mut().insert_one(item.entity, corrected);
+    result
+}
+
+/// Check whether breaking between rows at `row_idx` violates an avoid constraint.
+fn check_avoid_between_rows(
+    dom: &EcsDom,
+    items: &[GridItem],
+    row_idx: usize,
+    frag_type: elidex_layout_block::FragmentationType,
+) -> bool {
+    // break-after on items ending at row_idx - 1.
+    if row_idx > 0 {
+        for item in items.iter().filter(|i| i.row_start + i.row_span == row_idx) {
+            if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
+                if is_avoid_break_value(st.break_after, frag_type) {
+                    return true;
+                }
+            }
         }
     }
-}
 
-/// Compute the pixel size of a span of tracks.
-///
-/// Gaps between spanned tracks are included naturally because track positions
-/// already account for gaps.
-fn cell_span_size(
-    tracks: &[track::ResolvedTrack],
-    positions: &[f32],
-    start: usize,
-    span: usize,
-) -> f32 {
-    if tracks.is_empty() || start >= tracks.len() {
-        return 0.0;
+    // break-before on items starting at row_idx.
+    for item in items.iter().filter(|i| i.row_start == row_idx) {
+        if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
+            if is_avoid_break_value(st.break_before, frag_type) {
+                return true;
+            }
+        }
     }
-    let end = (start + span).min(tracks.len());
-    let start_pos = positions.get(start).copied().unwrap_or(0.0);
-    let last = end.saturating_sub(1);
-    let end_pos = positions.get(last).copied().unwrap_or(start_pos)
-        + tracks.get(last).map_or(0.0, |t| t.size);
-    // Include gaps between spanned tracks but not the gap after the last track.
-    end_pos - start_pos
+
+    false
 }
 
-/// Check if an item should stretch in the cross axis.
+// ---------------------------------------------------------------------------
+// Auto-fit collapse
+// ---------------------------------------------------------------------------
+
+/// Collapse empty auto-repeated tracks to zero size (CSS Grid Level 1 §7.2.3.2).
 ///
-/// Stretch only applies when the item's resolved alignment is `Stretch`
-/// AND the item's size on that axis is `auto`.
-fn should_stretch_cross(item_align: AlignItems, size_auto: bool) -> bool {
-    size_auto && matches!(item_align, AlignItems::Stretch)
-}
-
-/// Compute alignment offset within available space.
-fn compute_alignment_offset(item_align: AlignItems, available: f32, item_size: f32) -> f32 {
-    let free = (available - item_size).max(0.0);
-    match item_align {
-        AlignItems::Center => free / 2.0,
-        AlignItems::FlexEnd => free,
-        // Stretch, FlexStart, Baseline — all align to start.
-        AlignItems::FlexStart | AlignItems::Stretch | AlignItems::Baseline => 0.0,
-    }
-}
-
-/// Resolve an item dimension (width/height).
-fn resolve_item_dimension(
-    dim: Dimension,
+/// For `auto-fit`, tracks in the auto-repeat range that contain no items
+/// are collapsed: their size is set to 0 and they don't contribute to the
+/// grid container's intrinsic size.
+fn collapse_empty_auto_tracks(
+    tracks: &mut [track::ResolvedTrack],
+    track_list: &GridTrackList,
     available: f32,
-    pb: f32,
-    box_sizing: elidex_plugin::BoxSizing,
-) -> f32 {
-    match dim {
-        Dimension::Length(px) => {
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (px - pb).max(0.0)
-            } else {
-                px
-            }
+    gap: f32,
+    items: &[GridItem],
+    is_column: bool,
+) {
+    let Some(range) = track_list.auto_repeat_range(available, gap) else {
+        return;
+    };
+
+    for idx in range {
+        if idx >= tracks.len() {
+            break;
         }
-        Dimension::Percentage(pct) => {
-            let resolved = available * pct / 100.0;
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (resolved - pb).max(0.0)
+        // Check if any item occupies this track.
+        let occupied = items.iter().any(|item| {
+            let (start, span) = if is_column {
+                (item.col_start, item.col_span)
             } else {
-                resolved
-            }
+                (item.row_start, item.row_span)
+            };
+            idx >= start && idx < start + span
+        });
+        if !occupied {
+            tracks[idx].size = 0.0;
+            tracks[idx].base = 0.0;
+            tracks[idx].limit = 0.0;
+            tracks[idx].collapsed = true;
         }
-        Dimension::Auto => (available - pb).max(0.0),
     }
 }

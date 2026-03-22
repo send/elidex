@@ -3,9 +3,10 @@
 use super::*;
 use elidex_css::{parse_stylesheet, Declaration, Origin};
 use elidex_ecs::{Attributes, ElementState, PseudoElementMarker, ShadowRootMode, TextContent};
-use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Position};
+use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Overflow, Position};
 
 mod cascade;
+mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;
 mod shadow_compat;
@@ -34,7 +35,7 @@ fn resolve_single(css: &str) -> (EcsDom, Entity, ComputedStyle) {
     let div = dom.create_element("div", Attributes::default());
     dom.append_child(body, div);
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let style = get_style(&dom, div);
     (dom, div, style)
 }
@@ -47,7 +48,7 @@ fn resolve_with_child(css: &str) -> (EcsDom, Entity, Entity, ComputedStyle, Comp
     dom.append_child(body, div);
     dom.append_child(div, span);
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
     let div_style = get_style(&dom, div);
     let span_style = get_style(&dom, span);
     (dom, div, span, div_style, span_style)

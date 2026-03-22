@@ -457,3 +457,140 @@ fn textarea_without_minlength_maxlength() {
     assert_eq!(state.minlength, None);
     assert_eq!(state.maxlength, None);
 }
+
+// ---- Editing method tests (R2 #33) ----
+
+#[test]
+fn set_value_moves_cursor_to_end() {
+    let mut state = FormControlState::default();
+    state.set_value("hello".to_string());
+    assert_eq!(state.value(), "hello");
+    assert_eq!(state.cursor_pos(), 5);
+    assert_eq!(state.selection_start(), 5);
+    assert_eq!(state.selection_end(), 5);
+    assert!(state.is_dirty());
+    assert_eq!(state.char_count(), 5);
+}
+
+#[test]
+fn set_value_initial_does_not_mark_dirty() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("world".to_string());
+    assert_eq!(state.value(), "world");
+    assert!(!state.is_dirty());
+    assert_eq!(state.cursor_pos(), 5);
+    assert_eq!(state.selection_start(), 5);
+    assert_eq!(state.selection_end(), 5);
+}
+
+#[test]
+fn reset_value_restores_default() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("original".to_string());
+    state.set_value("modified".to_string());
+    assert!(state.is_dirty());
+    state.reset_value();
+    assert_eq!(state.value(), "original");
+    assert!(!state.is_dirty());
+}
+
+#[test]
+fn insert_at_cursor_basic() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("ac".to_string());
+    state.set_cursor(1);
+    state.insert_at_cursor("b");
+    assert_eq!(state.value(), "abc");
+    assert_eq!(state.cursor_pos(), 2);
+    assert!(state.is_dirty());
+    assert_eq!(state.char_count(), 3);
+}
+
+#[test]
+fn insert_at_cursor_multibyte() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("あう".to_string());
+    state.set_cursor(3); // after 'あ'
+    state.insert_at_cursor("い");
+    assert_eq!(state.value(), "あいう");
+    assert_eq!(state.char_count(), 3);
+}
+
+#[test]
+fn delete_backward_basic() {
+    let mut state = FormControlState::default();
+    state.set_value("abc".to_string());
+    state.set_cursor(2);
+    assert!(state.delete_backward());
+    assert_eq!(state.value(), "ac");
+    assert_eq!(state.cursor_pos(), 1);
+}
+
+#[test]
+fn delete_backward_at_start() {
+    let mut state = FormControlState::default();
+    state.set_value("abc".to_string());
+    state.set_cursor(0);
+    assert!(!state.delete_backward());
+    assert_eq!(state.value(), "abc");
+}
+
+#[test]
+fn delete_forward_basic() {
+    let mut state = FormControlState::default();
+    state.set_value("abc".to_string());
+    state.set_cursor(1);
+    assert!(state.delete_forward());
+    assert_eq!(state.value(), "ac");
+    assert_eq!(state.cursor_pos(), 1);
+}
+
+#[test]
+fn delete_forward_at_end() {
+    let mut state = FormControlState::default();
+    state.set_value("abc".to_string());
+    // cursor is at end after set_value
+    assert!(!state.delete_forward());
+    assert_eq!(state.value(), "abc");
+}
+
+#[test]
+fn replace_selection_with_text() {
+    let mut state = FormControlState::default();
+    state.set_value("hello world".to_string());
+    state.set_selection(5, 11);
+    state.replace_selection("!");
+    assert_eq!(state.value(), "hello!");
+    assert_eq!(state.cursor_pos(), 6);
+    assert_eq!(state.char_count(), 6);
+}
+
+#[test]
+fn replace_selection_empty_inserts_at_cursor() {
+    let mut state = FormControlState::default();
+    state.set_value("ab".to_string());
+    state.set_cursor(1);
+    state.set_selection(1, 1);
+    state.replace_selection("X");
+    assert_eq!(state.value(), "aXb");
+}
+
+#[test]
+fn delete_backward_marks_dirty() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("x".to_string());
+    assert!(!state.is_dirty());
+    state.set_cursor(1);
+    state.delete_backward();
+    assert!(state.is_dirty());
+}
+
+#[test]
+fn delete_forward_marks_dirty() {
+    let mut state = FormControlState::default();
+    state.set_value_initial("x".to_string());
+    assert!(!state.is_dirty());
+    state.set_cursor(0);
+    state.delete_forward();
+    assert!(state.is_dirty());
+}

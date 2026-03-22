@@ -65,7 +65,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-dejavu fonts-noto-core
+          sudo apt-get install -y -qq fonts-dejavu fonts-noto-core fonts-liberation
 
       - uses: Swatinem/rust-cache@v2
 

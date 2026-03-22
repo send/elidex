@@ -26,7 +26,8 @@ fn default_initial_values() {
     assert_eq!(s.position, Position::Static);
     assert_eq!(s.unicode_bidi, UnicodeBidi::Normal);
     assert_eq!(s.background_color, CssColor::TRANSPARENT);
-    assert_eq!(s.overflow, Overflow::Visible);
+    assert_eq!(s.overflow_x, Overflow::Visible);
+    assert_eq!(s.overflow_y, Overflow::Visible);
 
     // --- Dimensions ---
     assert_eq!(s.width, Dimension::Auto);
@@ -43,10 +44,10 @@ fn default_initial_values() {
     assert_eq!(s.margin_left, Dimension::ZERO);
 
     // --- Padding ---
-    assert_eq!(s.padding.top, 0.0);
-    assert_eq!(s.padding.right, 0.0);
-    assert_eq!(s.padding.bottom, 0.0);
-    assert_eq!(s.padding.left, 0.0);
+    assert_eq!(s.padding.top, Dimension::ZERO);
+    assert_eq!(s.padding.right, Dimension::ZERO);
+    assert_eq!(s.padding.bottom, Dimension::ZERO);
+    assert_eq!(s.padding.left, Dimension::ZERO);
 
     // --- Borders ---
     assert_eq!(s.border_top.width, 0.0);
@@ -68,24 +69,24 @@ fn default_initial_values() {
 
     // --- Box model ---
     assert_eq!(s.box_sizing, BoxSizing::ContentBox);
-    assert_eq!(s.border_radius, 0.0);
+    assert_eq!(s.border_radii, [0.0; 4]);
     assert_eq!(s.opacity, 1.0);
 
     // --- Flex gap ---
-    assert_eq!(s.row_gap, 0.0);
-    assert_eq!(s.column_gap, 0.0);
+    assert_eq!(s.row_gap, Dimension::ZERO);
+    assert_eq!(s.column_gap, Dimension::ZERO);
 
     // --- Flex container ---
     assert_eq!(s.flex_direction, FlexDirection::Row);
     assert_eq!(s.flex_wrap, FlexWrap::Nowrap);
-    assert_eq!(s.justify_content, JustifyContent::FlexStart);
+    assert_eq!(s.justify_content, JustifyContent::Normal);
     assert_eq!(s.align_items, AlignItems::Stretch);
-    assert_eq!(s.align_content, AlignContent::Stretch);
+    assert_eq!(s.align_content, AlignContent::Normal);
 
     // --- Flex item ---
     assert_eq!(s.flex_grow, 0.0);
     assert_eq!(s.flex_shrink, 1.0);
-    assert_eq!(s.flex_basis, Dimension::Auto);
+    assert_eq!(s.flex_basis, FlexBasis::Auto);
     assert_eq!(s.order, 0);
     assert_eq!(s.align_self, AlignSelf::Auto);
 
@@ -93,8 +94,8 @@ fn default_initial_values() {
     assert!(s.grid_template_columns.is_empty());
     assert!(s.grid_template_rows.is_empty());
     assert_eq!(s.grid_auto_flow, GridAutoFlow::Row);
-    assert_eq!(s.grid_auto_columns, TrackSize::Auto);
-    assert_eq!(s.grid_auto_rows, TrackSize::Auto);
+    assert_eq!(s.grid_auto_columns, vec![TrackSize::Auto]);
+    assert_eq!(s.grid_auto_rows, vec![TrackSize::Auto]);
 
     // --- Grid item ---
     assert_eq!(s.grid_column_start, GridLine::Auto);
@@ -118,6 +119,18 @@ fn default_initial_values() {
     assert_eq!(s.clear, Clear::None);
     assert_eq!(s.vertical_align, VerticalAlign::Baseline);
 
+    // --- Stacking context flags ---
+    assert!(!s.has_transform);
+    assert!(!s.has_filter);
+    assert!(!s.has_backdrop_filter);
+    assert!(!s.has_clip_path);
+    assert!(!s.has_mask);
+    assert!(!s.has_perspective);
+    assert!(!s.will_change_stacking);
+    assert!(!s.isolation_isolate);
+    assert!(!s.has_mix_blend);
+    assert!(!s.contain_stacking);
+
     // --- Custom properties ---
     assert!(s.custom_properties.is_empty());
 }
@@ -130,10 +143,10 @@ fn keyword_enum_defaults_and_as_ref() {
     assert_eq!(BorderStyle::default().as_ref(), "none");
     assert_eq!(FlexDirection::default().as_ref(), "row");
     assert_eq!(FlexWrap::default().as_ref(), "nowrap");
-    assert_eq!(JustifyContent::default().as_ref(), "flex-start");
+    assert_eq!(JustifyContent::default().as_ref(), "normal");
     assert_eq!(AlignItems::default().as_ref(), "stretch");
     assert_eq!(AlignSelf::default().as_ref(), "auto");
-    assert_eq!(AlignContent::default().as_ref(), "stretch");
+    assert_eq!(AlignContent::default().as_ref(), "normal");
     assert_eq!(FontStyle::default().as_ref(), "normal");
     assert_eq!(TextAlign::default().as_ref(), "start");
     assert_eq!(Direction::default().as_ref(), "ltr");
@@ -326,7 +339,7 @@ fn from_keyword_case_insensitive() {
 fn from_keyword_unknown_returns_none() {
     assert_eq!(Display::from_keyword("unknown"), None);
     assert_eq!(Position::from_keyword(""), None);
-    assert_eq!(Overflow::from_keyword("scroll"), None);
+    assert_eq!(Overflow::from_keyword("overlay"), None);
 }
 
 #[test]
@@ -386,7 +399,13 @@ fn from_keyword_roundtrip() {
         Position::from_keyword,
     );
     assert_roundtrips(
-        &[Overflow::Visible, Overflow::Hidden],
+        &[
+            Overflow::Visible,
+            Overflow::Hidden,
+            Overflow::Scroll,
+            Overflow::Auto,
+            Overflow::Clip,
+        ],
         Overflow::from_keyword,
     );
     assert_roundtrips(
@@ -417,7 +436,12 @@ fn from_keyword_roundtrip() {
         TableLayout::from_keyword,
     );
     assert_roundtrips(
-        &[CaptionSide::Top, CaptionSide::Bottom],
+        &[
+            CaptionSide::Top,
+            CaptionSide::Bottom,
+            CaptionSide::BlockStart,
+            CaptionSide::BlockEnd,
+        ],
         CaptionSide::from_keyword,
     );
     assert_roundtrips(
@@ -445,6 +469,8 @@ fn from_keyword_roundtrip() {
             JustifyContent::SpaceBetween,
             JustifyContent::SpaceAround,
             JustifyContent::SpaceEvenly,
+            JustifyContent::Stretch,
+            JustifyContent::Normal,
         ],
         JustifyContent::from_keyword,
     );
@@ -467,6 +493,7 @@ fn from_keyword_roundtrip() {
             AlignContent::SpaceBetween,
             AlignContent::SpaceAround,
             AlignContent::SpaceEvenly,
+            AlignContent::Normal,
         ],
         AlignContent::from_keyword,
     );
@@ -573,6 +600,67 @@ fn from_keyword_roundtrip() {
         ],
         Visibility::from_keyword,
     );
+    assert_roundtrips(
+        &[EmptyCells::Show, EmptyCells::Hide],
+        EmptyCells::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            BreakValue::Auto,
+            BreakValue::Avoid,
+            BreakValue::AvoidPage,
+            BreakValue::AvoidColumn,
+            BreakValue::Page,
+            BreakValue::Column,
+            BreakValue::Left,
+            BreakValue::Right,
+            BreakValue::Recto,
+            BreakValue::Verso,
+        ],
+        BreakValue::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            BreakInsideValue::Auto,
+            BreakInsideValue::Avoid,
+            BreakInsideValue::AvoidPage,
+            BreakInsideValue::AvoidColumn,
+        ],
+        BreakInsideValue::from_keyword,
+    );
+    assert_roundtrips(
+        &[ColumnSpan::None, ColumnSpan::All],
+        ColumnSpan::from_keyword,
+    );
+    assert_roundtrips(
+        &[ColumnFill::Balance, ColumnFill::Auto],
+        ColumnFill::from_keyword,
+    );
+    assert_roundtrips(
+        &[BoxDecorationBreak::Slice, BoxDecorationBreak::Cloned],
+        BoxDecorationBreak::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            JustifyItems::Stretch,
+            JustifyItems::Start,
+            JustifyItems::End,
+            JustifyItems::Center,
+            JustifyItems::Baseline,
+        ],
+        JustifyItems::from_keyword,
+    );
+    assert_roundtrips(
+        &[
+            JustifySelf::Auto,
+            JustifySelf::Start,
+            JustifySelf::End,
+            JustifySelf::Center,
+            JustifySelf::Stretch,
+            JustifySelf::Baseline,
+        ],
+        JustifySelf::from_keyword,
+    );
 }
 
 #[test]
@@ -598,4 +686,262 @@ fn vertical_align_display() {
     assert_eq!(VerticalAlign::TextBottom.to_string(), "text-bottom");
     assert_eq!(VerticalAlign::Length(5.0).to_string(), "5px");
     assert_eq!(VerticalAlign::Percentage(50.0).to_string(), "50%");
+}
+
+// --- Stacking context ---
+
+#[test]
+fn stacking_context_default_false() {
+    let s = ComputedStyle::default();
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_absolute_with_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: <integer> → SC.
+    let s = ComputedStyle {
+        position: Position::Absolute,
+        z_index: Some(0),
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_absolute_auto_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: auto → NOT SC.
+    let s = ComputedStyle {
+        position: Position::Absolute,
+        ..Default::default()
+    };
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_fixed_with_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: <integer> → SC.
+    let s = ComputedStyle {
+        position: Position::Fixed,
+        z_index: Some(0),
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_position_fixed_auto_z() {
+    // CSS 2.1 §9.9.1: positioned + z-index: auto → NOT SC.
+    let s = ComputedStyle {
+        position: Position::Fixed,
+        ..Default::default()
+    };
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_relative_with_z_index() {
+    let s = ComputedStyle {
+        position: Position::Relative,
+        z_index: Some(1),
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_relative_auto_z_index() {
+    let s = ComputedStyle {
+        position: Position::Relative,
+        z_index: None,
+        ..Default::default()
+    };
+    assert!(!s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_opacity() {
+    let s = ComputedStyle {
+        opacity: 0.5,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_overflow_hidden() {
+    let s = ComputedStyle {
+        overflow_x: Overflow::Hidden,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_overflow_clip() {
+    let s = ComputedStyle {
+        overflow_y: Overflow::Clip,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_transform() {
+    let s = ComputedStyle {
+        has_transform: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_perspective() {
+    let s = ComputedStyle {
+        has_perspective: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_filter() {
+    let s = ComputedStyle {
+        has_filter: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_will_change() {
+    let s = ComputedStyle {
+        will_change_stacking: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_isolation() {
+    let s = ComputedStyle {
+        isolation_isolate: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_mix_blend() {
+    let s = ComputedStyle {
+        has_mix_blend: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+#[test]
+fn stacking_context_masking() {
+    let s = ComputedStyle {
+        has_clip_path: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+    let s = ComputedStyle {
+        has_mask: true,
+        ..Default::default()
+    };
+    assert!(s.creates_stacking_context());
+}
+
+// --- ViewportOverflow ---
+
+#[test]
+fn viewport_overflow_default_auto() {
+    let vp = ViewportOverflow::default();
+    assert_eq!(vp.overflow_x, Overflow::Auto);
+    assert_eq!(vp.overflow_y, Overflow::Auto);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_visible_to_auto() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Visible, Overflow::Visible);
+    assert_eq!(vp.overflow_x, Overflow::Auto);
+    assert_eq!(vp.overflow_y, Overflow::Auto);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_clip_to_hidden() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Clip, Overflow::Clip);
+    assert_eq!(vp.overflow_x, Overflow::Hidden);
+    assert_eq!(vp.overflow_y, Overflow::Hidden);
+}
+
+#[test]
+fn viewport_overflow_from_propagated_passthrough() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Scroll, Overflow::Hidden);
+    assert_eq!(vp.overflow_x, Overflow::Scroll);
+    assert_eq!(vp.overflow_y, Overflow::Hidden);
+}
+
+// --- Overflow helpers ---
+
+#[test]
+fn overflow_is_scroll_container() {
+    assert!(!Overflow::Visible.is_scroll_container());
+    assert!(!Overflow::Hidden.is_scroll_container());
+    assert!(Overflow::Scroll.is_scroll_container());
+    assert!(Overflow::Auto.is_scroll_container());
+    assert!(!Overflow::Clip.is_scroll_container());
+}
+
+#[test]
+fn overflow_allows_programmatic_scroll() {
+    assert!(!Overflow::Visible.allows_programmatic_scroll());
+    assert!(Overflow::Hidden.allows_programmatic_scroll());
+    assert!(Overflow::Scroll.allows_programmatic_scroll());
+    assert!(Overflow::Auto.allows_programmatic_scroll());
+    assert!(!Overflow::Clip.allows_programmatic_scroll());
+}
+
+#[test]
+fn overflow_clips() {
+    assert!(!Overflow::Visible.clips());
+    assert!(Overflow::Hidden.clips());
+    assert!(Overflow::Scroll.clips());
+    assert!(Overflow::Auto.clips());
+    assert!(Overflow::Clip.clips());
+}
+
+#[test]
+fn computed_style_is_scroll_container() {
+    let mut s = ComputedStyle::default();
+    assert!(!s.is_scroll_container());
+    s.overflow_x = Overflow::Scroll;
+    assert!(s.is_scroll_container());
+    s.overflow_x = Overflow::Visible;
+    s.overflow_y = Overflow::Auto;
+    assert!(s.is_scroll_container());
+}
+
+#[test]
+fn computed_style_clips_overflow() {
+    let mut s = ComputedStyle::default();
+    assert!(!s.clips_overflow());
+    s.overflow_x = Overflow::Hidden;
+    assert!(s.clips_overflow());
+    s.overflow_x = Overflow::Visible;
+    s.overflow_y = Overflow::Clip;
+    assert!(s.clips_overflow());
+}
+
+#[test]
+fn viewport_overflow_allows_scroll_auto() {
+    let vp = ViewportOverflow::default();
+    assert!(vp.allows_scroll());
+}
+
+#[test]
+fn viewport_overflow_allows_scroll_hidden() {
+    let vp = ViewportOverflow::from_propagated(Overflow::Hidden, Overflow::Hidden);
+    assert!(!vp.allows_scroll());
 }

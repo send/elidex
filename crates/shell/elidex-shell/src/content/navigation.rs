@@ -31,6 +31,8 @@ pub(super) fn handle_navigate(
             state.hover_chain.clear();
             state.active_chain.clear();
             state.focusable_cache = None;
+            state.viewport_scroll = elidex_ecs::ScrollState::default();
+            super::scroll::update_viewport_scroll_dimensions(state);
 
             if !is_history_nav {
                 state.nav_controller.push(url.clone());

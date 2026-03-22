@@ -72,7 +72,7 @@ fn line_height_normal() {
     dom.append_child(body, div);
 
     // No line-height set -> default Normal.
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     assert_eq!(style.line_height, elidex_plugin::LineHeight::Normal);
@@ -170,7 +170,7 @@ fn sendsh_style_integration() {
         }
     ";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let body_style = get_style(&dom, body);
     assert_eq!(
@@ -205,7 +205,7 @@ fn opacity_integration() {
 #[test]
 fn border_radius_integration() {
     let (_dom, _div, style) = resolve_single("div { border-radius: 8px; }");
-    assert!((style.border_radius - 8.0).abs() < f32::EPSILON);
+    assert_eq!(style.border_radii, [8.0; 4]);
 }
 
 #[test]
@@ -222,6 +222,6 @@ fn opacity_border_radius_combined() {
     let (_dom, _div, style) =
         resolve_single("div { opacity: 0.8; border-radius: 12px; background-color: red; }");
     assert!((style.opacity - 0.8).abs() < f32::EPSILON);
-    assert!((style.border_radius - 12.0).abs() < f32::EPSILON);
+    assert!((style.border_radii[0] - 12.0).abs() < f32::EPSILON);
     assert_eq!(style.background_color, CssColor::RED);
 }

@@ -126,15 +126,25 @@ pub enum MutationKind {
     CssRule,
 }
 
-/// Record of a successfully applied mutation.
-///
-/// Future use: `MutationObserver` notifications.
+/// Record of a successfully applied mutation (WHATWG DOM §4.3.3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationRecord {
     /// The kind of mutation.
     pub kind: MutationKind,
     /// The primary target entity.
     pub target: Entity,
+    /// Nodes added (for `ChildList` mutations).
+    pub added_nodes: Vec<Entity>,
+    /// Nodes removed (for `ChildList` mutations).
+    pub removed_nodes: Vec<Entity>,
+    /// The previous sibling of the mutation site.
+    pub previous_sibling: Option<Entity>,
+    /// The next sibling of the mutation site.
+    pub next_sibling: Option<Entity>,
+    /// The attribute name (for `Attribute` mutations).
+    pub attribute_name: Option<String>,
+    /// The old value (for `Attribute` or `CharacterData` mutations when requested).
+    pub old_value: Option<String>,
 }
 
 /// Apply a single [`Mutation`] to the ECS DOM.
@@ -148,22 +158,18 @@ pub struct MutationRecord {
 /// (e.g. entity not found, tree constraint violation, or stub operation).
 pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationRecord> {
     match mutation {
-        Mutation::AppendChild { parent, child } => {
-            child_list_record(dom.append_child(*parent, *child), *parent)
-        }
+        Mutation::AppendChild { parent, child } => apply_append_child(dom, *parent, *child),
         Mutation::InsertBefore {
             parent,
             new_child,
             ref_child,
-        } => child_list_record(dom.insert_before(*parent, *new_child, *ref_child), *parent),
-        Mutation::RemoveChild { parent, child } => {
-            child_list_record(dom.remove_child(*parent, *child), *parent)
-        }
+        } => apply_insert_before(dom, *parent, *new_child, *ref_child),
+        Mutation::RemoveChild { parent, child } => apply_remove_child(dom, *parent, *child),
         Mutation::ReplaceChild {
             parent,
             new_child,
             old_child,
-        } => child_list_record(dom.replace_child(*parent, *new_child, *old_child), *parent),
+        } => apply_replace_child(dom, *parent, *new_child, *old_child),
         Mutation::SetAttribute {
             entity,
             name,
@@ -186,10 +192,81 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
     }
 }
 
-fn child_list_record(ok: bool, parent: Entity) -> Option<MutationRecord> {
-    ok.then_some(MutationRecord {
-        kind: MutationKind::ChildList,
-        target: parent,
+fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord {
+    MutationRecord {
+        kind,
+        target,
+        added_nodes: Vec::new(),
+        removed_nodes: Vec::new(),
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    }
+}
+
+fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
+    // Capture previous sibling before mutation (the current last child).
+    let prev_sibling = dom.get_last_child(parent);
+    if !dom.append_child(parent, child) {
+        return None;
+    }
+    Some(MutationRecord {
+        added_nodes: vec![child],
+        previous_sibling: prev_sibling,
+        ..empty_record(MutationKind::ChildList, parent)
+    })
+}
+
+fn apply_insert_before(
+    dom: &mut EcsDom,
+    parent: Entity,
+    new_child: Entity,
+    ref_child: Entity,
+) -> Option<MutationRecord> {
+    let prev_sibling = dom.get_prev_sibling(ref_child);
+    if !dom.insert_before(parent, new_child, ref_child) {
+        return None;
+    }
+    Some(MutationRecord {
+        added_nodes: vec![new_child],
+        previous_sibling: prev_sibling,
+        next_sibling: Some(ref_child),
+        ..empty_record(MutationKind::ChildList, parent)
+    })
+}
+
+fn apply_remove_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
+    let prev_sibling = dom.get_prev_sibling(child);
+    let next_sibling = dom.get_next_sibling(child);
+    if !dom.remove_child(parent, child) {
+        return None;
+    }
+    Some(MutationRecord {
+        removed_nodes: vec![child],
+        previous_sibling: prev_sibling,
+        next_sibling,
+        ..empty_record(MutationKind::ChildList, parent)
+    })
+}
+
+fn apply_replace_child(
+    dom: &mut EcsDom,
+    parent: Entity,
+    new_child: Entity,
+    old_child: Entity,
+) -> Option<MutationRecord> {
+    let prev_sibling = dom.get_prev_sibling(old_child);
+    let next_sibling = dom.get_next_sibling(old_child);
+    if !dom.replace_child(parent, new_child, old_child) {
+        return None;
+    }
+    Some(MutationRecord {
+        added_nodes: vec![new_child],
+        removed_nodes: vec![old_child],
+        previous_sibling: prev_sibling,
+        next_sibling,
+        ..empty_record(MutationKind::ChildList, parent)
     })
 }
 
@@ -201,29 +278,40 @@ fn apply_set_attribute(
 ) -> Option<MutationRecord> {
     let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
     let name = name.to_ascii_lowercase();
-    attrs.set(name, value.to_owned());
+    let old_value = attrs.get(&name).map(str::to_owned);
+    attrs.set(name.clone(), value.to_owned());
+    drop(attrs);
+    dom.rev_version(entity);
     Some(MutationRecord {
-        kind: MutationKind::Attribute,
-        target: entity,
+        attribute_name: Some(name),
+        old_value,
+        ..empty_record(MutationKind::Attribute, entity)
     })
 }
 
 fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Option<MutationRecord> {
     let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
     let name = name.to_ascii_lowercase();
+    let old_value = attrs.get(&name).map(str::to_owned);
     attrs.remove(&name);
+    drop(attrs);
+    dom.rev_version(entity);
     Some(MutationRecord {
-        kind: MutationKind::Attribute,
-        target: entity,
+        attribute_name: Some(name),
+        old_value,
+        ..empty_record(MutationKind::Attribute, entity)
     })
 }
 
 fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<MutationRecord> {
     let mut tc = dom.world_mut().get::<&mut TextContent>(entity).ok()?;
+    let old_value = Some(tc.0.clone());
     text.clone_into(&mut tc.0);
+    drop(tc);
+    dom.rev_version(entity);
     Some(MutationRecord {
-        kind: MutationKind::CharacterData,
-        target: entity,
+        old_value,
+        ..empty_record(MutationKind::CharacterData, entity)
     })
 }
 
@@ -244,10 +332,7 @@ fn apply_set_inline_style(
     }
     let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
     style.set(property.to_owned(), value.to_owned());
-    Some(MutationRecord {
-        kind: MutationKind::InlineStyle,
-        target: entity,
-    })
+    Some(empty_record(MutationKind::InlineStyle, entity))
 }
 
 fn apply_remove_inline_style(
@@ -257,14 +342,11 @@ fn apply_remove_inline_style(
 ) -> Option<MutationRecord> {
     let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
     style.remove(property);
-    Some(MutationRecord {
-        kind: MutationKind::InlineStyle,
-        target: entity,
-    })
+    Some(empty_record(MutationKind::InlineStyle, entity))
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
@@ -283,7 +365,27 @@ mod tests {
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::ChildList);
         assert_eq!(record.target, parent);
+        assert_eq!(record.added_nodes, vec![child]);
+        assert!(record.removed_nodes.is_empty());
+        assert_eq!(record.previous_sibling, None);
         assert_eq!(dom.children(parent), vec![child]);
+    }
+
+    #[test]
+    fn apply_append_child_records_previous_sibling() {
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        let first = elem(&mut dom, "span");
+        let second = elem(&mut dom, "p");
+        dom.append_child(parent, first);
+
+        let m = Mutation::AppendChild {
+            parent,
+            child: second,
+        };
+        let record = apply_mutation(&m, &mut dom).expect("should succeed");
+        assert_eq!(record.previous_sibling, Some(first));
+        assert_eq!(record.added_nodes, vec![second]);
     }
 
     #[test]
@@ -301,6 +403,8 @@ mod tests {
         };
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::ChildList);
+        assert_eq!(record.added_nodes, vec![a]);
+        assert_eq!(record.next_sibling, Some(b));
         assert_eq!(dom.children(parent), vec![a, b]);
     }
 
@@ -316,9 +420,29 @@ mod tests {
         };
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::Attribute);
+        assert_eq!(record.attribute_name.as_deref(), Some("class"));
+        assert_eq!(record.old_value, None);
 
         let attrs = dom.world().get::<&Attributes>(e).unwrap();
         assert_eq!(attrs.get("class"), Some("active"));
+    }
+
+    #[test]
+    fn apply_set_attribute_records_old_value() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        {
+            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
+            attrs.set("class", "old");
+        }
+
+        let m = Mutation::SetAttribute {
+            entity: e,
+            name: "class".into(),
+            value: "new".into(),
+        };
+        let record = apply_mutation(&m, &mut dom).expect("should succeed");
+        assert_eq!(record.old_value.as_deref(), Some("old"));
     }
 
     #[test]
@@ -336,6 +460,8 @@ mod tests {
         };
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::Attribute);
+        assert_eq!(record.attribute_name.as_deref(), Some("id"));
+        assert_eq!(record.old_value.as_deref(), Some("test"));
 
         let attrs = dom.world().get::<&Attributes>(e).unwrap();
         assert!(!attrs.contains("id"));
@@ -352,6 +478,7 @@ mod tests {
         };
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::CharacterData);
+        assert_eq!(record.old_value.as_deref(), Some("hello"));
 
         let tc = dom.world().get::<&TextContent>(text).unwrap();
         assert_eq!(tc.0, "world");
@@ -387,6 +514,9 @@ mod tests {
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::ChildList);
         assert_eq!(record.target, parent);
+        assert_eq!(record.removed_nodes, vec![a]);
+        assert_eq!(record.previous_sibling, None);
+        assert_eq!(record.next_sibling, Some(b));
         assert_eq!(dom.children(parent), vec![b]);
     }
 
@@ -405,6 +535,8 @@ mod tests {
         };
         let record = apply_mutation(&m, &mut dom).expect("should succeed");
         assert_eq!(record.kind, MutationKind::ChildList);
+        assert_eq!(record.added_nodes, vec![new]);
+        assert_eq!(record.removed_nodes, vec![old]);
         assert_eq!(dom.children(parent), vec![new]);
         assert_eq!(dom.get_parent(old), None);
     }

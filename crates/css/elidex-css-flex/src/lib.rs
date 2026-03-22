@@ -2,10 +2,10 @@
 //! justify-content, align-items/self/content, flex-grow/shrink/basis, order).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_or_percentage, resolve_dimension},
-    parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, ComputedStyle,
-    CssPropertyHandler, CssValue, Dimension, FlexDirection, FlexWrap, JustifyContent, LengthUnit,
-    ParseError, PropertyDeclaration, ResolveContext,
+    css_resolve::{keyword_from, parse_length_or_percentage, resolve_length},
+    parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, AlignmentSafety,
+    ComputedStyle, CssPropertyHandler, CssValue, FlexBasis, FlexDirection, FlexWrap,
+    JustifyContent, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
 };
 
 /// CSS flexbox property handler.
@@ -45,7 +45,7 @@ impl CssPropertyHandler for FlexHandler {
                 parse_keyword(input, &["row", "row-reverse", "column", "column-reverse"])?
             }
             "flex-wrap" => parse_keyword(input, &["nowrap", "wrap", "wrap-reverse"])?,
-            "justify-content" => parse_keyword(
+            "justify-content" => parse_alignment_with_safety(
                 input,
                 &[
                     "normal",
@@ -55,13 +55,14 @@ impl CssPropertyHandler for FlexHandler {
                     "space-between",
                     "space-around",
                     "space-evenly",
+                    "stretch",
                 ],
             )?,
-            "align-items" => parse_keyword(
+            "align-items" => parse_alignment_with_safety(
                 input,
                 &["stretch", "flex-start", "flex-end", "center", "baseline"],
             )?,
-            "align-content" => parse_keyword(
+            "align-content" => parse_alignment_with_safety(
                 input,
                 &[
                     "normal",
@@ -74,7 +75,7 @@ impl CssPropertyHandler for FlexHandler {
                     "space-evenly",
                 ],
             )?,
-            "align-self" => parse_keyword(
+            "align-self" => parse_alignment_with_safety(
                 input,
                 &[
                     "auto",
@@ -109,16 +110,22 @@ impl CssPropertyHandler for FlexHandler {
                 elidex_plugin::resolve_keyword!(value, style.flex_wrap, FlexWrap);
             }
             "justify-content" => {
-                elidex_plugin::resolve_keyword!(value, style.justify_content, JustifyContent);
+                let (kw, safety) = extract_safety(value);
+                elidex_plugin::resolve_keyword!(kw, style.justify_content, JustifyContent);
+                style.justify_content_safety = safety;
             }
             "align-items" => {
-                elidex_plugin::resolve_keyword!(value, style.align_items, AlignItems);
+                let (kw, _safety) = extract_safety(value);
+                elidex_plugin::resolve_keyword!(kw, style.align_items, AlignItems);
             }
             "align-content" => {
-                elidex_plugin::resolve_keyword!(value, style.align_content, AlignContent);
+                let (kw, safety) = extract_safety(value);
+                elidex_plugin::resolve_keyword!(kw, style.align_content, AlignContent);
+                style.align_content_safety = safety;
             }
             "align-self" => {
-                elidex_plugin::resolve_keyword!(value, style.align_self, AlignSelf);
+                let (kw, _safety) = extract_safety(value);
+                elidex_plugin::resolve_keyword!(kw, style.align_self, AlignSelf);
             }
             "flex-grow" => {
                 if let CssValue::Number(n) = value {
@@ -131,7 +138,7 @@ impl CssPropertyHandler for FlexHandler {
                 }
             }
             "flex-basis" => {
-                style.flex_basis = resolve_dimension(value, ctx);
+                style.flex_basis = resolve_flex_basis_value(value, ctx);
             }
             "order" => {
                 if let CssValue::Number(n) = value {
@@ -175,16 +182,23 @@ impl CssPropertyHandler for FlexHandler {
         match name {
             "flex-direction" => keyword_from(&style.flex_direction),
             "flex-wrap" => keyword_from(&style.flex_wrap),
-            "justify-content" => keyword_from(&style.justify_content),
+            "justify-content" => format_with_safety(
+                keyword_from(&style.justify_content),
+                style.justify_content_safety,
+            ),
             "align-items" => keyword_from(&style.align_items),
-            "align-content" => keyword_from(&style.align_content),
+            "align-content" => format_with_safety(
+                keyword_from(&style.align_content),
+                style.align_content_safety,
+            ),
             "align-self" => keyword_from(&style.align_self),
             "flex-grow" => CssValue::Number(style.flex_grow),
             "flex-shrink" => CssValue::Number(style.flex_shrink),
             "flex-basis" => match style.flex_basis {
-                Dimension::Auto => CssValue::Keyword("auto".to_string()),
-                Dimension::Length(px) => CssValue::Length(px, LengthUnit::Px),
-                Dimension::Percentage(pct) => CssValue::Percentage(pct),
+                FlexBasis::Auto => CssValue::Keyword("auto".to_string()),
+                FlexBasis::Content => CssValue::Keyword("content".to_string()),
+                FlexBasis::Length(px) => CssValue::Length(px, LengthUnit::Px),
+                FlexBasis::Percentage(pct) => CssValue::Percentage(pct),
             },
             #[allow(clippy::cast_precision_loss)]
             "order" => CssValue::Number(style.order as f32),
@@ -218,12 +232,81 @@ fn parse_flex_basis(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, P
         return Ok(CssValue::Keyword("auto".to_string()));
     }
 
+    // Try "content" keyword (CSS Flexbox §7.3.2)
+    if input
+        .try_parse(|i| i.expect_ident_matching("content"))
+        .is_ok()
+    {
+        return Ok(CssValue::Keyword("content".to_string()));
+    }
+
     // Try length/percentage/zero
     parse_length_or_percentage(input).map_err(|mut e| {
         e.property = "flex-basis".into();
-        e.message = "expected auto, length, or percentage".into();
+        e.message = "expected auto, content, length, or percentage".into();
         e
     })
+}
+
+/// Parse an alignment keyword with optional `safe`/`unsafe` modifier.
+///
+/// CSS Box Alignment Level 3 §5.4: `[safe | unsafe]? <keyword>`.
+fn parse_alignment_with_safety(
+    input: &mut cssparser::Parser<'_, '_>,
+    allowed: &[&str],
+) -> Result<CssValue, ParseError> {
+    // Try safe/unsafe prefix
+    let safety = input
+        .try_parse(|i| {
+            let ident = i.expect_ident().map_err(|_| ())?;
+            match ident.as_ref() {
+                "safe" | "unsafe" => Ok(ident.to_string()),
+                _ => Err(()),
+            }
+        })
+        .ok();
+
+    let kw = parse_keyword(input, allowed)?;
+
+    if let Some(safety_kw) = safety {
+        Ok(CssValue::List(vec![CssValue::Keyword(safety_kw), kw]))
+    } else {
+        Ok(kw)
+    }
+}
+
+/// Extract the alignment keyword and safety from a possibly-wrapped value.
+fn extract_safety(value: &CssValue) -> (&CssValue, AlignmentSafety) {
+    match value {
+        CssValue::List(items) if items.len() == 2 => {
+            let safety = match items[0].as_keyword() {
+                Some("safe") => AlignmentSafety::Safe,
+                // "unsafe" keyword or any unrecognized value
+                _ => AlignmentSafety::Unsafe,
+            };
+            (&items[1], safety)
+        }
+        _ => (value, AlignmentSafety::Unsafe),
+    }
+}
+
+/// Format a computed alignment value with safety modifier.
+fn format_with_safety(kw: CssValue, safety: AlignmentSafety) -> CssValue {
+    match safety {
+        AlignmentSafety::Safe => CssValue::List(vec![CssValue::Keyword("safe".to_string()), kw]),
+        AlignmentSafety::Unsafe => kw,
+    }
+}
+
+/// Resolve a `CssValue` to a `FlexBasis`.
+fn resolve_flex_basis_value(value: &CssValue, ctx: &ResolveContext) -> FlexBasis {
+    match value {
+        CssValue::Keyword(k) if k == "content" => FlexBasis::Content,
+        CssValue::Length(v, unit) => FlexBasis::Length(resolve_length(*v, *unit, ctx)),
+        CssValue::Percentage(p) => FlexBasis::Percentage(*p),
+        CssValue::Number(n) if *n == 0.0 => FlexBasis::Length(0.0),
+        _ => FlexBasis::Auto,
+    }
 }
 
 fn parse_order(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
@@ -278,12 +361,14 @@ mod tests {
     #[test]
     fn parse_justify_content_keywords() {
         for kw in &[
+            "normal",
             "flex-start",
             "flex-end",
             "center",
             "space-between",
             "space-around",
             "space-evenly",
+            "stretch",
         ] {
             let result = parse("justify-content", kw);
             assert_eq!(result[0].value, CssValue::Keyword(kw.to_string()));
@@ -376,7 +461,7 @@ mod tests {
             &ctx,
             &mut style,
         );
-        assert_eq!(style.flex_basis, Dimension::Length(200.0));
+        assert_eq!(style.flex_basis, FlexBasis::Length(200.0));
     }
 
     #[test]
@@ -435,7 +520,7 @@ mod tests {
             align_self: AlignSelf::FlexEnd,
             flex_grow: 3.0,
             flex_shrink: 0.0,
-            flex_basis: Dimension::Percentage(50.0),
+            flex_basis: FlexBasis::Percentage(50.0),
             order: 5,
             ..ComputedStyle::default()
         };
@@ -476,5 +561,148 @@ mod tests {
             CssValue::Percentage(50.0)
         );
         assert_eq!(handler.get_computed("order", &style), CssValue::Number(5.0));
+    }
+
+    #[test]
+    fn parse_safe_justify_content() {
+        let result = parse("justify-content", "safe center");
+        assert_eq!(
+            result[0].value,
+            CssValue::List(vec![
+                CssValue::Keyword("safe".to_string()),
+                CssValue::Keyword("center".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_unsafe_align_content() {
+        let result = parse("align-content", "unsafe flex-end");
+        assert_eq!(
+            result[0].value,
+            CssValue::List(vec![
+                CssValue::Keyword("unsafe".to_string()),
+                CssValue::Keyword("flex-end".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn resolve_safe_justify_content() {
+        let handler = FlexHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        let val = CssValue::List(vec![
+            CssValue::Keyword("safe".into()),
+            CssValue::Keyword("center".into()),
+        ]);
+        handler.resolve("justify-content", &val, &ctx, &mut style);
+        assert_eq!(style.justify_content, JustifyContent::Center);
+        assert_eq!(style.justify_content_safety, AlignmentSafety::Safe);
+    }
+
+    #[test]
+    fn resolve_safe_align_content() {
+        let handler = FlexHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        let val = CssValue::List(vec![
+            CssValue::Keyword("safe".into()),
+            CssValue::Keyword("flex-end".into()),
+        ]);
+        handler.resolve("align-content", &val, &ctx, &mut style);
+        assert_eq!(style.align_content, AlignContent::FlexEnd);
+        assert_eq!(style.align_content_safety, AlignmentSafety::Safe);
+    }
+
+    #[test]
+    fn get_computed_safe_justify_content() {
+        let handler = FlexHandler;
+        let style = ComputedStyle {
+            justify_content: JustifyContent::Center,
+            justify_content_safety: AlignmentSafety::Safe,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            handler.get_computed("justify-content", &style),
+            CssValue::List(vec![
+                CssValue::Keyword("safe".into()),
+                CssValue::Keyword("center".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_align_content_normal() {
+        let result = parse("align-content", "normal");
+        assert_eq!(result[0].value, CssValue::Keyword("normal".to_string()));
+    }
+
+    #[test]
+    fn get_computed_normal_justify_content() {
+        let handler = FlexHandler;
+        let style = ComputedStyle::default();
+        assert_eq!(
+            handler.get_computed("justify-content", &style),
+            CssValue::Keyword("normal".into()),
+        );
+    }
+
+    #[test]
+    fn get_computed_normal_align_content() {
+        let handler = FlexHandler;
+        let style = ComputedStyle::default();
+        assert_eq!(
+            handler.get_computed("align-content", &style),
+            CssValue::Keyword("normal".into()),
+        );
+    }
+
+    #[test]
+    fn resolve_no_safety_is_unsafe() {
+        let handler = FlexHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "justify-content",
+            &CssValue::Keyword("center".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.justify_content, JustifyContent::Center);
+        assert_eq!(style.justify_content_safety, AlignmentSafety::Unsafe);
+    }
+
+    #[test]
+    fn parse_flex_basis_content() {
+        let result = parse("flex-basis", "content");
+        assert_eq!(result[0].value, CssValue::Keyword("content".to_string()));
+    }
+
+    #[test]
+    fn resolve_flex_basis_content() {
+        let handler = FlexHandler;
+        let ctx = ResolveContext::default();
+        let mut style = ComputedStyle::default();
+        handler.resolve(
+            "flex-basis",
+            &CssValue::Keyword("content".into()),
+            &ctx,
+            &mut style,
+        );
+        assert_eq!(style.flex_basis, FlexBasis::Content);
+    }
+
+    #[test]
+    fn get_computed_flex_basis_content_roundtrip() {
+        let handler = FlexHandler;
+        let style = ComputedStyle {
+            flex_basis: FlexBasis::Content,
+            ..ComputedStyle::default()
+        };
+        assert_eq!(
+            handler.get_computed("flex-basis", &style),
+            CssValue::Keyword("content".into())
+        );
     }
 }

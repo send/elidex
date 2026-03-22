@@ -27,9 +27,8 @@ u, ins { text-decoration-line: underline; }
 s, strike, del { text-decoration-line: line-through; }
 small { font-size: smaller; }
 big { font-size: larger; }
-/* Phase 4 TODO: sub/sup need vertical-align: sub/super (property not yet in ComputedStyle) */
-sub { font-size: smaller; }
-sup { font-size: smaller; }
+sub { font-size: smaller; vertical-align: sub; }
+sup { font-size: smaller; vertical-align: super; }
 mark { background-color: yellow; color: black; }
 center { display: block; text-align: center; }
 input, textarea, select, button { display: inline-block; }

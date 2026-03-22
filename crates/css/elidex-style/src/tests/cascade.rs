@@ -32,7 +32,7 @@ fn inline_style_overrides_author() {
 
     let css = "div { color: red; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     assert_eq!(style.color, CssColor::BLUE);
@@ -48,7 +48,7 @@ fn author_important_overrides_inline() {
 
     let css = "div { color: red !important; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     assert_eq!(style.color, CssColor::RED);
@@ -58,7 +58,7 @@ fn author_important_overrides_inline() {
 fn ua_stylesheet_body_margin() {
     let (mut dom, _root, _html, body) = build_simple_dom();
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, body);
     assert_eq!(style.margin_top, Dimension::Length(8.0));
@@ -78,7 +78,7 @@ fn inherit_keyword() {
     // display is non-inherited; inherit keyword forces inheritance
     let css = "div { display: flex; } span { display: inherit; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let span_style = get_style(&dom, span);
     assert_eq!(span_style.display, Display::Flex);
@@ -103,7 +103,7 @@ fn unset_keyword() {
     // display is non-inherited: unset -> initial
     let css = "div { color: red; display: flex; } span { color: unset; display: unset; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let span_style = get_style(&dom, span);
     assert_eq!(span_style.color, CssColor::RED); // inherited
@@ -120,7 +120,7 @@ fn mixed_ua_author_inline() {
 
     let css = "div { margin-top: 10px; }";
     let ss = parse_stylesheet(css, Origin::Author);
-    resolve_styles(&mut dom, &[&ss], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     assert_eq!(style.display, Display::Block); // UA
@@ -172,7 +172,7 @@ fn head_display_none() {
     dom.append_child(html, head);
     dom.append_child(html, body);
 
-    resolve_styles(&mut dom, &[], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, head);
     assert_eq!(style.display, Display::None);
@@ -200,7 +200,7 @@ fn multiple_author_stylesheets_ordering() {
     // Later stylesheet (ss2) must still win.
     let ss1 = parse_stylesheet("p { display: block; } div { color: red; }", Origin::Author);
     let ss2 = parse_stylesheet("div { color: blue; }", Origin::Author);
-    resolve_styles(&mut dom, &[&ss1, &ss2], 1920.0, 1080.0);
+    resolve_styles(&mut dom, &[&ss1, &ss2], Size::new(1920.0, 1080.0));
 
     let style = get_style(&dom, div);
     // Later stylesheet wins at same specificity.

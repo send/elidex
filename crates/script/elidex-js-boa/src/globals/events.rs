@@ -229,107 +229,127 @@ fn set_elapsed_and_pseudo(
     );
 }
 
-// TODO(M4-3.7): extract per-variant helpers (set_input_payload, set_clipboard_payload, etc.).
-#[allow(clippy::too_many_lines)]
+fn set_transition_payload(
+    init: &mut ObjectInitializer<'_>,
+    t: &elidex_plugin::TransitionEventInit,
+) {
+    set_elapsed_and_pseudo(init, t.elapsed_time, &t.pseudo_element);
+    init.property(
+        js_string!("propertyName"),
+        JsValue::from(js_string!(t.property_name.as_str())),
+        RO,
+    );
+}
+
+fn set_animation_payload(init: &mut ObjectInitializer<'_>, a: &elidex_plugin::AnimationEventInit) {
+    set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
+    init.property(
+        js_string!("animationName"),
+        JsValue::from(js_string!(a.animation_name.as_str())),
+        RO,
+    );
+}
+
 fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPayload) {
     match payload {
-        EventPayload::Mouse(m) => {
-            init.property(js_string!("clientX"), JsValue::from(m.client_x), RO);
-            init.property(js_string!("clientY"), JsValue::from(m.client_y), RO);
-            init.property(js_string!("button"), JsValue::from(i32::from(m.button)), RO);
-            init.property(
-                js_string!("buttons"),
-                JsValue::from(i32::from(m.buttons)),
-                RO,
-            );
-            set_modifier_keys(
-                init,
-                &ModifierKeys {
-                    alt: m.alt_key,
-                    ctrl: m.ctrl_key,
-                    meta: m.meta_key,
-                    shift: m.shift_key,
-                },
-            );
-        }
-        EventPayload::Keyboard(k) => {
-            init.property(
-                js_string!("key"),
-                JsValue::from(js_string!(k.key.as_str())),
-                RO,
-            );
-            init.property(
-                js_string!("code"),
-                JsValue::from(js_string!(k.code.as_str())),
-                RO,
-            );
-            init.property(js_string!("repeat"), JsValue::from(k.repeat), RO);
-            set_modifier_keys(
-                init,
-                &ModifierKeys {
-                    alt: k.alt_key,
-                    ctrl: k.ctrl_key,
-                    meta: k.meta_key,
-                    shift: k.shift_key,
-                },
-            );
-        }
-        EventPayload::Transition(t) => {
-            set_elapsed_and_pseudo(init, t.elapsed_time, &t.pseudo_element);
-            init.property(
-                js_string!("propertyName"),
-                JsValue::from(js_string!(t.property_name.as_str())),
-                RO,
-            );
-        }
-        EventPayload::Animation(a) => {
-            set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
-            init.property(
-                js_string!("animationName"),
-                JsValue::from(js_string!(a.animation_name.as_str())),
-                RO,
-            );
-        }
-        EventPayload::Input(i) => {
-            init.property(
-                js_string!("inputType"),
-                JsValue::from(js_string!(i.input_type.as_str())),
-                RO,
-            );
-            init.property(
-                js_string!("data"),
-                i.data
-                    .as_deref()
-                    .map_or(JsValue::null(), |d| JsValue::from(js_string!(d))),
-                RO,
-            );
-            init.property(js_string!("isComposing"), JsValue::from(i.is_composing), RO);
-        }
-        EventPayload::Clipboard(c) => {
-            init.property(
-                js_string!("clipboardData"),
-                JsValue::from(js_string!(c.data.as_str())),
-                RO,
-            );
-        }
-        EventPayload::Composition(c) => {
-            init.property(
-                js_string!("data"),
-                JsValue::from(js_string!(c.data.as_str())),
-                RO,
-            );
-        }
-        EventPayload::Focus(_f) => {
-            // UI Events §5.2: relatedTarget is the EventTarget losing/gaining focus.
-            // Initialized as null here; JsRuntime::dispatch_event resolves the entity
-            // bits to a JS wrapper and overwrites via obj.set().  Must be writable +
-            // configurable so the runtime assignment succeeds.
-            init.property(
-                js_string!("relatedTarget"),
-                JsValue::null(),
-                Attribute::WRITABLE | Attribute::CONFIGURABLE,
-            );
-        }
+        EventPayload::Mouse(m) => set_mouse_payload(init, m),
+        EventPayload::Keyboard(k) => set_keyboard_payload(init, k),
+        EventPayload::Transition(t) => set_transition_payload(init, t),
+        EventPayload::Animation(a) => set_animation_payload(init, a),
+        EventPayload::Input(i) => set_input_payload(init, i),
+        EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
+        EventPayload::Composition(c) => set_composition_payload(init, c),
+        EventPayload::Focus(_f) => set_focus_payload(init),
         EventPayload::None | _ => {}
     }
+}
+
+fn set_mouse_payload(init: &mut ObjectInitializer<'_>, m: &elidex_plugin::MouseEventInit) {
+    init.property(js_string!("clientX"), JsValue::from(m.client_x), RO);
+    init.property(js_string!("clientY"), JsValue::from(m.client_y), RO);
+    init.property(js_string!("button"), JsValue::from(i32::from(m.button)), RO);
+    init.property(
+        js_string!("buttons"),
+        JsValue::from(i32::from(m.buttons)),
+        RO,
+    );
+    set_modifier_keys(
+        init,
+        &ModifierKeys {
+            alt: m.alt_key,
+            ctrl: m.ctrl_key,
+            meta: m.meta_key,
+            shift: m.shift_key,
+        },
+    );
+}
+
+fn set_keyboard_payload(init: &mut ObjectInitializer<'_>, k: &elidex_plugin::KeyboardEventInit) {
+    init.property(
+        js_string!("key"),
+        JsValue::from(js_string!(k.key.as_str())),
+        RO,
+    );
+    init.property(
+        js_string!("code"),
+        JsValue::from(js_string!(k.code.as_str())),
+        RO,
+    );
+    init.property(js_string!("repeat"), JsValue::from(k.repeat), RO);
+    set_modifier_keys(
+        init,
+        &ModifierKeys {
+            alt: k.alt_key,
+            ctrl: k.ctrl_key,
+            meta: k.meta_key,
+            shift: k.shift_key,
+        },
+    );
+}
+
+fn set_input_payload(init: &mut ObjectInitializer<'_>, i: &elidex_plugin::InputEventInit) {
+    init.property(
+        js_string!("inputType"),
+        JsValue::from(js_string!(i.input_type.as_str())),
+        RO,
+    );
+    init.property(
+        js_string!("data"),
+        i.data
+            .as_deref()
+            .map_or(JsValue::null(), |d| JsValue::from(js_string!(d))),
+        RO,
+    );
+    init.property(js_string!("isComposing"), JsValue::from(i.is_composing), RO);
+}
+
+fn set_clipboard_payload(init: &mut ObjectInitializer<'_>, c: &elidex_plugin::ClipboardEventInit) {
+    init.property(
+        js_string!("clipboardData"),
+        JsValue::from(js_string!(c.data.as_str())),
+        RO,
+    );
+}
+
+fn set_composition_payload(
+    init: &mut ObjectInitializer<'_>,
+    c: &elidex_plugin::CompositionEventInit,
+) {
+    init.property(
+        js_string!("data"),
+        JsValue::from(js_string!(c.data.as_str())),
+        RO,
+    );
+}
+
+fn set_focus_payload(init: &mut ObjectInitializer<'_>) {
+    // UI Events §5.2: relatedTarget is the EventTarget losing/gaining focus.
+    // Initialized as null here; JsRuntime::dispatch_event resolves the entity
+    // bits to a JS wrapper and overwrites via obj.set().  Must be writable +
+    // configurable so the runtime assignment succeeds.
+    init.property(
+        js_string!("relatedTarget"),
+        JsValue::null(),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
 }

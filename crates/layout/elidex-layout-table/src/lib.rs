@@ -13,65 +13,164 @@
 //! `cells`, `cell_styles`, `cell_layout_boxes`, and `collapsed_borders`
 //! always have identical length.
 //!
-//! Current simplifications (Phase 4 deferred):
-//! - `vertical-align` treated as `top`
-//! - `InlineTable` treated as block-level
-//! - `TableColumn`/`TableColumnGroup` recognized but width propagation skipped
-//! - `empty-cells` always `show`
-//! - `baseline` alignment treated as `start`
-//! - Anonymous row DOM mutation is not idempotent across re-layouts (needs layout caching)
+//! Current simplifications:
+//! - `<col>` span attribute read from HTML (clamped to 1–1000 per WHATWG §4.9.11)
 //! - Cells are laid out twice (height probe + final positioning); could cache first pass
 
 mod algo;
 mod grid;
+mod helpers;
 
 #[cfg(test)]
 #[allow(unused_must_use)]
 mod tests;
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    horizontal_pb, sanitize_border, sanitize_padding, vertical_pb, ChildLayoutFn, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    block::fragmentation::{
+        find_best_break, is_avoid_break_value, is_forced_break, BreakCandidate, BreakClass,
+    },
+    horizontal_pb, sanitize_border, vertical_pb, BreakToken, BreakTokenData, ChildLayoutFn,
+    LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    BorderCollapse, CaptionSide, ComputedStyle, Dimension, Direction, Display, EdgeSizes,
-    LayoutBox, Rect, TableLayout,
+    BorderCollapse, CaptionSide, ComputedStyle, CssSize, Direction, Display, EdgeSizes, LayoutBox,
+    Point, VerticalAlign,
 };
-use elidex_text::FontDatabase;
 
 use elidex_layout_block::block::resolve_margin;
 
-use algo::{auto_column_widths, fixed_column_widths, resolve_collapsed_borders, CollapsedBorders};
+use algo::resolve_collapsed_borders;
+pub(crate) use algo::CollapsedBorders;
 pub(crate) use grid::{
     build_cell_grid, cell_available_width, collect_all_rows, span_end_col, span_end_row, CellInfo,
+    RowInfo,
 };
+pub use grid::{collect_anonymous_pool, inherit_for_anonymous};
+use helpers::{
+    box_total_height, build_table_layout_box, collapse_adjusted_width, collect_col_info,
+    compute_column_widths, resolve_table_height, TableColumnInput,
+};
+// Re-exported for tests (col_span.rs uses `crate::col_span_count`).
+#[cfg(test)]
+pub(crate) use helpers::col_span_count;
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/// Total outer height of a layout box (margin + border + padding + content).
-#[inline]
-#[must_use]
-fn box_total_height(lb: &LayoutBox) -> f32 {
-    lb.margin.top
-        + lb.border.top
-        + lb.padding.top
-        + lb.content.height
-        + lb.padding.bottom
-        + lb.border.bottom
-        + lb.margin.bottom
+/// Compute a table cell's baseline from its border-box top edge (CSS 2.1 §17.5.1).
+///
+/// If the cell has a `first_baseline`, returns `padding.top + border.top + baseline`.
+/// Otherwise, returns the content-edge bottom: `padding.top + border.top + content.height`
+/// (CSS 2.1 §17.5.1: "the baseline is the bottom of the content edge of the cell box").
+fn cell_baseline(cell_lb: &LayoutBox) -> f32 {
+    cell_lb.first_baseline.map_or(
+        cell_lb.padding.top + cell_lb.border.top + cell_lb.content.size.height,
+        |b| b + cell_lb.padding.top + cell_lb.border.top,
+    )
 }
 
-/// Cell width adjusted for the collapsed border half-width model.
-#[inline]
-#[must_use]
-fn collapse_adjusted_width(cell_width: f32, is_collapse: bool, cb: &CollapsedBorders) -> f32 {
-    if is_collapse {
-        (cell_width - cb.left / 2.0 - cb.right / 2.0).max(0.0)
+// ---------------------------------------------------------------------------
+// Anonymous table object generation (CSS 2.1 §17.2.1)
+// ---------------------------------------------------------------------------
+
+/// Wrap consecutive non-table-cell children in rows with anonymous table-cell boxes.
+///
+/// CSS 2.1 §17.2.1 Stage 2 Rule 3: any child of a table-row that is not a
+/// table-cell generates an anonymous table-cell wrapper.
+fn wrap_non_cell_content_in_rows(dom: &mut EcsDom, all_rows: &[RowInfo]) {
+    for row_info in all_rows {
+        grid::wrap_non_matching_children(
+            dom,
+            row_info.entity,
+            Display::TableCell,
+            Display::TableCell,
+            "td",
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Row group info for border collapse
+// ---------------------------------------------------------------------------
+
+/// Row-group metadata for border-collapse resolution.
+pub(crate) struct RowGroupInfo {
+    pub(crate) style: ComputedStyle,
+    pub(crate) start_row: usize,
+    /// Exclusive end row index.
+    pub(crate) end_row: usize,
+}
+
+/// Column-group metadata for border-collapse resolution (CSS 2.1 §17.6.2.1).
+pub(crate) struct ColGroupBorderInfo {
+    pub(crate) style: ComputedStyle,
+    pub(crate) start_col: usize,
+    /// Exclusive end column index.
+    pub(crate) end_col: usize,
+}
+
+/// Collect row group style and row-range info from the row collection.
+///
+/// Derives row ranges directly from [`RowInfo::group_end_row`] boundaries,
+/// avoiding a redundant DOM re-walk.  Each distinct `(start, group_end_row)`
+/// range with an associated row-group entity produces one `RowGroupInfo`.
+fn collect_row_group_infos(
+    dom: &EcsDom,
+    row_groups: &[Entity],
+    all_rows: &[RowInfo],
+) -> Vec<RowGroupInfo> {
+    // Build a set of row-group entities for O(1) lookup.
+    let rg_set: std::collections::HashSet<Entity> = row_groups.iter().copied().collect();
+
+    let mut infos = Vec::new();
+    let mut i = 0;
+    while i < all_rows.len() {
+        let group_end = all_rows[i].group_end_row;
+        let start = i;
+
+        // Find the row-group entity for this range by checking the parent of
+        // the first row.  If the parent is a row-group, use it; otherwise this
+        // range consists of direct rows (no RowGroupInfo needed).
+        let parent = dom.get_parent(all_rows[i].entity);
+        let is_rg = parent.is_some_and(|p| rg_set.contains(&p));
+
+        // Advance past all rows that share the same group_end_row.
+        while i < all_rows.len() && all_rows[i].group_end_row == group_end {
+            i += 1;
+        }
+
+        if is_rg {
+            let rg_entity = parent.unwrap(); // safe: is_rg guarantees Some
+            infos.push(RowGroupInfo {
+                style: elidex_layout_block::get_style(dom, rg_entity),
+                start_row: start,
+                end_row: i,
+            });
+        }
+    }
+    infos
+}
+
+/// Redistribute surplus table height proportionally across rows.
+///
+/// CSS 2.1 §17.5.3 does not define how extra space is distributed
+/// ("CSS 2.1 does not define how extra space is distributed").
+/// We use proportional distribution based on content height,
+/// which matches Chromium behavior.
+#[allow(clippy::cast_precision_loss)] // row count is small
+fn redistribute_surplus(row_heights: &mut [f32], surplus: f32) {
+    let total: f32 = row_heights.iter().sum();
+    if total > f32::EPSILON {
+        for h in row_heights.iter_mut() {
+            let ratio = *h / total;
+            if ratio.is_finite() {
+                *h += surplus * ratio;
+            }
+        }
     } else {
-        cell_width
+        // All rows are zero height: distribute equally.
+        let per_row = surplus / row_heights.len().max(1) as f32;
+        for h in row_heights.iter_mut() {
+            *h += per_row;
+        }
     }
 }
 
@@ -93,25 +192,44 @@ pub fn layout_table(
     entity: Entity,
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
-) -> LayoutBox {
-    let containing_width = input.containing_width;
-    let containing_height = input.containing_height;
-    let offset_x = input.offset_x;
-    let offset_y = input.offset_y;
+) -> elidex_layout_block::LayoutOutcome {
+    let containing_width = input.containing.width;
+    let containing_height = input.containing.height;
+    let offset_x = input.offset.x;
+    let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
     if depth >= MAX_LAYOUT_DEPTH {
-        return LayoutBox::default();
+        return LayoutBox::default().into();
     }
+
+    // --- Parse break token for resumption ---
+    let (resume_row, bt_thead_entity, bt_tfoot_entity) = match input.break_token {
+        Some(bt) => match &bt.mode_data {
+            Some(BreakTokenData::Table {
+                row_index,
+                thead_entity,
+                tfoot_entity,
+            }) => (*row_index, *thead_entity, *tfoot_entity),
+            _ => (0, None, None),
+        },
+        None => (0, None, None),
+    };
+    let is_continuation = resume_row > 0;
+    debug_assert!(
+        resume_row == 0 || input.break_token.is_some(),
+        "resume_row > 0 without break token"
+    );
 
     let style = elidex_layout_block::get_style(dom, entity);
     let is_rtl = style.direction == Direction::Rtl;
+    let is_horizontal_wm = style.writing_mode.is_horizontal();
     let is_collapse = style.border_collapse == BorderCollapse::Collapse;
     // CSS 2.1 §17.6.2: in the collapsing border model, the table has no padding.
     let padding = if is_collapse {
         EdgeSizes::default()
     } else {
-        sanitize_padding(&style)
+        elidex_layout_block::resolve_padding(&style, input.containing_inline_size)
     };
     // CSS 2.1 §17.6.2: in the collapsing border model, the table's own border
     // is not rendered — borders exist only as collapsed edges between cells and
@@ -127,16 +245,23 @@ pub fn layout_table(
 
     // Resolve margins (before width, since auto width depends on margins).
     let margin = EdgeSizes {
-        top: resolve_margin(style.margin_top, containing_width),
-        right: resolve_margin(style.margin_right, containing_width),
-        bottom: resolve_margin(style.margin_bottom, containing_width),
-        left: resolve_margin(style.margin_left, containing_width),
+        top: resolve_margin(style.margin_top, input.containing_inline_size),
+        right: resolve_margin(style.margin_right, input.containing_inline_size),
+        bottom: resolve_margin(style.margin_bottom, input.containing_inline_size),
+        left: resolve_margin(style.margin_left, input.containing_inline_size),
     };
     let h_margin = margin.left + margin.right;
 
     // Resolve table width.
     let content_width =
         elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin);
+
+    // Child inline containing size: in vertical modes, inline size = physical height.
+    let child_inline_containing = elidex_layout_block::compute_inline_containing(
+        style.writing_mode,
+        content_width,
+        containing_height,
+    );
 
     let content_x = offset_x + margin.left + border.left + padding.left;
     let mut cursor_y = offset_y + margin.top + border.top + padding.top;
@@ -157,7 +282,9 @@ pub fn layout_table(
             }
             Display::TableRow => direct_rows.push(child),
             Display::TableCell => direct_cells.push(child),
-            Display::TableColumn | Display::TableColumnGroup | Display::None => {}
+            Display::TableColumn | Display::TableColumnGroup | Display::None => {
+                // Col/colgroup widths are extracted separately below.
+            }
             _ => {
                 // Treat unknown children as if they were in an anonymous cell.
                 direct_cells.push(child);
@@ -165,41 +292,52 @@ pub fn layout_table(
         }
     }
 
-    // Partition captions by caption-side.
+    // Partition captions by position relative to the table grid.
+    // CSS Tables L3 §4.1: `top`/`bottom` are physical; `block-start`/`block-end`
+    // are logical (mapped through writing mode).
+    // In horizontal-tb: top = before, bottom = after.
+    // In vertical modes: top ≠ block-start; `top` stays physical (rendered
+    // before the table in the block flow if it coincides with block-start).
+    // `block-start`/`block-end` always map correctly regardless of writing mode.
     let (captions_top, captions_bottom): (Vec<Entity>, Vec<Entity>) =
         captions.into_iter().partition(|&cap| {
             let cs = elidex_layout_block::get_style(dom, cap);
-            cs.caption_side != CaptionSide::Bottom
+            // CSS Tables L3 §4.1: top/block-start = before, bottom/block-end = after.
+            // In vertical modes, CSS 2.1 §17.4.1 treats top/bottom as
+            // block-start/block-end equivalents for layout flow purposes.
+            matches!(cs.caption_side, CaptionSide::Top | CaptionSide::BlockStart)
         });
 
-    // Layout top captions.
+    // Layout top captions (only in the first fragment).
+    // CSS 2.1 §17.4.1: captions are rendered before/after the table grid.
+    // In continuation fragments, captions are omitted.
     let mut caption_top_height = 0.0;
-    for &cap in &captions_top {
-        let cap_input = LayoutInput {
-            containing_width: content_width,
-            containing_height: None,
-            offset_x: content_x,
-            offset_y: cursor_y,
-            font_db,
-            depth: depth + 1,
-        };
-        let cap_lb = layout_child(dom, cap, &cap_input);
-        caption_top_height += box_total_height(&cap_lb);
-        let _ = dom.world_mut().insert_one(cap, cap_lb);
+    if !is_continuation {
+        for &cap in &captions_top {
+            let cap_input = LayoutInput {
+                containing: CssSize::width_only(content_width),
+                containing_inline_size: child_inline_containing,
+                offset: Point::new(content_x, cursor_y),
+                font_db,
+                depth: depth + 1,
+                float_ctx: None,
+                viewport: None,
+                fragmentainer: None,
+                break_token: None,
+                subgrid: None,
+                layout_generation: input.layout_generation,
+            };
+            let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
+            caption_top_height += box_total_height(&cap_lb);
+            let _ = dom.world_mut().insert_one(cap, cap_lb);
+        }
+        cursor_y += caption_top_height;
     }
-    cursor_y += caption_top_height;
 
     // Wrap direct cells in an anonymous row (CSS 2.1 §17.2.1).
+    // Uses find_or_create_anonymous for idempotent re-layout.
     if !direct_cells.is_empty() {
-        let anon_row = dom.create_element("tr", Attributes::default());
-        let _ = dom.world_mut().insert_one(
-            anon_row,
-            ComputedStyle {
-                display: Display::TableRow,
-                ..Default::default()
-            },
-        );
-        let _ = dom.append_child(entity, anon_row);
+        let anon_row = grid::find_or_create_anonymous(dom, entity, Display::TableRow, "tr");
         for &cell in &direct_cells {
             let _ = dom.append_child(anon_row, cell);
         }
@@ -208,6 +346,30 @@ pub fn layout_table(
 
     // Collect all rows (from row groups + direct rows).
     let all_rows = collect_all_rows(dom, &row_groups, &direct_rows);
+
+    // Identify thead/tfoot row groups for repetition in continuation fragments
+    // (CSS 2.1 §17.5.4).
+    let thead_entity = bt_thead_entity.or_else(|| {
+        row_groups
+            .iter()
+            .find(|&&rg| {
+                let rg_style = elidex_layout_block::get_style(dom, rg);
+                rg_style.display == Display::TableHeaderGroup
+            })
+            .copied()
+    });
+    let tfoot_entity = bt_tfoot_entity.or_else(|| {
+        row_groups
+            .iter()
+            .find(|&&rg| {
+                let rg_style = elidex_layout_block::get_style(dom, rg);
+                rg_style.display == Display::TableFooterGroup
+            })
+            .copied()
+    });
+
+    // Wrap non-cell content in rows (CSS 2.1 §17.2.1 Stage 2 Rule 3).
+    wrap_non_cell_content_in_rows(dom, &all_rows);
 
     // Build cell grid from rows.
     let (cells, num_cols, num_rows) = build_cell_grid(dom, &all_rows);
@@ -225,13 +387,13 @@ pub fn layout_table(
             &padding,
             &border,
             &margin,
-            content_x,
-            offset_y + margin.top + border.top + padding.top,
+            Point::new(content_x, offset_y + margin.top + border.top + padding.top),
             content_width,
             content_height,
+            None,
         );
         let _ = dom.world_mut().insert_one(entity, lb.clone());
-        return lb;
+        return lb.into();
     }
 
     let spacing_h = if is_collapse {
@@ -255,9 +417,31 @@ pub fn layout_table(
         .map(|c| elidex_layout_block::get_style(dom, c.entity))
         .collect();
 
+    // Collect row and row-group styles for collapsed border resolution.
+    let row_styles: Vec<ComputedStyle> = all_rows
+        .iter()
+        .map(|ri| elidex_layout_block::get_style(dom, ri.entity))
+        .collect();
+    let row_group_infos = collect_row_group_infos(dom, &row_groups, &all_rows);
+
+    // Extract <col>/<colgroup> widths and border styles in a single walk
+    // (CSS 2.1 §17.5.2.1 + §17.6.2.1).
+    let (col_element_widths, col_border_styles, col_group_border_infos) =
+        collect_col_info(dom, &children, num_cols, available_for_cols);
+
     // Resolve collapsed borders if needed.
     let collapsed_borders: Vec<CollapsedBorders> = if is_collapse {
-        resolve_collapsed_borders(&cells, &cell_styles, &style, num_cols, num_rows)
+        resolve_collapsed_borders(
+            &cells,
+            &cell_styles,
+            &style,
+            &row_styles,
+            &row_group_infos,
+            &col_border_styles,
+            &col_group_border_infos,
+            num_cols,
+            num_rows,
+        )
     } else {
         vec![CollapsedBorders::default(); cells.len()]
     };
@@ -268,12 +452,41 @@ pub fn layout_table(
         cells: &cells,
         cell_styles: &cell_styles,
         collapsed_borders: &collapsed_borders,
+        col_element_widths: &col_element_widths,
         num_cols,
         available_for_cols,
-        content_width,
         is_collapse,
     };
-    let col_widths = compute_column_widths(dom, &col_input, font_db, depth, layout_child);
+    let table_env = elidex_layout_block::LayoutEnv {
+        font_db,
+        layout_child,
+        depth,
+        viewport: input.viewport,
+        layout_generation: input.layout_generation,
+    };
+    let col_widths = compute_column_widths(dom, &col_input, &table_env);
+
+    // Pre-compute the table's explicit content height for cell percentage-height
+    // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
+    // percentage heights resolve against the content-box height; otherwise auto.
+    let table_explicit_height = match style.height {
+        elidex_plugin::Dimension::Length(px) if px.is_finite() && px > 0.0 => {
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                Some((px - v_pb).max(0.0))
+            } else {
+                Some(px)
+            }
+        }
+        elidex_plugin::Dimension::Percentage(pct) if pct > 0.0 => containing_height.map(|ch| {
+            let resolved = ch * pct / 100.0;
+            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                (resolved - v_pb).max(0.0)
+            } else {
+                resolved
+            }
+        }),
+        _ => None,
+    };
 
     // Compute row heights by laying out each cell with its resolved column width.
     let mut row_heights = vec![0.0_f32; num_rows];
@@ -287,15 +500,25 @@ pub fn layout_table(
             collapse_adjusted_width(cell_width, is_collapse, &collapsed_borders[i]);
 
         // Layout the cell content (using block layout).
+        // Pass table explicit height as containing_height so cell percentage
+        // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
-            containing_width: effective_width,
-            containing_height: None,
-            offset_x: 0.0, // temporary x, will be positioned later
-            offset_y: 0.0, // temporary y
+            containing: CssSize {
+                width: effective_width,
+                height: table_explicit_height,
+            },
+            containing_inline_size: effective_width,
+            offset: Point::ZERO, // temporary position, will be set later
             font_db,
             depth: depth + 1,
+            float_ctx: None,
+            viewport: None,
+            fragmentainer: None,
+            break_token: None,
+            subgrid: None,
+            layout_generation: input.layout_generation,
         };
-        let cell_lb = layout_child(dom, cell.entity, &cell_input);
+        let cell_lb = layout_child(dom, cell.entity, &cell_input).layout_box;
 
         let cell_total_height = box_total_height(&cell_lb);
 
@@ -305,6 +528,39 @@ pub fn layout_table(
         }
 
         cell_layout_boxes.push(cell_lb);
+    }
+
+    // Pre-compute per-cell baselines to avoid repeated computation.
+    let cell_baselines: Vec<f32> = cell_layout_boxes.iter().map(cell_baseline).collect();
+
+    // Per-row baseline for baseline-aligned cells (CSS 2.1 §17.5.1).
+    // Table cells have zero margins (CSS 2.1 §17.5.4), so padding+border only.
+    let mut row_baselines = vec![0.0_f32; num_rows];
+    let mut row_has_baseline = vec![false; num_rows];
+    for (i, cell) in cells.iter().enumerate() {
+        if cell.rowspan == 1 {
+            let cell_style = &cell_styles[i];
+            if cell_style.vertical_align == VerticalAlign::Baseline {
+                row_baselines[cell.row] = row_baselines[cell.row].max(cell_baselines[i]);
+                row_has_baseline[cell.row] = true;
+            }
+        }
+    }
+
+    // Ensure rows are tall enough for baseline alignment.
+    // Row height >= max(baseline_above) + max(baseline_below).
+    for r in 0..num_rows {
+        if row_has_baseline[r] {
+            let baseline_below: f32 = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.row == r && c.rowspan == 1)
+                .filter(|(i, _)| cell_styles[*i].vertical_align == VerticalAlign::Baseline)
+                .map(|(i, _)| box_total_height(&cell_layout_boxes[i]) - cell_baselines[i])
+                .fold(0.0_f32, f32::max);
+            let min_row_h = row_baselines[r] + baseline_below;
+            row_heights[r] = row_heights[r].max(min_row_h);
+        }
     }
 
     // Handle rowspan: if spanning rows don't have enough combined height,
@@ -318,6 +574,9 @@ pub fn layout_table(
             if cell_total_height > spanned_height {
                 let deficit = cell_total_height - spanned_height;
                 let span_count = (span_end - cell.row) as f32;
+                if span_count <= 0.0 {
+                    continue; // Safety: avoid div/0 on degenerate span
+                }
                 let per_row = deficit / span_count;
                 for h in &mut row_heights[cell.row..span_end] {
                     *h += per_row;
@@ -325,6 +584,40 @@ pub fn layout_table(
             }
         }
     }
+
+    // Height redistribution (CSS 2.1 §17.5.3): if the table has an explicit
+    // height larger than the sum of row heights, distribute the surplus
+    // proportionally across rows.
+    let pre_redistribution_row_height: f32 =
+        row_heights.iter().sum::<f32>() + spacing_v * (num_rows as f32 + 1.0);
+    let min_for_redistribution = caption_top_height + pre_redistribution_row_height;
+    let explicit_height =
+        resolve_table_height(&style, containing_height, v_pb, min_for_redistribution);
+    if explicit_height > min_for_redistribution {
+        let surplus = explicit_height - min_for_redistribution;
+        redistribute_surplus(&mut row_heights, surplus);
+    }
+
+    // --- Table fragmentation (CSS 2.1 §17.5.4) ---
+    // CSS Fragmentation L3 §4: counter-increment should only happen on the first
+    // fragment. CSS counters are not yet implemented (planned for G11), so this
+    // constraint is currently satisfied by default.
+    let (result_break_token, propagated_break_before, propagated_break_after) =
+        if let Some(&frag) = input.fragmentainer {
+            compute_table_fragmentation(
+                dom,
+                entity,
+                &all_rows,
+                &row_heights,
+                spacing_v,
+                frag,
+                resume_row,
+                thead_entity,
+                tfoot_entity,
+            )
+        } else {
+            (None, None, None)
+        };
 
     // Position cells.
     // Compute column x offsets.
@@ -354,9 +647,11 @@ pub fn layout_table(
     let table_content_height_from_rows = y;
 
     // Now position each cell with final coordinates.
+    // CSS 2.1 §17.1: in horizontal-tb, columns = inline (X), rows = block (Y).
+    // In vertical modes, columns = inline (Y), rows = block (X).
     for (i, cell) in cells.iter().enumerate() {
-        let cell_x = content_x + col_x_offsets[cell.col];
-        let cell_y = cursor_y + row_y_offsets[cell.row];
+        let col_offset = col_x_offsets[cell.col];
+        let row_offset = row_y_offsets[cell.row];
 
         let cell_width = cell_available_width(&col_widths, cell, spacing_h, num_cols);
         let effective_width =
@@ -367,217 +662,362 @@ pub fn layout_table(
         let cell_height: f32 = row_heights[cell.row..span_end].iter().sum::<f32>()
             + spacing_v * (cell.rowspan as f32 - 1.0).max(0.0);
 
+        // Compute vertical-align offset within the cell's row slot.
+        let cell_total_height = box_total_height(&cell_layout_boxes[i]);
+        let free = (cell_height - cell_total_height).max(0.0);
+        let va_offset = match cell_styles[i].vertical_align {
+            VerticalAlign::Top => 0.0,
+            VerticalAlign::Middle => free / 2.0,
+            VerticalAlign::Bottom => free,
+            // CSS 2.1 §17.5.1: sub/super/text-top/text-bottom/length/percentage
+            // are treated as baseline alignment in table cell context.
+            _ => (row_baselines[cell.row] - cell_baselines[i]).max(0.0),
+        };
+
+        // Map logical table coordinates to physical coordinates.
+        let (cell_x, cell_y) = if is_horizontal_wm {
+            (content_x + col_offset, cursor_y + row_offset + va_offset)
+        } else {
+            // Vertical: columns → Y (inline), rows → X (block).
+            (cursor_y + row_offset + va_offset, content_x + col_offset)
+        };
+
+        // In vertical modes, the cell's physical width/height are swapped.
+        let (cell_phys_w, cell_phys_h) = if is_horizontal_wm {
+            (effective_width, cell_height)
+        } else {
+            (cell_height, effective_width)
+        };
+
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
-            containing_width: effective_width,
-            containing_height: Some(cell_height),
-            offset_x: cell_x,
-            offset_y: cell_y,
+            containing: CssSize::definite(cell_phys_w, cell_phys_h),
+            containing_inline_size: child_inline_containing,
+            offset: Point::new(cell_x, cell_y),
             font_db,
             depth: depth + 1,
+            float_ctx: None,
+            viewport: None,
+            fragmentainer: None,
+            break_token: None,
+            subgrid: None,
+            layout_generation: input.layout_generation,
         };
-        let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input);
+        let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
     }
 
     // Advance cursor past the table rows.
     cursor_y += table_content_height_from_rows;
 
-    // Layout bottom captions after table rows.
+    // Layout bottom captions after table rows (only in the last fragment or unfragmented).
     let mut caption_bottom_height = 0.0;
-    for &cap in &captions_bottom {
-        let cap_input = LayoutInput {
-            containing_width: content_width,
-            containing_height: None,
-            offset_x: content_x,
-            offset_y: cursor_y,
-            font_db,
-            depth: depth + 1,
-        };
-        let cap_lb = layout_child(dom, cap, &cap_input);
-        caption_bottom_height += box_total_height(&cap_lb);
-        cursor_y += box_total_height(&cap_lb);
-        let _ = dom.world_mut().insert_one(cap, cap_lb);
+    if result_break_token.is_none() && !is_continuation {
+        for &cap in &captions_bottom {
+            let cap_input = LayoutInput {
+                containing: CssSize::width_only(content_width),
+                containing_inline_size: child_inline_containing,
+                offset: Point::new(content_x, cursor_y),
+                font_db,
+                depth: depth + 1,
+                float_ctx: None,
+                viewport: None,
+                fragmentainer: None,
+                break_token: None,
+                subgrid: None,
+                layout_generation: input.layout_generation,
+            };
+            let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
+            caption_bottom_height += box_total_height(&cap_lb);
+            cursor_y += box_total_height(&cap_lb);
+            let _ = dom.world_mut().insert_one(cap, cap_lb);
+        }
     }
 
     // Determine final table height.
     let total_caption_height = caption_top_height + caption_bottom_height;
     let min_content_height = total_caption_height + table_content_height_from_rows;
-    let content_height = resolve_table_height(&style, containing_height, v_pb, min_content_height)
-        .max(min_content_height);
+    let mut content_height =
+        resolve_table_height(&style, containing_height, v_pb, min_content_height)
+            .max(min_content_height);
 
+    // If fragmentation produced a break, clamp content height to consumed size.
+    if let Some(ref bt) = result_break_token {
+        content_height = content_height.min(bt.consumed_block_size + caption_top_height);
+    }
+
+    // Table container baseline = first row's baseline (CSS 2.1 §17.5.1).
+    let table_baseline = if !row_has_baseline.is_empty() && row_has_baseline[0] {
+        // Row 0 has baseline-aligned cells — use the shared row baseline.
+        Some(caption_top_height + spacing_v + row_baselines[0])
+    } else if !row_heights.is_empty() {
+        // No baseline-aligned cells in row 0 — use row height as fallback.
+        Some(caption_top_height + spacing_v + row_heights[0])
+    } else {
+        None
+    };
+
+    // In vertical modes, the table's physical dimensions are swapped:
+    // content_width (column widths, inline axis) becomes the physical height,
+    // content_height (row heights, block axis) becomes the physical width.
+    let (final_content_w, final_content_h) = if is_horizontal_wm {
+        (content_width, content_height)
+    } else {
+        (content_height, content_width)
+    };
     let lb = build_table_layout_box(
         &padding,
         &border,
         &margin,
-        content_x,
-        offset_y + margin.top + border.top + padding.top,
-        content_width,
-        content_height,
+        Point::new(content_x, offset_y + margin.top + border.top + padding.top),
+        final_content_w,
+        final_content_h,
+        table_baseline,
     );
     let _ = dom.world_mut().insert_one(entity, lb.clone());
-    lb
+
+    // Layout positioned descendants owned by this containing block.
+    // CSS 2.1 §17.2: the table establishes a CB for absolute children
+    // when it is itself positioned (or is the root).
+    // CSS Transforms L1 §2: transform establishes CB for all descendants.
+    let is_root = dom.get_parent(entity).is_none();
+    let is_cb = style.position != elidex_plugin::Position::Static || is_root || style.has_transform;
+    if is_cb {
+        let static_positions = elidex_layout_block::positioned::collect_abspos_static_positions(
+            dom,
+            &children,
+            elidex_plugin::Point::new(content_x, cursor_y),
+        );
+        let pb = lb.padding_box();
+        let pos_env = elidex_layout_block::LayoutEnv {
+            font_db,
+            layout_child,
+            depth,
+            viewport: input.viewport,
+            layout_generation: input.layout_generation,
+        };
+        elidex_layout_block::positioned::layout_positioned_children(
+            dom,
+            entity,
+            &pb,
+            &static_positions,
+            &pos_env,
+        );
+    }
+
+    elidex_layout_block::LayoutOutcome {
+        layout_box: lb,
+        break_token: result_break_token,
+        propagated_break_before,
+        propagated_break_after,
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Table fragmentation (CSS 2.1 §17.5.4)
 // ---------------------------------------------------------------------------
 
-/// Resolve the table's content height.
-#[must_use]
-fn resolve_table_height(
-    style: &ComputedStyle,
-    containing_height: Option<f32>,
-    v_pb: f32,
-    min_height: f32,
-) -> f32 {
-    let explicit = match style.height {
-        Dimension::Length(px) if px.is_finite() => {
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                Some((px - v_pb).max(0.0))
-            } else {
-                Some(px)
+/// CSS 2.1 §17.5.4: Fragmenting Table Layout.
+///
+/// When the table is inside a fragmentainer, row heights are checked against
+/// the available block size. Between rows, break opportunities are evaluated
+/// (forced breaks, avoid constraints). `thead`/`tfoot` row groups are repeated
+/// in each continuation fragment, reducing the available space for body rows.
+///
+/// Returns `(break_token, propagated_break_before, propagated_break_after)`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn compute_table_fragmentation(
+    dom: &EcsDom,
+    entity: Entity,
+    all_rows: &[RowInfo],
+    row_heights: &[f32],
+    spacing_v: f32,
+    frag: elidex_layout_block::FragmentainerContext,
+    resume_row: usize,
+    thead_entity: Option<Entity>,
+    tfoot_entity: Option<Entity>,
+) -> (
+    Option<BreakToken>,
+    Option<elidex_plugin::BreakValue>,
+    Option<elidex_plugin::BreakValue>,
+) {
+    let frag_type = frag.fragmentation_type;
+    let mut available = frag.available_block_size;
+    let num_rows = all_rows.len();
+
+    // Propagated break-before from the first row.
+    let propagated_before = all_rows.first().and_then(|ri| {
+        let st = elidex_layout_block::try_get_style(dom, ri.entity)?;
+        if is_forced_break(st.break_before, frag_type) {
+            Some(st.break_before)
+        } else {
+            None
+        }
+    });
+
+    // Propagated break-after from the last row.
+    let propagated_after = all_rows.last().and_then(|ri| {
+        let st = elidex_layout_block::try_get_style(dom, ri.entity)?;
+        if is_forced_break(st.break_after, frag_type) {
+            Some(st.break_after)
+        } else {
+            None
+        }
+    });
+
+    if num_rows == 0 {
+        return (None, propagated_before, propagated_after);
+    }
+
+    // In continuation fragments, reduce available space for thead/tfoot repetition.
+    // The actual repeated layout is handled by the caller, but we account for the
+    // space they consume when computing break points.
+    let is_continuation = resume_row > 0;
+    let mut thead_height = 0.0_f32;
+    let mut tfoot_height = 0.0_f32;
+    if is_continuation {
+        // Estimate thead/tfoot height from row heights of their contained rows.
+        if let Some(thead) = thead_entity {
+            for (idx, ri) in all_rows.iter().enumerate() {
+                if dom.get_parent(ri.entity) == Some(thead) {
+                    thead_height += row_heights.get(idx).copied().unwrap_or(0.0) + spacing_v;
+                }
             }
         }
-        Dimension::Percentage(pct) => containing_height.map(|ch| {
-            let resolved = ch * pct / 100.0;
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (resolved - v_pb).max(0.0)
-            } else {
-                resolved
-            }
-        }),
-        _ => None,
-    };
-    explicit.unwrap_or(min_height).max(min_height)
-}
-
-/// Parameters for column width computation.
-///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing).
-#[allow(dead_code)]
-struct TableColumnInput<'a> {
-    style: &'a ComputedStyle,
-    cells: &'a [CellInfo],
-    cell_styles: &'a [ComputedStyle],
-    collapsed_borders: &'a [CollapsedBorders],
-    num_cols: usize,
-    available_for_cols: f32,
-    content_width: f32,
-    is_collapse: bool,
-}
-
-/// Compute column widths based on table-layout algorithm.
-///
-/// `collapsed_borders`, `content_width`, and `is_collapse` are reserved
-/// for Phase 4 (border-collapse-aware column sizing) and currently unused.
-#[must_use]
-fn compute_column_widths(
-    dom: &mut EcsDom,
-    params: &TableColumnInput<'_>,
-    font_db: &FontDatabase,
-    depth: u32,
-    layout_child: ChildLayoutFn,
-) -> Vec<f32> {
-    let style = params.style;
-    let cells = params.cells;
-    let cell_styles = params.cell_styles;
-    // params.collapsed_borders, params.content_width, params.is_collapse reserved for Phase 4.
-    let num_cols = params.num_cols;
-    let available_for_cols = params.available_for_cols;
-    if style.table_layout == TableLayout::Fixed && !matches!(style.width, Dimension::Auto) {
-        // Fixed table layout: use first row cell widths.
-        // Collect (index, &CellInfo) pairs to avoid re-searching for indices.
-        let first_row: Vec<(usize, &CellInfo)> = cells
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.row == 0)
-            .collect();
-        let first_row_explicit: Vec<Option<f32>> = first_row
-            .iter()
-            .map(|&(i, _)| {
-                let cs = &cell_styles[i];
-                match cs.width {
-                    Dimension::Length(px) if px.is_finite() && px > 0.0 => Some(px),
-                    Dimension::Percentage(pct) if pct > 0.0 => {
-                        Some(available_for_cols * pct / 100.0)
-                    }
-                    _ => None,
+        if let Some(tfoot) = tfoot_entity {
+            for (idx, ri) in all_rows.iter().enumerate() {
+                if dom.get_parent(ri.entity) == Some(tfoot) {
+                    tfoot_height += row_heights.get(idx).copied().unwrap_or(0.0) + spacing_v;
                 }
-            })
-            .collect();
-        let first_row_cell_infos: Vec<CellInfo> = first_row
-            .iter()
-            .map(|&(_, c)| CellInfo {
-                entity: c.entity,
-                col: c.col,
-                row: c.row,
-                colspan: c.colspan,
-                rowspan: c.rowspan,
-            })
-            .collect();
-        fixed_column_widths(
-            num_cols,
-            &first_row_cell_infos,
-            &first_row_explicit,
-            available_for_cols,
-        )
-    } else {
-        // Auto table layout: measure cell intrinsic widths.
-        let cell_widths: Vec<(f32, f32)> = cells
-            .iter()
-            .map(|cell| {
-                // Layout cell with a very small width to get min-content,
-                // and with a very large width to get max-content.
-                let min_input = LayoutInput {
-                    containing_width: 1.0, // min-content probe
-                    containing_height: None,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                };
-                let min_lb = layout_child(dom, cell.entity, &min_input);
-                let max_input = LayoutInput {
-                    containing_width: f32::MAX / 4.0, // max-content probe
-                    containing_height: None,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    font_db,
-                    depth: depth + 1,
-                };
-                let max_lb = layout_child(dom, cell.entity, &max_input);
-                let cs = elidex_layout_block::get_style(dom, cell.entity);
-                let p = sanitize_padding(&cs);
-                let b = sanitize_border(&cs);
-                let cell_h_pb = horizontal_pb(&p, &b);
-                // min-content = content width from narrow probe + cell pb
-                let min_w = min_lb.content.width + cell_h_pb;
-                // max-content = content width from wide probe + cell pb
-                let max_w = max_lb.content.width + cell_h_pb;
-                (min_w.max(0.0), max_w.max(min_w))
-            })
-            .collect();
-        auto_column_widths(num_cols, cells, &cell_widths, available_for_cols)
+            }
+        }
+        available = (available - thead_height - tfoot_height).max(0.0);
     }
+
+    // Accumulate consumed block size from body rows.
+    let mut consumed: f32 = 0.0;
+
+    // Account for rows before resume_row (already consumed in prior fragment).
+    for row_idx in 0..resume_row.min(num_rows) {
+        consumed += row_heights.get(row_idx).copied().unwrap_or(0.0);
+        if row_idx + 1 < num_rows {
+            consumed += spacing_v;
+        }
+    }
+
+    let mut candidates: Vec<BreakCandidate> = Vec::new();
+
+    for row_idx in resume_row..num_rows {
+        let row_h = row_heights.get(row_idx).copied().unwrap_or(0.0);
+
+        // Check forced break-before on this row (not the resume row).
+        if row_idx > resume_row {
+            if let Some(row_style) =
+                elidex_layout_block::try_get_style(dom, all_rows[row_idx].entity)
+            {
+                if is_forced_break(row_style.break_before, frag_type) {
+                    let bt = BreakToken {
+                        entity,
+                        consumed_block_size: consumed,
+                        child_break_token: None,
+                        mode_data: Some(BreakTokenData::Table {
+                            row_index: row_idx,
+                            thead_entity,
+                            tfoot_entity,
+                        }),
+                    };
+                    return (Some(bt), propagated_before, propagated_after);
+                }
+            }
+        }
+
+        // Check forced break-after on the previous row.
+        if row_idx > resume_row && row_idx > 0 {
+            if let Some(prev_style) =
+                elidex_layout_block::try_get_style(dom, all_rows[row_idx - 1].entity)
+            {
+                if is_forced_break(prev_style.break_after, frag_type) {
+                    let bt = BreakToken {
+                        entity,
+                        consumed_block_size: consumed,
+                        child_break_token: None,
+                        mode_data: Some(BreakTokenData::Table {
+                            row_index: row_idx,
+                            thead_entity,
+                            tfoot_entity,
+                        }),
+                    };
+                    return (Some(bt), propagated_before, propagated_after);
+                }
+            }
+        }
+
+        // Record a break candidate between rows.
+        if row_idx > resume_row {
+            let violates_avoid = check_avoid_between_table_rows(dom, all_rows, row_idx, frag_type);
+            candidates.push(BreakCandidate {
+                child_index: row_idx,
+                class: BreakClass::A,
+                cursor_block: consumed,
+                violates_avoid,
+                orphan_widow_penalty: false,
+            });
+        }
+
+        // Add this row's height to consumed.
+        consumed += row_h;
+
+        // Check if consumed exceeds available space.
+        if consumed > available && !candidates.is_empty() {
+            if let Some(best_idx) = find_best_break(&candidates, available) {
+                let break_row = candidates[best_idx].child_index;
+                let consumed_at_break = candidates[best_idx].cursor_block;
+                let bt = BreakToken {
+                    entity,
+                    consumed_block_size: consumed_at_break,
+                    child_break_token: None,
+                    mode_data: Some(BreakTokenData::Table {
+                        row_index: break_row,
+                        thead_entity,
+                        tfoot_entity,
+                    }),
+                };
+                return (Some(bt), propagated_before, propagated_after);
+            }
+        }
+
+        // Add row spacing after this row.
+        if row_idx + 1 < num_rows {
+            consumed += spacing_v;
+        }
+    }
+
+    // All rows fit — no break needed.
+    (None, propagated_before, propagated_after)
 }
 
-/// Build the final `LayoutBox` for the table element.
-#[must_use]
-fn build_table_layout_box(
-    padding: &EdgeSizes,
-    border: &EdgeSizes,
-    margin: &EdgeSizes,
-    content_x: f32,
-    content_y: f32,
-    content_width: f32,
-    content_height: f32,
-) -> LayoutBox {
-    LayoutBox {
-        content: Rect::new(content_x, content_y, content_width, content_height),
-        padding: *padding,
-        border: *border,
-        margin: *margin,
+/// Check whether breaking between rows at `row_idx` violates an avoid constraint.
+fn check_avoid_between_table_rows(
+    dom: &EcsDom,
+    all_rows: &[RowInfo],
+    row_idx: usize,
+    frag_type: elidex_layout_block::FragmentationType,
+) -> bool {
+    // break-after on the previous row.
+    if row_idx > 0 {
+        if let Some(st) = elidex_layout_block::try_get_style(dom, all_rows[row_idx - 1].entity) {
+            if is_avoid_break_value(st.break_after, frag_type) {
+                return true;
+            }
+        }
     }
+
+    // break-before on the current row.
+    if let Some(st) = elidex_layout_block::try_get_style(dom, all_rows[row_idx].entity) {
+        if is_avoid_break_value(st.break_before, frag_type) {
+            return true;
+        }
+    }
+
+    false
 }

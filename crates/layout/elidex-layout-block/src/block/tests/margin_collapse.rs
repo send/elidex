@@ -30,10 +30,10 @@ fn margin_collapse_adjacent_siblings() {
     );
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Without collapse: 40 + 20 + 30 + 40 = 130
     // With collapse: 40 + max(20,30) + 40 = 110
-    assert!((lb.content.height - 110.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 110.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -67,10 +67,10 @@ fn margin_collapse_negative() {
     );
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Without collapse: 40 + (-10) + (-20) + 40 = 50
     // With collapse (both neg): 40 + min(-10,-20) + 40 = 40 + (-20) + 40 = 60
-    assert!((lb.content.height - 60.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 60.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -104,12 +104,12 @@ fn margin_collapse_mixed() {
     );
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Without collapse: 40 + 20 + (-10) + 40 = 90
     // With collapse (mixed): 40 + (20 + (-10)) + 40 = 90
     // Actually same here because sum == collapse for mixed.
     // But the key difference: old code did max(20, -10) = 20, giving 100.
-    assert!((lb.content.height - 90.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 90.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn parent_child_first_child_margin_collapse() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Parent's margin-top should collapse with child's: max(10, 20) = 20.
     assert!(
         (lb.margin.top - 20.0).abs() < f32::EPSILON,
@@ -148,9 +148,9 @@ fn parent_child_first_child_margin_collapse() {
     // Child's content.y should reflect the collapsed margin (20), not original (10).
     let child_lb = dom.world().get::<&LayoutBox>(child).unwrap();
     assert!(
-        (child_lb.content.y - 20.0).abs() < f32::EPSILON,
+        (child_lb.content.origin.y - 20.0).abs() < f32::EPSILON,
         "expected child content.y=20 (collapsed margin), got {}",
-        child_lb.content.y
+        child_lb.content.origin.y
     );
 }
 
@@ -189,7 +189,7 @@ fn parent_child_margin_collapse_shifts_grandchildren() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     assert!(
         (lb.margin.top - 20.0).abs() < f32::EPSILON,
         "collapsed margin-top should be 20, got {}",
@@ -199,10 +199,10 @@ fn parent_child_margin_collapse_shifts_grandchildren() {
     let grandchild_lb = dom.world().get::<&LayoutBox>(grandchild).unwrap();
     // Grandchild should be inside child, which is at content.y=20.
     assert!(
-        (grandchild_lb.content.y - child_lb.content.y).abs() < f32::EPSILON,
+        (grandchild_lb.content.origin.y - child_lb.content.origin.y).abs() < f32::EPSILON,
         "grandchild should be at child's content.y={}, got {}",
-        child_lb.content.y,
-        grandchild_lb.content.y
+        child_lb.content.origin.y,
+        grandchild_lb.content.origin.y
     );
 }
 
@@ -233,7 +233,7 @@ fn parent_child_last_child_margin_collapse() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // Parent's margin-bottom should collapse with child's: max(5, 15) = 15.
     assert!(
         (lb.margin.bottom - 15.0).abs() < f32::EPSILON,
@@ -243,9 +243,9 @@ fn parent_child_last_child_margin_collapse() {
     // Child's content.y should be at top (no top margin on either).
     let child_lb = dom.world().get::<&LayoutBox>(child).unwrap();
     assert!(
-        child_lb.content.y.abs() < f32::EPSILON,
+        child_lb.content.origin.y.abs() < f32::EPSILON,
         "expected child content.y=0, got {}",
-        child_lb.content.y
+        child_lb.content.origin.y
     );
 }
 
@@ -275,7 +275,7 @@ fn parent_child_no_bottom_collapse_with_explicit_height() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // height is explicit -> no bottom collapse. Parent keeps its own margin-bottom.
     assert!(
         (lb.margin.bottom - 5.0).abs() < f32::EPSILON,
@@ -314,7 +314,7 @@ fn parent_child_no_collapse_with_border() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // border-top prevents collapse: parent keeps its own margin-top.
     assert!(
         (lb.margin.top - 10.0).abs() < f32::EPSILON,
@@ -336,10 +336,10 @@ fn parent_child_no_collapse_with_padding() {
             display: Display::Block,
             margin_top: Dimension::Length(10.0),
             padding: EdgeSizes {
-                top: 5.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
+                top: Dimension::Length(5.0),
+                right: Dimension::ZERO,
+                bottom: Dimension::ZERO,
+                left: Dimension::ZERO,
             },
             ..Default::default()
         },
@@ -354,7 +354,7 @@ fn parent_child_no_collapse_with_padding() {
         },
     );
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
     // padding-top prevents collapse: parent keeps its own margin-top.
     assert!(
         (lb.margin.top - 10.0).abs() < f32::EPSILON,

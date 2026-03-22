@@ -24,6 +24,26 @@ impl BidiRun {
     }
 }
 
+/// Detect the directionality from the first strong character in `text`.
+///
+/// Implements the "first strong character" algorithm used by HTML `dir="auto"`
+/// (WHATWG §15.3.6). Returns `Ltr` if no strong character is found.
+#[must_use]
+pub fn first_strong_direction(text: &str) -> ParagraphLevel {
+    // BidiInfo::new with level=None auto-detects paragraph direction
+    // from the first strong character (UAX #9 rule P2/P3).
+    let bidi_info = BidiInfo::new(text, None);
+    if let Some(para) = bidi_info.paragraphs.first() {
+        if para.level.is_rtl() {
+            ParagraphLevel::Rtl
+        } else {
+            ParagraphLevel::Ltr
+        }
+    } else {
+        ParagraphLevel::Ltr
+    }
+}
+
 /// The paragraph-level direction hint for bidi analysis.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum ParagraphLevel {
@@ -34,32 +54,153 @@ pub enum ParagraphLevel {
     Rtl,
 }
 
+/// CSS `unicode-bidi` property values that affect `BiDi` analysis.
+///
+/// Mirrors the CSS Writing Modes Level 3 §2.2 values. Passed to
+/// [`analyze_bidi`] to control embedding/isolation behavior.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum BidiOverride {
+    /// No special behavior — the natural `BiDi` algorithm runs.
+    #[default]
+    Normal,
+    /// Creates an embedding (LRE/RLE + PDF).
+    Embed,
+    /// Overrides direction for all characters (LRO/RLO + PDF).
+    BidiOverride,
+    /// Creates a directional isolate (LRI/RLI + PDI).
+    Isolate,
+    /// Isolate + override (LRI/RLI + LRO/RLO + PDF + PDI).
+    IsolateOverride,
+    /// First-strong isolate (auto-detect paragraph direction).
+    Plaintext,
+}
+
 /// Analyze bidirectional text and return a list of level runs.
 ///
 /// Each run is a contiguous range of text at the same embedding level.
-/// The `paragraph_level` parameter should correspond to the CSS
-/// `direction` property of the containing block.
+/// The `paragraph_level` parameter corresponds to the CSS `direction`
+/// property of the containing block.
 ///
-// TODO(Phase 4): Respect `unicode-bidi: isolate / isolate-override / plaintext`
-// from CSS. Currently only the paragraph-level direction hint is used;
-// explicit embedding/isolation overrides (UAX #9 X1-X8) are not enforced.
+/// The `bidi_override` parameter applies the CSS `unicode-bidi` property
+/// (CSS Writing Modes Level 3 §2.2), inserting the appropriate Unicode
+/// control characters (UAX #9 X1-X8) before analysis:
+/// - `Embed` → LRE/RLE + PDF
+/// - `BidiOverride` → LRO/RLO + PDF
+/// - `Isolate` → LRI/RLI + PDI
+/// - `IsolateOverride` → LRI/RLI + LRO/RLO + PDF + PDI
+/// - `Plaintext` → FSI + PDI (auto-detect direction)
+///
+/// Returned byte offsets refer to the original `text`, not the internal
+/// control-character-augmented string.
 #[must_use]
-pub fn analyze_bidi(text: &str, paragraph_level: ParagraphLevel) -> Vec<BidiRun> {
+pub fn analyze_bidi(
+    text: &str,
+    paragraph_level: ParagraphLevel,
+    bidi_override: BidiOverride,
+) -> Vec<BidiRun> {
     if text.is_empty() {
         return Vec::new();
     }
 
-    let level = match paragraph_level {
-        ParagraphLevel::Ltr => Some(Level::ltr()),
-        ParagraphLevel::Rtl => Some(Level::rtl()),
+    let is_rtl = matches!(paragraph_level, ParagraphLevel::Rtl);
+    let level = if matches!(bidi_override, BidiOverride::Plaintext) {
+        // Plaintext: auto-detect paragraph direction from first strong character.
+        None
+    } else {
+        Some(if is_rtl { Level::rtl() } else { Level::ltr() })
     };
 
-    let bidi_info = BidiInfo::new(text, level);
+    // Build augmented text with Unicode bidi control characters.
+    let (prefix, suffix) = bidi_control_chars(bidi_override, is_rtl);
+    let prefix_len = prefix.len();
+    let suffix_len = suffix.len();
 
-    // BidiInfo may have multiple paragraphs (split by paragraph separators).
-    // For inline layout we typically process one paragraph at a time,
-    // but handle all paragraphs for completeness.
+    if prefix_len == 0 && suffix_len == 0 {
+        // Fast path: no control characters needed.
+        return analyze_raw(text, level);
+    }
+
+    // Construct augmented text: prefix + original text + suffix.
+    let mut augmented = String::with_capacity(prefix_len + text.len() + suffix_len);
+    augmented.push_str(prefix);
+    augmented.push_str(text);
+    augmented.push_str(suffix);
+
+    let raw_runs = analyze_raw(&augmented, level);
+
+    // Adjust byte offsets to refer to the original text.
+    raw_runs
+        .into_iter()
+        .filter_map(|r| {
+            let start = r.start.saturating_sub(prefix_len);
+            let end = r.end.saturating_sub(prefix_len).min(text.len());
+            if start >= end {
+                None
+            } else {
+                Some(BidiRun {
+                    start,
+                    end,
+                    level: r.level,
+                })
+            }
+        })
+        .collect()
+}
+
+/// Legacy 2-argument form — equivalent to `analyze_bidi(text, level, Normal)`.
+///
+/// Preserved for callers that don't have a `unicode-bidi` CSS value.
+#[must_use]
+pub fn analyze_bidi_simple(text: &str, paragraph_level: ParagraphLevel) -> Vec<BidiRun> {
+    analyze_bidi(text, paragraph_level, BidiOverride::Normal)
+}
+
+/// Return the prefix/suffix Unicode control character strings for a given
+/// `BidiOverride` value.
+fn bidi_control_chars(bidi_override: BidiOverride, is_rtl: bool) -> (&'static str, &'static str) {
+    match bidi_override {
+        BidiOverride::Normal => ("", ""),
+        BidiOverride::Embed => {
+            if is_rtl {
+                ("\u{202B}", "\u{202C}") // RLE + PDF
+            } else {
+                ("\u{202A}", "\u{202C}") // LRE + PDF
+            }
+        }
+        BidiOverride::BidiOverride => {
+            if is_rtl {
+                ("\u{202E}", "\u{202C}") // RLO + PDF
+            } else {
+                ("\u{202D}", "\u{202C}") // LRO + PDF
+            }
+        }
+        BidiOverride::Isolate => {
+            if is_rtl {
+                ("\u{2067}", "\u{2069}") // RLI + PDI
+            } else {
+                ("\u{2066}", "\u{2069}") // LRI + PDI
+            }
+        }
+        BidiOverride::IsolateOverride => {
+            // FSI + override direction + ... + PDF + PDI
+            if is_rtl {
+                ("\u{2067}\u{202E}", "\u{202C}\u{2069}") // RLI + RLO + ... + PDF + PDI
+            } else {
+                ("\u{2066}\u{202D}", "\u{202C}\u{2069}") // LRI + LRO + ... + PDF + PDI
+            }
+        }
+        BidiOverride::Plaintext => {
+            // First Strong Isolate: auto-detects direction.
+            ("\u{2068}", "\u{2069}") // FSI + PDI
+        }
+    }
+}
+
+/// Run UAX #9 analysis on raw text with a given level hint.
+fn analyze_raw(text: &str, level: Option<Level>) -> Vec<BidiRun> {
+    let bidi_info = BidiInfo::new(text, level);
     let mut runs = Vec::new();
+
     for para in &bidi_info.paragraphs {
         let line = para.range.clone();
         let levels = &bidi_info.levels[line.start..line.end];
@@ -83,7 +224,7 @@ pub fn analyze_bidi(text: &str, paragraph_level: ParagraphLevel) -> Vec<BidiRun>
             }
         }
 
-        // Final run
+        // Final run.
         runs.push(BidiRun {
             start: line.start + run_start,
             end: line.end,
@@ -153,7 +294,7 @@ mod tests {
 
     #[test]
     fn pure_ltr_text() {
-        let runs = analyze_bidi("Hello world", ParagraphLevel::Ltr);
+        let runs = analyze_bidi("Hello world", ParagraphLevel::Ltr, BidiOverride::Normal);
         assert_eq!(runs.len(), 1);
         assert!(!runs[0].is_rtl());
         assert_eq!(runs[0].start, 0);
@@ -162,7 +303,7 @@ mod tests {
 
     #[test]
     fn pure_rtl_text() {
-        let runs = analyze_bidi("مرحبا", ParagraphLevel::Rtl);
+        let runs = analyze_bidi("مرحبا", ParagraphLevel::Rtl, BidiOverride::Normal);
         assert_eq!(runs.len(), 1);
         assert!(runs[0].is_rtl());
     }
@@ -171,26 +312,24 @@ mod tests {
     fn mixed_ltr_rtl() {
         // "Hello مرحبا World" — LTR text, then Arabic RTL, then LTR
         let text = "Hello مرحبا World";
-        let runs = analyze_bidi(text, ParagraphLevel::Ltr);
+        let runs = analyze_bidi(text, ParagraphLevel::Ltr, BidiOverride::Normal);
         assert!(
             runs.len() >= 2,
             "expected at least 2 runs, got {}",
             runs.len()
         );
-
-        // First run should be LTR (the "Hello " part)
         assert!(!runs[0].is_rtl());
     }
 
     #[test]
     fn empty_text() {
-        let runs = analyze_bidi("", ParagraphLevel::Ltr);
+        let runs = analyze_bidi("", ParagraphLevel::Ltr, BidiOverride::Normal);
         assert!(runs.is_empty());
     }
 
     #[test]
     fn reorder_preserves_ltr() {
-        let runs = analyze_bidi("Hello world", ParagraphLevel::Ltr);
+        let runs = analyze_bidi("Hello world", ParagraphLevel::Ltr, BidiOverride::Normal);
         let reordered = reorder_line(&runs);
         assert_eq!(reordered.len(), 1);
         assert_eq!(reordered[0].start, 0);
@@ -198,11 +337,75 @@ mod tests {
 
     #[test]
     fn reorder_reverses_rtl_in_ltr() {
-        // With RTL text embedded in LTR, the RTL portion should be reordered
         let text = "Hello مرحبا World";
-        let runs = analyze_bidi(text, ParagraphLevel::Ltr);
+        let runs = analyze_bidi(text, ParagraphLevel::Ltr, BidiOverride::Normal);
         let reordered = reorder_line(&runs);
-        // After reordering, visual order should place RTL run correctly
         assert!(!reordered.is_empty());
+    }
+
+    // --- unicode-bidi CSS property tests ---
+
+    #[test]
+    fn bidi_override_forces_direction() {
+        // With BidiOverride + RTL, all characters should be at RTL level.
+        let text = "Hello";
+        let runs = analyze_bidi(text, ParagraphLevel::Rtl, BidiOverride::BidiOverride);
+        assert!(!runs.is_empty());
+        for run in &runs {
+            assert!(run.is_rtl(), "bidi-override RTL should force RTL: {run:?}");
+        }
+    }
+
+    #[test]
+    fn isolate_preserves_offsets() {
+        // Isolate should not change byte offsets — they should refer to original text.
+        let text = "Hello world";
+        let runs = analyze_bidi(text, ParagraphLevel::Ltr, BidiOverride::Isolate);
+        assert!(!runs.is_empty());
+        assert_eq!(runs[0].start, 0);
+        assert_eq!(runs.last().unwrap().end, text.len());
+    }
+
+    #[test]
+    fn plaintext_autodetects_direction() {
+        // Arabic text with Plaintext should auto-detect as RTL.
+        let text = "مرحبا";
+        let runs = analyze_bidi(text, ParagraphLevel::Ltr, BidiOverride::Plaintext);
+        assert!(!runs.is_empty());
+        assert!(
+            runs[0].is_rtl(),
+            "plaintext should auto-detect Arabic as RTL"
+        );
+    }
+
+    // --- first_strong_direction tests ---
+
+    #[test]
+    fn first_strong_ltr_text() {
+        assert_eq!(first_strong_direction("Hello"), ParagraphLevel::Ltr);
+    }
+
+    #[test]
+    fn first_strong_rtl_text() {
+        assert_eq!(first_strong_direction("مرحبا"), ParagraphLevel::Rtl);
+    }
+
+    #[test]
+    fn first_strong_empty_defaults_to_ltr() {
+        assert_eq!(first_strong_direction(""), ParagraphLevel::Ltr);
+    }
+
+    #[test]
+    fn first_strong_neutral_then_rtl() {
+        // Digits are neutral; first strong is Arabic
+        assert_eq!(first_strong_direction("123 مرحبا"), ParagraphLevel::Rtl);
+    }
+
+    #[test]
+    fn normal_same_as_simple() {
+        let text = "Hello مرحبا World";
+        let r1 = analyze_bidi(text, ParagraphLevel::Ltr, BidiOverride::Normal);
+        let r2 = analyze_bidi_simple(text, ParagraphLevel::Ltr);
+        assert_eq!(r1, r2);
     }
 }

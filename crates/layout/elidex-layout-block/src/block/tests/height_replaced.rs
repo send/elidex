@@ -20,8 +20,8 @@ fn vertical_stacking_two_divs() {
     dom.world_mut().insert_one(child2, child_style);
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.height - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -52,8 +52,8 @@ fn display_none_excluded() {
     );
 
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.height - 50.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.height - 50.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -62,10 +62,10 @@ fn box_sizing_border_box_height() {
         display: Display::Block,
         height: Dimension::Length(100.0),
         padding: EdgeSizes {
-            top: 10.0,
-            right: 0.0,
-            bottom: 10.0,
-            left: 0.0,
+            top: Dimension::Length(10.0),
+            right: Dimension::ZERO,
+            bottom: Dimension::Length(10.0),
+            left: Dimension::ZERO,
         },
         border_top: BorderSide {
             width: 2.0,
@@ -81,9 +81,9 @@ fn box_sizing_border_box_height() {
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     // content height = 100 - 10 - 10 - 2 - 2 = 76
-    assert!((lb.content.height - 76.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 76.0).abs() < f32::EPSILON);
 }
 
 // --- M3-4: replaced element (image) layout ---
@@ -98,9 +98,9 @@ fn replaced_element_intrinsic_size() {
     let (mut dom, img) = make_dom_with_image(style, 200, 100);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.width - 200.0).abs() < f32::EPSILON);
-    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, img, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.width - 200.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -114,10 +114,10 @@ fn replaced_element_css_width_aspect_ratio() {
     let (mut dom, img) = make_dom_with_image(style, 200, 100);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.width - 300.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, img, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.width - 300.0).abs() < f32::EPSILON);
     // height = 300 * 100/200 = 150
-    assert!((lb.content.height - 150.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 150.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -131,10 +131,10 @@ fn replaced_element_css_height_aspect_ratio() {
     let (mut dom, img) = make_dom_with_image(style, 300, 100);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, img, 800.0, Point::ZERO, &font_db);
     // width = 200 * 300/100 = 600
-    assert!((lb.content.width - 600.0).abs() < f32::EPSILON);
-    assert!((lb.content.height - 200.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 600.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 200.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -149,9 +149,9 @@ fn replaced_element_both_dimensions_specified() {
     let (mut dom, img) = make_dom_with_image(style, 200, 100);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
-    assert!((lb.content.height - 300.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, img, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.width - 400.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 300.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -162,10 +162,10 @@ fn replaced_element_border_box() {
         width: Dimension::Length(220.0),
         height: Dimension::Length(120.0),
         padding: EdgeSizes {
-            top: 10.0,
-            right: 10.0,
-            bottom: 10.0,
-            left: 10.0,
+            top: Dimension::Length(10.0),
+            right: Dimension::Length(10.0),
+            bottom: Dimension::Length(10.0),
+            left: Dimension::Length(10.0),
         },
         box_sizing: BoxSizing::BorderBox,
         ..Default::default()
@@ -173,11 +173,11 @@ fn replaced_element_border_box() {
     let (mut dom, img) = make_dom_with_image(style, 200, 100);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, img, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, img, 800.0, Point::ZERO, &font_db);
     // content = 220 - 10 - 10 = 200
-    assert!((lb.content.width - 200.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 200.0).abs() < f32::EPSILON);
     // content height = 120 - 10 - 10 = 100
-    assert!((lb.content.height - 100.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 100.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -192,9 +192,9 @@ fn no_image_data_normal_layout() {
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
 
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
-    assert!((lb.content.height - 200.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.width - 400.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 200.0).abs() < f32::EPSILON);
 }
 
 // --- M3-5: Percentage heights ---
@@ -223,7 +223,7 @@ fn percentage_height_with_definite_parent() {
         },
     );
     let font_db = FontDatabase::new();
-    layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let child_lb = dom
         .world()
@@ -231,9 +231,9 @@ fn percentage_height_with_definite_parent() {
         .map(|lb| (*lb).clone())
         .expect("child LayoutBox");
     assert!(
-        (child_lb.content.height - 100.0).abs() < f32::EPSILON,
+        (child_lb.content.size.height - 100.0).abs() < f32::EPSILON,
         "expected height=100 (50% of 200), got {}",
-        child_lb.content.height
+        child_lb.content.size.height
     );
 }
 
@@ -262,7 +262,7 @@ fn percentage_height_without_definite_parent() {
         },
     );
     let font_db = FontDatabase::new();
-    layout_block(&mut dom, parent, 800.0, 0.0, 0.0, &font_db);
+    layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
 
     let child_lb = dom
         .world()
@@ -271,9 +271,9 @@ fn percentage_height_without_definite_parent() {
         .expect("child LayoutBox");
     // Auto parent -> percentage height unresolvable -> auto -> content height (0).
     assert!(
-        child_lb.content.height.abs() < f32::EPSILON,
+        child_lb.content.size.height.abs() < f32::EPSILON,
         "expected height=0 (auto fallback), got {}",
-        child_lb.content.height
+        child_lb.content.size.height
     );
 }
 
@@ -311,7 +311,7 @@ fn percentage_height_nested_blocks() {
         },
     );
     let font_db = FontDatabase::new();
-    layout_block(&mut dom, gp, 800.0, 0.0, 0.0, &font_db);
+    layout_block(&mut dom, gp, 800.0, Point::ZERO, &font_db);
 
     let parent_lb = dom
         .world()
@@ -324,14 +324,14 @@ fn percentage_height_nested_blocks() {
         .map(|lb| (*lb).clone())
         .expect("child LayoutBox");
     assert!(
-        (parent_lb.content.height - 200.0).abs() < f32::EPSILON,
+        (parent_lb.content.size.height - 200.0).abs() < f32::EPSILON,
         "parent height = 50% of 400 = 200, got {}",
-        parent_lb.content.height
+        parent_lb.content.size.height
     );
     assert!(
-        (child_lb.content.height - 100.0).abs() < f32::EPSILON,
+        (child_lb.content.size.height - 100.0).abs() < f32::EPSILON,
         "child height = 50% of 200 = 100, got {}",
-        child_lb.content.height
+        child_lb.content.size.height
     );
 }
 
@@ -347,11 +347,11 @@ fn min_height_constrains_auto() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     assert!(
-        (lb.content.height - 200.0).abs() < 1.0,
+        (lb.content.size.height - 200.0).abs() < 1.0,
         "min-height should force height to 200, got {}",
-        lb.content.height
+        lb.content.size.height
     );
 }
 
@@ -366,11 +366,11 @@ fn max_height_constrains_explicit() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     assert!(
-        (lb.content.height - 300.0).abs() < 1.0,
+        (lb.content.size.height - 300.0).abs() < 1.0,
         "max-height should limit height to 300, got {}",
-        lb.content.height
+        lb.content.size.height
     );
 }
 
@@ -396,8 +396,8 @@ fn rtl_margin_auto_centering_centers() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
-    assert!((lb.content.width - 400.0).abs() < f32::EPSILON);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
+    assert!((lb.content.size.width - 400.0).abs() < f32::EPSILON);
     assert!((lb.margin.left - 200.0).abs() < f32::EPSILON);
     assert!((lb.margin.right - 200.0).abs() < f32::EPSILON);
 }
@@ -416,7 +416,7 @@ fn rtl_overconstrained_both_auto_negative() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     assert!((lb.margin.right - 0.0).abs() < f32::EPSILON);
     assert!((lb.margin.left - (-100.0)).abs() < f32::EPSILON);
 }
@@ -434,7 +434,7 @@ fn rtl_overconstrained_no_auto() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     // RTL: margin-right is preserved (50), margin-left is recalculated.
     // margin-left = 800 - 600 - 50 = 150.
     assert!((lb.margin.right - 50.0).abs() < f32::EPSILON);
@@ -454,7 +454,7 @@ fn ltr_overconstrained_no_auto() {
     };
     let (mut dom, div) = make_dom_with_block_div(style);
     let font_db = FontDatabase::new();
-    let lb = layout_block(&mut dom, div, 800.0, 0.0, 0.0, &font_db);
+    let lb = layout_block(&mut dom, div, 800.0, Point::ZERO, &font_db);
     // LTR: margin-left is preserved (50), margin-right is recalculated.
     // margin-right = 800 - 600 - 50 = 150.
     assert!((lb.margin.left - 50.0).abs() < f32::EPSILON);

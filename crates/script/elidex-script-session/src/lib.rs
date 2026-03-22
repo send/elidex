@@ -15,6 +15,7 @@ mod dom_api;
 mod engine;
 pub mod event_dispatch;
 pub mod event_listener;
+pub mod event_queue;
 mod identity_map;
 mod mutation;
 mod session;
@@ -27,7 +28,8 @@ pub use event_dispatch::{
     build_propagation_path, composed_path_for_js, dispatch_event, DispatchEvent, DispatchFlags,
 };
 pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
+pub use event_queue::{EventQueue, QueuedEvent};
 pub use identity_map::IdentityMap;
 pub use mutation::{apply_mutation, Mutation, MutationKind, MutationRecord};
 pub use session::SessionCore;
-pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef};
+pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};

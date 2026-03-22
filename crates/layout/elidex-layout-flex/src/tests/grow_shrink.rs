@@ -1,5 +1,5 @@
 use super::*;
-use elidex_plugin::{BorderSide, EdgeSizes};
+use elidex_plugin::{BorderSide, Dimension, EdgeSizes};
 
 #[test]
 fn flex_grow_distributes_space() {
@@ -26,8 +26,7 @@ fn flex_grow_distributes_space() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -35,8 +34,8 @@ fn flex_grow_distributes_space() {
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.width - 300.0).abs() < 1.0);
-    assert!((lb1.content.width - 300.0).abs() < 1.0);
+    assert!((lb0.content.size.width - 300.0).abs() < 1.0);
+    assert!((lb1.content.size.width - 300.0).abs() < 1.0);
 }
 
 #[test]
@@ -71,8 +70,7 @@ fn flex_shrink_reduces_items() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -80,8 +78,8 @@ fn flex_shrink_reduces_items() {
 
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
-    assert!((lb0.content.width - 200.0).abs() < 1.0);
-    assert!((lb1.content.width - 200.0).abs() < 1.0);
+    assert!((lb0.content.size.width - 200.0).abs() < 1.0);
+    assert!((lb1.content.size.width - 200.0).abs() < 1.0);
 }
 
 #[test]
@@ -124,8 +122,7 @@ fn grown_item_child_uses_flex_resolved_width() {
         container,
         600.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -135,13 +132,13 @@ fn grown_item_child_uses_flex_resolved_width() {
     let child_lb = get_lb(&dom, child);
 
     // Item should have grown to 600px.
-    assert!((item_lb.content.width - 600.0).abs() < 1.0);
+    assert!((item_lb.content.size.width - 600.0).abs() < 1.0);
 
     // Child with auto width should also be 600px (fills parent).
     assert!(
-        (child_lb.content.width - 600.0).abs() < 1.0,
+        (child_lb.content.size.width - 600.0).abs() < 1.0,
         "child width={} should be ~600 (parent's flex-resolved width)",
-        child_lb.content.width,
+        child_lb.content.size.width,
     );
 }
 
@@ -184,8 +181,7 @@ fn margin_item_child_not_double_offset() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -195,15 +191,15 @@ fn margin_item_child_not_double_offset() {
     let grandchild_lb = get_lb(&dom, grandchild);
 
     // Item content starts at margin-left (20px).
-    assert!((item_lb.content.x - 20.0).abs() < f32::EPSILON);
+    assert!((item_lb.content.origin.x - 20.0).abs() < f32::EPSILON);
 
     // Grandchild should be at the same x as the item's content origin
     // (no extra margin offset).
     assert!(
-        (grandchild_lb.content.x - item_lb.content.x).abs() < f32::EPSILON,
+        (grandchild_lb.content.origin.x - item_lb.content.origin.x).abs() < f32::EPSILON,
         "grandchild x={} should equal item content x={}",
-        grandchild_lb.content.x,
-        item_lb.content.x,
+        grandchild_lb.content.origin.x,
+        item_lb.content.origin.x,
     );
 }
 
@@ -220,28 +216,26 @@ fn descendant_positioned_at_container_offset() {
     dom.append_child(outer, child);
 
     let font_db = FontDatabase::new();
-    let offset_x = 100.0_f32;
-    let offset_y = 200.0_f32;
+    let offset = Point::new(100.0, 200.0);
     let outer_lb = do_layout_flex(
         &mut dom,
         outer,
         800.0,
         None,
-        offset_x,
-        offset_y,
+        offset,
         &font_db,
         0,
         layout_block_only,
     );
 
     // Container starts at (100, 200).
-    assert!((outer_lb.content.x - offset_x).abs() < f32::EPSILON);
-    assert!((outer_lb.content.y - offset_y).abs() < f32::EPSILON);
+    assert!((outer_lb.content.origin.x - offset.x).abs() < f32::EPSILON);
+    assert!((outer_lb.content.origin.y - offset.y).abs() < f32::EPSILON);
 
     // Child should be offset from the container's content origin.
     let child_lb = get_lb(&dom, child);
-    assert!(child_lb.content.x >= offset_x);
-    assert!(child_lb.content.y >= offset_y);
+    assert!(child_lb.content.origin.x >= offset.x);
+    assert!(child_lb.content.origin.y >= offset.y);
 }
 
 #[test]
@@ -260,8 +254,7 @@ fn stretch_skips_explicit_cross_size() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -269,7 +262,7 @@ fn stretch_skips_explicit_cross_size() {
 
     let lb0 = get_lb(&dom, items[0]);
     // 30px item should NOT stretch to 60px because height is explicit.
-    assert!((lb0.content.height - 30.0).abs() < 1.0);
+    assert!((lb0.content.size.height - 30.0).abs() < 1.0);
 }
 
 // --- M3-2: box-sizing: border-box in flex ---
@@ -281,7 +274,12 @@ fn flex_item_border_box_width() {
         display: Display::Block,
         width: Dimension::Length(200.0),
         height: Dimension::Length(50.0),
-        padding: EdgeSizes::new(0.0, 10.0, 0.0, 10.0),
+        padding: EdgeSizes {
+            top: Dimension::ZERO,
+            right: Dimension::Length(10.0),
+            bottom: Dimension::ZERO,
+            left: Dimension::Length(10.0),
+        },
         border_left: BorderSide {
             width: 2.0,
             ..BorderSide::NONE
@@ -300,8 +298,7 @@ fn flex_item_border_box_width() {
         cont,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -309,10 +306,10 @@ fn flex_item_border_box_width() {
 
     let lb = get_lb(&dom, items[0]);
     // border-box: content = 200 - 10 - 10 - 2 - 2 = 176
-    assert!((lb.content.width - 176.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.width - 176.0).abs() < f32::EPSILON);
     // border_box() = 200
     let bb = lb.border_box();
-    assert!((bb.width - 200.0).abs() < f32::EPSILON);
+    assert!((bb.size.width - 200.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -320,7 +317,12 @@ fn flex_container_border_box_height() {
     let container = ComputedStyle {
         display: Display::Flex,
         height: Dimension::Length(200.0),
-        padding: EdgeSizes::new(15.0, 0.0, 15.0, 0.0),
+        padding: EdgeSizes {
+            top: Dimension::Length(15.0),
+            right: Dimension::ZERO,
+            bottom: Dimension::Length(15.0),
+            left: Dimension::ZERO,
+        },
         border_top: BorderSide {
             width: 5.0,
             ..BorderSide::NONE
@@ -340,15 +342,14 @@ fn flex_container_border_box_height() {
         cont,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
     );
 
     // content height = 200 - 15 - 15 - 5 - 5 = 160
-    assert!((lb.content.height - 160.0).abs() < f32::EPSILON);
+    assert!((lb.content.size.height - 160.0).abs() < f32::EPSILON);
 }
 
 // --- M3-5: Flex container with percentage height child ---
@@ -373,8 +374,7 @@ fn flex_child_percentage_height() {
         cont,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -382,7 +382,7 @@ fn flex_child_percentage_height() {
 
     let lb = get_lb(&dom, items[0]);
     // height: 50% of 200 = 100.
-    assert!((lb.content.height - 100.0).abs() < 1.0);
+    assert!((lb.content.size.height - 100.0).abs() < 1.0);
 }
 
 // --- M3-6: min/max width in flex items ---
@@ -406,8 +406,7 @@ fn flex_item_min_width_prevents_shrink() {
         container,
         400.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -416,12 +415,12 @@ fn flex_item_min_width_prevents_shrink() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     assert!(
-        lb0.content.width >= 249.0,
+        lb0.content.size.width >= 249.0,
         "item 0 should respect min-width 250, got {}",
-        lb0.content.width
+        lb0.content.size.width
     );
     assert!(
-        lb1.content.width < lb0.content.width,
+        lb1.content.size.width < lb0.content.size.width,
         "item 1 should be smaller than item 0"
     );
 }
@@ -452,8 +451,7 @@ fn flex_item_max_width_prevents_grow() {
         container,
         800.0,
         None,
-        0.0,
-        0.0,
+        Point::ZERO,
         &font_db,
         0,
         layout_block_only,
@@ -462,13 +460,13 @@ fn flex_item_max_width_prevents_grow() {
     let lb0 = get_lb(&dom, items[0]);
     let lb1 = get_lb(&dom, items[1]);
     assert!(
-        lb0.content.width <= 201.0,
+        lb0.content.size.width <= 201.0,
         "item 0 should respect max-width 200, got {}",
-        lb0.content.width
+        lb0.content.size.width
     );
     assert!(
-        lb1.content.width > lb0.content.width,
+        lb1.content.size.width > lb0.content.size.width,
         "item 1 should get remaining space, got {}",
-        lb1.content.width
+        lb1.content.size.width
     );
 }

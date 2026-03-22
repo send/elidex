@@ -4,7 +4,8 @@
 //! applying interpolated values from active transitions and animations.
 
 use elidex_plugin::{
-    ComputedStyle, CssColor, CssValue, Dimension, LengthUnit, LineHeight, VerticalAlign, Visibility,
+    ComputedStyle, CssColor, CssValue, Dimension, FlexBasis, FontStyle, LengthUnit, LineHeight,
+    ListStyleType, VerticalAlign, Visibility,
 };
 
 /// Apply an animated value to the corresponding `ComputedStyle` field.
@@ -14,6 +15,30 @@ use elidex_plugin::{
 #[allow(clippy::too_many_lines)]
 pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &CssValue) {
     match property {
+        "transform" => {
+            if let CssValue::TransformList(funcs) = value {
+                style.transform.clone_from(funcs);
+                style.has_transform = !funcs.is_empty();
+            } else if let CssValue::Keyword(k) = value {
+                if k == "none" {
+                    style.transform.clear();
+                    style.has_transform = false;
+                }
+            }
+        }
+        "perspective" => {
+            if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
+                if v.is_finite() && *v > 0.0 {
+                    style.perspective = Some(*v);
+                    style.has_perspective = true;
+                }
+            } else if let CssValue::Keyword(k) = value {
+                if k == "none" {
+                    style.perspective = None;
+                    style.has_perspective = false;
+                }
+            }
+        }
         "opacity" => {
             if let CssValue::Number(n) = value {
                 if n.is_finite() {
@@ -45,10 +70,10 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
         "margin-right" => apply_dimension(&mut style.margin_right, value),
         "margin-bottom" => apply_dimension(&mut style.margin_bottom, value),
         "margin-left" => apply_dimension(&mut style.margin_left, value),
-        "padding-top" => apply_px(&mut style.padding.top, value),
-        "padding-right" => apply_px(&mut style.padding.right, value),
-        "padding-bottom" => apply_px(&mut style.padding.bottom, value),
-        "padding-left" => apply_px(&mut style.padding.left, value),
+        "padding-top" => apply_dimension(&mut style.padding.top, value),
+        "padding-right" => apply_dimension(&mut style.padding.right, value),
+        "padding-bottom" => apply_dimension(&mut style.padding.bottom, value),
+        "padding-left" => apply_dimension(&mut style.padding.left, value),
         "border-top-width" => apply_px(&mut style.border_top.width, value),
         "border-right-width" => apply_px(&mut style.border_right.width, value),
         "border-bottom-width" => apply_px(&mut style.border_bottom.width, value),
@@ -87,17 +112,21 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
                 }
             }
         }
-        // TODO(M4-3.7): per-corner border-radius requires ComputedStyle struct change
-        // + CSS shorthand parsing + render integration.
         "border-radius" => {
             if let CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) = value {
                 if v.is_finite() {
-                    style.border_radius = v.max(0.0);
+                    let r = v.max(0.0);
+                    style.border_radii = [r; 4];
                 }
             }
         }
-        "row-gap" => apply_px(&mut style.row_gap, value),
-        "column-gap" => apply_px(&mut style.column_gap, value),
+        "border-top-left-radius" => apply_px(&mut style.border_radii[0], value),
+        "border-top-right-radius" => apply_px(&mut style.border_radii[1], value),
+        "border-bottom-right-radius" => apply_px(&mut style.border_radii[2], value),
+        "border-bottom-left-radius" => apply_px(&mut style.border_radii[3], value),
+        "row-gap" => apply_dimension(&mut style.row_gap, value),
+        "column-gap" => apply_dimension(&mut style.column_gap, value),
+        "flex-basis" => apply_flex_basis(&mut style.flex_basis, value),
         "flex-grow" => apply_non_negative_number(&mut style.flex_grow, value),
         "flex-shrink" => apply_non_negative_number(&mut style.flex_shrink, value),
         "order" => {
@@ -110,8 +139,20 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
                 }
             }
         }
-        // TODO(M4-3.7): top/right/bottom/left position offsets and z-index require
-        // positioned layout support in ComputedStyle + layout engine.
+        "top" => apply_dimension(&mut style.top, value),
+        "right" => apply_dimension(&mut style.right, value),
+        "bottom" => apply_dimension(&mut style.bottom, value),
+        "left" => apply_dimension(&mut style.left, value),
+        "z-index" => {
+            if let CssValue::Number(v) = value {
+                if v.is_finite() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        style.z_index = Some(*v as i32);
+                    }
+                }
+            }
+        }
         "visibility" => {
             if let CssValue::Keyword(kw) = value {
                 if let Some(v) = Visibility::from_keyword(kw) {
@@ -122,6 +163,20 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
         "text-decoration-color" => {
             if let CssValue::Color(c) = value {
                 style.text_decoration_color = Some(*c);
+            }
+        }
+        "font-style" => {
+            if let CssValue::Keyword(kw) = value {
+                if let Some(v) = FontStyle::from_keyword(kw) {
+                    style.font_style = v;
+                }
+            }
+        }
+        "list-style-type" => {
+            if let CssValue::Keyword(kw) = value {
+                if let Some(v) = ListStyleType::from_keyword(kw) {
+                    style.list_style_type = v;
+                }
             }
         }
         "vertical-align" => {
@@ -155,6 +210,28 @@ fn apply_dimension(field: &mut Dimension, value: &CssValue) {
         }
         CssValue::Auto => {
             *field = Dimension::Auto;
+        }
+        _ => {}
+    }
+}
+
+fn apply_flex_basis(field: &mut FlexBasis, value: &CssValue) {
+    match value {
+        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => {
+            if v.is_finite() {
+                *field = FlexBasis::Length(*v);
+            }
+        }
+        CssValue::Percentage(p) => {
+            if p.is_finite() {
+                *field = FlexBasis::Percentage(*p);
+            }
+        }
+        CssValue::Auto => {
+            *field = FlexBasis::Auto;
+        }
+        CssValue::Keyword(k) if k == "content" => {
+            *field = FlexBasis::Content;
         }
         _ => {}
     }
@@ -353,13 +430,13 @@ mod tests {
     #[test]
     fn apply_padding_nan_ignored() {
         let mut style = ComputedStyle::default();
-        style.padding.top = 10.0;
+        style.padding.top = Dimension::Length(10.0);
         apply_animated_value(
             &mut style,
             "padding-top",
             &CssValue::Length(f32::NAN, LengthUnit::Px),
         );
-        assert!((style.padding.top - 10.0).abs() < f32::EPSILON);
+        assert_eq!(style.padding.top, Dimension::Length(10.0));
     }
 
     #[test]
@@ -397,6 +474,77 @@ mod tests {
             "border-radius",
             &CssValue::Length(8.0, LengthUnit::Px),
         );
-        assert!((style.border_radius - 8.0).abs() < f32::EPSILON);
+        assert_eq!(style.border_radii, [8.0; 4]);
+    }
+
+    #[test]
+    fn apply_flex_basis() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(
+            &mut style,
+            "flex-basis",
+            &CssValue::Length(100.0, LengthUnit::Px),
+        );
+        assert_eq!(style.flex_basis, FlexBasis::Length(100.0));
+    }
+
+    #[test]
+    fn apply_flex_basis_percentage() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(&mut style, "flex-basis", &CssValue::Percentage(50.0));
+        assert_eq!(style.flex_basis, FlexBasis::Percentage(50.0));
+    }
+
+    #[test]
+    fn apply_font_style() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(
+            &mut style,
+            "font-style",
+            &CssValue::Keyword("italic".into()),
+        );
+        assert_eq!(style.font_style, FontStyle::Italic);
+    }
+
+    #[test]
+    fn apply_transform() {
+        use elidex_plugin::TransformFunction;
+        let mut style = ComputedStyle::default();
+        let funcs = vec![TransformFunction::Rotate(45.0)];
+        apply_animated_value(
+            &mut style,
+            "transform",
+            &CssValue::TransformList(funcs.clone()),
+        );
+        assert_eq!(style.transform, funcs);
+        assert!(style.has_transform);
+
+        // Apply none
+        apply_animated_value(&mut style, "transform", &CssValue::Keyword("none".into()));
+        assert!(style.transform.is_empty());
+        assert!(!style.has_transform);
+    }
+
+    #[test]
+    fn apply_perspective() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(
+            &mut style,
+            "perspective",
+            &CssValue::Length(500.0, LengthUnit::Px),
+        );
+        assert_eq!(style.perspective, Some(500.0));
+        assert!(style.has_perspective);
+    }
+
+    #[test]
+    fn apply_list_style_type() {
+        let mut style = ComputedStyle::default();
+        apply_animated_value(
+            &mut style,
+            "list-style-type",
+            &CssValue::Keyword("square".into()),
+        );
+        assert_eq!(style.list_style_type, ListStyleType::Square);
     }
 }

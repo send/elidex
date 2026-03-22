@@ -85,7 +85,7 @@ fn bench_layout(c: &mut Criterion) {
         b.iter_batched(
             || build_block_dom(100),
             |mut dom| {
-                layout_tree(&mut dom, 800.0, 600.0, &font_db);
+                layout_tree(&mut dom, elidex_plugin::Size::new(800.0, 600.0), &font_db);
             },
             criterion::BatchSize::SmallInput,
         );
@@ -95,7 +95,7 @@ fn bench_layout(c: &mut Criterion) {
         b.iter_batched(
             || build_flex_dom(20),
             |mut dom| {
-                layout_tree(&mut dom, 800.0, 600.0, &font_db);
+                layout_tree(&mut dom, elidex_plugin::Size::new(800.0, 600.0), &font_db);
             },
             criterion::BatchSize::SmallInput,
         );

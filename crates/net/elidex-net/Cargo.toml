@@ -18,6 +18,7 @@ elidex-plugin.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
+psl.workspace = true
 hyper-util.workspace = true
 rustls.workspace = true
 rustls-pki-types.workspace = true

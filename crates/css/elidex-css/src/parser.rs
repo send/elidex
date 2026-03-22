@@ -8,9 +8,10 @@ use cssparser::{
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
 };
 
-use elidex_plugin::CssPropertyRegistry;
+use elidex_plugin::{CssPropertyRegistry, PageRule};
 
 use crate::declaration::{parse_property_value, Declaration, Origin};
+use crate::page::parse_page_rules;
 use crate::selector::{parse_selector_list, Selector};
 
 /// A parsed CSS stylesheet.
@@ -26,6 +27,8 @@ pub struct Stylesheet {
     /// the outer `{ }` braces and must be parsed by the animation handler
     /// (e.g. `elidex_css_anim::parse::parse_keyframes`).
     pub keyframes_raw: Vec<(String, String)>,
+    /// Parsed `@page` rules (CSS Paged Media Level 3).
+    pub page_rules: Vec<PageRule>,
 }
 
 /// A single CSS rule (selector list + declarations).
@@ -66,10 +69,12 @@ pub fn parse_stylesheet_with_registry(
     let mut rules = Vec::new();
     let mut source_order: u32 = 0;
     let mut keyframes_raw = Vec::new();
+    let mut page_rules = Vec::new();
 
     let mut rule_parser = RuleListParser {
         source_order: &mut source_order,
         keyframes_raw: &mut keyframes_raw,
+        page_rules: &mut page_rules,
         registry,
     };
 
@@ -81,6 +86,7 @@ pub fn parse_stylesheet_with_registry(
         origin,
         rules,
         keyframes_raw,
+        page_rules,
     }
 }
 
@@ -89,13 +95,22 @@ pub fn parse_stylesheet_with_registry(
 struct RuleListParser<'a> {
     source_order: &'a mut u32,
     keyframes_raw: &'a mut Vec<(String, String)>,
+    page_rules: &'a mut Vec<PageRule>,
     registry: Option<&'a CssPropertyRegistry>,
 }
 
-/// `@keyframes` rules are parsed and stored in `keyframes_raw`.
-/// All other at-rules are silently dropped.
+/// At-rule kind tag used as the prelude type.
+enum AtRuleKind {
+    /// `@keyframes <name>` — name is the keyframes identifier.
+    Keyframes(String),
+    /// `@page <selectors>` — prelude text for page pseudo-classes.
+    Page(String),
+}
+
+/// `@keyframes` and `@page` rules are parsed and stored in their
+/// respective fields. All other at-rules are silently dropped.
 impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
-    type Prelude = String;
+    type Prelude = AtRuleKind;
     type AtRule = CssRule;
     type Error = ();
 
@@ -128,7 +143,14 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
             ) {
                 return Err(input.new_custom_error(()));
             }
-            Ok(keyframes_name)
+            Ok(AtRuleKind::Keyframes(keyframes_name))
+        } else if name.eq_ignore_ascii_case("page") {
+            // CSS Paged Media L3 §4: @page <page-selector-list>? { ... }
+            // Consume the rest of the prelude as raw text for selector parsing.
+            let start_pos = input.position();
+            while input.next_including_whitespace_and_comments().is_ok() {}
+            let prelude_text = input.slice_from(start_pos).trim().to_string();
+            Ok(AtRuleKind::Page(prelude_text))
         } else {
             Err(input.new_custom_error(()))
         }
@@ -146,10 +168,18 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
         while input.next_including_whitespace_and_comments().is_ok() {}
         let body = input.slice_from(start_pos).to_string();
 
-        self.keyframes_raw.push((prelude, body));
+        match prelude {
+            AtRuleKind::Keyframes(name) => {
+                self.keyframes_raw.push((name, body));
+            }
+            AtRuleKind::Page(prelude_text) => {
+                let rules = parse_page_rules(&prelude_text, &body);
+                self.page_rules.extend(rules);
+            }
+        }
 
-        // Return Err so no CssRule is produced — @keyframes are stored
-        // separately in Stylesheet::keyframes_raw.
+        // Return Err so no CssRule is produced — @keyframes/@page are stored
+        // separately in their respective Stylesheet fields.
         Err(input.new_custom_error(()))
     }
 }

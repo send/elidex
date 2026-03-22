@@ -3,8 +3,8 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_layout_block::{layout_block_only, LayoutInput};
 use elidex_plugin::{
-    AlignItems, ComputedStyle, Dimension, Display, GridAutoFlow, GridLine, LayoutBox, TrackBreadth,
-    TrackSize,
+    AlignItems, ComputedStyle, CssSize, Dimension, Display, GridAutoFlow, GridLine, GridTrackList,
+    LayoutBox, Point, TrackBreadth, TrackSection, TrackSize,
 };
 use elidex_text::FontDatabase;
 
@@ -17,26 +17,38 @@ fn do_layout_grid(
     entity: elidex_ecs::Entity,
     containing_width: f32,
     containing_height: Option<f32>,
-    offset_x: f32,
-    offset_y: f32,
+    offset: Point,
     font_db: &FontDatabase,
     depth: u32,
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
-        containing_width,
-        containing_height,
-        offset_x,
-        offset_y,
+        containing: CssSize {
+            width: containing_width,
+            height: containing_height,
+        },
+        containing_inline_size: containing_width,
+        offset,
         font_db,
         depth,
+        float_ctx: None,
+        viewport: None,
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
     };
-    layout_grid(dom, entity, &input, layout_child)
+    layout_grid(dom, entity, &input, layout_child).layout_box
 }
 
 mod alignment_box;
+mod baseline;
+mod blockification;
+mod fragmentation;
 mod placement;
+mod subgrid;
 mod track_sizing;
+mod writing_mode;
 
 // ---------------------------------------------------------------------------
 // Helpers

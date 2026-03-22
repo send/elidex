@@ -7,8 +7,10 @@ mod components;
 mod dom;
 
 pub use components::{
-    Attributes, ElementState, ImageData, InlineStyle, PseudoElementMarker, ShadowHost, ShadowRoot,
-    ShadowRootMode, SlotAssignment, SlottedMarker, TagType, TemplateContent, TextContent,
+    AnonymousTableMarker, AttrData, Attributes, BackgroundImages, CommentData, DocTypeData,
+    ElementState, ImageData, InlineStyle, NodeKind, PseudoElementMarker, ScrollState, ShadowHost,
+    ShadowRoot, ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType,
+    TemplateContent, TextContent,
 };
 pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
 

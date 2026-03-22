@@ -50,12 +50,12 @@ pub fn shape_text(
 /// Enables the OpenType `vert` feature for vertical glyph substitution.
 /// `total_advance` represents the total vertical advance (sum of `y_advance`).
 ///
-/// Returns `None` if the font data cannot be accessed or the face cannot be parsed.
+/// When `sideways` is true (CSS `text-orientation: sideways`), shapes
+/// horizontally and returns x-advances as y-advances so that the caller
+/// can place glyphs in a vertically-flowing column. This is used when
+/// the entire text should be rotated 90° CW.
 ///
-// TODO(Phase 4): Apply CSS `text-orientation` (mixed/upright/sideways).
-// Currently all glyphs are shaped with TTB direction + `vert` feature,
-// but `text-orientation: mixed` requires per-character classification
-// (UTR #50 vo=R/Tr/Tu) to decide rotation vs. upright rendering.
+/// Returns `None` if the font data cannot be accessed or the face cannot be parsed.
 #[must_use]
 pub fn shape_text_vertical(
     db: &FontDatabase,
@@ -64,6 +64,30 @@ pub fn shape_text_vertical(
     text: &str,
 ) -> Option<ShapedText> {
     shape_with_options(db, font_id, font_size, text, true)
+}
+
+/// Shapes `text` for vertical layout with `text-orientation: sideways`.
+///
+/// Shapes horizontally and converts x-advances to y-advances so glyphs
+/// flow top-to-bottom while remaining in their horizontal orientation
+/// (rotated 90° CW as a group by the renderer).
+#[must_use]
+pub fn shape_text_vertical_sideways(
+    db: &FontDatabase,
+    font_id: fontdb::ID,
+    font_size: f32,
+    text: &str,
+) -> Option<ShapedText> {
+    // Shape horizontally, then convert x-advance → y-advance for vertical flow.
+    let mut shaped = shape_with_options(db, font_id, font_size, text, false)?;
+    let mut total_advance = 0.0;
+    for g in &mut shaped.glyphs {
+        g.y_advance = g.x_advance;
+        g.x_advance = 0.0;
+        total_advance += g.y_advance;
+    }
+    shaped.total_advance = total_advance;
+    Some(shaped)
 }
 
 /// Internal shaping implementation shared by horizontal and vertical paths.
@@ -495,6 +519,57 @@ mod tests {
         let result = shape_text_vertical(&db, id, 16.0, "");
         if let Some(shaped) = result {
             assert!(shaped.glyphs.is_empty());
+        }
+    }
+
+    // --- text-orientation: sideways ---
+
+    #[test]
+    fn sideways_vertical_converts_x_to_y_advance() {
+        let db = FontDatabase::new();
+        let Some(id) = test_font(&db) else {
+            return;
+        };
+        let horiz = shape_text(&db, id, 16.0, "Hello").unwrap();
+        let sideways = shape_text_vertical_sideways(&db, id, 16.0, "Hello").unwrap();
+
+        // Same number of glyphs.
+        assert_eq!(horiz.glyphs.len(), sideways.glyphs.len());
+
+        // Sideways: x_advance should be 0, y_advance should equal horizontal x_advance.
+        for (h, s) in horiz.glyphs.iter().zip(sideways.glyphs.iter()) {
+            assert!(
+                s.x_advance.abs() < f32::EPSILON,
+                "sideways x_advance should be 0, got {}",
+                s.x_advance
+            );
+            assert!(
+                (s.y_advance - h.x_advance).abs() < f32::EPSILON,
+                "sideways y_advance ({}) should match horizontal x_advance ({})",
+                s.y_advance,
+                h.x_advance
+            );
+        }
+
+        // Total advance should match horizontal total.
+        assert!(
+            (sideways.total_advance - horiz.total_advance).abs() < f32::EPSILON,
+            "sideways total ({}) should match horizontal total ({})",
+            sideways.total_advance,
+            horiz.total_advance
+        );
+    }
+
+    #[test]
+    fn sideways_vertical_empty_string() {
+        let db = FontDatabase::new();
+        let Some(id) = test_font(&db) else {
+            return;
+        };
+        let result = shape_text_vertical_sideways(&db, id, 16.0, "");
+        if let Some(shaped) = result {
+            assert!(shaped.glyphs.is_empty());
+            assert!(shaped.total_advance.abs() < f32::EPSILON);
         }
     }
 

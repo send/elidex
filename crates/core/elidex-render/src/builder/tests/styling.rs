@@ -34,9 +34,9 @@ fn text_align_center_offsets_text() {
     // Exact offset = (400 - text_width) / 2, which is > 0 for any short text.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+            glyphs[0].position.x > 0.0 && glyphs[0].position.x < 400.0,
             "center-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].x
+            glyphs[0].position.x
         );
     }
 }
@@ -70,16 +70,16 @@ fn text_align_right_offsets_text() {
     // Right-aligned: offset = 400 - text_width, so glyph x > center offset.
     if let crate::display_list::DisplayItem::Text { glyphs, .. } = text_items[0] {
         assert!(
-            glyphs[0].x > 0.0 && glyphs[0].x < 400.0,
+            glyphs[0].position.x > 0.0 && glyphs[0].position.x < 400.0,
             "right-aligned text should be between 0 and container width, got x={}",
-            glyphs[0].x
+            glyphs[0].position.x
         );
         // Right offset should be > center offset for the same text.
         // "Hi" in 400px: right offset ≈ 380+, center offset ≈ 190+.
         assert!(
-            glyphs[0].x > 200.0,
+            glyphs[0].position.x > 200.0,
             "right-aligned text should be in right half, got x={}",
-            glyphs[0].x
+            glyphs[0].position.x
         );
     }
 }
@@ -201,7 +201,7 @@ fn background_with_border_radius_emits_rounded_rect() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 10.0,
+            border_radii: [10.0; 4],
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -213,7 +213,7 @@ fn background_with_border_radius_emits_rounded_rect() {
     let dl = build_display_list(&dom, &font_db);
     assert_eq!(dl.0.len(), 1);
     assert!(
-        matches!(&dl.0[0], crate::display_list::DisplayItem::RoundedRect { radius, .. } if (*radius - 10.0).abs() < f32::EPSILON)
+        matches!(&dl.0[0], crate::display_list::DisplayItem::RoundedRect { radii, .. } if (radii[0] - 10.0).abs() < f32::EPSILON)
     );
 }
 
@@ -223,7 +223,7 @@ fn background_without_border_radius_emits_solid_rect() {
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 0.0,
+            border_radii: [0.0; 4],
             ..Default::default()
         },
         elidex_plugin::LayoutBox {
@@ -262,16 +262,15 @@ fn opacity_cases() {
     }
 }
 
-/// Known Phase 4 limitation: when both `border-radius` and `border` are
-/// set, the background is a `RoundedRect` but borders are axis-aligned
-/// `SolidRect` items. Borders do not follow rounded corners.
+/// When both `border-radius` and uniform `border` are set, a single
+/// `RoundedBorderRing` item is emitted instead of 4 axis-aligned `SolidRect`.
 #[test]
-fn border_radius_with_border_known_limitation() {
+fn border_radius_with_border_emits_rounded_ring() {
     let (dom, _) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
             background_color: elidex_plugin::CssColor::RED,
-            border_radius: 10.0,
+            border_radii: [10.0; 4],
             border_top: elidex_plugin::BorderSide {
                 width: 0.0,
                 style: elidex_plugin::BorderStyle::Solid,
@@ -307,17 +306,91 @@ fn border_radius_with_border_known_limitation() {
     );
     let font_db = elidex_text::FontDatabase::new();
     let dl = build_display_list(&dom, &font_db);
-    // 1 RoundedRect (background) + 4 SolidRect (borders).
+    // 1 RoundedRect (background) + 1 RoundedBorderRing (borders).
     let rounded =
         dl.0.iter()
             .filter(|i| matches!(i, crate::display_list::DisplayItem::RoundedRect { .. }))
+            .count();
+    let rings =
+        dl.0.iter()
+            .filter(|i| {
+                matches!(
+                    i,
+                    crate::display_list::DisplayItem::RoundedBorderRing { .. }
+                )
+            })
             .count();
     let rects =
         dl.0.iter()
             .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
             .count();
-    assert_eq!(rounded, 1);
-    assert_eq!(rects, 4);
+    assert_eq!(rounded, 1, "should have 1 RoundedRect for background");
+    assert_eq!(rings, 1, "should have 1 RoundedBorderRing for borders");
+    assert_eq!(rects, 0, "should have no SolidRect borders");
+}
+
+/// When border-radius is set but border colors differ, fall back to `SolidRect`.
+#[test]
+fn border_radius_different_colors_falls_back_to_solid_rect() {
+    let (dom, _) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            background_color: elidex_plugin::CssColor::TRANSPARENT,
+            border_radii: [10.0; 4],
+            border_top: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_right: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLUE,
+            },
+            border_bottom: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::RED,
+            },
+            border_left: elidex_plugin::BorderSide {
+                width: 2.0,
+                style: elidex_plugin::BorderStyle::Solid,
+                color: elidex_plugin::CssColor::BLUE,
+            },
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(2.0, 2.0, 100.0, 50.0),
+            border: EdgeSizes {
+                top: 2.0,
+                right: 2.0,
+                bottom: 2.0,
+                left: 2.0,
+            },
+            ..Default::default()
+        },
+    );
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+    // Different colors → fallback to SolidRect borders.
+    let rings =
+        dl.0.iter()
+            .filter(|i| {
+                matches!(
+                    i,
+                    crate::display_list::DisplayItem::RoundedBorderRing { .. }
+                )
+            })
+            .count();
+    let rects =
+        dl.0.iter()
+            .filter(|i| matches!(i, crate::display_list::DisplayItem::SolidRect { .. }))
+            .count();
+    assert_eq!(
+        rings, 0,
+        "should not use RoundedBorderRing with mixed colors"
+    );
+    assert_eq!(rects, 4, "should fall back to 4 SolidRect borders");
 }
 
 #[test]
@@ -373,21 +446,21 @@ fn border_corners_no_overlap() {
     // border-box: x=3, y=2, w=104, h=56 (content 100x50 + border 2+2 / 3+3)
     // top: full width, y=2, h=3
     let top = rects[0];
-    assert!((top.y - 2.0).abs() < f32::EPSILON);
-    assert!((top.height - 3.0).abs() < f32::EPSILON);
-    assert!((top.width - 104.0).abs() < f32::EPSILON);
+    assert!((top.origin.y - 2.0).abs() < f32::EPSILON);
+    assert!((top.size.height - 3.0).abs() < f32::EPSILON);
+    assert!((top.size.width - 104.0).abs() < f32::EPSILON);
     // bottom: full width, y=55, h=3
     let bottom = rects[1];
-    assert!((bottom.y - 55.0).abs() < f32::EPSILON);
-    assert!((bottom.height - 3.0).abs() < f32::EPSILON);
+    assert!((bottom.origin.y - 55.0).abs() < f32::EPSILON);
+    assert!((bottom.size.height - 3.0).abs() < f32::EPSILON);
     // right: inset by top(3)+bottom(3), height=50
     let right = rects[2];
-    assert!((right.y - 5.0).abs() < f32::EPSILON); // 2 + 3
-    assert!((right.height - 50.0).abs() < f32::EPSILON); // 56 - 3 - 3
-                                                         // left: same inset
+    assert!((right.origin.y - 5.0).abs() < f32::EPSILON); // 2 + 3
+    assert!((right.size.height - 50.0).abs() < f32::EPSILON); // 56 - 3 - 3
+                                                              // left: same inset
     let left = rects[3];
-    assert!((left.y - 5.0).abs() < f32::EPSILON);
-    assert!((left.height - 50.0).abs() < f32::EPSILON);
+    assert!((left.origin.y - 5.0).abs() < f32::EPSILON);
+    assert!((left.size.height - 50.0).abs() < f32::EPSILON);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +474,9 @@ fn apply_text_transform_cases() {
         ("hello", TextTransform::Uppercase, "HELLO"),
         ("HELLO", TextTransform::Lowercase, "hello"),
         ("hello world", TextTransform::Capitalize, "Hello World"),
+        // UAX #29: punctuation-adjacent word boundaries.
+        ("hello-world", TextTransform::Capitalize, "Hello-World"),
+        ("it's a test", TextTransform::Capitalize, "It's A Test"),
         ("Hello", TextTransform::None, "Hello"),
     ];
     for (input, transform, expected) in cases {
@@ -447,13 +523,13 @@ fn image_data_emits_image_item() {
     assert_eq!(image_items.len(), 1);
     match &image_items[0] {
         crate::display_list::DisplayItem::Image {
-            rect,
+            painting_area,
             image_width,
             image_height,
             ..
         } => {
-            assert!((rect.width - 200.0).abs() < f32::EPSILON);
-            assert!((rect.height - 100.0).abs() < f32::EPSILON);
+            assert!((painting_area.size.width - 200.0).abs() < f32::EPSILON);
+            assert!((painting_area.size.height - 100.0).abs() < f32::EPSILON);
             assert_eq!(*image_width, 1);
             assert_eq!(*image_height, 1);
         }

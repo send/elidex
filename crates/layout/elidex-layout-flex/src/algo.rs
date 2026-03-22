@@ -1,30 +1,29 @@
 //! Flexbox algorithm phases: line splitting, flexible length resolution,
 //! cross-size resolution, and positioning.
 
-use elidex_ecs::EcsDom;
+use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    clamp_min_max, resolve_explicit_height, sanitize, ChildLayoutFn, LayoutInput,
+    clamp_min_max, resolve_explicit_height, sanitize, total_gap, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignItems, ComputedStyle, Dimension, Direction, FlexWrap, JustifyContent,
-    LayoutBox, Rect,
+    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, Direction, FlexWrap, LayoutBox,
+    Point, Rect,
 };
-use elidex_text::FontDatabase;
+
+use super::align::{apply_justify_safety, compute_justify_offsets};
 
 use super::{is_reversed, FlexContext, FlexItem};
 
-/// Layout dispatch environment shared across flex algorithm functions.
-pub(crate) struct LayoutEnv<'a> {
-    pub(crate) font_db: &'a FontDatabase,
-    pub(crate) layout_child: ChildLayoutFn,
-    pub(crate) depth: u32,
-}
+/// Re-export shared layout environment from block crate.
+pub(crate) use elidex_layout_block::LayoutEnv;
 
 /// Line geometry for positioning items.
 pub(crate) struct LineGeometry<'a> {
     pub(crate) line_ranges: &'a [(usize, usize)],
     pub(crate) line_cross_sizes: &'a [f32],
     pub(crate) line_offsets: &'a [f32],
+    /// Per-line maximum baseline for baseline alignment (CSS Flexbox §9.4).
+    pub(crate) line_baselines: &'a [f32],
     pub(crate) container_cross: f32,
 }
 
@@ -34,18 +33,6 @@ pub(crate) struct LineGeometry<'a> {
 /// considered "not violated" — the final clamp pass after the loop
 /// corrects any remaining sub-pixel differences.
 const FLEX_FREEZE_EPSILON: f32 = 0.001;
-
-/// Total gap space between `count` items at `gap` spacing.
-///
-/// Returns `0.0` when there are fewer than 2 items.
-#[allow(clippy::cast_precision_loss)]
-fn total_gap(count: usize, gap: f32) -> f32 {
-    if count > 1 {
-        gap * (count - 1) as f32
-    } else {
-        0.0
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Line splitting (§9.3)
@@ -201,10 +188,10 @@ pub(crate) fn resolve_flexible_lengths(items: &mut [FlexItem], container_main: f
 // Cross-size resolution & stretching
 // ---------------------------------------------------------------------------
 
-// TODO: Each flex item is laid out up to 3 times (collect_flex_items
-// for content sizing, layout_items_cross for cross-size, position_items for
-// final placement). Consider caching intrinsic sizes to reduce redundant work
-// for items with deep subtrees.
+// Each flex item is laid out up to 3 times (collect_flex_items for content
+// sizing, layout_items_cross for cross-size, position_items for final
+// placement). Items with explicit cross sizes skip the layout call here,
+// reducing redundant work for deep subtrees.
 pub(crate) fn layout_items_cross(
     dom: &mut EcsDom,
     items: &mut [FlexItem],
@@ -212,41 +199,126 @@ pub(crate) fn layout_items_cross(
     env: &LayoutEnv<'_>,
 ) {
     for item in items.iter_mut() {
+        // Optimization: skip layout if the item has an explicit cross size.
+        // The cross size is known without layout, avoiding a redundant pass.
+        if let Some(explicit_cross) = resolve_explicit_cross(dom, item.entity, ctx) {
+            item.final_cross = explicit_cross + item.pb_cross;
+            continue;
+        }
         let child_containing = if ctx.horizontal {
             item.final_main
         } else {
             ctx.content_width
         };
-        let child_input = LayoutInput {
-            containing_width: child_containing,
-            containing_height: ctx.container_definite_height,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            font_db: env.font_db,
-            depth: env.depth + 1,
-        };
-        let child_lb = (env.layout_child)(dom, item.entity, &child_input);
-        item.final_cross = if ctx.horizontal {
-            child_lb.content.height + item.pb_cross
+        // In vertical writing mode, inline size is height, not width.
+        // If height is indefinite, use 0.0 (not width — that's the wrong axis).
+        let child_inline = if ctx.writing_mode.is_horizontal() {
+            child_containing
         } else {
-            child_lb.content.width + item.pb_cross
+            ctx.resolved_height.unwrap_or(0.0)
+        };
+        let child_input = LayoutInput {
+            containing: CssSize {
+                width: child_containing,
+                height: ctx.resolved_height,
+            },
+            containing_inline_size: child_inline,
+            viewport: env.viewport,
+            ..LayoutInput::probe(env, child_containing)
+        };
+        let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
+        item.final_cross = if ctx.horizontal {
+            child_lb.content.size.height + item.pb_cross
+        } else {
+            child_lb.content.size.width + item.pb_cross
         };
         // child_lb is used only for cross-size computation above; descendants
         // will be re-laid out at the final position in position_items.
     }
 }
 
+/// Try to resolve the cross-axis content size from the item's explicit style,
+/// avoiding a layout call. Returns `None` if the cross size depends on content.
+fn resolve_explicit_cross(dom: &EcsDom, entity: Entity, ctx: &FlexContext) -> Option<f32> {
+    let style = elidex_layout_block::get_style(dom, entity);
+    let dim = if ctx.horizontal {
+        style.height
+    } else {
+        style.width
+    };
+    match dim {
+        Dimension::Length(px) if px.is_finite() => {
+            let pb = if ctx.horizontal {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.top + b.top + p.bottom + b.bottom
+            } else {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.left + b.left + p.right + b.right
+            };
+            if style.box_sizing == BoxSizing::BorderBox {
+                Some((px - pb).max(0.0))
+            } else {
+                Some(px.max(0.0))
+            }
+        }
+        Dimension::Percentage(pct) => {
+            // Percentage cross size needs a definite containing size.
+            let containing = if ctx.horizontal {
+                ctx.resolved_height?
+            } else {
+                ctx.containing.width
+            };
+            let resolved = containing * pct / 100.0;
+            let pb = if ctx.horizontal {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.top + b.top + p.bottom + b.bottom
+            } else {
+                let p = elidex_layout_block::resolve_padding(&style, ctx.inline_containing);
+                let b = elidex_layout_block::sanitize_border(&style);
+                p.left + b.left + p.right + b.right
+            };
+            if style.box_sizing == BoxSizing::BorderBox {
+                Some((resolved - pb).max(0.0))
+            } else {
+                Some(resolved.max(0.0))
+            }
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn compute_line_cross_sizes(
     items: &[FlexItem],
     line_ranges: &[(usize, usize)],
+    line_baselines: &[f32],
 ) -> (Vec<f32>, f32) {
     let sizes: Vec<f32> = line_ranges
         .iter()
-        .map(|&(s, e)| {
-            items[s..e]
+        .enumerate()
+        .map(|(idx, &(s, e))| {
+            let normal_max = items[s..e]
                 .iter()
                 .map(|i| i.final_cross + i.margin_cross)
-                .fold(0.0_f32, f32::max)
+                .fold(0.0_f32, f32::max);
+            let line_bl = line_baselines.get(idx).copied().unwrap_or(0.0);
+            if line_bl <= 0.0 {
+                return normal_max;
+            }
+            // CSS Flexbox §9.4: line cross size must accommodate both
+            // the tallest baseline-above and tallest baseline-below portions.
+            let baseline_below = items[s..e]
+                .iter()
+                .filter(|i| {
+                    i.align == AlignItems::Baseline
+                        && !i.margin_cross_start_auto
+                        && !i.margin_cross_end_auto
+                })
+                .map(|i| (i.final_cross + i.margin_cross) - i.baseline_or_synthesized())
+                .fold(0.0_f32, f32::max);
+            normal_max.max(line_bl + baseline_below)
         })
         .collect();
     let total = sizes.iter().sum();
@@ -272,6 +344,17 @@ pub(crate) fn stretch_items(
     }
 }
 
+/// Resolve the flex container's cross-axis size.
+///
+/// The cross axis is perpendicular to the main axis:
+/// - `flex-direction: row` + `horizontal-tb` → cross = height (vertical)
+/// - `flex-direction: column` + `horizontal-tb` → cross = width (horizontal)
+/// - `flex-direction: row` + `vertical-rl/lr` → cross = width (horizontal)
+/// - `flex-direction: column` + `vertical-rl/lr` → cross = height (vertical)
+///
+/// If the cross-axis dimension is explicitly set (via `width` or `height`
+/// depending on `ctx.horizontal`), that value is used. Otherwise falls back
+/// to `total_line_cross` (the sum of all flex line cross sizes).
 pub(crate) fn resolve_container_cross(
     style: &ComputedStyle,
     ctx: &FlexContext,
@@ -279,7 +362,7 @@ pub(crate) fn resolve_container_cross(
     total_line_cross: f32,
 ) -> f32 {
     let explicit = if ctx.horizontal {
-        resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing.height)
     } else {
         match style.width {
             Dimension::Length(px) => Some(sanitize(px)),
@@ -297,8 +380,9 @@ pub(crate) fn resolve_container_cross(
 /// Compute the cross-axis alignment offset for a single flex item.
 ///
 /// Based on the item's `align-self` (resolved to `AlignItems`), returns the
-/// offset within the line's cross space.
-fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
+/// offset within the line's cross space. For baseline alignment, `line_max_baseline`
+/// is the maximum baseline among baseline-participating items in the line.
+fn cross_align_offset(item: &FlexItem, line_cross: f32, line_max_baseline: f32) -> f32 {
     debug_assert!(
         line_cross >= 0.0,
         "line_cross must be non-negative: {line_cross}"
@@ -307,6 +391,10 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32) -> f32 {
     match item.align {
         AlignItems::FlexEnd => line_cross - item_outer_cross,
         AlignItems::Center => (line_cross - item_outer_cross) / 2.0,
+        AlignItems::Baseline => {
+            // CSS Flexbox §9.4: align item's baseline with the line's max baseline.
+            (line_max_baseline - item.baseline_or_synthesized()).max(0.0)
+        }
         _ => 0.0,
     }
 }
@@ -322,8 +410,7 @@ fn relayout_item_at_position(
     dom: &mut EcsDom,
     item: &FlexItem,
     ctx: &FlexContext,
-    margin_box_x: f32,
-    margin_box_y: f32,
+    margin_box_pos: Point,
     env: &LayoutEnv<'_>,
 ) {
     let item_content_width = if ctx.horizontal {
@@ -338,6 +425,8 @@ fn relayout_item_at_position(
     };
 
     // Overwrite the item's width/height to flex-resolved values.
+    // Also zero out auto margins — flex handles them via position offsets;
+    // block layout must not apply its own margin-auto centering on top.
     {
         let mut style = elidex_layout_block::get_style(dom, item.entity);
         if ctx.horizontal {
@@ -347,38 +436,89 @@ fn relayout_item_at_position(
             style.width = Dimension::Length(item_content_width);
             style.height = Dimension::Length(item.final_main);
         }
+        // Zero any auto margins: flex handles them via position offsets.
+        for m in [
+            &mut style.margin_top,
+            &mut style.margin_right,
+            &mut style.margin_bottom,
+            &mut style.margin_left,
+        ] {
+            if *m == Dimension::Auto {
+                *m = Dimension::Length(0.0);
+            }
+        }
         let _ = dom.world_mut().insert_one(item.entity, style);
+    }
+
+    // Flex §9.9: stretched items have a definite cross size for their children's
+    // percentage-height resolution. Pass the resolved cross size as the
+    // containing height (for row flex) or containing width (for column flex).
+    let child_containing_width;
+    let child_containing_height;
+    if ctx.horizontal {
+        child_containing_width = ctx.containing.width;
+        child_containing_height = if item.align == AlignItems::Stretch && item.cross_size_auto {
+            Some(item_content_height)
+        } else {
+            ctx.resolved_height
+        };
+    } else {
+        // Column flex: cross axis is width. Stretched items get a definite width.
+        child_containing_width = if item.align == AlignItems::Stretch && item.cross_size_auto {
+            item_content_width
+        } else {
+            ctx.containing.width
+        };
+        child_containing_height = ctx.resolved_height;
     }
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.
+    // In vertical writing mode, the inline dimension is height, not width.
+    // If height is indefinite, use 0.0 (not width — that's the block axis).
+    let child_inline_size = if ctx.writing_mode.is_horizontal() {
+        child_containing_width
+    } else {
+        child_containing_height.unwrap_or(0.0)
+    };
     let child_input = LayoutInput {
-        containing_width: ctx.containing_width,
-        containing_height: ctx.container_definite_height,
-        offset_x: margin_box_x,
-        offset_y: margin_box_y,
+        containing: CssSize {
+            width: child_containing_width,
+            height: child_containing_height,
+        },
+        containing_inline_size: child_inline_size,
+        offset: margin_box_pos,
         font_db: env.font_db,
         depth: env.depth + 1,
+        float_ctx: None,
+        viewport: env.viewport,
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: env.layout_generation,
     };
-    let child_lb = (env.layout_child)(dom, item.entity, &child_input);
+    let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 
     // Overwrite the item's LayoutBox with flex-resolved dimensions.
-    // child_lb.content.x/y already include margin + border + padding
+    // child_lb.content.origin.x/y already include margin + border + padding
     // offsets from the margin-box position, so use them directly.
     let lb = LayoutBox {
         content: Rect::new(
-            child_lb.content.x,
-            child_lb.content.y,
+            child_lb.content.origin.x,
+            child_lb.content.origin.y,
             item_content_width,
             item_content_height,
         ),
         padding: child_lb.padding,
         border: child_lb.border,
         margin: child_lb.margin,
+        first_baseline: child_lb.first_baseline,
+        layout_generation: env.layout_generation,
     };
     let _ = dom.world_mut().insert_one(item.entity, lb);
 }
 
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 pub(crate) fn position_items(
     dom: &mut EcsDom,
     items: &[FlexItem],
@@ -402,6 +542,7 @@ pub(crate) fn position_items(
     for (line_idx, &(start, end)) in line_ranges.iter().enumerate() {
         let line_items = &items[start..end];
         let line_cross = line_cross_sizes[line_idx];
+        let line_bl = lines.line_baselines.get(line_idx).copied().unwrap_or(0.0);
         let cross_offset = if reversed_cross {
             container_cross - line_offsets[line_idx] - line_cross
         } else {
@@ -415,8 +556,29 @@ pub(crate) fn position_items(
         // Total gap between items on the main axis.
         let total_gap = total_gap(line_items.len(), ctx.gap_main);
         let free_space = (ctx.container_main - total_main_used - total_gap).max(0.0);
-        let (mut main_cursor, justify_gap) =
-            compute_justify_offsets(ctx.justify, free_space, line_items.len());
+
+        // Flex §8.1: count auto main margins. When present, they absorb free space
+        // and override justify-content.
+        let auto_main_count: usize = line_items
+            .iter()
+            .map(|i| usize::from(i.margin_main_start_auto) + usize::from(i.margin_main_end_auto))
+            .sum();
+        let auto_main_per = if auto_main_count > 0 && free_space > 0.0 {
+            free_space / auto_main_count as f32
+        } else {
+            0.0
+        };
+
+        // When auto margins are present, they absorb free space; skip justify-content.
+        let (mut main_cursor, justify_gap) = if auto_main_count > 0 {
+            (0.0, 0.0)
+        } else {
+            compute_justify_offsets(
+                apply_justify_safety(ctx.justify, free_space, ctx.justify_content_safety),
+                free_space,
+                line_items.len(),
+            )
+        };
         // Effective gap = CSS gap + justify-content gap.
         let gap = ctx.gap_main + justify_gap;
 
@@ -427,31 +589,67 @@ pub(crate) fn position_items(
         for item in line_items {
             let item_outer_main = item.final_main + item.pb_main + item.margin_main;
 
+            // Flex §8.1: compute auto margin adjustments for this item.
+            let auto_margin_main_start = if item.margin_main_start_auto {
+                auto_main_per
+            } else {
+                0.0
+            };
+            let auto_margin_main_end = if item.margin_main_end_auto {
+                auto_main_per
+            } else {
+                0.0
+            };
+            let auto_margin_outer = auto_margin_main_start + auto_margin_main_end;
+
             if reversed_main {
-                main_cursor -= item_outer_main;
+                main_cursor -= item_outer_main + auto_margin_outer;
             }
 
-            let align_offset = cross_align_offset(item, line_cross);
+            // Flex §8.1: cross-axis auto margins.
+            let (cross_auto_offset, skip_align) = {
+                let both = item.margin_cross_start_auto && item.margin_cross_end_auto;
+                let start_only = item.margin_cross_start_auto && !item.margin_cross_end_auto;
+                let end_only = !item.margin_cross_start_auto && item.margin_cross_end_auto;
+                let item_outer_cross = item.final_cross + item.margin_cross;
+                let cross_free = (line_cross - item_outer_cross).max(0.0);
+                if both {
+                    (cross_free / 2.0, true)
+                } else if end_only {
+                    (0.0, true) // start-aligned (absorb into end margin)
+                } else if start_only {
+                    (cross_free, true) // end-aligned (absorb into start margin)
+                } else {
+                    (0.0, false)
+                }
+            };
+
+            let align_offset = if skip_align {
+                cross_auto_offset
+            } else {
+                cross_align_offset(item, line_cross, line_bl)
+            };
 
             // Margin-box position: layout adds margins internally.
+            // Auto main margin shifts the item's start position.
             let (margin_box_x, margin_box_y) = if ctx.horizontal {
                 (
-                    ctx.content_x + main_cursor,
-                    ctx.content_y + cross_offset + align_offset,
+                    ctx.content_origin.x + main_cursor + auto_margin_main_start,
+                    ctx.content_origin.y + cross_offset + align_offset,
                 )
             } else {
                 (
-                    ctx.content_x + cross_offset + align_offset,
-                    ctx.content_y + main_cursor,
+                    ctx.content_origin.x + cross_offset + align_offset,
+                    ctx.content_origin.y + main_cursor + auto_margin_main_start,
                 )
             };
 
-            relayout_item_at_position(dom, item, ctx, margin_box_x, margin_box_y, env);
+            relayout_item_at_position(dom, item, ctx, Point::new(margin_box_x, margin_box_y), env);
 
             if reversed_main {
                 main_cursor -= gap;
             } else {
-                main_cursor += item_outer_main + gap;
+                main_cursor += item_outer_main + auto_margin_outer + gap;
             }
         }
     }
@@ -467,7 +665,7 @@ pub(crate) fn compute_container_height(
     if ctx.horizontal {
         // Auto height: include cross-axis gaps between lines.
         let cross_gaps = total_gap(line_ranges.len(), ctx.gap_cross);
-        resolve_explicit_height(style, ctx.containing_height)
+        resolve_explicit_height(style, ctx.containing.height)
             .unwrap_or(total_line_cross + cross_gaps)
     } else {
         let max_line_main: f32 = line_ranges
@@ -481,121 +679,9 @@ pub(crate) fn compute_container_height(
                 item_sum + total_gap(e - s, ctx.gap_main)
             })
             .fold(0.0_f32, f32::max);
-        resolve_explicit_height(style, ctx.containing_height).unwrap_or(max_line_main)
+        resolve_explicit_height(style, ctx.containing.height).unwrap_or(max_line_main)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Justify-content
-// ---------------------------------------------------------------------------
-
-/// Compute justify-content start offset and gap.
-#[allow(clippy::cast_precision_loss)] // item counts are small
-fn compute_justify_offsets(justify: JustifyContent, free_space: f32, count: usize) -> (f32, f32) {
-    if count == 0 {
-        return (0.0, 0.0);
-    }
-    let n = count as f32;
-    match justify {
-        JustifyContent::FlexStart => (0.0, 0.0),
-        JustifyContent::FlexEnd => (free_space, 0.0),
-        JustifyContent::Center => (free_space / 2.0, 0.0),
-        JustifyContent::SpaceBetween => {
-            if count <= 1 {
-                (0.0, 0.0)
-            } else {
-                (0.0, free_space / (n - 1.0))
-            }
-        }
-        JustifyContent::SpaceAround => {
-            let gap = free_space / n;
-            (gap / 2.0, gap)
-        }
-        JustifyContent::SpaceEvenly => {
-            let gap = free_space / (n + 1.0);
-            (gap, gap)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Align-content
-// ---------------------------------------------------------------------------
-
-/// Result of align-content distribution.
-pub(crate) struct AlignContentResult {
-    /// Starting cross offset for each line.
-    pub(crate) offsets: Vec<f32>,
-    /// Effective cross sizes for each line (may be increased by stretch).
-    pub(crate) effective_line_sizes: Vec<f32>,
-}
-
-#[allow(clippy::cast_precision_loss)] // line counts are small
-pub(crate) fn compute_align_content_offsets(
-    line_cross_sizes: &[f32],
-    container_cross: f32,
-    align_content: AlignContent,
-    wrap: FlexWrap,
-    gap_cross: f32,
-) -> AlignContentResult {
-    let n = line_cross_sizes.len();
-    if n == 0 {
-        return AlignContentResult {
-            offsets: Vec::new(),
-            effective_line_sizes: Vec::new(),
-        };
-    }
-    if matches!(wrap, FlexWrap::Nowrap) {
-        return AlignContentResult {
-            offsets: vec![0.0],
-            effective_line_sizes: line_cross_sizes.to_vec(),
-        };
-    }
-
-    let total: f32 = line_cross_sizes.iter().sum();
-    let total_cross_gap = total_gap(n, gap_cross);
-    let free = (container_cross - total - total_cross_gap).max(0.0);
-    let nf = n as f32;
-
-    let mut cursor = match align_content {
-        AlignContent::FlexEnd => free,
-        AlignContent::Center => free / 2.0,
-        AlignContent::SpaceAround => free / (2.0 * nf),
-        AlignContent::SpaceEvenly => free / (nf + 1.0),
-        AlignContent::FlexStart | AlignContent::SpaceBetween | AlignContent::Stretch => 0.0,
-    };
-
-    let gap = match align_content {
-        AlignContent::SpaceBetween => {
-            if n <= 1 {
-                0.0
-            } else {
-                free / (nf - 1.0)
-            }
-        }
-        AlignContent::SpaceAround => free / nf,
-        AlignContent::SpaceEvenly => free / (nf + 1.0),
-        _ => 0.0,
-    };
-
-    let stretch_extra = if align_content == AlignContent::Stretch {
-        free / nf
-    } else {
-        0.0
-    };
-
-    let mut offsets = Vec::with_capacity(n);
-    let mut effective_line_sizes = Vec::with_capacity(n);
-    for (i, &line_size) in line_cross_sizes.iter().enumerate() {
-        offsets.push(cursor);
-        effective_line_sizes.push(line_size + stretch_extra);
-        cursor += line_size + stretch_extra;
-        if i < n - 1 {
-            cursor += gap + gap_cross;
-        }
-    }
-    AlignContentResult {
-        offsets,
-        effective_line_sizes,
-    }
-}
+// Justify-content and align-content helpers are in the `align` module.
+// Baseline helpers are in the `baseline` module.
