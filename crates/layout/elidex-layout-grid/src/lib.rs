@@ -528,6 +528,10 @@ pub fn layout_grid(
         None => (0, Vec::new()),
     };
     let _ = &resume_child_bts; // consumed by fragmentainer (multicol/paged media) for clip/offset
+    debug_assert!(
+        resume_row == 0 || input.break_token.is_some(),
+        "resume_row > 0 without break token"
+    );
 
     // --- 12. Position items + final layout ---
     // Build SubgridContext for child subgrids that need parent track info.

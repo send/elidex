@@ -346,6 +346,10 @@ pub fn layout_flex(
         },
         None => (0, 0, None),
     };
+    debug_assert!(
+        resume_line == 0 || input.break_token.is_some(),
+        "resume_line > 0 without break token"
+    );
 
     // --- Collect, sort, flex-resolve, layout, position ---
     let mut items = collect_flex_items(dom, &children, &ctx, &env);
@@ -655,7 +659,7 @@ fn fragment_row_flex(
         let line_cross = line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
 
         // Skip zero-height lines — they don't consume space or create break opportunities.
-        if line_cross <= 0.0 && start < end {
+        if line_cross <= 0.0 {
             continue;
         }
 

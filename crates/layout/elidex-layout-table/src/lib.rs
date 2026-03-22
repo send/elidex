@@ -216,6 +216,10 @@ pub fn layout_table(
         None => (0, None, None),
     };
     let is_continuation = resume_row > 0;
+    debug_assert!(
+        resume_row == 0 || input.break_token.is_some(),
+        "resume_row > 0 without break token"
+    );
 
     let style = elidex_layout_block::get_style(dom, entity);
     let is_rtl = style.direction == Direction::Rtl;
