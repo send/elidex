@@ -179,7 +179,10 @@ fn custom_counter_in_margin_box() {
         }]),
         &cs,
     );
-    assert_eq!(text_roman, "III", "upper-roman style should format correctly");
+    assert_eq!(
+        text_roman, "III",
+        "upper-roman style should format correctly"
+    );
 }
 
 #[test]
@@ -355,9 +358,7 @@ fn margin_box_area_corners() {
 
 #[test]
 fn margin_box_all_16_positions_render() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule,
-    };
+    use elidex_plugin::{ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule};
 
     let make_content = |s: &str| MarginBoxContent {
         content: ContentValue::Items(vec![ContentItem::String(s.to_string())]),
@@ -566,10 +567,7 @@ fn margin_box_with_explicit_width_height() {
                     content: ContentValue::Items(vec![ContentItem::String("W".to_string())]),
                     properties: vec![
                         PropertyDeclaration::new("width", CssValue::Length(100.0, LengthUnit::Px)),
-                        PropertyDeclaration::new(
-                            "height",
-                            CssValue::Length(30.0, LengthUnit::Px),
-                        ),
+                        PropertyDeclaration::new("height", CssValue::Length(30.0, LengthUnit::Px)),
                     ],
                 }),
                 ..PageMargins::default()

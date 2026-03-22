@@ -101,7 +101,12 @@ pub(crate) fn walk(
 
     // CSS counter scope: push scope and process counter properties on entry.
     ctx.counter_state.push_scope();
-    if let Ok(mut style) = ctx.dom.world().get::<&ComputedStyle>(entity).map(|s| (*s).clone()) {
+    if let Ok(mut style) = ctx
+        .dom
+        .world()
+        .get::<&ComputedStyle>(entity)
+        .map(|s| (*s).clone())
+    {
         // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists L3 §5).
         if let Ok(tag) = ctx.dom.world().get::<&TagType>(entity) {
             let attrs = ctx

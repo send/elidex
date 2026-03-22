@@ -241,10 +241,7 @@ fn set_transition_payload(
     );
 }
 
-fn set_animation_payload(
-    init: &mut ObjectInitializer<'_>,
-    a: &elidex_plugin::AnimationEventInit,
-) {
+fn set_animation_payload(init: &mut ObjectInitializer<'_>, a: &elidex_plugin::AnimationEventInit) {
     set_elapsed_and_pseudo(init, a.elapsed_time, &a.pseudo_element);
     init.property(
         js_string!("animationName"),

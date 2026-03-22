@@ -165,7 +165,7 @@ pub enum DisplayItem {
     /// Begin viewport scroll translation.
     ///
     /// Translates all subsequent items by `(-offset.0, -offset.1)` until
-    /// the matching [`PopScrollOffset`]. Fixed-position elements emit a
+    /// the matching `PopScrollOffset`. Fixed-position elements emit a
     /// `PopScrollOffset`/`PushScrollOffset` pair around themselves to
     /// cancel the scroll translation.
     PushScrollOffset {

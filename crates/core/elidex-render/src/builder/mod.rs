@@ -175,7 +175,7 @@ pub fn build_display_list_with_scroll(
 
 /// Build a multi-page display list from paged layout fragments.
 ///
-/// CSS Paged Media Level 3: for each [`PageFragment`], a display list is
+/// CSS Paged Media Level 3: for each [`elidex_layout::PageFragment`], a display list is
 /// built with content offset to the page content area. Margin box content
 /// (e.g. page counter text) is rendered into the margin area.
 ///
@@ -325,7 +325,10 @@ pub fn build_paged_display_lists_interleaved(
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some(elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height)),
+        viewport: Some(elidex_plugin::Size::new(
+            page_ctx.page_width,
+            page_ctx.page_height,
+        )),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -370,8 +373,7 @@ pub fn build_paged_display_lists_interleaved(
             is_blank,
         };
 
-        let (page_width, page_height) =
-            page_ctx.effective_page_size(page_num, is_blank);
+        let (page_width, page_height) = page_ctx.effective_page_size(page_num, is_blank);
         let margins = page_ctx.effective_margins(page_num, is_blank);
 
         // Set page/pages counters.
@@ -498,11 +500,8 @@ fn emit_margin_boxes(
 ) {
     for rule in page_rules {
         // Check if this rule matches the current page.
-        if !elidex_plugin::selectors_match(
-            &rule.selectors,
-            fragment.page_number,
-            fragment.is_blank,
-        ) {
+        if !elidex_plugin::selectors_match(&rule.selectors, fragment.page_number, fragment.is_blank)
+        {
             continue;
         }
 
@@ -546,7 +545,14 @@ fn emit_margin_boxes(
             }
 
             emit_margin_box_text(
-                dl, font_db, font_cache, position, &text, margin_box, page_width, page_height,
+                dl,
+                font_db,
+                font_cache,
+                position,
+                &text,
+                margin_box,
+                page_width,
+                page_height,
                 margins,
             );
         }
@@ -678,14 +684,16 @@ fn resolve_margin_box_style(margin_box: &elidex_plugin::MarginBoxContent) -> Mar
                     s.padding.left = v.max(0.0);
                 }
             }
-            "border-width" | "border-top-width" | "border-right-width"
-            | "border-bottom-width" | "border-left-width" => {
+            "border-width"
+            | "border-top-width"
+            | "border-right-width"
+            | "border-bottom-width"
+            | "border-left-width" => {
                 if let CssValue::Length(v, LengthUnit::Px) = &decl.value {
                     let w = v.max(0.0);
                     match decl.property.as_str() {
                         "border-width" => {
-                            s.border_widths =
-                                elidex_plugin::EdgeSizes::new(w, w, w, w);
+                            s.border_widths = elidex_plugin::EdgeSizes::new(w, w, w, w);
                         }
                         "border-top-width" => s.border_widths.top = w,
                         "border-right-width" => s.border_widths.right = w,
@@ -804,10 +812,8 @@ fn emit_margin_box_text(
     // Content area = box minus border minus padding.
     let content_x = box_x + bw.left + s.padding.left;
     let content_y = box_y + bw.top + s.padding.top;
-    let content_w =
-        (box_w - bw.left - bw.right - s.padding.left - s.padding.right).max(0.0);
-    let content_h =
-        (box_h - bw.top - bw.bottom - s.padding.top - s.padding.bottom).max(0.0);
+    let content_w = (box_w - bw.left - bw.right - s.padding.left - s.padding.right).max(0.0);
+    let content_h = (box_h - bw.top - bw.bottom - s.padding.top - s.padding.bottom).max(0.0);
 
     if content_w <= 0.0 || content_h <= 0.0 {
         return;
@@ -836,9 +842,7 @@ fn emit_margin_box_text(
         elidex_plugin::TextAlign::Center | elidex_plugin::TextAlign::Justify => {
             (content_w - text_width) * 0.5
         }
-        elidex_plugin::TextAlign::Right | elidex_plugin::TextAlign::End => {
-            content_w - text_width
-        }
+        elidex_plugin::TextAlign::Right | elidex_plugin::TextAlign::End => content_w - text_width,
     };
     let mut text_x = content_x + text_offset_x.max(0.0);
     let baseline_y = content_y + (content_h + s.font_size) * 0.5;
@@ -883,8 +887,7 @@ fn evaluate_content_value(
                         if !result.is_empty() {
                             result.push_str(separator);
                         }
-                        result
-                            .push_str(&counter_state.evaluate_counters(name, separator, *style));
+                        result.push_str(&counter_state.evaluate_counters(name, separator, *style));
                     }
                     ContentItem::Attr(_) => {} // Not applicable in margin boxes.
                 }

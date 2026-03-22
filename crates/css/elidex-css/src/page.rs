@@ -209,10 +209,8 @@ fn content_value_from_css_value(value: &CssValue) -> ContentValue {
             }
         }
         CssValue::List(items) => {
-            let content_items: Vec<ContentItem> = items
-                .iter()
-                .filter_map(css_value_to_content_item)
-                .collect();
+            let content_items: Vec<ContentItem> =
+                items.iter().filter_map(css_value_to_content_item).collect();
             if content_items.is_empty() {
                 ContentValue::Normal
             } else {
@@ -573,10 +571,7 @@ mod tests {
 
     #[test]
     fn parse_page_margin_box_counters() {
-        let rule = parse_page_rule(
-            "",
-            r#"@top-left { content: counters(section, "."); }"#,
-        );
+        let rule = parse_page_rule("", r#"@top-left { content: counters(section, "."); }"#);
         assert!(rule.margins.top_left.is_some());
         let tl = rule.margins.top_left.unwrap();
         match &tl.content {

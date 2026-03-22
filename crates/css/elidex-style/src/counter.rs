@@ -300,10 +300,7 @@ pub fn apply_implicit_list_counters(
 ) {
     match tag {
         "ol" => {
-            let already_has = style
-                .counter_reset
-                .iter()
-                .any(|e| e.name == "list-item");
+            let already_has = style.counter_reset.iter().any(|e| e.name == "list-item");
             if !already_has {
                 let is_reversed = attrs.contains("reversed");
                 if is_reversed {
@@ -333,10 +330,7 @@ pub fn apply_implicit_list_counters(
             }
         }
         "ul" => {
-            let already_has = style
-                .counter_reset
-                .iter()
-                .any(|e| e.name == "list-item");
+            let already_has = style.counter_reset.iter().any(|e| e.name == "list-item");
             if !already_has {
                 style
                     .counter_reset
@@ -384,7 +378,9 @@ mod tests {
 
         // Simulate: element resets counter "c" to 0.
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("c".to_string(), 0));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 0));
         cs.push_scope();
         cs.process_element(&style, false);
         assert_eq!(cs.evaluate_counter("c", ListStyleType::Decimal), "0");
@@ -403,14 +399,18 @@ mod tests {
 
         // Outer reset to 5.
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("c".to_string(), 5));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 5));
         cs.push_scope();
         cs.process_element(&style, false);
         assert_eq!(cs.evaluate_counter("c", ListStyleType::Decimal), "5");
 
         // Inner reset to 10 — creates a new scope entry, shadowing outer.
         let mut style2 = ComputedStyle::default();
-        style2.counter_reset.push(CounterResetEntry::new("c".to_string(), 10));
+        style2
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 10));
         cs.push_scope();
         cs.process_element(&style2, false);
         assert_eq!(cs.evaluate_counter("c", ListStyleType::Decimal), "10");
@@ -422,13 +422,17 @@ mod tests {
 
         // Outer scope: reset to 5.
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("c".to_string(), 5));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 5));
         cs.push_scope();
         cs.process_element(&style, false);
 
         // Inner scope: reset to 10.
         let mut style2 = ComputedStyle::default();
-        style2.counter_reset.push(CounterResetEntry::new("c".to_string(), 10));
+        style2
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 10));
         cs.push_scope();
         cs.process_element(&style2, false);
         assert_eq!(cs.evaluate_counter("c", ListStyleType::Decimal), "10");
@@ -444,7 +448,9 @@ mod tests {
 
         // ol resets list-item to 0.
         let mut ol_style = ComputedStyle::default();
-        ol_style.counter_reset.push(CounterResetEntry::new("list-item".to_string(), 0));
+        ol_style
+            .counter_reset
+            .push(CounterResetEntry::new("list-item".to_string(), 0));
         cs.push_scope();
         cs.process_element(&ol_style, false);
 
@@ -463,7 +469,9 @@ mod tests {
 
         // Nested ol resets again.
         let mut inner_ol = ComputedStyle::default();
-        inner_ol.counter_reset.push(CounterResetEntry::new("list-item".to_string(), 0));
+        inner_ol
+            .counter_reset
+            .push(CounterResetEntry::new("list-item".to_string(), 0));
         cs.push_scope();
         cs.process_element(&inner_ol, false);
 
@@ -495,7 +503,9 @@ mod tests {
 
         // Outer reset.
         let mut reset = ComputedStyle::default();
-        reset.counter_reset.push(CounterResetEntry::new("c".to_string(), 0));
+        reset
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 0));
         cs.push_scope();
         cs.process_element(&reset, false);
 
@@ -533,7 +543,9 @@ mod tests {
 
         // Reset to 0.
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("c".to_string(), 0));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 0));
         cs.push_scope();
         cs.process_element(&style, false);
 
@@ -562,7 +574,9 @@ mod tests {
         let mut cs = CounterState::new();
 
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("c".to_string(), 0));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("c".to_string(), 0));
         cs.push_scope();
         cs.process_element(&style, false);
 
@@ -591,8 +605,12 @@ mod tests {
         let mut cs = CounterState::new();
 
         let mut style = ComputedStyle::default();
-        style.counter_reset.push(CounterResetEntry::new("a".to_string(), 10));
-        style.counter_reset.push(CounterResetEntry::new("b".to_string(), 20));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("a".to_string(), 10));
+        style
+            .counter_reset
+            .push(CounterResetEntry::new("b".to_string(), 20));
         style.counter_increment.push(("a".to_string(), 5));
         cs.push_scope();
         cs.process_element(&style, false);
