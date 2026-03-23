@@ -218,9 +218,20 @@ fn walk_and_enqueue_upgrades(
     bridge: &HostBridge,
     dom: &elidex_ecs::EcsDom,
 ) {
-    use elidex_custom_elements::{CEState, CustomElementState};
+    walk_and_enqueue_upgrades_inner(root, bridge, dom, 0);
+}
 
-    // Check root itself.
+fn walk_and_enqueue_upgrades_inner(
+    root: elidex_ecs::Entity,
+    bridge: &HostBridge,
+    dom: &elidex_ecs::EcsDom,
+    depth: usize,
+) {
+    use elidex_custom_elements::{CEState, CustomElementState};
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
+
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(root) {
         if ce_state.state == CEState::Undefined
             && bridge.is_custom_element_defined(&ce_state.definition_name)
@@ -229,10 +240,9 @@ fn walk_and_enqueue_upgrades(
         }
     }
 
-    // Walk children.
     let mut child = dom.get_first_child(root);
     while let Some(c) = child {
-        walk_and_enqueue_upgrades(c, bridge, dom);
+        walk_and_enqueue_upgrades_inner(c, bridge, dom, depth + 1);
         child = dom.get_next_sibling(c);
     }
 }

@@ -252,6 +252,19 @@ fn enqueue_ce_reactions_for_subtree(
     bridge: &HostBridge,
     dom: &elidex_ecs::EcsDom,
 ) {
+    enqueue_ce_reactions_for_subtree_inner(entity, reaction_type, bridge, dom, 0);
+}
+
+fn enqueue_ce_reactions_for_subtree_inner(
+    entity: Entity,
+    reaction_type: &str,
+    bridge: &HostBridge,
+    dom: &elidex_ecs::EcsDom,
+    depth: usize,
+) {
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
     if let Ok(ce_state) = dom
         .world()
         .get::<&elidex_custom_elements::CustomElementState>(entity)
@@ -274,7 +287,7 @@ fn enqueue_ce_reactions_for_subtree(
     }
     let mut child = dom.get_first_child(entity);
     while let Some(c) = child {
-        enqueue_ce_reactions_for_subtree(c, reaction_type, bridge, dom);
+        enqueue_ce_reactions_for_subtree_inner(c, reaction_type, bridge, dom, depth + 1);
         child = dom.get_next_sibling(c);
     }
 }
