@@ -3,7 +3,7 @@
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
+    DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
@@ -302,6 +302,98 @@ use elidex_ecs::{Attributes, TagType};
 const RAW_TEXT_ELEMENTS: &[&str] = &[
     "script", "style", "xmp", "iframe", "noembed", "noframes", "noscript",
 ];
+
+/// `element.innerHTML` setter — replaces children with parsed HTML.
+///
+/// Records a `Mutation::SetInnerHtml` which is applied during `session.flush()`.
+/// The mutation handles fragment parsing, child removal, and new child insertion.
+pub struct SetInnerHtml;
+
+impl DomApiHandler for SetInnerHtml {
+    fn method_name(&self) -> &str {
+        "innerHTML.set"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        _dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let html = match args.first() {
+            Some(JsValue::String(s)) => s.clone(),
+            _ => String::new(),
+        };
+        session.record_mutation(Mutation::SetInnerHtml { entity: this, html });
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `element.insertAdjacentHTML(position, text)` — parses HTML and inserts at position.
+///
+/// Position values: "beforebegin", "afterbegin", "beforeend", "afterend".
+/// Uses the same fragment parser as innerHTML setter. Parsed nodes are inserted
+/// directly via DOM operations (not via mutation recording, since the parser
+/// needs mutable DOM access).
+pub struct InsertAdjacentHtml;
+
+impl DomApiHandler for InsertAdjacentHtml {
+    fn method_name(&self) -> &str {
+        "insertAdjacentHTML"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let position = match args.first() {
+            Some(JsValue::String(s)) => s.to_ascii_lowercase(),
+            _ => {
+                return Err(DomApiError::syntax_error(
+                    "insertAdjacentHTML requires a position string",
+                ));
+            }
+        };
+        let html = match args.get(1) {
+            Some(JsValue::String(s)) => s.clone(),
+            _ => String::new(),
+        };
+
+        // Validate position and parent requirement before recording.
+        match position.as_str() {
+            "beforebegin" | "afterend" => {
+                if dom.get_parent(this).is_none() {
+                    return Err(DomApiError {
+                        kind: DomApiErrorKind::HierarchyRequestError,
+                        message: format!(
+                            "insertAdjacentHTML: element has no parent for {position}"
+                        ),
+                    });
+                }
+            }
+            "afterbegin" | "beforeend" => {}
+            _ => {
+                return Err(DomApiError::syntax_error(
+                    "Invalid position for insertAdjacentHTML",
+                ));
+            }
+        }
+
+        // Record mutation — applied during session.flush() with proper
+        // MutationRecord generation for MutationObserver support.
+        session.record_mutation(Mutation::InsertAdjacentHtml {
+            entity: this,
+            position,
+            html,
+        });
+
+        Ok(JsValue::Undefined)
+    }
+}
 
 /// `element.innerHTML` getter — serializes children to HTML.
 pub struct GetInnerHtml;

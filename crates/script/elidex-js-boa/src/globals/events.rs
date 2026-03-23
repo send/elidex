@@ -85,6 +85,7 @@ pub struct EventFlags {
 ///
 /// `composed_path_array` is a pre-built JS array of element wrappers for
 /// `composedPath()`. If `None`, `composedPath()` returns an empty array.
+#[allow(clippy::too_many_lines)]
 pub fn create_event_object(
     event: &DispatchEvent,
     target_wrapper: &JsValue,
@@ -179,6 +180,54 @@ pub fn create_event_object(
         ),
         js_string!("stopImmediatePropagation"),
         0,
+    );
+
+    // returnValue — the setter behavior differs by event type:
+    // - beforeunload (HTML §8.1.7.1): setting to truthy (non-empty string) cancels.
+    // - general Event (legacy spec): setting to false cancels.
+    let rv_pd = SharedFlag(Rc::clone(&flags.prevent_default));
+    let rv_cancelable = cancelable;
+    let event_type_for_rv = event.event_type.clone();
+    init.accessor(
+        js_string!("returnValue"),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
+                    // Getter: per WHATWG DOM spec, returnValue returns false if the
+                    // canceled flag is set, true otherwise.
+                    Ok(JsValue::from(!flag.0.get()))
+                },
+                SharedFlag(Rc::clone(&flags.prevent_default)),
+            )
+            .to_js_function(&realm),
+        ),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, args, (flag, cancel, ev_type), _ctx| -> boa_engine::JsResult<JsValue> {
+                    if *cancel {
+                        if let Some(val) = args.first() {
+                            if ev_type == "beforeunload" {
+                                // HTML §8.1.7.1: non-empty string cancels.
+                                let is_non_empty_string =
+                                    val.as_string().is_some_and(|s| !s.is_empty());
+                                if is_non_empty_string {
+                                    flag.0.set(true);
+                                }
+                            } else {
+                                // Legacy Event.returnValue: falsy value (false) cancels.
+                                if !val.to_boolean() {
+                                    flag.0.set(true);
+                                }
+                            }
+                        }
+                    }
+                    Ok(JsValue::undefined())
+                },
+                (rv_pd, rv_cancelable, event_type_for_rv),
+            )
+            .to_js_function(&realm),
+        ),
+        Attribute::CONFIGURABLE,
     );
 
     // composedPath() — returns the pre-built propagation path array.

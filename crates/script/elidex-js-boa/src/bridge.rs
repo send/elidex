@@ -68,6 +68,96 @@ struct HostBridgeInner {
     observer_callbacks: HashMap<u64, JsObject>,
     /// Observer ID → JS observer wrapper object (for passing as 2nd arg to callback).
     observer_objects: HashMap<u64, JsObject>,
+    /// Cached viewport dimensions (set by content thread on `SetViewport`).
+    viewport_width: f32,
+    viewport_height: f32,
+    /// Cached viewport scroll offset.
+    scroll_x: f32,
+    scroll_y: f32,
+    /// Pending scroll offset set by JS `scrollTo`/`scrollBy`, picked up by content thread.
+    pending_scroll: Option<(f32, f32)>,
+    // --- TreeWalker / NodeIterator / Range ---
+    /// Active `TreeWalker` instances, keyed by unique ID.
+    tree_walkers: HashMap<u64, elidex_dom_api::TreeWalker>,
+    /// Active `NodeIterator` instances, keyed by unique ID.
+    node_iterators: HashMap<u64, elidex_dom_api::NodeIterator>,
+    /// Active `Range` instances, keyed by unique ID.
+    ranges: HashMap<u64, elidex_dom_api::Range>,
+    /// Next ID for TreeWalker/NodeIterator/Range allocation.
+    traversal_next_id: u64,
+    /// The Range ID associated with the current Selection, if any.
+    selection_range_id: Option<u64>,
+    // --- MediaQueryList ---
+    /// Active `MediaQueryList` entries, keyed by unique ID.
+    media_queries: HashMap<u64, MediaQueryEntry>,
+    /// Next ID for `MediaQueryList` allocation.
+    media_query_next_id: u64,
+    // --- CSSOM ---
+    /// Lightweight stylesheet representations for JS access.
+    stylesheets: Vec<CssomSheet>,
+    /// Pending CSSOM mutations to be picked up by the content thread.
+    cssom_mutations: Vec<CssomMutation>,
+}
+
+/// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
+struct MediaQueryEntry {
+    query: String,
+    matches: bool,
+    listeners: Vec<JsObject>,
+}
+
+/// A lightweight representation of a CSS rule for CSSOM JS access.
+///
+/// Stores serialized selector and declaration text so the JS layer can
+/// expose `selectorText`, `cssText`, and `style` without depending on
+/// the CSS parser crate.
+#[derive(Clone, Debug)]
+pub struct CssomRule {
+    /// The selector text (e.g. `"div.foo"`).
+    pub selector_text: String,
+    /// Individual declarations as `(property, value)` pairs.
+    pub declarations: Vec<(String, String)>,
+}
+
+impl CssomRule {
+    /// Serialize the rule to its full CSS text representation.
+    #[must_use]
+    pub fn css_text(&self) -> String {
+        let decls: Vec<String> = self
+            .declarations
+            .iter()
+            .map(|(prop, val)| format!("{prop}: {val}"))
+            .collect();
+        format!("{} {{ {} }}", self.selector_text, decls.join("; "))
+    }
+}
+
+/// A lightweight representation of a CSS stylesheet for CSSOM JS access.
+#[derive(Clone, Debug, Default)]
+pub struct CssomSheet {
+    /// Rules in source order.
+    pub rules: Vec<CssomRule>,
+}
+
+/// A pending CSSOM mutation to be applied by the content thread.
+#[derive(Clone, Debug)]
+pub enum CssomMutation {
+    /// Insert a rule at the given index in the given sheet.
+    InsertRule {
+        /// Sheet index in the `stylesheets` list.
+        sheet_index: usize,
+        /// Rule index within the sheet.
+        rule_index: usize,
+        /// Raw CSS rule text to parse.
+        rule_text: String,
+    },
+    /// Delete a rule at the given index in the given sheet.
+    DeleteRule {
+        /// Sheet index in the `stylesheets` list.
+        sheet_index: usize,
+        /// Rule index to delete.
+        rule_index: usize,
+    },
 }
 
 // Safety: HostBridge is !Send via Rc<RefCell<_>>. This is correct — it should
@@ -95,6 +185,20 @@ impl HostBridge {
                 intersection_observers: IntersectionObserverRegistry::new(),
                 observer_callbacks: HashMap::new(),
                 observer_objects: HashMap::new(),
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                scroll_x: 0.0,
+                scroll_y: 0.0,
+                pending_scroll: None,
+                tree_walkers: HashMap::new(),
+                node_iterators: HashMap::new(),
+                ranges: HashMap::new(),
+                traversal_next_id: 1,
+                selection_range_id: None,
+                media_queries: HashMap::new(),
+                media_query_next_id: 1,
+                stylesheets: Vec::new(),
+                cssom_mutations: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -266,6 +370,55 @@ impl HostBridge {
         self.inner.borrow().history_length
     }
 
+    // --- Viewport ---
+
+    /// Update cached viewport dimensions (called by content thread on `SetViewport`).
+    pub fn set_viewport(&self, width: f32, height: f32) {
+        let mut inner = self.inner.borrow_mut();
+        inner.viewport_width = width;
+        inner.viewport_height = height;
+    }
+
+    /// Get cached viewport width.
+    pub fn viewport_width(&self) -> f32 {
+        self.inner.borrow().viewport_width
+    }
+
+    /// Get cached viewport height.
+    pub fn viewport_height(&self) -> f32 {
+        self.inner.borrow().viewport_height
+    }
+
+    /// Update cached scroll offset (called by content thread before re-render).
+    pub fn set_scroll_offset(&self, x: f32, y: f32) {
+        let mut inner = self.inner.borrow_mut();
+        inner.scroll_x = x;
+        inner.scroll_y = y;
+    }
+
+    /// Get cached horizontal scroll offset.
+    pub fn scroll_x(&self) -> f32 {
+        self.inner.borrow().scroll_x
+    }
+
+    /// Get cached vertical scroll offset.
+    pub fn scroll_y(&self) -> f32 {
+        self.inner.borrow().scroll_y
+    }
+
+    /// Set a pending scroll offset from JS `scrollTo`/`scrollBy`.
+    ///
+    /// The content thread picks this up on the next frame and applies it
+    /// to the viewport scroll state, then syncs back via `set_scroll_offset`.
+    pub fn set_pending_scroll(&self, x: f32, y: f32) {
+        self.inner.borrow_mut().pending_scroll = Some((x, y));
+    }
+
+    /// Take (remove) the pending scroll offset, if any.
+    pub fn take_pending_scroll(&self) -> Option<(f32, f32)> {
+        self.inner.borrow_mut().pending_scroll.take()
+    }
+
     // --- Registry access ---
 
     /// Access the DOM API handler registry.
@@ -434,12 +587,309 @@ impl HostBridge {
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
     }
+
+    // --- TreeWalker / NodeIterator / Range ---
+
+    /// Create a new `TreeWalker` and return its ID.
+    pub fn create_tree_walker(&self, root: Entity, what_to_show: u32) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner
+            .tree_walkers
+            .insert(id, elidex_dom_api::TreeWalker::new(root, what_to_show));
+        id
+    }
+
+    /// Access a `TreeWalker` by ID.
+    pub fn with_tree_walker<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::TreeWalker) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.tree_walkers.get_mut(&id).map(f)
+    }
+
+    /// Create a new `NodeIterator` and return its ID.
+    pub fn create_node_iterator(&self, root: Entity, what_to_show: u32) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner
+            .node_iterators
+            .insert(id, elidex_dom_api::NodeIterator::new(root, what_to_show));
+        id
+    }
+
+    /// Access a `NodeIterator` by ID.
+    pub fn with_node_iterator<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::NodeIterator) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.node_iterators.get_mut(&id).map(f)
+    }
+
+    /// Create a new `Range` and return its ID.
+    pub fn create_range(&self, node: Entity) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.traversal_next_id;
+        inner.traversal_next_id += 1;
+        inner.ranges.insert(id, elidex_dom_api::Range::new(node));
+        id
+    }
+
+    /// Access a `Range` by ID.
+    pub fn with_range<R>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut elidex_dom_api::Range) -> R,
+    ) -> Option<R> {
+        let mut inner = self.inner.borrow_mut();
+        inner.ranges.get_mut(&id).map(f)
+    }
+
+    /// Get the current selection's Range ID, if any.
+    pub fn selection_range_id(&self) -> Option<u64> {
+        self.inner.borrow().selection_range_id
+    }
+
+    /// Set the selection's Range ID.
+    pub fn set_selection_range_id(&self, id: Option<u64>) {
+        self.inner.borrow_mut().selection_range_id = id;
+    }
+
+    // --- MediaQueryList ---
+
+    /// Create a `MediaQueryList` entry and return its unique ID.
+    pub fn create_media_query(&self, query: &str, matches: bool) -> u64 {
+        let mut inner = self.inner.borrow_mut();
+        let id = inner.media_query_next_id;
+        inner.media_query_next_id += 1;
+        inner.media_queries.insert(
+            id,
+            MediaQueryEntry {
+                query: query.to_string(),
+                matches,
+                listeners: Vec::new(),
+            },
+        );
+        id
+    }
+
+    /// Add a "change" event listener to a `MediaQueryList`.
+    pub fn add_media_query_listener(&self, id: u64, callback: JsObject) {
+        let mut inner = self.inner.borrow_mut();
+        if let Some(entry) = inner.media_queries.get_mut(&id) {
+            entry.listeners.push(callback);
+        }
+    }
+
+    /// Remove a "change" event listener from a `MediaQueryList` by reference identity.
+    pub fn remove_media_query_listener(&self, id: u64, callback: &JsObject) {
+        let mut inner = self.inner.borrow_mut();
+        if let Some(entry) = inner.media_queries.get_mut(&id) {
+            entry
+                .listeners
+                .retain(|stored| !JsObject::equals(stored, callback));
+        }
+    }
+
+    /// Re-evaluate all media queries against the given viewport dimensions.
+    ///
+    /// Returns a list of `(id, new_matches)` for entries whose result changed.
+    /// Updates the cached `matches` value for each changed entry.
+    pub fn re_evaluate_media_queries(&self, width: f32, height: f32) -> Vec<(u64, bool)> {
+        let mut inner = self.inner.borrow_mut();
+        let mut changed = Vec::new();
+        for (&id, entry) in &mut inner.media_queries {
+            let new_matches = evaluate_media_query_raw(&entry.query, width, height);
+            if new_matches != entry.matches {
+                entry.matches = new_matches;
+                changed.push((id, new_matches));
+            }
+        }
+        changed
+    }
+
+    /// Get the current `matches` value for a media query.
+    pub fn media_query_matches(&self, id: u64) -> bool {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .is_some_and(|e| e.matches)
+    }
+
+    /// Get the listener callbacks for a media query (cloned for dispatch).
+    pub fn media_query_listeners(&self, id: u64) -> Vec<JsObject> {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .map_or_else(Vec::new, |e| e.listeners.clone())
+    }
+
+    /// Get the query string for a media query entry.
+    pub fn media_query_string(&self, id: u64) -> Option<String> {
+        self.inner
+            .borrow()
+            .media_queries
+            .get(&id)
+            .map(|e| e.query.clone())
+    }
+
+    // --- CSSOM ---
+
+    /// Replace the CSSOM stylesheet list (called by content thread after pipeline).
+    pub fn set_stylesheets(&self, sheets: Vec<CssomSheet>) {
+        self.inner.borrow_mut().stylesheets = sheets;
+    }
+
+    /// Get the number of stylesheets.
+    #[must_use]
+    pub fn stylesheet_count(&self) -> usize {
+        self.inner.borrow().stylesheets.len()
+    }
+
+    /// Access a stylesheet's rules by index.
+    #[must_use]
+    pub fn stylesheet_rules(&self, sheet_index: usize) -> Option<Vec<CssomRule>> {
+        self.inner
+            .borrow()
+            .stylesheets
+            .get(sheet_index)
+            .map(|s| s.rules.clone())
+    }
+
+    /// Insert a rule into a stylesheet's CSSOM representation and record a pending mutation.
+    ///
+    /// Returns the actual insertion index on success, or `None` if the sheet/index is invalid.
+    pub fn cssom_insert_rule(
+        &self,
+        sheet_index: usize,
+        rule_index: usize,
+        rule_text: &str,
+    ) -> Option<usize> {
+        let mut inner = self.inner.borrow_mut();
+        let sheet = inner.stylesheets.get_mut(sheet_index)?;
+        if rule_index > sheet.rules.len() {
+            return None;
+        }
+        // Validation uses a lightweight parser; the content thread reparses with
+        // the full CSS parser for spec-compliant handling. Discrepancies are
+        // acceptable since the full parser is authoritative.
+        let rule = parse_cssom_rule_from_text(rule_text)?;
+        sheet.rules.insert(rule_index, rule);
+        inner.cssom_mutations.push(CssomMutation::InsertRule {
+            sheet_index,
+            rule_index,
+            rule_text: rule_text.to_string(),
+        });
+        Some(rule_index)
+    }
+
+    /// Delete a rule from a stylesheet's CSSOM representation and record a pending mutation.
+    ///
+    /// Returns `true` on success, `false` if the sheet/index is invalid.
+    pub fn cssom_delete_rule(&self, sheet_index: usize, rule_index: usize) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let Some(sheet) = inner.stylesheets.get_mut(sheet_index) else {
+            return false;
+        };
+        if rule_index >= sheet.rules.len() {
+            return false;
+        }
+        sheet.rules.remove(rule_index);
+        inner.cssom_mutations.push(CssomMutation::DeleteRule {
+            sheet_index,
+            rule_index,
+        });
+        true
+    }
+
+    /// Take all pending CSSOM mutations (consumed by content thread).
+    pub fn take_cssom_mutations(&self) -> Vec<CssomMutation> {
+        std::mem::take(&mut self.inner.borrow_mut().cssom_mutations)
+    }
+
+    /// Returns `true` if there are pending CSSOM mutations.
+    #[must_use]
+    pub fn has_cssom_mutations(&self) -> bool {
+        !self.inner.borrow().cssom_mutations.is_empty()
+    }
+}
+
+/// Parse a raw CSS rule string into a `CssomRule`.
+///
+/// Performs lightweight parsing without the full CSS parser: splits on `{`
+/// to extract the selector and the declaration block. Returns `None` if
+/// the text doesn't contain a valid `selector { declarations }` structure.
+fn parse_cssom_rule_from_text(text: &str) -> Option<CssomRule> {
+    let text = text.trim();
+    let brace_pos = text.find('{')?;
+    let selector_text = text[..brace_pos].trim().to_string();
+    if selector_text.is_empty() {
+        return None;
+    }
+    let body = text[brace_pos + 1..].trim();
+    let body = body.strip_suffix('}').unwrap_or(body).trim();
+    let declarations: Vec<(String, String)> = body
+        .split(';')
+        .filter_map(|decl| {
+            let decl = decl.trim();
+            if decl.is_empty() {
+                return None;
+            }
+            let (prop, val) = decl.split_once(':')?;
+            Some((prop.trim().to_string(), val.trim().to_string()))
+        })
+        .collect();
+    Some(CssomRule {
+        selector_text,
+        declarations,
+    })
 }
 
 impl Default for HostBridge {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Evaluate a media query against explicit viewport dimensions (no bridge needed).
+///
+/// This is the shared implementation used by both `evaluate_media_query` in
+/// `window.rs` (via bridge accessor) and `re_evaluate_media_queries`.
+pub(crate) fn evaluate_media_query_raw(query: &str, width: f32, height: f32) -> bool {
+    let q = query.trim().to_ascii_lowercase();
+    let inner = q
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(&q);
+
+    if let Some((feature, value)) = inner.split_once(':') {
+        let feature = feature.trim();
+        let value = value.trim();
+        let px_value = value
+            .strip_suffix("px")
+            .unwrap_or(value)
+            .trim()
+            .parse::<f32>()
+            .ok();
+
+        match feature {
+            "max-width" => return px_value.is_some_and(|v| width <= v),
+            "min-width" => return px_value.is_some_and(|v| width >= v),
+            "max-height" => return px_value.is_some_and(|v| height <= v),
+            "min-height" => return px_value.is_some_and(|v| height >= v),
+            "prefers-color-scheme" => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 // Implement Trace/Finalize for boa_gc compatibility (used in from_copy_closure_with_captures).
@@ -464,6 +914,11 @@ unsafe impl boa_gc::Trace for HostBridge {
         }
         for obj in inner.observer_objects.values() {
             mark(obj);
+        }
+        for entry in inner.media_queries.values() {
+            for listener in &entry.listeners {
+                mark(listener);
+            }
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever

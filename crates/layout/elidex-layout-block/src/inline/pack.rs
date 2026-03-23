@@ -86,6 +86,19 @@ pub(super) struct LineBox {
     pub block_size: f32,
 }
 
+/// Per-line rectangle for an inline entity (used by `getClientRects()`).
+#[derive(Clone, Debug)]
+pub struct InlineLineRect {
+    /// Inline-axis start on this line.
+    pub inline_start: f32,
+    /// Inline-axis end on this line.
+    pub inline_end: f32,
+    /// Block-axis offset of this line.
+    pub block_start: f32,
+    /// Block-axis size of this line.
+    pub block_size: f32,
+}
+
 /// Tracks the bounding rectangle of an inline entity across line boxes.
 pub(super) struct EntityBounds {
     /// Inline-axis start on the first line.
@@ -96,6 +109,8 @@ pub(super) struct EntityBounds {
     block_start: f32,
     /// Block-axis offset + size of the last line.
     block_end: f32,
+    /// Per-line rectangles for `getClientRects()`.
+    pub line_rects: Vec<InlineLineRect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -270,17 +285,25 @@ impl LinePacker {
         if entity != self.parent_entity {
             let seg_inline_end = seg_inline_start + full_width;
             let line_block_end = self.current_block_offset + self.current_line_height;
+            let line_rect = InlineLineRect {
+                inline_start: seg_inline_start,
+                inline_end: seg_inline_end,
+                block_start: self.current_block_offset,
+                block_size: self.current_line_height,
+            };
             self.entity_bounds
                 .entry(entity)
                 .and_modify(|b| {
                     b.inline_end = seg_inline_end;
                     b.block_end = line_block_end;
+                    b.line_rects.push(line_rect.clone());
                 })
                 .or_insert(EntityBounds {
                     inline_start: seg_inline_start,
                     inline_end: seg_inline_end,
                     block_start: self.current_block_offset,
                     block_end: line_block_end,
+                    line_rects: vec![line_rect],
                 });
         }
     }
@@ -350,5 +373,33 @@ pub(super) fn assign_inline_layout_boxes(
             layout_generation,
         };
         let _ = dom.world_mut().insert_one(*entity, lb);
+
+        // Store per-line rects for getClientRects() (CSSOM View §5).
+        if bounds.line_rects.len() > 1 {
+            let rects: Vec<elidex_plugin::Rect> = bounds
+                .line_rects
+                .iter()
+                .map(|lr| {
+                    if is_vertical {
+                        elidex_plugin::Rect::new(
+                            origin_x + lr.block_start,
+                            origin_y + lr.inline_start,
+                            lr.block_size,
+                            lr.inline_end - lr.inline_start,
+                        )
+                    } else {
+                        elidex_plugin::Rect::new(
+                            origin_x + lr.inline_start,
+                            origin_y + lr.block_start,
+                            lr.inline_end - lr.inline_start,
+                            lr.block_size,
+                        )
+                    }
+                })
+                .collect();
+            let _ = dom
+                .world_mut()
+                .insert_one(*entity, elidex_plugin::InlineClientRects(rects));
+        }
     }
 }

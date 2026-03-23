@@ -1878,6 +1878,7 @@ dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-form",
+ "elidex-html-parser",
  "elidex-navigation",
  "elidex-net",
  "elidex-plugin",
@@ -2038,6 +2039,7 @@ name = "elidex-script-session"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-html-parser",
  "elidex-plugin",
  "hecs",
 ]
@@ -2066,6 +2068,7 @@ dependencies = [
  "elidex-a11y",
  "elidex-css",
  "elidex-css-anim",
+ "elidex-dom-api",
  "elidex-dom-compat",
  "elidex-ecs",
  "elidex-form",

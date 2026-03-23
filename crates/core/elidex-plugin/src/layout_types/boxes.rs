@@ -103,6 +103,13 @@ pub struct LayoutBox {
     pub layout_generation: u32,
 }
 
+/// Per-line client rects for inline elements (CSSOM View §5 `getClientRects()`).
+///
+/// Stored as an ECS component on inline elements that span multiple lines.
+/// Block elements and single-line inlines use `LayoutBox.border_box()` as a single rect.
+#[derive(Clone, Debug)]
+pub struct InlineClientRects(pub Vec<Rect>);
+
 impl LayoutBox {
     /// Returns the padding box (content + padding).
     #[must_use]

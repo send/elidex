@@ -1312,4 +1312,96 @@ mod tests {
             panic!("expected ObjectRef");
         }
     }
+
+    // -----------------------------------------------------------------------
+    // CompareDocumentPosition — Attr node handling
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compare_document_position_attr_uses_owner_element() {
+        let (mut dom, mut session) = setup();
+        let root = dom.create_document_root();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(root, div);
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(div, span);
+
+        // Create an attr node with owner = div.
+        let attr = dom.create_attribute("class");
+        {
+            let mut ad = dom
+                .world_mut()
+                .get::<&mut elidex_ecs::AttrData>(attr)
+                .unwrap();
+            ad.owner_element = Some(div);
+        }
+
+        wrap(attr, &mut session);
+        wrap(span, &mut session);
+
+        // Attr owned by div should be "before" span (div is before span in tree).
+        // The Attr's position should be determined by its ownerElement (div),
+        // so span follows div → attr is FOLLOWING from span's perspective.
+        let r = CompareDocumentPosition
+            .invoke(
+                span,
+                &[obj_ref_arg(attr, &mut session)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        if let JsValue::Number(bits) = r {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bits = bits as u32;
+            // div contains span, so from span, attr (at div) should have CONTAINS | PRECEDING.
+            assert!(
+                bits & DOCUMENT_POSITION_CONTAINS != 0 || bits & DOCUMENT_POSITION_PRECEDING != 0
+            );
+        } else {
+            panic!("expected number");
+        }
+    }
+
+    #[test]
+    fn compare_document_position_two_attrs_same_element() {
+        let (mut dom, mut session) = setup();
+        let div = dom.create_element("div", Attributes::default());
+
+        let attr1 = dom.create_attribute("id");
+        {
+            let mut ad = dom
+                .world_mut()
+                .get::<&mut elidex_ecs::AttrData>(attr1)
+                .unwrap();
+            ad.owner_element = Some(div);
+        }
+        let attr2 = dom.create_attribute("class");
+        {
+            let mut ad = dom
+                .world_mut()
+                .get::<&mut elidex_ecs::AttrData>(attr2)
+                .unwrap();
+            ad.owner_element = Some(div);
+        }
+
+        wrap(attr1, &mut session);
+        wrap(attr2, &mut session);
+
+        let r = CompareDocumentPosition
+            .invoke(
+                attr1,
+                &[obj_ref_arg(attr2, &mut session)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        if let JsValue::Number(bits) = r {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bits = bits as u32;
+            // Same owner element: should have IMPLEMENTATION_SPECIFIC set.
+            assert!(bits & DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC != 0);
+        } else {
+            panic!("expected number");
+        }
+    }
 }

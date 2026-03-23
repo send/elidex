@@ -91,7 +91,7 @@ impl CssomApiHandler for GetComputedStyle {
 }
 
 /// Convert a `CssValue` to its CSS string representation.
-fn css_value_to_string(value: &CssValue) -> String {
+pub fn css_value_to_string(value: &CssValue) -> String {
     match value {
         CssValue::Keyword(s) | CssValue::String(s) | CssValue::RawTokens(s) => s.clone(),
         CssValue::Length(n, unit) => {
@@ -131,6 +131,17 @@ fn css_value_to_string(value: &CssValue) -> String {
             .map(serialize_transform_function)
             .collect::<Vec<_>>()
             .join(" "),
+        CssValue::Time(secs) => {
+            // CSS time values are stored in seconds; serialize to ms if it's
+            // a clean millisecond value, otherwise use seconds.
+            let ms = secs * 1000.0;
+            #[allow(clippy::cast_possible_truncation)]
+            if (ms - ms.round()).abs() < f32::EPSILON && ms >= 0.0 {
+                format!("{}ms", ms.round() as i32)
+            } else {
+                format!("{secs}s")
+            }
+        }
         _ => {
             debug_assert!(false, "unhandled CssValue variant: {value:?}");
             String::new()

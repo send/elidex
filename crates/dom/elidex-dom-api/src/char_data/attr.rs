@@ -1,6 +1,6 @@
 //! `Attr` node handlers.
 
-use elidex_ecs::{AttrData, Attributes, EcsDom, Entity};
+use elidex_ecs::{AttrData, AttrEntityCache, Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
@@ -62,6 +62,21 @@ impl DomApiHandler for GetAttributeNode {
         };
         drop(attrs);
 
+        // Check the identity cache: return the same Attr entity on repeated calls.
+        let cached_hit = dom
+            .world()
+            .get::<&AttrEntityCache>(this)
+            .ok()
+            .and_then(|cache| cache.entries.get(&name).copied());
+        if let Some(cached_entity) = cached_hit {
+            // Update the cached Attr's value to reflect the current attribute.
+            if let Ok(mut ad) = dom.world_mut().get::<&mut AttrData>(cached_entity) {
+                ad.value.clone_from(&value);
+            }
+            let obj_ref = session.get_or_create_wrapper(cached_entity, ComponentKind::Attribute);
+            return Ok(JsValue::ObjectRef(obj_ref.to_raw()));
+        }
+
         // Create a standalone Attr entity representing this attribute.
         let attr_entity = dom.create_attribute(&name);
         {
@@ -72,6 +87,19 @@ impl DomApiHandler for GetAttributeNode {
             ad.value = value;
             ad.owner_element = Some(this);
         }
+
+        // Cache the Attr entity for identity preservation.
+        let has_cache = dom.world().get::<&AttrEntityCache>(this).is_ok();
+        if has_cache {
+            if let Ok(mut cache) = dom.world_mut().get::<&mut AttrEntityCache>(this) {
+                cache.entries.insert(name, attr_entity);
+            }
+        } else {
+            let mut cache = AttrEntityCache::default();
+            cache.entries.insert(name, attr_entity);
+            let _ = dom.world_mut().insert_one(this, cache);
+        }
+
         let obj_ref = session.get_or_create_wrapper(attr_entity, ComponentKind::Attribute);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

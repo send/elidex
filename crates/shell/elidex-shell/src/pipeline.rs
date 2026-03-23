@@ -94,30 +94,105 @@ pub(super) fn build_paged_pipeline(
     elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
 }
 
-/// Dispatch `DOMContentLoaded` and `load` lifecycle events on the document.
+/// Dispatch lifecycle events on the document per the HTML spec.
 ///
-/// Per the HTML spec:
-/// - `DOMContentLoaded` fires after HTML parsing and script execution complete.
-/// - `load` fires after all sub-resources (stylesheets, images) have loaded.
-///
-/// Both events bubble but are not cancelable.
+/// Sequence:
+/// 1. `readystatechange` (Interactive) — document transitions to "interactive"
+/// 2. `DOMContentLoaded` — HTML parsing and script execution complete
+/// 3. `readystatechange` (Complete) — document transitions to "complete"
+/// 4. `load` — all sub-resources have loaded
 fn dispatch_lifecycle_events(
     runtime: &mut JsRuntime,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
 ) {
-    // DOMContentLoaded: bubbles, not cancelable.
+    // 1. Transition to "interactive" and fire readystatechange.
+    transition_ready_state(
+        runtime,
+        session,
+        dom,
+        document,
+        elidex_script_session::ReadyState::Interactive,
+    );
+
+    // 2. DOMContentLoaded: bubbles, not cancelable.
     let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
     dcl_event.cancelable = false;
     runtime.dispatch_event(&mut dcl_event, session, dom, document);
-
-    // Flush mutations from DOMContentLoaded handlers before dispatching load.
     session.flush(dom);
 
-    // load: does NOT bubble (spec), not cancelable.
+    // 3. Transition to "complete" and fire readystatechange.
+    transition_ready_state(
+        runtime,
+        session,
+        dom,
+        document,
+        elidex_script_session::ReadyState::Complete,
+    );
+
+    // 4. load: does NOT bubble (spec), not cancelable.
+    //
+    // Per HTML spec §8.2.6, the `load` event fires on the Window object.
+    // In our architecture, there is no separate Window entity — the document
+    // entity serves as the event target. This is correct because:
+    // - `window.onload` is aliased to document-level in our model
+    // - `addEventListener('load', ...)` on document still fires
+    // - The event does not bubble, so dispatching on document is equivalent
     let mut load_event = DispatchEvent::new("load", document);
     load_event.bubbles = false;
     load_event.cancelable = false;
     runtime.dispatch_event(&mut load_event, session, dom, document);
+}
+
+/// Transition `document.readyState` and dispatch `readystatechange`.
+///
+/// Per HTML spec §8.2.6: The `readystatechange` event fires on the Document
+/// object each time the readyState attribute's value changes.
+fn transition_ready_state(
+    runtime: &mut JsRuntime,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+    new_state: elidex_script_session::ReadyState,
+) {
+    session.document_ready_state = new_state;
+    let mut event = DispatchEvent::new("readystatechange", document);
+    event.bubbles = false;
+    event.cancelable = false;
+    runtime.dispatch_event(&mut event, session, dom, document);
+    session.flush(dom);
+}
+
+/// Dispatch `beforeunload` and `unload` events before navigation or shutdown.
+///
+/// Per HTML spec §7.1.8: `beforeunload` is cancelable (can prevent navigation),
+/// `unload` is not cancelable. Both fire on the Window (document target).
+///
+/// Returns `true` if navigation should proceed (beforeunload not cancelled).
+pub(crate) fn dispatch_unload_events(
+    runtime: &mut JsRuntime,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+) -> bool {
+    // beforeunload: cancelable (returnValue or preventDefault can block navigation).
+    let mut beforeunload = DispatchEvent::new("beforeunload", document);
+    beforeunload.cancelable = true;
+    beforeunload.bubbles = false;
+    let prevented = runtime.dispatch_event(&mut beforeunload, session, dom, document);
+    // Always flush mutations from beforeunload handlers, regardless of
+    // whether the event was prevented, so the page state remains consistent.
+    session.flush(dom);
+    if prevented {
+        return false; // Navigation blocked by beforeunload handler.
+    }
+
+    // unload: not cancelable, not bubble.
+    let mut unload = DispatchEvent::new("unload", document);
+    unload.bubbles = false;
+    unload.cancelable = false;
+    runtime.dispatch_event(&mut unload, session, dom, document);
+    session.flush(dom);
+    true
 }

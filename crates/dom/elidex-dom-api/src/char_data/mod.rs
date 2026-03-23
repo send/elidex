@@ -10,6 +10,7 @@ pub use attr::{
     CreateAttribute, GetAttrName, GetAttrSpecified, GetAttrValue, GetAttributeNode,
     GetOwnerElement, RemoveAttributeNode, SetAttrValue, SetAttributeNode,
 };
+pub(crate) use char_data_handlers::{utf16_len, utf16_to_byte_offset};
 pub use char_data_handlers::{
     AppendData, DeleteData, GetData, GetLength, InsertData, ReplaceData, SetData, SplitText,
     SubstringData,
@@ -640,6 +641,27 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, JsValue::Null);
+    }
+
+    #[test]
+    fn get_attribute_node_identity_cache() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("id", "test");
+        let div = dom.create_element("div", attrs);
+        let mut session = SessionCore::new();
+
+        // First call creates and caches the Attr entity.
+        let r1 = GetAttributeNode
+            .invoke(div, &[JsValue::String("id".into())], &mut session, &mut dom)
+            .unwrap();
+
+        // Second call should return the same ObjectRef (same entity).
+        let r2 = GetAttributeNode
+            .invoke(div, &[JsValue::String("id".into())], &mut session, &mut dom)
+            .unwrap();
+
+        assert_eq!(r1, r2, "repeated getAttributeNode must return same entity");
     }
 
     #[test]

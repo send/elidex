@@ -31,6 +31,48 @@ pub fn parse_html(html: &str) -> ParseResult {
     convert_document(rc_dom)
 }
 
+/// Parse an HTML fragment string into child nodes.
+///
+/// Per WHATWG HTML §2.6.4: Fragment parsing uses a context element to
+/// determine the parsing mode (e.g., `<table>` context enables table parsing).
+/// The resulting nodes are appended as children of `parent` in the given DOM.
+///
+/// Returns the list of newly created root-level entities.
+pub fn parse_html_fragment(
+    html: &str,
+    context_tag: &str,
+    parent: elidex_ecs::Entity,
+    dom: &mut elidex_ecs::EcsDom,
+) -> Vec<elidex_ecs::Entity> {
+    use html5ever::{ns, QualName};
+
+    let context_name = QualName::new(None, ns!(html), context_tag.into());
+    let rc_dom = html5ever::parse_fragment(
+        RcDom::default(),
+        ParseOpts::default(),
+        context_name,
+        Vec::new(),
+        true, // scripting enabled
+    )
+    .one(html);
+
+    // html5ever's parse_fragment may produce a single <html> wrapper element
+    // containing the actual fragment children. We need to unwrap it.
+    let children = rc_dom.document.children.borrow();
+    if children.len() == 1 {
+        // Single child — check if it's an <html> wrapper.
+        let child = &children[0];
+        if let markup5ever_rcdom::NodeData::Element { ref name, .. } = child.data {
+            if name.local.as_ref() == "html" {
+                // Unwrap: use the <html> element's children as fragment children.
+                return convert::convert_fragment_children(child, parent, dom);
+            }
+        }
+    }
+    // No wrapper — use document's children directly.
+    convert::convert_fragment_children(&rc_dom.document, parent, dom)
+}
+
 /// Parse an HTML5 document from raw bytes (browser mode).
 ///
 /// Detects character encoding automatically, decodes to UTF-8, then parses

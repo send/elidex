@@ -2,6 +2,7 @@
 //! getAttribute/setAttribute/removeAttribute, textContent, innerHTML.
 
 mod attrs;
+pub(crate) mod layout_query;
 mod props;
 pub(crate) mod tree;
 
@@ -10,10 +11,16 @@ pub use attrs::{
     DatasetDelete, DatasetGet, DatasetKeys, DatasetSet, GetAttributeNames, GetClassName, GetId,
     HasAttribute, SetClassName, SetId, ToggleAttribute,
 };
+pub use layout_query::{
+    GetBoundingClientRect, GetClientHeight, GetClientLeft, GetClientRects, GetClientTop,
+    GetClientWidth, GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth,
+    GetScrollHeight, GetScrollLeft, GetScrollTop, GetScrollWidth, ScrollIntoView,
+};
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{
     collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild, GetInnerHtml,
-    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveChild,
+    InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveChild,
+    SetInnerHtml,
 };
 
 #[cfg(test)]

@@ -132,8 +132,28 @@ impl ContentState {
             .bridge()
             .sync_dirty_canvases(&mut self.pipeline.dom);
         self.pipeline.caret_visible = self.caret_visible;
+
+        // Apply any pending JS scroll (scrollTo/scrollBy) to viewport state.
+        if let Some((x, y)) = self.pipeline.runtime.bridge().take_pending_scroll() {
+            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
+            // Clamp to valid range so JS cannot set out-of-bounds scroll positions.
+            scroll::update_viewport_scroll_dimensions(self);
+        }
+
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+        // Store viewport scroll on document root so getBoundingClientRect
+        // includes it via accumulated_scroll_offset (CSSOM View §5).
+        let _ = self
+            .pipeline
+            .dom
+            .world_mut()
+            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
+        // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
+        self.pipeline.runtime.bridge().set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x,
+            self.viewport_scroll.scroll_offset.y,
+        );
         let mutation_records = crate::re_render(&mut self.pipeline);
 
         // Invalidate focusable cache when DOM structure or focusability changes.
@@ -373,11 +393,36 @@ fn run_event_loop(state: &mut ContentState) {
 }
 
 /// Handle a single message. Returns `false` for Shutdown.
+#[allow(clippy::too_many_lines)]
 fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
     match msg {
-        BrowserToContent::Shutdown => return false,
+        BrowserToContent::Shutdown => {
+            // Dispatch beforeunload/unload lifecycle events before shutdown.
+            // If beforeunload is cancelled, the user wants to stay on the page.
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if !proceed {
+                // beforeunload cancelled — user wants to stay.
+                // (In a real browser, this would show a confirmation dialog.)
+                return true; // Continue event loop.
+            }
+            return false;
+        }
 
         BrowserToContent::Navigate(url) => {
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if !proceed {
+                return true; // Blocked by beforeunload handler.
+            }
             navigation::handle_navigate(state, &url, false, None);
         }
 
@@ -418,26 +463,65 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         BrowserToContent::SetViewport { width, height } => {
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
+                // Sync viewport size to JS bridge for window.innerWidth/innerHeight.
+                let bridge = state.pipeline.runtime.bridge().clone();
+                bridge.set_viewport(width, height);
+
+                // Re-evaluate media queries and dispatch "change" events to listeners.
+                let changed = bridge.re_evaluate_media_queries(width, height);
+                if !changed.is_empty() {
+                    dispatch_media_query_changes(&changed, state);
+                }
+
                 state.re_render();
                 state.send_display_list();
             }
         }
 
         BrowserToContent::GoBack => {
-            if let Some(url) = state.nav_controller.go_back().cloned() {
-                navigation::handle_navigate(state, &url, true, None);
+            // Check navigability before dispatching unload events.
+            if state.nav_controller.can_go_back() {
+                let proceed = crate::pipeline::dispatch_unload_events(
+                    &mut state.pipeline.runtime,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if proceed {
+                    if let Some(url) = state.nav_controller.go_back().cloned() {
+                        navigation::handle_navigate(state, &url, true, None);
+                    }
+                }
             }
         }
 
         BrowserToContent::GoForward => {
-            if let Some(url) = state.nav_controller.go_forward().cloned() {
-                navigation::handle_navigate(state, &url, true, None);
+            if state.nav_controller.can_go_forward() {
+                let proceed = crate::pipeline::dispatch_unload_events(
+                    &mut state.pipeline.runtime,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if proceed {
+                    if let Some(url) = state.nav_controller.go_forward().cloned() {
+                        navigation::handle_navigate(state, &url, true, None);
+                    }
+                }
             }
         }
 
         BrowserToContent::Reload => {
-            if let Some(url) = state.pipeline.url.clone() {
-                navigation::handle_navigate(state, &url, true, None);
+            let proceed = crate::pipeline::dispatch_unload_events(
+                &mut state.pipeline.runtime,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            if proceed {
+                if let Some(url) = state.pipeline.url.clone() {
+                    navigation::handle_navigate(state, &url, true, None);
+                }
             }
         }
 
@@ -450,6 +534,19 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
     }
     true
+}
+
+/// Dispatch "change" events to `MediaQueryList` listeners whose result changed.
+///
+/// Creates a `MediaQueryListEvent`-like object with `matches` and `media` properties
+/// and invokes each registered listener callback via `JsRuntime`.
+fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentState) {
+    state.pipeline.runtime.deliver_media_query_changes(
+        changed,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 /// Focusability-relevant attribute names.

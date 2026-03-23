@@ -69,10 +69,21 @@ pub enum Mutation {
         /// New text content.
         text: String,
     },
-    /// Set innerHTML (stub — returns `false` until HTML parser integration).
+    /// Set innerHTML — parses HTML fragment and replaces children.
     SetInnerHtml {
         /// Target entity.
         entity: Entity,
+        /// HTML string to parse and insert.
+        html: String,
+    },
+    /// Insert parsed HTML at a position relative to an element.
+    ///
+    /// Position: `"beforebegin"`, `"afterbegin"`, `"beforeend"`, `"afterend"`.
+    InsertAdjacentHtml {
+        /// Target entity.
+        entity: Entity,
+        /// Insertion position.
+        position: String,
         /// HTML string to parse and insert.
         html: String,
     },
@@ -92,7 +103,7 @@ pub enum Mutation {
         /// CSS property name to remove.
         property: String,
     },
-    /// Insert a CSS rule into a stylesheet (stub for CSSOM).
+    /// Insert a CSS rule into a stylesheet (legacy variant, CSSOM uses bridge).
     InsertCssRule {
         /// Stylesheet entity.
         stylesheet: Entity,
@@ -101,7 +112,7 @@ pub enum Mutation {
         /// CSS rule text.
         rule: String,
     },
-    /// Delete a CSS rule from a stylesheet (stub for CSSOM).
+    /// Delete a CSS rule from a stylesheet (legacy variant, CSSOM uses bridge).
     DeleteCssRule {
         /// Stylesheet entity.
         stylesheet: Entity,
@@ -185,10 +196,16 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
         Mutation::RemoveInlineStyle { entity, property } => {
             apply_remove_inline_style(dom, *entity, property)
         }
-        // Stubs — SetInnerHtml needs HTML parser (M2-3), CSS rules need CSSOM (M2-4+).
-        Mutation::SetInnerHtml { .. }
-        | Mutation::InsertCssRule { .. }
-        | Mutation::DeleteCssRule { .. } => None,
+        Mutation::SetInnerHtml { entity, html } => apply_set_inner_html(dom, *entity, html),
+        Mutation::InsertAdjacentHtml {
+            entity,
+            position,
+            html,
+        } => apply_insert_adjacent_html(dom, *entity, position, html),
+        // CSS rule mutations are handled directly by the HostBridge CSSOM layer
+        // (not through the EcsDom mutation system). These variants are kept for
+        // backward compat but are no longer reached in normal operation.
+        Mutation::InsertCssRule { .. } | Mutation::DeleteCssRule { .. } => None,
     }
 }
 
@@ -343,6 +360,107 @@ fn apply_remove_inline_style(
     let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
     style.remove(property);
     Some(empty_record(MutationKind::InlineStyle, entity))
+}
+
+/// Apply `innerHTML` setter: remove all children, parse the HTML fragment,
+/// and append the parsed nodes as new children.
+///
+/// Uses [`elidex_html_parser::parse_html_fragment`] with the element's tag
+/// name as context. Returns a `MutationRecord` with removed and added nodes.
+#[allow(clippy::unnecessary_wraps)] // Signature matches apply_mutation's Option<> convention.
+fn apply_set_inner_html(dom: &mut EcsDom, entity: Entity, html: &str) -> Option<MutationRecord> {
+    let context_tag = dom
+        .world()
+        .get::<&elidex_ecs::TagType>(entity)
+        .ok()
+        .map_or_else(|| "div".to_string(), |t| t.0.clone());
+
+    // Remove all existing children.
+    let removed: Vec<Entity> = dom.children(entity);
+    for &child in &removed {
+        let _ = dom.remove_child(entity, child);
+    }
+
+    // Parse the HTML fragment and append new children.
+    let added = elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom);
+
+    Some(MutationRecord {
+        added_nodes: added,
+        removed_nodes: removed,
+        ..empty_record(MutationKind::ChildList, entity)
+    })
+}
+
+/// Apply `insertAdjacentHTML`: parse HTML fragment and insert at position.
+#[allow(clippy::unnecessary_wraps)]
+fn apply_insert_adjacent_html(
+    dom: &mut EcsDom,
+    entity: Entity,
+    position: &str,
+    html: &str,
+) -> Option<MutationRecord> {
+    let tag_of = |e: Entity, dom: &EcsDom| -> String {
+        dom.world()
+            .get::<&elidex_ecs::TagType>(e)
+            .ok()
+            .map_or_else(|| "div".to_string(), |t| t.0.clone())
+    };
+
+    let added = match position {
+        "beforebegin" => {
+            let parent = dom.get_parent(entity)?;
+            let context_tag = tag_of(parent, dom);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom);
+            for &node in &nodes {
+                let _ = dom.remove_child(parent, node);
+                let _ = dom.insert_before(parent, node, entity);
+            }
+            nodes
+        }
+        "afterbegin" => {
+            let context_tag = tag_of(entity, dom);
+            let first_child = dom.get_first_child(entity);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom);
+            if let Some(ref_child) = first_child {
+                for &node in &nodes {
+                    let _ = dom.remove_child(entity, node);
+                    let _ = dom.insert_before(entity, node, ref_child);
+                }
+            }
+            nodes
+        }
+        "beforeend" => {
+            let context_tag = tag_of(entity, dom);
+            elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom)
+        }
+        "afterend" => {
+            let parent = dom.get_parent(entity)?;
+            let context_tag = tag_of(parent, dom);
+            let next = dom.get_next_sibling(entity);
+            let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom);
+            if let Some(ref_child) = next {
+                // Natural order with constant ref_child preserves document order:
+                // insert A before ref → [... A ref], insert B before ref → [... A B ref].
+                // Each node goes immediately before ref_child, accumulating in order.
+                for &node in &nodes {
+                    let _ = dom.remove_child(parent, node);
+                    let _ = dom.insert_before(parent, node, ref_child);
+                }
+            }
+            nodes
+        }
+        _ => return None,
+    };
+
+    let target = match position {
+        "beforebegin" | "afterend" => dom.get_parent(entity).unwrap_or(entity),
+        _ => entity,
+    };
+
+    Some(MutationRecord {
+        added_nodes: added,
+        ..empty_record(MutationKind::ChildList, target)
+    })
 }
 
 #[cfg(test)]
@@ -567,14 +685,22 @@ mod tests {
     }
 
     #[test]
-    fn set_inner_html_stub_returns_none() {
+    fn set_inner_html_parses_and_replaces() {
         let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
         let e = elem(&mut dom, "div");
+        let _ = dom.append_child(root, e);
+        let old_child = dom.create_text("old");
+        let _ = dom.append_child(e, old_child);
 
         let m = Mutation::SetInnerHtml {
             entity: e,
-            html: "<p>test</p>".into(),
+            html: "<p>new</p>".into(),
         };
-        assert!(apply_mutation(&m, &mut dom).is_none());
+        let record = apply_mutation(&m, &mut dom);
+        assert!(record.is_some(), "SetInnerHtml should return a record");
+        let record = record.unwrap();
+        assert_eq!(record.removed_nodes.len(), 1, "should remove old child");
+        assert_eq!(record.added_nodes.len(), 1, "should add <p>");
     }
 }

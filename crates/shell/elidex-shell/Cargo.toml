@@ -20,6 +20,7 @@ elidex-render.workspace = true
 elidex-html-parser.workspace = true
 elidex-css.workspace = true
 elidex-css-anim.workspace = true
+elidex-dom-api.workspace = true
 elidex-dom-compat.workspace = true
 elidex-style.workspace = true
 elidex-layout.workspace = true

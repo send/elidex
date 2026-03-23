@@ -85,6 +85,29 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("textContent.get", Box::new(super::GetTextContentNodeKind));
     r.register_static("textContent.set", Box::new(super::SetTextContentNodeKind));
     r.register_static("innerHTML.get", Box::new(super::GetInnerHtml));
+    r.register_static("innerHTML.set", Box::new(super::SetInnerHtml));
+    r.register_static("insertAdjacentHTML", Box::new(super::InsertAdjacentHtml));
+
+    // --- Layout query ---
+    r.register_static(
+        "getBoundingClientRect",
+        Box::new(super::GetBoundingClientRect),
+    );
+    r.register_static("offsetWidth.get", Box::new(super::GetOffsetWidth));
+    r.register_static("offsetHeight.get", Box::new(super::GetOffsetHeight));
+    r.register_static("offsetTop.get", Box::new(super::GetOffsetTop));
+    r.register_static("offsetLeft.get", Box::new(super::GetOffsetLeft));
+    r.register_static("offsetParent.get", Box::new(super::GetOffsetParent));
+    r.register_static("clientWidth.get", Box::new(super::GetClientWidth));
+    r.register_static("clientHeight.get", Box::new(super::GetClientHeight));
+    r.register_static("clientTop.get", Box::new(super::GetClientTop));
+    r.register_static("clientLeft.get", Box::new(super::GetClientLeft));
+    r.register_static("scrollWidth.get", Box::new(super::GetScrollWidth));
+    r.register_static("scrollHeight.get", Box::new(super::GetScrollHeight));
+    r.register_static("scrollTop.get", Box::new(super::GetScrollTop));
+    r.register_static("scrollLeft.get", Box::new(super::GetScrollLeft));
+    r.register_static("getClientRects", Box::new(super::GetClientRects));
+    r.register_static("scrollIntoView", Box::new(super::ScrollIntoView));
 
     // --- Element — insertAdjacent ---
     r.register_static(
@@ -320,6 +343,8 @@ mod tests {
             "attr.value.set",
             "attr.ownerElement.get",
             "attr.specified.get",
+            "getClientRects",
+            "scrollIntoView",
         ];
         for name in expected {
             assert!(

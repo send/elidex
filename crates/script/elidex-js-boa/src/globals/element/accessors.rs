@@ -17,6 +17,9 @@ use crate::globals::{
     invoke_dom_handler_void, require_js_string_arg,
 };
 
+/// Read-only attribute for `DOMRect` properties.
+const RO_ATTR: Attribute = Attribute::READONLY;
+
 // ---------------------------------------------------------------------------
 // Node methods (contains, compareDocumentPosition, cloneNode, etc.)
 // ---------------------------------------------------------------------------
@@ -191,7 +194,7 @@ pub(crate) fn register_child_parent_mixin_methods(
 // ---------------------------------------------------------------------------
 
 /// Register additional Element methods (matches, closest, insertAdjacent*, etc.).
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::many_single_char_names)]
 pub(crate) fn register_element_extra_methods(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
@@ -272,6 +275,27 @@ pub(crate) fn register_element_extra_methods(
             b,
         ),
         js_string!("insertAdjacentText"),
+        2,
+    );
+
+    // insertAdjacentHTML(position, html)
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let position = require_js_string_arg(args, 0, "insertAdjacentHTML", ctx)?;
+                let html = require_js_string_arg(args, 1, "insertAdjacentHTML", ctx)?;
+                invoke_dom_handler_void(
+                    "insertAdjacentHTML",
+                    entity,
+                    &[ElidexJsValue::String(position), ElidexJsValue::String(html)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("insertAdjacentHTML"),
         2,
     );
 
@@ -418,6 +442,454 @@ pub(crate) fn register_element_extra_accessors(
         js_string!("id"),
         Some(id_getter),
         Some(id_setter),
+        Attribute::CONFIGURABLE,
+    );
+
+    // attributes (NamedNodeMap-like object) — read-only
+    let b = bridge.clone();
+    let attrs_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            build_named_node_map(entity, bridge, ctx)
+        },
+        b,
+    )
+    .to_js_function(realm);
+    init.accessor(
+        js_string!("attributes"),
+        Some(attrs_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+}
+
+/// Build a `NamedNodeMap`-like JS object for the given element's attributes.
+///
+/// All accessors (`length`, `item()`, `getNamedItem()`) are live: they query
+/// the `Attributes` component on each access, reflecting mutations made after
+/// the `NamedNodeMap` was obtained.
+///
+/// Attribute iteration order follows insertion order per WHATWG DOM spec,
+/// backed by `IndexMap` in the `Attributes` component.
+#[allow(clippy::unnecessary_wraps, clippy::too_many_lines)]
+fn build_named_node_map(
+    entity: Entity,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> boa_engine::JsResult<JsValue> {
+    let mut init = ObjectInitializer::new(ctx);
+
+    // Store entity for dynamic lookups.
+    init.property(
+        js_string!(ENTITY_KEY),
+        JsValue::from(entity_bits_as_f64(entity)),
+        Attribute::empty(),
+    );
+
+    // length — dynamic getter that reads current attribute count.
+    let realm = init.context().realm().clone();
+    let b_len = bridge.clone();
+    let length_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let len = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_ecs::Attributes>(entity)
+                    .map_or(0, |a| a.iter().count())
+            });
+            #[allow(clippy::cast_precision_loss)]
+            Ok(JsValue::from(len as f64))
+        },
+        b_len,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("length"),
+        Some(length_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // item(index) — reads attributes at call time, returns proper Attr wrapper.
+    let b_item = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let index = args
+                    .first()
+                    .and_then(JsValue::as_number)
+                    .map_or(0, |n| n as usize);
+                // Get the attribute name at the given index.
+                let attr_name = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| a.iter().nth(index).map(|(k, _)| k.to_string()))
+                });
+                match attr_name {
+                    Some(name) => {
+                        // Use getAttributeNode DOM handler to get proper Attr entity.
+                        let result = invoke_dom_handler_ref(
+                            "getAttributeNode",
+                            entity,
+                            &[ElidexJsValue::String(name)],
+                            bridge,
+                            ctx,
+                        )?;
+                        if result.is_null() || result.is_undefined() {
+                            return Ok(JsValue::null());
+                        }
+                        if let Some(obj) = result.as_object() {
+                            let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                            if !entity_val.is_undefined() {
+                                let attr_entity = extract_entity(&result, ctx)?;
+                                return Ok(super::special_nodes::create_attr_object(
+                                    attr_entity,
+                                    bridge,
+                                    ctx,
+                                ));
+                            }
+                        }
+                        Ok(result)
+                    }
+                    None => Ok(JsValue::null()),
+                }
+            },
+            b_item,
+        ),
+        js_string!("item"),
+        1,
+    );
+
+    // getNamedItem(name) — reads attributes at call time, returns proper Attr wrapper.
+    let b_named = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                // Check attribute exists before invoking handler.
+                let exists = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .is_some_and(|a| a.get(&name).is_some())
+                });
+                if !exists {
+                    return Ok(JsValue::null());
+                }
+                // Use getAttributeNode DOM handler to get proper Attr entity with identity.
+                let result = invoke_dom_handler_ref(
+                    "getAttributeNode",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                    ctx,
+                )?;
+                if result.is_null() || result.is_undefined() {
+                    return Ok(JsValue::null());
+                }
+                if let Some(obj) = result.as_object() {
+                    let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
+                    if !entity_val.is_undefined() {
+                        let attr_entity = extract_entity(&result, ctx)?;
+                        return Ok(super::special_nodes::create_attr_object(
+                            attr_entity,
+                            bridge,
+                            ctx,
+                        ));
+                    }
+                }
+                Ok(result)
+            },
+            b_named,
+        ),
+        js_string!("getNamedItem"),
+        1,
+    );
+
+    // removeNamedItem(name) — removes the attribute from the element.
+    let b_rm = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                invoke_dom_handler_void(
+                    "removeAttribute",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
+            },
+            b_rm,
+        ),
+        js_string!("removeNamedItem"),
+        1,
+    );
+
+    Ok(init.build().into())
+}
+
+// ---------------------------------------------------------------------------
+// Layout query accessors (getBoundingClientRect, offset*, client*, scroll*)
+// ---------------------------------------------------------------------------
+
+/// Register layout query method and property accessors on an element object.
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::many_single_char_names)]
+pub(crate) fn register_layout_query_accessors(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+) {
+    // getBoundingClientRect() — returns a DOMRect object with x,y,width,height,top,right,bottom,left.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let result = invoke_dom_handler("getBoundingClientRect", entity, &[], bridge)?;
+                // The handler returns "x,y,width,height" as a comma-separated string.
+                // Parse and construct a proper DOMRect object.
+                if let Some(s) = result.as_string() {
+                    let s = s.to_std_string_escaped();
+                    let parts: Vec<f64> = s
+                        .split(',')
+                        .filter_map(|p| p.trim().parse::<f64>().ok())
+                        .collect();
+                    if parts.len() == 4 {
+                        let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
+                        let obj = ObjectInitializer::new(ctx)
+                            .property(js_string!("x"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .property(js_string!("y"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(js_string!("width"), boa_engine::JsValue::from(w), RO_ATTR)
+                            .property(js_string!("height"), boa_engine::JsValue::from(h), RO_ATTR)
+                            .property(js_string!("top"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(
+                                js_string!("right"),
+                                boa_engine::JsValue::from(x + w),
+                                RO_ATTR,
+                            )
+                            .property(
+                                js_string!("bottom"),
+                                boa_engine::JsValue::from(y + h),
+                                RO_ATTR,
+                            )
+                            .property(js_string!("left"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .build();
+                        return Ok(boa_engine::JsValue::from(obj));
+                    }
+                }
+                Ok(result)
+            },
+            b,
+        ),
+        js_string!("getBoundingClientRect"),
+        0,
+    );
+
+    // getClientRects() — returns an array of DOMRect objects.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let result = invoke_dom_handler("getClientRects", entity, &[], bridge)?;
+                // Handler returns "x,y,w,h" or newline-separated entries for multi-line inlines.
+                let array = JsArray::new(ctx);
+                if let Some(s) = result.as_string() {
+                    let s = s.to_std_string_escaped();
+                    for line in s.lines() {
+                        let parts: Vec<f64> = line
+                            .split(',')
+                            .filter_map(|p| p.trim().parse::<f64>().ok())
+                            .collect();
+                        if parts.len() != 4 {
+                            continue;
+                        }
+                        let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
+                        let obj = ObjectInitializer::new(ctx)
+                            .property(js_string!("x"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .property(js_string!("y"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(js_string!("width"), boa_engine::JsValue::from(w), RO_ATTR)
+                            .property(js_string!("height"), boa_engine::JsValue::from(h), RO_ATTR)
+                            .property(js_string!("top"), boa_engine::JsValue::from(y), RO_ATTR)
+                            .property(
+                                js_string!("right"),
+                                boa_engine::JsValue::from(x + w),
+                                RO_ATTR,
+                            )
+                            .property(
+                                js_string!("bottom"),
+                                boa_engine::JsValue::from(y + h),
+                                RO_ATTR,
+                            )
+                            .property(js_string!("left"), boa_engine::JsValue::from(x), RO_ATTR)
+                            .build();
+                        array.push(boa_engine::JsValue::from(obj), ctx)?;
+                    }
+                }
+                Ok(array.into())
+            },
+            b,
+        ),
+        js_string!("getClientRects"),
+        0,
+    );
+
+    // scrollIntoView(arg?) — scroll nearest scrollable ancestor to make element visible.
+    // Parses boolean or options object to determine block alignment.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                // Parse the block alignment from the first argument.
+                let block = if let Some(first) = args.first() {
+                    if let Some(b) = first.as_boolean() {
+                        // scrollIntoView(true) → "start", scrollIntoView(false) → "end"
+                        if b { "start" } else { "end" }.to_string()
+                    } else if let Some(obj) = first.as_object() {
+                        // scrollIntoView({ block: "center" })
+                        obj.get(js_string!("block"), ctx)?
+                            .as_string()
+                            .map_or_else(|| "start".to_string(), |s| s.to_std_string_escaped())
+                    } else {
+                        "start".to_string()
+                    }
+                } else {
+                    "start".to_string()
+                };
+                invoke_dom_handler_void(
+                    "scrollIntoView",
+                    entity,
+                    &[ElidexJsValue::String(block)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("scrollIntoView"),
+        1,
+    );
+
+    // Read-only numeric property accessors via macro.
+    macro_rules! layout_getter {
+        ($name:expr, $handler:expr) => {{
+            let b = bridge.clone();
+            NativeFunction::from_copy_closure_with_captures(
+                |this, _args, bridge, ctx| {
+                    let entity = extract_entity(this, ctx)?;
+                    invoke_dom_handler($handler, entity, &[], bridge)
+                },
+                b,
+            )
+            .to_js_function(realm)
+        }};
+    }
+
+    init.accessor(
+        js_string!("offsetWidth"),
+        Some(layout_getter!("offsetWidth", "offsetWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetHeight"),
+        Some(layout_getter!("offsetHeight", "offsetHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetTop"),
+        Some(layout_getter!("offsetTop", "offsetTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("offsetLeft"),
+        Some(layout_getter!("offsetLeft", "offsetLeft.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    // offsetParent returns an element reference (or null), not a number.
+    // Use invoke_dom_handler_ref to resolve ObjectRef to an element wrapper.
+    {
+        let b = bridge.clone();
+        let getter = NativeFunction::from_copy_closure_with_captures(
+            |this, _args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                invoke_dom_handler_ref("offsetParent.get", entity, &[], bridge, ctx)
+            },
+            b,
+        )
+        .to_js_function(realm);
+        init.accessor(
+            js_string!("offsetParent"),
+            Some(getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
+    init.accessor(
+        js_string!("clientWidth"),
+        Some(layout_getter!("clientWidth", "clientWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientHeight"),
+        Some(layout_getter!("clientHeight", "clientHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientTop"),
+        Some(layout_getter!("clientTop", "clientTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("clientLeft"),
+        Some(layout_getter!("clientLeft", "clientLeft.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollWidth"),
+        Some(layout_getter!("scrollWidth", "scrollWidth.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollHeight"),
+        Some(layout_getter!("scrollHeight", "scrollHeight.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollTop"),
+        Some(layout_getter!("scrollTop", "scrollTop.get")),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("scrollLeft"),
+        Some(layout_getter!("scrollLeft", "scrollLeft.get")),
+        None,
         Attribute::CONFIGURABLE,
     );
 }

@@ -20,8 +20,10 @@ pub mod document;
 pub mod element;
 pub mod live_collection;
 pub mod node_methods;
+pub mod range;
 pub mod registry;
 pub mod style;
+pub mod traversal;
 pub mod tree_nav;
 pub(crate) mod util;
 
@@ -42,22 +44,29 @@ pub use class_list::{
     ClassListAdd, ClassListContains, ClassListItem, ClassListLength, ClassListRemove,
     ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
 };
-pub use computed_style::GetComputedStyle;
+pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
 pub use element::{
     camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,
     validate_attribute_name, AppendChild, DatasetDelete, DatasetGet, DatasetKeys, DatasetSet,
-    GetAttribute, GetAttributeNames, GetClassName, GetId, GetInnerHtml, HasAttribute,
-    InsertAdjacentElement, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
-    SetAttribute, SetClassName, SetId, ToggleAttribute,
+    GetAttribute, GetAttributeNames, GetBoundingClientRect, GetClassName, GetClientHeight,
+    GetClientLeft, GetClientRects, GetClientTop, GetClientWidth, GetId, GetInnerHtml,
+    GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight,
+    GetScrollLeft, GetScrollTop, GetScrollWidth, HasAttribute, InsertAdjacentElement,
+    InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
+    ScrollIntoView, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
+pub use range::{adjust_ranges_for_removal, adjust_ranges_for_text_change, Range};
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
+pub use traversal::{
+    NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
+};
 pub use tree_nav::{
     GetChildElementCount, GetFirstChild, GetFirstElementChild, GetLastChild, GetLastElementChild,
     GetNextElementSibling, GetNextSibling, GetNodeName, GetNodeType, GetNodeValue,

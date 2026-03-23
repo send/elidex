@@ -4,7 +4,7 @@ mod boxes;
 mod rect;
 mod vectors;
 
-pub use boxes::{EdgeSizes, LayoutBox, LayoutContext, LayoutResult};
+pub use boxes::{EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult};
 pub use rect::{CssSize, Rect, Size};
 pub use vectors::{Point, Vector};
 
