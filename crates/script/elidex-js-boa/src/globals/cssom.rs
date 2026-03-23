@@ -237,14 +237,8 @@ fn build_rule_list(
         1,
     );
 
-    // Numeric index access (pre-built objects)
-    for (i, rule_obj) in rule_objects.into_iter().enumerate() {
-        obj.property(
-            js_string!(i.to_string().as_str()),
-            rule_obj,
-            Attribute::CONFIGURABLE,
-        );
-    }
+    // Numeric index access is not pre-built (snapshot would become stale
+    // after insertRule/deleteRule). Use cssRules.item(n) for live access.
 
     Ok(obj.build().into())
 }

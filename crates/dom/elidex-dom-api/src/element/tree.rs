@@ -348,7 +348,7 @@ impl DomApiHandler for InsertAdjacentHtml {
         this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
-        _dom: &mut EcsDom,
+        dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let position = match args.first() {
             Some(JsValue::String(s)) => s.to_ascii_lowercase(),
@@ -363,9 +363,19 @@ impl DomApiHandler for InsertAdjacentHtml {
             _ => String::new(),
         };
 
-        // Validate position before recording.
+        // Validate position and parent requirement before recording.
         match position.as_str() {
-            "beforebegin" | "afterbegin" | "beforeend" | "afterend" => {}
+            "beforebegin" | "afterend" => {
+                if dom.get_parent(this).is_none() {
+                    return Err(DomApiError {
+                        kind: DomApiErrorKind::HierarchyRequestError,
+                        message: format!(
+                            "insertAdjacentHTML: element has no parent for {position}"
+                        ),
+                    });
+                }
+            }
+            "afterbegin" | "beforeend" => {}
             _ => {
                 return Err(DomApiError::syntax_error(
                     "Invalid position for insertAdjacentHTML",

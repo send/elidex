@@ -142,6 +142,13 @@ impl ContentState {
 
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+        // Store viewport scroll on document root so getBoundingClientRect
+        // includes it via accumulated_scroll_offset (CSSOM View §5).
+        let _ = self
+            .pipeline
+            .dom
+            .world_mut()
+            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
         // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
         self.pipeline.runtime.bridge().set_scroll_offset(
             self.viewport_scroll.scroll_offset.x,
@@ -472,29 +479,34 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::GoBack => {
-            let proceed = crate::pipeline::dispatch_unload_events(
-                &mut state.pipeline.runtime,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
-            if proceed {
-                if let Some(url) = state.nav_controller.go_back().cloned() {
-                    navigation::handle_navigate(state, &url, true, None);
+            // Check navigability before dispatching unload events.
+            if state.nav_controller.can_go_back() {
+                let proceed = crate::pipeline::dispatch_unload_events(
+                    &mut state.pipeline.runtime,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if proceed {
+                    if let Some(url) = state.nav_controller.go_back().cloned() {
+                        navigation::handle_navigate(state, &url, true, None);
+                    }
                 }
             }
         }
 
         BrowserToContent::GoForward => {
-            let proceed = crate::pipeline::dispatch_unload_events(
-                &mut state.pipeline.runtime,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
-            if proceed {
-                if let Some(url) = state.nav_controller.go_forward().cloned() {
-                    navigation::handle_navigate(state, &url, true, None);
+            if state.nav_controller.can_go_forward() {
+                let proceed = crate::pipeline::dispatch_unload_events(
+                    &mut state.pipeline.runtime,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if proceed {
+                    if let Some(url) = state.nav_controller.go_forward().cloned() {
+                        navigation::handle_navigate(state, &url, true, None);
+                    }
                 }
             }
         }

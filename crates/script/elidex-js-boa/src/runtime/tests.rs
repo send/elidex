@@ -1400,10 +1400,10 @@ fn css_rules_access() {
         r"
         var rules = document.styleSheets.item(0).cssRules;
         console.log('rlen=' + rules.length);
-        console.log('sel0=' + rules[0].selectorText);
-        console.log('sel1=' + rules[1].selectorText);
-        console.log('type0=' + rules[0].type);
-        console.log('css0=' + rules[0].cssText);
+        console.log('sel0=' + rules.item(0).selectorText);
+        console.log('sel1=' + rules.item(1).selectorText);
+        console.log('type0=' + rules.item(0).type);
+        console.log('css0=' + rules.item(0).cssText);
         ",
         &mut session,
         &mut dom,
@@ -1453,7 +1453,7 @@ fn css_rule_style_declaration() {
 
     let result = runtime.eval(
         r"
-        var style = document.styleSheets.item(0).cssRules[0].style;
+        var style = document.styleSheets.item(0).cssRules.item(0).style;
         console.log('slen=' + style.length);
         console.log('item0=' + style.item(0));
         console.log('gpv=' + style.getPropertyValue('color'));
@@ -1497,7 +1497,7 @@ fn insert_rule_and_delete_rule() {
         // Read fresh cssRules after insert.
         var rules = sheet.cssRules;
         console.log('after_insert=' + rules.length);
-        console.log('new_sel=' + rules[1].selectorText);
+        console.log('new_sel=' + rules.item(1).selectorText);
         ",
         &mut session,
         &mut dom,
@@ -1530,7 +1530,7 @@ fn insert_rule_and_delete_rule() {
         sheet.deleteRule(0);
         var rules = sheet.cssRules;
         console.log('after_delete=' + rules.length);
-        console.log('remaining_sel=' + rules[0].selectorText);
+        console.log('remaining_sel=' + rules.item(0).selectorText);
         ",
         &mut session,
         &mut dom,
