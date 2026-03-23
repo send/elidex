@@ -1808,6 +1808,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-custom-elements"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+]
+
+[[package]]
 name = "elidex-dom-api"
 version = "0.1.0"
 dependencies = [
