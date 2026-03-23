@@ -439,6 +439,9 @@ fn apply_insert_adjacent_html(
             let next = dom.get_next_sibling(entity);
             let nodes = elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom);
             if let Some(ref_child) = next {
+                // Natural order with constant ref_child preserves document order:
+                // insert A before ref → [... A ref], insert B before ref → [... A B ref].
+                // Each node goes immediately before ref_child, accumulating in order.
                 for &node in &nodes {
                     let _ = dom.remove_child(parent, node);
                     let _ = dom.insert_before(parent, node, ref_child);
