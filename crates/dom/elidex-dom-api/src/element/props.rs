@@ -1,6 +1,6 @@
 //! Attribute get/set/remove handlers.
 
-use elidex_ecs::{AttrEntityCache, EcsDom, Entity};
+use elidex_ecs::{AttrData, AttrEntityCache, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
@@ -61,10 +61,18 @@ impl DomApiHandler for SetAttribute {
         let mut attrs = require_attrs_mut(this, dom)?;
         attrs.set(&name, &value);
         drop(attrs);
-        // Invalidate Attr identity cache for this attribute so the next
-        // getAttributeNode call picks up the new value.
-        if let Ok(mut cache) = dom.world_mut().get::<&mut AttrEntityCache>(this) {
-            cache.entries.remove(&name);
+        // Sync the cached Attr entity's value so that attr.value reflects
+        // the update without breaking identity (getAttributeNode returns the
+        // same object before and after setAttribute).
+        let cached_attr = dom
+            .world()
+            .get::<&AttrEntityCache>(this)
+            .ok()
+            .and_then(|cache| cache.entries.get(&name).copied());
+        if let Some(attr_entity) = cached_attr {
+            if let Ok(mut ad) = dom.world_mut().get::<&mut AttrData>(attr_entity) {
+                ad.value.clone_from(&value);
+            }
         }
         dom.rev_version(this);
         Ok(JsValue::Undefined)

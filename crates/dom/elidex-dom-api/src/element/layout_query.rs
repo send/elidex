@@ -354,7 +354,8 @@ fn get_padding_box(dom: &EcsDom, entity: Entity) -> (f32, f32, f32, f32) {
 
 /// Find the nearest positioned ancestor (offsetParent) per CSSOM View §6.
 ///
-/// Returns `None` for the `<body>` element or if the element is fixed/hidden.
+/// Returns `Some(body)` if no positioned ancestor is found, or `None` if the
+/// element has no parent (i.e., it is the root).
 fn find_offset_parent(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     let mut current = dom.get_parent(entity)?;
     let mut depth = 0;

@@ -180,20 +180,12 @@ fn build_stylesheet_object(
 }
 
 /// Build a `CSSRuleList`-like JS object for the given sheet index.
+#[allow(clippy::unnecessary_wraps)] // Matches JsResult convention of sibling functions.
 fn build_rule_list(
     sheet_index: usize,
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    let rules = bridge.stylesheet_rules(sheet_index).unwrap_or_default();
-
-    // Pre-build rule objects before creating ObjectInitializer (avoids
-    // double-borrow of ctx).
-    let mut rule_objects = Vec::with_capacity(rules.len());
-    for (i, rule) in rules.iter().enumerate() {
-        rule_objects.push(build_style_rule(sheet_index, i, rule, bridge, ctx)?);
-    }
-
     let realm = ctx.realm().clone();
     let mut obj = ObjectInitializer::new(ctx);
 
