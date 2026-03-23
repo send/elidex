@@ -1052,6 +1052,11 @@ unsafe impl boa_gc::Trace for HostBridge {
         for obj in inner.custom_element_constructors.values() {
             mark(obj);
         }
+        for resolvers in inner.when_defined_resolvers.values() {
+            for resolver in resolvers {
+                mark(resolver);
+            }
+        }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever
         // stores JsObjects, this Trace implementation must be updated.

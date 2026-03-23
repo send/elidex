@@ -16,6 +16,23 @@ use elidex_plugin::Size;
 
 use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
 
+/// Flush pending DOM mutations and drain custom element reactions.
+///
+/// This helper combines the three steps that must always run together:
+/// 1. `session.flush(dom)` — apply buffered mutations
+/// 2. `enqueue_ce_reactions_from_mutations()` — scan for CE lifecycle triggers
+/// 3. `drain_custom_element_reactions_public()` — invoke CE callbacks
+fn flush_with_ce_reactions(
+    runtime: &mut JsRuntime,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+) {
+    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
+    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
+    runtime.drain_custom_element_reactions_public(session, dom, document);
+}
+
 /// Common script execution and finalization phase shared by pipeline builders.
 ///
 /// Performs:
@@ -57,15 +74,11 @@ pub(super) fn run_scripts_and_finalize(
         runtime.eval(source, &mut session, dom, document);
     }
     runtime.drain_timers(&mut session, dom, document);
-    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
-    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
-    runtime.drain_custom_element_reactions_public(&mut session, dom, document);
+    flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Dispatch lifecycle events.
     dispatch_lifecycle_events(&mut runtime, &mut session, dom, document);
-    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
-    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
-    runtime.drain_custom_element_reactions_public(&mut session, dom, document);
+    flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
     let viewport_overflow = resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);
@@ -124,7 +137,7 @@ fn dispatch_lifecycle_events(
     let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
     dcl_event.cancelable = false;
     runtime.dispatch_event(&mut dcl_event, session, dom, document);
-    session.flush(dom);
+    flush_with_ce_reactions(runtime, session, dom, document);
 
     // 3. Transition to "complete" and fire readystatechange.
     transition_ready_state(
@@ -165,7 +178,7 @@ fn transition_ready_state(
     event.bubbles = false;
     event.cancelable = false;
     runtime.dispatch_event(&mut event, session, dom, document);
-    session.flush(dom);
+    flush_with_ce_reactions(runtime, session, dom, document);
 }
 
 /// Dispatch `beforeunload` and `unload` events before navigation or shutdown.
@@ -187,7 +200,7 @@ pub(crate) fn dispatch_unload_events(
     let prevented = runtime.dispatch_event(&mut beforeunload, session, dom, document);
     // Always flush mutations from beforeunload handlers, regardless of
     // whether the event was prevented, so the page state remains consistent.
-    session.flush(dom);
+    flush_with_ce_reactions(runtime, session, dom, document);
     if prevented {
         return false; // Navigation blocked by beforeunload handler.
     }
@@ -197,6 +210,6 @@ pub(crate) fn dispatch_unload_events(
     unload.bubbles = false;
     unload.cancelable = false;
     runtime.dispatch_event(&mut unload, session, dom, document);
-    session.flush(dom);
+    flush_with_ce_reactions(runtime, session, dom, document);
     true
 }

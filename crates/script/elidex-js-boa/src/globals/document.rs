@@ -107,12 +107,18 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
 
                 // Extract options.is if present (customized built-in elements).
+                // Per spec, invalid `is` values are silently ignored.
                 let is_value = if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
                     if v.is_undefined() || v.is_null() {
                         None
                     } else {
-                        Some(v.to_string(ctx)?.to_std_string_escaped())
+                        let is_name = v.to_string(ctx)?.to_std_string_escaped();
+                        if elidex_custom_elements::is_valid_custom_element_name(&is_name) {
+                            Some(is_name)
+                        } else {
+                            None
+                        }
                     }
                 } else {
                     None
@@ -131,7 +137,13 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
 
                     if let Some(name) = ce_name {
                         bridge.with(|_session, dom| {
-                            if bridge.is_custom_element_defined(&name) {
+                            // For customized built-ins, verify the definition matches the tag.
+                            let defined = if is_value.is_some() {
+                                bridge.ce_lookup_by_is(&name, &tag)
+                            } else {
+                                bridge.is_custom_element_defined(&name)
+                            };
+                            if defined {
                                 // Definition exists — enqueue Upgrade.
                                 let ce_state =
                                     elidex_custom_elements::CustomElementState::undefined(&name);

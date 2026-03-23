@@ -576,21 +576,10 @@ impl JsRuntime {
             match record.kind {
                 MutationKind::ChildList => {
                     for &entity in &record.added_nodes {
-                        if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
-                            if ce_state.state == CEState::Custom {
-                                self.bridge
-                                    .enqueue_ce_reaction(CustomElementReaction::Connected(entity));
-                            }
-                        }
+                        walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
                     }
                     for &entity in &record.removed_nodes {
-                        if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
-                            if ce_state.state == CEState::Custom {
-                                self.bridge.enqueue_ce_reaction(
-                                    CustomElementReaction::Disconnected(entity),
-                                );
-                            }
-                        }
+                        walk_subtree_for_ce(entity, "disconnected", &self.bridge, dom, 0);
                     }
                 }
                 MutationKind::Attribute => {
@@ -904,12 +893,48 @@ impl JsRuntime {
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 
+/// Walk a subtree and enqueue CE lifecycle reactions for all custom elements found.
+///
+/// Mirrors `enqueue_ce_reactions_for_subtree_inner` in `element/core.rs` but
+/// used by `enqueue_ce_reactions_from_mutations` for mutation record processing.
+fn walk_subtree_for_ce(
+    entity: Entity,
+    reaction_type: &str,
+    bridge: &HostBridge,
+    dom: &EcsDom,
+    depth: usize,
+) {
+    use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
+
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
+        if ce_state.state == CEState::Custom {
+            match reaction_type {
+                "connected" => {
+                    bridge.enqueue_ce_reaction(CustomElementReaction::Connected(entity));
+                }
+                "disconnected" => {
+                    bridge.enqueue_ce_reaction(CustomElementReaction::Disconnected(entity));
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        walk_subtree_for_ce(c, reaction_type, bridge, dom, depth + 1);
+        child = dom.get_next_sibling(c);
+    }
+}
+
 /// Check if an entity is connected to the document (has a parent chain to root).
 fn is_connected_to_document(entity: Entity, dom: &EcsDom) -> bool {
     let mut current = dom.get_parent(entity);
     let mut depth = 0;
     while let Some(parent) = current {
-        if depth > 10_000 {
+        if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
             return false; // Safety limit.
         }
         // If the parent has no parent itself, it's likely the document root.
