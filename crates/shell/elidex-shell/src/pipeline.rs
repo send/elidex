@@ -57,11 +57,15 @@ pub(super) fn run_scripts_and_finalize(
         runtime.eval(source, &mut session, dom, document);
     }
     runtime.drain_timers(&mut session, dom, document);
-    session.flush(dom);
+    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
+    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
+    runtime.drain_custom_element_reactions_public(&mut session, dom, document);
 
     // Dispatch lifecycle events.
     dispatch_lifecycle_events(&mut runtime, &mut session, dom, document);
-    session.flush(dom);
+    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
+    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
+    runtime.drain_custom_element_reactions_public(&mut session, dom, document);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
     let viewport_overflow = resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);

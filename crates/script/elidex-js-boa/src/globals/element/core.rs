@@ -135,6 +135,31 @@ fn dom_child_operation(
                 dom,
             )
             .map_err(dom_error_to_js_error)?;
+
+        // Enqueue CE lifecycle reactions for connected/disconnected.
+        if let Ok(ce_state) = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(child_entity)
+        {
+            if ce_state.state == elidex_custom_elements::CEState::Custom {
+                match handler_name {
+                    "appendChild" | "insertBefore" => {
+                        bridge.enqueue_ce_reaction(
+                            elidex_custom_elements::CustomElementReaction::Connected(child_entity),
+                        );
+                    }
+                    "removeChild" => {
+                        bridge.enqueue_ce_reaction(
+                            elidex_custom_elements::CustomElementReaction::Disconnected(
+                                child_entity,
+                            ),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Ok(child_val.clone())
     })
 }
@@ -148,12 +173,44 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "setAttribute", ctx)?;
                 let value = require_js_string_arg(args, 1, "setAttribute", ctx)?;
-                invoke_dom_handler_void(
+
+                // Capture old value before mutation for attributeChangedCallback.
+                let old_value = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|attrs| attrs.get(&name).map(String::from))
+                });
+
+                let result = invoke_dom_handler_void(
                     "setAttribute",
                     entity,
-                    &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
+                    &[ElidexJsValue::String(name.clone()), ElidexJsValue::String(value.clone())],
                     bridge,
-                )
+                );
+
+                // Enqueue CE attributeChangedCallback if applicable.
+                if result.is_ok() {
+                    bridge.with(|_session, dom| {
+                        if let Ok(ce_state) = dom.world().get::<&elidex_custom_elements::CustomElementState>(entity) {
+                            if ce_state.state == elidex_custom_elements::CEState::Custom {
+                                let observed = bridge.ce_observed_attributes(&ce_state.definition_name);
+                                if observed.contains(&name) {
+                                    bridge.enqueue_ce_reaction(
+                                        elidex_custom_elements::CustomElementReaction::AttributeChanged {
+                                            entity,
+                                            name: name.clone(),
+                                            old_value,
+                                            new_value: Some(value.clone()),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
+
+                result
             },
             b,
         ),

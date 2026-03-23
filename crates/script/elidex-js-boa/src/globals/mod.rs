@@ -3,6 +3,7 @@
 pub mod canvas;
 pub mod console;
 pub mod cssom;
+pub mod custom_elements;
 pub mod document;
 pub mod element;
 pub(crate) mod element_form;
@@ -267,6 +268,7 @@ pub fn register_all_globals(
     fetch::register_fetch(ctx, fetch_handle);
     wasm::register_wasm(ctx, bridge);
     observers::register_observers(ctx, bridge);
+    custom_elements::register_custom_elements_global(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

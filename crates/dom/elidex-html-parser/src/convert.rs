@@ -110,6 +110,11 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
                 let ok = dom.world_mut().insert_one(entity, style).is_ok();
                 debug_assert!(ok, "insert_one failed for InlineStyle");
             }
+            // Mark custom elements for later upgrade (WHATWG HTML §4.13.2).
+            if elidex_custom_elements::is_valid_custom_element_name(&tag) {
+                let ce_state = elidex_custom_elements::CustomElementState::undefined(&tag);
+                let _ = dom.world_mut().insert_one(entity, ce_state);
+            }
             convert_children(handle, entity, dom);
             Some(entity)
         }

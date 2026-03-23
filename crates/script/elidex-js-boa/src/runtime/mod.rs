@@ -101,6 +101,9 @@ impl JsRuntime {
         // Drain any events queued during eval (e.g. checkValidity → "invalid").
         self.drain_queued_events(session, dom, document_entity);
 
+        // Drain custom element reactions (upgrade/connected/disconnected/attributeChanged).
+        self.drain_custom_element_reactions(session, dom, document_entity);
+
         match (result, jobs_result) {
             (Err(err), _) => {
                 let msg = err.to_string();
@@ -158,6 +161,7 @@ impl JsRuntime {
     ) -> bool {
         let prevented = self.dispatch_event_inner(event, session, dom, document_entity);
         self.drain_queued_events(session, dom, document_entity);
+        self.drain_custom_element_reactions(session, dom, document_entity);
         prevented
     }
 
@@ -322,6 +326,180 @@ impl JsRuntime {
         }
     }
 
+    /// Drain and execute all pending custom element reactions.
+    ///
+    /// Processes `Upgrade`, `Connected`, `Disconnected`, and `AttributeChanged`
+    /// reactions by invoking the appropriate lifecycle callbacks on the JS
+    /// constructor prototype. Iterates up to `MAX_CE_DRAIN_ITERATIONS` to
+    /// handle reactions enqueued during callback execution.
+    #[allow(clippy::too_many_lines)]
+    fn drain_custom_element_reactions(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
+
+        const MAX_CE_DRAIN_ITERATIONS: usize = 16;
+
+        for _ in 0..MAX_CE_DRAIN_ITERATIONS {
+            let reactions = self.bridge.drain_ce_reactions();
+            if reactions.is_empty() {
+                break;
+            }
+
+            self.bridge.bind(session, dom, document_entity);
+
+            for reaction in reactions {
+                match reaction {
+                    CustomElementReaction::Upgrade(entity) => {
+                        // Look up the definition name from the entity's CE state.
+                        let def_name = self.bridge.with(|_session, dom| {
+                            dom.world()
+                                .get::<&CustomElementState>(entity)
+                                .ok()
+                                .map(|s| s.definition_name.clone())
+                        });
+                        let Some(name) = def_name else { continue };
+
+                        let Some(constructor) = self.bridge.get_custom_element_constructor(&name)
+                        else {
+                            continue;
+                        };
+
+                        // Set state to Precustomized during upgrade.
+                        self.bridge.with(|_session, dom| {
+                            if let Ok(mut ce) =
+                                dom.world_mut().get::<&mut CustomElementState>(entity)
+                            {
+                                ce.state = CEState::Precustomized;
+                            }
+                        });
+
+                        // Invoke with `new` semantics (class constructors require it).
+                        let result = constructor.construct(&[], None, &mut self.ctx);
+
+                        // Update state based on result.
+                        let succeeded = result.is_ok();
+                        let is_connected = self.bridge.with(|_session, dom| {
+                            if let Ok(mut ce) =
+                                dom.world_mut().get::<&mut CustomElementState>(entity)
+                            {
+                                if succeeded {
+                                    ce.state = CEState::Custom;
+                                } else {
+                                    ce.state = CEState::Failed;
+                                }
+                            }
+                            // Check if the element is connected (has a parent chain to doc).
+                            if succeeded {
+                                is_connected_to_document(entity, dom)
+                            } else {
+                                false
+                            }
+                        });
+
+                        // After successful upgrade, fire attributeChangedCallback
+                        // for any existing attributes in observedAttributes.
+                        if succeeded {
+                            let observed = self.bridge.ce_observed_attributes(&name);
+                            if !observed.is_empty() {
+                                self.bridge.with(|_session, dom| {
+                                    if let Ok(attrs) =
+                                        dom.world().get::<&elidex_ecs::Attributes>(entity)
+                                    {
+                                        for attr_name in &observed {
+                                            if let Some(value) = attrs.get(attr_name) {
+                                                self.bridge.enqueue_ce_reaction(
+                                                    CustomElementReaction::AttributeChanged {
+                                                        entity,
+                                                        name: attr_name.clone(),
+                                                        old_value: None,
+                                                        new_value: Some(value.to_string()),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+
+                        // If the element is already in a connected tree, fire connectedCallback.
+                        if is_connected {
+                            self.bridge
+                                .enqueue_ce_reaction(CustomElementReaction::Connected(entity));
+                        }
+
+                        if let Err(err) = result {
+                            eprintln!("[JS Custom Element Upgrade Error] {err}");
+                        }
+                    }
+                    CustomElementReaction::Connected(entity) => {
+                        invoke_ce_callback(
+                            entity,
+                            "connectedCallback",
+                            &[],
+                            &self.bridge,
+                            &mut self.ctx,
+                        );
+                    }
+                    CustomElementReaction::Disconnected(entity) => {
+                        invoke_ce_callback(
+                            entity,
+                            "disconnectedCallback",
+                            &[],
+                            &self.bridge,
+                            &mut self.ctx,
+                        );
+                    }
+                    CustomElementReaction::AttributeChanged {
+                        entity,
+                        name,
+                        old_value,
+                        new_value,
+                    } => {
+                        let args = [
+                            JsValue::from(js_string!(name.as_str())),
+                            old_value
+                                .as_ref()
+                                .map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
+                            new_value
+                                .as_ref()
+                                .map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
+                            JsValue::null(), // namespace
+                        ];
+                        invoke_ce_callback(
+                            entity,
+                            "attributeChangedCallback",
+                            &args,
+                            &self.bridge,
+                            &mut self.ctx,
+                        );
+                    }
+                    CustomElementReaction::Adopted { entity, .. } => {
+                        // adoptedCallback — not commonly used, stub for now.
+                        invoke_ce_callback(
+                            entity,
+                            "adoptedCallback",
+                            &[],
+                            &self.bridge,
+                            &mut self.ctx,
+                        );
+                    }
+                }
+            }
+
+            // Run microtask queue after processing reactions.
+            if let Err(err) = self.ctx.run_jobs() {
+                eprintln!("[JS Microtask Error] {err}");
+            }
+
+            self.bridge.unbind();
+        }
+    }
+
     /// Returns captured console output.
     pub fn console_output(&self) -> &ConsoleOutput {
         &self.console_output
@@ -357,6 +535,90 @@ impl JsRuntime {
     /// Set the session history length on the bridge.
     pub fn set_history_length(&self, len: usize) {
         self.bridge.set_history_length(len);
+    }
+
+    /// Public entry point to drain custom element reactions.
+    ///
+    /// Call this after `enqueue_ce_reactions_from_mutations()` to process the
+    /// queued reactions outside of an `eval()` / `dispatch_event()` call.
+    pub fn drain_custom_element_reactions_public(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) {
+        self.drain_custom_element_reactions(session, dom, document_entity);
+    }
+
+    /// Scan mutation records for custom element lifecycle reactions.
+    ///
+    /// For each `ChildList` record, checks added/removed nodes for CE entities
+    /// and enqueues `Connected`/`Disconnected` reactions. For `Attribute` records,
+    /// checks if the target is a CE with the attribute in `observedAttributes`
+    /// and enqueues `AttributeChanged`.
+    ///
+    /// Call this after `session.flush()` and `deliver_mutation_records()`.
+    pub fn enqueue_ce_reactions_from_mutations(
+        &mut self,
+        records: &[elidex_script_session::MutationRecord],
+        dom: &EcsDom,
+    ) {
+        use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
+        use elidex_script_session::MutationKind;
+
+        for record in records {
+            match record.kind {
+                MutationKind::ChildList => {
+                    for &entity in &record.added_nodes {
+                        if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
+                            if ce_state.state == CEState::Custom {
+                                self.bridge
+                                    .enqueue_ce_reaction(CustomElementReaction::Connected(entity));
+                            }
+                        }
+                    }
+                    for &entity in &record.removed_nodes {
+                        if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
+                            if ce_state.state == CEState::Custom {
+                                self.bridge.enqueue_ce_reaction(
+                                    CustomElementReaction::Disconnected(entity),
+                                );
+                            }
+                        }
+                    }
+                }
+                MutationKind::Attribute => {
+                    if let Some(ref attr_name) = record.attribute_name {
+                        if let Ok(ce_state) = dom.world().get::<&CustomElementState>(record.target)
+                        {
+                            if ce_state.state == CEState::Custom {
+                                let observed = self
+                                    .bridge
+                                    .ce_observed_attributes(&ce_state.definition_name);
+                                if observed.contains(attr_name) {
+                                    // Get the new value from the DOM.
+                                    let new_value = dom
+                                        .world()
+                                        .get::<&elidex_ecs::Attributes>(record.target)
+                                        .ok()
+                                        .and_then(|attrs| attrs.get(attr_name).map(String::from));
+
+                                    self.bridge.enqueue_ce_reaction(
+                                        CustomElementReaction::AttributeChanged {
+                                            entity: record.target,
+                                            name: attr_name.clone(),
+                                            old_value: record.old_value.clone(),
+                                            new_value,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Returns the deadline of the next pending timer, if any.
@@ -635,6 +897,74 @@ impl JsRuntime {
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
+
+/// Check if an entity is connected to the document (has a parent chain to root).
+fn is_connected_to_document(entity: Entity, dom: &EcsDom) -> bool {
+    let mut current = dom.get_parent(entity);
+    let mut depth = 0;
+    while let Some(parent) = current {
+        if depth > 10_000 {
+            return false; // Safety limit.
+        }
+        // If the parent has no parent itself, it's likely the document root.
+        if dom.get_parent(parent).is_none() {
+            return true;
+        }
+        current = dom.get_parent(parent);
+        depth += 1;
+    }
+    false
+}
+
+/// Invoke a lifecycle callback on a custom element's constructor prototype.
+///
+/// Free function to avoid borrow conflicts with `JsRuntime` methods.
+fn invoke_ce_callback(
+    entity: Entity,
+    callback_name: &str,
+    args: &[JsValue],
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) {
+    use elidex_custom_elements::CustomElementState;
+
+    let def_name = bridge.with(|_session, dom| {
+        dom.world()
+            .get::<&CustomElementState>(entity)
+            .ok()
+            .map(|s| s.definition_name.clone())
+    });
+    let Some(name) = def_name else { return };
+
+    let Some(constructor) = bridge.get_custom_element_constructor(&name) else {
+        return;
+    };
+
+    // Get the prototype and look up the callback method.
+    let Ok(proto_val) = constructor.get(js_string!("prototype"), ctx) else {
+        return;
+    };
+    let Some(proto_obj) = proto_val.as_object() else {
+        return;
+    };
+    let Ok(cb_val) = proto_obj.get(js_string!(callback_name), ctx) else {
+        return;
+    };
+    let Some(cb_func) = cb_val.as_callable() else {
+        return; // Callback not defined — valid per spec.
+    };
+
+    // Build element wrapper for `this`.
+    let element_wrapper = bridge.with(|session, _dom| {
+        let obj_ref =
+            session.get_or_create_wrapper(entity, elidex_script_session::ComponentKind::Element);
+        crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx)
+    });
+
+    if let Err(err) = cb_func.call(&element_wrapper, args, ctx) {
+        eprintln!("[JS Custom Element {callback_name} Error] {err}");
+    }
+}
 
 fn resize_entry_to_js(
     entry: &elidex_api_observers::resize::ResizeObserverEntry,

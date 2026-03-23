@@ -13,6 +13,7 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-ecs.workspace = true
+elidex-custom-elements.workspace = true
 encoding_rs.workspace = true
 html5ever.workspace = true
 markup5ever_rcdom.workspace = true
