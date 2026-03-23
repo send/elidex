@@ -107,6 +107,8 @@ struct HostBridgeInner {
     custom_element_reactions: Vec<CustomElementReaction>,
     /// Next constructor ID for custom element definitions.
     ce_next_constructor_id: u64,
+    /// Pending `whenDefined()` resolve functions, keyed by custom element name.
+    when_defined_resolvers: HashMap<String, Vec<boa_engine::object::builtins::JsFunction>>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -213,6 +215,7 @@ impl HostBridge {
                 custom_element_constructors: HashMap::new(),
                 custom_element_reactions: Vec::new(),
                 ce_next_constructor_id: 1,
+                when_defined_resolvers: HashMap::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -644,6 +647,32 @@ impl HostBridge {
             .custom_element_registry
             .get(name)
             .map(|def| def.observed_attributes.clone())
+            .unwrap_or_default()
+    }
+
+    /// Store a `whenDefined()` resolve function for a not-yet-defined custom element.
+    pub fn store_when_defined_resolver(
+        &self,
+        name: &str,
+        resolver: boa_engine::object::builtins::JsFunction,
+    ) {
+        self.inner
+            .borrow_mut()
+            .when_defined_resolvers
+            .entry(name.to_string())
+            .or_default()
+            .push(resolver);
+    }
+
+    /// Take all pending `whenDefined()` resolve functions for a name.
+    pub fn take_when_defined_resolvers(
+        &self,
+        name: &str,
+    ) -> Vec<boa_engine::object::builtins::JsFunction> {
+        self.inner
+            .borrow_mut()
+            .when_defined_resolvers
+            .remove(name)
             .unwrap_or_default()
     }
 

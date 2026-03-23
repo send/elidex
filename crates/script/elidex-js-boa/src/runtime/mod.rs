@@ -12,6 +12,7 @@ use elidex_net::FetchHandle;
 
 use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
+use crate::globals::element::core::entity_bits_as_f64;
 use crate::globals::timers::TimerQueueHandle;
 
 /// Drop guard that calls `HostBridge::unbind()` on drop.
@@ -478,12 +479,17 @@ impl JsRuntime {
                             &mut self.ctx,
                         );
                     }
-                    CustomElementReaction::Adopted { entity, .. } => {
-                        // adoptedCallback — not commonly used, stub for now.
+                    CustomElementReaction::Adopted {
+                        entity,
+                        old_document,
+                        new_document,
+                    } => {
+                        let old_doc_val = JsValue::from(entity_bits_as_f64(old_document));
+                        let new_doc_val = JsValue::from(entity_bits_as_f64(new_document));
                         invoke_ce_callback(
                             entity,
                             "adoptedCallback",
-                            &[],
+                            &[old_doc_val, new_doc_val],
                             &self.bridge,
                             &mut self.ctx,
                         );

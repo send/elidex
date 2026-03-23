@@ -2083,6 +2083,116 @@ fn custom_elements_upgrade_walk() {
 }
 
 #[test]
+fn constructor_exception_sets_failed_state() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        class BadElement {
+            constructor() { throw new Error('fail'); }
+        }
+        customElements.define('bad-el', BadElement);
+        var el = document.createElement('bad-el');
+        // el should exist but state should be Failed
+        console.log('created=' + (el !== null));
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    // After reactions drain, the element exists but state is Failed.
+    let result = runtime.eval(
+        r"console.log('created2=' + (el !== null));",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("created=true")),
+        "element should be created even if constructor throws, got: {output:?}"
+    );
+
+    // Verify that the ECS entity has CEState::Failed.
+    // The element was created but not appended, so we query all entities.
+    let mut found_failed = false;
+    #[allow(clippy::explicit_iter_loop)]
+    for ce_state in dom
+        .world()
+        .query::<&elidex_custom_elements::CustomElementState>()
+        .iter()
+    {
+        if ce_state.definition_name == "bad-el" {
+            assert_eq!(
+                ce_state.state,
+                elidex_custom_elements::CEState::Failed,
+                "constructor threw, state should be Failed"
+            );
+            found_failed = true;
+        }
+    }
+    assert!(
+        found_failed,
+        "should find a bad-el entity with Failed state"
+    );
+}
+
+#[test]
+fn inner_html_triggers_ce_upgrade() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let div = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+    let _ = dom.append_child(body, div);
+
+    // Define a custom element with connectedCallback.
+    let result = runtime.eval(
+        r"
+        class InnerEl {
+            connectedCallback() { console.log('inner-connected'); }
+        }
+        customElements.define('inner-el', InnerEl);
+        var div = document.querySelector('div');
+        div.innerHTML = '<inner-el></inner-el>';
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    session.flush(&mut dom);
+
+    // After flush, the inner-el should be created with CE state.
+    // Check that a CustomElementState exists for inner-el.
+    let mut found = false;
+    let mut stack = vec![doc];
+    while let Some(entity) = stack.pop() {
+        if let Ok(ce_state) = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+        {
+            if ce_state.definition_name == "inner-el" {
+                found = true;
+            }
+        }
+        let mut child = dom.get_first_child(entity);
+        while let Some(c) = child {
+            stack.push(c);
+            child = dom.get_next_sibling(c);
+        }
+    }
+    assert!(
+        found,
+        "innerHTML should create inner-el with CustomElementState"
+    );
+}
+
+#[test]
 fn is_attribute_customized_builtin() {
     let (mut runtime, mut session, mut dom, doc) = setup();
     let result = runtime.eval(
@@ -2110,5 +2220,77 @@ fn is_attribute_customized_builtin() {
     assert!(
         output.iter().any(|m| m.1.contains("upgraded=true")),
         "got: {output:?}"
+    );
+}
+
+#[test]
+fn nested_ce_connected_disconnected_callbacks() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+
+    let result = runtime.eval(
+        r"
+        class OuterEl {
+            connectedCallback() { console.log('outer-connected'); }
+            disconnectedCallback() { console.log('outer-disconnected'); }
+        }
+        class InnerEl {
+            connectedCallback() { console.log('inner-connected'); }
+            disconnectedCallback() { console.log('inner-disconnected'); }
+        }
+        customElements.define('outer-el', OuterEl);
+        customElements.define('inner-el', InnerEl);
+
+        var outer = document.createElement('outer-el');
+        var inner = document.createElement('inner-el');
+        outer.appendChild(inner);
+        document.body.appendChild(outer);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    // Drain reactions; check connected callbacks fired for both.
+    let result = runtime.eval(r"0;", &mut session, &mut dom, doc);
+    assert!(result.success);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("outer-connected")),
+        "outer connectedCallback should fire, got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("inner-connected")),
+        "inner connectedCallback should fire, got: {output:?}"
+    );
+
+    // Now remove the outer element — both should get disconnectedCallback.
+    let result = runtime.eval(
+        r"
+        document.body.removeChild(outer);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+
+    let result = runtime.eval(r"0;", &mut session, &mut dom, doc);
+    assert!(result.success);
+
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("outer-disconnected")),
+        "outer disconnectedCallback should fire, got: {output:?}"
+    );
+    assert!(
+        output.iter().any(|m| m.1.contains("inner-disconnected")),
+        "inner disconnectedCallback should fire, got: {output:?}"
     );
 }

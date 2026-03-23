@@ -136,28 +136,15 @@ fn dom_child_operation(
             )
             .map_err(dom_error_to_js_error)?;
 
-        // Enqueue CE lifecycle reactions for connected/disconnected.
-        if let Ok(ce_state) = dom
-            .world()
-            .get::<&elidex_custom_elements::CustomElementState>(child_entity)
-        {
-            if ce_state.state == elidex_custom_elements::CEState::Custom {
-                match handler_name {
-                    "appendChild" | "insertBefore" => {
-                        bridge.enqueue_ce_reaction(
-                            elidex_custom_elements::CustomElementReaction::Connected(child_entity),
-                        );
-                    }
-                    "removeChild" => {
-                        bridge.enqueue_ce_reaction(
-                            elidex_custom_elements::CustomElementReaction::Disconnected(
-                                child_entity,
-                            ),
-                        );
-                    }
-                    _ => {}
-                }
+        // Enqueue CE lifecycle reactions for the subtree (connected/disconnected).
+        match handler_name {
+            "appendChild" | "insertBefore" => {
+                enqueue_ce_reactions_for_subtree(child_entity, "connected", bridge, dom);
             }
+            "removeChild" => {
+                enqueue_ce_reactions_for_subtree(child_entity, "disconnected", bridge, dom);
+            }
+            _ => {}
         }
 
         Ok(child_val.clone())
@@ -255,4 +242,39 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
         js_string!("removeAttribute"),
         1,
     );
+}
+
+/// Recursively walk the subtree rooted at `entity` and enqueue CE lifecycle
+/// reactions (connected or disconnected) for every custom element found.
+fn enqueue_ce_reactions_for_subtree(
+    entity: Entity,
+    reaction_type: &str,
+    bridge: &HostBridge,
+    dom: &elidex_ecs::EcsDom,
+) {
+    if let Ok(ce_state) = dom
+        .world()
+        .get::<&elidex_custom_elements::CustomElementState>(entity)
+    {
+        if ce_state.state == elidex_custom_elements::CEState::Custom {
+            match reaction_type {
+                "connected" => {
+                    bridge.enqueue_ce_reaction(
+                        elidex_custom_elements::CustomElementReaction::Connected(entity),
+                    );
+                }
+                "disconnected" => {
+                    bridge.enqueue_ce_reaction(
+                        elidex_custom_elements::CustomElementReaction::Disconnected(entity),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        enqueue_ce_reactions_for_subtree(c, reaction_type, bridge, dom);
+        child = dom.get_next_sibling(c);
+    }
 }

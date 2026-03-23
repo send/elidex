@@ -5,7 +5,7 @@
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::builtins::JsPromise;
 use boa_engine::object::ObjectInitializer;
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 use elidex_custom_elements::{is_valid_custom_element_name, CustomElementReaction};
 
 use crate::bridge::HostBridge;
@@ -68,6 +68,22 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                     bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
                 }
 
+                // Resolve any pending whenDefined() promises for this name.
+                let resolvers = bridge.take_when_defined_resolvers(&name);
+                if !resolvers.is_empty() {
+                    let ctor_val = bridge
+                        .get_custom_element_constructor(&name)
+                        .map_or(JsValue::undefined(), JsValue::from);
+                    for resolver in resolvers {
+                        let resolve_obj: JsObject = resolver.into();
+                        let _ = resolve_obj.call(
+                            &JsValue::undefined(),
+                            std::slice::from_ref(&ctor_val),
+                            ctx,
+                        );
+                    }
+                }
+
                 Ok(JsValue::undefined())
             },
             b_define,
@@ -92,7 +108,8 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
         1,
     );
 
-    // customElements.whenDefined(name) — simplified: resolves immediately if defined
+    // customElements.whenDefined(name) — returns pending Promise if not yet
+    // defined, resolved with constructor when define() is called (WHATWG §4.13.4).
     let b_when = b.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -113,9 +130,10 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                     let promise = JsPromise::resolve(ctor, ctx);
                     Ok(promise.into())
                 } else {
-                    // Simplified: return a resolved promise with undefined.
-                    // Full spec would store the promise and resolve on define().
-                    let promise = JsPromise::resolve(JsValue::undefined(), ctx);
+                    // Create a pending promise; store the resolve function.
+                    // When define() is called for this name, it will resolve.
+                    let (promise, resolvers) = JsPromise::new_pending(ctx);
+                    bridge.store_when_defined_resolver(&name, resolvers.resolve);
                     Ok(promise.into())
                 }
             },
@@ -167,6 +185,8 @@ fn extract_observed_attributes(
     constructor: &boa_engine::JsObject,
     ctx: &mut Context,
 ) -> Vec<String> {
+    const MAX_OBSERVED_ATTRIBUTES: usize = 1000;
+
     let Ok(val) = constructor.get(js_string!("observedAttributes"), ctx) else {
         return Vec::new();
     };
@@ -179,7 +199,7 @@ fn extract_observed_attributes(
     let Ok(len_val) = arr.length(ctx) else {
         return Vec::new();
     };
-    let len = len_val as usize;
+    let len = (len_val as usize).min(MAX_OBSERVED_ATTRIBUTES);
     let mut attrs = Vec::with_capacity(len);
     for i in 0..len {
         #[allow(clippy::cast_precision_loss)]

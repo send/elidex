@@ -114,6 +114,17 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
             if elidex_custom_elements::is_valid_custom_element_name(&tag) {
                 let ce_state = elidex_custom_elements::CustomElementState::undefined(&tag);
                 let _ = dom.world_mut().insert_one(entity, ce_state);
+            } else if let Some(is_value) = dom
+                .world()
+                .get::<&Attributes>(entity)
+                .ok()
+                .and_then(|a| a.get("is").map(String::from))
+            {
+                // Customized built-in element via `is` attribute (WHATWG HTML §4.13.3).
+                if elidex_custom_elements::is_valid_custom_element_name(&is_value) {
+                    let ce_state = elidex_custom_elements::CustomElementState::undefined(&is_value);
+                    let _ = dom.world_mut().insert_one(entity, ce_state);
+                }
             }
             convert_children(handle, entity, dom);
             Some(entity)
