@@ -139,9 +139,13 @@ fn dom_child_operation(
         // Enqueue CE lifecycle reactions for the subtree (connected/disconnected).
         match handler_name {
             "appendChild" | "insertBefore" => {
-                enqueue_ce_reactions_for_subtree(child_entity, "connected", bridge, dom);
+                // Only enqueue "connected" if the parent is in a connected tree.
+                if crate::runtime::is_connected_to_document(parent, dom) {
+                    enqueue_ce_reactions_for_subtree(child_entity, "connected", bridge, dom);
+                }
             }
             "removeChild" => {
+                // The child was just removed — it WAS connected, so always enqueue.
                 enqueue_ce_reactions_for_subtree(child_entity, "disconnected", bridge, dom);
             }
             _ => {}

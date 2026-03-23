@@ -587,6 +587,18 @@ impl HostBridge {
         extends: Option<String>,
     ) -> Result<Vec<Entity>, String> {
         let mut inner = self.inner.borrow_mut();
+
+        // Validate before allocating constructor ID to avoid leaking an ID
+        // and storing the constructor on define() failure.
+        if !elidex_custom_elements::is_valid_custom_element_name(name) {
+            return Err(format!("'{name}' is not a valid custom element name"));
+        }
+        if inner.custom_element_registry.is_defined(name) {
+            return Err(format!(
+                "'{name}' has already been defined as a custom element"
+            ));
+        }
+
         let id = inner.ce_next_constructor_id;
         inner.ce_next_constructor_id += 1;
         inner.custom_element_constructors.insert(id, constructor);
@@ -633,11 +645,33 @@ impl HostBridge {
     }
 
     /// Queue an entity for upgrade when its custom element definition becomes available.
+    ///
+    /// Note: The pending queue is keyed by custom element name only and does not
+    /// track the element's base tag. For customized built-in elements, the
+    /// `extends` tag match is verified at upgrade time (in `walk_and_enqueue_upgrades`
+    /// and `drain_custom_element_reactions`). Full tag-aware pending queue tracking
+    /// is a Phase 5 refinement.
     pub fn queue_for_ce_upgrade(&self, name: &str, entity: Entity) {
         self.inner
             .borrow_mut()
             .custom_element_registry
             .queue_for_upgrade(name, entity);
+    }
+
+    /// Access a custom element definition by name via a closure.
+    ///
+    /// Returns `false` if the definition does not exist, otherwise returns the
+    /// closure's result.
+    #[must_use]
+    pub fn with_ce_definition<F>(&self, name: &str, f: F) -> bool
+    where
+        F: FnOnce(&elidex_custom_elements::CustomElementDefinition) -> bool,
+    {
+        self.inner
+            .borrow()
+            .custom_element_registry
+            .get(name)
+            .is_some_and(f)
     }
 
     /// Look up the observed attributes for a custom element by name.

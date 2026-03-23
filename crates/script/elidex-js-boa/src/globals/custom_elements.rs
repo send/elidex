@@ -33,10 +33,11 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                         .into());
                 }
 
-                // Extract constructor (must be a function/object).
+                // Extract constructor (must be a callable object / function).
                 let constructor = args
                     .get(1)
                     .and_then(JsValue::as_object)
+                    .filter(JsObject::is_callable)
                     .ok_or_else(|| {
                         JsNativeError::typ()
                             .with_message("customElements.define: argument 1 must be a constructor")
@@ -233,10 +234,20 @@ fn walk_and_enqueue_upgrades_inner(
     }
 
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(root) {
-        if ce_state.state == CEState::Undefined
-            && bridge.is_custom_element_defined(&ce_state.definition_name)
-        {
-            bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(root));
+        if ce_state.state == CEState::Undefined {
+            // Check definition exists and, for customized built-ins, that the
+            // extends tag matches the element's actual tag.
+            let should_upgrade = bridge.with_ce_definition(&ce_state.definition_name, |def| {
+                def.extends.as_ref().is_none_or(|ext| {
+                    dom.world()
+                        .get::<&elidex_ecs::TagType>(root)
+                        .ok()
+                        .is_some_and(|tag| tag.0.eq_ignore_ascii_case(ext))
+                })
+            });
+            if should_upgrade {
+                bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(root));
+            }
         }
     }
 

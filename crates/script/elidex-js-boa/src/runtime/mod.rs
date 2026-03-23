@@ -351,6 +351,7 @@ impl JsRuntime {
             }
 
             self.bridge.bind(session, dom, document_entity);
+            let _guard = UnbindGuard(&self.bridge);
 
             for reaction in reactions {
                 match reaction {
@@ -379,6 +380,11 @@ impl JsRuntime {
                         });
 
                         // Invoke with `new` semantics (class constructors require it).
+                        // Note: constructor.construct() creates a new JS object that is NOT
+                        // automatically linked to the ECS entity. The element wrapper is
+                        // created separately via create_element_wrapper(). Full prototype
+                        // chain integration (so `this` in constructor refers to the element)
+                        // requires HTMLElement base class support, planned for M4-9 (JS engine).
                         let result = constructor.construct(&[], None, &mut self.ctx);
 
                         // Update state based on result.
@@ -484,6 +490,8 @@ impl JsRuntime {
                         old_document,
                         new_document,
                     } => {
+                        // Note: oldDocument/newDocument passed as entity bits (f64). Full
+                        // Document wrapper objects require M4-3.10 multi-document support.
                         let old_doc_val = JsValue::from(entity_bits_as_f64(old_document));
                         let new_doc_val = JsValue::from(entity_bits_as_f64(new_document));
                         invoke_ce_callback(
@@ -502,7 +510,7 @@ impl JsRuntime {
                 eprintln!("[JS Microtask Error] {err}");
             }
 
-            self.bridge.unbind();
+            // _guard dropped here, calls unbind().
         }
     }
 
@@ -575,9 +583,17 @@ impl JsRuntime {
         for record in records {
             match record.kind {
                 MutationKind::ChildList => {
-                    for &entity in &record.added_nodes {
-                        walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
+                    // For "connected" reactions, only enqueue if the mutation
+                    // target (parent) is in a connected tree. The added nodes
+                    // are children of the target, so they share connectivity.
+                    let target_connected = is_connected_to_document(record.target, dom);
+                    if target_connected {
+                        for &entity in &record.added_nodes {
+                            walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
+                        }
                     }
+                    // For "disconnected" reactions, the nodes were just removed
+                    // from a connected parent — always enqueue.
                     for &entity in &record.removed_nodes {
                         walk_subtree_for_ce(entity, "disconnected", &self.bridge, dom, 0);
                     }
@@ -929,22 +945,29 @@ fn walk_subtree_for_ce(
     }
 }
 
-/// Check if an entity is connected to the document (has a parent chain to root).
-fn is_connected_to_document(entity: Entity, dom: &EcsDom) -> bool {
-    let mut current = dom.get_parent(entity);
+/// Check if an entity is connected to the document (has a parent chain to a
+/// `NodeKind::Document` root).
+pub(crate) fn is_connected_to_document(entity: Entity, dom: &EcsDom) -> bool {
+    let mut current = entity;
     let mut depth = 0;
-    while let Some(parent) = current {
+    loop {
         if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
             return false; // Safety limit.
         }
-        // If the parent has no parent itself, it's likely the document root.
-        if dom.get_parent(parent).is_none() {
-            return true;
+        match dom.get_parent(current) {
+            Some(parent) => {
+                current = parent;
+                depth += 1;
+            }
+            None => {
+                // Reached root — check if it's a Document node.
+                return dom
+                    .world()
+                    .get::<&elidex_ecs::NodeKind>(current)
+                    .is_ok_and(|nk| *nk == elidex_ecs::NodeKind::Document);
+            }
         }
-        current = dom.get_parent(parent);
-        depth += 1;
     }
-    false
 }
 
 /// Invoke a lifecycle callback on a custom element's constructor prototype.
