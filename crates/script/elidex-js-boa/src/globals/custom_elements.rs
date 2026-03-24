@@ -33,11 +33,11 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                         .into());
                 }
 
-                // Extract constructor (must be a callable object / function).
+                // Extract constructor (must be a constructable object per WHATWG §4.13.4).
                 let constructor = args
                     .get(1)
                     .and_then(JsValue::as_object)
-                    .filter(JsObject::is_callable)
+                    .filter(JsObject::is_constructor)
                     .ok_or_else(|| {
                         JsNativeError::typ()
                             .with_message("customElements.define: argument 1 must be a constructor")
@@ -64,10 +64,20 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                     .register_custom_element(&name, constructor, observed_attrs, extends)
                     .map_err(|msg| JsNativeError::syntax().with_message(msg))?;
 
-                // Enqueue Upgrade reactions for pending elements.
+                // Enqueue Upgrade reactions for pending elements (queued via
+                // bridge.queue_for_ce_upgrade before define() was called).
                 for entity in pending {
                     bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
                 }
+
+                // Walk the DOM to find parser-created elements with
+                // CustomElementState::Undefined that weren't queued via the
+                // pending queue (the HTML parser marks them Undefined but
+                // cannot queue them because the registry lives in HostBridge).
+                let doc = bridge.document_entity();
+                bridge.with(|_session, dom| {
+                    walk_and_enqueue_upgrades(doc, bridge, dom);
+                });
 
                 // Resolve any pending whenDefined() promises for this name.
                 let resolvers = bridge.take_when_defined_resolvers(&name);

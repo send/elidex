@@ -648,9 +648,10 @@ impl HostBridge {
     ///
     /// Note: The pending queue is keyed by custom element name only and does not
     /// track the element's base tag. For customized built-in elements, the
-    /// `extends` tag match is verified at upgrade time (in `walk_and_enqueue_upgrades`
-    /// and `drain_custom_element_reactions`). Full tag-aware pending queue tracking
-    /// is a Phase 5 refinement.
+    /// `extends` tag match is verified at upgrade time in both
+    /// `walk_and_enqueue_upgrades` (enqueue-side filter) and
+    /// `drain_custom_element_reactions` (execution-side guard). Elements that
+    /// fail the extends check are set to `CEState::Failed`.
     pub fn queue_for_ce_upgrade(&self, name: &str, entity: Entity) {
         self.inner
             .borrow_mut()
@@ -672,6 +673,19 @@ impl HostBridge {
             .custom_element_registry
             .get(name)
             .is_some_and(f)
+    }
+
+    /// Look up the `extends` tag for a custom element by name.
+    ///
+    /// Returns `None` if the definition does not exist or does not extend
+    /// a built-in element (autonomous custom element).
+    #[must_use]
+    pub fn ce_extends_tag(&self, name: &str) -> Option<String> {
+        self.inner
+            .borrow()
+            .custom_element_registry
+            .get(name)
+            .and_then(|def| def.extends.clone())
     }
 
     /// Look up the observed attributes for a custom element by name.

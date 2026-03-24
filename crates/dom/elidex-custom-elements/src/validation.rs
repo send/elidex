@@ -37,6 +37,11 @@ pub fn is_valid_custom_element_name(name: &str) -> bool {
     if RESERVED_NAMES.contains(&name) {
         return false;
     }
+    // Names starting with "xml" are reserved per XML namespace restrictions
+    // (Namespaces in XML §3). Reject to avoid conflicts with XML-prefixed names.
+    if name.starts_with("xml") {
+        return false;
+    }
     // All characters must be valid: [a-z0-9._-] or non-ASCII.
     name.chars().all(|c| {
         c.is_ascii_lowercase()
@@ -70,5 +75,7 @@ mod tests {
         assert!(!is_valid_custom_element_name("-element")); // hyphen start
         assert!(!is_valid_custom_element_name("font-face")); // reserved
         assert!(!is_valid_custom_element_name("annotation-xml")); // reserved
+        assert!(!is_valid_custom_element_name("xml-button")); // xml prefix reserved
+        assert!(!is_valid_custom_element_name("xmlns-foo")); // xml prefix reserved
     }
 }

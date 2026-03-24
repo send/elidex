@@ -370,6 +370,29 @@ impl JsRuntime {
                             continue;
                         };
 
+                        // Verify extends tag match for customized built-in elements
+                        // before upgrading (WHATWG HTML §4.13.3). If the definition
+                        // specifies an `extends` tag, the element's actual tag must match.
+                        if let Some(ext) = self.bridge.ce_extends_tag(&name) {
+                            let tag_matches = self.bridge.with(|_session, dom| {
+                                dom.world()
+                                    .get::<&elidex_ecs::TagType>(entity)
+                                    .ok()
+                                    .is_some_and(|tag| tag.0.eq_ignore_ascii_case(&ext))
+                            });
+                            if !tag_matches {
+                                // Tag mismatch — skip upgrade, set Failed.
+                                self.bridge.with(|_session, dom| {
+                                    if let Ok(mut ce) =
+                                        dom.world_mut().get::<&mut CustomElementState>(entity)
+                                    {
+                                        ce.state = CEState::Failed;
+                                    }
+                                });
+                                continue;
+                            }
+                        }
+
                         // Set state to Precustomized during upgrade.
                         self.bridge.with(|_session, dom| {
                             if let Ok(mut ce) =
