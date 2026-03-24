@@ -216,7 +216,7 @@ fn extract_observed_attributes(
         #[allow(clippy::cast_precision_loss)]
         if let Ok(item) = arr.get(i as u32, ctx) {
             if let Ok(s) = item.to_string(ctx) {
-                attrs.push(s.to_std_string_escaped());
+                attrs.push(s.to_std_string_escaped().to_ascii_lowercase());
             }
         }
     }

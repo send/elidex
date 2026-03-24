@@ -613,6 +613,9 @@ impl JsRuntime {
                     if target_connected {
                         for &entity in &record.added_nodes {
                             walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
+                            // Also check for undefined elements that need upgrade
+                            // (e.g., innerHTML-parsed CEs with existing definitions).
+                            walk_subtree_for_upgrade(entity, &self.bridge, dom, 0);
                         }
                     }
                     // For "disconnected" reactions, the nodes were just removed
@@ -964,6 +967,39 @@ fn walk_subtree_for_ce(
     let mut child = dom.get_first_child(entity);
     while let Some(c) = child {
         walk_subtree_for_ce(c, reaction_type, bridge, dom, depth + 1);
+        child = dom.get_next_sibling(c);
+    }
+}
+
+/// Walk a subtree and enqueue `Upgrade` reactions for undefined custom elements
+/// that have a registered definition.
+///
+/// This handles the case where innerHTML-parsed custom elements are inserted
+/// into a connected tree after their definition has already been registered.
+fn walk_subtree_for_upgrade(entity: Entity, bridge: &HostBridge, dom: &EcsDom, depth: usize) {
+    use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
+
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
+        if ce_state.state == CEState::Undefined {
+            let should_upgrade = bridge.with_ce_definition(&ce_state.definition_name, |def| {
+                def.extends.as_ref().is_none_or(|ext| {
+                    dom.world()
+                        .get::<&elidex_ecs::TagType>(entity)
+                        .ok()
+                        .is_some_and(|tag| tag.0.eq_ignore_ascii_case(ext))
+                })
+            });
+            if should_upgrade {
+                bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
+            }
+        }
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        walk_subtree_for_upgrade(c, bridge, dom, depth + 1);
         child = dom.get_next_sibling(c);
     }
 }

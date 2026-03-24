@@ -454,10 +454,22 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
     }
 
-    // Flush applies buffered mutations to the DOM.
+    // Flush applies buffered mutations to the DOM and enqueue CE reactions.
     let raw_records = result.session.flush(&mut result.dom);
     let mutation_records: Vec<elidex_script_session::MutationRecord> =
         raw_records.into_iter().flatten().collect();
+
+    // Enqueue and drain CE reactions for any custom elements affected by mutations.
+    if !mutation_records.is_empty() {
+        result
+            .runtime
+            .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
+        result.runtime.drain_custom_element_reactions_public(
+            &mut result.session,
+            &mut result.dom,
+            result.document,
+        );
+    }
 
     // Invalidate ancestor cache when DOM mutations occurred.
     if !mutation_records.is_empty() {

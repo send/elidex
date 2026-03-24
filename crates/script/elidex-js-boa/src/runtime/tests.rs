@@ -2168,6 +2168,9 @@ fn inner_html_triggers_ce_upgrade() {
     session.flush(&mut dom);
 
     // After flush, the inner-el should be created with CE state.
+    // Note: Full CE reaction pipeline (enqueue + drain) requires runtime binding.
+    // Here we verify the parser correctly marks custom elements; upgrade
+    // processing is tested in create_undefined_element_upgrades_on_define.
     // Check that a CustomElementState exists for inner-el.
     let mut found = false;
     let mut stack = vec![doc];
