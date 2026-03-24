@@ -594,7 +594,7 @@ impl JsRuntime {
     /// checks if the target is a CE with the attribute in `observedAttributes`
     /// and enqueues `AttributeChanged`.
     ///
-    /// Call this after `session.flush()` and `deliver_mutation_records()`.
+    /// Call this after `session.flush()` and before observer delivery.
     pub fn enqueue_ce_reactions_from_mutations(
         &mut self,
         records: &[elidex_script_session::MutationRecord],
@@ -618,10 +618,13 @@ impl JsRuntime {
                             walk_subtree_for_upgrade(entity, &self.bridge, dom, 0);
                         }
                     }
-                    // For "disconnected" reactions, the nodes were just removed
-                    // from a connected parent — always enqueue.
-                    for &entity in &record.removed_nodes {
-                        walk_subtree_for_ce(entity, "disconnected", &self.bridge, dom, 0);
+                    // For "disconnected" reactions, only fire if the parent
+                    // (record.target) is still connected — meaning the removed
+                    // child WAS connected before removal.
+                    if target_connected {
+                        for &entity in &record.removed_nodes {
+                            walk_subtree_for_ce(entity, "disconnected", &self.bridge, dom, 0);
+                        }
                     }
                 }
                 MutationKind::Attribute => {

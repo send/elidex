@@ -145,8 +145,11 @@ fn dom_child_operation(
                 }
             }
             "removeChild" => {
-                // The child was just removed — it WAS connected, so always enqueue.
-                enqueue_ce_reactions_for_subtree(child_entity, "disconnected", bridge, dom);
+                // Only fire disconnectedCallback if the parent is connected,
+                // meaning the child WAS connected before removal.
+                if crate::runtime::is_connected_to_document(parent, dom) {
+                    enqueue_ce_reactions_for_subtree(child_entity, "disconnected", bridge, dom);
+                }
             }
             _ => {}
         }

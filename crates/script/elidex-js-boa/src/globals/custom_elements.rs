@@ -57,7 +57,7 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 };
 
                 // Extract observedAttributes from constructor (static getter).
-                let observed_attrs = extract_observed_attributes(&constructor, ctx);
+                let observed_attrs = extract_observed_attributes(&constructor, ctx)?;
 
                 // Register in bridge.
                 let pending = bridge
@@ -74,6 +74,10 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 // CustomElementState::Undefined that weren't queued via the
                 // pending queue (the HTML parser marks them Undefined but
                 // cannot queue them because the registry lives in HostBridge).
+                //
+                // Performance note: O(document size) walk per define(). Acceptable
+                // for typical pages (<100 define calls, <10K elements). For extreme
+                // cases, consider maintaining a pending-by-name index on the DOM.
                 let doc = bridge.document_entity();
                 bridge.with(|_session, dom| {
                     walk_and_enqueue_upgrades(doc, bridge, dom);
@@ -195,32 +199,27 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
 fn extract_observed_attributes(
     constructor: &boa_engine::JsObject,
     ctx: &mut Context,
-) -> Vec<String> {
+) -> JsResult<Vec<String>> {
     const MAX_OBSERVED_ATTRIBUTES: usize = 1000;
 
-    let Ok(val) = constructor.get(js_string!("observedAttributes"), ctx) else {
-        return Vec::new();
-    };
-    let Some(obj) = val.as_object() else {
-        return Vec::new();
-    };
-    let Ok(arr) = JsArray::from_object(obj.clone()) else {
-        return Vec::new();
-    };
-    let Ok(len_val) = arr.length(ctx) else {
-        return Vec::new();
-    };
-    let len = (len_val as usize).min(MAX_OBSERVED_ATTRIBUTES);
+    let val = constructor.get(js_string!("observedAttributes"), ctx)?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(Vec::new());
+    }
+    let obj = val.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message("observedAttributes must be an array-like object")
+    })?;
+    let arr = JsArray::from_object(obj.clone())
+        .map_err(|_| JsNativeError::typ().with_message("observedAttributes must be an array"))?;
+    let len = (arr.length(ctx)? as usize).min(MAX_OBSERVED_ATTRIBUTES);
     let mut attrs = Vec::with_capacity(len);
     for i in 0..len {
         #[allow(clippy::cast_precision_loss)]
-        if let Ok(item) = arr.get(i as u32, ctx) {
-            if let Ok(s) = item.to_string(ctx) {
-                attrs.push(s.to_std_string_escaped().to_ascii_lowercase());
-            }
-        }
+        let item = arr.get(i as u32, ctx)?;
+        let s = item.to_string(ctx)?;
+        attrs.push(s.to_std_string_escaped().to_ascii_lowercase());
     }
-    attrs
+    Ok(attrs)
 }
 
 /// Walk a subtree and enqueue Upgrade reactions for undefined custom elements.
