@@ -2140,7 +2140,7 @@ fn constructor_exception_sets_failed_state() {
 }
 
 #[test]
-fn inner_html_triggers_ce_upgrade() {
+fn inner_html_marks_custom_element_state() {
     let (mut runtime, mut session, mut dom, doc) = setup();
 
     let html = dom.create_element("html", Attributes::default());

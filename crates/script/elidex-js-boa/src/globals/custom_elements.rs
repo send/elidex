@@ -98,6 +98,7 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                         );
                     }
                 }
+                bridge.clear_when_defined_promise(&name);
 
                 Ok(JsValue::undefined())
             },
@@ -145,11 +146,17 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                     let promise = JsPromise::resolve(ctor, ctx);
                     Ok(promise.into())
                 } else {
+                    // Return cached pending promise if one already exists for this name.
+                    if let Some(cached) = bridge.get_when_defined_promise(&name) {
+                        return Ok(cached);
+                    }
                     // Create a pending promise; store the resolve function.
                     // When define() is called for this name, it will resolve.
                     let (promise, resolvers) = JsPromise::new_pending(ctx);
                     bridge.store_when_defined_resolver(&name, resolvers.resolve);
-                    Ok(promise.into())
+                    let promise_val: JsValue = promise.into();
+                    bridge.store_when_defined_promise(&name, promise_val.clone());
+                    Ok(promise_val)
                 }
             },
             b_when,

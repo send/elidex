@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use boa_engine::JsObject;
+use boa_engine::{JsObject, JsValue};
 use elidex_api_observers::intersection::IntersectionObserverRegistry;
 use elidex_api_observers::mutation::MutationObserverRegistry;
 use elidex_api_observers::resize::ResizeObserverRegistry;
@@ -109,6 +109,9 @@ struct HostBridgeInner {
     ce_next_constructor_id: u64,
     /// Pending `whenDefined()` resolve functions, keyed by custom element name.
     when_defined_resolvers: HashMap<String, Vec<boa_engine::object::builtins::JsFunction>>,
+    /// Cached pending `whenDefined()` promises, keyed by custom element name.
+    /// Returned for repeated calls with the same name before `define()`.
+    when_defined_promises: HashMap<String, JsValue>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -216,6 +219,7 @@ impl HostBridge {
                 custom_element_reactions: Vec::new(),
                 ce_next_constructor_id: 1,
                 when_defined_resolvers: HashMap::new(),
+                when_defined_promises: HashMap::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -724,6 +728,24 @@ impl HostBridge {
             .unwrap_or_default()
     }
 
+    /// Store a cached pending `whenDefined()` promise for a custom element name.
+    pub fn store_when_defined_promise(&self, name: &str, promise: JsValue) {
+        self.inner
+            .borrow_mut()
+            .when_defined_promises
+            .insert(name.to_string(), promise);
+    }
+
+    /// Get a cached pending `whenDefined()` promise for a custom element name.
+    pub fn get_when_defined_promise(&self, name: &str) -> Option<JsValue> {
+        self.inner.borrow().when_defined_promises.get(name).cloned()
+    }
+
+    /// Clear the cached pending `whenDefined()` promise after resolution.
+    pub fn clear_when_defined_promise(&self, name: &str) {
+        self.inner.borrow_mut().when_defined_promises.remove(name);
+    }
+
     /// Look up a customized built-in element by `is` attribute value and tag name.
     pub fn ce_lookup_by_is(&self, is_value: &str, tag: &str) -> bool {
         self.inner
@@ -1104,6 +1126,9 @@ unsafe impl boa_gc::Trace for HostBridge {
             for resolver in resolvers {
                 mark(resolver);
             }
+        }
+        for promise in inner.when_defined_promises.values() {
+            mark(promise);
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever

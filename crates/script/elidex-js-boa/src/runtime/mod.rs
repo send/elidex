@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use boa_engine::{js_string, Context, JsValue, Source};
+use boa_engine::{js_string, Context, JsNativeError, JsValue, Source};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::EventPayload;
 use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
@@ -361,9 +361,17 @@ impl JsRuntime {
                             dom.world()
                                 .get::<&CustomElementState>(entity)
                                 .ok()
-                                .map(|s| s.definition_name.clone())
+                                .map(|s| (s.definition_name.clone(), s.state))
                         });
-                        let Some(name) = def_name else { continue };
+                        let Some((name, current_state)) = def_name else {
+                            continue;
+                        };
+
+                        // Guard: skip if already upgraded or failed (duplicate from
+                        // pending queue + DOM walk).
+                        if current_state == CEState::Custom || current_state == CEState::Failed {
+                            continue;
+                        }
 
                         let Some(constructor) = self.bridge.get_custom_element_constructor(&name)
                         else {
@@ -1066,8 +1074,17 @@ fn invoke_ce_callback(
     let Ok(cb_val) = proto_obj.get(js_string!(callback_name), ctx) else {
         return;
     };
+    // Property is undefined/null — callback not defined, valid per spec.
+    if cb_val.is_undefined() || cb_val.is_null() {
+        return;
+    }
+    // Property exists but is not callable — throw TypeError per WHATWG spec.
     let Some(cb_func) = cb_val.as_callable() else {
-        return; // Callback not defined — valid per spec.
+        eprintln!(
+            "[JS Custom Element {callback_name} Error] {}",
+            JsNativeError::typ().with_message(format!("{callback_name} is not a function"))
+        );
+        return;
     };
 
     // Build element wrapper for `this`.
