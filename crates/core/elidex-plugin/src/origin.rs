@@ -17,7 +17,7 @@ static OPAQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 /// Security origin per WHATWG HTML §7.5.
 ///
 /// Used for same-origin policy enforcement on `<iframe>` boundaries.
-/// Distinct from [`elidex_css::Origin`] (cascade origin: UserAgent/Author).
+/// Distinct from `elidex_css::Origin` (cascade origin: UserAgent/Author).
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SecurityOrigin {
     /// Tuple origin for http/https URLs: (scheme, host, port).
