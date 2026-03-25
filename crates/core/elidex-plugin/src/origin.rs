@@ -209,8 +209,9 @@ pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
         if let Some(value) = lower.strip_prefix("frame-ancestors") {
             let value = value.trim();
             if value.is_empty() {
-                // `frame-ancestors` with no sources = 'none' behavior.
-                return Some(FrameAncestorsPolicy::None);
+                // Whitespace-only value = no directive per W3C CSP L3.
+                // Fall through to X-Frame-Options check.
+                return std::option::Option::None;
             }
             if value == "'none'" {
                 return Some(FrameAncestorsPolicy::None);

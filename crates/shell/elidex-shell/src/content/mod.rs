@@ -779,6 +779,23 @@ fn detect_iframe_mutations(
     }
 }
 
+/// Register a loaded iframe: store its display list on the parent DOM,
+/// insert into the registry, and dispatch the `load` event.
+fn register_iframe_entry(
+    state: &mut ContentState,
+    entity: elidex_ecs::Entity,
+    entry: iframe::IframeEntry,
+) {
+    if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
+        let _ = state.pipeline.dom.world_mut().insert_one(
+            entity,
+            elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
+        );
+    }
+    state.iframes.insert(entity, entry);
+    dispatch_iframe_load_event(state, entity);
+}
+
 /// Count the iframe nesting depth of an entity by walking its DOM ancestors.
 ///
 /// Returns the number of ancestor elements that have `IframeData` components.
@@ -804,7 +821,8 @@ fn count_iframe_ancestor_depth(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Ent
 ///
 /// Uses `LayoutBox` position to determine if a lazy iframe is within 200px
 /// of the viewport bounds. Once loaded, the entity is removed from the
-/// pending list.
+/// pending list. Iframes without a `LayoutBox` (e.g., inside a `display:none`
+/// parent) remain in the pending list until layout is computed.
 fn check_lazy_iframes(state: &mut ContentState) {
     if state.lazy_iframe_pending.is_empty() {
         return;
@@ -877,15 +895,7 @@ fn check_lazy_iframes(state: &mut ContentState) {
                 &state.pipeline.registry,
                 depth,
             );
-            // Store iframe display list on parent DOM for builder compositing.
-            if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
-                let _ = state.pipeline.dom.world_mut().insert_one(
-                    entity,
-                    elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
-                );
-            }
-            state.iframes.insert(entity, entry);
-            dispatch_iframe_load_event(state, entity);
+            register_iframe_entry(state, entity, entry);
         }
     }
 }
@@ -940,16 +950,7 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             &state.pipeline.registry,
             depth,
         );
-        // Store iframe display list on parent DOM for builder compositing.
-        if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
-            let _ = state.pipeline.dom.world_mut().insert_one(
-                entity,
-                elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
-            );
-        }
-        state.iframes.insert(entity, entry);
-        // Dispatch "load" event on the <iframe> element per WHATWG HTML §4.8.5.
-        dispatch_iframe_load_event(state, entity);
+        register_iframe_entry(state, entity, entry);
     }
 }
 
