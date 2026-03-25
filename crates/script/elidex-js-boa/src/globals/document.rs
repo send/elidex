@@ -99,13 +99,83 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         1,
     );
 
-    // document.createElement(tagName)
+    // document.createElement(tagName, options?)
     let b_ce = b.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
-                invoke_doc_handler_returning_ref("createElement", tag, bridge, ctx)
+
+                // Extract options.is if present (customized built-in elements).
+                // Per spec, invalid `is` values are silently ignored.
+                let is_value = if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
+                    let v = opts.get(js_string!("is"), ctx)?;
+                    if v.is_undefined() || v.is_null() {
+                        None
+                    } else {
+                        let is_name = v.to_string(ctx)?.to_std_string_escaped();
+                        if elidex_custom_elements::is_valid_custom_element_name(&is_name) {
+                            Some(is_name)
+                        } else {
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                let result =
+                    invoke_doc_handler_returning_ref("createElement", tag.clone(), bridge, ctx)?;
+
+                // Mark custom elements for upgrade tracking.
+                if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
+                    let ce_name = if elidex_custom_elements::is_valid_custom_element_name(&tag) {
+                        Some(tag.clone())
+                    } else {
+                        is_value.clone()
+                    };
+
+                    if let Some(name) = ce_name {
+                        bridge.with(|_session, dom| {
+                            // For customized built-ins, verify the definition matches the tag.
+                            let defined = if is_value.is_some() {
+                                bridge.ce_lookup_by_is(&name, &tag)
+                            } else {
+                                bridge.is_custom_element_defined(&name)
+                            };
+                            if defined {
+                                // Definition exists — enqueue Upgrade.
+                                let ce_state =
+                                    elidex_custom_elements::CustomElementState::undefined(&name);
+                                let _ = dom.world_mut().insert_one(entity, ce_state);
+                                bridge.enqueue_ce_reaction(
+                                    elidex_custom_elements::CustomElementReaction::Upgrade(entity),
+                                );
+                            } else {
+                                // Not yet defined — mark as undefined and queue.
+                                let ce_state =
+                                    elidex_custom_elements::CustomElementState::undefined(&name);
+                                let _ = dom.world_mut().insert_one(entity, ce_state);
+                                bridge.queue_for_ce_upgrade(&name, entity);
+                            }
+                        });
+                    }
+
+                    // Set the `is` attribute on the element per WHATWG spec §4.13.3.
+                    if let Some(ref is_name) = is_value {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                attrs.set("is", is_name);
+                            }
+                            // Bump version so LiveCollections / caches invalidate.
+                            dom.rev_version(entity);
+                        });
+                    }
+                }
+
+                Ok(result)
             },
             b_ce,
         ),

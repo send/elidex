@@ -1808,6 +1808,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-custom-elements"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+]
+
+[[package]]
 name = "elidex-dom-api"
 version = "0.1.0"
 dependencies = [
@@ -1853,6 +1860,7 @@ dependencies = [
 name = "elidex-html-parser"
 version = "0.1.0"
 dependencies = [
+ "elidex-custom-elements",
  "elidex-ecs",
  "encoding_rs",
  "html5ever",
@@ -1875,6 +1883,7 @@ dependencies = [
  "boa_gc",
  "bytes",
  "elidex-api-observers",
+ "elidex-custom-elements",
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-form",
@@ -2068,6 +2077,7 @@ dependencies = [
  "elidex-a11y",
  "elidex-css",
  "elidex-css-anim",
+ "elidex-custom-elements",
  "elidex-dom-api",
  "elidex-dom-compat",
  "elidex-ecs",

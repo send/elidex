@@ -9,6 +9,9 @@
 //! elidex_shell::run("<h1>Hello</h1>", "h1 { color: red; }").unwrap();
 //! ```
 
+/// Maximum rounds of CE callback stabilization after `re_render` flush.
+const MAX_CE_STABILIZATION_ROUNDS: usize = 8;
+
 pub(crate) mod animation;
 mod app;
 pub(crate) mod chrome;
@@ -454,10 +457,53 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
     }
 
-    // Flush applies buffered mutations to the DOM.
+    // Flush applies buffered mutations to the DOM and enqueue CE reactions.
     let raw_records = result.session.flush(&mut result.dom);
-    let mutation_records: Vec<elidex_script_session::MutationRecord> =
+    let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
         raw_records.into_iter().flatten().collect();
+
+    // Enqueue and drain CE reactions for any custom elements affected by mutations.
+    // CE callbacks may trigger additional mutations, so loop until stable (bounded).
+    if !mutation_records.is_empty() {
+        result
+            .runtime
+            .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
+        result.runtime.drain_custom_element_reactions_public(
+            &mut result.session,
+            &mut result.dom,
+            result.document,
+        );
+
+        // Re-flush: CE callbacks may have recorded new mutations.
+        // Bounded to prevent infinite loops from mutually-triggering callbacks.
+        for round in 0..MAX_CE_STABILIZATION_ROUNDS {
+            let follow_up: Vec<_> = result
+                .session
+                .flush(&mut result.dom)
+                .into_iter()
+                .flatten()
+                .collect();
+            if follow_up.is_empty() {
+                break;
+            }
+            // Only process NEW records (not previously-handled ones).
+            result
+                .runtime
+                .enqueue_ce_reactions_from_mutations(&follow_up, &result.dom);
+            mutation_records.extend(follow_up);
+            result.runtime.drain_custom_element_reactions_public(
+                &mut result.session,
+                &mut result.dom,
+                result.document,
+            );
+            if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
+                eprintln!(
+                    "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \
+                     some mutations may be deferred to next frame"
+                );
+            }
+        }
+    }
 
     // Invalidate ancestor cache when DOM mutations occurred.
     if !mutation_records.is_empty() {
