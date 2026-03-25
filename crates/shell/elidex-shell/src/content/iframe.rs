@@ -249,22 +249,31 @@ impl IframeRegistry {
 /// 3. Creates a `PipelineResult` (DOM, JS runtime, styles, layout)
 /// 4. Wraps it in an `InProcessIframe` (same-origin) or `OutOfProcessIframe` (cross-origin)
 ///
+/// Context from the parent document needed to load an iframe.
+pub struct IframeLoadContext<'a> {
+    /// Security origin of the parent document.
+    pub parent_origin: &'a SecurityOrigin,
+    /// URL of the parent document (for relative URL resolution).
+    pub parent_url: Option<&'a url::Url>,
+    /// Shared font database.
+    pub font_db: &'a std::sync::Arc<elidex_text::FontDatabase>,
+    /// Shared fetch handle (for network requests).
+    pub fetch_handle: &'a std::rc::Rc<elidex_net::FetchHandle>,
+    /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
+    pub depth: usize,
+}
+
 /// Always returns an `IframeEntry`. If framing is blocked by security headers,
 /// returns a blank document with an opaque origin.
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
-#[allow(clippy::too_many_arguments)] // Grouped context params; struct extraction deferred.
 pub fn load_iframe(
     iframe_entity: Entity,
     iframe_data: &elidex_ecs::IframeData,
-    parent_origin: &SecurityOrigin,
-    parent_url: Option<&url::Url>,
-    font_db: &std::sync::Arc<elidex_text::FontDatabase>,
-    fetch_handle: &std::rc::Rc<elidex_net::FetchHandle>,
-    depth: usize,
+    ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
     // Guard against excessive iframe nesting (DoS prevention).
-    if depth >= elidex_plugin::MAX_IFRAME_DEPTH {
-        eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({depth})");
+    if ctx.depth >= elidex_plugin::MAX_IFRAME_DEPTH {
+        eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({})", ctx.depth);
         return make_blank_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data);
     }
 
@@ -275,31 +284,31 @@ pub fn load_iframe(
         let mut pipeline = crate::build_pipeline_interactive(srcdoc, "");
         // Use the parent's font database and fetch handle instead of creating
         // fresh instances, so that srcdoc iframes share cached fonts and cookies.
-        pipeline.font_db = font_db.clone();
-        pipeline.fetch_handle = fetch_handle.clone();
-        let origin = apply_sandbox_origin(parent_origin.clone(), iframe_data);
+        pipeline.font_db = ctx.font_db.clone();
+        pipeline.fetch_handle = ctx.fetch_handle.clone();
+        let origin = apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data);
         (pipeline, origin)
     } else if let Some(src) = &iframe_data.src {
         if src.is_empty() || src == "about:blank" {
             // about:blank: empty document with parent origin.
             let mut pipeline = crate::build_pipeline_interactive("", "");
             // Share the parent's font database and fetch handle.
-            pipeline.font_db = font_db.clone();
-            pipeline.fetch_handle = fetch_handle.clone();
+            pipeline.font_db = ctx.font_db.clone();
+            pipeline.fetch_handle = ctx.fetch_handle.clone();
             (
                 pipeline,
-                apply_sandbox_origin(parent_origin.clone(), iframe_data),
+                apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
             )
         } else {
             // URL: resolve relative to parent, fetch and parse.
-            let base = parent_url.cloned().unwrap_or_else(|| {
+            let base = ctx.parent_url.cloned().unwrap_or_else(|| {
                 url::Url::parse("about:blank").expect("about:blank is a valid URL")
             });
             let Ok(resolved) = base.join(src) else {
                 eprintln!("iframe: invalid src URL: {src}");
                 return make_blank_entry(
                     iframe_entity,
-                    apply_sandbox_origin(parent_origin.clone(), iframe_data),
+                    apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                     iframe_data,
                 );
             };
@@ -312,15 +321,18 @@ pub fn load_iframe(
                         elidex_net::NetClient::new_credentialless(),
                     ))
                 } else {
-                    fetch_handle.clone()
+                    ctx.fetch_handle.clone()
                 };
 
             match elidex_navigation::load_document(&resolved, &effective_handle, None) {
                 Ok(loaded) => {
                     // Check security headers before allowing framing.
                     let doc_origin = SecurityOrigin::from_url(&loaded.url);
-                    if !check_framing_allowed(&loaded.response_headers, parent_origin, &doc_origin)
-                    {
+                    if !check_framing_allowed(
+                        &loaded.response_headers,
+                        ctx.parent_origin,
+                        &doc_origin,
+                    ) {
                         eprintln!(
                             "iframe blocked by frame-ancestors/X-Frame-Options: {}",
                             loaded.url
@@ -335,7 +347,7 @@ pub fn load_iframe(
                     let pipeline = crate::build_pipeline_from_loaded(
                         loaded,
                         effective_handle,
-                        font_db.clone(),
+                        ctx.font_db.clone(),
                     );
                     let origin = apply_sandbox_origin(
                         SecurityOrigin::from_url(pipeline.url.as_ref().unwrap_or(&resolved)),
@@ -347,7 +359,7 @@ pub fn load_iframe(
                     eprintln!("iframe load error: {e}");
                     return make_blank_entry(
                         iframe_entity,
-                        apply_sandbox_origin(parent_origin.clone(), iframe_data),
+                        apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                         iframe_data,
                     );
                 }
@@ -357,11 +369,11 @@ pub fn load_iframe(
         // No src or srcdoc: about:blank with parent origin.
         let mut pipeline = crate::build_pipeline_interactive("", "");
         // Share the parent's font database and fetch handle.
-        pipeline.font_db = font_db.clone();
-        pipeline.fetch_handle = fetch_handle.clone();
+        pipeline.font_db = ctx.font_db.clone();
+        pipeline.fetch_handle = ctx.fetch_handle.clone();
         (
             pipeline,
-            apply_sandbox_origin(parent_origin.clone(), iframe_data),
+            apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
         )
     };
 
@@ -371,7 +383,7 @@ pub fn load_iframe(
         ip.pipeline
             .runtime
             .bridge()
-            .set_referrer(parent_url.map(url::Url::to_string));
+            .set_referrer(ctx.parent_url.map(url::Url::to_string));
     }
     entry
 }
@@ -696,15 +708,14 @@ pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
         if let Some(data) = iframe_data {
             let parent_origin = state.pipeline.runtime.bridge().origin();
             let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
-            let entry = load_iframe(
-                entity,
-                &data,
-                &parent_origin,
-                state.pipeline.url.as_ref(),
-                &state.pipeline.font_db,
-                &state.pipeline.fetch_handle,
+            let ctx = IframeLoadContext {
+                parent_origin: &parent_origin,
+                parent_url: state.pipeline.url.as_ref(),
+                font_db: &state.pipeline.font_db,
+                fetch_handle: &state.pipeline.fetch_handle,
                 depth,
-            );
+            };
+            let entry = load_iframe(entity, &data, &ctx);
             register_iframe_entry(state, entity, entry);
         }
     }
@@ -755,15 +766,14 @@ pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: En
         }
         let parent_origin = state.pipeline.runtime.bridge().origin();
         let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
-        let entry = load_iframe(
-            entity,
-            &data,
-            &parent_origin,
-            state.pipeline.url.as_ref(),
-            &state.pipeline.font_db,
-            &state.pipeline.fetch_handle,
+        let ctx = IframeLoadContext {
+            parent_origin: &parent_origin,
+            parent_url: state.pipeline.url.as_ref(),
+            font_db: &state.pipeline.font_db,
+            fetch_handle: &state.pipeline.fetch_handle,
             depth,
-        );
+        };
+        let entry = load_iframe(entity, &data, &ctx);
         register_iframe_entry(state, entity, entry);
     }
 }
