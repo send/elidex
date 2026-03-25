@@ -143,6 +143,9 @@ fn dom_child_operation(
                 if crate::runtime::is_connected_to_document(parent, dom) {
                     enqueue_ce_reactions_for_subtree(child_entity, "connected", bridge, dom);
                 }
+                // Also upgrade any undefined CEs in the appended subtree.
+                // This handles nodes from fragment parsing or innerHTML.
+                crate::runtime::walk_subtree_for_upgrade(child_entity, bridge, dom, 0);
             }
             "removeChild" => {
                 // Only fire disconnectedCallback if the parent is connected,
@@ -261,7 +264,8 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
                 );
 
                 // Enqueue CE attributeChangedCallback if applicable.
-                if result.is_ok() {
+                // Only fire if the attribute actually existed (no-op guard).
+                if result.is_ok() && old_value.is_some() {
                     bridge.with(|_session, dom| {
                         if let Ok(ce_state) = dom.world().get::<&elidex_custom_elements::CustomElementState>(entity) {
                             if ce_state.state == elidex_custom_elements::CEState::Custom {

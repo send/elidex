@@ -160,6 +160,17 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                             }
                         });
                     }
+
+                    // Set the `is` attribute on the element per WHATWG spec §4.13.3.
+                    if let Some(ref is_name) = is_value {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                attrs.set("is", is_name);
+                            }
+                        });
+                    }
                 }
 
                 Ok(result)

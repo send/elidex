@@ -652,14 +652,17 @@ impl JsRuntime {
                                         .ok()
                                         .and_then(|attrs| attrs.get(attr_name).map(String::from));
 
-                                    self.bridge.enqueue_ce_reaction(
-                                        CustomElementReaction::AttributeChanged {
-                                            entity: record.target,
-                                            name: attr_name.clone(),
-                                            old_value: record.old_value.clone(),
-                                            new_value,
-                                        },
-                                    );
+                                    // Only fire if value actually changed.
+                                    if record.old_value != new_value {
+                                        self.bridge.enqueue_ce_reaction(
+                                            CustomElementReaction::AttributeChanged {
+                                                entity: record.target,
+                                                name: attr_name.clone(),
+                                                old_value: record.old_value.clone(),
+                                                new_value,
+                                            },
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -988,7 +991,12 @@ fn walk_subtree_for_ce(
 ///
 /// This handles the case where innerHTML-parsed custom elements are inserted
 /// into a connected tree after their definition has already been registered.
-fn walk_subtree_for_upgrade(entity: Entity, bridge: &HostBridge, dom: &EcsDom, depth: usize) {
+pub(crate) fn walk_subtree_for_upgrade(
+    entity: Entity,
+    bridge: &HostBridge,
+    dom: &EcsDom,
+    depth: usize,
+) {
     use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
 
     if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
@@ -1079,7 +1087,7 @@ fn invoke_ce_callback(
     if cb_val.is_undefined() || cb_val.is_null() {
         return;
     }
-    // Property exists but is not callable — throw TypeError per WHATWG spec.
+    // Non-callable callback property: log TypeError (errors caught by caller).
     let Some(cb_func) = cb_val.as_callable() else {
         eprintln!(
             "[JS Custom Element {callback_name} Error] {}",
