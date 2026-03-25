@@ -220,17 +220,27 @@ impl IframeRegistry {
         post_messages
     }
 
-    /// Shut down all iframes gracefully.
+    /// Shut down all iframes gracefully (WHATWG HTML §7.1.3).
     ///
-    /// Sends `Shutdown` to all out-of-process iframes and joins their threads.
-    /// In-process iframes are dropped directly.
+    /// Dispatches `beforeunload`/`unload` on in-process iframe documents,
+    /// sends `Shutdown` to out-of-process iframes and joins their threads.
     pub fn shutdown_all(&mut self) {
         for (_, entry) in self.entries.drain() {
-            if let IframeHandle::OutOfProcess(mut oop) = entry.handle {
-                let _ = oop.channel.send(BrowserToIframe::Shutdown);
-                if let Some(thread) = oop.thread.take() {
-                    if let Err(e) = thread.join() {
-                        eprintln!("iframe thread panicked: {e:?}");
+            match entry.handle {
+                IframeHandle::InProcess(mut ip) => {
+                    crate::pipeline::dispatch_unload_events(
+                        &mut ip.pipeline.runtime,
+                        &mut ip.pipeline.session,
+                        &mut ip.pipeline.dom,
+                        ip.pipeline.document,
+                    );
+                }
+                IframeHandle::OutOfProcess(mut oop) => {
+                    let _ = oop.channel.send(BrowserToIframe::Shutdown);
+                    if let Some(thread) = oop.thread.take() {
+                        if let Err(e) = thread.join() {
+                            eprintln!("iframe thread panicked: {e:?}");
+                        }
                     }
                 }
             }
