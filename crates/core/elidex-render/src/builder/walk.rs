@@ -237,6 +237,16 @@ pub(crate) fn walk(
                         clip: lb.content,
                         list: Arc::clone(&iframe_dl.0),
                     });
+                    // Iframe DOM children are fallback content — skip child painting
+                    // since the iframe's own display list is used instead.
+                    if has_clip {
+                        ctx.dl.push(DisplayItem::PopClip);
+                    }
+                    if has_transform_push {
+                        ctx.dl.push(DisplayItem::PopTransform);
+                    }
+                    ctx.counter_state.pop_scope();
+                    return;
                 }
 
                 // Emit form control rendering.

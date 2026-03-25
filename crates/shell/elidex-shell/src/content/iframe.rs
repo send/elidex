@@ -281,7 +281,10 @@ pub fn load_iframe(
         if src.is_empty() || src == "about:blank" {
             // about:blank: empty document with parent origin.
             let pipeline = crate::build_pipeline_interactive("", "");
-            (pipeline, parent_origin.clone())
+            (
+                pipeline,
+                apply_sandbox_origin(parent_origin.clone(), iframe_data),
+            )
         } else {
             // URL: resolve relative to parent, fetch and parse.
             let base = parent_url.cloned().unwrap_or_else(|| {
@@ -293,7 +296,7 @@ pub fn load_iframe(
                 return make_iframe_entry(
                     iframe_entity,
                     pipeline,
-                    parent_origin.clone(),
+                    apply_sandbox_origin(parent_origin.clone(), iframe_data),
                     iframe_data,
                 );
             };
@@ -343,14 +346,20 @@ pub fn load_iframe(
                 Err(e) => {
                     eprintln!("iframe load error: {e}");
                     let pipeline = crate::build_pipeline_interactive("", "");
-                    (pipeline, parent_origin.clone())
+                    (
+                        pipeline,
+                        apply_sandbox_origin(parent_origin.clone(), iframe_data),
+                    )
                 }
             }
         }
     } else {
         // No src or srcdoc: about:blank with parent origin.
         let pipeline = crate::build_pipeline_interactive("", "");
-        (pipeline, parent_origin.clone())
+        (
+            pipeline,
+            apply_sandbox_origin(parent_origin.clone(), iframe_data),
+        )
     };
 
     let entry = make_iframe_entry(iframe_entity, pipeline, iframe_origin, iframe_data);
@@ -367,20 +376,37 @@ pub fn load_iframe(
 /// Check framing permission from response headers.
 ///
 /// CSP `frame-ancestors` takes priority over `X-Frame-Options` (W3C CSP L3).
+/// For CSP, any header that blocks framing wins (most restrictive).
+/// For XFO, the most restrictive value across all header values is used.
 fn check_framing_allowed(
-    headers: &std::collections::HashMap<String, String>,
+    headers: &std::collections::HashMap<String, Vec<String>>,
     parent_origin: &SecurityOrigin,
     doc_origin: &SecurityOrigin,
 ) -> bool {
     // CSP frame-ancestors check (takes priority).
-    if let Some(csp) = headers.get("content-security-policy") {
-        if let Some(policy) = elidex_plugin::parse_frame_ancestors(csp) {
-            return elidex_plugin::is_framing_allowed(&policy, parent_origin, doc_origin);
+    if let Some(csp_values) = headers.get("content-security-policy") {
+        let mut has_frame_ancestors = false;
+        for csp in csp_values {
+            if let Some(policy) = elidex_plugin::parse_frame_ancestors(csp) {
+                has_frame_ancestors = true;
+                // Any CSP header that blocks framing → blocked.
+                if !elidex_plugin::is_framing_allowed(&policy, parent_origin, doc_origin) {
+                    return false;
+                }
+            }
+        }
+        if has_frame_ancestors {
+            return true;
         }
     }
     // X-Frame-Options fallback (only if no CSP frame-ancestors).
-    if let Some(xfo) = headers.get("x-frame-options") {
-        return elidex_plugin::check_x_frame_options(xfo, parent_origin, doc_origin);
+    // Use most restrictive value: if any header blocks, framing is blocked.
+    if let Some(xfo_values) = headers.get("x-frame-options") {
+        for xfo in xfo_values {
+            if !elidex_plugin::check_x_frame_options(xfo, parent_origin, doc_origin) {
+                return false;
+            }
+        }
     }
     // No restrictions → allow framing.
     true
@@ -506,6 +532,8 @@ pub(super) fn detect_iframe_mutations(
                                 state.focused_iframe = None;
                             }
                         }
+                        // Clean up lazy_iframe_pending list for removed iframes.
+                        state.lazy_iframe_pending.retain(|&e| e != iframe_entity);
                     }
                 }
             }

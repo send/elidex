@@ -165,6 +165,13 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
             if let Some(target_url) = resolved {
                 match target_attr.as_deref() {
                     Some("_blank") => {
+                        // Sandbox allow-popups check (WHATWG HTML §4.8.5):
+                        // block popup navigation from sandboxed iframes without
+                        // the allow-popups flag.
+                        if !state.pipeline.runtime.bridge().popups_allowed() {
+                            state.send_display_list();
+                            return;
+                        }
                         // Open in a new tab.
                         let _ = state
                             .channel

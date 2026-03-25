@@ -111,17 +111,18 @@ pub(crate) fn register_iframe_accessors(
                     {
                         iframe_data.allow_fullscreen = value;
                     }
-                    session.record_mutation(elidex_script_session::Mutation::SetAttribute {
-                        entity,
-                        name: "allowfullscreen".to_string(),
-                        value: if value {
-                            String::new()
-                        } else {
-                            // Remove attribute by recording empty value; the Attributes
-                            // component was already updated above.
-                            String::new()
-                        },
-                    });
+                    if value {
+                        session.record_mutation(elidex_script_session::Mutation::SetAttribute {
+                            entity,
+                            name: "allowfullscreen".to_string(),
+                            value: String::new(),
+                        });
+                    } else {
+                        session.record_mutation(elidex_script_session::Mutation::RemoveAttribute {
+                            entity,
+                            name: "allowfullscreen".to_string(),
+                        });
+                    }
                 });
                 Ok(JsValue::undefined())
             },

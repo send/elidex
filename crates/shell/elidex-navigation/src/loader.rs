@@ -32,7 +32,8 @@ pub struct LoadedDocument {
     /// The final URL of the document (after redirects).
     pub url: url::Url,
     /// HTTP response headers (for CSP frame-ancestors, X-Frame-Options, Permissions-Policy).
-    pub response_headers: HashMap<String, String>,
+    /// Multiple values for the same header name are preserved as separate entries.
+    pub response_headers: HashMap<String, Vec<String>>,
 }
 
 /// A script ready for execution.
@@ -142,17 +143,11 @@ pub fn load_document(
         .and_then(|(_, v)| extract_charset(v));
 
     // Collect response headers for security policy enforcement (CSP, X-Frame-Options).
-    // Combine duplicate header values with ", " per HTTP/1.1 §5.3 (RFC 9110).
-    let mut response_headers: HashMap<String, String> = HashMap::new();
+    // Preserve multiple values per header name for correct per-value evaluation.
+    let mut response_headers: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in &response.headers {
         let key = k.to_ascii_lowercase();
-        response_headers
-            .entry(key)
-            .and_modify(|existing| {
-                existing.push_str(", ");
-                existing.push_str(v);
-            })
-            .or_insert_with(|| v.clone());
+        response_headers.entry(key).or_default().push(v.clone());
     }
 
     // 3. Parse the HTML.
