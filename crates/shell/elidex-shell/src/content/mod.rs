@@ -502,6 +502,16 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // Drain pending window.open(_blank) requests from timers/animations.
+        // process_pending_actions handles these from input handlers, but
+        // window.open() called from setTimeout/requestAnimationFrame needs
+        // to be drained here too.
+        for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        }
+
         // Drain timers for in-process (same-origin) iframes.
         // Timers always run (for correctness), but layout/render is skipped
         // for iframes outside the viewport to save CPU.

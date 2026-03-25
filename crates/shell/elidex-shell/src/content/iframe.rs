@@ -458,11 +458,12 @@ fn apply_sandbox_origin(
 /// `FontDatabase`, `FetchHandle`, and `CssPropertyRegistry` with the
 /// parent's shared instances from `ctx`.
 fn build_iframe_pipeline(html: &str, ctx: &IframeLoadContext<'_>) -> crate::PipelineResult {
-    let mut pipeline = crate::build_pipeline_interactive(html, "");
-    pipeline.font_db = ctx.font_db.clone();
-    pipeline.fetch_handle = ctx.fetch_handle.clone();
-    pipeline.registry = ctx.registry.clone();
-    pipeline
+    crate::build_pipeline_interactive_shared(
+        html,
+        ctx.font_db.clone(),
+        ctx.fetch_handle.clone(),
+        ctx.registry.clone(),
+    )
 }
 
 /// Create a blank `IframeEntry` (empty document) for error/fallback cases.

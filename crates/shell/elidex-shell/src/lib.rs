@@ -442,6 +442,75 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     result
 }
 
+/// Build a pipeline from HTML, sharing the parent's resources.
+///
+/// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
+/// `fetch_handle`, and `registry` instead of creating fresh instances.
+/// This ensures the JS `fetch()` closure captures the correct `FetchHandle`
+/// (important for `credentialless` iframes and cookie sharing).
+pub(crate) fn build_pipeline_interactive_shared(
+    html: &str,
+    font_db: Arc<FontDatabase>,
+    fetch_handle: Rc<FetchHandle>,
+    registry: Arc<elidex_plugin::CssPropertyRegistry>,
+) -> PipelineResult {
+    let parse_result = parse_html(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        "",
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Rc::clone(&fetch_handle),
+        &font_db,
+        None,
+        &registry,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: None,
+        fetch_handle,
+        registry,
+        animation_engine,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+    };
+
+    sync_css_animations(&mut result, &[]);
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
 ///
 /// Includes transition detection: saves old computed values for entities with
