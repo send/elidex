@@ -696,12 +696,11 @@ pub(super) fn try_route_click_to_iframe(
     use super::iframe::{BrowserToIframe, IframeHandle};
 
     // Check if the hit entity is an iframe with a loaded context.
-    let Some(entry) = state.iframes.get(hit_entity) else {
+    // Check iframe exists before computing offset.
+    if state.iframes.get(hit_entity).is_none() {
         return false;
-    };
+    }
 
-    // Compute coordinate transform: parent coordinates → iframe-local coordinates.
-    // The iframe's LayoutBox position gives the offset.
     let offset = state
         .pipeline
         .dom
@@ -724,13 +723,42 @@ pub(super) fn try_route_click_to_iframe(
         mods: click.mods,
     };
 
-    match &entry.handle {
+    // Re-borrow mutably for dispatch.
+    let Some(entry) = state.iframes.get_mut(hit_entity) else {
+        return false;
+    };
+
+    match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            // Same-origin: dispatch directly to iframe's runtime.
-            // For now, mark as needing render — full dispatch
-            // will be implemented when iframe loading is complete.
-            let _ = &iframe.pipeline;
-            // TODO: dispatch click event to iframe.pipeline.runtime
+            // Same-origin: run hit test in iframe's DOM and dispatch events.
+            let iframe_query = elidex_layout::HitTestQuery {
+                point: local_point,
+                scroll: iframe.scroll_state.scroll_offset,
+            };
+            if let Some(iframe_hit) =
+                elidex_layout::hit_test_with_scroll(&iframe.pipeline.dom, &iframe_query)
+            {
+                let mouse_init = elidex_plugin::MouseEventInit {
+                    client_x: local_client.x,
+                    client_y: local_client.y,
+                    button: i16::from(local_click.button),
+                    ..Default::default()
+                };
+                for event_type in ["mousedown", "mouseup", "click"] {
+                    let mut event = elidex_script_session::DispatchEvent::new_composed(
+                        event_type,
+                        iframe_hit.entity,
+                    );
+                    event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
+                    iframe.pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut iframe.pipeline.session,
+                        &mut iframe.pipeline.dom,
+                        iframe.pipeline.document,
+                    );
+                }
+            }
+            iframe.needs_render = true;
         }
         IframeHandle::OutOfProcess(oop) => {
             // Cross-origin: forward via IPC.
@@ -760,16 +788,37 @@ pub(super) fn try_route_key_to_iframe(
     let Some(iframe_entity) = state.focused_iframe else {
         return false;
     };
-    let Some(entry) = state.iframes.get(iframe_entity) else {
+    let Some(entry) = state.iframes.get_mut(iframe_entity) else {
         state.focused_iframe = None;
         return false;
     };
 
-    match &entry.handle {
+    match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            // Same-origin: dispatch directly.
-            let _ = &iframe.pipeline;
-            // TODO: dispatch key event to iframe.pipeline.runtime
+            // Same-origin: dispatch key event to iframe's runtime.
+            if let Some(target) = iframe.focus_target {
+                if iframe.pipeline.dom.contains(target) {
+                    let init = elidex_plugin::KeyboardEventInit {
+                        key: key.to_string(),
+                        code: code.to_string(),
+                        repeat,
+                        alt_key: mods.alt,
+                        ctrl_key: mods.ctrl,
+                        meta_key: mods.meta,
+                        shift_key: mods.shift,
+                    };
+                    let mut event =
+                        elidex_script_session::DispatchEvent::new_composed(event_type, target);
+                    event.payload = elidex_plugin::EventPayload::Keyboard(init);
+                    iframe.pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut iframe.pipeline.session,
+                        &mut iframe.pipeline.dom,
+                        iframe.pipeline.document,
+                    );
+                    iframe.needs_render = true;
+                }
+            }
         }
         IframeHandle::OutOfProcess(oop) => {
             if event_type == "keydown" {

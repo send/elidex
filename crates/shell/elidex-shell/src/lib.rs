@@ -25,6 +25,7 @@ mod pipeline;
 mod tests;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_css_anim::engine::AnimationEngine;
@@ -336,7 +337,7 @@ pub struct PipelineResult {
     /// All parsed CSS stylesheets.
     pub stylesheets: Vec<Stylesheet>,
     /// The font database (shared across navigations to avoid re-scanning).
-    pub font_db: Rc<FontDatabase>,
+    pub font_db: Arc<FontDatabase>,
     /// The URL of the current page, if loaded from a URL.
     pub url: Option<url::Url>,
     /// Shared fetch handle (for cookie sharing across navigation).
@@ -392,7 +393,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         Some(&registry),
     )];
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-    let font_db = Rc::new(FontDatabase::new());
+    let font_db = Arc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
@@ -561,7 +562,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     fetch_handle: Rc<FetchHandle>,
-    font_db: Rc<FontDatabase>,
+    font_db: Arc<FontDatabase>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -629,7 +630,7 @@ pub fn build_pipeline_from_url(
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
-    let font_db = Rc::new(FontDatabase::new());
+    let font_db = Arc::new(FontDatabase::new());
     Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
 }
 

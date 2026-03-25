@@ -394,9 +394,26 @@ fn run_event_loop(state: &mut ContentState) {
         }
 
         // --- Iframe frame tick: drain OOP messages + in-process timers ---
-        // Drain display list updates from cross-origin iframe threads.
-        let _post_messages = state.iframes.drain_oop_messages();
-        // TODO: deliver postMessage events from _post_messages
+        // Drain display list updates and postMessage events from cross-origin iframe threads.
+        let post_messages = state.iframes.drain_oop_messages();
+        // Deliver postMessage events to parent document's JS runtime as MessageEvent.
+        for (_iframe_entity, data, origin) in &post_messages {
+            let message_init = elidex_plugin::EventPayload::Message {
+                data: data.clone(),
+                origin: origin.clone(),
+            };
+            let mut event = elidex_script_session::DispatchEvent::new_composed(
+                "message",
+                state.pipeline.document,
+            );
+            event.payload = message_init;
+            state.pipeline.runtime.dispatch_event(
+                &mut event,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+        }
 
         // Drain timers for in-process (same-origin) iframes.
         for (_entity, entry) in state.iframes.iter_mut() {
@@ -630,17 +647,29 @@ fn detect_iframe_mutations(
             MutationKind::ChildList => {
                 // Check added nodes for <iframe> elements.
                 for &entity in &record.added_nodes {
-                    if state
+                    let iframe_data = state
                         .pipeline
                         .dom
                         .world()
                         .get::<&elidex_ecs::IframeData>(entity)
-                        .is_ok()
-                    {
-                        // TODO: trigger load_iframe(entity) when iframe loading is implemented.
-                        // For now, log the detection.
-                        #[cfg(debug_assertions)]
-                        eprintln!("iframe added to DOM: entity {entity:?}");
+                        .ok()
+                        .map(|d| (*d).clone());
+                    if let Some(data) = iframe_data {
+                        // Skip if already loaded (e.g., moved within DOM).
+                        if state.iframes.get(entity).is_some() {
+                            continue;
+                        }
+                        let parent_origin = state.pipeline.runtime.bridge().origin();
+                        let entry = iframe::load_iframe(
+                            entity,
+                            &data,
+                            &parent_origin,
+                            state.pipeline.url.as_ref(),
+                            &state.pipeline.font_db,
+                            &state.pipeline.fetch_handle,
+                            &state.pipeline.registry,
+                        );
+                        state.iframes.insert(entity, entry);
                     }
                 }
                 // Check removed nodes for <iframe> elements.
@@ -662,16 +691,27 @@ fn detect_iframe_mutations(
                     .is_some_and(|name| name == "src")
                 {
                     let target = record.target;
-                    if state
+                    let iframe_data = state
                         .pipeline
                         .dom
                         .world()
                         .get::<&elidex_ecs::IframeData>(target)
-                        .is_ok()
-                    {
-                        // TODO: trigger navigate_iframe(target) when iframe navigation is implemented.
-                        #[cfg(debug_assertions)]
-                        eprintln!("iframe src changed: entity {target:?}");
+                        .ok()
+                        .map(|d| (*d).clone());
+                    if let Some(data) = iframe_data {
+                        // Unload existing iframe context and reload with new src.
+                        state.iframes.remove(target);
+                        let parent_origin = state.pipeline.runtime.bridge().origin();
+                        let entry = iframe::load_iframe(
+                            target,
+                            &data,
+                            &parent_origin,
+                            state.pipeline.url.as_ref(),
+                            &state.pipeline.font_db,
+                            &state.pipeline.fetch_handle,
+                            &state.pipeline.registry,
+                        );
+                        state.iframes.insert(target, entry);
                     }
                 }
             }

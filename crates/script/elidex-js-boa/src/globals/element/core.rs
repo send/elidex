@@ -81,6 +81,17 @@ fn build_element_object(
 
     register_all_methods(&mut init, bridge, &realm);
 
+    // Tag-specific accessors: iframe elements get contentDocument, contentWindow, etc.
+    // Check tag name via the `tagName` property that was already set by register_all_methods.
+    // We can't use bridge.with() here because build_element_object is called from
+    // within a bridge.with() closure (re-entrancy guard would panic).
+    let is_iframe = bridge
+        .get_tag_name_unchecked(entity)
+        .is_some_and(|tag| tag == "iframe");
+    if is_iframe {
+        super::super::iframe::register_iframe_accessors(&mut init, bridge, &realm);
+    }
+
     init.build()
 }
 

@@ -236,6 +236,188 @@ impl IframeRegistry {
 }
 
 // ---------------------------------------------------------------------------
+// Iframe loading / navigation
+// ---------------------------------------------------------------------------
+
+/// Load an iframe document from a `src` URL or `srcdoc` content.
+///
+/// 1. Resolves the iframe's origin from its URL (or parent origin for srcdoc/about:blank)
+/// 2. Checks CSP frame-ancestors and X-Frame-Options headers
+/// 3. Creates a `PipelineResult` (DOM, JS runtime, styles, layout)
+/// 4. Wraps it in an `InProcessIframe` (same-origin) or `OutOfProcessIframe` (cross-origin)
+///
+/// Returns `None` if framing is blocked by security headers.
+#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+pub fn load_iframe(
+    iframe_entity: Entity,
+    iframe_data: &elidex_ecs::IframeData,
+    parent_origin: &SecurityOrigin,
+    parent_url: Option<&url::Url>,
+    font_db: &std::sync::Arc<elidex_text::FontDatabase>,
+    fetch_handle: &std::rc::Rc<elidex_net::FetchHandle>,
+    _registry: &elidex_plugin::CssPropertyRegistry,
+) -> IframeEntry {
+    // Determine content source and origin.
+    let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
+        // srcdoc: parse inline HTML, inherit parent origin.
+        let pipeline = crate::build_pipeline_interactive(srcdoc, "");
+        let origin = if iframe_data.sandbox.is_some()
+            && !iframe_data
+                .sandbox
+                .as_deref()
+                .map_or(
+                    IframeSandboxFlags::empty(),
+                    elidex_plugin::parse_sandbox_attribute,
+                )
+                .contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN)
+        {
+            SecurityOrigin::opaque()
+        } else {
+            parent_origin.clone()
+        };
+        (pipeline, origin)
+    } else if let Some(src) = &iframe_data.src {
+        if src.is_empty() || src == "about:blank" {
+            // about:blank: empty document with parent origin.
+            let pipeline = crate::build_pipeline_interactive("", "");
+            (pipeline, parent_origin.clone())
+        } else {
+            // URL: resolve relative to parent, fetch and parse.
+            let base = parent_url.cloned().unwrap_or_else(|| {
+                url::Url::parse("about:blank").expect("about:blank is a valid URL")
+            });
+            let Ok(resolved) = base.join(src) else {
+                eprintln!("iframe: invalid src URL: {src}");
+                let pipeline = crate::build_pipeline_interactive("", "");
+                return make_iframe_entry(
+                    iframe_entity,
+                    pipeline,
+                    parent_origin.clone(),
+                    iframe_data,
+                );
+            };
+
+            match elidex_navigation::load_document(&resolved, fetch_handle, None) {
+                Ok(loaded) => {
+                    // Check security headers before allowing framing.
+                    let doc_origin = SecurityOrigin::from_url(&loaded.url);
+                    if !check_framing_allowed(&loaded.response_headers, parent_origin, &doc_origin)
+                    {
+                        eprintln!(
+                            "iframe blocked by frame-ancestors/X-Frame-Options: {}",
+                            loaded.url
+                        );
+                        // Show blank document instead.
+                        let pipeline = crate::build_pipeline_interactive("", "");
+                        return make_iframe_entry(
+                            iframe_entity,
+                            pipeline,
+                            SecurityOrigin::opaque(),
+                            iframe_data,
+                        );
+                    }
+
+                    let pipeline = crate::build_pipeline_from_loaded(
+                        loaded,
+                        fetch_handle.clone(),
+                        font_db.clone(),
+                    );
+                    let origin = apply_sandbox_origin(
+                        SecurityOrigin::from_url(pipeline.url.as_ref().unwrap_or(&resolved)),
+                        iframe_data,
+                    );
+                    (pipeline, origin)
+                }
+                Err(e) => {
+                    eprintln!("iframe load error: {e}");
+                    let pipeline = crate::build_pipeline_interactive("", "");
+                    (pipeline, parent_origin.clone())
+                }
+            }
+        }
+    } else {
+        // No src or srcdoc: about:blank with parent origin.
+        let pipeline = crate::build_pipeline_interactive("", "");
+        (pipeline, parent_origin.clone())
+    };
+
+    make_iframe_entry(iframe_entity, pipeline, iframe_origin, iframe_data)
+}
+
+/// Check framing permission from response headers.
+///
+/// CSP `frame-ancestors` takes priority over `X-Frame-Options` (W3C CSP L3).
+fn check_framing_allowed(
+    headers: &std::collections::HashMap<String, String>,
+    parent_origin: &SecurityOrigin,
+    doc_origin: &SecurityOrigin,
+) -> bool {
+    // CSP frame-ancestors check (takes priority).
+    if let Some(csp) = headers.get("content-security-policy") {
+        if let Some(policy) = elidex_plugin::parse_frame_ancestors(csp) {
+            return elidex_plugin::is_framing_allowed(&policy, parent_origin, doc_origin);
+        }
+    }
+    // X-Frame-Options fallback (only if no CSP frame-ancestors).
+    if let Some(xfo) = headers.get("x-frame-options") {
+        return elidex_plugin::check_x_frame_options(xfo, parent_origin, doc_origin);
+    }
+    // No restrictions → allow framing.
+    true
+}
+
+/// Apply sandbox origin override.
+///
+/// If sandbox is present without `allow-same-origin`, force opaque origin.
+fn apply_sandbox_origin(
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+) -> SecurityOrigin {
+    if let Some(ref sandbox_str) = iframe_data.sandbox {
+        let flags = elidex_plugin::parse_sandbox_attribute(sandbox_str);
+        if !flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN) {
+            return SecurityOrigin::opaque();
+        }
+    }
+    if iframe_data.credentialless {
+        return SecurityOrigin::opaque();
+    }
+    origin
+}
+
+/// Create an `IframeEntry` from a pipeline and origin.
+#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+fn make_iframe_entry(
+    iframe_entity: Entity,
+    pipeline: crate::PipelineResult,
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+) -> IframeEntry {
+    let sandbox_flags = iframe_data
+        .sandbox
+        .as_deref()
+        .map(elidex_plugin::parse_sandbox_attribute);
+
+    let viewport = Size::new(iframe_data.width as f32, iframe_data.height as f32);
+
+    IframeEntry {
+        handle: IframeHandle::InProcess(Box::new(InProcessIframe {
+            pipeline,
+            nav_controller: NavigationController::new(),
+            focus_target: None,
+            scroll_state: ScrollState::default(),
+            needs_render: false,
+        })),
+        meta: IframeMeta {
+            origin,
+            sandbox_flags,
+            parent_entity: iframe_entity,
+            viewport,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

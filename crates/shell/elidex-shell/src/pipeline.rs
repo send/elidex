@@ -1,6 +1,7 @@
 //! Internal pipeline helpers: script execution and lifecycle event dispatch.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_ecs::EcsDom;
@@ -52,7 +53,7 @@ pub(super) fn run_scripts_and_finalize(
     stylesheets: &[Stylesheet],
     script_sources: &[&str],
     fetch_handle: Rc<FetchHandle>,
-    font_db: &Rc<elidex_text::FontDatabase>,
+    font_db: &Arc<elidex_text::FontDatabase>,
     current_url: Option<url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {

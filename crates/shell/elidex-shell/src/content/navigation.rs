@@ -1,6 +1,7 @@
 //! Navigation and history action handling for the content thread.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ContentToBrowser;
@@ -21,7 +22,7 @@ pub(super) fn handle_navigate(
     request: Option<elidex_net::Request>,
 ) {
     let fetch_handle = Rc::clone(&state.pipeline.fetch_handle);
-    let font_db = Rc::clone(&state.pipeline.font_db);
+    let font_db = Arc::clone(&state.pipeline.font_db);
 
     match elidex_navigation::load_document(url, &fetch_handle, request) {
         Ok(loaded) => {
