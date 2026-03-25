@@ -27,10 +27,9 @@ pub(crate) fn register_iframe_accessors(
     // to return a Document object from the iframe's Context into the parent's Context,
     // which boa doesn't support. Returns null (cross-origin behavior) for all cases.
     // Self-hosted JS engine (M4-9+) will implement proper cross-context document proxies.
-    let b_cd = bridge.clone();
     let cd_getter = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, _bridge, _ctx| Ok(JsValue::null()),
-        b_cd,
+        |_this, _args, _captures, _ctx| Ok(JsValue::null()),
+        (),
     )
     .to_js_function(realm);
     init.accessor(
@@ -45,10 +44,9 @@ pub(crate) fn register_iframe_accessors(
     // Cross-origin: returns restricted window proxy (postMessage only).
     // Boa limitation: same as contentDocument — cross-context object sharing not supported.
     // Returns null for all cases. Self-hosted engine (M4-9+) will implement window proxies.
-    let b_content_window = bridge.clone();
     let content_window_getter = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, _bridge, _ctx| Ok(JsValue::null()),
-        b_content_window,
+        |_this, _args, _captures, _ctx| Ok(JsValue::null()),
+        (),
     )
     .to_js_function(realm);
     init.accessor(

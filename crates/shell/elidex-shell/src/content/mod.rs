@@ -145,11 +145,9 @@ impl ContentState {
                 if ip.needs_render {
                     crate::re_render(&mut ip.pipeline);
                     ip.needs_render = false;
-                    ip.cached_display_list =
-                        Some(std::sync::Arc::new(ip.pipeline.display_list.clone()));
-                }
-                if let Some(ref arc_dl) = ip.cached_display_list {
-                    updated.push((entity, std::sync::Arc::clone(arc_dl)));
+                    let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
+                    ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));
+                    updated.push((entity, arc_dl));
                 }
             }
         }

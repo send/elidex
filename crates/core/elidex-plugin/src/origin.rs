@@ -191,8 +191,8 @@ pub enum FrameAncestorSource {
 /// Parsed CSP `frame-ancestors` directive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FrameAncestorsPolicy {
-    /// `frame-ancestors 'none'` — disallow all framing.
-    None,
+    /// `frame-ancestors 'none'` — deny all framing.
+    Deny,
     /// `frame-ancestors <source-list>` — allow framing from listed sources.
     AllowList(Vec<FrameAncestorSource>),
 }
@@ -213,10 +213,10 @@ pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
             if value.is_empty() {
                 // Whitespace-only value = no directive per W3C CSP L3.
                 // Fall through to X-Frame-Options check.
-                return std::option::Option::None;
+                return None;
             }
             if value == "'none'" {
-                return Some(FrameAncestorsPolicy::None);
+                return Some(FrameAncestorsPolicy::Deny);
             }
             let mut sources = Vec::new();
             for token in value.split_ascii_whitespace() {
@@ -231,7 +231,7 @@ pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
             return Some(FrameAncestorsPolicy::AllowList(sources));
         }
     }
-    std::option::Option::None
+    None
 }
 
 /// Check whether a parent origin is allowed to frame a document
@@ -245,7 +245,7 @@ pub fn is_framing_allowed(
     document_origin: &SecurityOrigin,
 ) -> bool {
     match policy {
-        FrameAncestorsPolicy::None => false,
+        FrameAncestorsPolicy::Deny => false,
         FrameAncestorsPolicy::AllowList(sources) => {
             for source in sources {
                 match source {
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn frame_ancestors_none() {
         let policy = parse_frame_ancestors("frame-ancestors 'none'").unwrap();
-        assert_eq!(policy, FrameAncestorsPolicy::None);
+        assert_eq!(policy, FrameAncestorsPolicy::Deny);
 
         let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
         let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
@@ -618,7 +618,7 @@ mod tests {
         assert!(is_framing_allowed(&policy, &same, &doc));
 
         let upper = parse_frame_ancestors("FRAME-ANCESTORS 'none'").unwrap();
-        assert_eq!(upper, FrameAncestorsPolicy::None);
+        assert_eq!(upper, FrameAncestorsPolicy::Deny);
     }
 
     #[test]

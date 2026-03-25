@@ -265,13 +265,7 @@ pub fn load_iframe(
     // Guard against excessive iframe nesting (DoS prevention).
     if depth >= elidex_plugin::MAX_IFRAME_DEPTH {
         eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({depth})");
-        let pipeline = crate::build_pipeline_interactive("", "");
-        return make_iframe_entry(
-            iframe_entity,
-            pipeline,
-            SecurityOrigin::opaque(),
-            iframe_data,
-        );
+        return make_blank_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data);
     }
 
     // Determine content source and origin.
@@ -296,10 +290,8 @@ pub fn load_iframe(
             });
             let Ok(resolved) = base.join(src) else {
                 eprintln!("iframe: invalid src URL: {src}");
-                let pipeline = crate::build_pipeline_interactive("", "");
-                return make_iframe_entry(
+                return make_blank_entry(
                     iframe_entity,
-                    pipeline,
                     apply_sandbox_origin(parent_origin.clone(), iframe_data),
                     iframe_data,
                 );
@@ -326,11 +318,8 @@ pub fn load_iframe(
                             "iframe blocked by frame-ancestors/X-Frame-Options: {}",
                             loaded.url
                         );
-                        // Show blank document instead.
-                        let pipeline = crate::build_pipeline_interactive("", "");
-                        return make_iframe_entry(
+                        return make_blank_entry(
                             iframe_entity,
-                            pipeline,
                             SecurityOrigin::opaque(),
                             iframe_data,
                         );
@@ -349,11 +338,11 @@ pub fn load_iframe(
                 }
                 Err(e) => {
                     eprintln!("iframe load error: {e}");
-                    let pipeline = crate::build_pipeline_interactive("", "");
-                    (
-                        pipeline,
+                    return make_blank_entry(
+                        iframe_entity,
                         apply_sandbox_origin(parent_origin.clone(), iframe_data),
-                    )
+                        iframe_data,
+                    );
                 }
             }
         }
@@ -433,6 +422,19 @@ fn apply_sandbox_origin(
         return SecurityOrigin::opaque();
     }
     origin
+}
+
+/// Create a blank `IframeEntry` (empty document) for error/fallback cases.
+///
+/// Used when iframe loading fails, is blocked by security headers,
+/// or exceeds the nesting depth limit.
+fn make_blank_entry(
+    iframe_entity: Entity,
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+) -> IframeEntry {
+    let pipeline = crate::build_pipeline_interactive("", "");
+    make_iframe_entry(iframe_entity, pipeline, origin, iframe_data)
 }
 
 /// Create an `IframeEntry` from a pipeline and origin.
@@ -518,6 +520,7 @@ pub(super) fn detect_iframe_mutations(
                 }
                 // Check removed nodes (and their subtrees) for <iframe> elements.
                 // Subtree iframes must also be unloaded when a parent is removed.
+                let mut removed_set = std::collections::HashSet::new();
                 for &entity in &record.removed_nodes {
                     let mut nested = Vec::new();
                     collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
@@ -537,9 +540,14 @@ pub(super) fn detect_iframe_mutations(
                                 state.focused_iframe = None;
                             }
                         }
-                        // Clean up lazy_iframe_pending list for removed iframes.
-                        state.lazy_iframe_pending.retain(|&e| e != iframe_entity);
+                        removed_set.insert(iframe_entity);
                     }
+                }
+                // Batch clean up lazy_iframe_pending for all removed iframes.
+                if !removed_set.is_empty() {
+                    state
+                        .lazy_iframe_pending
+                        .retain(|e| !removed_set.contains(e));
                 }
             }
             MutationKind::Attribute => {
