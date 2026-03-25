@@ -199,6 +199,10 @@ impl ContentState {
             viewport,
         );
 
+        // Detect iframe additions/removals from mutation records.
+        // Added <iframe> entities trigger loading; removed ones trigger unloading.
+        detect_iframe_mutations(&mutation_records, self);
+
         // Update viewport scroll dimensions after layout completes.
         scroll::update_viewport_scroll_dimensions(self);
     }
@@ -389,6 +393,30 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // --- Iframe frame tick: drain OOP messages + in-process timers ---
+        // Drain display list updates from cross-origin iframe threads.
+        let _post_messages = state.iframes.drain_oop_messages();
+        // TODO: deliver postMessage events from _post_messages
+
+        // Drain timers for in-process (same-origin) iframes.
+        for (_entity, entry) in state.iframes.iter_mut() {
+            if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
+                if ip
+                    .pipeline
+                    .runtime
+                    .next_timer_deadline()
+                    .is_some_and(|d| d <= now)
+                {
+                    ip.pipeline.runtime.drain_timers(
+                        &mut ip.pipeline.session,
+                        &mut ip.pipeline.dom,
+                        ip.pipeline.document,
+                    );
+                    ip.needs_render = true;
+                }
+            }
+        }
+
         // Caret blink update.
         if state.update_caret_blink() {
             needs_render = true;
@@ -419,6 +447,9 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 // (In a real browser, this would show a confirmation dialog.)
                 return true; // Continue event loop.
             }
+            // Shutdown all child iframes before parent (WHATWG HTML §7.1.3).
+            // Send Shutdown to all OOP iframes and join threads.
+            state.iframes.shutdown_all();
             return false;
         }
 
@@ -579,6 +610,74 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
             .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
         _ => false,
     })
+}
+
+/// Detect iframe additions/removals from mutation records.
+///
+/// Scans `MutationRecord` added/removed nodes for entities with `IframeData`
+/// components, and triggers iframe loading/unloading accordingly.
+///
+/// Also detects `src` attribute changes on existing `<iframe>` elements
+/// to trigger re-navigation.
+fn detect_iframe_mutations(
+    records: &[elidex_script_session::MutationRecord],
+    state: &mut ContentState,
+) {
+    use elidex_script_session::MutationKind;
+
+    for record in records {
+        match record.kind {
+            MutationKind::ChildList => {
+                // Check added nodes for <iframe> elements.
+                for &entity in &record.added_nodes {
+                    if state
+                        .pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_ecs::IframeData>(entity)
+                        .is_ok()
+                    {
+                        // TODO: trigger load_iframe(entity) when iframe loading is implemented.
+                        // For now, log the detection.
+                        #[cfg(debug_assertions)]
+                        eprintln!("iframe added to DOM: entity {entity:?}");
+                    }
+                }
+                // Check removed nodes for <iframe> elements.
+                for &entity in &record.removed_nodes {
+                    if state.iframes.remove(entity).is_some() {
+                        // Iframe unloaded — context was dropped.
+                        // Clear focused_iframe if it pointed to this iframe.
+                        if state.focused_iframe == Some(entity) {
+                            state.focused_iframe = None;
+                        }
+                    }
+                }
+            }
+            MutationKind::Attribute => {
+                // Check for `src` attribute change on <iframe> elements.
+                if record
+                    .attribute_name
+                    .as_deref()
+                    .is_some_and(|name| name == "src")
+                {
+                    let target = record.target;
+                    if state
+                        .pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_ecs::IframeData>(target)
+                        .is_ok()
+                    {
+                        // TODO: trigger navigate_iframe(target) when iframe navigation is implemented.
+                        #[cfg(debug_assertions)]
+                        eprintln!("iframe src changed: entity {target:?}");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

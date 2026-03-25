@@ -569,6 +569,7 @@ pub fn build_pipeline_from_loaded(
         stylesheets,
         scripts,
         url,
+        response_headers: _, // Used by iframe loading for CSP/X-Frame-Options checks.
     } = loaded;
 
     elidex_form::init_form_controls(&mut dom);

@@ -31,6 +31,8 @@ pub struct LoadedDocument {
     pub scripts: Vec<ResolvedScript>,
     /// The final URL of the document (after redirects).
     pub url: url::Url,
+    /// HTTP response headers (for CSP frame-ancestors, X-Frame-Options, Permissions-Policy).
+    pub response_headers: HashMap<String, String>,
 }
 
 /// A script ready for execution.
@@ -139,6 +141,13 @@ pub fn load_document(
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .and_then(|(_, v)| extract_charset(v));
 
+    // Collect response headers for security policy enforcement (CSP, X-Frame-Options).
+    let response_headers: HashMap<String, String> = response
+        .headers
+        .iter()
+        .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
+        .collect();
+
     // 3. Parse the HTML.
     let parse_result = elidex_html_parser::parse_tolerant(&response.body, charset_hint.as_deref());
     for err in &parse_result.errors {
@@ -216,6 +225,7 @@ pub fn load_document(
         stylesheets,
         scripts,
         url: response.url,
+        response_headers,
     })
 }
 

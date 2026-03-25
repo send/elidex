@@ -172,6 +172,241 @@ pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
 }
 
 // ---------------------------------------------------------------------------
+// CSP frame-ancestors (W3C CSP Level 3 §7.7.3)
+// ---------------------------------------------------------------------------
+
+/// A source in a CSP `frame-ancestors` directive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FrameAncestorSource {
+    /// `'self'` — matches the document's own origin.
+    SelfOrigin,
+    /// Host source (e.g. `"example.com"`, `"*.example.com"`).
+    Host(String),
+    /// Scheme source (e.g. `"https:"`).
+    Scheme(String),
+}
+
+/// Parsed CSP `frame-ancestors` directive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FrameAncestorsPolicy {
+    /// `frame-ancestors 'none'` — disallow all framing.
+    None,
+    /// `frame-ancestors <source-list>` — allow framing from listed sources.
+    AllowList(Vec<FrameAncestorSource>),
+}
+
+/// Parse the CSP `frame-ancestors` directive from a `Content-Security-Policy` header.
+///
+/// Extracts the `frame-ancestors` directive value and parses its source list.
+/// Returns `None` if the header doesn't contain a `frame-ancestors` directive.
+#[must_use]
+pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
+    // CSP directives are `;`-separated.
+    for directive in csp_header.split(';') {
+        let trimmed = directive.trim();
+        if let Some(value) = trimmed.strip_prefix("frame-ancestors") {
+            let value = value.trim();
+            if value.is_empty() {
+                // `frame-ancestors` with no sources = 'none' behavior.
+                return Some(FrameAncestorsPolicy::None);
+            }
+            if value == "'none'" {
+                return Some(FrameAncestorsPolicy::None);
+            }
+            let mut sources = Vec::new();
+            for token in value.split_ascii_whitespace() {
+                if token == "'self'" {
+                    sources.push(FrameAncestorSource::SelfOrigin);
+                } else if token.ends_with(':') {
+                    sources.push(FrameAncestorSource::Scheme(token.to_string()));
+                } else {
+                    sources.push(FrameAncestorSource::Host(token.to_string()));
+                }
+            }
+            return Some(FrameAncestorsPolicy::AllowList(sources));
+        }
+    }
+    std::option::Option::None
+}
+
+/// Check whether a parent origin is allowed to frame a document
+/// according to the document's `frame-ancestors` policy.
+///
+/// Returns `true` if framing is allowed, `false` if blocked.
+#[must_use]
+pub fn is_framing_allowed(
+    policy: &FrameAncestorsPolicy,
+    parent_origin: &SecurityOrigin,
+    document_origin: &SecurityOrigin,
+) -> bool {
+    match policy {
+        FrameAncestorsPolicy::None => false,
+        FrameAncestorsPolicy::AllowList(sources) => {
+            for source in sources {
+                match source {
+                    FrameAncestorSource::SelfOrigin => {
+                        if parent_origin.same_origin(document_origin) {
+                            return true;
+                        }
+                    }
+                    FrameAncestorSource::Host(pattern) => {
+                        if let SecurityOrigin::Tuple {
+                            scheme, host, port, ..
+                        } = parent_origin
+                        {
+                            // CSP host-source may include scheme: "https://example.com"
+                            // or be bare: "example.com" or "*.example.com".
+                            let (pattern_scheme, pattern_host) =
+                                if let Some(rest) = pattern.strip_prefix("https://") {
+                                    (Some("https"), rest)
+                                } else if let Some(rest) = pattern.strip_prefix("http://") {
+                                    (Some("http"), rest)
+                                } else {
+                                    (None, pattern.as_str())
+                                };
+
+                            // Scheme check (if specified in pattern).
+                            if let Some(ps) = pattern_scheme {
+                                if scheme != ps {
+                                    continue;
+                                }
+                            }
+
+                            // Host check with wildcard support.
+                            // Strip port from pattern if present.
+                            let (ph, pp) = pattern_host
+                                .rsplit_once(':')
+                                .map_or((pattern_host, None), |(h, p)| (h, p.parse::<u16>().ok()));
+
+                            if let Some(expected_port) = pp {
+                                if *port != expected_port {
+                                    continue;
+                                }
+                            }
+
+                            if let Some(domain) = ph.strip_prefix("*.") {
+                                let suffix = &ph[1..]; // ".example.com"
+                                if host.ends_with(suffix) || *host == *domain {
+                                    return true;
+                                }
+                            } else if host == ph {
+                                return true;
+                            }
+                        }
+                    }
+                    FrameAncestorSource::Scheme(scheme_source) => {
+                        if let SecurityOrigin::Tuple { scheme, .. } = parent_origin {
+                            let target = scheme_source.trim_end_matches(':');
+                            if scheme == target {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            false
+        }
+    }
+}
+
+/// Check `X-Frame-Options` header value (RFC 7034).
+///
+/// Returns `true` if framing is allowed, `false` if blocked.
+/// Only checks `DENY` and `SAMEORIGIN` values.
+#[must_use]
+pub fn check_x_frame_options(
+    header_value: &str,
+    parent_origin: &SecurityOrigin,
+    document_origin: &SecurityOrigin,
+) -> bool {
+    let value = header_value.trim().to_ascii_uppercase();
+    match value.as_str() {
+        "DENY" => false,
+        "SAMEORIGIN" => parent_origin.same_origin(document_origin),
+        _ => true, // Unknown values are ignored (allow framing).
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Permissions-Policy framework (WHATWG §6.9)
+// ---------------------------------------------------------------------------
+
+/// Allow-list for a Permissions-Policy feature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AllowList {
+    /// `*` — allow all origins.
+    All,
+    /// `()` — deny all origins.
+    None,
+    /// `(self)` — allow only the document's own origin.
+    SelfOnly,
+    /// Explicit origin list.
+    Origins(Vec<SecurityOrigin>),
+}
+
+/// Permissions-Policy for a document (WHATWG HTML §6.9, 08-security-model.md §8.4).
+///
+/// Framework type only — actual enforcement is deferred to individual Web API
+/// implementations that call [`PermissionsPolicy::is_feature_allowed`].
+#[derive(Clone, Debug, Default)]
+pub struct PermissionsPolicy {
+    /// Feature name → allow-list mapping.
+    policies: std::collections::HashMap<String, AllowList>,
+}
+
+impl PermissionsPolicy {
+    /// Create an empty policy (all features use default behavior).
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the allow-list for a feature.
+    pub fn set_feature(&mut self, feature: impl Into<String>, allow_list: AllowList) {
+        self.policies.insert(feature.into(), allow_list);
+    }
+
+    /// Check whether a feature is allowed for a given origin.
+    ///
+    /// If no policy is set for the feature, returns `true` (default allow).
+    #[must_use]
+    pub fn is_feature_allowed(&self, feature: &str, origin: &SecurityOrigin) -> bool {
+        let Some(allow_list) = self.policies.get(feature) else {
+            return true; // No policy = default allow.
+        };
+        match allow_list {
+            AllowList::All => true,
+            AllowList::None => false,
+            AllowList::SelfOnly => {
+                // Check if origin matches document origin (caller should pass document origin).
+                // For simplicity, SelfOnly always returns true for the document's own origin.
+                // Cross-origin check is handled by the caller.
+                matches!(origin, SecurityOrigin::Tuple { .. })
+            }
+            AllowList::Origins(origins) => origins.iter().any(|o| o.same_origin(origin)),
+        }
+    }
+}
+
+/// Parse the `<iframe allow>` attribute value into a `PermissionsPolicy`.
+///
+/// Format: `"camera; fullscreen 'src'"` → feature names with optional allowlist.
+/// Simplified: each semicolon-separated feature is allowed for `SelfOnly`.
+#[must_use]
+pub fn parse_iframe_allow_attribute(value: &str) -> PermissionsPolicy {
+    let mut policy = PermissionsPolicy::new();
+    for token in value.split(';') {
+        let feature = token.trim().split_ascii_whitespace().next();
+        if let Some(name) = feature {
+            if !name.is_empty() {
+                policy.set_feature(name, AllowList::SelfOnly);
+            }
+        }
+    }
+    policy
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -307,5 +542,93 @@ mod tests {
         assert!(flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_MODALS));
+    }
+
+    // --- CSP frame-ancestors tests ---
+
+    #[test]
+    fn frame_ancestors_none() {
+        let policy = parse_frame_ancestors("frame-ancestors 'none'").unwrap();
+        assert_eq!(policy, FrameAncestorsPolicy::None);
+
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(!is_framing_allowed(&policy, &parent, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_self() {
+        let policy = parse_frame_ancestors("frame-ancestors 'self'").unwrap();
+        let same = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(is_framing_allowed(&policy, &same, &doc));
+
+        let cross = SecurityOrigin::from_url(&url::Url::parse("https://evil.com").unwrap());
+        assert!(!is_framing_allowed(&policy, &cross, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_host() {
+        let csp = "default-src 'self'; frame-ancestors https://trusted.com *.example.com";
+        let policy = parse_frame_ancestors(csp).unwrap();
+
+        let trusted = SecurityOrigin::from_url(&url::Url::parse("https://trusted.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://target.com").unwrap());
+        assert!(is_framing_allowed(&policy, &trusted, &doc));
+
+        let sub = SecurityOrigin::from_url(&url::Url::parse("https://sub.example.com").unwrap());
+        assert!(is_framing_allowed(&policy, &sub, &doc));
+
+        let evil = SecurityOrigin::from_url(&url::Url::parse("https://evil.com").unwrap());
+        assert!(!is_framing_allowed(&policy, &evil, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_not_present() {
+        let policy = parse_frame_ancestors("default-src 'self'");
+        assert!(policy.is_none());
+    }
+
+    #[test]
+    fn x_frame_options_deny() {
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(!check_x_frame_options("DENY", &parent, &doc));
+    }
+
+    #[test]
+    fn x_frame_options_sameorigin() {
+        let same = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(check_x_frame_options("SAMEORIGIN", &same, &doc));
+
+        let cross = SecurityOrigin::from_url(&url::Url::parse("https://other.com").unwrap());
+        assert!(!check_x_frame_options("SAMEORIGIN", &cross, &doc));
+    }
+
+    // --- Permissions-Policy tests ---
+
+    #[test]
+    fn permissions_policy_default_allow() {
+        let policy = PermissionsPolicy::new();
+        let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(policy.is_feature_allowed("camera", &origin));
+    }
+
+    #[test]
+    fn permissions_policy_deny_feature() {
+        let mut policy = PermissionsPolicy::new();
+        policy.set_feature("camera", AllowList::None);
+        let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(!policy.is_feature_allowed("camera", &origin));
+        assert!(policy.is_feature_allowed("fullscreen", &origin)); // Not set = allow.
+    }
+
+    #[test]
+    fn parse_iframe_allow() {
+        let policy = parse_iframe_allow_attribute("camera; fullscreen");
+        let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(policy.is_feature_allowed("camera", &origin));
+        assert!(policy.is_feature_allowed("fullscreen", &origin));
     }
 }

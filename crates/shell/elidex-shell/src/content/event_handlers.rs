@@ -672,3 +672,116 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
         _ => {}
     }
 }
+
+// ---------------------------------------------------------------------------
+// Iframe event routing
+// ---------------------------------------------------------------------------
+
+/// Check if a hit-test result landed on an `<iframe>` element that has a loaded
+/// iframe context. Returns `true` if the event was routed to the iframe
+/// (caller should skip normal dispatch).
+///
+/// For same-origin (in-process) iframes, the click is transformed to iframe-local
+/// coordinates and dispatched directly to the iframe's `JsRuntime`.
+/// For cross-origin (out-of-process) iframes, the click is forwarded via IPC.
+///
+/// Events do NOT bubble out of iframe boundaries (WHATWG HTML: iframe is an
+/// event boundary).
+#[allow(dead_code)] // Used when iframe loading is implemented.
+pub(super) fn try_route_click_to_iframe(
+    state: &mut ContentState,
+    hit_entity: elidex_ecs::Entity,
+    click: &crate::ipc::MouseClickEvent,
+) -> bool {
+    use super::iframe::{BrowserToIframe, IframeHandle};
+
+    // Check if the hit entity is an iframe with a loaded context.
+    let Some(entry) = state.iframes.get(hit_entity) else {
+        return false;
+    };
+
+    // Compute coordinate transform: parent coordinates → iframe-local coordinates.
+    // The iframe's LayoutBox position gives the offset.
+    let offset = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_plugin::LayoutBox>(hit_entity)
+        .ok()
+        .map(|lb| lb.content.origin)
+        .unwrap_or_default();
+
+    let local_point = elidex_plugin::Point::new(click.point.x - offset.x, click.point.y - offset.y);
+    let local_client = elidex_plugin::Point::new(
+        click.client_point.x - f64::from(offset.x),
+        click.client_point.y - f64::from(offset.y),
+    );
+
+    let local_click = crate::ipc::MouseClickEvent {
+        point: local_point,
+        client_point: local_client,
+        button: click.button,
+        mods: click.mods,
+    };
+
+    match &entry.handle {
+        IframeHandle::InProcess(iframe) => {
+            // Same-origin: dispatch directly to iframe's runtime.
+            // For now, mark as needing render — full dispatch
+            // will be implemented when iframe loading is complete.
+            let _ = &iframe.pipeline;
+            // TODO: dispatch click event to iframe.pipeline.runtime
+        }
+        IframeHandle::OutOfProcess(oop) => {
+            // Cross-origin: forward via IPC.
+            let _ = oop.channel.send(BrowserToIframe::MouseClick(local_click));
+        }
+    }
+
+    // Set focused_iframe so keyboard events go to this iframe.
+    state.focused_iframe = Some(hit_entity);
+
+    true
+}
+
+/// Check if keyboard events should be routed to a focused iframe.
+/// Returns `true` if the event was routed.
+#[allow(dead_code)] // Used when iframe loading is implemented.
+pub(super) fn try_route_key_to_iframe(
+    state: &mut ContentState,
+    event_type: &str,
+    key: &str,
+    code: &str,
+    repeat: bool,
+    mods: ModifierState,
+) -> bool {
+    use super::iframe::{BrowserToIframe, IframeHandle};
+
+    let Some(iframe_entity) = state.focused_iframe else {
+        return false;
+    };
+    let Some(entry) = state.iframes.get(iframe_entity) else {
+        state.focused_iframe = None;
+        return false;
+    };
+
+    match &entry.handle {
+        IframeHandle::InProcess(iframe) => {
+            // Same-origin: dispatch directly.
+            let _ = &iframe.pipeline;
+            // TODO: dispatch key event to iframe.pipeline.runtime
+        }
+        IframeHandle::OutOfProcess(oop) => {
+            if event_type == "keydown" {
+                let _ = oop.channel.send(BrowserToIframe::KeyDown {
+                    key: key.to_string(),
+                    code: code.to_string(),
+                    repeat,
+                    mods,
+                });
+            }
+        }
+    }
+
+    true
+}
