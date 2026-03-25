@@ -456,10 +456,11 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 
     // Flush applies buffered mutations to the DOM and enqueue CE reactions.
     let raw_records = result.session.flush(&mut result.dom);
-    let mutation_records: Vec<elidex_script_session::MutationRecord> =
+    let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
         raw_records.into_iter().flatten().collect();
 
     // Enqueue and drain CE reactions for any custom elements affected by mutations.
+    // CE callbacks may trigger additional mutations, so loop until stable (bounded).
     if !mutation_records.is_empty() {
         result
             .runtime
@@ -469,6 +470,28 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
             &mut result.dom,
             result.document,
         );
+
+        // Re-flush: CE callbacks may have recorded new mutations.
+        for _ in 0..4 {
+            let follow_up: Vec<_> = result
+                .session
+                .flush(&mut result.dom)
+                .into_iter()
+                .flatten()
+                .collect();
+            if follow_up.is_empty() {
+                break;
+            }
+            mutation_records.extend(follow_up);
+            result
+                .runtime
+                .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
+            result.runtime.drain_custom_element_reactions_public(
+                &mut result.session,
+                &mut result.dom,
+                result.document,
+            );
+        }
     }
 
     // Invalidate ancestor cache when DOM mutations occurred.

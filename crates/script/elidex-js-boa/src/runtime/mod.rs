@@ -618,13 +618,14 @@ impl JsRuntime {
                     // target (parent) is in a connected tree. The added nodes
                     // are children of the target, so they share connectivity.
                     let target_connected = is_connected_to_document(record.target, dom);
-                    if target_connected {
-                        for &entity in &record.added_nodes {
+                    for &entity in &record.added_nodes {
+                        if target_connected {
                             walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
-                            // Also check for undefined elements that need upgrade
-                            // (e.g., innerHTML-parsed CEs with existing definitions).
-                            walk_subtree_for_upgrade(entity, &self.bridge, dom, 0);
                         }
+                        // Upgrade undefined CEs regardless of connectivity —
+                        // elements created via innerHTML in disconnected subtrees
+                        // should still be upgraded when a definition exists.
+                        walk_subtree_for_upgrade(entity, &self.bridge, dom, 0);
                     }
                     // For "disconnected" reactions, only fire if the parent
                     // (record.target) is still connected — meaning the removed
