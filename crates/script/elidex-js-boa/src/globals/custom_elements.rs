@@ -5,7 +5,9 @@
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::builtins::JsPromise;
 use boa_engine::object::ObjectInitializer;
-use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
+use boa_engine::{
+    js_string, Context, JsError, JsNativeError, JsObject, JsResult, JsValue, NativeFunction,
+};
 use elidex_custom_elements::{is_valid_custom_element_name, CustomElementReaction};
 
 use crate::bridge::HostBridge;
@@ -141,9 +143,13 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 let name = require_js_string_arg(args, 0, "customElements.whenDefined", ctx)?;
 
                 if !is_valid_custom_element_name(&name) {
-                    return Err(JsNativeError::syntax()
+                    // Spec: whenDefined must return a rejected Promise for invalid
+                    // names, not throw synchronously.
+                    let error: JsError = JsNativeError::syntax()
                         .with_message(format!("'{name}' is not a valid custom element name"))
-                        .into());
+                        .into();
+                    let promise = JsPromise::reject(error, ctx);
+                    return Ok(promise.into());
                 }
 
                 if bridge.is_custom_element_defined(&name) {
