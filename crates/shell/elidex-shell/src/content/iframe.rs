@@ -273,22 +273,10 @@ pub fn load_iframe(
 
     // Determine content source and origin.
     let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
-        // srcdoc: parse inline HTML, inherit parent origin.
+        // srcdoc: parse inline HTML, inherit parent origin (WHATWG HTML §4.8.5).
+        // Sandbox + credentialless override handled by apply_sandbox_origin.
         let pipeline = crate::build_pipeline_interactive(srcdoc, "");
-        let origin = if iframe_data.sandbox.is_some()
-            && !iframe_data
-                .sandbox
-                .as_deref()
-                .map_or(
-                    IframeSandboxFlags::empty(),
-                    elidex_plugin::parse_sandbox_attribute,
-                )
-                .contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN)
-        {
-            SecurityOrigin::opaque()
-        } else {
-            parent_origin.clone()
-        };
+        let origin = apply_sandbox_origin(parent_origin.clone(), iframe_data);
         (pipeline, origin)
     } else if let Some(src) = &iframe_data.src {
         if src.is_empty() || src == "about:blank" {

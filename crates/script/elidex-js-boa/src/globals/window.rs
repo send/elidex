@@ -456,13 +456,12 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                 .transpose()?
                 .map_or_else(|| String::from("/"), |s| s.to_std_string_escaped());
 
-            // targetOrigin check: "*" matches all, "/" matches own origin,
-            // otherwise must match serialized origin.
+            // targetOrigin check per WHATWG HTML §9.4.3:
+            // "*" matches all origins, "/" is shorthand for own origin.
             let own_origin = bridge.origin();
-            let origin_matches = target_origin == "*"
-                || (target_origin == "/"
-                    && matches!(own_origin, elidex_plugin::SecurityOrigin::Tuple { .. }))
-                || own_origin.serialize() == target_origin;
+            let own_serialized = own_origin.serialize();
+            let origin_matches =
+                target_origin == "*" || target_origin == "/" || own_serialized == target_origin;
 
             if origin_matches {
                 // Buffer the message for delivery in the next event loop tick.
