@@ -398,6 +398,11 @@ fn make_iframe_entry(
         .as_deref()
         .map(elidex_plugin::parse_sandbox_attribute);
 
+    // Set sandbox flags on the iframe's JS bridge for runtime enforcement.
+    pipeline.runtime.bridge().set_sandbox_flags(sandbox_flags);
+    // Set origin on the iframe's JS bridge.
+    pipeline.runtime.bridge().set_origin(origin.clone());
+
     let viewport = Size::new(iframe_data.width as f32, iframe_data.height as f32);
 
     IframeEntry {

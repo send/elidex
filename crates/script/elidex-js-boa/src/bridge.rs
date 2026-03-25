@@ -123,6 +123,9 @@ struct HostBridgeInner {
     /// Referrer URL for this document (set from parent URL when loaded as iframe).
     #[allow(dead_code)] // Accessed via HostBridge accessor methods.
     referrer: Option<String>,
+    /// Iframe sandbox flags (if this document is inside a sandboxed iframe).
+    /// `None` for top-level documents or unsandboxed iframes.
+    sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -234,6 +237,7 @@ impl HostBridge {
                 origin: elidex_plugin::SecurityOrigin::opaque(),
                 frame_element: None,
                 referrer: None,
+                sandbox_flags: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -431,6 +435,54 @@ impl HostBridge {
     #[must_use]
     pub fn referrer(&self) -> Option<String> {
         self.inner.borrow().referrer.clone()
+    }
+
+    /// Set sandbox flags for this document (if inside a sandboxed iframe).
+    pub fn set_sandbox_flags(&self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+        self.inner.borrow_mut().sandbox_flags = flags;
+    }
+
+    /// Get sandbox flags for this document.
+    #[must_use]
+    pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        self.inner.borrow().sandbox_flags
+    }
+
+    /// Check if scripts are allowed (sandbox allow-scripts flag).
+    /// Returns `true` if not sandboxed or if allow-scripts is set.
+    #[must_use]
+    pub fn scripts_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
+    }
+
+    /// Check if forms are allowed (sandbox allow-forms flag).
+    #[must_use]
+    pub fn forms_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
+    }
+
+    /// Check if popups are allowed (sandbox allow-popups flag).
+    #[must_use]
+    pub fn popups_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
+    }
+
+    /// Check if modals (alert/confirm/prompt) are allowed.
+    #[must_use]
+    pub fn modals_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
     }
 
     /// Set a pending navigation request.

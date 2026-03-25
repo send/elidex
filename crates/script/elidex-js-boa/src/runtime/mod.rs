@@ -89,6 +89,13 @@ impl JsRuntime {
         dom: &mut EcsDom,
         document_entity: Entity,
     ) -> EvalResult {
+        // Sandbox allow-scripts check: if scripts are blocked, skip evaluation.
+        if !self.bridge.scripts_allowed() {
+            return EvalResult {
+                success: true,
+                error: None,
+            };
+        }
         self.bridge.bind(session, dom, document_entity);
         let guard = UnbindGuard(&self.bridge);
 

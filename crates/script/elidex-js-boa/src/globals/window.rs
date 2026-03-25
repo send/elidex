@@ -322,9 +322,11 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
 
     // --- iframe-related window properties (WHATWG HTML §7.1.3) ---
 
-    // window.parent — returns `self` for top-level documents.
-    // For iframes, this should return the parent window proxy.
-    // MVP: always returns `self` (no cross-window proxy yet).
+    // window.parent — returns `self` for top-level, parent window for iframes.
+    // Same boa Context limitation: each iframe has its own JsRuntime/Context,
+    // so we can't return the actual parent's global object. For same-origin iframes,
+    // return `self` as a proxy (cross-context object sharing requires self-hosted engine).
+    // This is correct for top-level documents and degraded-but-safe for iframes.
     let parent_fn =
         NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
     ctx.register_global_property(
@@ -334,8 +336,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     )
     .expect("failed to register window.parent");
 
-    // window.top — returns the top-level window.
-    // MVP: always returns `self` (no window hierarchy yet).
+    // window.top — same limitation as window.parent.
     let top_fn =
         NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
     ctx.register_global_property(
@@ -347,6 +348,9 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
 
     // window.frameElement — null for top-level, iframe element for embedded docs.
     // Cross-origin: always null (WHATWG HTML §7.1.3).
+    // For same-origin iframes, should return the <iframe> element from parent DOM.
+    // Boa limitation: can't return an object from parent's Context.
+    // Returns null for now; self-hosted engine will implement cross-context proxies.
     ctx.register_global_property(
         js_string!("frameElement"),
         JsValue::null(),
@@ -381,6 +385,108 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     )
     .expect("failed to register window.frames");
+
+    // window.open(url, target, features)
+    let b_open = b.clone();
+    let open_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| -> JsResult<JsValue> {
+            // Sandbox allow-popups check.
+            if !bridge.popups_allowed() {
+                return Ok(JsValue::null());
+            }
+            let url_str = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let target = args
+                .get(1)
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or_else(|| String::from("_blank"), |s| s.to_std_string_escaped());
+            // _features arg is intentionally ignored (MVP).
+
+            match target.as_str() {
+                "_self" => {
+                    // Navigate current document.
+                    if let Ok(resolved) = url::Url::parse(&url_str) {
+                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                            url: resolved.to_string(),
+                            replace: false,
+                        });
+                    }
+                }
+                "_blank" | "" => {
+                    // Open new tab (features ignored in MVP).
+                    if let Ok(resolved) = url::Url::parse(&url_str) {
+                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                            url: resolved.to_string(),
+                            replace: false,
+                        });
+                    }
+                }
+                _ => {
+                    // Named target or _parent/_top — navigate current document (MVP).
+                    if let Ok(resolved) = url::Url::parse(&url_str) {
+                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                            url: resolved.to_string(),
+                            replace: false,
+                        });
+                    }
+                }
+            }
+
+            // Return null (no popup window proxy in MVP).
+            Ok(JsValue::null())
+        },
+        b_open,
+    );
+    ctx.register_global_builtin_callable(js_string!("open"), 3, open_fn)
+        .expect("failed to register window.open");
+
+    // alert/confirm/prompt — sandbox allow-modals enforcement.
+    let b_alert = b.clone();
+    let alert_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            if !bridge.modals_allowed() {
+                return Ok(JsValue::undefined());
+            }
+            // MVP: alert is a no-op (no modal UI).
+            Ok(JsValue::undefined())
+        },
+        b_alert,
+    );
+    ctx.register_global_builtin_callable(js_string!("alert"), 1, alert_fn)
+        .expect("failed to register alert");
+
+    let b_confirm = b.clone();
+    let confirm_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            if !bridge.modals_allowed() {
+                return Ok(JsValue::from(false));
+            }
+            // MVP: confirm always returns false (no modal UI).
+            Ok(JsValue::from(false))
+        },
+        b_confirm,
+    );
+    ctx.register_global_builtin_callable(js_string!("confirm"), 1, confirm_fn)
+        .expect("failed to register confirm");
+
+    let b_prompt = b;
+    let prompt_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            if !bridge.modals_allowed() {
+                return Ok(JsValue::null());
+            }
+            // MVP: prompt always returns null (no modal UI).
+            Ok(JsValue::null())
+        },
+        b_prompt,
+    );
+    ctx.register_global_builtin_callable(js_string!("prompt"), 1, prompt_fn)
+        .expect("failed to register prompt");
 }
 
 /// Evaluate a basic media query string against the current viewport.

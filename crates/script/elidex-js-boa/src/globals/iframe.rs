@@ -19,17 +19,17 @@ pub(crate) fn register_iframe_accessors(
     realm: &boa_engine::realm::Realm,
 ) {
     // --- contentDocument (read-only) ---
-    // Same-origin: returns iframe's document object.
+    // Same-origin: should return iframe's document object.
     // Cross-origin: returns null (WHATWG HTML §4.8.5).
-    // MVP: returns null (iframe pipelines not yet connected to JS).
+    //
+    // Boa limitation: each iframe has its own JsRuntime with separate boa Context.
+    // Objects from one Context can't be used in another. contentDocument would need
+    // to return a Document object from the iframe's Context into the parent's Context,
+    // which boa doesn't support. Returns null (cross-origin behavior) for all cases.
+    // Self-hosted JS engine (M4-9+) will implement proper cross-context document proxies.
     let b_cd = bridge.clone();
     let cd_getter = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, _bridge, _ctx| {
-            // TODO: when iframe loading is connected to HostBridge,
-            // look up the iframe's document entity and return its wrapper.
-            // For now, always return null (equivalent to cross-origin behavior).
-            Ok(JsValue::null())
-        },
+        |_this, _args, _bridge, _ctx| Ok(JsValue::null()),
         b_cd,
     )
     .to_js_function(realm);
@@ -41,9 +41,10 @@ pub(crate) fn register_iframe_accessors(
     );
 
     // --- contentWindow (read-only) ---
-    // Same-origin: returns iframe's window proxy.
-    // Cross-origin: returns restricted window proxy.
-    // MVP: returns null.
+    // Same-origin: should return iframe's window proxy.
+    // Cross-origin: returns restricted window proxy (postMessage only).
+    // Boa limitation: same as contentDocument — cross-context object sharing not supported.
+    // Returns null for all cases. Self-hosted engine (M4-9+) will implement window proxies.
     let b_content_window = bridge.clone();
     let content_window_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, _bridge, _ctx| Ok(JsValue::null()),
