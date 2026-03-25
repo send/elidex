@@ -54,11 +54,12 @@ struct ContentState {
     /// Viewport-level scroll state (not attached to a DOM entity).
     viewport_scroll: elidex_ecs::ScrollState,
     /// Registry of child iframes (same-origin in-process + cross-origin out-of-process).
-    #[allow(dead_code)] // Used when iframe loading is implemented.
     iframes: iframe::IframeRegistry,
     /// Which iframe currently has focus (`None` = parent document has focus).
     #[allow(dead_code)] // Used when iframe event routing is implemented.
     focused_iframe: Option<Entity>,
+    /// Entities awaiting lazy load (loading="lazy" iframes not yet in viewport).
+    lazy_iframe_pending: Vec<Entity>,
 }
 
 impl ContentState {
@@ -121,6 +122,7 @@ impl ContentState {
             pipeline,
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
+            lazy_iframe_pending: Vec::new(),
         }
     }
 
@@ -202,6 +204,10 @@ impl ContentState {
         // Detect iframe additions/removals from mutation records.
         // Added <iframe> entities trigger loading; removed ones trigger unloading.
         detect_iframe_mutations(&mutation_records, self);
+
+        // Check lazy iframes: load those that have entered the viewport.
+        // Uses LayoutBox position vs viewport bounds with 200px margin.
+        check_lazy_iframes(self);
 
         // Update viewport scroll dimensions after layout completes.
         scroll::update_viewport_scroll_dimensions(self);
@@ -312,6 +318,7 @@ fn content_thread_main_url(
     run_event_loop(&mut state);
 }
 
+#[allow(clippy::too_many_lines)] // Event loop with iframe integration.
 fn run_event_loop(state: &mut ContentState) {
     let mut last_frame = Instant::now();
 
@@ -413,6 +420,28 @@ fn run_event_loop(state: &mut ContentState) {
                 &mut state.pipeline.dom,
                 state.pipeline.document,
             );
+        }
+
+        // Deliver self-postMessage events queued by window.postMessage().
+        let self_messages = state.pipeline.runtime.bridge().drain_post_messages();
+        for (data, origin) in &self_messages {
+            let mut event = elidex_script_session::DispatchEvent::new_composed(
+                "message",
+                state.pipeline.document,
+            );
+            event.payload = elidex_plugin::EventPayload::Message {
+                data: data.clone(),
+                origin: origin.clone(),
+            };
+            state.pipeline.runtime.dispatch_event(
+                &mut event,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+        }
+        if !self_messages.is_empty() || !post_messages.is_empty() {
+            needs_render = true;
         }
 
         // Drain timers for in-process (same-origin) iframes.
@@ -679,7 +708,83 @@ fn detect_iframe_mutations(
     }
 }
 
+/// Check lazy iframes and load those near the viewport.
+///
+/// Uses `LayoutBox` position to determine if a lazy iframe is within 200px
+/// of the viewport bounds. Once loaded, the entity is removed from the
+/// pending list.
+fn check_lazy_iframes(state: &mut ContentState) {
+    if state.lazy_iframe_pending.is_empty() {
+        return;
+    }
+
+    let viewport_height = state.pipeline.viewport.height;
+    let scroll_y = state.viewport_scroll.scroll_offset.y;
+    let margin = 200.0_f32; // Load iframes within 200px of viewport edge.
+
+    let visible_top = scroll_y - margin;
+    let visible_bottom = scroll_y + viewport_height + margin;
+
+    // Collect entities to load (to avoid borrow conflict with state).
+    let to_load: Vec<elidex_ecs::Entity> = state
+        .lazy_iframe_pending
+        .iter()
+        .copied()
+        .filter(|&entity| {
+            state
+                .pipeline
+                .dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(entity)
+                .ok()
+                .is_some_and(|lb| {
+                    let top = lb.content.origin.y;
+                    let bottom = top + lb.content.size.height;
+                    // Iframe overlaps the extended viewport.
+                    bottom >= visible_top && top <= visible_bottom
+                })
+        })
+        .collect();
+
+    if to_load.is_empty() {
+        return;
+    }
+
+    // Remove loaded entities from pending list.
+    state.lazy_iframe_pending.retain(|e| !to_load.contains(e));
+
+    // Load each visible lazy iframe.
+    for entity in to_load {
+        // Re-read IframeData since we're loading now.
+        let iframe_data = state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .map(|d| (*d).clone());
+        if let Some(data) = iframe_data {
+            let parent_origin = state.pipeline.runtime.bridge().origin();
+            let depth = state.iframes.len();
+            let entry = iframe::load_iframe(
+                entity,
+                &data,
+                &parent_origin,
+                state.pipeline.url.as_ref(),
+                &state.pipeline.font_db,
+                &state.pipeline.fetch_handle,
+                &state.pipeline.registry,
+                depth,
+            );
+            state.iframes.insert(entity, entry);
+        }
+    }
+}
+
 /// Try to load an iframe for `entity` if it has `IframeData`.
+///
+/// Respects `loading="lazy"`: lazy iframes are skipped here and will be
+/// loaded when an `IntersectionObserver` detects they are near the viewport.
 fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) {
     let iframe_data = state
         .pipeline
@@ -689,7 +794,17 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
         .ok()
         .map(|d| (*d).clone());
     if let Some(data) = iframe_data {
+        // loading="lazy": defer loading until near viewport (WHATWG HTML §4.8.5).
+        // Registers the entity in the pending list; the event loop checks
+        // LayoutBox positions each frame to detect viewport proximity.
+        if data.loading == elidex_ecs::LoadingAttribute::Lazy {
+            if !state.lazy_iframe_pending.contains(&entity) {
+                state.lazy_iframe_pending.push(entity);
+            }
+            return;
+        }
         let parent_origin = state.pipeline.runtime.bridge().origin();
+        let depth = state.iframes.len(); // Approximate nesting depth.
         let entry = iframe::load_iframe(
             entity,
             &data,
@@ -698,6 +813,7 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             &state.pipeline.font_db,
             &state.pipeline.fetch_handle,
             &state.pipeline.registry,
+            depth,
         );
         state.iframes.insert(entity, entry);
     }

@@ -248,6 +248,7 @@ impl IframeRegistry {
 ///
 /// Returns `None` if framing is blocked by security headers.
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+#[allow(clippy::too_many_arguments)] // Grouped context params; struct extraction deferred.
 pub fn load_iframe(
     iframe_entity: Entity,
     iframe_data: &elidex_ecs::IframeData,
@@ -256,7 +257,20 @@ pub fn load_iframe(
     font_db: &std::sync::Arc<elidex_text::FontDatabase>,
     fetch_handle: &std::rc::Rc<elidex_net::FetchHandle>,
     _registry: &elidex_plugin::CssPropertyRegistry,
+    depth: usize,
 ) -> IframeEntry {
+    // Guard against excessive iframe nesting (DoS prevention).
+    if depth > elidex_plugin::MAX_IFRAME_DEPTH {
+        eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({depth})");
+        let pipeline = crate::build_pipeline_interactive("", "");
+        return make_iframe_entry(
+            iframe_entity,
+            pipeline,
+            SecurityOrigin::opaque(),
+            iframe_data,
+        );
+    }
+
     // Determine content source and origin.
     let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
         // srcdoc: parse inline HTML, inherit parent origin.
@@ -386,6 +400,10 @@ fn apply_sandbox_origin(
 }
 
 /// Create an `IframeEntry` from a pipeline and origin.
+///
+/// Same-origin iframes use `InProcess` (direct access); cross-origin iframes
+/// use `InProcess` as well in the current implementation (true `OutOfProcess`
+/// thread spawning requires async iframe loading, deferred to Phase 5).
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
 fn make_iframe_entry(
     iframe_entity: Entity,
@@ -405,6 +423,12 @@ fn make_iframe_entry(
 
     let viewport = Size::new(iframe_data.width as f32, iframe_data.height as f32);
 
+    // Note: All iframes currently use InProcess. Cross-origin thread isolation
+    // (OutOfProcessIframe) requires async iframe loading to avoid blocking the
+    // parent content thread during synchronous HTTP fetch. This is deferred to
+    // Phase 5 when async resource loading is implemented. The same-origin policy
+    // is still enforced via JS-level access control (contentDocument returns null
+    // for cross-origin, sandbox flags block script execution, etc.).
     IframeEntry {
         handle: IframeHandle::InProcess(Box::new(InProcessIframe {
             pipeline,

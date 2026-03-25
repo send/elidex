@@ -126,6 +126,8 @@ struct HostBridgeInner {
     /// Iframe sandbox flags (if this document is inside a sandboxed iframe).
     /// `None` for top-level documents or unsandboxed iframes.
     sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Queued postMessage events for delivery in the next event loop tick.
+    pending_post_messages: Vec<(String, String)>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -238,6 +240,7 @@ impl HostBridge {
                 frame_element: None,
                 referrer: None,
                 sandbox_flags: None,
+                pending_post_messages: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -483,6 +486,19 @@ impl HostBridge {
             .borrow()
             .sandbox_flags
             .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
+    }
+
+    /// Queue a postMessage for delivery in the next event loop tick.
+    pub fn queue_post_message(&self, data: String, origin: String) {
+        self.inner
+            .borrow_mut()
+            .pending_post_messages
+            .push((data, origin));
+    }
+
+    /// Drain all queued postMessage events.
+    pub fn drain_post_messages(&self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.inner.borrow_mut().pending_post_messages)
     }
 
     /// Set a pending navigation request.

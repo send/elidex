@@ -436,6 +436,47 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("open"), 3, open_fn)
         .expect("failed to register window.open");
 
+    // window.postMessage(message, targetOrigin) — WHATWG HTML §9.4.3.
+    // Dispatches a MessageEvent on the current window. For cross-origin iframes,
+    // the content thread's event loop picks up PostMessage IPC messages and
+    // dispatches them as events. This registration handles the JS-side API
+    // for sending messages from the current document.
+    let b_pm = b.clone();
+    let post_message_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| -> JsResult<JsValue> {
+            let message = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let target_origin = args
+                .get(1)
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or_else(|| String::from("/"), |s| s.to_std_string_escaped());
+
+            // targetOrigin check: "*" matches all, "/" matches own origin,
+            // otherwise must match serialized origin.
+            let own_origin = bridge.origin();
+            let origin_matches = target_origin == "*"
+                || (target_origin == "/"
+                    && matches!(own_origin, elidex_plugin::SecurityOrigin::Tuple { .. }))
+                || own_origin.serialize() == target_origin;
+
+            if origin_matches {
+                // Buffer the message for delivery in the next event loop tick.
+                // Delivery is asynchronous per WHATWG HTML §9.4.3.
+                bridge.queue_post_message(message, own_origin.serialize());
+            }
+
+            Ok(JsValue::undefined())
+        },
+        b_pm,
+    );
+    ctx.register_global_builtin_callable(js_string!("postMessage"), 2, post_message_fn)
+        .expect("failed to register postMessage");
+
     // alert/confirm/prompt — sandbox allow-modals enforcement.
     let b_alert = b.clone();
     let alert_fn = NativeFunction::from_copy_closure_with_captures(
