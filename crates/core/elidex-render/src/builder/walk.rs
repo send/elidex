@@ -235,7 +235,7 @@ pub(crate) fn walk(
                     ctx.dl.push(DisplayItem::SubDisplayList {
                         offset: lb.content.origin,
                         clip: lb.content,
-                        list: Box::new(iframe_dl.0.clone()),
+                        list: Arc::clone(&iframe_dl.0),
                     });
                 }
 

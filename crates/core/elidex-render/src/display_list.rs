@@ -183,8 +183,8 @@ pub enum DisplayItem {
         offset: Point,
         /// Clipping rectangle (iframe content area bounds).
         clip: Rect,
-        /// The iframe's display list.
-        list: Box<DisplayList>,
+        /// The iframe's display list (shared via `Arc` to avoid expensive clones).
+        list: Arc<DisplayList>,
     },
     /// Draw shaped text glyphs.
     Text {
@@ -248,8 +248,11 @@ impl DisplayList {
 /// Set by the content thread on `<iframe>` entities after their pipeline renders.
 /// The display list builder reads this component to emit `SubDisplayList` items
 /// for compositing iframe content into the parent's display list.
+///
+/// Wrapped in `Arc` to avoid expensive full clones when propagating display lists
+/// between the iframe pipeline and the parent's display list builder.
 #[derive(Clone, Debug)]
-pub struct IframeDisplayList(pub DisplayList);
+pub struct IframeDisplayList(pub Arc<DisplayList>);
 
 /// Multi-page display list for paged media output.
 ///

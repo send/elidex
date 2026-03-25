@@ -323,25 +323,21 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     // --- iframe-related window properties (WHATWG HTML §7.1.3) ---
 
     // window.parent — returns `self` for top-level, parent window for iframes.
-    // Same boa Context limitation: each iframe has its own JsRuntime/Context,
-    // so we can't return the actual parent's global object. For same-origin iframes,
-    // return `self` as a proxy (cross-context object sharing requires self-hosted engine).
-    // This is correct for top-level documents and degraded-but-safe for iframes.
-    let parent_fn =
-        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
+    // Boa limitation: each iframe has its own JsRuntime/Context, so we can't
+    // return the actual parent's global object. Returns `self` as a proxy
+    // (correct for top-level, degraded-but-safe for iframes).
+    // Self-hosted engine (M4-9+) will implement cross-context window proxies.
     ctx.register_global_property(
         js_string!("parent"),
-        parent_fn.to_js_function(ctx.realm()),
+        JsValue::from(ctx.global_object()),
         Attribute::CONFIGURABLE,
     )
     .expect("failed to register window.parent");
 
     // window.top — same limitation as window.parent.
-    let top_fn =
-        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
     ctx.register_global_property(
         js_string!("top"),
-        top_fn.to_js_function(ctx.realm()),
+        JsValue::from(ctx.global_object()),
         Attribute::CONFIGURABLE,
     )
     .expect("failed to register window.top");
@@ -377,11 +373,9 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
 
     // window.frames — alias for window (WHATWG HTML §7.1.3).
     // Returns the window itself; window[0], window[1] etc. access child iframes.
-    let frames_fn =
-        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
     ctx.register_global_property(
         js_string!("frames"),
-        frames_fn.to_js_function(ctx.realm()),
+        JsValue::from(ctx.global_object()),
         Attribute::CONFIGURABLE,
     )
     .expect("failed to register window.frames");
@@ -478,6 +472,12 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     let b_pm = b.clone();
     let post_message_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
+            // WHATWG HTML §9.4.3: targetOrigin is required.
+            if args.len() < 2 {
+                return Err(boa_engine::JsNativeError::typ()
+                    .with_message("Failed to execute 'postMessage': 2 arguments required")
+                    .into());
+            }
             let message = args
                 .first()
                 .map(|v| v.to_string(ctx))

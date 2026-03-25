@@ -688,12 +688,21 @@ pub(crate) fn build_scene(
             DisplayItem::SubDisplayList { offset, clip, list } => {
                 // Render iframe content: translate by offset, clip to bounds, then
                 // recursively render the sub-display-list.
-                let clip_rect = to_vello_rect(clip);
+                //
+                // The clip rect is in parent coordinates, but `push_layer` applies
+                // the given transform before clipping. Use iframe-local coordinates
+                // (0,0 to size) for the clip rect to avoid double-offsetting.
+                let local_clip = vello::kurbo::Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(clip.size.width),
+                    f64::from(clip.size.height),
+                );
                 let translate = current_transform.then_translate(vello::kurbo::Vec2::new(
                     f64::from(offset.x),
                     f64::from(offset.y),
                 ));
-                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, translate, &clip_rect);
+                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, translate, &local_clip);
                 build_scene(scene, list, font_cache);
                 scene.pop_layer();
             }

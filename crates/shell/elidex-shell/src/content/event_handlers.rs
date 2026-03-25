@@ -737,10 +737,20 @@ fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::E
 
 /// Navigate an in-process iframe to a new URL.
 ///
-/// Removes the old entry, loads the new URL, and inserts the new entry.
+/// Dispatches unload events on the old iframe, removes it, loads the new URL,
+/// and inserts the new entry.
 fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, url: &url::Url) {
-    // Remove old entry (dispatches unload via drop).
-    state.iframes.remove(iframe_entity);
+    // Dispatch unload events on the old iframe before removing it (WHATWG HTML §7.1.3).
+    if let Some(mut removed_entry) = state.iframes.remove(iframe_entity) {
+        if let super::iframe::IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
+            crate::pipeline::dispatch_unload_events(
+                &mut ip.pipeline.runtime,
+                &mut ip.pipeline.session,
+                &mut ip.pipeline.dom,
+                ip.pipeline.document,
+            );
+        }
+    }
     // Update the IframeData src to the new URL.
     if let Ok(mut iframe_data) = state
         .pipeline

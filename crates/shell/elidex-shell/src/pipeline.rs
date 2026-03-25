@@ -54,7 +54,7 @@ pub(super) fn run_scripts_and_finalize(
     script_sources: &[&str],
     fetch_handle: Rc<FetchHandle>,
     font_db: &Arc<elidex_text::FontDatabase>,
-    current_url: Option<url::Url>,
+    current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
@@ -68,7 +68,10 @@ pub(super) fn run_scripts_and_finalize(
     let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
 
     if let Some(url) = current_url {
-        runtime.set_current_url(Some(url));
+        runtime.set_current_url(Some(url.clone()));
+        runtime
+            .bridge()
+            .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
     }
 
     for source in script_sources {

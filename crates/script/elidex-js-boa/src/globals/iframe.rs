@@ -70,59 +70,28 @@ pub(crate) fn register_iframe_accessors(
     register_iframe_string_attr(init, bridge, realm, "height");
 
     // --- loading (string: "eager" | "lazy") ---
-    let b_load = bridge.clone();
-    let load_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let entity = extract_entity(this, ctx)?;
-            bridge.with(|_session, dom| {
-                let loading = dom
-                    .world()
-                    .get::<&elidex_ecs::IframeData>(entity)
-                    .ok()
-                    .map_or("eager", |d| match d.loading {
-                        elidex_ecs::LoadingAttribute::Eager => "eager",
-                        elidex_ecs::LoadingAttribute::Lazy => "lazy",
-                    });
-                Ok(JsValue::from(js_string!(loading)))
-            })
-        },
-        b_load,
-    )
-    .to_js_function(realm);
-    init.accessor(
-        js_string!("loading"),
-        Some(load_getter),
-        None,
-        boa_engine::property::Attribute::CONFIGURABLE,
-    );
+    register_iframe_string_attr(init, bridge, realm, "loading");
 
-    // --- allowFullscreen (boolean) ---
-    let b_af = bridge.clone();
-    let af_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let entity = extract_entity(this, ctx)?;
-            bridge.with(|_session, dom| {
-                let val = dom
-                    .world()
-                    .get::<&elidex_ecs::IframeData>(entity)
-                    .ok()
-                    .is_some_and(|d| d.allow_fullscreen);
-                Ok(JsValue::from(val))
-            })
-        },
-        b_af,
-    )
-    .to_js_function(realm);
-    init.accessor(
-        js_string!("allowFullscreen"),
-        Some(af_getter),
-        None,
-        boa_engine::property::Attribute::CONFIGURABLE,
-    );
+    // --- allowFullscreen (boolean: reflected as IDL attribute with setter) ---
+    register_iframe_string_attr(init, bridge, realm, "allowFullscreen");
 
     // --- sandbox (DOMTokenList-like string getter) ---
     // Full DOMTokenList is complex; MVP returns the raw attribute string.
     register_iframe_string_attr(init, bridge, realm, "sandbox");
+}
+
+/// Map an IDL property name to the corresponding HTML content attribute name.
+///
+/// HTML attribute names are all-lowercase (e.g. `referrerpolicy`, `allowfullscreen`),
+/// while IDL property names use camelCase (e.g. `referrerPolicy`, `allowFullscreen`).
+/// This mapping ensures that `setAttribute` and `Attributes` use the correct
+/// lowercase name as required by the WHATWG HTML spec.
+fn idl_to_content_attr(idl_name: &str) -> &str {
+    match idl_name {
+        "referrerPolicy" => "referrerpolicy",
+        "allowFullscreen" => "allowfullscreen",
+        _ => idl_name,
+    }
 }
 
 /// Register a string attribute getter and setter for an iframe property.
@@ -165,9 +134,12 @@ fn register_iframe_string_attr(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             bridge.with(|session, dom| {
+                // Use the HTML content attribute name (lowercase) for Attributes
+                // and mutation records, while using the IDL name for IframeData.
+                let html_attr = idl_to_content_attr(attr_name);
                 // Update the Attributes component (mirrors setAttribute behavior).
                 if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-                    attrs.set(attr_name, &value);
+                    attrs.set(html_attr, &value);
                 }
                 // Update the IframeData component field directly.
                 if let Ok(mut iframe_data) =
@@ -179,7 +151,7 @@ fn register_iframe_string_attr(
                 // picks up the change (especially for `src` re-navigation).
                 session.record_mutation(elidex_script_session::Mutation::SetAttribute {
                     entity,
-                    name: attr_name.to_string(),
+                    name: html_attr.to_string(),
                     value: value.clone(),
                 });
             });

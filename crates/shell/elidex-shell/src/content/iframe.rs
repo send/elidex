@@ -256,11 +256,10 @@ pub fn load_iframe(
     parent_url: Option<&url::Url>,
     font_db: &std::sync::Arc<elidex_text::FontDatabase>,
     fetch_handle: &std::rc::Rc<elidex_net::FetchHandle>,
-    _registry: &elidex_plugin::CssPropertyRegistry,
     depth: usize,
 ) -> IframeEntry {
     // Guard against excessive iframe nesting (DoS prevention).
-    if depth > elidex_plugin::MAX_IFRAME_DEPTH {
+    if depth >= elidex_plugin::MAX_IFRAME_DEPTH {
         eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({depth})");
         let pipeline = crate::build_pipeline_interactive("", "");
         return make_iframe_entry(
@@ -354,7 +353,15 @@ pub fn load_iframe(
         (pipeline, parent_origin.clone())
     };
 
-    make_iframe_entry(iframe_entity, pipeline, iframe_origin, iframe_data)
+    let entry = make_iframe_entry(iframe_entity, pipeline, iframe_origin, iframe_data);
+    // Set the referrer to the parent document's URL (WHATWG HTML §4.8.5).
+    if let IframeHandle::InProcess(ref ip) = entry.handle {
+        ip.pipeline
+            .runtime
+            .bridge()
+            .set_referrer(parent_url.map(url::Url::to_string));
+    }
+    entry
 }
 
 /// Check framing permission from response headers.

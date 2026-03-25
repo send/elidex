@@ -142,11 +142,18 @@ pub fn load_document(
         .and_then(|(_, v)| extract_charset(v));
 
     // Collect response headers for security policy enforcement (CSP, X-Frame-Options).
-    let response_headers: HashMap<String, String> = response
-        .headers
-        .iter()
-        .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
-        .collect();
+    // Combine duplicate header values with ", " per HTTP/1.1 §5.3 (RFC 9110).
+    let mut response_headers: HashMap<String, String> = HashMap::new();
+    for (k, v) in &response.headers {
+        let key = k.to_ascii_lowercase();
+        response_headers
+            .entry(key)
+            .and_modify(|existing| {
+                existing.push_str(", ");
+                existing.push_str(v);
+            })
+            .or_insert_with(|| v.clone());
+    }
 
     // 3. Parse the HTML.
     let parse_result = elidex_html_parser::parse_tolerant(&response.body, charset_hint.as_deref());

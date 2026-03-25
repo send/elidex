@@ -147,11 +147,10 @@ impl ContentState {
         // Store each iframe's display list on the parent DOM so the
         // display list builder can emit SubDisplayList items.
         for (entity, dl) in updated {
-            let _ = self
-                .pipeline
-                .dom
-                .world_mut()
-                .insert_one(entity, elidex_render::IframeDisplayList(dl));
+            let _ = self.pipeline.dom.world_mut().insert_one(
+                entity,
+                elidex_render::IframeDisplayList(std::sync::Arc::new(dl)),
+            );
         }
     }
 
@@ -511,11 +510,16 @@ fn run_event_loop(state: &mut ContentState) {
                         .is_some_and(|lb| {
                             let vp_w = state.pipeline.viewport.width;
                             let vp_h = state.pipeline.viewport.height;
+                            let scroll_x = state.viewport_scroll.scroll_offset.x;
+                            let scroll_y = state.viewport_scroll.scroll_offset.y;
                             let left = lb.content.origin.x;
                             let top = lb.content.origin.y;
                             let right = left + lb.content.size.width;
                             let bottom = top + lb.content.size.height;
-                            right >= 0.0 && left <= vp_w && bottom >= 0.0 && top <= vp_h
+                            right >= scroll_x
+                                && left <= scroll_x + vp_w
+                                && bottom >= scroll_y
+                                && top <= scroll_y + vp_h
                         });
                     if in_viewport {
                         ip.needs_render = true;
@@ -770,7 +774,18 @@ fn detect_iframe_mutations(
                     .is_some_and(|name| name == "src")
                 {
                     let target = record.target;
-                    state.iframes.remove(target);
+                    // Dispatch unload events on the old iframe before removing it
+                    // (WHATWG HTML §7.1.3).
+                    if let Some(mut removed_entry) = state.iframes.remove(target) {
+                        if let iframe::IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
+                            crate::pipeline::dispatch_unload_events(
+                                &mut ip.pipeline.runtime,
+                                &mut ip.pipeline.session,
+                                &mut ip.pipeline.dom,
+                                ip.pipeline.document,
+                            );
+                        }
+                    }
                     try_load_iframe_entity(state, target);
                 }
             }
@@ -789,7 +804,7 @@ fn register_iframe_entry(
     if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
         let _ = state.pipeline.dom.world_mut().insert_one(
             entity,
-            elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
+            elidex_render::IframeDisplayList(std::sync::Arc::new(ip.pipeline.display_list.clone())),
         );
     }
     state.iframes.insert(entity, entry);
@@ -869,8 +884,12 @@ fn check_lazy_iframes(state: &mut ContentState) {
         return;
     }
 
-    // Remove loaded entities from pending list.
-    state.lazy_iframe_pending.retain(|e| !to_load.contains(e));
+    // Remove loaded entities from pending list (use HashSet to avoid O(n^2)).
+    let to_load_set: std::collections::HashSet<elidex_ecs::Entity> =
+        to_load.iter().copied().collect();
+    state
+        .lazy_iframe_pending
+        .retain(|e| !to_load_set.contains(e));
 
     // Load each visible lazy iframe.
     for entity in to_load {
@@ -892,7 +911,6 @@ fn check_lazy_iframes(state: &mut ContentState) {
                 state.pipeline.url.as_ref(),
                 &state.pipeline.font_db,
                 &state.pipeline.fetch_handle,
-                &state.pipeline.registry,
                 depth,
             );
             register_iframe_entry(state, entity, entry);
@@ -919,7 +937,7 @@ fn dispatch_iframe_load_event(state: &mut ContentState, iframe_entity: elidex_ec
 /// Try to load an iframe for `entity` if it has `IframeData`.
 ///
 /// Respects `loading="lazy"`: lazy iframes are skipped here and will be
-/// loaded when an `IntersectionObserver` detects they are near the viewport.
+/// loaded when `check_lazy_iframes` detects their `LayoutBox` is near the viewport.
 fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) {
     let iframe_data = state
         .pipeline
@@ -947,7 +965,6 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             state.pipeline.url.as_ref(),
             &state.pipeline.font_db,
             &state.pipeline.fetch_handle,
-            &state.pipeline.registry,
             depth,
         );
         register_iframe_entry(state, entity, entry);

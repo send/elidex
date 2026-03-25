@@ -76,6 +76,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
 
     // window.open(_blank) → send OpenNewTab to browser thread.
     if let Some(url) = state.pipeline.runtime.bridge().take_pending_open_tab() {
+        state.send_display_list();
         let _ = state
             .channel
             .send(crate::ipc::ContentToBrowser::OpenNewTab(url));

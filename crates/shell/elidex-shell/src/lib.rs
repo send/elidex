@@ -587,7 +587,7 @@ pub fn build_pipeline_from_loaded(
         &script_sources,
         Rc::clone(&fetch_handle),
         &font_db,
-        Some(url.clone()),
+        Some(&url),
         &registry,
     );
 
