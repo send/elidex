@@ -57,7 +57,7 @@ pub(crate) fn register_shadow_dom_methods(
                     let sr_ref = session.get_or_create_wrapper(sr, ComponentKind::Element);
                     Ok((sr, sr_ref))
                 })?;
-                Ok(create_element_wrapper(sr_entity, bridge, sr_ref, ctx))
+                Ok(create_element_wrapper(sr_entity, bridge, sr_ref, ctx, false))
             },
             b,
         ),
@@ -84,7 +84,7 @@ pub(crate) fn register_shadow_dom_methods(
                     return Ok(JsValue::null());
                 }
                 let sr_ref = session.get_or_create_wrapper(sr, ComponentKind::Element);
-                Ok(create_element_wrapper(sr, bridge, sr_ref, ctx))
+                Ok(create_element_wrapper(sr, bridge, sr_ref, ctx, false))
             })
         },
         b,

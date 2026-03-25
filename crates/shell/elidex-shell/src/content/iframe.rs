@@ -90,6 +90,9 @@ pub struct InProcessIframe {
     pub scroll_state: ScrollState,
     /// Whether this iframe needs a re-render on the next frame.
     pub needs_render: bool,
+    /// Cached `Arc<DisplayList>` to avoid re-cloning on every parent render.
+    /// Updated only when `needs_render` is true and re-render completes.
+    pub cached_display_list: Option<std::sync::Arc<elidex_render::DisplayList>>,
 }
 
 /// Cross-origin iframe: runs in a separate thread, communicates via IPC.
@@ -246,7 +249,8 @@ impl IframeRegistry {
 /// 3. Creates a `PipelineResult` (DOM, JS runtime, styles, layout)
 /// 4. Wraps it in an `InProcessIframe` (same-origin) or `OutOfProcessIframe` (cross-origin)
 ///
-/// Returns `None` if framing is blocked by security headers.
+/// Always returns an `IframeEntry`. If framing is blocked by security headers,
+/// returns a blank document with an opaque origin.
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
 #[allow(clippy::too_many_arguments)] // Grouped context params; struct extraction deferred.
 pub fn load_iframe(
@@ -468,6 +472,7 @@ fn make_iframe_entry(
             focus_target: None,
             scroll_state: ScrollState::default(),
             needs_render: false,
+            cached_display_list: None,
         })),
         meta: IframeMeta {
             origin,
@@ -567,12 +572,15 @@ pub(super) fn detect_iframe_mutations(
 
 /// Register a loaded iframe: store its display list on the parent DOM,
 /// insert into the registry, and dispatch the `load` event.
-fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, entry: IframeEntry) {
-    if let IframeHandle::InProcess(ref ip) = entry.handle {
-        let _ = state.pipeline.dom.world_mut().insert_one(
-            entity,
-            elidex_render::IframeDisplayList(std::sync::Arc::new(ip.pipeline.display_list.clone())),
-        );
+fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, mut entry: IframeEntry) {
+    if let IframeHandle::InProcess(ref mut ip) = entry.handle {
+        let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
+        ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));
+        let _ = state
+            .pipeline
+            .dom
+            .world_mut()
+            .insert_one(entity, elidex_render::IframeDisplayList(arc_dl));
     }
     state.iframes.insert(entity, entry);
     dispatch_iframe_load_event(state, entity);
@@ -798,6 +806,7 @@ mod tests {
             focus_target: None,
             scroll_state: ScrollState::default(),
             needs_render: false,
+            cached_display_list: None,
         }));
         (entity, IframeEntry { handle, meta })
     }

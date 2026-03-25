@@ -388,7 +388,7 @@ fn invoke_ce_callback(
     let element_wrapper = bridge.with(|session, _dom| {
         let obj_ref =
             session.get_or_create_wrapper(entity, elidex_script_session::ComponentKind::Element);
-        crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx)
+        crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx, false)
     });
 
     if let Err(err) = cb_func.call(&element_wrapper, args, ctx) {

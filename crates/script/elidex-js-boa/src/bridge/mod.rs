@@ -396,31 +396,6 @@ impl HostBridge {
         self.inner.borrow().current_url.clone()
     }
 
-    /// Get the tag name of an entity without the re-entrancy guard.
-    ///
-    /// This is safe to call from within a `with()` closure since it only
-    /// reads from the DOM pointer (already valid during `with()`).
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure bridge is bound (i.e., called during eval/dispatch).
-    #[must_use]
-    #[allow(unsafe_code)] // Reads from raw DOM pointer that is valid during bind bracket.
-    pub fn get_tag_name_unchecked(&self, entity: Entity) -> Option<String> {
-        let inner = self.inner.borrow();
-        if inner.dom_ptr.is_null() {
-            return None;
-        }
-        // SAFETY: dom_ptr is valid during bridge bind lifetime (eval bracket).
-        // This method is only called from build_element_object which runs during
-        // eval/dispatch — the pointer is guaranteed to be valid.
-        let dom = unsafe { &*inner.dom_ptr };
-        dom.world()
-            .get::<&elidex_ecs::TagType>(entity)
-            .ok()
-            .map(|tag| tag.0.clone())
-    }
-
     /// Set the security origin for this document.
     pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
         self.inner.borrow_mut().origin = origin;

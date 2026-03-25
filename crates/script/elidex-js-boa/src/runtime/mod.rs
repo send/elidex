@@ -209,12 +209,16 @@ impl JsRuntime {
             // Create element wrapper for target and current_target.
             let target_wrapper = bridge.with(|session, _dom| {
                 let obj_ref = session.get_or_create_wrapper(ev.target, ComponentKind::Element);
-                crate::globals::element::create_element_wrapper(ev.target, &bridge, obj_ref, ctx)
+                crate::globals::element::create_element_wrapper(
+                    ev.target, &bridge, obj_ref, ctx, false,
+                )
             });
             let current_target_wrapper = if let Some(ct) = ev.current_target {
                 bridge.with(|session, _dom| {
                     let obj_ref = session.get_or_create_wrapper(ct, ComponentKind::Element);
-                    crate::globals::element::create_element_wrapper(ct, &bridge, obj_ref, ctx)
+                    crate::globals::element::create_element_wrapper(
+                        ct, &bridge, obj_ref, ctx, false,
+                    )
                 })
             } else {
                 JsValue::null()
@@ -238,6 +242,7 @@ impl JsRuntime {
                             &bridge,
                             obj_ref,
                             ctx,
+                            false,
                         )
                     });
                     let _ = arr.push(wrapper, ctx);
@@ -271,6 +276,7 @@ impl JsRuntime {
                                 &bridge,
                                 obj_ref,
                                 ctx,
+                                false,
                             )
                         });
                         if let Some(obj) = event_obj.as_object() {

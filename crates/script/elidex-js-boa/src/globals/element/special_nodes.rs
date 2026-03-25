@@ -449,7 +449,7 @@ pub fn resolve_object_ref(
             let obj_ref = JsObjectRef::from_raw(*id);
             bridge.with(|session, _dom| {
                 if let Some((entity, _kind)) = session.identity_map().get(obj_ref) {
-                    create_element_wrapper(entity, bridge, obj_ref, ctx)
+                    create_element_wrapper(entity, bridge, obj_ref, ctx, false)
                 } else {
                     JsValue::null()
                 }

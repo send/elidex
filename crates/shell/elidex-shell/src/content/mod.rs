@@ -133,24 +133,34 @@ impl ContentState {
     /// the parent document. This ensures child iframe display lists are
     /// up-to-date before the parent composites them.
     fn re_render_all_iframes(&mut self) {
-        // Collect (entity, display_list) pairs to avoid borrow conflict.
-        let mut updated: Vec<(elidex_ecs::Entity, elidex_render::DisplayList)> = Vec::new();
+        // Collect (entity, Arc<DisplayList>) pairs to avoid borrow conflict.
+        // The Arc is cached in InProcessIframe to avoid re-cloning the full
+        // DisplayList every frame — only re-created when needs_render is true.
+        let mut updated: Vec<(
+            elidex_ecs::Entity,
+            std::sync::Arc<elidex_render::DisplayList>,
+        )> = Vec::new();
         for (&entity, entry) in self.iframes.iter_mut() {
             if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
                 if ip.needs_render {
                     crate::re_render(&mut ip.pipeline);
                     ip.needs_render = false;
-                    updated.push((entity, ip.pipeline.display_list.clone()));
+                    ip.cached_display_list =
+                        Some(std::sync::Arc::new(ip.pipeline.display_list.clone()));
+                }
+                if let Some(ref arc_dl) = ip.cached_display_list {
+                    updated.push((entity, std::sync::Arc::clone(arc_dl)));
                 }
             }
         }
         // Store each iframe's display list on the parent DOM so the
         // display list builder can emit SubDisplayList items.
         for (entity, dl) in updated {
-            let _ = self.pipeline.dom.world_mut().insert_one(
-                entity,
-                elidex_render::IframeDisplayList(std::sync::Arc::new(dl)),
-            );
+            let _ = self
+                .pipeline
+                .dom
+                .world_mut()
+                .insert_one(entity, elidex_render::IframeDisplayList(dl));
         }
     }
 

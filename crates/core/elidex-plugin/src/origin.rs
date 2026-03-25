@@ -61,10 +61,9 @@ impl SecurityOrigin {
 
     /// Check whether two origins are the same.
     ///
-    /// Two opaque origins are never same-origin (even with the same ID),
-    /// matching WHATWG §7.5 which states each opaque origin is unique.
-    /// In practice, opaque origins created by [`Self::opaque()`] always
-    /// have different IDs, so this check is equivalent.
+    /// Two opaque origins are same-origin only when they share the same ID
+    /// (i.e., the same origin instance). Different opaque origins (from
+    /// separate [`Self::opaque()`] calls) are never same-origin.
     #[must_use]
     pub fn same_origin(&self, other: &Self) -> bool {
         match (self, other) {
@@ -80,7 +79,10 @@ impl SecurityOrigin {
                     port: p2,
                 },
             ) => s1 == s2 && h1 == h2 && p1 == p2,
-            // Opaque origins are never same-origin per WHATWG §7.5.
+            // Opaque origins are same-origin only when they share the same ID
+            // (i.e., the same origin instance). Different opaque origins are
+            // never same-origin, even if created from the same source.
+            (Self::Opaque(id1), Self::Opaque(id2)) => id1 == id2,
             _ => false,
         }
     }
@@ -456,11 +458,13 @@ mod tests {
     }
 
     #[test]
-    fn opaque_origins_never_same() {
+    fn opaque_origins_same_id_matches() {
         let a = SecurityOrigin::opaque();
         let b = SecurityOrigin::opaque();
+        // Different opaque origins (different IDs) are not same-origin.
         assert!(!a.same_origin(&b));
-        assert!(!a.same_origin(&a));
+        // Same opaque origin (same ID) IS same-origin.
+        assert!(a.same_origin(&a));
     }
 
     #[test]
