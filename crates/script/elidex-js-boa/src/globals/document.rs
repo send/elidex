@@ -169,6 +169,8 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                             {
                                 attrs.set("is", is_name);
                             }
+                            // Bump version so LiveCollections / caches invalidate.
+                            dom.rev_version(entity);
                         });
                     }
                 }

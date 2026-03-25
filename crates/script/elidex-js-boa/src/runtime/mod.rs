@@ -652,17 +652,16 @@ impl JsRuntime {
                                         .ok()
                                         .and_then(|attrs| attrs.get(attr_name).map(String::from));
 
-                                    // Only fire if value actually changed.
-                                    if record.old_value != new_value {
-                                        self.bridge.enqueue_ce_reaction(
-                                            CustomElementReaction::AttributeChanged {
-                                                entity: record.target,
-                                                name: attr_name.clone(),
-                                                old_value: record.old_value.clone(),
-                                                new_value,
-                                            },
-                                        );
-                                    }
+                                    // Fire whenever a MutationRecord exists — the spec
+                                    // does not gate on old != new for attributeChangedCallback.
+                                    self.bridge.enqueue_ce_reaction(
+                                        CustomElementReaction::AttributeChanged {
+                                            entity: record.target,
+                                            name: attr_name.clone(),
+                                            old_value: record.old_value.clone(),
+                                            new_value,
+                                        },
+                                    );
                                 }
                             }
                         }
