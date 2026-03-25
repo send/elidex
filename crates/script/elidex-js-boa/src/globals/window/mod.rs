@@ -1,4 +1,8 @@
-//! `window` global and `getComputedStyle()` registration.
+//! `window` global and related registrations.
+
+mod computed_style;
+mod media_query;
+mod selection;
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
@@ -7,10 +11,8 @@ use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 
 use crate::bridge::HostBridge;
-use crate::error_conv::dom_error_to_js_error;
+use crate::globals::element::{extract_entity, ENTITY_KEY};
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_string_arg};
-
-use super::element::{extract_entity, ENTITY_KEY};
 
 /// Register `window` global (aliased as `globalThis`).
 ///
@@ -27,7 +29,9 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                     .with_message("getComputedStyle requires an element argument")
             })?;
             let entity = extract_entity(elem, ctx)?;
-            Ok(create_computed_style_proxy(entity, bridge, ctx))
+            Ok(computed_style::create_computed_style_proxy(
+                entity, bridge, ctx,
+            ))
         },
         b_gcs,
     );
@@ -36,8 +40,8 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
 
     register_viewport_accessors(ctx, bridge);
     register_scroll_methods(ctx, bridge);
-    register_media_query(ctx, bridge);
-    register_selection(ctx, bridge);
+    media_query::register_media_query(ctx, bridge);
+    selection::register_selection(ctx, bridge);
     register_iframe_window_props(ctx);
     register_window_open(ctx, bridge);
     register_messaging(ctx, bridge);
@@ -183,157 +187,6 @@ fn register_scroll_methods(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("scrollBy"), 2, scroll_by)
         .expect("failed to register scrollBy");
-}
-
-/// Register `matchMedia(query)` global function.
-fn register_media_query(ctx: &mut Context, bridge: &HostBridge) {
-    let b_mm = bridge.clone();
-    let match_media = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, ctx| {
-            let query = args
-                .first()
-                .map(|v| v.to_string(ctx))
-                .transpose()?
-                .map_or(String::new(), |s| s.to_std_string_escaped());
-
-            let matches = evaluate_media_query(&query, bridge);
-            let mq_id = bridge.create_media_query(&query, matches);
-
-            build_media_query_list_object(mq_id, &query, bridge, ctx)
-        },
-        b_mm,
-    );
-    ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
-        .expect("failed to register matchMedia");
-}
-
-/// Register `getSelection()` global function returning a `Selection`-like object.
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::similar_names)] // b_ar/b_rar/b_gc etc. are per-method captures.
-fn register_selection(ctx: &mut Context, bridge: &HostBridge) {
-    let b_sel = bridge.clone();
-    let get_selection = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, bridge, ctx| {
-            let has_range = bridge.selection_range_id().is_some();
-            let range_count = i32::from(has_range);
-
-            let mut obj = ObjectInitializer::new(ctx);
-
-            let sel_type = if has_range {
-                js_string!("Range")
-            } else {
-                js_string!("None")
-            };
-            obj.property(
-                js_string!("type"),
-                JsValue::from(sel_type),
-                Attribute::READONLY,
-            );
-            obj.property(
-                js_string!("rangeCount"),
-                JsValue::from(range_count),
-                Attribute::READONLY,
-            );
-
-            // isCollapsed — read from the underlying Range if present.
-            let collapsed = bridge
-                .selection_range_id()
-                .is_none_or(|rid| bridge.with_range(rid, |r| r.collapsed()).unwrap_or(true));
-            obj.property(
-                js_string!("isCollapsed"),
-                JsValue::from(collapsed),
-                Attribute::READONLY,
-            );
-
-            // toString() → return selected text from the underlying Range, if any.
-            let b_tostr = bridge.clone();
-            obj.function(
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, _args, bridge, _ctx| {
-                        let text = bridge.selection_range_id().and_then(|rid| {
-                            bridge
-                                .with(|_session, dom| bridge.with_range(rid, |r| r.to_string(dom)))
-                        });
-                        Ok(JsValue::from(js_string!(text.unwrap_or_default().as_str())))
-                    },
-                    b_tostr,
-                ),
-                js_string!("toString"),
-                0,
-            );
-
-            // getRangeAt(index) → returns the Range JS object if selection exists.
-            let b_gra = bridge.clone();
-            obj.function(
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, args, bridge, ctx| {
-                        let index = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
-                        if index as u32 != 0 {
-                            return Err(boa_engine::JsNativeError::range()
-                                .with_message("index out of range")
-                                .into());
-                        }
-                        match bridge.selection_range_id() {
-                            Some(rid) => {
-                                crate::globals::document::build_range_object(rid, bridge, ctx)
-                            }
-                            None => Err(boa_engine::JsNativeError::range()
-                                .with_message("no range in selection")
-                                .into()),
-                        }
-                    },
-                    b_gra,
-                ),
-                js_string!("getRangeAt"),
-                1,
-            );
-
-            // addRange(range) → store range_id in bridge.selection_range_id.
-            let b_ar = bridge.clone();
-            obj.function(
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, args, bridge, ctx| {
-                        if let Some(range_obj) = args.first().and_then(JsValue::as_object) {
-                            if let Ok(id_val) =
-                                range_obj.get(js_string!("__elidex_traversal_id__"), ctx)
-                            {
-                                if let Some(id) = id_val.as_number() {
-                                    #[allow(
-                                        clippy::cast_possible_truncation,
-                                        clippy::cast_sign_loss
-                                    )]
-                                    bridge.set_selection_range_id(Some(id as u64));
-                                }
-                            }
-                        }
-                        Ok(JsValue::undefined())
-                    },
-                    b_ar,
-                ),
-                js_string!("addRange"),
-                1,
-            );
-
-            // removeAllRanges() → clears selection_range_id.
-            let b_rar = bridge.clone();
-            obj.function(
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, _args, bridge, _ctx| {
-                        bridge.set_selection_range_id(None);
-                        Ok(JsValue::undefined())
-                    },
-                    b_rar,
-                ),
-                js_string!("removeAllRanges"),
-                0,
-            );
-
-            Ok(obj.build().into())
-        },
-        b_sel,
-    );
-    ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
-        .expect("failed to register getSelection");
 }
 
 /// Register iframe-related window properties: `parent`, `top`, `frames`,
@@ -572,164 +425,6 @@ fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register prompt");
 }
 
-/// Evaluate a basic media query string against the current viewport.
-///
-/// Supports:
-/// - `(max-width: Npx)` / `(min-width: Npx)`
-/// - `(max-height: Npx)` / `(min-height: Npx)`
-/// - `(prefers-color-scheme: dark|light)` → false (no theme support yet)
-/// - Other queries → false
-fn evaluate_media_query(query: &str, bridge: &HostBridge) -> bool {
-    crate::bridge::evaluate_media_query_raw(
-        query,
-        bridge.viewport_width(),
-        bridge.viewport_height(),
-    )
-}
-
-/// Hidden property key for the media query list ID.
-const MQ_ID_KEY: &str = "__elidex_mq_id__";
-
-/// Build a `MediaQueryList`-like JS object with dynamic `matches` getter
-/// and `addEventListener`/`removeEventListener` for "change" events.
-#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
-fn build_media_query_list_object(
-    mq_id: u64,
-    query: &str,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
-    let mut obj = ObjectInitializer::new(ctx);
-
-    // Store the media query ID as a hidden property.
-    #[allow(clippy::cast_precision_loss)]
-    obj.property(
-        js_string!(MQ_ID_KEY),
-        JsValue::from(mq_id as f64),
-        Attribute::empty(),
-    );
-
-    obj.property(
-        js_string!("media"),
-        JsValue::from(js_string!(query)),
-        Attribute::READONLY,
-    );
-
-    // matches — dynamic getter that re-evaluates against current viewport.
-    let realm = obj.context().realm().clone();
-    let b_matches = bridge.clone();
-    let matches_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let id = extract_mq_id(this, ctx)?;
-            Ok(JsValue::from(bridge.media_query_matches(id)))
-        },
-        b_matches,
-    )
-    .to_js_function(&realm);
-    obj.accessor(
-        js_string!("matches"),
-        Some(matches_getter),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // addEventListener(type, callback)
-    let b_add = bridge.clone();
-    obj.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let event_type = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map_or(String::new(), |s| s.to_std_string_escaped());
-                if event_type == "change" {
-                    if let Some(callback) = args.get(1).and_then(JsValue::as_object) {
-                        let id = extract_mq_id(this, ctx)?;
-                        bridge.add_media_query_listener(id, callback.clone());
-                    }
-                }
-                Ok(JsValue::undefined())
-            },
-            b_add,
-        ),
-        js_string!("addEventListener"),
-        2,
-    );
-
-    // removeEventListener(type, callback)
-    let b_rm = bridge.clone();
-    obj.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let event_type = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map_or(String::new(), |s| s.to_std_string_escaped());
-                if event_type == "change" {
-                    if let Some(callback) = args.get(1).and_then(JsValue::as_object) {
-                        let id = extract_mq_id(this, ctx)?;
-                        bridge.remove_media_query_listener(id, &callback);
-                    }
-                }
-                Ok(JsValue::undefined())
-            },
-            b_rm,
-        ),
-        js_string!("removeEventListener"),
-        2,
-    );
-
-    // Legacy aliases: addListener / removeListener (CSSOM View spec §4.2)
-    let b_add_legacy = bridge.clone();
-    obj.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                if let Some(callback) = args.first().and_then(JsValue::as_object) {
-                    let id = extract_mq_id(this, ctx)?;
-                    bridge.add_media_query_listener(id, callback.clone());
-                }
-                Ok(JsValue::undefined())
-            },
-            b_add_legacy,
-        ),
-        js_string!("addListener"),
-        1,
-    );
-
-    let b_rm_legacy = bridge.clone();
-    obj.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                if let Some(callback) = args.first().and_then(JsValue::as_object) {
-                    let id = extract_mq_id(this, ctx)?;
-                    bridge.remove_media_query_listener(id, &callback);
-                }
-                Ok(JsValue::undefined())
-            },
-            b_rm_legacy,
-        ),
-        js_string!("removeListener"),
-        1,
-    );
-
-    Ok(obj.build().into())
-}
-
-/// Extract the media query ID from a JS object's hidden property.
-fn extract_mq_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
-    let obj = this.as_object().ok_or_else(|| {
-        boa_engine::JsNativeError::typ().with_message("matchMedia method called on non-object")
-    })?;
-    let id_val = obj.get(js_string!(MQ_ID_KEY), ctx)?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let id = id_val.as_number().ok_or_else(|| {
-        boa_engine::JsNativeError::typ().with_message("invalid MediaQueryList object")
-    })? as u64;
-    Ok(id)
-}
-
 /// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
 ///
 /// Returns `(Option<x>, Option<y>)` — `None` means the axis was not specified,
@@ -762,51 +457,6 @@ fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(Option<f6
         return Ok((x, y));
     }
     Ok((Some(0.0), Some(0.0)))
-}
-
-/// Create a computed style proxy object for the given element.
-///
-/// The returned object's `getPropertyValue(prop)` method looks up
-/// the element's `ComputedStyle` and returns the CSS value string.
-fn create_computed_style_proxy(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
-    let entity_bits = entity.to_bits().get() as f64;
-
-    let b = bridge.clone();
-    let mut obj = ObjectInitializer::new(ctx);
-    obj.property(
-        js_string!(ENTITY_KEY),
-        JsValue::from(entity_bits),
-        Attribute::empty(),
-    );
-
-    obj.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let entity = extract_entity(this, ctx)?;
-                let prop = require_js_string_arg(args, 0, "getPropertyValue", ctx)?;
-                // GetComputedStyle is a CssomApiHandler, not DomApiHandler.
-                // Look up from the CSSOM registry.
-                let handler = bridge
-                    .cssom_registry()
-                    .resolve("getComputedStyle")
-                    .ok_or_else(|| {
-                        boa_engine::JsNativeError::typ()
-                            .with_message("Unknown CSSOM method: getComputedStyle")
-                    })?;
-                bridge.with(|session, dom| {
-                    let result = handler
-                        .invoke(entity, &[ElidexJsValue::String(prop)], session, dom)
-                        .map_err(dom_error_to_js_error)?;
-                    Ok(crate::value_conv::to_boa(&result))
-                })
-            },
-            b,
-        ),
-        js_string!("getPropertyValue"),
-        1,
-    );
-
-    obj.build().into()
 }
 
 /// Create a `CSSStyleDeclaration`-like object for `element.style`.
