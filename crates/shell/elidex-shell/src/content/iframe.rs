@@ -294,22 +294,13 @@ pub fn load_iframe(
     let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
         // srcdoc: parse inline HTML, inherit parent origin (WHATWG HTML §4.8.5).
         // Sandbox + credentialless override handled by apply_sandbox_origin.
-        let mut pipeline = crate::build_pipeline_interactive(srcdoc, "");
-        // Use the parent's font database and fetch handle instead of creating
-        // fresh instances, so that srcdoc iframes share cached fonts and cookies.
-        pipeline.font_db = ctx.font_db.clone();
-        pipeline.fetch_handle = ctx.fetch_handle.clone();
-        pipeline.registry = ctx.registry.clone();
+        let pipeline = build_iframe_pipeline(srcdoc, ctx);
         let origin = apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data);
         (pipeline, origin)
     } else if let Some(src) = &iframe_data.src {
         if src.is_empty() || src == "about:blank" {
             // about:blank: empty document with parent origin.
-            let mut pipeline = crate::build_pipeline_interactive("", "");
-            // Share the parent's font database and fetch handle.
-            pipeline.font_db = ctx.font_db.clone();
-            pipeline.fetch_handle = ctx.fetch_handle.clone();
-            pipeline.registry = ctx.registry.clone();
+            let pipeline = build_iframe_pipeline("", ctx);
             (
                 pipeline,
                 apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
@@ -385,11 +376,7 @@ pub fn load_iframe(
         }
     } else {
         // No src or srcdoc: about:blank with parent origin.
-        let mut pipeline = crate::build_pipeline_interactive("", "");
-        // Share the parent's font database and fetch handle.
-        pipeline.font_db = ctx.font_db.clone();
-        pipeline.fetch_handle = ctx.fetch_handle.clone();
-        pipeline.registry = ctx.registry.clone();
+        let pipeline = build_iframe_pipeline("", ctx);
         (
             pipeline,
             apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
@@ -465,6 +452,19 @@ fn apply_sandbox_origin(
     origin
 }
 
+/// Build an iframe pipeline from HTML content, sharing the parent's resources.
+///
+/// Wraps `build_pipeline_interactive` and replaces its freshly-created
+/// `FontDatabase`, `FetchHandle`, and `CssPropertyRegistry` with the
+/// parent's shared instances from `ctx`.
+fn build_iframe_pipeline(html: &str, ctx: &IframeLoadContext<'_>) -> crate::PipelineResult {
+    let mut pipeline = crate::build_pipeline_interactive(html, "");
+    pipeline.font_db = ctx.font_db.clone();
+    pipeline.fetch_handle = ctx.fetch_handle.clone();
+    pipeline.registry = ctx.registry.clone();
+    pipeline
+}
+
 /// Create a blank `IframeEntry` (empty document) for error/fallback cases.
 ///
 /// Used when iframe loading fails, is blocked by security headers,
@@ -475,12 +475,12 @@ fn make_blank_entry(
     iframe_data: &elidex_ecs::IframeData,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
-    let mut pipeline = crate::build_pipeline_interactive("", "");
-    // Share parent's resources instead of creating fresh instances.
-    pipeline.font_db = ctx.font_db.clone();
-    pipeline.fetch_handle = ctx.fetch_handle.clone();
-    pipeline.registry = ctx.registry.clone();
-    make_iframe_entry(iframe_entity, pipeline, origin, iframe_data)
+    make_iframe_entry(
+        iframe_entity,
+        build_iframe_pipeline("", ctx),
+        origin,
+        iframe_data,
+    )
 }
 
 /// Create an `IframeEntry` from a pipeline and origin.
