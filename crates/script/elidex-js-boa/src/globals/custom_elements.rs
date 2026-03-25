@@ -62,7 +62,15 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 // Register in bridge.
                 let pending = bridge
                     .register_custom_element(&name, constructor, observed_attrs, extends)
-                    .map_err(|msg| JsNativeError::syntax().with_message(msg))?;
+                    .map_err(|msg| {
+                        // InvalidName → SyntaxError, AlreadyDefined → NotSupportedError (DOMException).
+                        if msg.contains("not a valid") {
+                            JsNativeError::syntax().with_message(msg)
+                        } else {
+                            // "already been defined" → NotSupportedError per WHATWG HTML §4.13.4.
+                            JsNativeError::typ().with_message(msg)
+                        }
+                    })?;
 
                 // Enqueue Upgrade reactions for pending elements (queued via
                 // bridge.queue_for_ce_upgrade before define() was called).
@@ -170,6 +178,7 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
+                // Accept any Node (element, document, fragment) via __elidex_entity__.
                 let root = crate::globals::element::extract_entity(
                     args.first().ok_or_else(|| {
                         JsNativeError::typ()

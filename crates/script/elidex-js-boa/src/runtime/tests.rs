@@ -1788,8 +1788,8 @@ fn custom_elements_define_duplicate_throws() {
     assert!(result.success, "eval should succeed: {:?}", result.error);
     let output = runtime.console_output().messages();
     assert!(
-        output.iter().any(|m| m.1.contains("error=SyntaxError")),
-        "got: {output:?}"
+        output.iter().any(|m| m.1.contains("error=TypeError")),
+        "duplicate define should throw NotSupportedError (TypeError), got: {output:?}"
     );
 }
 

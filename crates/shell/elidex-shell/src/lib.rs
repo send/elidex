@@ -9,6 +9,9 @@
 //! elidex_shell::run("<h1>Hello</h1>", "h1 { color: red; }").unwrap();
 //! ```
 
+/// Maximum rounds of CE callback stabilization after `re_render` flush.
+const MAX_CE_STABILIZATION_ROUNDS: usize = 8;
+
 pub(crate) mod animation;
 mod app;
 pub(crate) mod chrome;
@@ -472,7 +475,8 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         );
 
         // Re-flush: CE callbacks may have recorded new mutations.
-        for _ in 0..4 {
+        // Bounded to prevent infinite loops from mutually-triggering callbacks.
+        for _ in 0..MAX_CE_STABILIZATION_ROUNDS {
             let follow_up: Vec<_> = result
                 .session
                 .flush(&mut result.dom)
