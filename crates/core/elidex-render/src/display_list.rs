@@ -243,6 +243,14 @@ impl DisplayList {
     }
 }
 
+/// ECS component attaching an iframe's rendered display list to its parent DOM entity.
+///
+/// Set by the content thread on `<iframe>` entities after their pipeline renders.
+/// The display list builder reads this component to emit `SubDisplayList` items
+/// for compositing iframe content into the parent's display list.
+#[derive(Clone, Debug)]
+pub struct IframeDisplayList(pub DisplayList);
+
 /// Multi-page display list for paged media output.
 ///
 /// Each element of `pages` is a complete [`DisplayList`] for one printed

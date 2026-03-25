@@ -133,13 +133,25 @@ impl ContentState {
     /// the parent document. This ensures child iframe display lists are
     /// up-to-date before the parent composites them.
     fn re_render_all_iframes(&mut self) {
-        for (_entity, entry) in self.iframes.iter_mut() {
+        // Collect (entity, display_list) pairs to avoid borrow conflict.
+        let mut updated: Vec<(elidex_ecs::Entity, elidex_render::DisplayList)> = Vec::new();
+        for (&entity, entry) in self.iframes.iter_mut() {
             if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
                 if ip.needs_render {
                     crate::re_render(&mut ip.pipeline);
                     ip.needs_render = false;
+                    updated.push((entity, ip.pipeline.display_list.clone()));
                 }
             }
+        }
+        // Store each iframe's display list on the parent DOM so the
+        // display list builder can emit SubDisplayList items.
+        for (entity, dl) in updated {
+            let _ = self
+                .pipeline
+                .dom
+                .world_mut()
+                .insert_one(entity, elidex_render::IframeDisplayList(dl));
         }
     }
 
@@ -865,6 +877,13 @@ fn check_lazy_iframes(state: &mut ContentState) {
                 &state.pipeline.registry,
                 depth,
             );
+            // Store iframe display list on parent DOM for builder compositing.
+            if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
+                let _ = state.pipeline.dom.world_mut().insert_one(
+                    entity,
+                    elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
+                );
+            }
             state.iframes.insert(entity, entry);
             dispatch_iframe_load_event(state, entity);
         }
@@ -921,6 +940,13 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             &state.pipeline.registry,
             depth,
         );
+        // Store iframe display list on parent DOM for builder compositing.
+        if let iframe::IframeHandle::InProcess(ref ip) = entry.handle {
+            let _ = state.pipeline.dom.world_mut().insert_one(
+                entity,
+                elidex_render::IframeDisplayList(ip.pipeline.display_list.clone()),
+            );
+        }
         state.iframes.insert(entity, entry);
         // Dispatch "load" event on the <iframe> element per WHATWG HTML §4.8.5.
         dispatch_iframe_load_event(state, entity);

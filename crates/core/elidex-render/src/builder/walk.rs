@@ -224,6 +224,21 @@ pub(crate) fn walk(
                     }
                 }
 
+                // Emit iframe sub-display-list for replaced iframe elements.
+                // The iframe's display list is stored in the `IframeDisplayList`
+                // component, set by the content thread after iframe pipeline render.
+                if let Ok(iframe_dl) = ctx
+                    .dom
+                    .world()
+                    .get::<&crate::display_list::IframeDisplayList>(entity)
+                {
+                    ctx.dl.push(DisplayItem::SubDisplayList {
+                        offset: lb.content.origin,
+                        clip: lb.content,
+                        list: Box::new(iframe_dl.0.clone()),
+                    });
+                }
+
                 // Emit form control rendering.
                 if let Ok(fcs) = ctx.dom.world().get::<&FormControlState>(entity) {
                     emit_form_control(
