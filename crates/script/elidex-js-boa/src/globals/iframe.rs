@@ -208,6 +208,16 @@ fn set_iframe_attr(data: &mut elidex_ecs::IframeData, attr_name: &str, value: &s
         "sandbox" => data.sandbox = Some(value.to_string()),
         "width" => data.width = value.parse().unwrap_or(data.width),
         "height" => data.height = value.parse().unwrap_or(data.height),
+        "loading" => {
+            data.loading = if value.eq_ignore_ascii_case("lazy") {
+                elidex_ecs::LoadingAttribute::Lazy
+            } else {
+                elidex_ecs::LoadingAttribute::Eager
+            };
+        }
+        "allowFullscreen" => {
+            data.allow_fullscreen = !value.is_empty();
+        }
         _ => {}
     }
 }
