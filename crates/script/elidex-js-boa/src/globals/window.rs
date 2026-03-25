@@ -386,7 +386,15 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     )
     .expect("failed to register window.frames");
 
-    // window.open(url, target, features)
+    // window.open(url, target, features) — WHATWG HTML §7.5.2.
+    //
+    // MVP limitations:
+    // - `target` is parsed but all targets navigate the current document
+    //   (ChromeAction::NewTab for "_blank" requires content→browser IPC
+    //   which is not yet wired for this code path).
+    // - `features` string is ignored (no popup window sizing).
+    // - Returns `null` (no WindowProxy for the opened window).
+    // - Relative URLs are resolved against the document's URL.
     let b_open = b.clone();
     let open_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
@@ -400,7 +408,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
-            let _target = args
+            let target = args
                 .get(1)
                 .map(|v| v.to_string(ctx))
                 .transpose()?
@@ -418,17 +426,36 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
             });
 
             if let Ok(url) = resolved {
-                // All targets navigate via pending_navigation in MVP.
-                // _blank should open a new tab (ChromeAction::NewTab) but
-                // the content thread has no direct chrome access. Navigation
-                // request is picked up by the event loop and handled there.
-                bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
-                    url: url.to_string(),
-                    replace: false,
-                });
+                match target.as_str() {
+                    "_blank" | "" => {
+                        // Open in new tab via ContentToBrowser::OpenNewTab.
+                        bridge.set_pending_open_tab(url);
+                    }
+                    "_self" => {
+                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                            url: url.to_string(),
+                            replace: false,
+                        });
+                    }
+                    "_parent" | "_top" => {
+                        // For top-level documents, _parent and _top are same as _self.
+                        // For iframes, boa cross-context limitation means we navigate
+                        // the current document (same as _self).
+                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                            url: url.to_string(),
+                            replace: false,
+                        });
+                    }
+                    _named => {
+                        // Named target: search for iframe with matching name.
+                        // If not found, open in new tab.
+                        // MVP: always open in new tab (iframe name lookup deferred).
+                        bridge.set_pending_open_tab(url);
+                    }
+                }
             }
 
-            // Return null (no popup window proxy in MVP).
+            // Return null (no WindowProxy for the opened window).
             Ok(JsValue::null())
         },
         b_open,

@@ -128,6 +128,8 @@ struct HostBridgeInner {
     sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
     /// Queued postMessage events for delivery in the next event loop tick.
     pending_post_messages: Vec<(String, String)>,
+    /// URL to open in a new tab (from `window.open` with `_blank` target).
+    pending_open_tab: Option<url::Url>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -241,6 +243,7 @@ impl HostBridge {
                 referrer: None,
                 sandbox_flags: None,
                 pending_post_messages: Vec::new(),
+                pending_open_tab: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -499,6 +502,16 @@ impl HostBridge {
     /// Drain all queued postMessage events.
     pub fn drain_post_messages(&self) -> Vec<(String, String)> {
         std::mem::take(&mut self.inner.borrow_mut().pending_post_messages)
+    }
+
+    /// Set a URL to open in a new tab (from `window.open`).
+    pub fn set_pending_open_tab(&self, url: url::Url) {
+        self.inner.borrow_mut().pending_open_tab = Some(url);
+    }
+
+    /// Take (remove) the pending new-tab URL.
+    pub fn take_pending_open_tab(&self) -> Option<url::Url> {
+        self.inner.borrow_mut().pending_open_tab.take()
     }
 
     /// Set a pending navigation request.

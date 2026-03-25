@@ -708,6 +708,27 @@ fn detect_iframe_mutations(
     }
 }
 
+/// Count the iframe nesting depth of an entity by walking its DOM ancestors.
+///
+/// Returns the number of ancestor elements that have `IframeData` components.
+/// Used for `MAX_IFRAME_DEPTH` enforcement to prevent runaway nesting.
+fn count_iframe_ancestor_depth(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> usize {
+    let mut depth = 0;
+    let mut current = dom.get_parent(entity);
+    let mut steps = 0;
+    while let Some(parent) = current {
+        steps += 1;
+        if steps > elidex_ecs::MAX_ANCESTOR_DEPTH {
+            break;
+        }
+        if dom.world().get::<&elidex_ecs::IframeData>(parent).is_ok() {
+            depth += 1;
+        }
+        current = dom.get_parent(parent);
+    }
+    depth
+}
+
 /// Check lazy iframes and load those near the viewport.
 ///
 /// Uses `LayoutBox` position to determine if a lazy iframe is within 200px
@@ -718,12 +739,16 @@ fn check_lazy_iframes(state: &mut ContentState) {
         return;
     }
 
-    let viewport_height = state.pipeline.viewport.height;
+    let vp_width = state.pipeline.viewport.width;
+    let vp_height = state.pipeline.viewport.height;
+    let scroll_x = state.viewport_scroll.scroll_offset.x;
     let scroll_y = state.viewport_scroll.scroll_offset.y;
     let margin = 200.0_f32; // Load iframes within 200px of viewport edge.
 
+    let visible_left = scroll_x - margin;
+    let visible_right = scroll_x + vp_width + margin;
     let visible_top = scroll_y - margin;
-    let visible_bottom = scroll_y + viewport_height + margin;
+    let visible_bottom = scroll_y + vp_height + margin;
 
     // Collect entities to load (to avoid borrow conflict with state).
     let to_load: Vec<elidex_ecs::Entity> = state
@@ -738,10 +763,15 @@ fn check_lazy_iframes(state: &mut ContentState) {
                 .get::<&elidex_plugin::LayoutBox>(entity)
                 .ok()
                 .is_some_and(|lb| {
+                    let left = lb.content.origin.x;
+                    let right = left + lb.content.size.width;
                     let top = lb.content.origin.y;
                     let bottom = top + lb.content.size.height;
-                    // Iframe overlaps the extended viewport.
-                    bottom >= visible_top && top <= visible_bottom
+                    // Iframe overlaps the extended viewport (2D check).
+                    right >= visible_left
+                        && left <= visible_right
+                        && bottom >= visible_top
+                        && top <= visible_bottom
                 })
         })
         .collect();
@@ -765,7 +795,7 @@ fn check_lazy_iframes(state: &mut ContentState) {
             .map(|d| (*d).clone());
         if let Some(data) = iframe_data {
             let parent_origin = state.pipeline.runtime.bridge().origin();
-            let depth = state.iframes.len();
+            let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
             let entry = iframe::load_iframe(
                 entity,
                 &data,
@@ -804,7 +834,7 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             return;
         }
         let parent_origin = state.pipeline.runtime.bridge().origin();
-        let depth = state.iframes.len(); // Approximate nesting depth.
+        let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
         let entry = iframe::load_iframe(
             entity,
             &data,
