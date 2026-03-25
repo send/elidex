@@ -451,6 +451,9 @@ fn run_event_loop(state: &mut ContentState) {
                 "message",
                 state.pipeline.document,
             );
+            // MessageEvent per spec: bubbles=false, cancelable=false.
+            event.bubbles = false;
+            event.cancelable = false;
             event.payload = message_init;
             state.pipeline.runtime.dispatch_event(
                 &mut event,
@@ -467,6 +470,9 @@ fn run_event_loop(state: &mut ContentState) {
                 "message",
                 state.pipeline.document,
             );
+            // MessageEvent per spec: bubbles=false, cancelable=false.
+            event.bubbles = false;
+            event.cancelable = false;
             event.payload = elidex_plugin::EventPayload::Message {
                 data: data.clone(),
                 origin: origin.clone(),
@@ -739,29 +745,39 @@ fn detect_iframe_mutations(
     for record in records {
         match record.kind {
             MutationKind::ChildList => {
-                // Check added nodes for <iframe> elements.
+                // Check added nodes (and their subtrees) for <iframe> elements.
+                // innerHTML inserts may contain nested iframes that wouldn't be
+                // found by checking only the direct added_nodes.
                 for &entity in &record.added_nodes {
-                    // Skip if already loaded (e.g., moved within DOM).
-                    if state.iframes.get(entity).is_some() {
-                        continue;
-                    }
-                    try_load_iframe_entity(state, entity);
-                }
-                // Check removed nodes for <iframe> elements.
-                for &entity in &record.removed_nodes {
-                    if let Some(removed_entry) = state.iframes.remove(entity) {
-                        // Dispatch beforeunload/unload on the iframe's document
-                        // before dropping it (WHATWG HTML §7.1.3).
-                        if let iframe::IframeHandle::InProcess(mut ip) = removed_entry.handle {
-                            crate::pipeline::dispatch_unload_events(
-                                &mut ip.pipeline.runtime,
-                                &mut ip.pipeline.session,
-                                &mut ip.pipeline.dom,
-                                ip.pipeline.document,
-                            );
+                    let mut nested = Vec::new();
+                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
+                    for iframe_entity in nested {
+                        if state.iframes.get(iframe_entity).is_some() {
+                            continue;
                         }
-                        if state.focused_iframe == Some(entity) {
-                            state.focused_iframe = None;
+                        try_load_iframe_entity(state, iframe_entity);
+                    }
+                }
+                // Check removed nodes (and their subtrees) for <iframe> elements.
+                // Subtree iframes must also be unloaded when a parent is removed.
+                for &entity in &record.removed_nodes {
+                    let mut nested = Vec::new();
+                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
+                    for iframe_entity in nested {
+                        if let Some(removed_entry) = state.iframes.remove(iframe_entity) {
+                            // Dispatch beforeunload/unload on the iframe's document
+                            // before dropping it (WHATWG HTML §7.1.3).
+                            if let iframe::IframeHandle::InProcess(mut ip) = removed_entry.handle {
+                                crate::pipeline::dispatch_unload_events(
+                                    &mut ip.pipeline.runtime,
+                                    &mut ip.pipeline.session,
+                                    &mut ip.pipeline.dom,
+                                    ip.pipeline.document,
+                                );
+                            }
+                            if state.focused_iframe == Some(iframe_entity) {
+                                state.focused_iframe = None;
+                            }
                         }
                     }
                 }

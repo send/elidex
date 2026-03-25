@@ -381,13 +381,10 @@ impl PermissionsPolicy {
         };
         match allow_list {
             AllowList::All => true,
-            AllowList::None => false,
-            AllowList::SelfOnly => {
-                // Check if origin matches document origin (caller should pass document origin).
-                // For simplicity, SelfOnly always returns true for the document's own origin.
-                // Cross-origin check is handled by the caller.
-                matches!(origin, SecurityOrigin::Tuple { .. })
-            }
+            // SelfOnly should only allow the document's own origin, but this
+            // method doesn't have the document origin to compare against.
+            // Conservatively deny until proper document origin tracking is added.
+            AllowList::None | AllowList::SelfOnly => false,
             AllowList::Origins(origins) => origins.iter().any(|o| o.same_origin(origin)),
         }
     }
@@ -665,7 +662,10 @@ mod tests {
     fn parse_iframe_allow() {
         let policy = parse_iframe_allow_attribute("camera; fullscreen");
         let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        assert!(policy.is_feature_allowed("camera", &origin));
-        assert!(policy.is_feature_allowed("fullscreen", &origin));
+        // SelfOnly conservatively denies (no document origin for comparison).
+        assert!(!policy.is_feature_allowed("camera", &origin));
+        assert!(!policy.is_feature_allowed("fullscreen", &origin));
+        // Features not in the policy default to allow.
+        assert!(policy.is_feature_allowed("geolocation", &origin));
     }
 }

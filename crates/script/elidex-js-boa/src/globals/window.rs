@@ -383,12 +383,10 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     // window.open(url, target, features) — WHATWG HTML §7.5.2.
     //
     // MVP limitations:
-    // - `target` is parsed but all targets navigate the current document
-    //   (ChromeAction::NewTab for "_blank" requires content→browser IPC
-    //   which is not yet wired for this code path).
     // - `features` string is ignored (no popup window sizing).
     // - Returns `null` (no WindowProxy for the opened window).
     // - Relative URLs are resolved against the document's URL.
+    // - `_blank` opens a new tab via ContentToBrowser::OpenNewTab IPC.
     let b_open = b.clone();
     let open_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
@@ -409,15 +407,20 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                 .map_or_else(|| String::from("_blank"), |s| s.to_std_string_escaped());
             // _features arg is intentionally ignored (MVP).
 
-            // Resolve relative URLs against the document's URL (WHATWG HTML §7.5.2).
-            let resolved = url::Url::parse(&url_str).or_else(|_| {
-                bridge
-                    .current_url()
-                    .unwrap_or_else(|| {
-                        url::Url::parse("about:blank").expect("about:blank is valid")
-                    })
-                    .join(&url_str)
-            });
+            // Empty/whitespace-only URL means "about:blank" per WHATWG HTML §7.5.2.
+            let resolved = if url_str.trim().is_empty() {
+                Ok(url::Url::parse("about:blank").expect("about:blank is valid"))
+            } else {
+                // Resolve relative URLs against the document's URL.
+                url::Url::parse(&url_str).or_else(|_| {
+                    bridge
+                        .current_url()
+                        .unwrap_or_else(|| {
+                            url::Url::parse("about:blank").expect("about:blank is valid")
+                        })
+                        .join(&url_str)
+                })
+            };
 
             if let Ok(url) = resolved {
                 match target.as_str() {

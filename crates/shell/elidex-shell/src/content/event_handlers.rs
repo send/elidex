@@ -751,7 +751,8 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
             );
         }
     }
-    // Update the IframeData src to the new URL.
+    // Update IframeData.src so load_iframe knows which URL to fetch.
+    // In elidex's ECS model, IframeData.src drives the load pipeline.
     if let Ok(mut iframe_data) = state
         .pipeline
         .dom
@@ -760,7 +761,6 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
     {
         iframe_data.src = Some(url.to_string());
     }
-    // Reload.
     super::try_load_iframe_entity(state, iframe_entity);
 }
 

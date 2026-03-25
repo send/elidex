@@ -72,8 +72,70 @@ pub(crate) fn register_iframe_accessors(
     // --- loading (string: "eager" | "lazy") ---
     register_iframe_string_attr(init, bridge, realm, "loading");
 
-    // --- allowFullscreen (boolean: reflected as IDL attribute with setter) ---
-    register_iframe_string_attr(init, bridge, realm, "allowFullscreen");
+    // --- allowFullscreen (boolean IDL attribute, WHATWG HTML §4.8.5) ---
+    {
+        let b_get = bridge.clone();
+        let getter = NativeFunction::from_copy_closure_with_captures(
+            move |this, _args, bridge, ctx| -> JsResult<JsValue> {
+                let entity = extract_entity(this, ctx)?;
+                bridge.with(|_session, dom| {
+                    let allowed = dom
+                        .world()
+                        .get::<&elidex_ecs::IframeData>(entity)
+                        .map(|d| d.allow_fullscreen)
+                        .unwrap_or(false);
+                    Ok(JsValue::from(allowed))
+                })
+            },
+            b_get,
+        )
+        .to_js_function(realm);
+
+        let b_set = bridge.clone();
+        let setter = NativeFunction::from_copy_closure_with_captures(
+            move |this, args, bridge, ctx| -> JsResult<JsValue> {
+                let entity = extract_entity(this, ctx)?;
+                let value = args.first().is_some_and(JsValue::to_boolean);
+                bridge.with(|session, dom| {
+                    if let Ok(mut attrs) =
+                        dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                    {
+                        if value {
+                            attrs.set("allowfullscreen", "");
+                        } else {
+                            attrs.remove("allowfullscreen");
+                        }
+                    }
+                    if let Ok(mut iframe_data) =
+                        dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
+                    {
+                        iframe_data.allow_fullscreen = value;
+                    }
+                    session.record_mutation(elidex_script_session::Mutation::SetAttribute {
+                        entity,
+                        name: "allowfullscreen".to_string(),
+                        value: if value {
+                            String::new()
+                        } else {
+                            // Remove attribute by recording empty value; the Attributes
+                            // component was already updated above.
+                            String::new()
+                        },
+                    });
+                });
+                Ok(JsValue::undefined())
+            },
+            b_set,
+        )
+        .to_js_function(realm);
+
+        init.accessor(
+            js_string!("allowFullscreen"),
+            Some(getter),
+            Some(setter),
+            boa_engine::property::Attribute::CONFIGURABLE,
+        );
+    }
 
     // --- sandbox (DOMTokenList-like string getter) ---
     // Full DOMTokenList is complex; MVP returns the raw attribute string.
@@ -205,6 +267,18 @@ fn get_iframe_attr(data: &elidex_ecs::IframeData, attr_name: &str) -> Option<Str
         "sandbox" => data.sandbox.clone(),
         "width" => Some(data.width.to_string()),
         "height" => Some(data.height.to_string()),
+        "loading" => Some(
+            match data.loading {
+                elidex_ecs::LoadingAttribute::Lazy => "lazy",
+                elidex_ecs::LoadingAttribute::Eager => "eager",
+            }
+            .to_string(),
+        ),
+        "allowFullscreen" => Some(if data.allow_fullscreen {
+            String::new() // Boolean attribute: present = empty string
+        } else {
+            return None; // Boolean attribute: absent = None
+        }),
         _ => None,
     }
 }
