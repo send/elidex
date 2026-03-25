@@ -154,6 +154,12 @@ impl ContentState {
         // Store each iframe's display list on the parent DOM so the
         // display list builder can emit SubDisplayList items.
         for (entity, dl) in updated {
+            // Remove then insert: hecs insert_one fails if component exists.
+            let _ = self
+                .pipeline
+                .dom
+                .world_mut()
+                .remove_one::<elidex_render::IframeDisplayList>(entity);
             let _ = self
                 .pipeline
                 .dom
