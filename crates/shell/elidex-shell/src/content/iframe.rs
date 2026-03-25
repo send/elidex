@@ -274,7 +274,7 @@ pub fn load_iframe(
     // Guard against excessive iframe nesting (DoS prevention).
     if ctx.depth >= elidex_plugin::MAX_IFRAME_DEPTH {
         eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({})", ctx.depth);
-        return make_blank_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data);
+        return make_blank_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data, ctx);
     }
 
     // Determine content source and origin.
@@ -310,6 +310,7 @@ pub fn load_iframe(
                     iframe_entity,
                     apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                     iframe_data,
+                    ctx,
                 );
             };
 
@@ -341,6 +342,7 @@ pub fn load_iframe(
                             iframe_entity,
                             SecurityOrigin::opaque(),
                             iframe_data,
+                            ctx,
                         );
                     }
 
@@ -361,6 +363,7 @@ pub fn load_iframe(
                         iframe_entity,
                         apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                         iframe_data,
+                        ctx,
                     );
                 }
             }
@@ -454,8 +457,12 @@ fn make_blank_entry(
     iframe_entity: Entity,
     origin: SecurityOrigin,
     iframe_data: &elidex_ecs::IframeData,
+    ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
-    let pipeline = crate::build_pipeline_interactive("", "");
+    let mut pipeline = crate::build_pipeline_interactive("", "");
+    // Share parent's font database and fetch handle instead of creating fresh ones.
+    pipeline.font_db = ctx.font_db.clone();
+    pipeline.fetch_handle = ctx.fetch_handle.clone();
     make_iframe_entry(iframe_entity, pipeline, origin, iframe_data)
 }
 
@@ -592,7 +599,9 @@ pub(super) fn detect_iframe_mutations(
                             );
                         }
                     }
-                    try_load_iframe_entity(state, target, false);
+                    // force=true: src attribute change is an explicit navigation,
+                    // should not be deferred by loading="lazy".
+                    try_load_iframe_entity(state, target, true);
                 }
             }
             _ => {}
@@ -606,6 +615,13 @@ fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, mut en
     if let IframeHandle::InProcess(ref mut ip) = entry.handle {
         let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
         ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));
+        // Remove then insert: hecs insert_one fails if component already exists
+        // (e.g., iframe reload after src mutation).
+        let _ = state
+            .pipeline
+            .dom
+            .world_mut()
+            .remove_one::<elidex_render::IframeDisplayList>(entity);
         let _ = state
             .pipeline
             .dom
