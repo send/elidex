@@ -453,6 +453,300 @@ fn make_iframe_entry(
 }
 
 // ---------------------------------------------------------------------------
+// Iframe helper functions (moved from content/mod.rs)
+// ---------------------------------------------------------------------------
+
+/// Detect iframe additions/removals from mutation records.
+///
+/// Scans `MutationRecord` added/removed nodes for entities with `IframeData`
+/// components, and triggers iframe loading/unloading accordingly.
+///
+/// Also detects `src` attribute changes on existing `<iframe>` elements
+/// to trigger re-navigation.
+pub(super) fn detect_iframe_mutations(
+    records: &[elidex_script_session::MutationRecord],
+    state: &mut super::ContentState,
+) {
+    use elidex_script_session::MutationKind;
+
+    for record in records {
+        match record.kind {
+            MutationKind::ChildList => {
+                // Check added nodes (and their subtrees) for <iframe> elements.
+                // innerHTML inserts may contain nested iframes that wouldn't be
+                // found by checking only the direct added_nodes.
+                for &entity in &record.added_nodes {
+                    let mut nested = Vec::new();
+                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
+                    for iframe_entity in nested {
+                        if state.iframes.get(iframe_entity).is_some() {
+                            continue;
+                        }
+                        try_load_iframe_entity(state, iframe_entity);
+                    }
+                }
+                // Check removed nodes (and their subtrees) for <iframe> elements.
+                // Subtree iframes must also be unloaded when a parent is removed.
+                for &entity in &record.removed_nodes {
+                    let mut nested = Vec::new();
+                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
+                    for iframe_entity in nested {
+                        if let Some(removed_entry) = state.iframes.remove(iframe_entity) {
+                            // Dispatch beforeunload/unload on the iframe's document
+                            // before dropping it (WHATWG HTML §7.1.3).
+                            if let IframeHandle::InProcess(mut ip) = removed_entry.handle {
+                                crate::pipeline::dispatch_unload_events(
+                                    &mut ip.pipeline.runtime,
+                                    &mut ip.pipeline.session,
+                                    &mut ip.pipeline.dom,
+                                    ip.pipeline.document,
+                                );
+                            }
+                            if state.focused_iframe == Some(iframe_entity) {
+                                state.focused_iframe = None;
+                            }
+                        }
+                    }
+                }
+            }
+            MutationKind::Attribute => {
+                // src attribute change on <iframe> → re-navigate.
+                if record
+                    .attribute_name
+                    .as_deref()
+                    .is_some_and(|name| name == "src")
+                {
+                    let target = record.target;
+                    // Dispatch unload events on the old iframe before removing it
+                    // (WHATWG HTML §7.1.3).
+                    if let Some(mut removed_entry) = state.iframes.remove(target) {
+                        if let IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
+                            crate::pipeline::dispatch_unload_events(
+                                &mut ip.pipeline.runtime,
+                                &mut ip.pipeline.session,
+                                &mut ip.pipeline.dom,
+                                ip.pipeline.document,
+                            );
+                        }
+                    }
+                    try_load_iframe_entity(state, target);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Register a loaded iframe: store its display list on the parent DOM,
+/// insert into the registry, and dispatch the `load` event.
+fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, entry: IframeEntry) {
+    if let IframeHandle::InProcess(ref ip) = entry.handle {
+        let _ = state.pipeline.dom.world_mut().insert_one(
+            entity,
+            elidex_render::IframeDisplayList(std::sync::Arc::new(ip.pipeline.display_list.clone())),
+        );
+    }
+    state.iframes.insert(entity, entry);
+    dispatch_iframe_load_event(state, entity);
+}
+
+/// Count the iframe nesting depth of an entity by walking its DOM ancestors.
+///
+/// Returns the number of ancestor elements that have `IframeData` components.
+/// Used for `MAX_IFRAME_DEPTH` enforcement to prevent runaway nesting.
+fn count_iframe_ancestor_depth(dom: &elidex_ecs::EcsDom, entity: Entity) -> usize {
+    let mut depth = 0;
+    let mut current = dom.get_parent(entity);
+    let mut steps = 0;
+    while let Some(parent) = current {
+        steps += 1;
+        if steps > elidex_ecs::MAX_ANCESTOR_DEPTH {
+            break;
+        }
+        if dom.world().get::<&elidex_ecs::IframeData>(parent).is_ok() {
+            depth += 1;
+        }
+        current = dom.get_parent(parent);
+    }
+    depth
+}
+
+/// Check lazy iframes and load those near the viewport.
+///
+/// Uses `LayoutBox` position to determine if a lazy iframe is within 200px
+/// of the viewport bounds. Once loaded, the entity is removed from the
+/// pending list. Iframes without a `LayoutBox` (e.g., inside a `display:none`
+/// parent) remain in the pending list until layout is computed.
+pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
+    if state.lazy_iframe_pending.is_empty() {
+        return;
+    }
+
+    let vp_width = state.pipeline.viewport.width;
+    let vp_height = state.pipeline.viewport.height;
+    let scroll_x = state.viewport_scroll.scroll_offset.x;
+    let scroll_y = state.viewport_scroll.scroll_offset.y;
+    let margin = 200.0_f32; // Load iframes within 200px of viewport edge.
+
+    let visible_left = scroll_x - margin;
+    let visible_right = scroll_x + vp_width + margin;
+    let visible_top = scroll_y - margin;
+    let visible_bottom = scroll_y + vp_height + margin;
+
+    // Collect entities to load (to avoid borrow conflict with state).
+    let to_load: Vec<Entity> = state
+        .lazy_iframe_pending
+        .iter()
+        .copied()
+        .filter(|&entity| {
+            state
+                .pipeline
+                .dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(entity)
+                .ok()
+                .is_some_and(|lb| {
+                    let left = lb.content.origin.x;
+                    let right = left + lb.content.size.width;
+                    let top = lb.content.origin.y;
+                    let bottom = top + lb.content.size.height;
+                    // Iframe overlaps the extended viewport (2D check).
+                    right >= visible_left
+                        && left <= visible_right
+                        && bottom >= visible_top
+                        && top <= visible_bottom
+                })
+        })
+        .collect();
+
+    if to_load.is_empty() {
+        return;
+    }
+
+    // Remove loaded entities from pending list (use HashSet to avoid O(n^2)).
+    let to_load_set: std::collections::HashSet<Entity> = to_load.iter().copied().collect();
+    state
+        .lazy_iframe_pending
+        .retain(|e| !to_load_set.contains(e));
+
+    // Load each visible lazy iframe.
+    for entity in to_load {
+        // Re-read IframeData since we're loading now.
+        let iframe_data = state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .map(|d| (*d).clone());
+        if let Some(data) = iframe_data {
+            let parent_origin = state.pipeline.runtime.bridge().origin();
+            let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
+            let entry = load_iframe(
+                entity,
+                &data,
+                &parent_origin,
+                state.pipeline.url.as_ref(),
+                &state.pipeline.font_db,
+                &state.pipeline.fetch_handle,
+                depth,
+            );
+            register_iframe_entry(state, entity, entry);
+        }
+    }
+}
+
+/// Dispatch a "load" event on an iframe element entity in the parent document.
+///
+/// Per WHATWG HTML §4.8.5: when an iframe's content is loaded, a "load"
+/// event fires on the `<iframe>` element (not on the iframe's document).
+fn dispatch_iframe_load_event(state: &mut super::ContentState, iframe_entity: Entity) {
+    let mut event = elidex_script_session::DispatchEvent::new("load", iframe_entity);
+    event.bubbles = false;
+    event.cancelable = false;
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
+}
+
+/// Try to load an iframe for `entity` if it has `IframeData`.
+///
+/// Respects `loading="lazy"`: lazy iframes are skipped here and will be
+/// loaded when `check_lazy_iframes` detects their `LayoutBox` is near the viewport.
+pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: Entity) {
+    let iframe_data = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::IframeData>(entity)
+        .ok()
+        .map(|d| (*d).clone());
+    if let Some(data) = iframe_data {
+        // loading="lazy": defer loading until near viewport (WHATWG HTML §4.8.5).
+        // Registers the entity in the pending list; the event loop checks
+        // LayoutBox positions each frame to detect viewport proximity.
+        if data.loading == elidex_ecs::LoadingAttribute::Lazy {
+            if !state.lazy_iframe_pending.contains(&entity) {
+                state.lazy_iframe_pending.push(entity);
+            }
+            return;
+        }
+        let parent_origin = state.pipeline.runtime.bridge().origin();
+        let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
+        let entry = load_iframe(
+            entity,
+            &data,
+            &parent_origin,
+            state.pipeline.url.as_ref(),
+            &state.pipeline.font_db,
+            &state.pipeline.fetch_handle,
+            depth,
+        );
+        register_iframe_entry(state, entity, entry);
+    }
+}
+
+/// Walk the DOM tree and load any `<iframe>` elements found during initial parse.
+///
+/// Mutation-based detection (`detect_iframe_mutations`) only catches iframes
+/// added via JS. This function handles iframes present in the initial HTML.
+pub(super) fn scan_initial_iframes(state: &mut super::ContentState) {
+    let mut iframes_to_load = Vec::new();
+    collect_iframe_entities(
+        &state.pipeline.dom,
+        state.pipeline.document,
+        &mut iframes_to_load,
+        0,
+    );
+    for entity in iframes_to_load {
+        try_load_iframe_entity(state, entity);
+    }
+}
+
+/// Recursively collect entities with `IframeData` components.
+fn collect_iframe_entities(
+    dom: &elidex_ecs::EcsDom,
+    entity: Entity,
+    result: &mut Vec<Entity>,
+    depth: usize,
+) {
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    if dom.world().get::<&elidex_ecs::IframeData>(entity).is_ok() {
+        result.push(entity);
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        collect_iframe_entities(dom, c, result, depth + 1);
+        child = dom.get_next_sibling(c);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
