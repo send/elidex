@@ -319,6 +319,68 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
         .expect("failed to register getSelection");
+
+    // --- iframe-related window properties (WHATWG HTML §7.1.3) ---
+
+    // window.parent — returns `self` for top-level documents.
+    // For iframes, this should return the parent window proxy.
+    // MVP: always returns `self` (no cross-window proxy yet).
+    let parent_fn =
+        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
+    ctx.register_global_property(
+        js_string!("parent"),
+        parent_fn.to_js_function(ctx.realm()),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.parent");
+
+    // window.top — returns the top-level window.
+    // MVP: always returns `self` (no window hierarchy yet).
+    let top_fn =
+        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
+    ctx.register_global_property(
+        js_string!("top"),
+        top_fn.to_js_function(ctx.realm()),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.top");
+
+    // window.frameElement — null for top-level, iframe element for embedded docs.
+    // Cross-origin: always null (WHATWG HTML §7.1.3).
+    ctx.register_global_property(
+        js_string!("frameElement"),
+        JsValue::null(),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.frameElement");
+
+    // window.length — number of child iframes.
+    // MVP: always 0 (iframe counting will be added when iframe loading is implemented).
+    ctx.register_global_property(
+        js_string!("length"),
+        JsValue::from(0),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.length");
+
+    // window.opener — null for iframes (only set by window.open).
+    ctx.register_global_property(
+        js_string!("opener"),
+        JsValue::null(),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.opener");
+
+    // window.frames — alias for window (WHATWG HTML §7.1.3).
+    // Returns the window itself; window[0], window[1] etc. access child iframes.
+    let frames_fn =
+        NativeFunction::from_copy_closure(|_this, _args, ctx| Ok(ctx.global_object().into()));
+    ctx.register_global_property(
+        js_string!("frames"),
+        frames_fn.to_js_function(ctx.realm()),
+        Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register window.frames");
 }
 
 /// Evaluate a basic media query string against the current viewport.

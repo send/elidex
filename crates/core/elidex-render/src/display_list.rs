@@ -174,6 +174,18 @@ pub enum DisplayItem {
     },
     /// End viewport scroll translation.
     PopScrollOffset,
+    /// Render an iframe's display list at an offset with clipping.
+    ///
+    /// The sub-list is translated by `offset` and clipped to `clip`.
+    /// Used for compositing iframe content into the parent display list.
+    SubDisplayList {
+        /// Translation offset (iframe content area position in parent coordinates).
+        offset: Point,
+        /// Clipping rectangle (iframe content area bounds).
+        clip: Rect,
+        /// The iframe's display list.
+        list: Box<DisplayList>,
+    },
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.

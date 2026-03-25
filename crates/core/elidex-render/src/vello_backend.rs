@@ -685,6 +685,18 @@ pub(crate) fn build_scene(
                     transform_stack.pop();
                 }
             }
+            DisplayItem::SubDisplayList { offset, clip, list } => {
+                // Render iframe content: translate by offset, clip to bounds, then
+                // recursively render the sub-display-list.
+                let clip_rect = to_vello_rect(clip);
+                let translate = current_transform.then_translate(vello::kurbo::Vec2::new(
+                    f64::from(offset.x),
+                    f64::from(offset.y),
+                ));
+                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, translate, &clip_rect);
+                build_scene(scene, list, font_cache);
+                scene.pop_layer();
+            }
             DisplayItem::Text {
                 glyphs,
                 font_blob,

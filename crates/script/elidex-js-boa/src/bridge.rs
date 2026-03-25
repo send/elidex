@@ -112,6 +112,17 @@ struct HostBridgeInner {
     /// Cached pending `whenDefined()` promises, keyed by custom element name.
     /// Returned for repeated calls with the same name before `define()`.
     when_defined_promises: HashMap<String, JsValue>,
+    // --- iframe / multi-document ---
+    /// Security origin of this document (WHATWG HTML §7.5).
+    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
+    origin: elidex_plugin::SecurityOrigin,
+    /// The `<iframe>` element entity in the parent DOM that contains this window.
+    /// `None` for top-level documents.
+    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
+    frame_element: Option<Entity>,
+    /// Referrer URL for this document (set from parent URL when loaded as iframe).
+    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
+    referrer: Option<String>,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -220,6 +231,9 @@ impl HostBridge {
                 ce_next_constructor_id: 1,
                 when_defined_resolvers: HashMap::new(),
                 when_defined_promises: HashMap::new(),
+                origin: elidex_plugin::SecurityOrigin::opaque(),
+                frame_element: None,
+                referrer: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -359,6 +373,39 @@ impl HostBridge {
     /// Get the current page URL.
     pub fn current_url(&self) -> Option<url::Url> {
         self.inner.borrow().current_url.clone()
+    }
+
+    /// Set the security origin for this document.
+    pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
+        self.inner.borrow_mut().origin = origin;
+    }
+
+    /// Get the security origin of this document.
+    #[must_use]
+    pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
+        self.inner.borrow().origin.clone()
+    }
+
+    /// Set the `<iframe>` element entity in the parent DOM that contains this window.
+    pub fn set_frame_element(&self, entity: Option<Entity>) {
+        self.inner.borrow_mut().frame_element = entity;
+    }
+
+    /// Get the `<iframe>` element entity in the parent DOM.
+    #[must_use]
+    pub fn frame_element(&self) -> Option<Entity> {
+        self.inner.borrow().frame_element
+    }
+
+    /// Set the referrer URL for this document (parent URL when loaded as iframe).
+    pub fn set_referrer(&self, referrer: Option<String>) {
+        self.inner.borrow_mut().referrer = referrer;
+    }
+
+    /// Get the referrer URL for this document.
+    #[must_use]
+    pub fn referrer(&self) -> Option<String> {
+        self.inner.borrow().referrer.clone()
     }
 
     /// Set a pending navigation request.

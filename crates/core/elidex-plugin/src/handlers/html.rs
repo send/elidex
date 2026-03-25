@@ -133,12 +133,57 @@ impl HtmlElementHandler for ButtonHandler {
 }
 
 // ---------------------------------------------------------------------------
+// IframeHandler
+// ---------------------------------------------------------------------------
+
+struct IframeHandler {
+    default_style: Vec<CssRule>,
+}
+
+impl IframeHandler {
+    fn new() -> Self {
+        Self {
+            default_style: vec![CssRule {
+                selector: "iframe".into(),
+                declarations: vec![
+                    ("display".into(), "inline-block".into()),
+                    ("width".into(), "300px".into()),
+                    ("height".into(), "150px".into()),
+                    ("border-width".into(), "2px".into()),
+                    ("border-style".into(), "inset".into()),
+                ],
+            }],
+        }
+    }
+}
+
+impl HtmlElementHandler for IframeHandler {
+    fn tag_name(&self) -> &'static str {
+        "iframe"
+    }
+
+    fn parse_behavior(&self) -> ParseBehavior {
+        // WHATWG HTML §4.8.5: content model is "nothing".
+        // html5ever handles this; text inside <iframe> is raw text (fallback for legacy UAs).
+        ParseBehavior::Normal
+    }
+
+    fn default_style(&self) -> &[CssRule] {
+        &self.default_style
+    }
+
+    fn create_element(&self, attrs: &Attributes) -> ElementData {
+        default_create_element("iframe", attrs)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
 /// Creates a [`PluginRegistry`] pre-populated with built-in HTML element handlers.
 ///
-/// Registers handlers for: `div`, `a`, `img`, `script`, `button`.
+/// Registers handlers for: `div`, `a`, `img`, `script`, `button`, `iframe`.
 #[must_use]
 pub fn create_html_element_registry() -> PluginRegistry<dyn HtmlElementHandler> {
     let mut registry: PluginRegistry<dyn HtmlElementHandler> = PluginRegistry::new();
@@ -147,6 +192,7 @@ pub fn create_html_element_registry() -> PluginRegistry<dyn HtmlElementHandler> 
     registry.register_static("img", Box::new(ImgHandler));
     registry.register_static("script", Box::new(ScriptHandler));
     registry.register_static("button", Box::new(ButtonHandler));
+    registry.register_static("iframe", Box::new(IframeHandler::new()));
     registry
 }
 
@@ -199,7 +245,7 @@ mod tests {
     #[test]
     fn html_registry_factory() {
         let registry = create_html_element_registry();
-        assert_eq!(registry.len(), 5);
+        assert_eq!(registry.len(), 6);
         let div = registry.resolve("div").unwrap();
         assert_eq!(div.tag_name(), "div");
         let a = registry.resolve("a").unwrap();
@@ -224,7 +270,7 @@ mod tests {
     fn html_registry_dynamic_custom_tag() {
         let mut registry = create_html_element_registry();
         registry.register_dynamic("my-widget".into(), Box::new(MyWidgetHandler));
-        assert_eq!(registry.len(), 6);
+        assert_eq!(registry.len(), 7);
         let handler = registry.resolve("my-widget").unwrap();
         let el = handler.create_element(&HashMap::new());
         assert_eq!(el.tag_name, "my-widget");

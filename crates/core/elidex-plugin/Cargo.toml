@@ -12,6 +12,7 @@ keywords = ["browser-engine", "plugin", "ecs"]
 categories = ["web-programming"]
 
 [dependencies]
+bitflags = { workspace = true }
 cssparser.workspace = true
 url = { workspace = true }
 

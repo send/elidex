@@ -460,6 +460,23 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         1,
     );
 
+    // document.referrer — returns the referrer URL (parent URL for iframe documents).
+    let b_referrer = b.clone();
+    let referrer_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            let referrer = bridge.referrer().unwrap_or_default();
+            Ok(JsValue::from(js_string!(referrer)))
+        },
+        b_referrer,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("referrer"),
+        Some(referrer_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
     let document = init.build();
     ctx.register_global_property(js_string!("document"), document, Attribute::all())
         .expect("failed to register document");

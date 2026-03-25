@@ -7,6 +7,7 @@ mod animation;
 mod event_handlers;
 pub(crate) mod focus;
 mod form_input;
+pub(crate) mod iframe;
 mod ime;
 mod navigation;
 mod scroll;
@@ -52,6 +53,12 @@ struct ContentState {
     focusable_cache: Option<Vec<Entity>>,
     /// Viewport-level scroll state (not attached to a DOM entity).
     viewport_scroll: elidex_ecs::ScrollState,
+    /// Registry of child iframes (same-origin in-process + cross-origin out-of-process).
+    #[allow(dead_code)] // Used when iframe loading is implemented.
+    iframes: iframe::IframeRegistry,
+    /// Which iframe currently has focus (`None` = parent document has focus).
+    #[allow(dead_code)] // Used when iframe event routing is implemented.
+    focused_iframe: Option<Entity>,
 }
 
 impl ContentState {
@@ -112,6 +119,8 @@ impl ContentState {
             focusable_cache: None,
             viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
+            iframes: iframe::IframeRegistry::new(),
+            focused_iframe: None,
         }
     }
 

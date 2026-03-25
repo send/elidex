@@ -396,9 +396,9 @@ pub fn try_get_style(dom: &EcsDom, entity: Entity) -> Option<ComputedStyle> {
         .map(|s| (*s).clone())
 }
 
-/// Detect intrinsic dimensions from `ImageData` or `FormControlState`.
+/// Detect intrinsic dimensions from `ImageData`, `FormControlState`, or `IframeData`.
 ///
-/// Returns `Some(Size)` for replaced elements (images, form controls),
+/// Returns `Some(Size)` for replaced elements (images, form controls, iframes),
 /// `None` otherwise.
 #[allow(clippy::cast_precision_loss)]
 #[must_use]
@@ -415,5 +415,11 @@ pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<Size> {
                     let s = elidex_form::form_intrinsic_size(&fcs);
                     Size::new(s.width.max(0.0), s.height.max(0.0))
                 })
+        })
+        .or_else(|| {
+            dom.world()
+                .get::<&elidex_ecs::IframeData>(entity)
+                .ok()
+                .map(|iframe| Size::new(iframe.width as f32, iframe.height as f32))
         })
 }
