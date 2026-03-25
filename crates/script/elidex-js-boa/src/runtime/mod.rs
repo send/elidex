@@ -620,7 +620,12 @@ impl JsRuntime {
                     let target_connected = is_connected_to_document(record.target, dom);
                     for &entity in &record.added_nodes {
                         if target_connected {
-                            walk_subtree_for_ce(entity, "connected", &self.bridge, dom, 0);
+                            crate::globals::element::core::enqueue_ce_reactions_for_subtree(
+                                entity,
+                                "connected",
+                                &self.bridge,
+                                dom,
+                            );
                         }
                         // Upgrade undefined CEs regardless of connectivity —
                         // elements created via innerHTML in disconnected subtrees
@@ -632,7 +637,12 @@ impl JsRuntime {
                     // child WAS connected before removal.
                     if target_connected {
                         for &entity in &record.removed_nodes {
-                            walk_subtree_for_ce(entity, "disconnected", &self.bridge, dom, 0);
+                            crate::globals::element::core::enqueue_ce_reactions_for_subtree(
+                                entity,
+                                "disconnected",
+                                &self.bridge,
+                                dom,
+                            );
                         }
                     }
                 }
@@ -947,42 +957,6 @@ impl JsRuntime {
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-
-/// Walk a subtree and enqueue CE lifecycle reactions for all custom elements found.
-///
-/// Mirrors `enqueue_ce_reactions_for_subtree_inner` in `element/core.rs` but
-/// used by `enqueue_ce_reactions_from_mutations` for mutation record processing.
-fn walk_subtree_for_ce(
-    entity: Entity,
-    reaction_type: &str,
-    bridge: &HostBridge,
-    dom: &EcsDom,
-    depth: usize,
-) {
-    use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
-
-    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
-        return;
-    }
-    if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
-        if ce_state.state == CEState::Custom {
-            match reaction_type {
-                "connected" => {
-                    bridge.enqueue_ce_reaction(CustomElementReaction::Connected(entity));
-                }
-                "disconnected" => {
-                    bridge.enqueue_ce_reaction(CustomElementReaction::Disconnected(entity));
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut child = dom.get_first_child(entity);
-    while let Some(c) = child {
-        walk_subtree_for_ce(c, reaction_type, bridge, dom, depth + 1);
-        child = dom.get_next_sibling(c);
-    }
-}
 
 /// Walk a subtree and enqueue `Upgrade` reactions for undefined custom elements
 /// that have a registered definition.

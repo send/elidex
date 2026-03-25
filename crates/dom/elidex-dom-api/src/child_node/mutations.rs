@@ -1,5 +1,12 @@
 //! ChildNode/ParentNode mixin handlers: before, after, remove, replaceWith,
 //! prepend, append, replaceChildren.
+//!
+//! **CE reaction limitation:** These handlers perform direct DOM operations
+//! (`dom.insert_before`/`dom.remove_child`) rather than going through
+//! `session.record_mutation()`. As a result, Custom Element lifecycle callbacks
+//! (connectedCallback/disconnectedCallback) are not automatically enqueued.
+//! Fixing this requires routing all tree mutations through the mutation pipeline
+//! (similar to the innerHTML refactor). Tracked for a future milestone.
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::JsValue;

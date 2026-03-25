@@ -294,7 +294,7 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
 
 /// Recursively walk the subtree rooted at `entity` and enqueue CE lifecycle
 /// reactions (connected or disconnected) for every custom element found.
-fn enqueue_ce_reactions_for_subtree(
+pub(crate) fn enqueue_ce_reactions_for_subtree(
     entity: Entity,
     reaction_type: &str,
     bridge: &HostBridge,

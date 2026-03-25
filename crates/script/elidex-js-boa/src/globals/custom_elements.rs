@@ -70,7 +70,7 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                             JsNativeError::syntax().with_message(msg)
                         } else {
                             // "already been defined" → NotSupportedError per WHATWG HTML §4.13.4.
-                            JsNativeError::typ().with_message(msg)
+                            JsNativeError::typ().with_message(format!("NotSupportedError: {msg}"))
                         }
                     })?;
 
@@ -242,6 +242,8 @@ fn extract_observed_attributes(
         let s = item.to_string(ctx)?;
         attrs.push(s.to_std_string_escaped().to_ascii_lowercase());
     }
+    attrs.sort();
+    attrs.dedup();
     Ok(attrs)
 }
 
