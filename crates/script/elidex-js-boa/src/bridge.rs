@@ -130,6 +130,11 @@ struct HostBridgeInner {
     pending_post_messages: Vec<(String, String)>,
     /// URL to open in a new tab (from `window.open` with `_blank` target).
     pending_open_tab: Option<url::Url>,
+    // NOTE: `parent_bridge` and `iframe_bridges` fields are intentionally
+    // omitted. Boa uses per-Context JsObject references that cannot cross
+    // Context boundaries, so contentDocument/contentWindow return null for
+    // all iframes. Cross-context document/window proxies require the
+    // self-hosted JS engine (M4-9+).
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.

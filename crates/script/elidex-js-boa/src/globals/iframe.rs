@@ -125,17 +125,19 @@ pub(crate) fn register_iframe_accessors(
     register_iframe_string_attr(init, bridge, realm, "sandbox");
 }
 
-/// Register a string attribute getter for an iframe property.
+/// Register a string attribute getter and setter for an iframe property.
 ///
-/// Reads the corresponding field from the `IframeData` ECS component,
-/// mapping attribute names to `IframeData` fields.
+/// Getter reads the corresponding field from the `IframeData` ECS component.
+/// Setter updates the `Attributes` component (like `setAttribute`) and records
+/// a `SetAttribute` mutation. When `src` is set, this triggers re-navigation
+/// via `detect_iframe_mutations` in the content thread's re-render cycle.
 fn register_iframe_string_attr(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
     realm: &boa_engine::realm::Realm,
     attr_name: &'static str,
 ) {
-    let b = bridge.clone();
+    let b_get = bridge.clone();
     let getter = NativeFunction::from_copy_closure_with_captures(
         move |this, _args, bridge, ctx| -> JsResult<JsValue> {
             let entity = extract_entity(this, ctx)?;
@@ -148,15 +150,66 @@ fn register_iframe_string_attr(
                 Ok(JsValue::from(js_string!(value)))
             })
         },
-        b,
+        b_get,
     )
     .to_js_function(realm);
+
+    let b_set = bridge.clone();
+    let setter = NativeFunction::from_copy_closure_with_captures(
+        move |this, args, bridge, ctx| -> JsResult<JsValue> {
+            let entity = extract_entity(this, ctx)?;
+            let value = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            bridge.with(|session, dom| {
+                // Update the Attributes component (mirrors setAttribute behavior).
+                if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
+                    attrs.set(attr_name, &value);
+                }
+                // Update the IframeData component field directly.
+                if let Ok(mut iframe_data) =
+                    dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
+                {
+                    set_iframe_attr(&mut iframe_data, attr_name, &value);
+                }
+                // Record a SetAttribute mutation so detect_iframe_mutations
+                // picks up the change (especially for `src` re-navigation).
+                session.record_mutation(elidex_script_session::Mutation::SetAttribute {
+                    entity,
+                    name: attr_name.to_string(),
+                    value: value.clone(),
+                });
+            });
+            Ok(JsValue::undefined())
+        },
+        b_set,
+    )
+    .to_js_function(realm);
+
     init.accessor(
         js_string!(attr_name),
         Some(getter),
-        None,
+        Some(setter),
         boa_engine::property::Attribute::CONFIGURABLE,
     );
+}
+
+/// Set an `IframeData` field from an attribute name and value.
+fn set_iframe_attr(data: &mut elidex_ecs::IframeData, attr_name: &str, value: &str) {
+    match attr_name {
+        "src" => data.src = Some(value.to_string()),
+        "srcdoc" => data.srcdoc = Some(value.to_string()),
+        "name" => data.name = Some(value.to_string()),
+        "referrerPolicy" => data.referrer_policy = Some(value.to_string()),
+        "allow" => data.allow = Some(value.to_string()),
+        "sandbox" => data.sandbox = Some(value.to_string()),
+        "width" => data.width = value.parse().unwrap_or(data.width),
+        "height" => data.height = value.parse().unwrap_or(data.height),
+        _ => {}
+    }
 }
 
 /// Map an attribute name to its `IframeData` field value.

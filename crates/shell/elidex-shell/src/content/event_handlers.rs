@@ -6,7 +6,6 @@ use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::DispatchEvent;
 
-use crate::app::events::find_link_ancestor;
 use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_state};
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ModifierState;
@@ -159,9 +158,52 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Link navigation: if click was not prevented, check for <a href>.
     if click.button == 0 && !click_prevented {
-        if let Some(href) = find_link_ancestor(&state.pipeline.dom, hit_entity) {
+        if let Some((href, target_attr)) =
+            crate::app::events::find_link_ancestor_with_target(&state.pipeline.dom, hit_entity)
+        {
             let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &href);
             if let Some(target_url) = resolved {
+                match target_attr.as_deref() {
+                    Some("_blank") => {
+                        // Open in a new tab.
+                        let _ = state
+                            .channel
+                            .send(crate::ipc::ContentToBrowser::OpenNewTab(target_url));
+                        state.send_display_list();
+                        return;
+                    }
+                    Some("_top" | "_parent") => {
+                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
+                        // block navigation to parent/top from sandboxed iframes
+                        // without the allow-top-navigation flag.
+                        if state
+                            .pipeline
+                            .runtime
+                            .bridge()
+                            .sandbox_flags()
+                            .is_some_and(|f| {
+                                !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
+                            })
+                        {
+                            state.send_display_list();
+                            return;
+                        }
+                        // Fall through to navigate current document
+                        // (true parent/top navigation requires multi-process IPC).
+                    }
+                    Some(name) if !name.is_empty() && !name.starts_with('_') => {
+                        // Named target: look for an iframe with matching name.
+                        if let Some(iframe_entity) = find_iframe_by_name(state, name) {
+                            navigate_iframe(state, iframe_entity, &target_url);
+                            state.send_display_list();
+                            return;
+                        }
+                        // No matching iframe → fall through to normal navigation.
+                    }
+                    _ => {
+                        // _self or no target → navigate current document.
+                    }
+                }
                 state.send_display_list();
                 handle_navigate(state, &target_url, false, None);
                 return;
@@ -671,6 +713,45 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
         }
         _ => {}
     }
+}
+
+/// Find an iframe entity by its `name` attribute.
+///
+/// Searches the parent DOM for `<iframe>` elements whose `IframeData.name`
+/// matches the given target name (WHATWG HTML §7.1.3).
+fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::Entity> {
+    for (&entity, _entry) in state.iframes.iter() {
+        let matches = state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .is_some_and(|d| d.name.as_deref() == Some(name));
+        if matches {
+            return Some(entity);
+        }
+    }
+    None
+}
+
+/// Navigate an in-process iframe to a new URL.
+///
+/// Removes the old entry, loads the new URL, and inserts the new entry.
+fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, url: &url::Url) {
+    // Remove old entry (dispatches unload via drop).
+    state.iframes.remove(iframe_entity);
+    // Update the IframeData src to the new URL.
+    if let Ok(mut iframe_data) = state
+        .pipeline
+        .dom
+        .world_mut()
+        .get::<&mut elidex_ecs::IframeData>(iframe_entity)
+    {
+        iframe_data.src = Some(url.to_string());
+    }
+    // Reload.
+    super::try_load_iframe_entity(state, iframe_entity);
 }
 
 // ---------------------------------------------------------------------------

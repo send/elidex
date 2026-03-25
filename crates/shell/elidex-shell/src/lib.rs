@@ -343,7 +343,8 @@ pub struct PipelineResult {
     /// Shared fetch handle (for cookie sharing across navigation).
     pub fetch_handle: Rc<FetchHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
-    pub registry: elidex_plugin::CssPropertyRegistry,
+    /// `Arc`-wrapped so it can be shared with child iframe pipelines.
+    pub registry: Arc<elidex_plugin::CssPropertyRegistry>,
     /// CSS animation/transition engine.
     pub animation_engine: AnimationEngine,
     /// Current viewport dimensions for layout.
@@ -385,7 +386,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     elidex_form::init_form_controls(&mut dom);
 
-    let registry = create_css_property_registry();
+    let registry = Arc::new(create_css_property_registry());
 
     let stylesheets = vec![parse_compat_stylesheet_with_registry(
         css,
@@ -577,7 +578,7 @@ pub fn build_pipeline_from_loaded(
 
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    let registry = create_css_property_registry();
+    let registry = Arc::new(create_css_property_registry());
 
     let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,

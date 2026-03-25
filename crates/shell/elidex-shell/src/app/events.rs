@@ -158,6 +158,17 @@ impl App {
 /// Depth-limited to [`MAX_ANCESTOR_DEPTH`] to guard against cycles (consistent with
 /// `build_propagation_path` and other tree walkers in the codebase).
 pub(crate) fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<String> {
+    find_link_ancestor_with_target(dom, entity).map(|(href, _)| href)
+}
+
+/// Find the nearest `<a href="...">` ancestor, returning both the `href` and
+/// the optional `target` attribute value.
+///
+/// Returns `Some((href, target))` where `target` is `None` when not specified.
+pub(crate) fn find_link_ancestor_with_target(
+    dom: &elidex_ecs::EcsDom,
+    entity: Entity,
+) -> Option<(String, Option<String>)> {
     let mut current = Some(entity);
     let mut depth = 0;
     while let Some(e) = current {
@@ -169,7 +180,8 @@ pub(crate) fn find_link_ancestor(dom: &elidex_ecs::EcsDom, entity: Entity) -> Op
                 if let Ok(attrs) = dom.world().get::<&Attributes>(e) {
                     if let Some(href) = attrs.get("href") {
                         if !href.is_empty() {
-                            return Some(href.to_string());
+                            let target = attrs.get("target").map(String::from);
+                            return Some((href.to_string(), target));
                         }
                     }
                 }

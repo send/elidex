@@ -126,6 +126,23 @@ impl ContentState {
         }
     }
 
+    /// Re-render all in-process iframes that need it, then re-render the parent.
+    ///
+    /// Iterates registered iframes and calls `crate::re_render()` on each
+    /// in-process iframe whose `needs_render` flag is set, then re-renders
+    /// the parent document. This ensures child iframe display lists are
+    /// up-to-date before the parent composites them.
+    fn re_render_all_iframes(&mut self) {
+        for (_entity, entry) in self.iframes.iter_mut() {
+            if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
+                if ip.needs_render {
+                    crate::re_render(&mut ip.pipeline);
+                    ip.needs_render = false;
+                }
+            }
+        }
+    }
+
     /// Sync canvas pixels and `caret_visible` to the pipeline, then re-render.
     ///
     /// Canvas `ImageData` sync is deferred to this point (once per frame)
@@ -165,6 +182,10 @@ impl ContentState {
             self.viewport_scroll.scroll_offset.x,
             self.viewport_scroll.scroll_offset.y,
         );
+        // Re-render in-process iframes before the parent so child display
+        // lists are up-to-date when the parent composites them.
+        self.re_render_all_iframes();
+
         let mutation_records = crate::re_render(&mut self.pipeline);
 
         // Invalidate focusable cache when DOM structure or focusability changes.
@@ -289,6 +310,10 @@ fn content_thread_main(
     let pipeline = crate::build_pipeline_interactive(html, css);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
+    // Scan for <iframe> elements present in the initial parsed DOM.
+    // Mutation-based detection only catches dynamically added iframes;
+    // statically parsed iframes need an explicit initial scan.
+    scan_initial_iframes(&mut state);
     state.send_display_list();
     run_event_loop(&mut state);
 }
@@ -314,6 +339,8 @@ fn content_thread_main_url(
 
     let mut state = ContentState::new(channel, nav_controller, pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
+    // Scan for <iframe> elements present in the initial parsed DOM.
+    scan_initial_iframes(&mut state);
     state.notify_navigation(url);
     run_event_loop(&mut state);
 }
@@ -445,7 +472,9 @@ fn run_event_loop(state: &mut ContentState) {
         }
 
         // Drain timers for in-process (same-origin) iframes.
-        for (_entity, entry) in state.iframes.iter_mut() {
+        // Timers always run (for correctness), but layout/render is skipped
+        // for iframes outside the viewport to save CPU.
+        for (&iframe_entity, entry) in state.iframes.iter_mut() {
             if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
                 if ip
                     .pipeline
@@ -458,7 +487,27 @@ fn run_event_loop(state: &mut ContentState) {
                         &mut ip.pipeline.dom,
                         ip.pipeline.document,
                     );
-                    ip.needs_render = true;
+                    // Only mark for re-render if the iframe is within the viewport.
+                    // Iframes outside the viewport still run timers but skip
+                    // the expensive layout/render pass.
+                    let in_viewport = state
+                        .pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_plugin::LayoutBox>(iframe_entity)
+                        .ok()
+                        .is_some_and(|lb| {
+                            let vp_w = state.pipeline.viewport.width;
+                            let vp_h = state.pipeline.viewport.height;
+                            let left = lb.content.origin.x;
+                            let top = lb.content.origin.y;
+                            let right = left + lb.content.size.width;
+                            let bottom = top + lb.content.size.height;
+                            right >= 0.0 && left <= vp_w && bottom >= 0.0 && top <= vp_h
+                        });
+                    if in_viewport {
+                        ip.needs_render = true;
+                    }
                 }
             }
         }
@@ -684,10 +733,20 @@ fn detect_iframe_mutations(
                 }
                 // Check removed nodes for <iframe> elements.
                 for &entity in &record.removed_nodes {
-                    if state.iframes.remove(entity).is_some()
-                        && state.focused_iframe == Some(entity)
-                    {
-                        state.focused_iframe = None;
+                    if let Some(removed_entry) = state.iframes.remove(entity) {
+                        // Dispatch beforeunload/unload on the iframe's document
+                        // before dropping it (WHATWG HTML §7.1.3).
+                        if let iframe::IframeHandle::InProcess(mut ip) = removed_entry.handle {
+                            crate::pipeline::dispatch_unload_events(
+                                &mut ip.pipeline.runtime,
+                                &mut ip.pipeline.session,
+                                &mut ip.pipeline.dom,
+                                ip.pipeline.document,
+                            );
+                        }
+                        if state.focused_iframe == Some(entity) {
+                            state.focused_iframe = None;
+                        }
                     }
                 }
             }
@@ -807,8 +866,25 @@ fn check_lazy_iframes(state: &mut ContentState) {
                 depth,
             );
             state.iframes.insert(entity, entry);
+            dispatch_iframe_load_event(state, entity);
         }
     }
+}
+
+/// Dispatch a "load" event on an iframe element entity in the parent document.
+///
+/// Per WHATWG HTML §4.8.5: when an iframe's content is loaded, a "load"
+/// event fires on the `<iframe>` element (not on the iframe's document).
+fn dispatch_iframe_load_event(state: &mut ContentState, iframe_entity: elidex_ecs::Entity) {
+    let mut event = elidex_script_session::DispatchEvent::new("load", iframe_entity);
+    event.bubbles = false;
+    event.cancelable = false;
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 /// Try to load an iframe for `entity` if it has `IframeData`.
@@ -846,6 +922,45 @@ fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) 
             depth,
         );
         state.iframes.insert(entity, entry);
+        // Dispatch "load" event on the <iframe> element per WHATWG HTML §4.8.5.
+        dispatch_iframe_load_event(state, entity);
+    }
+}
+
+/// Walk the DOM tree and load any `<iframe>` elements found during initial parse.
+///
+/// Mutation-based detection (`detect_iframe_mutations`) only catches iframes
+/// added via JS. This function handles iframes present in the initial HTML.
+fn scan_initial_iframes(state: &mut ContentState) {
+    let mut iframes_to_load = Vec::new();
+    collect_iframe_entities(
+        &state.pipeline.dom,
+        state.pipeline.document,
+        &mut iframes_to_load,
+        0,
+    );
+    for entity in iframes_to_load {
+        try_load_iframe_entity(state, entity);
+    }
+}
+
+/// Recursively collect entities with `IframeData` components.
+fn collect_iframe_entities(
+    dom: &elidex_ecs::EcsDom,
+    entity: elidex_ecs::Entity,
+    result: &mut Vec<elidex_ecs::Entity>,
+    depth: usize,
+) {
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    if dom.world().get::<&elidex_ecs::IframeData>(entity).is_ok() {
+        result.push(entity);
+    }
+    let mut child = dom.get_first_child(entity);
+    while let Some(c) = child {
+        collect_iframe_entities(dom, c, result, depth + 1);
+        child = dom.get_next_sibling(c);
     }
 }
 

@@ -438,6 +438,13 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                         });
                     }
                     "_parent" | "_top" => {
+                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
+                        // if sandboxed without allow-top-navigation, block navigation.
+                        if bridge.sandbox_flags().is_some_and(|f| {
+                            !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
+                        }) {
+                            return Ok(JsValue::null());
+                        }
                         // For top-level documents, _parent and _top are same as _self.
                         // For iframes, boa cross-context limitation means we navigate
                         // the current document (same as _self).

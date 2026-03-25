@@ -133,7 +133,16 @@ pub(super) fn dispatch_input_event_typed(
 ///
 /// Per HTML §4.10.15.3: implicit submission finds the form ancestor,
 /// dispatches a "submit" event, and if not prevented, logs the form data.
+///
+/// Sandbox `allow-forms` enforcement: if this document is inside a sandboxed
+/// iframe without `allow-forms`, form submission is silently blocked
+/// (WHATWG HTML §4.8.5).
 pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
+    // Sandbox allow-forms check: block form submission in sandboxed iframes
+    // that do not have the allow-forms flag.
+    if !state.pipeline.runtime.bridge().forms_allowed() {
+        return;
+    }
     let Some(form_entity) = elidex_form::find_form_ancestor(&state.pipeline.dom, target) else {
         return;
     };

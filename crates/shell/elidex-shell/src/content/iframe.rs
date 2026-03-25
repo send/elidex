@@ -299,7 +299,18 @@ pub fn load_iframe(
                 );
             };
 
-            match elidex_navigation::load_document(&resolved, fetch_handle, None) {
+            // Use a credentialless FetchHandle when the iframe has the
+            // `credentialless` attribute (WHATWG HTML §4.8.5).
+            let effective_handle: std::rc::Rc<elidex_net::FetchHandle> =
+                if iframe_data.credentialless {
+                    std::rc::Rc::new(elidex_net::FetchHandle::new(
+                        elidex_net::NetClient::new_credentialless(),
+                    ))
+                } else {
+                    fetch_handle.clone()
+                };
+
+            match elidex_navigation::load_document(&resolved, &effective_handle, None) {
                 Ok(loaded) => {
                     // Check security headers before allowing framing.
                     let doc_origin = SecurityOrigin::from_url(&loaded.url);
@@ -321,7 +332,7 @@ pub fn load_iframe(
 
                     let pipeline = crate::build_pipeline_from_loaded(
                         loaded,
-                        fetch_handle.clone(),
+                        effective_handle,
                         font_db.clone(),
                     );
                     let origin = apply_sandbox_origin(

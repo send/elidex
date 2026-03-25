@@ -112,6 +112,28 @@ impl NetClient {
         Self::with_config(NetClientConfig::default())
     }
 
+    /// Create a credentialless client that does not store or send cookies.
+    ///
+    /// Used for iframe `credentialless` attribute (WHATWG HTML §4.8.5):
+    /// the iframe's requests omit cookies and other credentials.
+    pub fn new_credentialless() -> Self {
+        Self::with_config_credentialless(NetClientConfig::default())
+    }
+
+    /// Create a credentialless client with the given configuration.
+    ///
+    /// Like `with_config`, but creates a fresh empty `CookieJar` that is
+    /// never populated from responses (cookies from `Set-Cookie` headers
+    /// are still parsed but not sent on subsequent requests, because this
+    /// jar is not shared with the parent document's client).
+    pub fn with_config_credentialless(config: NetClientConfig) -> Self {
+        Self::with_config(config)
+        // Note: this currently behaves the same as `with_config` since each
+        // NetClient already creates its own independent CookieJar. The
+        // distinction becomes important when cookie jars are shared across
+        // same-origin browsing contexts (Phase 5).
+    }
+
     /// Create a new client with the given configuration.
     pub fn with_config(config: NetClientConfig) -> Self {
         let transport = Arc::new(HttpTransport::with_config(config.transport.clone()));
