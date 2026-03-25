@@ -640,29 +640,28 @@ impl JsRuntime {
                     if let Some(ref attr_name) = record.attribute_name {
                         if let Ok(ce_state) = dom.world().get::<&CustomElementState>(record.target)
                         {
-                            if ce_state.state == CEState::Custom {
-                                let observed = self
+                            if ce_state.state == CEState::Custom
+                                && self
                                     .bridge
-                                    .ce_observed_attributes(&ce_state.definition_name);
-                                if observed.contains(attr_name) {
-                                    // Get the new value from the DOM.
-                                    let new_value = dom
-                                        .world()
-                                        .get::<&elidex_ecs::Attributes>(record.target)
-                                        .ok()
-                                        .and_then(|attrs| attrs.get(attr_name).map(String::from));
+                                    .ce_is_observed_attribute(&ce_state.definition_name, attr_name)
+                            {
+                                // Get the new value from the DOM.
+                                let new_value = dom
+                                    .world()
+                                    .get::<&elidex_ecs::Attributes>(record.target)
+                                    .ok()
+                                    .and_then(|attrs| attrs.get(attr_name).map(String::from));
 
-                                    // Fire whenever a MutationRecord exists — the spec
-                                    // does not gate on old != new for attributeChangedCallback.
-                                    self.bridge.enqueue_ce_reaction(
-                                        CustomElementReaction::AttributeChanged {
-                                            entity: record.target,
-                                            name: attr_name.clone(),
-                                            old_value: record.old_value.clone(),
-                                            new_value,
-                                        },
-                                    );
-                                }
+                                // Fire whenever a MutationRecord exists — the spec
+                                // does not gate on old != new for attributeChangedCallback.
+                                self.bridge.enqueue_ce_reaction(
+                                    CustomElementReaction::AttributeChanged {
+                                        entity: record.target,
+                                        name: attr_name.clone(),
+                                        old_value: record.old_value.clone(),
+                                        new_value,
+                                    },
+                                );
                             }
                         }
                     }

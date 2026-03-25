@@ -194,18 +194,17 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
                 if result.is_ok() {
                     bridge.with(|_session, dom| {
                         if let Ok(ce_state) = dom.world().get::<&elidex_custom_elements::CustomElementState>(entity) {
-                            if ce_state.state == elidex_custom_elements::CEState::Custom {
-                                let observed = bridge.ce_observed_attributes(&ce_state.definition_name);
-                                if observed.contains(&attr_name) {
-                                    bridge.enqueue_ce_reaction(
-                                        elidex_custom_elements::CustomElementReaction::AttributeChanged {
-                                            entity,
-                                            name: attr_name.clone(),
-                                            old_value,
-                                            new_value: Some(value.clone()),
-                                        },
-                                    );
-                                }
+                            if ce_state.state == elidex_custom_elements::CEState::Custom
+                                && bridge.ce_is_observed_attribute(&ce_state.definition_name, &attr_name)
+                            {
+                                bridge.enqueue_ce_reaction(
+                                    elidex_custom_elements::CustomElementReaction::AttributeChanged {
+                                        entity,
+                                        name: attr_name.clone(),
+                                        old_value,
+                                        new_value: Some(value.clone()),
+                                    },
+                                );
                             }
                         }
                     });
@@ -268,18 +267,17 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
                 if result.is_ok() && old_value.is_some() {
                     bridge.with(|_session, dom| {
                         if let Ok(ce_state) = dom.world().get::<&elidex_custom_elements::CustomElementState>(entity) {
-                            if ce_state.state == elidex_custom_elements::CEState::Custom {
-                                let observed = bridge.ce_observed_attributes(&ce_state.definition_name);
-                                if observed.contains(&attr_name) {
-                                    bridge.enqueue_ce_reaction(
-                                        elidex_custom_elements::CustomElementReaction::AttributeChanged {
-                                            entity,
-                                            name: attr_name.clone(),
-                                            old_value,
-                                            new_value: None,
-                                        },
-                                    );
-                                }
+                            if ce_state.state == elidex_custom_elements::CEState::Custom
+                                && bridge.ce_is_observed_attribute(&ce_state.definition_name, &attr_name)
+                            {
+                                bridge.enqueue_ce_reaction(
+                                    elidex_custom_elements::CustomElementReaction::AttributeChanged {
+                                        entity,
+                                        name: attr_name.clone(),
+                                        old_value,
+                                        new_value: None,
+                                    },
+                                );
                             }
                         }
                     });

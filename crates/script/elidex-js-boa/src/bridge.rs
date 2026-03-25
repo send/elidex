@@ -702,6 +702,15 @@ impl HostBridge {
             .unwrap_or_default()
     }
 
+    /// Check if a specific attribute is observed for a custom element (non-allocating).
+    pub fn ce_is_observed_attribute(&self, ce_name: &str, attr_name: &str) -> bool {
+        self.inner
+            .borrow()
+            .custom_element_registry
+            .get(ce_name)
+            .is_some_and(|def| def.observed_attributes.iter().any(|a| a == attr_name))
+    }
+
     /// Store a `whenDefined()` resolve function for a not-yet-defined custom element.
     pub fn store_when_defined_resolver(
         &self,

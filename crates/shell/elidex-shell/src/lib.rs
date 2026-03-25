@@ -476,7 +476,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 
         // Re-flush: CE callbacks may have recorded new mutations.
         // Bounded to prevent infinite loops from mutually-triggering callbacks.
-        for _ in 0..MAX_CE_STABILIZATION_ROUNDS {
+        for round in 0..MAX_CE_STABILIZATION_ROUNDS {
             let follow_up: Vec<_> = result
                 .session
                 .flush(&mut result.dom)
@@ -496,6 +496,12 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
                 &mut result.dom,
                 result.document,
             );
+            if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
+                eprintln!(
+                    "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \
+                     some mutations may be deferred to next frame"
+                );
+            }
         }
     }
 
