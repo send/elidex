@@ -272,13 +272,20 @@ pub fn load_iframe(
     let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
         // srcdoc: parse inline HTML, inherit parent origin (WHATWG HTML §4.8.5).
         // Sandbox + credentialless override handled by apply_sandbox_origin.
-        let pipeline = crate::build_pipeline_interactive(srcdoc, "");
+        let mut pipeline = crate::build_pipeline_interactive(srcdoc, "");
+        // Use the parent's font database and fetch handle instead of creating
+        // fresh instances, so that srcdoc iframes share cached fonts and cookies.
+        pipeline.font_db = font_db.clone();
+        pipeline.fetch_handle = fetch_handle.clone();
         let origin = apply_sandbox_origin(parent_origin.clone(), iframe_data);
         (pipeline, origin)
     } else if let Some(src) = &iframe_data.src {
         if src.is_empty() || src == "about:blank" {
             // about:blank: empty document with parent origin.
-            let pipeline = crate::build_pipeline_interactive("", "");
+            let mut pipeline = crate::build_pipeline_interactive("", "");
+            // Share the parent's font database and fetch handle.
+            pipeline.font_db = font_db.clone();
+            pipeline.fetch_handle = fetch_handle.clone();
             (
                 pipeline,
                 apply_sandbox_origin(parent_origin.clone(), iframe_data),
@@ -348,7 +355,10 @@ pub fn load_iframe(
         }
     } else {
         // No src or srcdoc: about:blank with parent origin.
-        let pipeline = crate::build_pipeline_interactive("", "");
+        let mut pipeline = crate::build_pipeline_interactive("", "");
+        // Share the parent's font database and fetch handle.
+        pipeline.font_db = font_db.clone();
+        pipeline.fetch_handle = fetch_handle.clone();
         (
             pipeline,
             apply_sandbox_origin(parent_origin.clone(), iframe_data),
@@ -515,7 +525,7 @@ pub(super) fn detect_iframe_mutations(
                         if state.iframes.get(iframe_entity).is_some() {
                             continue;
                         }
-                        try_load_iframe_entity(state, iframe_entity);
+                        try_load_iframe_entity(state, iframe_entity, false);
                     }
                 }
                 // Check removed nodes (and their subtrees) for <iframe> elements.
@@ -570,7 +580,7 @@ pub(super) fn detect_iframe_mutations(
                             );
                         }
                     }
-                    try_load_iframe_entity(state, target);
+                    try_load_iframe_entity(state, target, false);
                 }
             }
             _ => {}
@@ -720,7 +730,11 @@ fn dispatch_iframe_load_event(state: &mut super::ContentState, iframe_entity: En
 ///
 /// Respects `loading="lazy"`: lazy iframes are skipped here and will be
 /// loaded when `check_lazy_iframes` detects their `LayoutBox` is near the viewport.
-pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: Entity) {
+///
+/// When `force` is `true`, the lazy check is bypassed (e.g., for explicit
+/// navigation via `iframe.src = ...` which should load immediately regardless
+/// of the `loading` attribute).
+pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: Entity, force: bool) {
     let iframe_data = state
         .pipeline
         .dom
@@ -732,7 +746,8 @@ pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: En
         // loading="lazy": defer loading until near viewport (WHATWG HTML §4.8.5).
         // Registers the entity in the pending list; the event loop checks
         // LayoutBox positions each frame to detect viewport proximity.
-        if data.loading == elidex_ecs::LoadingAttribute::Lazy {
+        // Explicit navigation (force=true) bypasses the lazy check.
+        if !force && data.loading == elidex_ecs::LoadingAttribute::Lazy {
             if !state.lazy_iframe_pending.contains(&entity) {
                 state.lazy_iframe_pending.push(entity);
             }
@@ -766,7 +781,7 @@ pub(super) fn scan_initial_iframes(state: &mut super::ContentState) {
         0,
     );
     for entity in iframes_to_load {
-        try_load_iframe_entity(state, entity);
+        try_load_iframe_entity(state, entity, false);
     }
 }
 

@@ -178,6 +178,7 @@ impl JsRuntime {
     /// Internal dispatch without draining the event queue.
     ///
     /// Used by `drain_queued_events` to avoid recursion.
+    #[allow(clippy::too_many_lines)] // Event dispatch with is_iframe checks on all wrappers.
     fn dispatch_event_inner(
         &mut self,
         event: &mut DispatchEvent,
@@ -207,17 +208,27 @@ impl JsRuntime {
             };
 
             // Create element wrapper for target and current_target.
-            let target_wrapper = bridge.with(|session, _dom| {
+            let target_wrapper = bridge.with(|session, dom| {
                 let obj_ref = session.get_or_create_wrapper(ev.target, ComponentKind::Element);
+                let is_iframe = dom
+                    .world()
+                    .get::<&elidex_ecs::TagType>(ev.target)
+                    .ok()
+                    .is_some_and(|t| t.0 == "iframe");
                 crate::globals::element::create_element_wrapper(
-                    ev.target, &bridge, obj_ref, ctx, false,
+                    ev.target, &bridge, obj_ref, ctx, is_iframe,
                 )
             });
             let current_target_wrapper = if let Some(ct) = ev.current_target {
-                bridge.with(|session, _dom| {
+                bridge.with(|session, dom| {
                     let obj_ref = session.get_or_create_wrapper(ct, ComponentKind::Element);
+                    let is_iframe = dom
+                        .world()
+                        .get::<&elidex_ecs::TagType>(ct)
+                        .ok()
+                        .is_some_and(|t| t.0 == "iframe");
                     crate::globals::element::create_element_wrapper(
-                        ct, &bridge, obj_ref, ctx, false,
+                        ct, &bridge, obj_ref, ctx, is_iframe,
                     )
                 })
             } else {
@@ -234,15 +245,20 @@ impl JsRuntime {
             } else {
                 let arr = boa_engine::object::builtins::JsArray::new(ctx);
                 for &path_entity in &filtered_path {
-                    let wrapper = bridge.with(|session, _dom| {
+                    let wrapper = bridge.with(|session, dom| {
                         let obj_ref =
                             session.get_or_create_wrapper(path_entity, ComponentKind::Element);
+                        let is_iframe = dom
+                            .world()
+                            .get::<&elidex_ecs::TagType>(path_entity)
+                            .ok()
+                            .is_some_and(|t| t.0 == "iframe");
                         crate::globals::element::create_element_wrapper(
                             path_entity,
                             &bridge,
                             obj_ref,
                             ctx,
-                            false,
+                            is_iframe,
                         )
                     });
                     let _ = arr.push(wrapper, ctx);
@@ -268,15 +284,20 @@ impl JsRuntime {
             if let EventPayload::Focus(ref f) = ev.payload {
                 if let Some(related_bits) = f.related_target {
                     if let Some(related_entity) = Entity::from_bits(related_bits) {
-                        let wrapper = bridge.with(|session, _dom| {
+                        let wrapper = bridge.with(|session, dom| {
                             let obj_ref = session
                                 .get_or_create_wrapper(related_entity, ComponentKind::Element);
+                            let is_iframe = dom
+                                .world()
+                                .get::<&elidex_ecs::TagType>(related_entity)
+                                .ok()
+                                .is_some_and(|t| t.0 == "iframe");
                             crate::globals::element::create_element_wrapper(
                                 related_entity,
                                 &bridge,
                                 obj_ref,
                                 ctx,
-                                false,
+                                is_iframe,
                             )
                         });
                         if let Some(obj) = event_obj.as_object() {

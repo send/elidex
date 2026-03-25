@@ -768,7 +768,7 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
     {
         iframe_data.src = Some(url.to_string());
     }
-    super::iframe::try_load_iframe_entity(state, iframe_entity);
+    super::iframe::try_load_iframe_entity(state, iframe_entity, true);
 }
 
 // ---------------------------------------------------------------------------

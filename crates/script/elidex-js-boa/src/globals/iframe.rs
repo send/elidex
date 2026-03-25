@@ -172,6 +172,18 @@ fn register_iframe_string_attr(
         move |this, _args, bridge, ctx| -> JsResult<JsValue> {
             let entity = extract_entity(this, ctx)?;
             bridge.with(|_session, dom| {
+                // For width/height, read from Attributes directly so that
+                // non-numeric values round-trip correctly through JS reflection.
+                // IframeData.width/height are u32 and silently drop non-numeric values.
+                if attr_name == "width" || attr_name == "height" {
+                    let value = dom
+                        .world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|attrs| attrs.get(attr_name).map(ToString::to_string))
+                        .unwrap_or_default();
+                    return Ok(JsValue::from(js_string!(value)));
+                }
                 let iframe_ref = dom.world().get::<&elidex_ecs::IframeData>(entity).ok();
                 let value = iframe_ref
                     .as_ref()
