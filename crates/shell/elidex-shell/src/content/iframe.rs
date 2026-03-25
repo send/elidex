@@ -271,11 +271,14 @@ pub struct IframeLoadContext<'a> {
     pub fetch_handle: &'a std::rc::Rc<elidex_net::FetchHandle>,
     /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
     pub depth: usize,
+    /// Shared CSS property registry.
+    pub registry: &'a std::sync::Arc<elidex_plugin::CssPropertyRegistry>,
 }
 
 /// Always returns an `IframeEntry`. If framing is blocked by security headers,
 /// returns a blank document with an opaque origin.
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+#[allow(clippy::too_many_lines)] // Multi-source iframe loading with security checks.
 pub fn load_iframe(
     iframe_entity: Entity,
     iframe_data: &elidex_ecs::IframeData,
@@ -296,6 +299,7 @@ pub fn load_iframe(
         // fresh instances, so that srcdoc iframes share cached fonts and cookies.
         pipeline.font_db = ctx.font_db.clone();
         pipeline.fetch_handle = ctx.fetch_handle.clone();
+        pipeline.registry = ctx.registry.clone();
         let origin = apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data);
         (pipeline, origin)
     } else if let Some(src) = &iframe_data.src {
@@ -305,6 +309,7 @@ pub fn load_iframe(
             // Share the parent's font database and fetch handle.
             pipeline.font_db = ctx.font_db.clone();
             pipeline.fetch_handle = ctx.fetch_handle.clone();
+            pipeline.registry = ctx.registry.clone();
             (
                 pipeline,
                 apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
@@ -384,6 +389,7 @@ pub fn load_iframe(
         // Share the parent's font database and fetch handle.
         pipeline.font_db = ctx.font_db.clone();
         pipeline.fetch_handle = ctx.fetch_handle.clone();
+        pipeline.registry = ctx.registry.clone();
         (
             pipeline,
             apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
@@ -470,9 +476,10 @@ fn make_blank_entry(
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
     let mut pipeline = crate::build_pipeline_interactive("", "");
-    // Share parent's font database and fetch handle instead of creating fresh ones.
+    // Share parent's resources instead of creating fresh instances.
     pipeline.font_db = ctx.font_db.clone();
     pipeline.fetch_handle = ctx.fetch_handle.clone();
+    pipeline.registry = ctx.registry.clone();
     make_iframe_entry(iframe_entity, pipeline, origin, iframe_data)
 }
 
@@ -740,6 +747,7 @@ pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
                 font_db: &state.pipeline.font_db,
                 fetch_handle: &state.pipeline.fetch_handle,
                 depth,
+                registry: &state.pipeline.registry,
             };
             let entry = load_iframe(entity, &data, &ctx);
             register_iframe_entry(state, entity, entry);
@@ -798,6 +806,7 @@ pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: En
             font_db: &state.pipeline.font_db,
             fetch_handle: &state.pipeline.fetch_handle,
             depth,
+            registry: &state.pipeline.registry,
         };
         let entry = load_iframe(entity, &data, &ctx);
         register_iframe_entry(state, entity, entry);

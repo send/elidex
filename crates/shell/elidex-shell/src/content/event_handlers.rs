@@ -758,15 +758,24 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
             );
         }
     }
-    // Update IframeData.src so load_iframe knows which URL to fetch.
-    // In elidex's ECS model, IframeData.src drives the load pipeline.
+    // Update both IframeData.src and Attributes so load_iframe knows which
+    // URL to fetch and getAttribute("src") stays in sync.
+    let url_str = url.to_string();
     if let Ok(mut iframe_data) = state
         .pipeline
         .dom
         .world_mut()
         .get::<&mut elidex_ecs::IframeData>(iframe_entity)
     {
-        iframe_data.src = Some(url.to_string());
+        iframe_data.src = Some(url_str.clone());
+    }
+    if let Ok(mut attrs) = state
+        .pipeline
+        .dom
+        .world_mut()
+        .get::<&mut elidex_ecs::Attributes>(iframe_entity)
+    {
+        attrs.set("src", &url_str);
     }
     super::iframe::try_load_iframe_entity(state, iframe_entity, true);
 }
