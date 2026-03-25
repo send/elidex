@@ -202,7 +202,8 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
 /// Extract the static `observedAttributes` from a constructor function.
 ///
 /// Reads `Constructor.observedAttributes` and expects an Array of strings.
-/// Returns an empty vec if the property is missing or not an array.
+/// Returns an empty vec if the property is missing or `undefined`/`null`.
+/// Throws `TypeError` if the property exists but is not array-like.
 fn extract_observed_attributes(
     constructor: &boa_engine::JsObject,
     ctx: &mut Context,

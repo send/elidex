@@ -482,10 +482,11 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
             if follow_up.is_empty() {
                 break;
             }
-            mutation_records.extend(follow_up);
+            // Only process NEW records (not previously-handled ones).
             result
                 .runtime
-                .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
+                .enqueue_ce_reactions_from_mutations(&follow_up, &result.dom);
+            mutation_records.extend(follow_up);
             result.runtime.drain_custom_element_reactions_public(
                 &mut result.session,
                 &mut result.dom,
