@@ -589,17 +589,19 @@ impl HostBridge {
         constructor: JsObject,
         observed_attrs: Vec<String>,
         extends: Option<String>,
-    ) -> Result<Vec<Entity>, String> {
+    ) -> Result<Vec<Entity>, elidex_custom_elements::DefineError> {
         let mut inner = self.inner.borrow_mut();
 
         // Validate before allocating constructor ID to avoid leaking an ID
         // and storing the constructor on define() failure.
         if !elidex_custom_elements::is_valid_custom_element_name(name) {
-            return Err(format!("'{name}' is not a valid custom element name"));
+            return Err(elidex_custom_elements::DefineError::InvalidName(
+                name.to_string(),
+            ));
         }
         if inner.custom_element_registry.is_defined(name) {
-            return Err(format!(
-                "'{name}' has already been defined as a custom element"
+            return Err(elidex_custom_elements::DefineError::AlreadyDefined(
+                name.to_string(),
             ));
         }
 
@@ -613,10 +615,7 @@ impl HostBridge {
             observed_attributes: observed_attrs,
             extends,
         };
-        inner
-            .custom_element_registry
-            .define(def)
-            .map_err(|e| e.to_string())
+        inner.custom_element_registry.define(def)
     }
 
     /// Retrieve the JS constructor for a custom element definition by name.

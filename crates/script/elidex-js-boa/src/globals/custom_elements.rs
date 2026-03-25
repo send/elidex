@@ -64,13 +64,15 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 // Register in bridge.
                 let pending = bridge
                     .register_custom_element(&name, constructor, observed_attrs, extends)
-                    .map_err(|msg| {
-                        // InvalidName → SyntaxError, AlreadyDefined → NotSupportedError (DOMException).
-                        if msg.contains("not a valid") {
-                            JsNativeError::syntax().with_message(msg)
-                        } else {
-                            // "already been defined" → NotSupportedError per WHATWG HTML §4.13.4.
-                            JsNativeError::typ().with_message(format!("NotSupportedError: {msg}"))
+                    .map_err(|e| match e {
+                        elidex_custom_elements::DefineError::InvalidName(n) => {
+                            JsNativeError::syntax()
+                                .with_message(format!("'{n}' is not a valid custom element name"))
+                        }
+                        elidex_custom_elements::DefineError::AlreadyDefined(n) => {
+                            JsNativeError::typ().with_message(format!(
+                                "NotSupportedError: '{n}' has already been defined"
+                            ))
                         }
                     })?;
 

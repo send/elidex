@@ -506,7 +506,6 @@ impl JsRuntime {
                             new_value
                                 .as_ref()
                                 .map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
-                            JsValue::null(), // namespace
                         ];
                         invoke_ce_callback(
                             entity,
