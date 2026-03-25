@@ -344,10 +344,16 @@ impl JsRuntime {
 
         const MAX_CE_DRAIN_ITERATIONS: usize = 16;
 
-        for _ in 0..MAX_CE_DRAIN_ITERATIONS {
+        for iteration in 0..MAX_CE_DRAIN_ITERATIONS {
             let reactions = self.bridge.drain_ce_reactions();
             if reactions.is_empty() {
                 break;
+            }
+            if iteration == MAX_CE_DRAIN_ITERATIONS - 1 {
+                eprintln!(
+                    "[CE] reaction drain hit max iterations ({MAX_CE_DRAIN_ITERATIONS}); \
+                     some lifecycle callbacks may be deferred"
+                );
             }
 
             self.bridge.bind(session, dom, document_entity);
@@ -621,7 +627,7 @@ impl JsRuntime {
                         if target_connected {
                             crate::globals::element::core::enqueue_ce_reactions_for_subtree(
                                 entity,
-                                "connected",
+                                crate::globals::element::core::CeReactionKind::Connected,
                                 &self.bridge,
                                 dom,
                             );
@@ -638,7 +644,7 @@ impl JsRuntime {
                         for &entity in &record.removed_nodes {
                             crate::globals::element::core::enqueue_ce_reactions_for_subtree(
                                 entity,
-                                "disconnected",
+                                crate::globals::element::core::CeReactionKind::Disconnected,
                                 &self.bridge,
                                 dom,
                             );

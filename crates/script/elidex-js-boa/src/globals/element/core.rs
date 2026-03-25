@@ -141,7 +141,12 @@ fn dom_child_operation(
             "appendChild" | "insertBefore" => {
                 // Only enqueue "connected" if the parent is in a connected tree.
                 if crate::runtime::is_connected_to_document(parent, dom) {
-                    enqueue_ce_reactions_for_subtree(child_entity, "connected", bridge, dom);
+                    enqueue_ce_reactions_for_subtree(
+                        child_entity,
+                        CeReactionKind::Connected,
+                        bridge,
+                        dom,
+                    );
                 }
                 // Also upgrade any undefined CEs in the appended subtree.
                 // This handles nodes from fragment parsing or innerHTML.
@@ -151,7 +156,12 @@ fn dom_child_operation(
                 // Only fire disconnectedCallback if the parent is connected,
                 // meaning the child WAS connected before removal.
                 if crate::runtime::is_connected_to_document(parent, dom) {
-                    enqueue_ce_reactions_for_subtree(child_entity, "disconnected", bridge, dom);
+                    enqueue_ce_reactions_for_subtree(
+                        child_entity,
+                        CeReactionKind::Disconnected,
+                        bridge,
+                        dom,
+                    );
                 }
             }
             _ => {}
@@ -292,20 +302,27 @@ pub(crate) fn register_attribute_methods(init: &mut ObjectInitializer<'_>, bridg
     );
 }
 
+/// Whether to enqueue connected or disconnected CE reactions.
+#[derive(Clone, Copy)]
+pub(crate) enum CeReactionKind {
+    Connected,
+    Disconnected,
+}
+
 /// Recursively walk the subtree rooted at `entity` and enqueue CE lifecycle
 /// reactions (connected or disconnected) for every custom element found.
 pub(crate) fn enqueue_ce_reactions_for_subtree(
     entity: Entity,
-    reaction_type: &str,
+    kind: CeReactionKind,
     bridge: &HostBridge,
     dom: &elidex_ecs::EcsDom,
 ) {
-    enqueue_ce_reactions_for_subtree_inner(entity, reaction_type, bridge, dom, 0);
+    enqueue_ce_reactions_for_subtree_inner(entity, kind, bridge, dom, 0);
 }
 
 fn enqueue_ce_reactions_for_subtree_inner(
     entity: Entity,
-    reaction_type: &str,
+    kind: CeReactionKind,
     bridge: &HostBridge,
     dom: &elidex_ecs::EcsDom,
     depth: usize,
@@ -318,24 +335,23 @@ fn enqueue_ce_reactions_for_subtree_inner(
         .get::<&elidex_custom_elements::CustomElementState>(entity)
     {
         if ce_state.state == elidex_custom_elements::CEState::Custom {
-            match reaction_type {
-                "connected" => {
+            match kind {
+                CeReactionKind::Connected => {
                     bridge.enqueue_ce_reaction(
                         elidex_custom_elements::CustomElementReaction::Connected(entity),
                     );
                 }
-                "disconnected" => {
+                CeReactionKind::Disconnected => {
                     bridge.enqueue_ce_reaction(
                         elidex_custom_elements::CustomElementReaction::Disconnected(entity),
                     );
                 }
-                _ => {}
             }
         }
     }
     let mut child = dom.get_first_child(entity);
     while let Some(c) = child {
-        enqueue_ce_reactions_for_subtree_inner(c, reaction_type, bridge, dom, depth + 1);
+        enqueue_ce_reactions_for_subtree_inner(c, kind, bridge, dom, depth + 1);
         child = dom.get_next_sibling(c);
     }
 }
