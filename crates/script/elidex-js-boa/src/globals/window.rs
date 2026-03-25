@@ -17,13 +17,9 @@ use super::element::{extract_entity, ENTITY_KEY};
 /// Provides `window.getComputedStyle(element)`, `window.innerWidth/Height`,
 /// `window.scrollX/Y`, `window.scrollTo()`, `window.scrollBy()`, and
 /// `window.matchMedia()`.
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::similar_names)]
 pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
-    let b = bridge.clone();
-
     // getComputedStyle(element) → returns object with property getters
-    let b_gcs = b.clone();
+    let b_gcs = bridge.clone();
     let get_computed_style = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
             let elem = args.first().ok_or_else(|| {
@@ -38,98 +34,113 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("getComputedStyle"), 1, get_computed_style)
         .expect("failed to register getComputedStyle");
 
-    // innerWidth / innerHeight — dynamic getters that read from bridge.
+    register_viewport_accessors(ctx, bridge);
+    register_scroll_methods(ctx, bridge);
+    register_media_query(ctx, bridge);
+    register_selection(ctx, bridge);
+    register_iframe_window_props(ctx);
+    register_window_open(ctx, bridge);
+    register_messaging(ctx, bridge);
+    register_modals(ctx, bridge);
+}
+
+/// Register `innerWidth`, `innerHeight`, `scrollX`, `scrollY` (and `pageXOffset`/`pageYOffset`
+/// aliases) as dynamic getters on the global object.
+#[allow(clippy::similar_names)] // b_iw/b_ih/b_sx/b_sy are intentionally named per property.
+fn register_viewport_accessors(ctx: &mut Context, bridge: &HostBridge) {
+    use boa_engine::property::PropertyDescriptorBuilder;
+
     let global = ctx.global_object();
-    {
-        use boa_engine::property::PropertyDescriptorBuilder;
 
-        let b_iw = b.clone();
-        let iw_getter = NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_width()))),
-            b_iw,
-        )
-        .to_js_function(ctx.realm());
-        let _ = global.define_property_or_throw(
-            js_string!("innerWidth"),
-            PropertyDescriptorBuilder::new()
-                .get(iw_getter)
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
+    let b_iw = bridge.clone();
+    let iw_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_width()))),
+        b_iw,
+    )
+    .to_js_function(ctx.realm());
+    let _ = global.define_property_or_throw(
+        js_string!("innerWidth"),
+        PropertyDescriptorBuilder::new()
+            .get(iw_getter)
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
 
-        let b_ih = b.clone();
-        let ih_getter = NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_height()))),
-            b_ih,
-        )
-        .to_js_function(ctx.realm());
-        let _ = global.define_property_or_throw(
-            js_string!("innerHeight"),
-            PropertyDescriptorBuilder::new()
-                .get(ih_getter)
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
+    let b_ih = bridge.clone();
+    let ih_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.viewport_height()))),
+        b_ih,
+    )
+    .to_js_function(ctx.realm());
+    let _ = global.define_property_or_throw(
+        js_string!("innerHeight"),
+        PropertyDescriptorBuilder::new()
+            .get(ih_getter)
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
 
-        // scrollX / scrollY — dynamic getters reading from bridge scroll offset.
-        let b_sx = b.clone();
-        let sx_getter = NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_x()))),
-            b_sx,
-        )
-        .to_js_function(ctx.realm());
-        let _ = global.define_property_or_throw(
-            js_string!("scrollX"),
-            PropertyDescriptorBuilder::new()
-                .get(sx_getter.clone())
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
-        // pageXOffset is an alias for scrollX per spec.
-        let _ = global.define_property_or_throw(
-            js_string!("pageXOffset"),
-            PropertyDescriptorBuilder::new()
-                .get(sx_getter)
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
+    // scrollX / scrollY — dynamic getters reading from bridge scroll offset.
+    let b_sx = bridge.clone();
+    let sx_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_x()))),
+        b_sx,
+    )
+    .to_js_function(ctx.realm());
+    let _ = global.define_property_or_throw(
+        js_string!("scrollX"),
+        PropertyDescriptorBuilder::new()
+            .get(sx_getter.clone())
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
+    // pageXOffset is an alias for scrollX per spec.
+    let _ = global.define_property_or_throw(
+        js_string!("pageXOffset"),
+        PropertyDescriptorBuilder::new()
+            .get(sx_getter)
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
 
-        let b_sy = b.clone();
-        let sy_getter = NativeFunction::from_copy_closure_with_captures(
-            |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_y()))),
-            b_sy,
-        )
-        .to_js_function(ctx.realm());
-        let _ = global.define_property_or_throw(
-            js_string!("scrollY"),
-            PropertyDescriptorBuilder::new()
-                .get(sy_getter.clone())
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
-        let _ = global.define_property_or_throw(
-            js_string!("pageYOffset"),
-            PropertyDescriptorBuilder::new()
-                .get(sy_getter)
-                .enumerable(true)
-                .configurable(true)
-                .build(),
-            ctx,
-        );
-    }
+    let b_sy = bridge.clone();
+    let sy_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_y()))),
+        b_sy,
+    )
+    .to_js_function(ctx.realm());
+    let _ = global.define_property_or_throw(
+        js_string!("scrollY"),
+        PropertyDescriptorBuilder::new()
+            .get(sy_getter.clone())
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
+    let _ = global.define_property_or_throw(
+        js_string!("pageYOffset"),
+        PropertyDescriptorBuilder::new()
+            .get(sy_getter)
+            .enumerable(true)
+            .configurable(true)
+            .build(),
+        ctx,
+    );
+}
 
+/// Register `scrollTo(x, y)` and `scrollBy(x, y)` global functions.
+fn register_scroll_methods(ctx: &mut Context, bridge: &HostBridge) {
     // scrollTo(x, y) / scrollTo({top, left, behavior})
-    let b_scroll = b.clone();
+    let b_scroll = bridge.clone();
     let scroll_to = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let (opt_x, opt_y) = parse_scroll_args(args, ctx)?;
@@ -151,7 +162,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register scrollTo");
 
     // scrollBy(x, y) — adds delta to current scroll offset.
-    let b_scroll_by = b.clone();
+    let b_scroll_by = bridge.clone();
     let scroll_by = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let (opt_x, opt_y) = parse_scroll_args(args, ctx)?;
@@ -172,11 +183,11 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("scrollBy"), 2, scroll_by)
         .expect("failed to register scrollBy");
+}
 
-    // matchMedia(query) — returns a MediaQueryList-like object.
-    // Supports basic (min-width), (max-width), (min-height), (max-height) evaluation.
-    // Listeners registered via addEventListener("change", cb) are dispatched on viewport resize.
-    let b_mm = b.clone();
+/// Register `matchMedia(query)` global function.
+fn register_media_query(ctx: &mut Context, bridge: &HostBridge) {
+    let b_mm = bridge.clone();
     let match_media = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let query = args
@@ -194,9 +205,13 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("matchMedia"), 1, match_media)
         .expect("failed to register matchMedia");
+}
 
-    // window.getSelection() → returns a Selection object integrated with Range.
-    let b_sel = b.clone();
+/// Register `getSelection()` global function returning a `Selection`-like object.
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::similar_names)] // b_ar/b_rar/b_gc etc. are per-method captures.
+fn register_selection(ctx: &mut Context, bridge: &HostBridge) {
+    let b_sel = bridge.clone();
     let get_selection = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, ctx| {
             let has_range = bridge.selection_range_id().is_some();
@@ -319,9 +334,11 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("getSelection"), 0, get_selection)
         .expect("failed to register getSelection");
+}
 
-    // --- iframe-related window properties (WHATWG HTML §7.1.3) ---
-
+/// Register iframe-related window properties: `parent`, `top`, `frames`,
+/// `frameElement`, `length`, `opener` (WHATWG HTML §7.1.3).
+fn register_iframe_window_props(ctx: &mut Context) {
     // window.parent — returns `self` for top-level, parent window for iframes.
     // Boa limitation: each iframe has its own JsRuntime/Context, so we can't
     // return the actual parent's global object. Returns `self` as a proxy
@@ -379,15 +396,13 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     )
     .expect("failed to register window.frames");
+}
 
-    // window.open(url, target, features) — WHATWG HTML §7.5.2.
-    //
-    // MVP limitations:
-    // - `features` string is ignored (no popup window sizing).
-    // - Returns `null` (no WindowProxy for the opened window).
-    // - Relative URLs are resolved against the document's URL.
-    // - `_blank` opens a new tab via ContentToBrowser::OpenNewTab IPC.
-    let b_open = b.clone();
+/// Register `window.open(url, target, features)` (WHATWG HTML §7.5.2).
+///
+/// MVP limitations: `features` string is ignored, returns `null` (no `WindowProxy`).
+fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
+    let b_open = bridge.clone();
     let open_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
             // Sandbox allow-popups check.
@@ -466,13 +481,11 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("open"), 3, open_fn)
         .expect("failed to register window.open");
+}
 
-    // window.postMessage(message, targetOrigin) — WHATWG HTML §9.4.3.
-    // Dispatches a MessageEvent on the current window. For cross-origin iframes,
-    // the content thread's event loop picks up PostMessage IPC messages and
-    // dispatches them as events. This registration handles the JS-side API
-    // for sending messages from the current document.
-    let b_pm = b.clone();
+/// Register `window.postMessage(message, targetOrigin)` (WHATWG HTML §9.4.3).
+fn register_messaging(ctx: &mut Context, bridge: &HostBridge) {
+    let b_pm = bridge.clone();
     let post_message_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
             // WHATWG HTML §9.4.3: targetOrigin is required.
@@ -512,9 +525,11 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     );
     ctx.register_global_builtin_callable(js_string!("postMessage"), 2, post_message_fn)
         .expect("failed to register postMessage");
+}
 
-    // alert/confirm/prompt — sandbox allow-modals enforcement.
-    let b_alert = b.clone();
+/// Register `alert`, `confirm`, `prompt` with sandbox `allow-modals` enforcement.
+fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
+    let b_alert = bridge.clone();
     let alert_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             if !bridge.modals_allowed() {
@@ -528,7 +543,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("alert"), 1, alert_fn)
         .expect("failed to register alert");
 
-    let b_confirm = b.clone();
+    let b_confirm = bridge.clone();
     let confirm_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             if !bridge.modals_allowed() {
@@ -542,7 +557,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     ctx.register_global_builtin_callable(js_string!("confirm"), 1, confirm_fn)
         .expect("failed to register confirm");
 
-    let b_prompt = b;
+    let b_prompt = bridge.clone();
     let prompt_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             if !bridge.modals_allowed() {
