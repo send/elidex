@@ -202,9 +202,11 @@ pub enum FrameAncestorsPolicy {
 #[must_use]
 pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
     // CSP directives are `;`-separated.
+    // Directive names are case-insensitive per W3C CSP L3 §2.1.
     for directive in csp_header.split(';') {
         let trimmed = directive.trim();
-        if let Some(value) = trimmed.strip_prefix("frame-ancestors") {
+        let lower = trimmed.to_ascii_lowercase();
+        if let Some(value) = lower.strip_prefix("frame-ancestors") {
             let value = value.trim();
             if value.is_empty() {
                 // `frame-ancestors` with no sources = 'none' behavior.
@@ -284,9 +286,11 @@ pub fn is_framing_allowed(
                                 }
                             }
 
-                            if let Some(domain) = ph.strip_prefix("*.") {
+                            if let Some(_domain) = ph.strip_prefix("*.") {
+                                // W3C CSP L3: *.example.com matches sub.example.com
+                                // but NOT example.com itself (apex domain).
                                 let suffix = &ph[1..]; // ".example.com"
-                                if host.ends_with(suffix) || *host == *domain {
+                                if host.ends_with(suffix) {
                                     return true;
                                 }
                             } else if host == ph {
@@ -581,6 +585,38 @@ mod tests {
 
         let evil = SecurityOrigin::from_url(&url::Url::parse("https://evil.com").unwrap());
         assert!(!is_framing_allowed(&policy, &evil, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_wildcard_does_not_match_apex() {
+        // W3C CSP L3: *.example.com must NOT match example.com (apex domain).
+        let csp = "frame-ancestors *.example.com";
+        let policy = parse_frame_ancestors(csp).unwrap();
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://target.com").unwrap());
+
+        let apex = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(
+            !is_framing_allowed(&policy, &apex, &doc),
+            "apex must NOT match"
+        );
+
+        let sub = SecurityOrigin::from_url(&url::Url::parse("https://sub.example.com").unwrap());
+        assert!(
+            is_framing_allowed(&policy, &sub, &doc),
+            "subdomain must match"
+        );
+    }
+
+    #[test]
+    fn frame_ancestors_case_insensitive() {
+        // CSP directive names are case-insensitive per W3C CSP L3 §2.1.
+        let policy = parse_frame_ancestors("Frame-Ancestors 'self'").unwrap();
+        let same = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(is_framing_allowed(&policy, &same, &doc));
+
+        let upper = parse_frame_ancestors("FRAME-ANCESTORS 'none'").unwrap();
+        assert_eq!(upper, FrameAncestorsPolicy::None);
     }
 
     #[test]

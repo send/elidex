@@ -647,76 +647,59 @@ fn detect_iframe_mutations(
             MutationKind::ChildList => {
                 // Check added nodes for <iframe> elements.
                 for &entity in &record.added_nodes {
-                    let iframe_data = state
-                        .pipeline
-                        .dom
-                        .world()
-                        .get::<&elidex_ecs::IframeData>(entity)
-                        .ok()
-                        .map(|d| (*d).clone());
-                    if let Some(data) = iframe_data {
-                        // Skip if already loaded (e.g., moved within DOM).
-                        if state.iframes.get(entity).is_some() {
-                            continue;
-                        }
-                        let parent_origin = state.pipeline.runtime.bridge().origin();
-                        let entry = iframe::load_iframe(
-                            entity,
-                            &data,
-                            &parent_origin,
-                            state.pipeline.url.as_ref(),
-                            &state.pipeline.font_db,
-                            &state.pipeline.fetch_handle,
-                            &state.pipeline.registry,
-                        );
-                        state.iframes.insert(entity, entry);
+                    // Skip if already loaded (e.g., moved within DOM).
+                    if state.iframes.get(entity).is_some() {
+                        continue;
                     }
+                    try_load_iframe_entity(state, entity);
                 }
                 // Check removed nodes for <iframe> elements.
                 for &entity in &record.removed_nodes {
-                    if state.iframes.remove(entity).is_some() {
-                        // Iframe unloaded — context was dropped.
-                        // Clear focused_iframe if it pointed to this iframe.
-                        if state.focused_iframe == Some(entity) {
-                            state.focused_iframe = None;
-                        }
+                    if state.iframes.remove(entity).is_some()
+                        && state.focused_iframe == Some(entity)
+                    {
+                        state.focused_iframe = None;
                     }
                 }
             }
             MutationKind::Attribute => {
-                // Check for `src` attribute change on <iframe> elements.
+                // src attribute change on <iframe> → re-navigate.
                 if record
                     .attribute_name
                     .as_deref()
                     .is_some_and(|name| name == "src")
                 {
                     let target = record.target;
-                    let iframe_data = state
-                        .pipeline
-                        .dom
-                        .world()
-                        .get::<&elidex_ecs::IframeData>(target)
-                        .ok()
-                        .map(|d| (*d).clone());
-                    if let Some(data) = iframe_data {
-                        // Unload existing iframe context and reload with new src.
-                        state.iframes.remove(target);
-                        let parent_origin = state.pipeline.runtime.bridge().origin();
-                        let entry = iframe::load_iframe(
-                            target,
-                            &data,
-                            &parent_origin,
-                            state.pipeline.url.as_ref(),
-                            &state.pipeline.font_db,
-                            &state.pipeline.fetch_handle,
-                            &state.pipeline.registry,
-                        );
-                        state.iframes.insert(target, entry);
-                    }
+                    state.iframes.remove(target);
+                    try_load_iframe_entity(state, target);
                 }
             }
             _ => {}
         }
+    }
+}
+
+/// Try to load an iframe for `entity` if it has `IframeData`.
+fn try_load_iframe_entity(state: &mut ContentState, entity: elidex_ecs::Entity) {
+    let iframe_data = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::IframeData>(entity)
+        .ok()
+        .map(|d| (*d).clone());
+    if let Some(data) = iframe_data {
+        let parent_origin = state.pipeline.runtime.bridge().origin();
+        let entry = iframe::load_iframe(
+            entity,
+            &data,
+            &parent_origin,
+            state.pipeline.url.as_ref(),
+            &state.pipeline.font_db,
+            &state.pipeline.fetch_handle,
+            &state.pipeline.registry,
+        );
+        state.iframes.insert(entity, entry);
     }
 }
 

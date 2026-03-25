@@ -400,41 +400,32 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
-            let target = args
+            let _target = args
                 .get(1)
                 .map(|v| v.to_string(ctx))
                 .transpose()?
                 .map_or_else(|| String::from("_blank"), |s| s.to_std_string_escaped());
             // _features arg is intentionally ignored (MVP).
 
-            match target.as_str() {
-                "_self" => {
-                    // Navigate current document.
-                    if let Ok(resolved) = url::Url::parse(&url_str) {
-                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
-                            url: resolved.to_string(),
-                            replace: false,
-                        });
-                    }
-                }
-                "_blank" | "" => {
-                    // Open new tab (features ignored in MVP).
-                    if let Ok(resolved) = url::Url::parse(&url_str) {
-                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
-                            url: resolved.to_string(),
-                            replace: false,
-                        });
-                    }
-                }
-                _ => {
-                    // Named target or _parent/_top — navigate current document (MVP).
-                    if let Ok(resolved) = url::Url::parse(&url_str) {
-                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
-                            url: resolved.to_string(),
-                            replace: false,
-                        });
-                    }
-                }
+            // Resolve relative URLs against the document's URL (WHATWG HTML §7.5.2).
+            let resolved = url::Url::parse(&url_str).or_else(|_| {
+                bridge
+                    .current_url()
+                    .unwrap_or_else(|| {
+                        url::Url::parse("about:blank").expect("about:blank is valid")
+                    })
+                    .join(&url_str)
+            });
+
+            if let Ok(url) = resolved {
+                // All targets navigate via pending_navigation in MVP.
+                // _blank should open a new tab (ChromeAction::NewTab) but
+                // the content thread has no direct chrome access. Navigation
+                // request is picked up by the event loop and handled there.
+                bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                    url: url.to_string(),
+                    replace: false,
+                });
             }
 
             // Return null (no popup window proxy in MVP).
