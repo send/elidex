@@ -164,8 +164,8 @@ impl HtmlElementHandler for IframeHandler {
 
     fn parse_behavior(&self) -> ParseBehavior {
         // WHATWG HTML §4.8.5: content model is "nothing".
-        // html5ever handles this; text inside <iframe> is raw text (fallback for legacy UAs).
-        ParseBehavior::Normal
+        // Text inside <iframe> is raw text (fallback for legacy UAs).
+        ParseBehavior::RawText
     }
 
     fn default_style(&self) -> &[CssRule] {

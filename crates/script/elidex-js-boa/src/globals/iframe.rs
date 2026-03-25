@@ -207,26 +207,22 @@ fn register_iframe_string_attr(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             bridge.with(|session, dom| {
-                // Use the HTML content attribute name (lowercase) for Attributes
-                // and mutation records, while using the IDL name for IframeData.
                 let html_attr = idl_to_content_attr(attr_name);
-                // Update the Attributes component (mirrors setAttribute behavior).
-                if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-                    attrs.set(html_attr, &value);
-                }
-                // Update the IframeData component field directly.
-                if let Ok(mut iframe_data) =
-                    dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
-                {
-                    set_iframe_attr(&mut iframe_data, attr_name, &value);
-                }
-                // Record a SetAttribute mutation so detect_iframe_mutations
-                // picks up the change (especially for `src` re-navigation).
+                // Record the mutation FIRST so that flush() captures the correct
+                // old_value from the current Attributes state (before modification).
+                // The mutation application in flush() will update Attributes.
                 session.record_mutation(elidex_script_session::Mutation::SetAttribute {
                     entity,
                     name: html_attr.to_string(),
                     value: value.clone(),
                 });
+                // Update IframeData eagerly (not tracked by MutationObserver,
+                // needed immediately for layout intrinsic sizing).
+                if let Ok(mut iframe_data) =
+                    dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
+                {
+                    set_iframe_attr(&mut iframe_data, attr_name, &value);
+                }
             });
             Ok(JsValue::undefined())
         },
