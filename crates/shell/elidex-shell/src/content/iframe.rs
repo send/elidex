@@ -622,6 +622,25 @@ pub(super) fn detect_iframe_mutations(
                             );
                         }
                     }
+                    // Sync IframeData.src from Attributes — setAttribute('src', ...)
+                    // updates Attributes via mutation flush but not IframeData directly.
+                    if let Some(new_src) = state
+                        .pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_ecs::Attributes>(target)
+                        .ok()
+                        .and_then(|a| a.get("src").map(String::from))
+                    {
+                        if let Ok(mut ifd) = state
+                            .pipeline
+                            .dom
+                            .world_mut()
+                            .get::<&mut elidex_ecs::IframeData>(target)
+                        {
+                            ifd.src = Some(new_src);
+                        }
+                    }
                     // Clear from lazy pending list if present.
                     state.lazy_iframe_pending.retain(|&e| e != target);
                     // force=true: src attribute change is an explicit navigation,
