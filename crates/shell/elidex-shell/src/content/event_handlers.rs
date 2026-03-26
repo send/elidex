@@ -769,14 +769,16 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
     {
         iframe_data.src = Some(url_str.clone());
     }
-    if let Ok(mut attrs) = state
+    // Record as mutation so MutationObservers see the change and
+    // flush() updates Attributes with correct old_value tracking.
+    state
         .pipeline
-        .dom
-        .world_mut()
-        .get::<&mut elidex_ecs::Attributes>(iframe_entity)
-    {
-        attrs.set("src", &url_str);
-    }
+        .session
+        .record_mutation(elidex_script_session::Mutation::SetAttribute {
+            entity: iframe_entity,
+            name: "src".to_string(),
+            value: url_str,
+        });
     super::iframe::try_load_iframe_entity(state, iframe_entity, true);
 }
 
