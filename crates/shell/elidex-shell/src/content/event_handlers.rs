@@ -202,6 +202,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                         // Named target: look for an iframe with matching name.
                         if let Some(iframe_entity) = find_iframe_by_name(state, name) {
                             navigate_iframe(state, iframe_entity, &target_url);
+                            state.re_render();
                             state.send_display_list();
                             return;
                         }
@@ -758,8 +759,10 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
             );
         }
     }
-    // Update both IframeData.src and Attributes so load_iframe knows which
-    // URL to fetch and getAttribute("src") stays in sync.
+    // Update IframeData.src and Attributes directly (no mutation record).
+    // This is a programmatic navigation (link target / window.open), not a
+    // JS setAttribute call. Recording a mutation would cause detect_iframe_mutations
+    // to re-trigger loading on the next flush, resulting in a double load.
     let url_str = url.to_string();
     if let Ok(mut iframe_data) = state
         .pipeline
@@ -769,16 +772,14 @@ fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, 
     {
         iframe_data.src = Some(url_str.clone());
     }
-    // Record as mutation so MutationObservers see the change and
-    // flush() updates Attributes with correct old_value tracking.
-    state
+    if let Ok(mut attrs) = state
         .pipeline
-        .session
-        .record_mutation(elidex_script_session::Mutation::SetAttribute {
-            entity: iframe_entity,
-            name: "src".to_string(),
-            value: url_str,
-        });
+        .dom
+        .world_mut()
+        .get::<&mut elidex_ecs::Attributes>(iframe_entity)
+    {
+        attrs.set("src", &url_str);
+    }
     super::iframe::try_load_iframe_entity(state, iframe_entity, true);
 }
 
