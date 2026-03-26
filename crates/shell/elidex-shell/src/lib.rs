@@ -450,6 +450,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 /// (important for `credentialless` iframes and cookie sharing).
 pub(crate) fn build_pipeline_interactive_shared(
     html: &str,
+    url: Option<url::Url>,
     font_db: Arc<FontDatabase>,
     fetch_handle: Rc<FetchHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
@@ -479,7 +480,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         &script_sources,
         Rc::clone(&fetch_handle),
         &font_db,
-        None,
+        url.as_ref(),
         &registry,
     );
 
@@ -494,7 +495,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         runtime,
         stylesheets,
         font_db,
-        url: None,
+        url,
         fetch_handle,
         registry,
         animation_engine,

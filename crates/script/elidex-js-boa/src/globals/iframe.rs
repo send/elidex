@@ -240,8 +240,9 @@ fn set_iframe_attr(data: &mut elidex_ecs::IframeData, attr_name: &str, value: &s
         "referrerPolicy" => data.referrer_policy = Some(value.to_string()),
         "allow" => data.allow = Some(value.to_string()),
         "sandbox" => data.sandbox = Some(value.to_string()),
-        "width" => data.width = value.parse().unwrap_or(data.width),
-        "height" => data.height = value.parse().unwrap_or(data.height),
+        // HTML spec: invalid width/height → default (300/150).
+        "width" => data.width = value.parse().unwrap_or(300),
+        "height" => data.height = value.parse().unwrap_or(150),
         "loading" => {
             data.loading = if value.eq_ignore_ascii_case("lazy") {
                 elidex_ecs::LoadingAttribute::Lazy

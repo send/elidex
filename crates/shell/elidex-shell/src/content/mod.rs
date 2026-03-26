@@ -145,6 +145,10 @@ impl ContentState {
                 if ip.needs_render {
                     crate::re_render(&mut ip.pipeline);
                     ip.needs_render = false;
+                    // Note: clones the full DisplayList into Arc. This happens only when
+                    // needs_render is true (not every frame). To eliminate the clone,
+                    // PipelineResult.display_list would need to be Arc<DisplayList>,
+                    // which is a broader structural change deferred to Phase 5.
                     let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
                     ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));
                     updated.push((entity, arc_dl));
