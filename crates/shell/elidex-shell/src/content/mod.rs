@@ -515,7 +515,7 @@ fn run_event_loop(state: &mut ContentState) {
         // Drain timers for in-process (same-origin) iframes.
         // Timers always run (for correctness), but layout/render is skipped
         // for iframes outside the viewport to save CPU.
-        for (&iframe_entity, entry) in state.iframes.iter_mut() {
+        for (_, entry) in state.iframes.iter_mut() {
             if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
                 if ip
                     .pipeline
@@ -528,32 +528,10 @@ fn run_event_loop(state: &mut ContentState) {
                         &mut ip.pipeline.dom,
                         ip.pipeline.document,
                     );
-                    // Only mark for re-render if the iframe is within the viewport.
-                    // Iframes outside the viewport still run timers but skip
-                    // the expensive layout/render pass.
-                    let in_viewport = state
-                        .pipeline
-                        .dom
-                        .world()
-                        .get::<&elidex_plugin::LayoutBox>(iframe_entity)
-                        .ok()
-                        .is_some_and(|lb| {
-                            let vp_w = state.pipeline.viewport.width;
-                            let vp_h = state.pipeline.viewport.height;
-                            let scroll_x = state.viewport_scroll.scroll_offset.x;
-                            let scroll_y = state.viewport_scroll.scroll_offset.y;
-                            let left = lb.content.origin.x;
-                            let top = lb.content.origin.y;
-                            let right = left + lb.content.size.width;
-                            let bottom = top + lb.content.size.height;
-                            right >= scroll_x
-                                && left <= scroll_x + vp_w
-                                && bottom >= scroll_y
-                                && top <= scroll_y + vp_h
-                        });
-                    if in_viewport {
-                        ip.needs_render = true;
-                    }
+                    // Always mark for re-render when timers fire. The actual
+                    // layout/render is deferred until the iframe scrolls into
+                    // the viewport (checked in re_render_all_iframes).
+                    ip.needs_render = true;
                 }
             }
         }

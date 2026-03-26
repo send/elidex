@@ -95,20 +95,7 @@ pub(crate) fn register_iframe_accessors(
                 let entity = extract_entity(this, ctx)?;
                 let value = args.first().is_some_and(JsValue::to_boolean);
                 bridge.with(|session, dom| {
-                    if let Ok(mut attrs) =
-                        dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
-                    {
-                        if value {
-                            attrs.set("allowfullscreen", "");
-                        } else {
-                            attrs.remove("allowfullscreen");
-                        }
-                    }
-                    if let Ok(mut iframe_data) =
-                        dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
-                    {
-                        iframe_data.allow_fullscreen = value;
-                    }
+                    // Record mutation FIRST so flush() captures correct old_value.
                     if value {
                         session.record_mutation(elidex_script_session::Mutation::SetAttribute {
                             entity,
@@ -120,6 +107,12 @@ pub(crate) fn register_iframe_accessors(
                             entity,
                             name: "allowfullscreen".to_string(),
                         });
+                    }
+                    // Update IframeData eagerly (not tracked by MutationObserver).
+                    if let Ok(mut iframe_data) =
+                        dom.world_mut().get::<&mut elidex_ecs::IframeData>(entity)
+                    {
+                        iframe_data.allow_fullscreen = value;
                     }
                 });
                 Ok(JsValue::undefined())
