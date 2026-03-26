@@ -702,6 +702,10 @@ pub(crate) fn build_scene(
                     f64::from(offset.x),
                     f64::from(offset.y),
                 ));
+                // Vello's push_layer applies `translate` as a scene-level transform.
+                // The recursive build_scene starts with identity transform_stack,
+                // but all items are drawn into the layer which has `translate` applied,
+                // so iframe content is correctly positioned at the offset.
                 scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, translate, &local_clip);
                 build_scene(scene, list, font_cache);
                 scene.pop_layer();

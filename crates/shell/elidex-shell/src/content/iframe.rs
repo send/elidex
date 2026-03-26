@@ -588,6 +588,13 @@ pub(super) fn detect_iframe_mutations(
                                     ip.pipeline.document,
                                 );
                             }
+                            // Remove stale IframeDisplayList so the builder doesn't
+                            // paint a ghost iframe if the entity persists detached.
+                            let _ = state
+                                .pipeline
+                                .dom
+                                .world_mut()
+                                .remove_one::<elidex_render::IframeDisplayList>(iframe_entity);
                             if state.focused_iframe == Some(iframe_entity) {
                                 state.focused_iframe = None;
                             }
