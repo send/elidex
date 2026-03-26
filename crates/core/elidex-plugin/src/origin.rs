@@ -208,8 +208,13 @@ pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
     for directive in csp_header.split(';') {
         let trimmed = directive.trim();
         let lower = trimmed.to_ascii_lowercase();
-        if let Some(value) = lower.strip_prefix("frame-ancestors") {
-            let value = value.trim();
+        if let Some(rest) = lower.strip_prefix("frame-ancestors") {
+            // Verify word boundary: next char must be whitespace or end-of-string.
+            // This prevents matching "frame-ancestors-foo" as "frame-ancestors".
+            if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+                continue;
+            }
+            let value = rest.trim();
             if value.is_empty() {
                 // Whitespace-only value = no directive per W3C CSP L3.
                 // Fall through to X-Frame-Options check.
@@ -326,12 +331,19 @@ pub fn check_x_frame_options(
     parent_origin: &SecurityOrigin,
     document_origin: &SecurityOrigin,
 ) -> bool {
-    let value = header_value.trim().to_ascii_uppercase();
-    match value.as_str() {
-        "DENY" => false,
-        "SAMEORIGIN" => parent_origin.same_origin(document_origin),
-        _ => true, // Unknown values are ignored (allow framing).
+    // Handle comma-separated values and multiple tokens (e.g. "DENY, SAMEORIGIN").
+    // Most restrictive value wins: DENY > SAMEORIGIN > unknown/allow.
+    let mut most_restrictive = true; // Default: allow framing.
+    for token in header_value.split(',') {
+        match token.trim().to_ascii_uppercase().as_str() {
+            "DENY" => return false, // Most restrictive — block immediately.
+            "SAMEORIGIN" => {
+                most_restrictive = parent_origin.same_origin(document_origin);
+            }
+            _ => {} // Unknown tokens ignored per RFC 7034.
+        }
     }
+    most_restrictive
 }
 
 // ---------------------------------------------------------------------------

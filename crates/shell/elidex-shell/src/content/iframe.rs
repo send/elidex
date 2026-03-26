@@ -617,6 +617,8 @@ pub(super) fn detect_iframe_mutations(
                             );
                         }
                     }
+                    // Clear from lazy pending list if present.
+                    state.lazy_iframe_pending.retain(|&e| e != target);
                     // force=true: src attribute change is an explicit navigation,
                     // should not be deferred by loading="lazy".
                     try_load_iframe_entity(state, target, true);
@@ -699,6 +701,10 @@ pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
         .iter()
         .copied()
         .filter(|&entity| {
+            // Skip entities already loaded (e.g., forced load via src change).
+            if state.iframes.get(entity).is_some() {
+                return false;
+            }
             state
                 .pipeline
                 .dom
