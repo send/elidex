@@ -3,10 +3,6 @@
 //! Manages same-origin (in-process) and cross-origin (out-of-process) iframes
 //! within a content thread.
 
-// Infrastructure for upcoming iframe loading/lifecycle steps.
-// Most types here will be used when iframe loading is implemented in later steps.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::thread::JoinHandle;
 
@@ -83,6 +79,7 @@ pub struct InProcessIframe {
     /// Full rendering pipeline (DOM, JS, styles, layout, display list).
     pub pipeline: PipelineResult,
     /// Independent navigation history for this iframe.
+    #[allow(dead_code)] // Used when iframe history navigation is implemented.
     pub nav_controller: NavigationController,
     /// Currently focused entity within this iframe's document.
     pub focus_target: Option<Entity>,
@@ -116,10 +113,12 @@ pub enum IframeHandle {
     /// Boxed to avoid large size difference between variants (`PipelineResult` is ~1.7KB).
     InProcess(Box<InProcessIframe>),
     /// Cross-origin iframe: separate thread with IPC communication.
+    #[allow(dead_code)] // Phase 5: async iframe loading for cross-origin threads.
     OutOfProcess(OutOfProcessIframe),
 }
 
 /// Metadata shared by all iframe types (origin, sandbox, geometry).
+#[allow(dead_code)] // Fields read when cross-origin iframe support is enabled.
 pub struct IframeMeta {
     /// Security origin of the iframe document.
     pub origin: SecurityOrigin,
@@ -136,6 +135,7 @@ pub struct IframeEntry {
     /// Handle to the iframe's pipeline (in-process or out-of-process).
     pub handle: IframeHandle,
     /// Metadata shared by all iframe types.
+    #[allow(dead_code)] // Read when cross-origin iframe support uses origin/sandbox checks.
     pub meta: IframeMeta,
 }
 
@@ -187,12 +187,14 @@ impl IframeRegistry {
 
     /// Number of registered iframes.
     #[must_use]
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether the registry is empty.
     #[must_use]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -760,11 +762,10 @@ pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
         return;
     }
 
-    // Remove loaded entities from pending list (use HashSet to avoid O(n^2)).
-    let to_load_set: std::collections::HashSet<Entity> = to_load.iter().copied().collect();
-    state
-        .lazy_iframe_pending
-        .retain(|e| !to_load_set.contains(e));
+    // Remove loaded entities from pending list.
+    // Vec::contains is O(n) per element but to_load is typically very small
+    // (rarely more than 1-2 iframes become visible simultaneously).
+    state.lazy_iframe_pending.retain(|e| !to_load.contains(e));
 
     // Load each visible lazy iframe.
     for entity in to_load {

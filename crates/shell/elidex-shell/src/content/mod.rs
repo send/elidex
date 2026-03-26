@@ -459,48 +459,14 @@ fn run_event_loop(state: &mut ContentState) {
         // --- Iframe frame tick: drain OOP messages + in-process timers ---
         // Drain display list updates and postMessage events from cross-origin iframe threads.
         let post_messages = state.iframes.drain_oop_messages();
-        // Deliver postMessage events to parent document's JS runtime as MessageEvent.
         for (_iframe_entity, data, origin) in &post_messages {
-            let message_init = elidex_plugin::EventPayload::Message {
-                data: data.clone(),
-                origin: origin.clone(),
-            };
-            let mut event = elidex_script_session::DispatchEvent::new_composed(
-                "message",
-                state.pipeline.document,
-            );
-            // MessageEvent per spec: bubbles=false, cancelable=false.
-            event.bubbles = false;
-            event.cancelable = false;
-            event.payload = message_init;
-            state.pipeline.runtime.dispatch_event(
-                &mut event,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            dispatch_message_event(state, data, origin);
         }
 
         // Deliver self-postMessage events queued by window.postMessage().
         let self_messages = state.pipeline.runtime.bridge().drain_post_messages();
         for (data, origin) in &self_messages {
-            let mut event = elidex_script_session::DispatchEvent::new_composed(
-                "message",
-                state.pipeline.document,
-            );
-            // MessageEvent per spec: bubbles=false, cancelable=false.
-            event.bubbles = false;
-            event.cancelable = false;
-            event.payload = elidex_plugin::EventPayload::Message {
-                data: data.clone(),
-                origin: origin.clone(),
-            };
-            state.pipeline.runtime.dispatch_event(
-                &mut event,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            dispatch_message_event(state, data, origin);
         }
         if !self_messages.is_empty() || !post_messages.is_empty() {
             needs_render = true;
@@ -733,6 +699,24 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
             .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
         _ => false,
     })
+}
+
+/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
+fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
+    let mut event =
+        elidex_script_session::DispatchEvent::new_composed("message", state.pipeline.document);
+    event.bubbles = false;
+    event.cancelable = false;
+    event.payload = elidex_plugin::EventPayload::Message {
+        data: data.to_string(),
+        origin: origin.to_string(),
+    };
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 #[cfg(test)]
