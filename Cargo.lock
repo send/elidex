@@ -2013,6 +2013,7 @@ dependencies = [
 name = "elidex-plugin"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.11.0",
  "cssparser",
  "url",
 ]

@@ -25,6 +25,7 @@ mod pipeline;
 mod tests;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_css_anim::engine::AnimationEngine;
@@ -336,13 +337,14 @@ pub struct PipelineResult {
     /// All parsed CSS stylesheets.
     pub stylesheets: Vec<Stylesheet>,
     /// The font database (shared across navigations to avoid re-scanning).
-    pub font_db: Rc<FontDatabase>,
+    pub font_db: Arc<FontDatabase>,
     /// The URL of the current page, if loaded from a URL.
     pub url: Option<url::Url>,
     /// Shared fetch handle (for cookie sharing across navigation).
     pub fetch_handle: Rc<FetchHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
-    pub registry: elidex_plugin::CssPropertyRegistry,
+    /// `Arc`-wrapped so it can be shared with child iframe pipelines.
+    pub registry: Arc<elidex_plugin::CssPropertyRegistry>,
     /// CSS animation/transition engine.
     pub animation_engine: AnimationEngine,
     /// Current viewport dimensions for layout.
@@ -384,7 +386,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     elidex_form::init_form_controls(&mut dom);
 
-    let registry = create_css_property_registry();
+    let registry = Arc::new(create_css_property_registry());
 
     let stylesheets = vec![parse_compat_stylesheet_with_registry(
         css,
@@ -392,7 +394,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         Some(&registry),
     )];
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-    let font_db = Rc::new(FontDatabase::new());
+    let font_db = Arc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
@@ -435,6 +437,76 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     sync_css_animations(&mut result, &[]);
 
     // Sync stylesheet data to the JS bridge for CSSOM access.
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Build a pipeline from HTML, sharing the parent's resources.
+///
+/// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
+/// `fetch_handle`, and `registry` instead of creating fresh instances.
+/// This ensures the JS `fetch()` closure captures the correct `FetchHandle`
+/// (important for `credentialless` iframes and cookie sharing).
+pub(crate) fn build_pipeline_interactive_shared(
+    html: &str,
+    url: Option<url::Url>,
+    font_db: Arc<FontDatabase>,
+    fetch_handle: Rc<FetchHandle>,
+    registry: Arc<elidex_plugin::CssPropertyRegistry>,
+) -> PipelineResult {
+    let parse_result = parse_html(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        "",
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Rc::clone(&fetch_handle),
+        &font_db,
+        url.as_ref(),
+        &registry,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url,
+        fetch_handle,
+        registry,
+        animation_engine,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+    };
+
+    sync_css_animations(&mut result, &[]);
     sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
@@ -561,7 +633,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     fetch_handle: Rc<FetchHandle>,
-    font_db: Rc<FontDatabase>,
+    font_db: Arc<FontDatabase>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -569,13 +641,14 @@ pub fn build_pipeline_from_loaded(
         stylesheets,
         scripts,
         url,
+        response_headers: _, // Used by iframe loading for CSP/X-Frame-Options checks.
     } = loaded;
 
     elidex_form::init_form_controls(&mut dom);
 
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    let registry = create_css_property_registry();
+    let registry = Arc::new(create_css_property_registry());
 
     let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,
@@ -584,7 +657,7 @@ pub fn build_pipeline_from_loaded(
         &script_sources,
         Rc::clone(&fetch_handle),
         &font_db,
-        Some(url.clone()),
+        Some(&url),
         &registry,
     );
 
@@ -628,7 +701,7 @@ pub fn build_pipeline_from_url(
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
-    let font_db = Rc::new(FontDatabase::new());
+    let font_db = Arc::new(FontDatabase::new());
     Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
 }
 

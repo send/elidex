@@ -97,6 +97,12 @@ pub fn create_event_object(
     // Build composedPath value before borrowing ctx for ObjectInitializer.
     let path_val = composed_path_array
         .unwrap_or_else(|| boa_engine::object::builtins::JsArray::new(ctx).into());
+    // Pre-build values that need ctx before ObjectInitializer borrows it.
+    let empty_ports: JsValue = if matches!(event.payload, EventPayload::Message { .. }) {
+        boa_engine::object::builtins::JsArray::new(ctx).into()
+    } else {
+        JsValue::undefined()
+    };
     let realm = ctx.realm().clone();
 
     let mut init = ObjectInitializer::new(ctx);
@@ -146,7 +152,7 @@ pub fn create_event_object(
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
 
     // Payload-specific properties (also read-only).
-    set_payload_properties(&mut init, &event.payload);
+    set_payload_properties(&mut init, &event.payload, empty_ports);
 
     // preventDefault() only sets the flag when the event is cancelable (DOM §2.5).
     let pd_shared = SharedFlag(Rc::clone(&flags.prevent_default));
@@ -299,7 +305,11 @@ fn set_animation_payload(init: &mut ObjectInitializer<'_>, a: &elidex_plugin::An
     );
 }
 
-fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPayload) {
+fn set_payload_properties(
+    init: &mut ObjectInitializer<'_>,
+    payload: &EventPayload,
+    empty_ports: JsValue,
+) {
     match payload {
         EventPayload::Mouse(m) => set_mouse_payload(init, m),
         EventPayload::Keyboard(k) => set_keyboard_payload(init, k),
@@ -309,6 +319,9 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
         EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
         EventPayload::Composition(c) => set_composition_payload(init, c),
         EventPayload::Focus(_f) => set_focus_payload(init),
+        EventPayload::Message { data, origin } => {
+            set_message_payload(init, data, origin, empty_ports);
+        }
         EventPayload::None | _ => {}
     }
 }
@@ -389,6 +402,18 @@ fn set_composition_payload(
         JsValue::from(js_string!(c.data.as_str())),
         RO,
     );
+}
+
+fn set_message_payload(init: &mut ObjectInitializer<'_>, data: &str, origin: &str, ports: JsValue) {
+    // WHATWG HTML §9.4.3: MessageEvent.data and MessageEvent.origin.
+    // MVP: data is a JSON string (not structured clone). The listener
+    // should call JSON.parse(e.data) if needed.
+    init.property(js_string!("data"), JsValue::from(js_string!(data)), RO);
+    init.property(js_string!("origin"), JsValue::from(js_string!(origin)), RO);
+    // source: null (cross-context WindowProxy not available in boa).
+    init.property(js_string!("source"), JsValue::null(), RO);
+    // ports: empty frozen array (MessagePort not implemented).
+    init.property(js_string!("ports"), ports, RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

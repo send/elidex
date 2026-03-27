@@ -126,6 +126,15 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
                     let _ = dom.world_mut().insert_one(entity, ce_state);
                 }
             }
+            // Attach IframeData component for <iframe> elements (WHATWG HTML §4.8.5).
+            if tag == "iframe" {
+                let iframe_data = if let Ok(attrs_ref) = dom.world().get::<&Attributes>(entity) {
+                    elidex_ecs::IframeData::from_attributes(&attrs_ref)
+                } else {
+                    elidex_ecs::IframeData::default()
+                };
+                let _ = dom.world_mut().insert_one(entity, iframe_data);
+            }
             convert_children(handle, entity, dom);
             Some(entity)
         }

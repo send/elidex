@@ -152,6 +152,8 @@ pub enum ContentToBrowser {
         /// Human-readable error description.
         error: String,
     },
+    /// Request to open a URL in a new tab (`window.open` with `_blank` target).
+    OpenNewTab(url::Url),
 }
 
 /// A bidirectional channel endpoint.

@@ -447,9 +447,14 @@ pub fn resolve_object_ref(
     match result {
         ElidexJsValue::ObjectRef(id) => {
             let obj_ref = JsObjectRef::from_raw(*id);
-            bridge.with(|session, _dom| {
+            bridge.with(|session, dom| {
                 if let Some((entity, _kind)) = session.identity_map().get(obj_ref) {
-                    create_element_wrapper(entity, bridge, obj_ref, ctx)
+                    let is_iframe = dom
+                        .world()
+                        .get::<&elidex_ecs::TagType>(entity)
+                        .ok()
+                        .is_some_and(|t| t.0 == "iframe");
+                    create_element_wrapper(entity, bridge, obj_ref, ctx, is_iframe)
                 } else {
                     JsValue::null()
                 }

@@ -44,18 +44,23 @@ pub(crate) fn entity_bits_as_f64(entity: Entity) -> f64 {
 }
 
 /// Create a boa element wrapper object for the given entity.
+///
+/// `is_iframe` should be `true` when the entity's tag is `"iframe"`.
+/// The caller must determine this before calling (typically inside a
+/// `bridge.with()` closure where `dom` is available).
 pub fn create_element_wrapper(
     entity: Entity,
     bridge: &HostBridge,
     session_entity_ref: JsObjectRef,
     ctx: &mut Context,
+    is_iframe: bool,
 ) -> JsValue {
     if let Some(cached) = bridge.get_cached_js_object(session_entity_ref) {
         return cached.into();
     }
 
     let b = bridge.clone();
-    let obj = build_element_object(entity, &b, ctx);
+    let obj = build_element_object(entity, &b, ctx, is_iframe);
 
     bridge.cache_js_object(session_entity_ref, obj.clone());
     obj.into()
@@ -65,6 +70,7 @@ fn build_element_object(
     entity: Entity,
     bridge: &HostBridge,
     ctx: &mut Context,
+    is_iframe: bool,
 ) -> boa_engine::JsObject {
     let mut init = ObjectInitializer::new(ctx);
 
@@ -80,6 +86,11 @@ fn build_element_object(
     let realm = init.context().realm().clone();
 
     register_all_methods(&mut init, bridge, &realm);
+
+    // Tag-specific accessors: iframe elements get contentDocument, contentWindow, etc.
+    if is_iframe {
+        super::super::iframe::register_iframe_accessors(&mut init, bridge, &realm);
+    }
 
     init.build()
 }

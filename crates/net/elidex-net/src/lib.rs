@@ -95,6 +95,9 @@ pub struct NetClient {
     middleware: MiddlewareChain,
     dispatcher: SchemeDispatcher,
     config: NetClientConfig,
+    /// When `true`, Cookie headers are not sent and `Set-Cookie` headers are
+    /// not stored. Used for iframe `credentialless` attribute (WHATWG HTML §4.8.5).
+    credentialless: bool,
 }
 
 impl std::fmt::Debug for NetClient {
@@ -112,6 +115,25 @@ impl NetClient {
         Self::with_config(NetClientConfig::default())
     }
 
+    /// Create a credentialless client that does not store or send cookies.
+    ///
+    /// Used for iframe `credentialless` attribute (WHATWG HTML §4.8.5):
+    /// the iframe's requests omit cookies and other credentials.
+    pub fn new_credentialless() -> Self {
+        Self::with_config_credentialless(NetClientConfig::default())
+    }
+
+    /// Create a credentialless client with the given configuration.
+    ///
+    /// Like `with_config`, but the client never sends Cookie headers and
+    /// never stores cookies from `Set-Cookie` response headers. This
+    /// implements the iframe `credentialless` attribute (WHATWG HTML §4.8.5).
+    pub fn with_config_credentialless(config: NetClientConfig) -> Self {
+        let mut client = Self::with_config(config);
+        client.credentialless = true;
+        client
+    }
+
     /// Create a new client with the given configuration.
     pub fn with_config(config: NetClientConfig) -> Self {
         let transport = Arc::new(HttpTransport::with_config(config.transport.clone()));
@@ -125,6 +147,7 @@ impl NetClient {
             middleware: MiddlewareChain::new(),
             dispatcher,
             config,
+            credentialless: false,
         }
     }
 
@@ -144,9 +167,11 @@ impl NetClient {
         // Apply middleware (pre-request)
         self.middleware.process_request(&mut request)?;
 
-        // Add cookies
-        if let Some(cookie_header) = self.cookie_jar.cookie_header_for_url(&request.url) {
-            request.headers.push(("cookie".to_string(), cookie_header));
+        // Add cookies (skip for credentialless clients).
+        if !self.credentialless {
+            if let Some(cookie_header) = self.cookie_jar.cookie_header_for_url(&request.url) {
+                request.headers.push(("cookie".to_string(), cookie_header));
+            }
         }
 
         // Send with redirect following
@@ -154,9 +179,11 @@ impl NetClient {
         let mut response =
             redirect::follow_redirects(&self.transport, request, max_redirects).await?;
 
-        // Store cookies from response
-        self.cookie_jar
-            .store_from_response(&response.url, &response.headers);
+        // Store cookies from response (skip for credentialless clients).
+        if !self.credentialless {
+            self.cookie_jar
+                .store_from_response(&response.url, &response.headers);
+        }
 
         // Apply middleware (post-response)
         self.middleware

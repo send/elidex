@@ -174,6 +174,18 @@ pub enum DisplayItem {
     },
     /// End viewport scroll translation.
     PopScrollOffset,
+    /// Render an iframe's display list at an offset with clipping.
+    ///
+    /// The sub-list is translated by `offset` and clipped to `clip`.
+    /// Used for compositing iframe content into the parent display list.
+    SubDisplayList {
+        /// Translation offset (iframe content area position in parent coordinates).
+        offset: Point,
+        /// Clipping rectangle (iframe content area bounds).
+        clip: Rect,
+        /// The iframe's display list (shared via `Arc` to avoid expensive clones).
+        list: Arc<DisplayList>,
+    },
     /// Draw shaped text glyphs.
     Text {
         /// Positioned glyphs.
@@ -230,6 +242,17 @@ impl DisplayList {
         }
     }
 }
+
+/// ECS component attaching an iframe's rendered display list to its parent DOM entity.
+///
+/// Set by the content thread on `<iframe>` entities after their pipeline renders.
+/// The display list builder reads this component to emit `SubDisplayList` items
+/// for compositing iframe content into the parent's display list.
+///
+/// Wrapped in `Arc` to avoid expensive full clones when propagating display lists
+/// between the iframe pipeline and the parent's display list builder.
+#[derive(Clone, Debug)]
+pub struct IframeDisplayList(pub Arc<DisplayList>);
 
 /// Multi-page display list for paged media output.
 ///

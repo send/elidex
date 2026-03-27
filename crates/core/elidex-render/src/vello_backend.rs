@@ -322,6 +322,20 @@ pub(crate) fn build_scene(
     display_list: &DisplayList,
     font_cache: &mut HashMap<*const Vec<u8>, FontData>,
 ) {
+    build_scene_with_transform(scene, display_list, font_cache, Affine::IDENTITY);
+}
+
+/// Build a Vello scene from a display list with an initial base transform.
+///
+/// Used by `SubDisplayList` rendering to apply the iframe offset transform
+/// so that all items in the sub-list are drawn at the correct position.
+#[allow(clippy::too_many_lines)]
+fn build_scene_with_transform(
+    scene: &mut Scene,
+    display_list: &DisplayList,
+    font_cache: &mut HashMap<*const Vec<u8>, FontData>,
+    base_transform: Affine,
+) {
     debug_assert_eq!(
         display_list
             .iter()
@@ -356,7 +370,7 @@ pub(crate) fn build_scene(
         "PushScrollOffset/PopScrollOffset must be balanced in display list"
     );
 
-    let mut transform_stack: Vec<Affine> = vec![Affine::IDENTITY];
+    let mut transform_stack: Vec<Affine> = vec![base_transform];
     let mut skipped_push_count: u32 = 0;
 
     for item in display_list.iter() {
@@ -684,6 +698,36 @@ pub(crate) fn build_scene(
                 } else if transform_stack.len() > 1 {
                     transform_stack.pop();
                 }
+            }
+            DisplayItem::SubDisplayList { offset, clip, list } => {
+                // Render iframe content: translate by offset, clip to bounds, then
+                // recursively render the sub-display-list.
+                //
+                // The clip rect is in parent coordinates, but `push_layer` applies
+                // the given transform before clipping. Use iframe-local coordinates
+                // (0,0 to size) for the clip rect to avoid double-offsetting.
+                let local_clip = vello::kurbo::Rect::new(
+                    0.0,
+                    0.0,
+                    f64::from(clip.size.width),
+                    f64::from(clip.size.height),
+                );
+                let translate = current_transform.then_translate(vello::kurbo::Vec2::new(
+                    f64::from(offset.x),
+                    f64::from(offset.y),
+                ));
+                // Clip to the iframe's content area, then render the sub-list
+                // with the translate as the base transform so all items are
+                // drawn at the correct offset.
+                scene.push_layer(
+                    Fill::NonZero,
+                    Mix::Normal,
+                    1.0,
+                    current_transform,
+                    &local_clip,
+                );
+                build_scene_with_transform(scene, list, font_cache, translate);
+                scene.pop_layer();
             }
             DisplayItem::Text {
                 glyphs,

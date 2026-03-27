@@ -154,6 +154,13 @@ pub enum EventPayload {
     Wheel(WheelEventInit),
     /// Scroll event (no additional data — target is the scroll container).
     Scroll,
+    /// Cross-document message event data (WHATWG HTML §9.4.3).
+    Message {
+        /// JSON-serialized message data.
+        data: String,
+        /// Serialized origin of the sender.
+        origin: String,
+    },
     /// No additional data (e.g. generic events).
     #[default]
     None,

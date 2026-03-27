@@ -12,6 +12,7 @@ pub mod handlers;
 mod js_value;
 mod layout_types;
 mod logical;
+pub mod origin;
 mod registry;
 pub mod sandbox;
 mod spec_level;
@@ -45,6 +46,11 @@ pub use layout_types::{
     Size, Vector,
 };
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
+pub use origin::{
+    check_x_frame_options, is_framing_allowed, parse_frame_ancestors, parse_iframe_allow_attribute,
+    parse_sandbox_attribute, AllowList, FrameAncestorSource, FrameAncestorsPolicy,
+    IframeSandboxFlags, PermissionsPolicy, SecurityOrigin, MAX_IFRAME_DEPTH,
+};
 pub use registry::PluginRegistry;
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{

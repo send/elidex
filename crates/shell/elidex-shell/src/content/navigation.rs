@@ -1,6 +1,7 @@
 //! Navigation and history action handling for the content thread.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ContentToBrowser;
@@ -21,7 +22,7 @@ pub(super) fn handle_navigate(
     request: Option<elidex_net::Request>,
 ) {
     let fetch_handle = Rc::clone(&state.pipeline.fetch_handle);
-    let font_db = Rc::clone(&state.pipeline.font_db);
+    let font_db = Arc::clone(&state.pipeline.font_db);
 
     match elidex_navigation::load_document(url, &fetch_handle, request) {
         Ok(loaded) => {
@@ -69,6 +70,40 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
 
     if let Some(action) = state.pipeline.runtime.take_pending_history() {
         handle_history_action(state, &action);
+        state.send_display_list();
+        return true;
+    }
+
+    // window.open(_blank) → send OpenNewTab to browser thread.
+    let open_tabs = state.pipeline.runtime.bridge().drain_pending_open_tabs();
+    if !open_tabs.is_empty() {
+        state.send_display_list();
+        for url in open_tabs {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        }
+        return true;
+    }
+
+    // window.open with named target → navigate matching iframe or open new tab.
+    let navigate_iframes = state
+        .pipeline
+        .runtime
+        .bridge()
+        .drain_pending_navigate_iframe();
+    if !navigate_iframes.is_empty() {
+        for (name, url) in navigate_iframes {
+            if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &name) {
+                super::iframe::navigate_iframe(state, iframe_entity, &url);
+            } else {
+                // No matching iframe → open in new tab.
+                let _ = state
+                    .channel
+                    .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            }
+        }
+        state.re_render();
         state.send_display_list();
         return true;
     }

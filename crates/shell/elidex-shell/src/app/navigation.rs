@@ -87,7 +87,7 @@ impl App {
             return false;
         };
         let fetch_handle = std::rc::Rc::clone(&interactive.pipeline.fetch_handle);
-        let font_db = std::rc::Rc::clone(&interactive.pipeline.font_db);
+        let font_db = std::sync::Arc::clone(&interactive.pipeline.font_db);
         match elidex_navigation::load_document(url, &fetch_handle, None) {
             Ok(loaded) => {
                 let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);

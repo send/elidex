@@ -10,6 +10,12 @@
 //! - bind/unbind bracket every eval call
 //! - `HostBridge` is `!Send` (via `Rc`)
 
+mod ce;
+mod cssom;
+mod media;
+mod observers;
+mod traversal;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -18,7 +24,7 @@ use boa_engine::{JsObject, JsValue};
 use elidex_api_observers::intersection::IntersectionObserverRegistry;
 use elidex_api_observers::mutation::MutationObserverRegistry;
 use elidex_api_observers::resize::ResizeObserverRegistry;
-use elidex_custom_elements::{CustomElementReaction, CustomElementRegistry};
+use elidex_custom_elements::CustomElementRegistry;
 use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_navigation::{HistoryAction, NavigationRequest};
@@ -104,7 +110,7 @@ struct HostBridgeInner {
     /// JS constructor storage: `constructor_id` → boa `JsObject`.
     custom_element_constructors: HashMap<u64, JsObject>,
     /// Queued custom element lifecycle reactions.
-    custom_element_reactions: Vec<CustomElementReaction>,
+    custom_element_reactions: Vec<elidex_custom_elements::CustomElementReaction>,
     /// Next constructor ID for custom element definitions.
     ce_next_constructor_id: u64,
     /// Pending `whenDefined()` resolve functions, keyed by custom element name.
@@ -112,6 +118,56 @@ struct HostBridgeInner {
     /// Cached pending `whenDefined()` promises, keyed by custom element name.
     /// Returned for repeated calls with the same name before `define()`.
     when_defined_promises: HashMap<String, JsValue>,
+    // --- iframe / multi-document ---
+    iframe: IframeBridgeState,
+}
+
+/// Iframe-related state for the JS bridge.
+///
+/// Grouped to reduce field count on `HostBridgeInner` (~35 -> ~28+1).
+///
+/// Note: `parent_bridge` and `iframe_bridges` fields are intentionally
+/// omitted. Boa uses per-`Context` `JsObject` references that cannot cross
+/// `Context` boundaries, so `contentDocument`/`contentWindow` return null for
+/// all iframes. Cross-context document/window proxies require the
+/// self-hosted JS engine (M4-9+).
+struct IframeBridgeState {
+    /// Security origin of this document (WHATWG HTML §7.5).
+    origin: elidex_plugin::SecurityOrigin,
+    /// The `<iframe>` element entity in the parent DOM that contains this window.
+    /// `None` for top-level documents.
+    frame_element: Option<Entity>,
+    /// Referrer URL for this document (set from parent URL when loaded as iframe).
+    referrer: Option<String>,
+    /// Iframe sandbox flags (if this document is inside a sandboxed iframe).
+    /// `None` for top-level documents or unsandboxed iframes.
+    sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Iframe nesting depth (0 for top-level, incremented per nested iframe).
+    /// Used for `MAX_IFRAME_DEPTH` enforcement across separate `EcsDom` instances.
+    iframe_depth: usize,
+    /// Queued postMessage events for delivery in the next event loop tick.
+    pending_post_messages: Vec<(String, String)>,
+    /// URLs to open in new tabs (from `window.open` with `_blank` target).
+    /// Vec to support multiple window.open calls before the event loop drains.
+    pending_open_tabs: Vec<url::Url>,
+    /// Pending iframe navigations from `window.open` with named targets.
+    /// Each entry is `(iframe_name, url)`.
+    pending_navigate_iframe: Vec<(String, url::Url)>,
+}
+
+impl Default for IframeBridgeState {
+    fn default() -> Self {
+        Self {
+            origin: elidex_plugin::SecurityOrigin::opaque(),
+            frame_element: None,
+            referrer: None,
+            sandbox_flags: None,
+            iframe_depth: 0,
+            pending_post_messages: Vec::new(),
+            pending_open_tabs: Vec::new(),
+            pending_navigate_iframe: Vec::new(),
+        }
+    }
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -220,6 +276,7 @@ impl HostBridge {
                 ce_next_constructor_id: 1,
                 when_defined_resolvers: HashMap::new(),
                 when_defined_promises: HashMap::new(),
+                iframe: IframeBridgeState::default(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -359,6 +416,140 @@ impl HostBridge {
     /// Get the current page URL.
     pub fn current_url(&self) -> Option<url::Url> {
         self.inner.borrow().current_url.clone()
+    }
+
+    /// Set the security origin for this document.
+    pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
+        self.inner.borrow_mut().iframe.origin = origin;
+    }
+
+    /// Get the security origin of this document.
+    #[must_use]
+    pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
+        self.inner.borrow().iframe.origin.clone()
+    }
+
+    /// Set the `<iframe>` element entity in the parent DOM that contains this window.
+    pub fn set_frame_element(&self, entity: Option<Entity>) {
+        self.inner.borrow_mut().iframe.frame_element = entity;
+    }
+
+    /// Get the `<iframe>` element entity in the parent DOM.
+    #[must_use]
+    pub fn frame_element(&self) -> Option<Entity> {
+        self.inner.borrow().iframe.frame_element
+    }
+
+    /// Set the iframe nesting depth of this document.
+    pub fn set_iframe_depth(&self, depth: usize) {
+        self.inner.borrow_mut().iframe.iframe_depth = depth;
+    }
+
+    /// Get the iframe nesting depth of this document (0 for top-level).
+    #[must_use]
+    pub fn iframe_depth(&self) -> usize {
+        self.inner.borrow().iframe.iframe_depth
+    }
+
+    /// Set the referrer URL for this document (parent URL when loaded as iframe).
+    pub fn set_referrer(&self, referrer: Option<String>) {
+        self.inner.borrow_mut().iframe.referrer = referrer;
+    }
+
+    /// Get the referrer URL for this document.
+    #[must_use]
+    pub fn referrer(&self) -> Option<String> {
+        self.inner.borrow().iframe.referrer.clone()
+    }
+
+    /// Set sandbox flags for this document (if inside a sandboxed iframe).
+    pub fn set_sandbox_flags(&self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+        self.inner.borrow_mut().iframe.sandbox_flags = flags;
+    }
+
+    /// Get sandbox flags for this document.
+    #[must_use]
+    pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        self.inner.borrow().iframe.sandbox_flags
+    }
+
+    /// Check if scripts are allowed (sandbox allow-scripts flag).
+    /// Returns `true` if not sandboxed or if allow-scripts is set.
+    #[must_use]
+    pub fn scripts_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .iframe
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
+    }
+
+    /// Check if forms are allowed (sandbox allow-forms flag).
+    #[must_use]
+    pub fn forms_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .iframe
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
+    }
+
+    /// Check if popups are allowed (sandbox allow-popups flag).
+    #[must_use]
+    pub fn popups_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .iframe
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
+    }
+
+    /// Check if modals (alert/confirm/prompt) are allowed.
+    #[must_use]
+    pub fn modals_allowed(&self) -> bool {
+        self.inner
+            .borrow()
+            .iframe
+            .sandbox_flags
+            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
+    }
+
+    /// Queue a postMessage for delivery in the next event loop tick.
+    pub fn queue_post_message(&self, data: String, origin: String) {
+        self.inner
+            .borrow_mut()
+            .iframe
+            .pending_post_messages
+            .push((data, origin));
+    }
+
+    /// Drain all queued postMessage events.
+    pub fn drain_post_messages(&self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_post_messages)
+    }
+
+    /// Set a URL to open in a new tab (from `window.open`).
+    pub fn queue_open_tab(&self, url: url::Url) {
+        self.inner.borrow_mut().iframe.pending_open_tabs.push(url);
+    }
+
+    /// Drain all pending new-tab URLs.
+    pub fn drain_pending_open_tabs(&self) -> Vec<url::Url> {
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_open_tabs)
+    }
+
+    /// Queue a named-target iframe navigation from `window.open`.
+    pub fn set_pending_navigate_iframe(&self, name: String, url: url::Url) {
+        self.inner
+            .borrow_mut()
+            .iframe
+            .pending_navigate_iframe
+            .push((name, url));
+    }
+
+    /// Drain pending named-target iframe navigations.
+    pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_navigate_iframe)
     }
 
     /// Set a pending navigation request.
@@ -517,252 +708,6 @@ impl HostBridge {
         }
     }
 
-    // --- Observer API ---
-
-    /// Access the mutation observer registry mutably.
-    pub fn with_mutation_observers<R>(
-        &self,
-        f: impl FnOnce(&mut MutationObserverRegistry) -> R,
-    ) -> R {
-        f(&mut self.inner.borrow_mut().mutation_observers)
-    }
-
-    /// Access the resize observer registry mutably.
-    pub fn with_resize_observers<R>(&self, f: impl FnOnce(&mut ResizeObserverRegistry) -> R) -> R {
-        f(&mut self.inner.borrow_mut().resize_observers)
-    }
-
-    /// Access the intersection observer registry mutably.
-    pub fn with_intersection_observers<R>(
-        &self,
-        f: impl FnOnce(&mut IntersectionObserverRegistry) -> R,
-    ) -> R {
-        f(&mut self.inner.borrow_mut().intersection_observers)
-    }
-
-    /// Store a JS callback for an observer.
-    pub fn store_observer_callback(
-        &self,
-        observer_id: u64,
-        callback: JsObject,
-        observer_obj: JsObject,
-    ) {
-        let mut inner = self.inner.borrow_mut();
-        inner.observer_callbacks.insert(observer_id, callback);
-        inner.observer_objects.insert(observer_id, observer_obj);
-    }
-
-    /// Get the JS callback for an observer.
-    pub fn get_observer_callback(&self, observer_id: u64) -> Option<JsObject> {
-        self.inner
-            .borrow()
-            .observer_callbacks
-            .get(&observer_id)
-            .cloned()
-    }
-
-    /// Get the JS observer wrapper object.
-    pub fn get_observer_object(&self, observer_id: u64) -> Option<JsObject> {
-        self.inner
-            .borrow()
-            .observer_objects
-            .get(&observer_id)
-            .cloned()
-    }
-
-    /// Remove an observer's callback and wrapper.
-    pub fn remove_observer(&self, observer_id: u64) {
-        let mut inner = self.inner.borrow_mut();
-        inner.observer_callbacks.remove(&observer_id);
-        inner.observer_objects.remove(&observer_id);
-    }
-
-    // --- Custom Elements ---
-
-    /// Register a custom element definition.
-    ///
-    /// Stores the constructor, calls `registry.define()`, and returns the list
-    /// of entities pending upgrade for this name.
-    pub fn register_custom_element(
-        &self,
-        name: &str,
-        constructor: JsObject,
-        observed_attrs: Vec<String>,
-        extends: Option<String>,
-    ) -> Result<Vec<Entity>, elidex_custom_elements::DefineError> {
-        let mut inner = self.inner.borrow_mut();
-
-        // Validate before allocating constructor ID to avoid leaking an ID
-        // and storing the constructor on define() failure.
-        if !elidex_custom_elements::is_valid_custom_element_name(name) {
-            return Err(elidex_custom_elements::DefineError::InvalidName(
-                name.to_string(),
-            ));
-        }
-        if inner.custom_element_registry.is_defined(name) {
-            return Err(elidex_custom_elements::DefineError::AlreadyDefined(
-                name.to_string(),
-            ));
-        }
-
-        let id = inner.ce_next_constructor_id;
-        inner.ce_next_constructor_id += 1;
-        inner.custom_element_constructors.insert(id, constructor);
-
-        let def = elidex_custom_elements::CustomElementDefinition {
-            name: name.to_string(),
-            constructor_id: id,
-            observed_attributes: observed_attrs,
-            extends,
-        };
-        inner.custom_element_registry.define(def)
-    }
-
-    /// Retrieve the JS constructor for a custom element definition by name.
-    pub fn get_custom_element_constructor(&self, name: &str) -> Option<JsObject> {
-        let inner = self.inner.borrow();
-        let def = inner.custom_element_registry.get(name)?;
-        inner
-            .custom_element_constructors
-            .get(&def.constructor_id)
-            .cloned()
-    }
-
-    /// Enqueue a custom element lifecycle reaction.
-    pub fn enqueue_ce_reaction(&self, reaction: CustomElementReaction) {
-        self.inner
-            .borrow_mut()
-            .custom_element_reactions
-            .push(reaction);
-    }
-
-    /// Drain all pending custom element reactions.
-    pub fn drain_ce_reactions(&self) -> Vec<CustomElementReaction> {
-        std::mem::take(&mut self.inner.borrow_mut().custom_element_reactions)
-    }
-
-    /// Check whether a custom element name has been defined.
-    #[must_use]
-    pub fn is_custom_element_defined(&self, name: &str) -> bool {
-        self.inner.borrow().custom_element_registry.is_defined(name)
-    }
-
-    /// Queue an entity for upgrade when its custom element definition becomes available.
-    ///
-    /// Note: The pending queue is keyed by custom element name only and does not
-    /// track the element's base tag. For customized built-in elements, the
-    /// `extends` tag match is verified at upgrade time in both
-    /// `walk_and_enqueue_upgrades` (enqueue-side filter) and
-    /// `drain_custom_element_reactions` (execution-side guard). Elements that
-    /// fail the extends check are set to `CEState::Failed`.
-    pub fn queue_for_ce_upgrade(&self, name: &str, entity: Entity) {
-        self.inner
-            .borrow_mut()
-            .custom_element_registry
-            .queue_for_upgrade(name, entity);
-    }
-
-    /// Access a custom element definition by name via a closure.
-    ///
-    /// Returns `false` if the definition does not exist, otherwise returns the
-    /// closure's result.
-    #[must_use]
-    pub fn with_ce_definition<F>(&self, name: &str, f: F) -> bool
-    where
-        F: FnOnce(&elidex_custom_elements::CustomElementDefinition) -> bool,
-    {
-        self.inner
-            .borrow()
-            .custom_element_registry
-            .get(name)
-            .is_some_and(f)
-    }
-
-    /// Look up the `extends` tag for a custom element by name.
-    ///
-    /// Returns `None` if the definition does not exist or does not extend
-    /// a built-in element (autonomous custom element).
-    #[must_use]
-    pub fn ce_extends_tag(&self, name: &str) -> Option<String> {
-        self.inner
-            .borrow()
-            .custom_element_registry
-            .get(name)
-            .and_then(|def| def.extends.clone())
-    }
-
-    /// Look up the observed attributes for a custom element by name.
-    pub fn ce_observed_attributes(&self, name: &str) -> Vec<String> {
-        self.inner
-            .borrow()
-            .custom_element_registry
-            .get(name)
-            .map(|def| def.observed_attributes.clone())
-            .unwrap_or_default()
-    }
-
-    /// Check if a specific attribute is observed for a custom element (non-allocating).
-    pub fn ce_is_observed_attribute(&self, ce_name: &str, attr_name: &str) -> bool {
-        self.inner
-            .borrow()
-            .custom_element_registry
-            .get(ce_name)
-            .is_some_and(|def| def.observed_attributes.iter().any(|a| a == attr_name))
-    }
-
-    /// Store a `whenDefined()` resolve function for a not-yet-defined custom element.
-    pub fn store_when_defined_resolver(
-        &self,
-        name: &str,
-        resolver: boa_engine::object::builtins::JsFunction,
-    ) {
-        self.inner
-            .borrow_mut()
-            .when_defined_resolvers
-            .entry(name.to_string())
-            .or_default()
-            .push(resolver);
-    }
-
-    /// Take all pending `whenDefined()` resolve functions for a name.
-    pub fn take_when_defined_resolvers(
-        &self,
-        name: &str,
-    ) -> Vec<boa_engine::object::builtins::JsFunction> {
-        self.inner
-            .borrow_mut()
-            .when_defined_resolvers
-            .remove(name)
-            .unwrap_or_default()
-    }
-
-    /// Store a cached pending `whenDefined()` promise for a custom element name.
-    pub fn store_when_defined_promise(&self, name: &str, promise: JsValue) {
-        self.inner
-            .borrow_mut()
-            .when_defined_promises
-            .insert(name.to_string(), promise);
-    }
-
-    /// Get a cached pending `whenDefined()` promise for a custom element name.
-    pub fn get_when_defined_promise(&self, name: &str) -> Option<JsValue> {
-        self.inner.borrow().when_defined_promises.get(name).cloned()
-    }
-
-    /// Clear the cached pending `whenDefined()` promise after resolution.
-    pub fn clear_when_defined_promise(&self, name: &str) {
-        self.inner.borrow_mut().when_defined_promises.remove(name);
-    }
-
-    /// Look up a customized built-in element by `is` attribute value and tag name.
-    pub fn ce_lookup_by_is(&self, is_value: &str, tag: &str) -> bool {
-        self.inner
-            .borrow()
-            .custom_element_registry
-            .lookup_by_is(is_value, tag)
-            .is_some()
-    }
-
     // --- Entity cleanup ---
 
     /// Clean up resources associated with a destroyed entity.
@@ -793,239 +738,6 @@ impl HostBridge {
         inner.mutation_observers.remove_entity(entity);
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
-    }
-
-    // --- TreeWalker / NodeIterator / Range ---
-
-    /// Create a new `TreeWalker` and return its ID.
-    pub fn create_tree_walker(&self, root: Entity, what_to_show: u32) -> u64 {
-        let mut inner = self.inner.borrow_mut();
-        let id = inner.traversal_next_id;
-        inner.traversal_next_id += 1;
-        inner
-            .tree_walkers
-            .insert(id, elidex_dom_api::TreeWalker::new(root, what_to_show));
-        id
-    }
-
-    /// Access a `TreeWalker` by ID.
-    pub fn with_tree_walker<R>(
-        &self,
-        id: u64,
-        f: impl FnOnce(&mut elidex_dom_api::TreeWalker) -> R,
-    ) -> Option<R> {
-        let mut inner = self.inner.borrow_mut();
-        inner.tree_walkers.get_mut(&id).map(f)
-    }
-
-    /// Create a new `NodeIterator` and return its ID.
-    pub fn create_node_iterator(&self, root: Entity, what_to_show: u32) -> u64 {
-        let mut inner = self.inner.borrow_mut();
-        let id = inner.traversal_next_id;
-        inner.traversal_next_id += 1;
-        inner
-            .node_iterators
-            .insert(id, elidex_dom_api::NodeIterator::new(root, what_to_show));
-        id
-    }
-
-    /// Access a `NodeIterator` by ID.
-    pub fn with_node_iterator<R>(
-        &self,
-        id: u64,
-        f: impl FnOnce(&mut elidex_dom_api::NodeIterator) -> R,
-    ) -> Option<R> {
-        let mut inner = self.inner.borrow_mut();
-        inner.node_iterators.get_mut(&id).map(f)
-    }
-
-    /// Create a new `Range` and return its ID.
-    pub fn create_range(&self, node: Entity) -> u64 {
-        let mut inner = self.inner.borrow_mut();
-        let id = inner.traversal_next_id;
-        inner.traversal_next_id += 1;
-        inner.ranges.insert(id, elidex_dom_api::Range::new(node));
-        id
-    }
-
-    /// Access a `Range` by ID.
-    pub fn with_range<R>(
-        &self,
-        id: u64,
-        f: impl FnOnce(&mut elidex_dom_api::Range) -> R,
-    ) -> Option<R> {
-        let mut inner = self.inner.borrow_mut();
-        inner.ranges.get_mut(&id).map(f)
-    }
-
-    /// Get the current selection's Range ID, if any.
-    pub fn selection_range_id(&self) -> Option<u64> {
-        self.inner.borrow().selection_range_id
-    }
-
-    /// Set the selection's Range ID.
-    pub fn set_selection_range_id(&self, id: Option<u64>) {
-        self.inner.borrow_mut().selection_range_id = id;
-    }
-
-    // --- MediaQueryList ---
-
-    /// Create a `MediaQueryList` entry and return its unique ID.
-    pub fn create_media_query(&self, query: &str, matches: bool) -> u64 {
-        let mut inner = self.inner.borrow_mut();
-        let id = inner.media_query_next_id;
-        inner.media_query_next_id += 1;
-        inner.media_queries.insert(
-            id,
-            MediaQueryEntry {
-                query: query.to_string(),
-                matches,
-                listeners: Vec::new(),
-            },
-        );
-        id
-    }
-
-    /// Add a "change" event listener to a `MediaQueryList`.
-    pub fn add_media_query_listener(&self, id: u64, callback: JsObject) {
-        let mut inner = self.inner.borrow_mut();
-        if let Some(entry) = inner.media_queries.get_mut(&id) {
-            entry.listeners.push(callback);
-        }
-    }
-
-    /// Remove a "change" event listener from a `MediaQueryList` by reference identity.
-    pub fn remove_media_query_listener(&self, id: u64, callback: &JsObject) {
-        let mut inner = self.inner.borrow_mut();
-        if let Some(entry) = inner.media_queries.get_mut(&id) {
-            entry
-                .listeners
-                .retain(|stored| !JsObject::equals(stored, callback));
-        }
-    }
-
-    /// Re-evaluate all media queries against the given viewport dimensions.
-    ///
-    /// Returns a list of `(id, new_matches)` for entries whose result changed.
-    /// Updates the cached `matches` value for each changed entry.
-    pub fn re_evaluate_media_queries(&self, width: f32, height: f32) -> Vec<(u64, bool)> {
-        let mut inner = self.inner.borrow_mut();
-        let mut changed = Vec::new();
-        for (&id, entry) in &mut inner.media_queries {
-            let new_matches = evaluate_media_query_raw(&entry.query, width, height);
-            if new_matches != entry.matches {
-                entry.matches = new_matches;
-                changed.push((id, new_matches));
-            }
-        }
-        changed
-    }
-
-    /// Get the current `matches` value for a media query.
-    pub fn media_query_matches(&self, id: u64) -> bool {
-        self.inner
-            .borrow()
-            .media_queries
-            .get(&id)
-            .is_some_and(|e| e.matches)
-    }
-
-    /// Get the listener callbacks for a media query (cloned for dispatch).
-    pub fn media_query_listeners(&self, id: u64) -> Vec<JsObject> {
-        self.inner
-            .borrow()
-            .media_queries
-            .get(&id)
-            .map_or_else(Vec::new, |e| e.listeners.clone())
-    }
-
-    /// Get the query string for a media query entry.
-    pub fn media_query_string(&self, id: u64) -> Option<String> {
-        self.inner
-            .borrow()
-            .media_queries
-            .get(&id)
-            .map(|e| e.query.clone())
-    }
-
-    // --- CSSOM ---
-
-    /// Replace the CSSOM stylesheet list (called by content thread after pipeline).
-    pub fn set_stylesheets(&self, sheets: Vec<CssomSheet>) {
-        self.inner.borrow_mut().stylesheets = sheets;
-    }
-
-    /// Get the number of stylesheets.
-    #[must_use]
-    pub fn stylesheet_count(&self) -> usize {
-        self.inner.borrow().stylesheets.len()
-    }
-
-    /// Access a stylesheet's rules by index.
-    #[must_use]
-    pub fn stylesheet_rules(&self, sheet_index: usize) -> Option<Vec<CssomRule>> {
-        self.inner
-            .borrow()
-            .stylesheets
-            .get(sheet_index)
-            .map(|s| s.rules.clone())
-    }
-
-    /// Insert a rule into a stylesheet's CSSOM representation and record a pending mutation.
-    ///
-    /// Returns the actual insertion index on success, or `None` if the sheet/index is invalid.
-    pub fn cssom_insert_rule(
-        &self,
-        sheet_index: usize,
-        rule_index: usize,
-        rule_text: &str,
-    ) -> Option<usize> {
-        let mut inner = self.inner.borrow_mut();
-        let sheet = inner.stylesheets.get_mut(sheet_index)?;
-        if rule_index > sheet.rules.len() {
-            return None;
-        }
-        // Validation uses a lightweight parser; the content thread reparses with
-        // the full CSS parser for spec-compliant handling. Discrepancies are
-        // acceptable since the full parser is authoritative.
-        let rule = parse_cssom_rule_from_text(rule_text)?;
-        sheet.rules.insert(rule_index, rule);
-        inner.cssom_mutations.push(CssomMutation::InsertRule {
-            sheet_index,
-            rule_index,
-            rule_text: rule_text.to_string(),
-        });
-        Some(rule_index)
-    }
-
-    /// Delete a rule from a stylesheet's CSSOM representation and record a pending mutation.
-    ///
-    /// Returns `true` on success, `false` if the sheet/index is invalid.
-    pub fn cssom_delete_rule(&self, sheet_index: usize, rule_index: usize) -> bool {
-        let mut inner = self.inner.borrow_mut();
-        let Some(sheet) = inner.stylesheets.get_mut(sheet_index) else {
-            return false;
-        };
-        if rule_index >= sheet.rules.len() {
-            return false;
-        }
-        sheet.rules.remove(rule_index);
-        inner.cssom_mutations.push(CssomMutation::DeleteRule {
-            sheet_index,
-            rule_index,
-        });
-        true
-    }
-
-    /// Take all pending CSSOM mutations (consumed by content thread).
-    pub fn take_cssom_mutations(&self) -> Vec<CssomMutation> {
-        std::mem::take(&mut self.inner.borrow_mut().cssom_mutations)
-    }
-
-    /// Returns `true` if there are pending CSSOM mutations.
-    #[must_use]
-    pub fn has_cssom_mutations(&self) -> bool {
-        !self.inner.borrow().cssom_mutations.is_empty()
     }
 }
 

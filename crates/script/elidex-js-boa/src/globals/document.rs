@@ -68,12 +68,19 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // Convert to JS array.
                 let array = boa_engine::object::builtins::JsArray::new(ctx);
                 for entity in entities {
-                    let wrapper = bridge.with(|session, _dom| {
+                    let wrapper = bridge.with(|session, dom| {
                         let obj_ref = session.get_or_create_wrapper(
                             entity,
                             elidex_script_session::ComponentKind::Element,
                         );
-                        super::element::create_element_wrapper(entity, bridge, obj_ref, ctx)
+                        let is_iframe = dom
+                            .world()
+                            .get::<&elidex_ecs::TagType>(entity)
+                            .ok()
+                            .is_some_and(|t| t.0 == "iframe");
+                        super::element::create_element_wrapper(
+                            entity, bridge, obj_ref, ctx, is_iframe,
+                        )
                     });
                     array.push(wrapper, ctx)?;
                 }
@@ -458,6 +465,23 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
         js_string!("writeln"),
         1,
+    );
+
+    // document.referrer — returns the referrer URL (parent URL for iframe documents).
+    let b_referrer = b.clone();
+    let referrer_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            let referrer = bridge.referrer().unwrap_or_default();
+            Ok(JsValue::from(js_string!(referrer)))
+        },
+        b_referrer,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("referrer"),
+        Some(referrer_getter),
+        None,
+        Attribute::CONFIGURABLE,
     );
 
     let document = init.build();
@@ -911,12 +935,18 @@ fn extract_traversal_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
 
 /// Resolve an Entity to a JS element wrapper.
 fn resolve_entity_to_js(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
-    let obj_ref = bridge.with(|session, dom| {
+    let (obj_ref, is_iframe) = bridge.with(|session, dom| {
         let kind = dom.node_kind(entity).map_or(
             elidex_script_session::ComponentKind::Element,
             elidex_script_session::ComponentKind::from_node_kind,
         );
-        session.get_or_create_wrapper(entity, kind)
+        let r = session.get_or_create_wrapper(entity, kind);
+        let iframe = dom
+            .world()
+            .get::<&elidex_ecs::TagType>(entity)
+            .ok()
+            .is_some_and(|t| t.0 == "iframe");
+        (r, iframe)
     });
-    crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx)
+    crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx, is_iframe)
 }

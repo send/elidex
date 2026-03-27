@@ -460,6 +460,102 @@ pub struct AttrEntityCache {
     pub entries: std::collections::HashMap<String, Entity>,
 }
 
+/// Loading attribute for `<iframe>` and `<img>` elements (WHATWG HTML §4.8.5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LoadingAttribute {
+    /// Load immediately (default).
+    #[default]
+    Eager,
+    /// Defer loading until near the viewport (lazy loading).
+    Lazy,
+}
+
+/// Data for an `<iframe>` element (WHATWG HTML §4.8.5).
+///
+/// Stored as an ECS component on iframe entities. Used by layout for
+/// intrinsic sizing (replaced element model) and by the shell for
+/// iframe lifecycle management.
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct IframeData {
+    /// URL to load (`src` attribute).
+    pub src: Option<String>,
+    /// Inline HTML content (`srcdoc` attribute).
+    pub srcdoc: Option<String>,
+    /// Raw sandbox attribute value.
+    pub sandbox: Option<String>,
+    /// Iframe width in CSS pixels (HTML attribute, default 300).
+    pub width: u32,
+    /// Iframe height in CSS pixels (HTML attribute, default 150).
+    pub height: u32,
+    /// Frame name for targeting (`name` attribute).
+    pub name: Option<String>,
+    /// Loading strategy.
+    pub loading: LoadingAttribute,
+    /// Whether fullscreen is allowed (`allowfullscreen` attribute).
+    pub allow_fullscreen: bool,
+    /// Referrer policy (`referrerpolicy` attribute).
+    pub referrer_policy: Option<String>,
+    /// Permissions policy (`allow` attribute).
+    pub allow: Option<String>,
+    /// Whether credentials are suppressed (`credentialless` attribute).
+    pub credentialless: bool,
+}
+
+impl IframeData {
+    /// Create `IframeData` from HTML attributes.
+    ///
+    /// Centralizes the attribute-to-field mapping used by both the HTML parser
+    /// and JS `setAttribute` handling.
+    #[must_use]
+    pub fn from_attributes(attrs: &Attributes) -> Self {
+        Self {
+            src: attrs.get("src").map(String::from),
+            srcdoc: attrs.get("srcdoc").map(String::from),
+            sandbox: attrs.get("sandbox").map(String::from),
+            width: attrs
+                .get("width")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+            height: attrs
+                .get("height")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(150),
+            name: attrs.get("name").map(String::from),
+            loading: if attrs
+                .get("loading")
+                .is_some_and(|v| v.eq_ignore_ascii_case("lazy"))
+            {
+                LoadingAttribute::Lazy
+            } else {
+                LoadingAttribute::Eager
+            },
+            allow_fullscreen: attrs.contains("allowfullscreen"),
+            referrer_policy: attrs.get("referrerpolicy").map(String::from),
+            allow: attrs.get("allow").map(String::from),
+            credentialless: attrs.contains("credentialless"),
+        }
+    }
+}
+
+impl Default for IframeData {
+    fn default() -> Self {
+        Self {
+            src: None,
+            srcdoc: None,
+            sandbox: None,
+            width: 300,
+            height: 150,
+            name: None,
+            loading: LoadingAttribute::Eager,
+            allow_fullscreen: false,
+            referrer_policy: None,
+            allow: None,
+            credentialless: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

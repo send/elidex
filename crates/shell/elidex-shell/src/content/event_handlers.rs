@@ -6,7 +6,6 @@ use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::DispatchEvent;
 
-use crate::app::events::find_link_ancestor;
 use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_state};
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ModifierState;
@@ -40,6 +39,14 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
         return;
     };
     let hit_entity = hit.entity;
+
+    // Route clicks on iframe elements to the iframe's own DOM.
+    // Events do not bubble out of iframe boundaries (WHATWG HTML).
+    if try_route_click_to_iframe(state, hit_entity, click) {
+        state.re_render();
+        state.send_display_list();
+        return;
+    }
 
     // Update focus.
     set_focus(state, hit_entity);
@@ -159,9 +166,61 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Link navigation: if click was not prevented, check for <a href>.
     if click.button == 0 && !click_prevented {
-        if let Some(href) = find_link_ancestor(&state.pipeline.dom, hit_entity) {
+        if let Some((href, target_attr)) =
+            crate::app::events::find_link_ancestor_with_target(&state.pipeline.dom, hit_entity)
+        {
             let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &href);
             if let Some(target_url) = resolved {
+                match target_attr.as_deref() {
+                    Some("_blank") => {
+                        // Sandbox allow-popups check (WHATWG HTML §4.8.5):
+                        // block popup navigation from sandboxed iframes without
+                        // the allow-popups flag.
+                        if !state.pipeline.runtime.bridge().popups_allowed() {
+                            state.send_display_list();
+                            return;
+                        }
+                        // Open in a new tab.
+                        let _ = state
+                            .channel
+                            .send(crate::ipc::ContentToBrowser::OpenNewTab(target_url));
+                        state.send_display_list();
+                        return;
+                    }
+                    Some("_top" | "_parent") => {
+                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
+                        // block navigation to parent/top from sandboxed iframes
+                        // without the allow-top-navigation flag.
+                        if state
+                            .pipeline
+                            .runtime
+                            .bridge()
+                            .sandbox_flags()
+                            .is_some_and(|f| {
+                                !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
+                            })
+                        {
+                            state.send_display_list();
+                            return;
+                        }
+                        // Fall through to navigate current document
+                        // (true parent/top navigation requires multi-process IPC).
+                    }
+                    Some(name) if !name.is_empty() && !name.starts_with('_') => {
+                        // Named target: look for an iframe with matching name.
+                        if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, name)
+                        {
+                            super::iframe::navigate_iframe(state, iframe_entity, &target_url);
+                            state.re_render();
+                            state.send_display_list();
+                            return;
+                        }
+                        // No matching iframe → fall through to normal navigation.
+                    }
+                    _ => {
+                        // _self or no target → navigate current document.
+                    }
+                }
                 state.send_display_list();
                 handle_navigate(state, &target_url, false, None);
                 return;
@@ -239,6 +298,13 @@ pub(super) fn handle_key(
     repeat: bool,
     mods: ModifierState,
 ) {
+    // Route keyboard events to focused iframe if applicable.
+    if try_route_key_to_iframe(state, event_type, key, code, repeat, mods) {
+        state.re_render();
+        state.send_display_list();
+        return;
+    }
+
     let Some(target) = state.focus_target else {
         return;
     };
@@ -671,4 +737,148 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
         }
         _ => {}
     }
+}
+
+// ---------------------------------------------------------------------------
+// Iframe event routing
+// ---------------------------------------------------------------------------
+
+/// Check if a hit-test result landed on an `<iframe>` element that has a loaded
+/// iframe context. Returns `true` if the event was routed to the iframe
+/// (caller should skip normal dispatch).
+///
+/// Events do NOT bubble out of iframe boundaries (WHATWG HTML: iframe is an
+/// event boundary).
+pub(super) fn try_route_click_to_iframe(
+    state: &mut ContentState,
+    hit_entity: elidex_ecs::Entity,
+    click: &crate::ipc::MouseClickEvent,
+) -> bool {
+    use super::iframe::{click_event_types, mouse_event_init_from_click};
+    use super::iframe::{BrowserToIframe, IframeHandle};
+
+    if state.iframes.get(hit_entity).is_none() {
+        return false;
+    }
+
+    let offset = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_plugin::LayoutBox>(hit_entity)
+        .ok()
+        .map(|lb| lb.content.origin)
+        .unwrap_or_default();
+
+    let local_click = crate::ipc::MouseClickEvent {
+        point: elidex_plugin::Point::new(click.point.x - offset.x, click.point.y - offset.y),
+        client_point: elidex_plugin::Point::new(
+            click.client_point.x - f64::from(offset.x),
+            click.client_point.y - f64::from(offset.y),
+        ),
+        button: click.button,
+        mods: click.mods,
+    };
+
+    let Some(entry) = state.iframes.get_mut(hit_entity) else {
+        return false;
+    };
+
+    match &mut entry.handle {
+        IframeHandle::InProcess(iframe) => {
+            let iframe_query = elidex_layout::HitTestQuery {
+                point: local_click.point,
+                scroll: iframe.scroll_state.scroll_offset,
+            };
+            if let Some(iframe_hit) =
+                elidex_layout::hit_test_with_scroll(&iframe.pipeline.dom, &iframe_query)
+            {
+                // Shared helpers for MouseEventInit + event type selection (B3/B4 fix).
+                let mouse_init = mouse_event_init_from_click(&local_click);
+                for &event_type in click_event_types(local_click.button) {
+                    let mut event = elidex_script_session::DispatchEvent::new_composed(
+                        event_type,
+                        iframe_hit.entity,
+                    );
+                    if event_type == "auxclick" {
+                        event.cancelable = false;
+                    }
+                    event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
+                    iframe.pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut iframe.pipeline.session,
+                        &mut iframe.pipeline.dom,
+                        iframe.pipeline.document,
+                    );
+                }
+            }
+            iframe.needs_render = true;
+        }
+        IframeHandle::OutOfProcess(oop) => {
+            let _ = oop.channel.send(BrowserToIframe::MouseClick(local_click));
+        }
+    }
+
+    state.focused_iframe = Some(hit_entity);
+    true
+}
+
+/// Route keyboard events to the focused iframe. Returns `true` if routed.
+pub(super) fn try_route_key_to_iframe(
+    state: &mut ContentState,
+    event_type: &str,
+    key: &str,
+    code: &str,
+    repeat: bool,
+    mods: ModifierState,
+) -> bool {
+    use super::iframe::{BrowserToIframe, IframeHandle};
+
+    let Some(iframe_entity) = state.focused_iframe else {
+        return false;
+    };
+    let Some(entry) = state.iframes.get_mut(iframe_entity) else {
+        state.focused_iframe = None;
+        return false;
+    };
+
+    match &mut entry.handle {
+        IframeHandle::InProcess(iframe) => {
+            if let Some(target) = iframe.focus_target {
+                if iframe.pipeline.dom.contains(target) {
+                    let init = elidex_plugin::KeyboardEventInit {
+                        key: key.to_string(),
+                        code: code.to_string(),
+                        repeat,
+                        alt_key: mods.alt,
+                        ctrl_key: mods.ctrl,
+                        meta_key: mods.meta,
+                        shift_key: mods.shift,
+                    };
+                    let mut event =
+                        elidex_script_session::DispatchEvent::new_composed(event_type, target);
+                    event.payload = elidex_plugin::EventPayload::Keyboard(init);
+                    iframe.pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut iframe.pipeline.session,
+                        &mut iframe.pipeline.dom,
+                        iframe.pipeline.document,
+                    );
+                    iframe.needs_render = true;
+                }
+            }
+        }
+        IframeHandle::OutOfProcess(oop) => {
+            // Forward both keydown and keyup to OOP iframes (B5 fix).
+            let _ = oop.channel.send(BrowserToIframe::KeyEvent {
+                event_type: event_type.to_string(),
+                key: key.to_string(),
+                code: code.to_string(),
+                repeat,
+                mods,
+            });
+        }
+    }
+
+    true
 }

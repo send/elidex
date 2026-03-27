@@ -204,6 +204,7 @@ impl App {
         let Some(mgr) = &mut self.tab_manager else {
             return;
         };
+        let mut new_tab_urls: Vec<url::Url> = Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
             while drained < Self::MAX_DRAIN_PER_TAB {
@@ -231,6 +232,9 @@ impl App {
                     ContentToBrowser::NavigationFailed { url, error } => {
                         eprintln!("Navigation to {url} failed: {error}");
                     }
+                    ContentToBrowser::OpenNewTab(url) => {
+                        new_tab_urls.push(url);
+                    }
                 }
             }
         }
@@ -242,6 +246,15 @@ impl App {
                     state.window.set_title(&tab.window_title);
                 }
             }
+        }
+
+        // Open new tabs requested by window.open().
+        for url in new_tab_urls {
+            let (browser_chan, content_chan) = crate::ipc::channel_pair();
+            let title = format!("elidex \u{2014} {url}");
+            let chrome = crate::chrome::ChromeState::new(Some(&url));
+            let thread = crate::content::spawn_content_thread_url(content_chan, url);
+            mgr.create_tab(browser_chan, thread, chrome, title);
         }
     }
 

@@ -8,9 +8,9 @@ mod dom;
 
 pub use components::{
     AnonymousTableMarker, AttrData, AttrEntityCache, Attributes, BackgroundImages, CommentData,
-    DocTypeData, ElementState, ImageData, InlineStyle, NodeKind, PseudoElementMarker, ScrollState,
-    ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker,
-    TagType, TemplateContent, TextContent,
+    DocTypeData, ElementState, IframeData, ImageData, InlineStyle, LoadingAttribute, NodeKind,
+    PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment,
+    SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
 };
 pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
 

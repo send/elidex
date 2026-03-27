@@ -7,6 +7,7 @@ mod animation;
 mod event_handlers;
 pub(crate) mod focus;
 mod form_input;
+pub(crate) mod iframe;
 mod ime;
 mod navigation;
 mod scroll;
@@ -52,6 +53,11 @@ struct ContentState {
     focusable_cache: Option<Vec<Entity>>,
     /// Viewport-level scroll state (not attached to a DOM entity).
     viewport_scroll: elidex_ecs::ScrollState,
+    /// Registry of child iframes (same-origin in-process + cross-origin out-of-process).
+    iframes: iframe::IframeRegistry,
+    /// Which iframe currently has focus (`None` = parent document has focus).
+    /// Set by `try_route_click_to_iframe`, checked by `try_route_key_to_iframe`.
+    focused_iframe: Option<Entity>,
 }
 
 impl ContentState {
@@ -112,6 +118,8 @@ impl ContentState {
             focusable_cache: None,
             viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
+            iframes: iframe::IframeRegistry::new(),
+            focused_iframe: None,
         }
     }
 
@@ -154,6 +162,10 @@ impl ContentState {
             self.viewport_scroll.scroll_offset.x,
             self.viewport_scroll.scroll_offset.y,
         );
+        // Re-render in-process iframes before the parent so child display
+        // lists are up-to-date when the parent composites them.
+        iframe::re_render_all_iframes(self);
+
         let mutation_records = crate::re_render(&mut self.pipeline);
 
         // Invalidate focusable cache when DOM structure or focusability changes.
@@ -189,6 +201,24 @@ impl ContentState {
             self.pipeline.document,
             viewport,
         );
+
+        // Detect iframe additions/removals from mutation records.
+        // Added <iframe> entities trigger loading; removed ones trigger unloading.
+        let iframes_changed = iframe::detect_iframe_mutations(&mutation_records, self);
+
+        // Check lazy iframes: load those that have entered the viewport.
+        let lazy_loaded = iframe::check_lazy_iframes(self);
+
+        // Rebuild the parent display list if iframes were added/removed/navigated,
+        // since the display list was already built before iframe mutations were processed.
+        if iframes_changed || lazy_loaded {
+            self.pipeline.display_list = elidex_render::build_display_list_with_scroll(
+                &self.pipeline.dom,
+                &self.pipeline.font_db,
+                self.pipeline.caret_visible,
+                self.pipeline.scroll_offset,
+            );
+        }
 
         // Update viewport scroll dimensions after layout completes.
         scroll::update_viewport_scroll_dimensions(self);
@@ -270,6 +300,13 @@ fn content_thread_main(
     let pipeline = crate::build_pipeline_interactive(html, css);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
+    // Scan for <iframe> elements present in the initial parsed DOM.
+    // Mutation-based detection only catches dynamically added iframes;
+    // statically parsed iframes need an explicit initial scan.
+    iframe::scan_initial_iframes(&mut state);
+    // Re-render after initial scan so statically parsed iframes are composited
+    // into the parent display list before the first send.
+    state.re_render();
     state.send_display_list();
     run_event_loop(&mut state);
 }
@@ -295,10 +332,14 @@ fn content_thread_main_url(
 
     let mut state = ContentState::new(channel, nav_controller, pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
+    // Scan for <iframe> elements present in the initial parsed DOM.
+    iframe::scan_initial_iframes(&mut state);
+    state.re_render();
     state.notify_navigation(url);
     run_event_loop(&mut state);
 }
 
+#[allow(clippy::too_many_lines)] // Event loop with iframe integration.
 fn run_event_loop(state: &mut ContentState) {
     let mut last_frame = Instant::now();
 
@@ -380,6 +421,32 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // --- Iframe + messaging frame tick ---
+        // Drain display list updates and postMessage events from OOP iframe threads.
+        let post_messages = state.iframes.drain_oop_messages();
+        for msg in &post_messages {
+            dispatch_message_event(state, &msg.data, &msg.origin);
+        }
+
+        // Deliver self-postMessage events queued by window.postMessage().
+        let self_messages = state.pipeline.runtime.bridge().drain_post_messages();
+        for (data, origin) in &self_messages {
+            dispatch_message_event(state, data, origin);
+        }
+        if !self_messages.is_empty() || !post_messages.is_empty() {
+            needs_render = true;
+        }
+
+        // Drain pending window.open(_blank) requests from timers/animations.
+        for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        }
+
+        // Drain timers for in-process (same-origin) iframes.
+        iframe::tick_iframe_timers(state);
+
         // Caret blink update.
         if state.update_caret_blink() {
             needs_render = true;
@@ -410,6 +477,9 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 // (In a real browser, this would show a confirmation dialog.)
                 return true; // Continue event loop.
             }
+            // Shutdown all child iframes before parent (WHATWG HTML §7.1.3).
+            // Send Shutdown to all OOP iframes and join threads.
+            state.iframes.shutdown_all();
             return false;
         }
 
@@ -570,6 +640,24 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
             .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
         _ => false,
     })
+}
+
+/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
+fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
+    let mut event =
+        elidex_script_session::DispatchEvent::new_composed("message", state.pipeline.document);
+    event.bubbles = false;
+    event.cancelable = false;
+    event.payload = elidex_plugin::EventPayload::Message {
+        data: data.to_string(),
+        origin: origin.to_string(),
+    };
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 #[cfg(test)]
