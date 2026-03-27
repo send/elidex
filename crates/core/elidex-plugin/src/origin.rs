@@ -59,34 +59,6 @@ impl SecurityOrigin {
         }
     }
 
-    /// Check whether two origins are the same.
-    ///
-    /// Two opaque origins are same-origin only when they share the same ID
-    /// (i.e., the same origin instance). Different opaque origins (from
-    /// separate [`Self::opaque()`] calls) are never same-origin.
-    #[must_use]
-    pub fn same_origin(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::Tuple {
-                    scheme: s1,
-                    host: h1,
-                    port: p1,
-                },
-                Self::Tuple {
-                    scheme: s2,
-                    host: h2,
-                    port: p2,
-                },
-            ) => s1 == s2 && h1 == h2 && p1 == p2,
-            // Opaque origins are same-origin only when they share the same ID
-            // (i.e., the same origin instance). Different opaque origins are
-            // never same-origin, even if created from the same source.
-            (Self::Opaque(id1), Self::Opaque(id2)) => id1 == id2,
-            _ => false,
-        }
-    }
-
     /// Create a new unique opaque origin.
     ///
     /// Each call returns a distinct opaque origin, matching WHATWG §7.5
@@ -182,9 +154,11 @@ pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
 pub enum FrameAncestorSource {
     /// `'self'` — matches the document's own origin.
     SelfOrigin,
+    /// `*` — matches all origins.
+    All,
     /// Host source (e.g. `"example.com"`, `"*.example.com"`).
     Host(String),
-    /// Scheme source (e.g. `"https:"`).
+    /// Scheme source (e.g. `"https"`). Stored without trailing colon.
     Scheme(String),
 }
 
@@ -227,8 +201,13 @@ pub fn parse_frame_ancestors(csp_header: &str) -> Option<FrameAncestorsPolicy> {
             for token in value.split_ascii_whitespace() {
                 if token == "'self'" {
                     sources.push(FrameAncestorSource::SelfOrigin);
+                } else if token == "*" {
+                    sources.push(FrameAncestorSource::All);
                 } else if token.ends_with(':') {
-                    sources.push(FrameAncestorSource::Scheme(token.to_string()));
+                    // Strip trailing colon: "https:" → "https"
+                    sources.push(FrameAncestorSource::Scheme(
+                        token.trim_end_matches(':').to_string(),
+                    ));
                 } else {
                     sources.push(FrameAncestorSource::Host(token.to_string()));
                 }
@@ -255,9 +234,12 @@ pub fn is_framing_allowed(
             for source in sources {
                 match source {
                     FrameAncestorSource::SelfOrigin => {
-                        if parent_origin.same_origin(document_origin) {
+                        if parent_origin == document_origin {
                             return true;
                         }
+                    }
+                    FrameAncestorSource::All => {
+                        return true;
                     }
                     FrameAncestorSource::Host(pattern) => {
                         if let SecurityOrigin::Tuple {
@@ -308,8 +290,7 @@ pub fn is_framing_allowed(
                     }
                     FrameAncestorSource::Scheme(scheme_source) => {
                         if let SecurityOrigin::Tuple { scheme, .. } = parent_origin {
-                            let target = scheme_source.trim_end_matches(':');
-                            if scheme == target {
+                            if scheme == scheme_source {
                                 return true;
                             }
                         }
@@ -333,17 +314,17 @@ pub fn check_x_frame_options(
 ) -> bool {
     // Handle comma-separated values and multiple tokens (e.g. "DENY, SAMEORIGIN").
     // Most restrictive value wins: DENY > SAMEORIGIN > unknown/allow.
-    let mut most_restrictive = true; // Default: allow framing.
+    let mut allowed = true; // Default: allow framing.
     for token in header_value.split(',') {
-        match token.trim().to_ascii_uppercase().as_str() {
-            "DENY" => return false, // Most restrictive — block immediately.
-            "SAMEORIGIN" => {
-                most_restrictive = parent_origin.same_origin(document_origin);
-            }
-            _ => {} // Unknown tokens ignored per RFC 7034.
+        let t = token.trim();
+        if t.eq_ignore_ascii_case("DENY") {
+            return false; // Most restrictive — block immediately.
+        } else if t.eq_ignore_ascii_case("SAMEORIGIN") {
+            allowed = parent_origin == document_origin;
         }
+        // Unknown tokens ignored per RFC 7034.
     }
-    most_restrictive
+    allowed
 }
 
 // ---------------------------------------------------------------------------
@@ -387,19 +368,24 @@ impl PermissionsPolicy {
 
     /// Check whether a feature is allowed for a given origin.
     ///
+    /// `origin` is the origin requesting the feature.
+    /// `document_origin` is the document's own origin (used for `SelfOnly` check).
     /// If no policy is set for the feature, returns `true` (default allow).
     #[must_use]
-    pub fn is_feature_allowed(&self, feature: &str, origin: &SecurityOrigin) -> bool {
+    pub fn is_feature_allowed(
+        &self,
+        feature: &str,
+        origin: &SecurityOrigin,
+        document_origin: &SecurityOrigin,
+    ) -> bool {
         let Some(allow_list) = self.policies.get(feature) else {
             return true; // No policy = default allow.
         };
         match allow_list {
             AllowList::All => true,
-            // SelfOnly should only allow the document's own origin, but this
-            // method doesn't have the document origin to compare against.
-            // Conservatively deny until proper document origin tracking is added.
-            AllowList::None | AllowList::SelfOnly => false,
-            AllowList::Origins(origins) => origins.iter().any(|o| o.same_origin(origin)),
+            AllowList::None => false,
+            AllowList::SelfOnly => origin == document_origin,
+            AllowList::Origins(origins) => origins.iter().any(|o| o == origin),
         }
     }
 }
@@ -434,39 +420,39 @@ mod tests {
     fn same_origin_http() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com/page").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com/other").unwrap());
-        assert!(a.same_origin(&b));
+        assert!(a == b);
     }
 
     #[test]
     fn cross_origin_different_scheme() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        assert!(!a.same_origin(&b));
+        assert!(a != b);
     }
 
     #[test]
     fn cross_origin_different_port() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com:8080").unwrap());
-        assert!(!a.same_origin(&b));
+        assert!(a != b);
     }
 
     #[test]
     fn cross_origin_different_host() {
         let a = SecurityOrigin::from_url(&url::Url::parse("https://a.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("https://b.com").unwrap());
-        assert!(!a.same_origin(&b));
+        assert!(a != b);
     }
 
     #[test]
     fn default_port_normalization() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com:80").unwrap());
-        assert!(a.same_origin(&b));
+        assert!(a == b);
 
         let c = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
         let d = SecurityOrigin::from_url(&url::Url::parse("https://example.com:443").unwrap());
-        assert!(c.same_origin(&d));
+        assert!(c == d);
     }
 
     #[test]
@@ -474,9 +460,9 @@ mod tests {
         let a = SecurityOrigin::opaque();
         let b = SecurityOrigin::opaque();
         // Different opaque origins (different IDs) are not same-origin.
-        assert!(!a.same_origin(&b));
+        assert!(a != b);
         // Same opaque origin (same ID) IS same-origin.
-        assert!(a.same_origin(&a));
+        assert!(a == a);
     }
 
     #[test]
@@ -662,7 +648,7 @@ mod tests {
     fn permissions_policy_default_allow() {
         let policy = PermissionsPolicy::new();
         let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        assert!(policy.is_feature_allowed("camera", &origin));
+        assert!(policy.is_feature_allowed("camera", &origin, &origin));
     }
 
     #[test]
@@ -670,18 +656,119 @@ mod tests {
         let mut policy = PermissionsPolicy::new();
         policy.set_feature("camera", AllowList::None);
         let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        assert!(!policy.is_feature_allowed("camera", &origin));
-        assert!(policy.is_feature_allowed("fullscreen", &origin)); // Not set = allow.
+        assert!(!policy.is_feature_allowed("camera", &origin, &origin));
+        assert!(policy.is_feature_allowed("fullscreen", &origin, &origin)); // Not set = allow.
     }
 
     #[test]
     fn parse_iframe_allow() {
         let policy = parse_iframe_allow_attribute("camera; fullscreen");
         let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        // SelfOnly conservatively denies (no document origin for comparison).
-        assert!(!policy.is_feature_allowed("camera", &origin));
-        assert!(!policy.is_feature_allowed("fullscreen", &origin));
+        let other = SecurityOrigin::from_url(&url::Url::parse("https://other.com").unwrap());
+        // SelfOnly allows when origin matches document origin.
+        assert!(policy.is_feature_allowed("camera", &origin, &origin));
+        // SelfOnly denies when origin differs from document origin.
+        assert!(!policy.is_feature_allowed("camera", &other, &origin));
         // Features not in the policy default to allow.
-        assert!(policy.is_feature_allowed("geolocation", &origin));
+        assert!(policy.is_feature_allowed("geolocation", &origin, &origin));
+    }
+
+    #[test]
+    fn x_frame_options_comma_separated() {
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        // DENY wins over SAMEORIGIN
+        assert!(!check_x_frame_options("DENY, SAMEORIGIN", &parent, &doc));
+    }
+
+    #[test]
+    fn x_frame_options_case_insensitive() {
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(!check_x_frame_options("deny", &parent, &doc));
+        assert!(check_x_frame_options("sameorigin", &parent, &doc));
+    }
+
+    #[test]
+    fn x_frame_options_unknown_allows() {
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(check_x_frame_options("ALLOWALL", &parent, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_star_allows_all() {
+        let policy = parse_frame_ancestors("frame-ancestors *").unwrap();
+        let parent = SecurityOrigin::from_url(&url::Url::parse("https://evil.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://target.com").unwrap());
+        assert!(is_framing_allowed(&policy, &parent, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_scheme_source() {
+        let policy = parse_frame_ancestors("frame-ancestors https:").unwrap();
+        let secure = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://target.com").unwrap());
+        assert!(is_framing_allowed(&policy, &secure, &doc));
+
+        let insecure = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
+        assert!(!is_framing_allowed(&policy, &insecure, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_host_with_port() {
+        let policy = parse_frame_ancestors("frame-ancestors example.com:8080").unwrap();
+        let matching = SecurityOrigin::Tuple {
+            scheme: "https".into(),
+            host: "example.com".into(),
+            port: 8080,
+        };
+        let doc = SecurityOrigin::from_url(&url::Url::parse("https://target.com").unwrap());
+        assert!(is_framing_allowed(&policy, &matching, &doc));
+
+        let wrong_port = SecurityOrigin::Tuple {
+            scheme: "https".into(),
+            host: "example.com".into(),
+            port: 443,
+        };
+        assert!(!is_framing_allowed(&policy, &wrong_port, &doc));
+    }
+
+    #[test]
+    fn frame_ancestors_word_boundary() {
+        // "frame-ancestors-foo" should NOT match as "frame-ancestors"
+        let policy = parse_frame_ancestors("frame-ancestors-foo 'none'");
+        assert!(policy.is_none());
+    }
+
+    #[test]
+    fn permissions_policy_self_only_allows_own_origin() {
+        let mut policy = PermissionsPolicy::new();
+        policy.set_feature("camera", AllowList::SelfOnly);
+        let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        // SelfOnly allows when origin == document origin
+        assert!(policy.is_feature_allowed("camera", &origin, &origin));
+        let other = SecurityOrigin::from_url(&url::Url::parse("https://other.com").unwrap());
+        assert!(!policy.is_feature_allowed("camera", &other, &origin));
+    }
+
+    #[test]
+    fn permissions_policy_all_allows_any() {
+        let mut policy = PermissionsPolicy::new();
+        policy.set_feature("fullscreen", AllowList::All);
+        let origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        let doc_origin = SecurityOrigin::from_url(&url::Url::parse("https://other.com").unwrap());
+        assert!(policy.is_feature_allowed("fullscreen", &origin, &doc_origin));
+    }
+
+    #[test]
+    fn permissions_policy_origins_list() {
+        let mut policy = PermissionsPolicy::new();
+        let allowed = SecurityOrigin::from_url(&url::Url::parse("https://trusted.com").unwrap());
+        policy.set_feature("camera", AllowList::Origins(vec![allowed.clone()]));
+        let doc_origin = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
+        assert!(policy.is_feature_allowed("camera", &allowed, &doc_origin));
+        let other = SecurityOrigin::from_url(&url::Url::parse("https://other.com").unwrap());
+        assert!(!policy.is_feature_allowed("camera", &other, &doc_origin));
     }
 }

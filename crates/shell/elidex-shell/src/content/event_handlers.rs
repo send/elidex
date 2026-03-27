@@ -40,6 +40,14 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     };
     let hit_entity = hit.entity;
 
+    // Route clicks on iframe elements to the iframe's own DOM.
+    // Events do not bubble out of iframe boundaries (WHATWG HTML).
+    if try_route_click_to_iframe(state, hit_entity, click) {
+        state.re_render();
+        state.send_display_list();
+        return;
+    }
+
     // Update focus.
     set_focus(state, hit_entity);
 
@@ -200,8 +208,9 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                     }
                     Some(name) if !name.is_empty() && !name.starts_with('_') => {
                         // Named target: look for an iframe with matching name.
-                        if let Some(iframe_entity) = find_iframe_by_name(state, name) {
-                            navigate_iframe(state, iframe_entity, &target_url);
+                        if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, name)
+                        {
+                            super::iframe::navigate_iframe(state, iframe_entity, &target_url);
                             state.re_render();
                             state.send_display_list();
                             return;
@@ -289,6 +298,13 @@ pub(super) fn handle_key(
     repeat: bool,
     mods: ModifierState,
 ) {
+    // Route keyboard events to focused iframe if applicable.
+    if try_route_key_to_iframe(state, event_type, key, code, repeat, mods) {
+        state.re_render();
+        state.send_display_list();
+        return;
+    }
+
     let Some(target) = state.focus_target else {
         return;
     };
@@ -723,70 +739,6 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
     }
 }
 
-/// Find an iframe entity by its `name` attribute.
-///
-/// Searches the parent DOM for `<iframe>` elements whose `IframeData.name`
-/// matches the given target name (WHATWG HTML §7.1.3).
-pub(super) fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::Entity> {
-    for (&entity, _entry) in state.iframes.iter() {
-        let matches = state
-            .pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::IframeData>(entity)
-            .ok()
-            .is_some_and(|d| d.name.as_deref() == Some(name));
-        if matches {
-            return Some(entity);
-        }
-    }
-    None
-}
-
-/// Navigate an in-process iframe to a new URL.
-///
-/// Dispatches unload events on the old iframe, removes it, loads the new URL,
-/// and inserts the new entry.
-pub(super) fn navigate_iframe(
-    state: &mut ContentState,
-    iframe_entity: elidex_ecs::Entity,
-    url: &url::Url,
-) {
-    // Dispatch unload events on the old iframe before removing it (WHATWG HTML §7.1.3).
-    if let Some(mut removed_entry) = state.iframes.remove(iframe_entity) {
-        if let super::iframe::IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
-            crate::pipeline::dispatch_unload_events(
-                &mut ip.pipeline.runtime,
-                &mut ip.pipeline.session,
-                &mut ip.pipeline.dom,
-                ip.pipeline.document,
-            );
-        }
-    }
-    // Update IframeData.src and Attributes directly (no mutation record).
-    // This is a programmatic navigation (link target / window.open), not a
-    // JS setAttribute call. Recording a mutation would cause detect_iframe_mutations
-    // to re-trigger loading on the next flush, resulting in a double load.
-    let url_str = url.to_string();
-    if let Ok(mut iframe_data) = state
-        .pipeline
-        .dom
-        .world_mut()
-        .get::<&mut elidex_ecs::IframeData>(iframe_entity)
-    {
-        iframe_data.src = Some(url_str.clone());
-    }
-    if let Ok(mut attrs) = state
-        .pipeline
-        .dom
-        .world_mut()
-        .get::<&mut elidex_ecs::Attributes>(iframe_entity)
-    {
-        attrs.set("src", &url_str);
-    }
-    super::iframe::try_load_iframe_entity(state, iframe_entity, true);
-}
-
 // ---------------------------------------------------------------------------
 // Iframe event routing
 // ---------------------------------------------------------------------------
@@ -795,22 +747,16 @@ pub(super) fn navigate_iframe(
 /// iframe context. Returns `true` if the event was routed to the iframe
 /// (caller should skip normal dispatch).
 ///
-/// For same-origin (in-process) iframes, the click is transformed to iframe-local
-/// coordinates and dispatched directly to the iframe's `JsRuntime`.
-/// For cross-origin (out-of-process) iframes, the click is forwarded via IPC.
-///
 /// Events do NOT bubble out of iframe boundaries (WHATWG HTML: iframe is an
 /// event boundary).
-#[allow(dead_code)] // Used when iframe loading is implemented.
 pub(super) fn try_route_click_to_iframe(
     state: &mut ContentState,
     hit_entity: elidex_ecs::Entity,
     click: &crate::ipc::MouseClickEvent,
 ) -> bool {
+    use super::iframe::{click_event_types, mouse_event_init_from_click};
     use super::iframe::{BrowserToIframe, IframeHandle};
 
-    // Check if the hit entity is an iframe with a loaded context.
-    // Check iframe exists before computing offset.
     if state.iframes.get(hit_entity).is_none() {
         return false;
     }
@@ -824,45 +770,39 @@ pub(super) fn try_route_click_to_iframe(
         .map(|lb| lb.content.origin)
         .unwrap_or_default();
 
-    let local_point = elidex_plugin::Point::new(click.point.x - offset.x, click.point.y - offset.y);
-    let local_client = elidex_plugin::Point::new(
-        click.client_point.x - f64::from(offset.x),
-        click.client_point.y - f64::from(offset.y),
-    );
-
     let local_click = crate::ipc::MouseClickEvent {
-        point: local_point,
-        client_point: local_client,
+        point: elidex_plugin::Point::new(click.point.x - offset.x, click.point.y - offset.y),
+        client_point: elidex_plugin::Point::new(
+            click.client_point.x - f64::from(offset.x),
+            click.client_point.y - f64::from(offset.y),
+        ),
         button: click.button,
         mods: click.mods,
     };
 
-    // Re-borrow mutably for dispatch.
     let Some(entry) = state.iframes.get_mut(hit_entity) else {
         return false;
     };
 
     match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            // Same-origin: run hit test in iframe's DOM and dispatch events.
             let iframe_query = elidex_layout::HitTestQuery {
-                point: local_point,
+                point: local_click.point,
                 scroll: iframe.scroll_state.scroll_offset,
             };
             if let Some(iframe_hit) =
                 elidex_layout::hit_test_with_scroll(&iframe.pipeline.dom, &iframe_query)
             {
-                let mouse_init = elidex_plugin::MouseEventInit {
-                    client_x: local_client.x,
-                    client_y: local_client.y,
-                    button: i16::from(local_click.button),
-                    ..Default::default()
-                };
-                for event_type in ["mousedown", "mouseup", "click"] {
+                // Shared helpers for MouseEventInit + event type selection (B3/B4 fix).
+                let mouse_init = mouse_event_init_from_click(&local_click);
+                for &event_type in click_event_types(local_click.button) {
                     let mut event = elidex_script_session::DispatchEvent::new_composed(
                         event_type,
                         iframe_hit.entity,
                     );
+                    if event_type == "auxclick" {
+                        event.cancelable = false;
+                    }
                     event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
                     iframe.pipeline.runtime.dispatch_event(
                         &mut event,
@@ -875,20 +815,15 @@ pub(super) fn try_route_click_to_iframe(
             iframe.needs_render = true;
         }
         IframeHandle::OutOfProcess(oop) => {
-            // Cross-origin: forward via IPC.
             let _ = oop.channel.send(BrowserToIframe::MouseClick(local_click));
         }
     }
 
-    // Set focused_iframe so keyboard events go to this iframe.
     state.focused_iframe = Some(hit_entity);
-
     true
 }
 
-/// Check if keyboard events should be routed to a focused iframe.
-/// Returns `true` if the event was routed.
-#[allow(dead_code)] // Used when iframe loading is implemented.
+/// Route keyboard events to the focused iframe. Returns `true` if routed.
 pub(super) fn try_route_key_to_iframe(
     state: &mut ContentState,
     event_type: &str,
@@ -909,7 +844,6 @@ pub(super) fn try_route_key_to_iframe(
 
     match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            // Same-origin: dispatch key event to iframe's runtime.
             if let Some(target) = iframe.focus_target {
                 if iframe.pipeline.dom.contains(target) {
                     let init = elidex_plugin::KeyboardEventInit {
@@ -935,14 +869,14 @@ pub(super) fn try_route_key_to_iframe(
             }
         }
         IframeHandle::OutOfProcess(oop) => {
-            if event_type == "keydown" {
-                let _ = oop.channel.send(BrowserToIframe::KeyDown {
-                    key: key.to_string(),
-                    code: code.to_string(),
-                    repeat,
-                    mods,
-                });
-            }
+            // Forward both keydown and keyup to OOP iframes (B5 fix).
+            let _ = oop.channel.send(BrowserToIframe::KeyEvent {
+                event_type: event_type.to_string(),
+                key: key.to_string(),
+                code: code.to_string(),
+                repeat,
+                mods,
+            });
         }
     }
 

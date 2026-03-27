@@ -128,51 +128,11 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
             }
             // Attach IframeData component for <iframe> elements (WHATWG HTML §4.8.5).
             if tag == "iframe" {
-                let attrs_ref = dom.world().get::<&Attributes>(entity).ok();
-                let iframe_data = elidex_ecs::IframeData {
-                    src: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("src").map(String::from)),
-                    srcdoc: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("srcdoc").map(String::from)),
-                    sandbox: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("sandbox").map(String::from)),
-                    width: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("width")?.parse().ok())
-                        .unwrap_or(300),
-                    height: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("height")?.parse().ok())
-                        .unwrap_or(150),
-                    name: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("name").map(String::from)),
-                    loading: if attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("loading"))
-                        .is_some_and(|v| v.eq_ignore_ascii_case("lazy"))
-                    {
-                        elidex_ecs::LoadingAttribute::Lazy
-                    } else {
-                        elidex_ecs::LoadingAttribute::Eager
-                    },
-                    allow_fullscreen: attrs_ref
-                        .as_ref()
-                        .is_some_and(|a| a.contains("allowfullscreen")),
-                    referrer_policy: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("referrerpolicy").map(String::from)),
-                    allow: attrs_ref
-                        .as_ref()
-                        .and_then(|a| a.get("allow").map(String::from)),
-                    credentialless: attrs_ref
-                        .as_ref()
-                        .is_some_and(|a| a.contains("credentialless")),
+                let iframe_data = if let Ok(attrs_ref) = dom.world().get::<&Attributes>(entity) {
+                    elidex_ecs::IframeData::from_attributes(&attrs_ref)
+                } else {
+                    elidex_ecs::IframeData::default()
                 };
-                drop(attrs_ref);
                 let _ = dom.world_mut().insert_one(entity, iframe_data);
             }
             convert_children(handle, entity, dom);

@@ -119,33 +119,55 @@ struct HostBridgeInner {
     /// Returned for repeated calls with the same name before `define()`.
     when_defined_promises: HashMap<String, JsValue>,
     // --- iframe / multi-document ---
+    iframe: IframeBridgeState,
+}
+
+/// Iframe-related state for the JS bridge.
+///
+/// Grouped to reduce field count on `HostBridgeInner` (~35 -> ~28+1).
+///
+/// Note: `parent_bridge` and `iframe_bridges` fields are intentionally
+/// omitted. Boa uses per-`Context` `JsObject` references that cannot cross
+/// `Context` boundaries, so `contentDocument`/`contentWindow` return null for
+/// all iframes. Cross-context document/window proxies require the
+/// self-hosted JS engine (M4-9+).
+struct IframeBridgeState {
     /// Security origin of this document (WHATWG HTML §7.5).
-    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
     origin: elidex_plugin::SecurityOrigin,
     /// The `<iframe>` element entity in the parent DOM that contains this window.
     /// `None` for top-level documents.
-    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
     frame_element: Option<Entity>,
     /// Referrer URL for this document (set from parent URL when loaded as iframe).
-    #[allow(dead_code)] // Accessed via HostBridge accessor methods.
     referrer: Option<String>,
     /// Iframe sandbox flags (if this document is inside a sandboxed iframe).
     /// `None` for top-level documents or unsandboxed iframes.
     sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Iframe nesting depth (0 for top-level, incremented per nested iframe).
+    /// Used for `MAX_IFRAME_DEPTH` enforcement across separate `EcsDom` instances.
+    iframe_depth: usize,
     /// Queued postMessage events for delivery in the next event loop tick.
     pending_post_messages: Vec<(String, String)>,
-    /// URL to open in a new tab (from `window.open` with `_blank` target).
     /// URLs to open in new tabs (from `window.open` with `_blank` target).
     /// Vec to support multiple window.open calls before the event loop drains.
     pending_open_tabs: Vec<url::Url>,
     /// Pending iframe navigations from `window.open` with named targets.
     /// Each entry is `(iframe_name, url)`.
     pending_navigate_iframe: Vec<(String, url::Url)>,
-    // NOTE: `parent_bridge` and `iframe_bridges` fields are intentionally
-    // omitted. Boa uses per-Context JsObject references that cannot cross
-    // Context boundaries, so contentDocument/contentWindow return null for
-    // all iframes. Cross-context document/window proxies require the
-    // self-hosted JS engine (M4-9+).
+}
+
+impl Default for IframeBridgeState {
+    fn default() -> Self {
+        Self {
+            origin: elidex_plugin::SecurityOrigin::opaque(),
+            frame_element: None,
+            referrer: None,
+            sandbox_flags: None,
+            iframe_depth: 0,
+            pending_post_messages: Vec::new(),
+            pending_open_tabs: Vec::new(),
+            pending_navigate_iframe: Vec::new(),
+        }
+    }
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -254,13 +276,7 @@ impl HostBridge {
                 ce_next_constructor_id: 1,
                 when_defined_resolvers: HashMap::new(),
                 when_defined_promises: HashMap::new(),
-                origin: elidex_plugin::SecurityOrigin::opaque(),
-                frame_element: None,
-                referrer: None,
-                sandbox_flags: None,
-                pending_post_messages: Vec::new(),
-                pending_open_tabs: Vec::new(),
-                pending_navigate_iframe: Vec::new(),
+                iframe: IframeBridgeState::default(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -404,46 +420,57 @@ impl HostBridge {
 
     /// Set the security origin for this document.
     pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
-        self.inner.borrow_mut().origin = origin;
+        self.inner.borrow_mut().iframe.origin = origin;
     }
 
     /// Get the security origin of this document.
     #[must_use]
     pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
-        self.inner.borrow().origin.clone()
+        self.inner.borrow().iframe.origin.clone()
     }
 
     /// Set the `<iframe>` element entity in the parent DOM that contains this window.
     pub fn set_frame_element(&self, entity: Option<Entity>) {
-        self.inner.borrow_mut().frame_element = entity;
+        self.inner.borrow_mut().iframe.frame_element = entity;
     }
 
     /// Get the `<iframe>` element entity in the parent DOM.
     #[must_use]
     pub fn frame_element(&self) -> Option<Entity> {
-        self.inner.borrow().frame_element
+        self.inner.borrow().iframe.frame_element
+    }
+
+    /// Set the iframe nesting depth of this document.
+    pub fn set_iframe_depth(&self, depth: usize) {
+        self.inner.borrow_mut().iframe.iframe_depth = depth;
+    }
+
+    /// Get the iframe nesting depth of this document (0 for top-level).
+    #[must_use]
+    pub fn iframe_depth(&self) -> usize {
+        self.inner.borrow().iframe.iframe_depth
     }
 
     /// Set the referrer URL for this document (parent URL when loaded as iframe).
     pub fn set_referrer(&self, referrer: Option<String>) {
-        self.inner.borrow_mut().referrer = referrer;
+        self.inner.borrow_mut().iframe.referrer = referrer;
     }
 
     /// Get the referrer URL for this document.
     #[must_use]
     pub fn referrer(&self) -> Option<String> {
-        self.inner.borrow().referrer.clone()
+        self.inner.borrow().iframe.referrer.clone()
     }
 
     /// Set sandbox flags for this document (if inside a sandboxed iframe).
     pub fn set_sandbox_flags(&self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
-        self.inner.borrow_mut().sandbox_flags = flags;
+        self.inner.borrow_mut().iframe.sandbox_flags = flags;
     }
 
     /// Get sandbox flags for this document.
     #[must_use]
     pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
-        self.inner.borrow().sandbox_flags
+        self.inner.borrow().iframe.sandbox_flags
     }
 
     /// Check if scripts are allowed (sandbox allow-scripts flag).
@@ -452,6 +479,7 @@ impl HostBridge {
     pub fn scripts_allowed(&self) -> bool {
         self.inner
             .borrow()
+            .iframe
             .sandbox_flags
             .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
     }
@@ -461,6 +489,7 @@ impl HostBridge {
     pub fn forms_allowed(&self) -> bool {
         self.inner
             .borrow()
+            .iframe
             .sandbox_flags
             .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
     }
@@ -470,6 +499,7 @@ impl HostBridge {
     pub fn popups_allowed(&self) -> bool {
         self.inner
             .borrow()
+            .iframe
             .sandbox_flags
             .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
     }
@@ -479,6 +509,7 @@ impl HostBridge {
     pub fn modals_allowed(&self) -> bool {
         self.inner
             .borrow()
+            .iframe
             .sandbox_flags
             .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
     }
@@ -487,36 +518,38 @@ impl HostBridge {
     pub fn queue_post_message(&self, data: String, origin: String) {
         self.inner
             .borrow_mut()
+            .iframe
             .pending_post_messages
             .push((data, origin));
     }
 
     /// Drain all queued postMessage events.
     pub fn drain_post_messages(&self) -> Vec<(String, String)> {
-        std::mem::take(&mut self.inner.borrow_mut().pending_post_messages)
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_post_messages)
     }
 
     /// Set a URL to open in a new tab (from `window.open`).
-    pub fn set_pending_open_tab(&self, url: url::Url) {
-        self.inner.borrow_mut().pending_open_tabs.push(url);
+    pub fn queue_open_tab(&self, url: url::Url) {
+        self.inner.borrow_mut().iframe.pending_open_tabs.push(url);
     }
 
     /// Drain all pending new-tab URLs.
     pub fn drain_pending_open_tabs(&self) -> Vec<url::Url> {
-        std::mem::take(&mut self.inner.borrow_mut().pending_open_tabs)
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_open_tabs)
     }
 
     /// Queue a named-target iframe navigation from `window.open`.
     pub fn set_pending_navigate_iframe(&self, name: String, url: url::Url) {
         self.inner
             .borrow_mut()
+            .iframe
             .pending_navigate_iframe
             .push((name, url));
     }
 
     /// Drain pending named-target iframe navigations.
     pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
-        std::mem::take(&mut self.inner.borrow_mut().pending_navigate_iframe)
+        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_navigate_iframe)
     }
 
     /// Set a pending navigation request.

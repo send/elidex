@@ -309,6 +309,7 @@ fn set_payload_properties(init: &mut ObjectInitializer<'_>, payload: &EventPaylo
         EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
         EventPayload::Composition(c) => set_composition_payload(init, c),
         EventPayload::Focus(_f) => set_focus_payload(init),
+        EventPayload::Message { data, origin } => set_message_payload(init, data, origin),
         EventPayload::None | _ => {}
     }
 }
@@ -389,6 +390,18 @@ fn set_composition_payload(
         JsValue::from(js_string!(c.data.as_str())),
         RO,
     );
+}
+
+fn set_message_payload(init: &mut ObjectInitializer<'_>, data: &str, origin: &str) {
+    // WHATWG HTML §9.4.3: MessageEvent.data and MessageEvent.origin.
+    // MVP: data is a JSON string (not structured clone). The listener
+    // should call JSON.parse(e.data) if needed.
+    init.property(js_string!("data"), JsValue::from(js_string!(data)), RO);
+    init.property(js_string!("origin"), JsValue::from(js_string!(origin)), RO);
+    // source: null (cross-context WindowProxy not available in boa).
+    init.property(js_string!("source"), JsValue::null(), RO);
+    // ports: empty array (MessagePort not implemented).
+    init.property(js_string!("ports"), JsValue::null(), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

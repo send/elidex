@@ -502,6 +502,42 @@ pub struct IframeData {
     pub credentialless: bool,
 }
 
+impl IframeData {
+    /// Create `IframeData` from HTML attributes.
+    ///
+    /// Centralizes the attribute-to-field mapping used by both the HTML parser
+    /// and JS `setAttribute` handling.
+    #[must_use]
+    pub fn from_attributes(attrs: &Attributes) -> Self {
+        Self {
+            src: attrs.get("src").map(String::from),
+            srcdoc: attrs.get("srcdoc").map(String::from),
+            sandbox: attrs.get("sandbox").map(String::from),
+            width: attrs
+                .get("width")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+            height: attrs
+                .get("height")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(150),
+            name: attrs.get("name").map(String::from),
+            loading: if attrs
+                .get("loading")
+                .is_some_and(|v| v.eq_ignore_ascii_case("lazy"))
+            {
+                LoadingAttribute::Lazy
+            } else {
+                LoadingAttribute::Eager
+            },
+            allow_fullscreen: attrs.contains("allowfullscreen"),
+            referrer_policy: attrs.get("referrerpolicy").map(String::from),
+            allow: attrs.get("allow").map(String::from),
+            credentialless: attrs.contains("credentialless"),
+        }
+    }
+}
+
 impl Default for IframeData {
     fn default() -> Self {
         Self {

@@ -250,9 +250,6 @@ fn set_iframe_attr(data: &mut elidex_ecs::IframeData, attr_name: &str, value: &s
                 elidex_ecs::LoadingAttribute::Eager
             };
         }
-        "allowFullscreen" => {
-            data.allow_fullscreen = !value.is_empty();
-        }
         _ => {}
     }
 }

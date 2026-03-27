@@ -56,10 +56,8 @@ struct ContentState {
     /// Registry of child iframes (same-origin in-process + cross-origin out-of-process).
     iframes: iframe::IframeRegistry,
     /// Which iframe currently has focus (`None` = parent document has focus).
-    #[allow(dead_code)] // Used when iframe event routing is implemented.
+    /// Set by `try_route_click_to_iframe`, checked by `try_route_key_to_iframe`.
     focused_iframe: Option<Entity>,
-    /// Entities awaiting lazy load (loading="lazy" iframes not yet in viewport).
-    lazy_iframe_pending: Vec<Entity>,
 }
 
 impl ContentState {
@@ -122,51 +120,6 @@ impl ContentState {
             pipeline,
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
-            lazy_iframe_pending: Vec::new(),
-        }
-    }
-
-    /// Re-render all in-process iframes that need it, then re-render the parent.
-    ///
-    /// Iterates registered iframes and calls `crate::re_render()` on each
-    /// in-process iframe whose `needs_render` flag is set, then re-renders
-    /// the parent document. This ensures child iframe display lists are
-    /// up-to-date before the parent composites them.
-    fn re_render_all_iframes(&mut self) {
-        // Collect (entity, Arc<DisplayList>) pairs to avoid borrow conflict.
-        // The Arc is cached in InProcessIframe to avoid re-cloning the full
-        // DisplayList every frame — only re-created when needs_render is true.
-        let mut updated: Vec<(
-            elidex_ecs::Entity,
-            std::sync::Arc<elidex_render::DisplayList>,
-        )> = Vec::new();
-        for (&entity, entry) in self.iframes.iter_mut() {
-            if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
-                if ip.needs_render {
-                    crate::re_render(&mut ip.pipeline);
-                    ip.needs_render = false;
-                    // Clones DisplayList into Arc. Only when needs_render is true
-                    // (not every frame), so the cost is per-mutation, not per-frame.
-                    let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
-                    ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));
-                    updated.push((entity, arc_dl));
-                }
-            }
-        }
-        // Store each iframe's display list on the parent DOM so the
-        // display list builder can emit SubDisplayList items.
-        for (entity, dl) in updated {
-            // Remove then insert: hecs insert_one fails if component exists.
-            let _ = self
-                .pipeline
-                .dom
-                .world_mut()
-                .remove_one::<elidex_render::IframeDisplayList>(entity);
-            let _ = self
-                .pipeline
-                .dom
-                .world_mut()
-                .insert_one(entity, elidex_render::IframeDisplayList(dl));
         }
     }
 
@@ -211,7 +164,7 @@ impl ContentState {
         );
         // Re-render in-process iframes before the parent so child display
         // lists are up-to-date when the parent composites them.
-        self.re_render_all_iframes();
+        iframe::re_render_all_iframes(self);
 
         let mutation_records = crate::re_render(&mut self.pipeline);
 
@@ -454,11 +407,11 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
-        // --- Iframe frame tick: drain OOP messages + in-process timers ---
-        // Drain display list updates and postMessage events from cross-origin iframe threads.
+        // --- Iframe + messaging frame tick ---
+        // Drain display list updates and postMessage events from OOP iframe threads.
         let post_messages = state.iframes.drain_oop_messages();
-        for (_iframe_entity, data, origin) in &post_messages {
-            dispatch_message_event(state, data, origin);
+        for msg in &post_messages {
+            dispatch_message_event(state, &msg.data, &msg.origin);
         }
 
         // Deliver self-postMessage events queued by window.postMessage().
@@ -471,9 +424,6 @@ fn run_event_loop(state: &mut ContentState) {
         }
 
         // Drain pending window.open(_blank) requests from timers/animations.
-        // process_pending_actions handles these from input handlers, but
-        // window.open() called from setTimeout/requestAnimationFrame needs
-        // to be drained here too.
         for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
             let _ = state
                 .channel
@@ -481,28 +431,7 @@ fn run_event_loop(state: &mut ContentState) {
         }
 
         // Drain timers for in-process (same-origin) iframes.
-        // Timers always run (for correctness), but layout/render is skipped
-        // for iframes outside the viewport to save CPU.
-        for (_, entry) in state.iframes.iter_mut() {
-            if let iframe::IframeHandle::InProcess(ref mut ip) = entry.handle {
-                if ip
-                    .pipeline
-                    .runtime
-                    .next_timer_deadline()
-                    .is_some_and(|d| d <= now)
-                {
-                    ip.pipeline.runtime.drain_timers(
-                        &mut ip.pipeline.session,
-                        &mut ip.pipeline.dom,
-                        ip.pipeline.document,
-                    );
-                    // Always mark for re-render when timers fire. The actual
-                    // layout/render is deferred until the iframe scrolls into
-                    // the viewport (checked in re_render_all_iframes).
-                    ip.needs_render = true;
-                }
-            }
-        }
+        iframe::tick_iframe_timers(state);
 
         // Caret blink update.
         if state.update_caret_blink() {

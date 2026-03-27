@@ -294,7 +294,7 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                 match target.as_str() {
                     "_blank" | "" => {
                         // Open in new tab via ContentToBrowser::OpenNewTab.
-                        bridge.set_pending_open_tab(url);
+                        bridge.queue_open_tab(url);
                     }
                     "_self" => {
                         bridge.set_pending_navigation(elidex_navigation::NavigationRequest {

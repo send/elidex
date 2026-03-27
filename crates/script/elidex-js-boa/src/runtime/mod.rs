@@ -175,10 +175,21 @@ impl JsRuntime {
         prevented
     }
 
+    /// Check if an entity is an `<iframe>` element.
+    ///
+    /// Used by `dispatch_event_inner` to pass the `is_iframe` flag to
+    /// `create_element_wrapper` (which registers iframe-specific JS properties).
+    fn is_iframe_entity(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
+        dom.world()
+            .get::<&elidex_ecs::TagType>(entity)
+            .ok()
+            .is_some_and(|t| t.0 == "iframe")
+    }
+
     /// Internal dispatch without draining the event queue.
     ///
     /// Used by `drain_queued_events` to avoid recursion.
-    #[allow(clippy::too_many_lines)] // Event dispatch with is_iframe checks on all wrappers.
+    #[allow(clippy::too_many_lines)]
     fn dispatch_event_inner(
         &mut self,
         event: &mut DispatchEvent,
@@ -210,11 +221,7 @@ impl JsRuntime {
             // Create element wrapper for target and current_target.
             let target_wrapper = bridge.with(|session, dom| {
                 let obj_ref = session.get_or_create_wrapper(ev.target, ComponentKind::Element);
-                let is_iframe = dom
-                    .world()
-                    .get::<&elidex_ecs::TagType>(ev.target)
-                    .ok()
-                    .is_some_and(|t| t.0 == "iframe");
+                let is_iframe = Self::is_iframe_entity(dom, ev.target);
                 crate::globals::element::create_element_wrapper(
                     ev.target, &bridge, obj_ref, ctx, is_iframe,
                 )
@@ -222,11 +229,7 @@ impl JsRuntime {
             let current_target_wrapper = if let Some(ct) = ev.current_target {
                 bridge.with(|session, dom| {
                     let obj_ref = session.get_or_create_wrapper(ct, ComponentKind::Element);
-                    let is_iframe = dom
-                        .world()
-                        .get::<&elidex_ecs::TagType>(ct)
-                        .ok()
-                        .is_some_and(|t| t.0 == "iframe");
+                    let is_iframe = Self::is_iframe_entity(dom, ct);
                     crate::globals::element::create_element_wrapper(
                         ct, &bridge, obj_ref, ctx, is_iframe,
                     )
@@ -248,11 +251,7 @@ impl JsRuntime {
                     let wrapper = bridge.with(|session, dom| {
                         let obj_ref =
                             session.get_or_create_wrapper(path_entity, ComponentKind::Element);
-                        let is_iframe = dom
-                            .world()
-                            .get::<&elidex_ecs::TagType>(path_entity)
-                            .ok()
-                            .is_some_and(|t| t.0 == "iframe");
+                        let is_iframe = Self::is_iframe_entity(dom, path_entity);
                         crate::globals::element::create_element_wrapper(
                             path_entity,
                             &bridge,
@@ -287,11 +286,7 @@ impl JsRuntime {
                         let wrapper = bridge.with(|session, dom| {
                             let obj_ref = session
                                 .get_or_create_wrapper(related_entity, ComponentKind::Element);
-                            let is_iframe = dom
-                                .world()
-                                .get::<&elidex_ecs::TagType>(related_entity)
-                                .ok()
-                                .is_some_and(|t| t.0 == "iframe");
+                            let is_iframe = Self::is_iframe_entity(dom, related_entity);
                             crate::globals::element::create_element_wrapper(
                                 related_entity,
                                 &bridge,

@@ -94,8 +94,8 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         .drain_pending_navigate_iframe();
     if !navigate_iframes.is_empty() {
         for (name, url) in navigate_iframes {
-            if let Some(iframe_entity) = super::event_handlers::find_iframe_by_name(state, &name) {
-                super::event_handlers::navigate_iframe(state, iframe_entity, &url);
+            if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &name) {
+                super::iframe::navigate_iframe(state, iframe_entity, &url);
             } else {
                 // No matching iframe → open in new tab.
                 let _ = state
