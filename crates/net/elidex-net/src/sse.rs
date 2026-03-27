@@ -1,7 +1,7 @@
 //! Server-Sent Events I/O thread (WHATWG HTML §9.2).
 //!
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
-//! EventSource connection. Handles auto-reconnection with `retry` delay.
+//! `EventSource` connection. Handles auto-reconnection with `retry` delay.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -193,17 +193,16 @@ impl SseParserState {
 
     /// Take the pending event, resetting the parser state for the next event.
     fn take_event(&mut self) -> SseEvent {
-        let event = SseEvent::Event {
+        SseEvent::Event {
             event_type: std::mem::replace(&mut self.event_type, "message".to_string()),
             data: std::mem::take(&mut self.data_buf),
             last_event_id: self.last_event_id.clone(),
-        };
-        event
+        }
     }
 }
 
 /// Async SSE I/O loop with auto-reconnection.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn sse_io_loop(
     url: url::Url,
     _with_credentials: bool,
@@ -282,8 +281,7 @@ async fn sse_io_loop(
             .headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
-            .map(|(_, v)| v.as_str())
-            .unwrap_or("");
+            .map_or("", |(_, v)| v.as_str());
         if !content_type
             .split(';')
             .next()
@@ -360,11 +358,7 @@ async fn wait_or_close(cmd_rx: &Receiver<SseCommand>, retry_ms: u64, closed: &mu
         // Check for close command every 10ms during wait.
         tokio::time::sleep(Duration::from_millis(10)).await;
         match cmd_rx.try_recv() {
-            Ok(SseCommand::Close) => {
-                *closed = true;
-                return true;
-            }
-            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+            Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 *closed = true;
                 return true;
             }

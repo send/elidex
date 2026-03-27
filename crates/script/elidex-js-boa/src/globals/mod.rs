@@ -7,6 +7,7 @@ pub mod custom_elements;
 pub mod document;
 pub mod element;
 pub(crate) mod element_form;
+pub mod event_source;
 pub mod events;
 pub mod fetch;
 pub mod history;
@@ -15,6 +16,7 @@ pub mod location;
 pub mod observers;
 pub mod timers;
 pub mod wasm;
+pub mod websocket;
 pub mod window;
 
 use std::rc::Rc;
@@ -270,6 +272,8 @@ pub fn register_all_globals(
     wasm::register_wasm(ctx, bridge);
     observers::register_observers(ctx, bridge);
     custom_elements::register_custom_elements_global(ctx, bridge);
+    websocket::register_websocket(ctx, bridge);
+    event_source::register_event_source(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

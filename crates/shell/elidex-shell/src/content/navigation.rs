@@ -26,6 +26,8 @@ pub(super) fn handle_navigate(
 
     match elidex_navigation::load_document(url, &fetch_handle, request) {
         Ok(loaded) => {
+            // Shut down WebSocket/SSE connections before replacing the pipeline.
+            state.pipeline.runtime.bridge().shutdown_all_realtime();
             let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
             state.pipeline = new_pipeline;
             state.focus_target = None;

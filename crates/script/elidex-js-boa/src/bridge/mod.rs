@@ -14,6 +14,7 @@ mod ce;
 mod cssom;
 mod media;
 mod observers;
+pub(crate) mod realtime;
 mod traversal;
 
 use std::cell::RefCell;
@@ -37,12 +38,12 @@ use elidex_web_canvas::Canvas2dContext;
 /// clone of this bridge.
 #[derive(Clone)]
 pub struct HostBridge {
-    inner: Rc<RefCell<HostBridgeInner>>,
+    pub(crate) inner: Rc<RefCell<HostBridgeInner>>,
     dom_registry: Rc<DomHandlerRegistry>,
     cssom_registry: Rc<CssomHandlerRegistry>,
 }
 
-struct HostBridgeInner {
+pub(crate) struct HostBridgeInner {
     session_ptr: *mut SessionCore,
     dom_ptr: *mut EcsDom,
     document_entity: Option<Entity>,
@@ -120,6 +121,8 @@ struct HostBridgeInner {
     when_defined_promises: HashMap<String, JsValue>,
     // --- iframe / multi-document ---
     iframe: IframeBridgeState,
+    // --- WebSocket / SSE ---
+    pub(crate) realtime: realtime::RealtimeState,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -277,6 +280,7 @@ impl HostBridge {
                 when_defined_resolvers: HashMap::new(),
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
+                realtime: realtime::RealtimeState::default(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -526,6 +530,16 @@ impl HostBridge {
     /// Drain all queued postMessage events.
     pub fn drain_post_messages(&self) -> Vec<(String, String)> {
         std::mem::take(&mut self.inner.borrow_mut().iframe.pending_post_messages)
+    }
+
+    /// Drain all pending WebSocket and SSE events.
+    pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
+        self.inner.borrow_mut().realtime.drain_realtime_events()
+    }
+
+    /// Shut down all WebSocket and SSE connections.
+    pub fn shutdown_all_realtime(&self) {
+        self.inner.borrow_mut().realtime.shutdown_all();
     }
 
     /// Set a URL to open in a new tab (from `window.open`).
@@ -849,6 +863,33 @@ unsafe impl boa_gc::Trace for HostBridge {
         }
         for promise in inner.when_defined_promises.values() {
             mark(promise);
+        }
+        for conn in inner.realtime.ws_iter() {
+            if let Some(ref cb) = conn.onopen {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onmessage {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onerror {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onclose {
+                mark(cb);
+            }
+            mark(&conn.js_object);
+        }
+        for conn in inner.realtime.sse_iter() {
+            if let Some(ref cb) = conn.onopen {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onmessage {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onerror {
+                mark(cb);
+            }
+            mark(&conn.js_object);
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever

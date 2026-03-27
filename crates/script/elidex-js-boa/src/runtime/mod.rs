@@ -16,6 +16,7 @@ use crate::globals::timers::TimerQueueHandle;
 
 mod ce;
 mod observers;
+mod realtime;
 
 /// Drop guard that calls `HostBridge::unbind()` on drop.
 ///
@@ -398,6 +399,24 @@ impl JsRuntime {
     /// Returns the deadline of the next pending timer, if any.
     pub fn next_timer_deadline(&self) -> Option<std::time::Instant> {
         self.timer_queue.borrow().next_deadline()
+    }
+
+    /// Dispatch pending WebSocket and SSE events to JS callbacks.
+    ///
+    /// Called from the content thread frame loop after draining events from
+    /// the realtime connection registry.
+    pub fn dispatch_realtime_events(
+        &mut self,
+        ws_events: Vec<(u64, elidex_net::ws::WsEvent)>,
+        sse_events: Vec<(u64, elidex_net::sse::SseEvent)>,
+        session: &mut elidex_script_session::SessionCore,
+        dom: &mut elidex_ecs::EcsDom,
+        document: elidex_ecs::Entity,
+    ) {
+        self.bridge.bind(session, dom, document);
+        let _guard = UnbindGuard(&self.bridge);
+
+        realtime::dispatch_realtime_events(ws_events, sse_events, &self.bridge, &mut self.ctx);
     }
 }
 

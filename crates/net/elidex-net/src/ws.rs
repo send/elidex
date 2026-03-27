@@ -108,7 +108,51 @@ pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) ->
     }
 }
 
+/// Send an abnormal-close error event.
+fn send_abnormal_close(evt_tx: &Sender<WsEvent>) {
+    let _ = evt_tx.send(WsEvent::Closed {
+        code: 1006,
+        reason: String::new(),
+        was_clean: false,
+    });
+}
+
+/// Handle an incoming WebSocket message in normal (non-closing) state.
+///
+/// Returns `true` if the caller should return from the I/O loop.
+fn handle_ws_message(
+    msg: tokio_tungstenite::tungstenite::Message,
+    evt_tx: &Sender<WsEvent>,
+) -> bool {
+    use tokio_tungstenite::tungstenite;
+
+    match msg {
+        tungstenite::Message::Text(text) => {
+            evt_tx.send(WsEvent::TextMessage(text.to_string())).is_err()
+        }
+        tungstenite::Message::Binary(data) => {
+            evt_tx.send(WsEvent::BinaryMessage(data.to_vec())).is_err()
+        }
+        tungstenite::Message::Close(frame) => {
+            let (code, reason) = frame.map_or((1005, String::new()), |f| {
+                (f.code.into(), f.reason.to_string())
+            });
+            let _ = evt_tx.send(WsEvent::Closed {
+                code,
+                reason,
+                was_clean: true,
+            });
+            true
+        }
+        // Ping/pong handled automatically by tungstenite; Frame is internal.
+        tungstenite::Message::Ping(_)
+        | tungstenite::Message::Pong(_)
+        | tungstenite::Message::Frame(_) => false,
+    }
+}
+
 /// Async WebSocket I/O loop running inside the thread's tokio runtime.
+#[allow(clippy::too_many_lines)]
 async fn ws_io_loop(
     url: url::Url,
     protocols: Vec<String>,
@@ -116,7 +160,12 @@ async fn ws_io_loop(
     cmd_rx: Receiver<WsCommand>,
     evt_tx: Sender<WsEvent>,
 ) {
+    use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite;
+
+    type WsReadResult = Option<
+        Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
+    >;
 
     // Build the HTTP request for the WebSocket handshake.
     let mut request = tungstenite::http::Request::builder()
@@ -169,12 +218,7 @@ async fn ws_io_loop(
     }
 
     // Split the stream into read and write halves.
-    use futures_util::{SinkExt, StreamExt};
     let (mut write, mut read) = ws_stream.split();
-    // Type annotation for the timeout result to help inference.
-    type WsReadResult = Option<
-        Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-    >;
 
     let mut close_sent = false;
     let mut buffered_bytes: u64 = 0;
@@ -200,50 +244,18 @@ async fn ws_io_loop(
                     }
                     continue;
                 }
-                match msg {
-                    tungstenite::Message::Text(text) => {
-                        if evt_tx.send(WsEvent::TextMessage(text.to_string())).is_err() {
-                            return;
-                        }
-                    }
-                    tungstenite::Message::Binary(data) => {
-                        if evt_tx.send(WsEvent::BinaryMessage(data.to_vec())).is_err() {
-                            return;
-                        }
-                    }
-                    tungstenite::Message::Close(frame) => {
-                        let (code, reason) = frame
-                            .map(|f| (f.code.into(), f.reason.to_string()))
-                            .unwrap_or((1005, String::new()));
-                        let _ = evt_tx.send(WsEvent::Closed {
-                            code,
-                            reason,
-                            was_clean: true,
-                        });
-                        return;
-                    }
-                    tungstenite::Message::Ping(_) | tungstenite::Message::Pong(_) => {
-                        // Ping/pong handled automatically by tungstenite.
-                    }
-                    _ => {}
+                if handle_ws_message(msg, &evt_tx) {
+                    return;
                 }
             }
             Ok(Some(Err(e))) => {
                 let _ = evt_tx.send(WsEvent::Error(format!("WebSocket error: {e}")));
-                let _ = evt_tx.send(WsEvent::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                    was_clean: false,
-                });
+                send_abnormal_close(&evt_tx);
                 return;
             }
             Ok(None) => {
                 // Stream ended (server closed connection without close frame).
-                let _ = evt_tx.send(WsEvent::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                    was_clean: false,
-                });
+                send_abnormal_close(&evt_tx);
                 return;
             }
             Err(_) => {
@@ -263,11 +275,7 @@ async fn ws_io_loop(
                         .is_err()
                     {
                         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
-                        let _ = evt_tx.send(WsEvent::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                            was_clean: false,
-                        });
+                        send_abnormal_close(&evt_tx);
                         return;
                     }
                     buffered_bytes = buffered_bytes.saturating_sub(len);
@@ -282,11 +290,7 @@ async fn ws_io_loop(
                         .is_err()
                     {
                         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
-                        let _ = evt_tx.send(WsEvent::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                            was_clean: false,
-                        });
+                        send_abnormal_close(&evt_tx);
                         return;
                     }
                     buffered_bytes = buffered_bytes.saturating_sub(len);
