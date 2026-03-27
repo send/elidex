@@ -20,9 +20,9 @@ use crate::PipelineResult;
 
 /// Messages sent from the parent content thread to a cross-origin iframe thread.
 #[derive(Debug)]
-#[allow(dead_code)] // Used when cross-origin iframe IPC is implemented.
 pub enum BrowserToIframe {
     /// Navigate the iframe to a new URL.
+    #[allow(dead_code)] // Constructed by parent when iframe navigation is triggered.
     Navigate(url::Url),
     /// Mouse click at iframe-local coordinates.
     MouseClick(crate::ipc::MouseClickEvent),
@@ -38,6 +38,7 @@ pub enum BrowserToIframe {
         mods: crate::ipc::ModifierState,
     },
     /// Viewport size changed.
+    #[allow(dead_code)] // Constructed by parent on resize events.
     SetViewport {
         /// New width in logical pixels.
         width: f32,
@@ -45,6 +46,7 @@ pub enum BrowserToIframe {
         height: f32,
     },
     /// Cross-document postMessage (WHATWG HTML §9.4.3).
+    #[allow(dead_code)] // Constructed by parent for cross-document messaging.
     PostMessage {
         /// JSON-serialized message data.
         data: String,
@@ -57,7 +59,6 @@ pub enum BrowserToIframe {
 
 /// Messages sent from a cross-origin iframe thread to the parent content thread.
 #[derive(Debug)]
-#[allow(dead_code)] // Used when cross-origin iframe IPC is implemented.
 pub enum IframeToBrowser {
     /// A new display list is ready for compositing into the parent.
     DisplayListReady(DisplayList),
@@ -71,7 +72,7 @@ pub enum IframeToBrowser {
 }
 
 // ---------------------------------------------------------------------------
-// Iframe handle types
+// Iframe handle types + IframeMeta + IframeEntry
 // ---------------------------------------------------------------------------
 
 /// Same-origin iframe: runs in the parent content thread with direct access.
@@ -113,7 +114,6 @@ pub enum IframeHandle {
     /// Boxed to avoid large size difference between variants (`PipelineResult` is ~1.7KB).
     InProcess(Box<InProcessIframe>),
     /// Cross-origin iframe: separate thread with IPC communication.
-    #[allow(dead_code)] // Phase 5: async iframe loading for cross-origin threads.
     OutOfProcess(OutOfProcessIframe),
 }
 
@@ -138,6 +138,10 @@ pub struct IframeEntry {
     #[allow(dead_code)] // Read when cross-origin iframe support uses origin/sandbox checks.
     pub meta: IframeMeta,
 }
+
+// ---------------------------------------------------------------------------
+// IframeRegistry (with all methods including shutdown_all + drain_oop_messages)
+// ---------------------------------------------------------------------------
 
 /// Registry of all iframes owned by a content thread.
 ///
@@ -228,39 +232,15 @@ impl IframeRegistry {
     /// sends `Shutdown` to out-of-process iframes and joins their threads.
     pub fn shutdown_all(&mut self) {
         for (_, entry) in self.entries.drain() {
-            match entry.handle {
-                IframeHandle::InProcess(mut ip) => {
-                    crate::pipeline::dispatch_unload_events(
-                        &mut ip.pipeline.runtime,
-                        &mut ip.pipeline.session,
-                        &mut ip.pipeline.dom,
-                        ip.pipeline.document,
-                    );
-                }
-                IframeHandle::OutOfProcess(mut oop) => {
-                    let _ = oop.channel.send(BrowserToIframe::Shutdown);
-                    if let Some(thread) = oop.thread.take() {
-                        if let Err(e) = thread.join() {
-                            eprintln!("iframe thread panicked: {e:?}");
-                        }
-                    }
-                }
-            }
+            unload_iframe_handle(entry.handle);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Iframe loading / navigation
+// IframeLoadContext
 // ---------------------------------------------------------------------------
 
-/// Load an iframe document from a `src` URL or `srcdoc` content.
-///
-/// 1. Resolves the iframe's origin from its URL (or parent origin for srcdoc/about:blank)
-/// 2. Checks CSP frame-ancestors and X-Frame-Options headers
-/// 3. Creates a `PipelineResult` (DOM, JS runtime, styles, layout)
-/// 4. Wraps it in an `InProcessIframe` (same-origin) or `OutOfProcessIframe` (cross-origin)
-///
 /// Context from the parent document needed to load an iframe.
 pub struct IframeLoadContext<'a> {
     /// Security origin of the parent document.
@@ -277,6 +257,17 @@ pub struct IframeLoadContext<'a> {
     pub registry: &'a std::sync::Arc<elidex_plugin::CssPropertyRegistry>,
 }
 
+// ---------------------------------------------------------------------------
+// Loading functions
+// ---------------------------------------------------------------------------
+
+/// Load an iframe document from a `src` URL or `srcdoc` content.
+///
+/// 1. Resolves the iframe's origin from its URL (or parent origin for srcdoc/about:blank)
+/// 2. Checks CSP frame-ancestors and X-Frame-Options headers
+/// 3. Creates a `PipelineResult` (DOM, JS runtime, styles, layout)
+/// 4. Wraps it in an `InProcessIframe` (same-origin) or `OutOfProcessIframe` (cross-origin)
+///
 /// Always returns an `IframeEntry`. If framing is blocked by security headers,
 /// returns a blank document with an opaque origin.
 #[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
@@ -289,7 +280,7 @@ pub fn load_iframe(
     // Guard against excessive iframe nesting (DoS prevention).
     if ctx.depth >= elidex_plugin::MAX_IFRAME_DEPTH {
         eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({})", ctx.depth);
-        return make_blank_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data, ctx);
+        return blank_same_origin_entry(iframe_entity, SecurityOrigin::opaque(), iframe_data, ctx);
     }
 
     // Determine content source and origin.
@@ -314,7 +305,7 @@ pub fn load_iframe(
             });
             let Ok(resolved) = base.join(src) else {
                 eprintln!("iframe: invalid src URL: {src}");
-                return make_blank_entry(
+                return blank_same_origin_entry(
                     iframe_entity,
                     apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                     iframe_data,
@@ -346,7 +337,7 @@ pub fn load_iframe(
                             "iframe blocked by frame-ancestors/X-Frame-Options: {}",
                             loaded.url
                         );
-                        return make_blank_entry(
+                        return blank_same_origin_entry(
                             iframe_entity,
                             SecurityOrigin::opaque(),
                             iframe_data,
@@ -354,20 +345,26 @@ pub fn load_iframe(
                         );
                     }
 
+                    let origin =
+                        apply_sandbox_origin(SecurityOrigin::from_url(&loaded.url), iframe_data);
+
+                    // Cross-origin: don't build pipeline on parent thread.
+                    // Pass the loaded URL to the iframe thread which will
+                    // re-fetch and build its own pipeline (!Send constraint).
+                    if !ctx.parent_origin.same_origin(&origin) {
+                        return make_oop_entry(iframe_entity, loaded.url, origin, iframe_data);
+                    }
+
                     let pipeline = crate::build_pipeline_from_loaded(
                         loaded,
                         effective_handle,
                         ctx.font_db.clone(),
                     );
-                    let origin = apply_sandbox_origin(
-                        SecurityOrigin::from_url(pipeline.url.as_ref().unwrap_or(&resolved)),
-                        iframe_data,
-                    );
                     (pipeline, origin)
                 }
                 Err(e) => {
                     eprintln!("iframe load error: {e}");
-                    return make_blank_entry(
+                    return blank_same_origin_entry(
                         iframe_entity,
                         apply_sandbox_origin(ctx.parent_origin.clone(), iframe_data),
                         iframe_data,
@@ -395,6 +392,124 @@ pub fn load_iframe(
     }
     entry
 }
+
+/// Create a cross-origin `IframeEntry` that runs in a separate thread.
+///
+/// The iframe thread fetches the URL and builds its own pipeline.
+/// The parent thread only stores the IPC channel and initial display list.
+#[allow(clippy::cast_precision_loss)]
+fn make_oop_entry(
+    iframe_entity: Entity,
+    url: url::Url,
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+) -> IframeEntry {
+    let meta = build_iframe_meta(iframe_entity, iframe_data, origin.clone());
+
+    let (parent_chan, iframe_chan) = crate::ipc::channel_pair::<BrowserToIframe, IframeToBrowser>();
+
+    let sandbox = meta.sandbox_flags;
+    let iframe_origin = origin;
+
+    let thread = std::thread::spawn(move || {
+        // Build pipeline on this thread (PipelineResult is !Send).
+        let oop_pipeline = match crate::build_pipeline_from_url(&url) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("OOP iframe failed to load {url}: {e}");
+                crate::build_pipeline_interactive("", "")
+            }
+        };
+
+        oop_pipeline.runtime.bridge().set_sandbox_flags(sandbox);
+        oop_pipeline.runtime.bridge().set_origin(iframe_origin);
+
+        iframe_thread_main(oop_pipeline, &iframe_chan);
+    });
+
+    IframeEntry {
+        handle: IframeHandle::OutOfProcess(OutOfProcessIframe {
+            channel: parent_chan,
+            display_list: elidex_render::DisplayList::default(),
+            thread: Some(thread),
+        }),
+        meta,
+    }
+}
+
+/// Create a same-origin `IframeEntry` from a pipeline and origin.
+#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+fn make_iframe_entry(
+    iframe_entity: Entity,
+    pipeline: crate::PipelineResult,
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+) -> IframeEntry {
+    let meta = build_iframe_meta(iframe_entity, iframe_data, origin);
+
+    pipeline
+        .runtime
+        .bridge()
+        .set_sandbox_flags(meta.sandbox_flags);
+    pipeline.runtime.bridge().set_origin(meta.origin.clone());
+
+    IframeEntry {
+        handle: IframeHandle::InProcess(Box::new(InProcessIframe {
+            pipeline,
+            nav_controller: NavigationController::new(),
+            focus_target: None,
+            scroll_state: ScrollState::default(),
+            needs_render: false,
+            cached_display_list: None,
+        })),
+        meta,
+    }
+}
+
+/// Create a blank `IframeEntry` (empty document) for error/fallback cases.
+///
+/// Used when iframe loading fails, is blocked by security headers,
+/// or exceeds the nesting depth limit. Always same-origin (`InProcess`).
+fn blank_same_origin_entry(
+    iframe_entity: Entity,
+    origin: SecurityOrigin,
+    iframe_data: &elidex_ecs::IframeData,
+    ctx: &IframeLoadContext<'_>,
+) -> IframeEntry {
+    make_iframe_entry(
+        iframe_entity,
+        build_iframe_pipeline("", ctx.parent_url.cloned(), ctx),
+        origin,
+        iframe_data,
+    )
+}
+
+/// Build `IframeMeta` from iframe data and origin.
+///
+/// Shared by `make_iframe_entry` and `make_oop_entry` to avoid duplicating
+/// `sandbox_flags` parsing and viewport computation.
+#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
+fn build_iframe_meta(
+    iframe_entity: Entity,
+    iframe_data: &elidex_ecs::IframeData,
+    origin: SecurityOrigin,
+) -> IframeMeta {
+    let sandbox_flags = iframe_data
+        .sandbox
+        .as_deref()
+        .map(elidex_plugin::parse_sandbox_attribute);
+    let viewport = Size::new(iframe_data.width as f32, iframe_data.height as f32);
+    IframeMeta {
+        origin,
+        sandbox_flags,
+        parent_entity: iframe_entity,
+        viewport,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Security helpers
+// ---------------------------------------------------------------------------
 
 /// Check framing permission from response headers.
 ///
@@ -473,74 +588,170 @@ fn build_iframe_pipeline(
     )
 }
 
-/// Create a blank `IframeEntry` (empty document) for error/fallback cases.
+// ---------------------------------------------------------------------------
+// Cross-origin iframe thread
+// ---------------------------------------------------------------------------
+
+/// Event loop for a cross-origin iframe running in its own thread.
 ///
-/// Used when iframe loading fails, is blocked by security headers,
-/// or exceeds the nesting depth limit.
-fn make_blank_entry(
-    iframe_entity: Entity,
-    origin: SecurityOrigin,
-    iframe_data: &elidex_ecs::IframeData,
-    ctx: &IframeLoadContext<'_>,
-) -> IframeEntry {
-    make_iframe_entry(
-        iframe_entity,
-        build_iframe_pipeline("", ctx.parent_url.cloned(), ctx),
-        origin,
-        iframe_data,
-    )
-}
+/// Processes `BrowserToIframe` messages and sends `IframeToBrowser` responses.
+/// The thread owns the full `PipelineResult` (DOM, JS, styles, layout).
+#[allow(clippy::too_many_lines)] // Cross-origin iframe event loop with message dispatch.
+fn iframe_thread_main(
+    mut pipeline: crate::PipelineResult,
+    channel: &LocalChannel<IframeToBrowser, BrowserToIframe>,
+) {
+    use std::time::{Duration, Instant};
 
-/// Create an `IframeEntry` from a pipeline and origin.
-///
-/// Same-origin iframes use `InProcess` (direct access); cross-origin iframes
-/// use `InProcess` as well in the current implementation (true `OutOfProcess`
-/// thread spawning requires async iframe loading, deferred to Phase 5).
-#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
-fn make_iframe_entry(
-    iframe_entity: Entity,
-    pipeline: crate::PipelineResult,
-    origin: SecurityOrigin,
-    iframe_data: &elidex_ecs::IframeData,
-) -> IframeEntry {
-    let sandbox_flags = iframe_data
-        .sandbox
-        .as_deref()
-        .map(elidex_plugin::parse_sandbox_attribute);
+    let mut last_frame = Instant::now();
+    let frame_interval = Duration::from_millis(16);
 
-    // Set sandbox flags on the iframe's JS bridge for runtime enforcement.
-    pipeline.runtime.bridge().set_sandbox_flags(sandbox_flags);
-    // Set origin on the iframe's JS bridge.
-    pipeline.runtime.bridge().set_origin(origin.clone());
+    loop {
+        let timeout = pipeline
+            .runtime
+            .next_timer_deadline()
+            .map_or(Duration::from_millis(100), |d| {
+                d.saturating_duration_since(Instant::now())
+                    .max(Duration::from_millis(1))
+            })
+            .min(frame_interval);
 
-    let viewport = Size::new(iframe_data.width as f32, iframe_data.height as f32);
+        match channel.recv_timeout(timeout) {
+            Ok(msg) => match msg {
+                BrowserToIframe::Shutdown => break,
+                BrowserToIframe::MouseClick(click) => {
+                    // Hit-test and dispatch in iframe's DOM.
+                    let query = elidex_layout::HitTestQuery {
+                        point: click.point,
+                        scroll: elidex_plugin::Vector::<f32>::ZERO,
+                    };
+                    if let Some(hit) = elidex_layout::hit_test_with_scroll(&pipeline.dom, &query) {
+                        let mouse_init = elidex_plugin::MouseEventInit {
+                            client_x: click.client_point.x,
+                            client_y: click.client_point.y,
+                            button: i16::from(click.button),
+                            ..Default::default()
+                        };
+                        for event_type in ["mousedown", "mouseup", "click"] {
+                            let mut event = elidex_script_session::DispatchEvent::new_composed(
+                                event_type, hit.entity,
+                            );
+                            event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
+                            pipeline.runtime.dispatch_event(
+                                &mut event,
+                                &mut pipeline.session,
+                                &mut pipeline.dom,
+                                pipeline.document,
+                            );
+                        }
+                    }
+                }
+                BrowserToIframe::KeyDown {
+                    key,
+                    code,
+                    repeat,
+                    mods,
+                } => {
+                    // Dispatch to document (no focus tracking in OOP iframes yet).
+                    let init = elidex_plugin::KeyboardEventInit {
+                        key,
+                        code,
+                        repeat,
+                        alt_key: mods.alt,
+                        ctrl_key: mods.ctrl,
+                        meta_key: mods.meta,
+                        shift_key: mods.shift,
+                    };
+                    let mut event = elidex_script_session::DispatchEvent::new_composed(
+                        "keydown",
+                        pipeline.document,
+                    );
+                    event.payload = elidex_plugin::EventPayload::Keyboard(init);
+                    pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut pipeline.session,
+                        &mut pipeline.dom,
+                        pipeline.document,
+                    );
+                }
+                BrowserToIframe::SetViewport { width, height } => {
+                    pipeline.viewport = Size::new(width, height);
+                }
+                BrowserToIframe::PostMessage { data, origin } => {
+                    let mut event = elidex_script_session::DispatchEvent::new_composed(
+                        "message",
+                        pipeline.document,
+                    );
+                    event.bubbles = false;
+                    event.cancelable = false;
+                    event.payload = elidex_plugin::EventPayload::Message { data, origin };
+                    pipeline.runtime.dispatch_event(
+                        &mut event,
+                        &mut pipeline.session,
+                        &mut pipeline.dom,
+                        pipeline.document,
+                    );
+                }
+                BrowserToIframe::Navigate(url) => {
+                    // Re-navigate: rebuild pipeline for the new URL.
+                    match crate::build_pipeline_from_url(&url) {
+                        Ok(new_pipeline) => {
+                            // Preserve sandbox from the old pipeline's bridge.
+                            let sandbox = pipeline.runtime.bridge().sandbox_flags();
+                            pipeline = new_pipeline;
+                            pipeline.runtime.bridge().set_sandbox_flags(sandbox);
+                            pipeline
+                                .runtime
+                                .bridge()
+                                .set_origin(elidex_plugin::SecurityOrigin::from_url(&url));
+                            // Send updated display list.
+                            let _ = channel.send(IframeToBrowser::DisplayListReady(
+                                pipeline.display_list.clone(),
+                            ));
+                        }
+                        Err(e) => {
+                            eprintln!("OOP iframe navigate to {url} failed: {e}");
+                        }
+                    }
+                }
+            },
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
 
-    // Note: All iframes currently use InProcess. Cross-origin thread isolation
-    // (OutOfProcessIframe) requires async iframe loading to avoid blocking the
-    // parent content thread during synchronous HTTP fetch. This is deferred to
-    // Phase 5 when async resource loading is implemented. The same-origin policy
-    // is still enforced via JS-level access control (contentDocument returns null
-    // for cross-origin, sandbox flags block script execution, etc.).
-    IframeEntry {
-        handle: IframeHandle::InProcess(Box::new(InProcessIframe {
-            pipeline,
-            nav_controller: NavigationController::new(),
-            focus_target: None,
-            scroll_state: ScrollState::default(),
-            needs_render: false,
-            cached_display_list: None,
-        })),
-        meta: IframeMeta {
-            origin,
-            sandbox_flags,
-            parent_entity: iframe_entity,
-            viewport,
-        },
+        // Frame tick: drain timers.
+        let now = Instant::now();
+        if pipeline
+            .runtime
+            .next_timer_deadline()
+            .is_some_and(|d| d <= now)
+        {
+            pipeline.runtime.drain_timers(
+                &mut pipeline.session,
+                &mut pipeline.dom,
+                pipeline.document,
+            );
+        }
+
+        // Re-render and send updated display list.
+        let dt = now.duration_since(last_frame);
+        if dt >= frame_interval {
+            last_frame = now;
+            crate::re_render(&mut pipeline);
+            let _ = channel.send(IframeToBrowser::DisplayListReady(
+                pipeline.display_list.clone(),
+            ));
+        }
+
+        // Forward postMessage from iframe JS to parent.
+        for (data, origin) in pipeline.runtime.bridge().drain_post_messages() {
+            let _ = channel.send(IframeToBrowser::PostMessage { data, origin });
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Iframe helper functions (moved from content/mod.rs)
+// Mutation/lifecycle helpers
 // ---------------------------------------------------------------------------
 
 /// Detect iframe additions/removals from mutation records.
@@ -580,26 +791,7 @@ pub(super) fn detect_iframe_mutations(
                     collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
                     for iframe_entity in nested {
                         if let Some(removed_entry) = state.iframes.remove(iframe_entity) {
-                            // Dispatch beforeunload/unload on the iframe's document
-                            // before dropping it (WHATWG HTML §7.1.3).
-                            if let IframeHandle::InProcess(mut ip) = removed_entry.handle {
-                                crate::pipeline::dispatch_unload_events(
-                                    &mut ip.pipeline.runtime,
-                                    &mut ip.pipeline.session,
-                                    &mut ip.pipeline.dom,
-                                    ip.pipeline.document,
-                                );
-                            }
-                            // Remove stale IframeDisplayList so the builder doesn't
-                            // paint a ghost iframe if the entity persists detached.
-                            let _ = state
-                                .pipeline
-                                .dom
-                                .world_mut()
-                                .remove_one::<elidex_render::IframeDisplayList>(iframe_entity);
-                            if state.focused_iframe == Some(iframe_entity) {
-                                state.focused_iframe = None;
-                            }
+                            unload_iframe_entry(state, iframe_entity, removed_entry);
                         }
                         removed_set.insert(iframe_entity);
                     }
@@ -621,15 +813,8 @@ pub(super) fn detect_iframe_mutations(
                     let target = record.target;
                     // Dispatch unload events on the old iframe before removing it
                     // (WHATWG HTML §7.1.3).
-                    if let Some(mut removed_entry) = state.iframes.remove(target) {
-                        if let IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
-                            crate::pipeline::dispatch_unload_events(
-                                &mut ip.pipeline.runtime,
-                                &mut ip.pipeline.session,
-                                &mut ip.pipeline.dom,
-                                ip.pipeline.document,
-                            );
-                        }
+                    if let Some(removed_entry) = state.iframes.remove(target) {
+                        unload_iframe_entry(state, target, removed_entry);
                     }
                     // Sync IframeData.src from Attributes — setAttribute('src', ...)
                     // updates Attributes via mutation flush but not IframeData directly.
@@ -662,8 +847,57 @@ pub(super) fn detect_iframe_mutations(
     }
 }
 
-/// Register a loaded iframe: store its display list on the parent DOM,
-/// insert into the registry, and dispatch the `load` event.
+/// Unload a single iframe entry: dispatch lifecycle events, clean up ECS state,
+/// and clear focus tracking.
+///
+/// Steps performed:
+/// 1. Dispatch `beforeunload`/`unload` on in-process iframes (WHATWG HTML §7.1.3)
+/// 2. Send `Shutdown` and join thread for out-of-process iframes
+/// 3. Remove stale `IframeDisplayList` component from the parent DOM
+/// 4. Clear `focused_iframe` if it pointed to this entity
+fn unload_iframe_entry(state: &mut super::ContentState, entity: Entity, entry: IframeEntry) {
+    unload_iframe_handle(entry.handle);
+    // Remove stale IframeDisplayList so the builder doesn't
+    // paint a ghost iframe if the entity persists detached.
+    let _ = state
+        .pipeline
+        .dom
+        .world_mut()
+        .remove_one::<elidex_render::IframeDisplayList>(entity);
+    if state.focused_iframe == Some(entity) {
+        state.focused_iframe = None;
+    }
+}
+
+/// Dispatch unload events or send shutdown for an iframe handle.
+///
+/// Shared by `unload_iframe_entry` and `shutdown_all`.
+fn unload_iframe_handle(handle: IframeHandle) {
+    match handle {
+        IframeHandle::InProcess(mut ip) => {
+            crate::pipeline::dispatch_unload_events(
+                &mut ip.pipeline.runtime,
+                &mut ip.pipeline.session,
+                &mut ip.pipeline.dom,
+                ip.pipeline.document,
+            );
+        }
+        IframeHandle::OutOfProcess(mut oop) => {
+            let _ = oop.channel.send(BrowserToIframe::Shutdown);
+            if let Some(thread) = oop.thread.take() {
+                if let Err(e) = thread.join() {
+                    eprintln!("iframe thread panicked: {e:?}");
+                }
+            }
+        }
+    }
+}
+
+/// Register a loaded iframe for the first time: store its display list on
+/// the parent DOM, insert into the registry, and dispatch the `load` event.
+///
+/// Note: subsequent display list updates (e.g., after re-render) are handled
+/// by `re_render_all_iframes` in `content/mod.rs`, not this function.
 fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, mut entry: IframeEntry) {
     if let IframeHandle::InProcess(ref mut ip) = entry.handle {
         let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
@@ -685,6 +919,22 @@ fn register_iframe_entry(state: &mut super::ContentState, entity: Entity, mut en
     dispatch_iframe_load_event(state, entity);
 }
 
+/// Dispatch a "load" event on an iframe element entity in the parent document.
+///
+/// Per WHATWG HTML §4.8.5: when an iframe's content is loaded, a "load"
+/// event fires on the `<iframe>` element (not on the iframe's document).
+fn dispatch_iframe_load_event(state: &mut super::ContentState, iframe_entity: Entity) {
+    let mut event = elidex_script_session::DispatchEvent::new("load", iframe_entity);
+    event.bubbles = false;
+    event.cancelable = false;
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
+}
+
 /// Count the iframe nesting depth of an entity by walking its DOM ancestors.
 ///
 /// Returns the number of ancestor elements that have `IframeData` components.
@@ -704,6 +954,69 @@ fn count_iframe_ancestor_depth(dom: &elidex_ecs::EcsDom, entity: Entity) -> usiz
         current = dom.get_parent(parent);
     }
     depth
+}
+
+// ---------------------------------------------------------------------------
+// DOM scanning
+// ---------------------------------------------------------------------------
+
+/// Try to load an iframe for `entity` if it has `IframeData`.
+///
+/// Respects `loading="lazy"`: lazy iframes are skipped here and will be
+/// loaded when `check_lazy_iframes` detects their `LayoutBox` is near the viewport.
+///
+/// When `force` is `true`, the lazy check is bypassed (e.g., for explicit
+/// navigation via `iframe.src = ...` which should load immediately regardless
+/// of the `loading` attribute).
+pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: Entity, force: bool) {
+    let iframe_data = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::IframeData>(entity)
+        .ok()
+        .map(|d| (*d).clone());
+    if let Some(data) = iframe_data {
+        // loading="lazy": defer loading until near viewport (WHATWG HTML §4.8.5).
+        // Registers the entity in the pending list; the event loop checks
+        // LayoutBox positions each frame to detect viewport proximity.
+        // Explicit navigation (force=true) bypasses the lazy check.
+        if !force && data.loading == elidex_ecs::LoadingAttribute::Lazy {
+            if !state.lazy_iframe_pending.contains(&entity) {
+                state.lazy_iframe_pending.push(entity);
+            }
+            return;
+        }
+        let parent_origin = state.pipeline.runtime.bridge().origin();
+        let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
+        let ctx = IframeLoadContext {
+            parent_origin: &parent_origin,
+            parent_url: state.pipeline.url.as_ref(),
+            font_db: &state.pipeline.font_db,
+            fetch_handle: &state.pipeline.fetch_handle,
+            depth,
+            registry: &state.pipeline.registry,
+        };
+        let entry = load_iframe(entity, &data, &ctx);
+        register_iframe_entry(state, entity, entry);
+    }
+}
+
+/// Walk the DOM tree and load any `<iframe>` elements found during initial parse.
+///
+/// Mutation-based detection (`detect_iframe_mutations`) only catches iframes
+/// added via JS. This function handles iframes present in the initial HTML.
+pub(super) fn scan_initial_iframes(state: &mut super::ContentState) {
+    let mut iframes_to_load = Vec::new();
+    collect_iframe_entities(
+        &state.pipeline.dom,
+        state.pipeline.document,
+        &mut iframes_to_load,
+        0,
+    );
+    for entity in iframes_to_load {
+        try_load_iframe_entity(state, entity, false);
+    }
 }
 
 /// Check lazy iframes and load those near the viewport.
@@ -791,81 +1104,6 @@ pub(super) fn check_lazy_iframes(state: &mut super::ContentState) {
             let entry = load_iframe(entity, &data, &ctx);
             register_iframe_entry(state, entity, entry);
         }
-    }
-}
-
-/// Dispatch a "load" event on an iframe element entity in the parent document.
-///
-/// Per WHATWG HTML §4.8.5: when an iframe's content is loaded, a "load"
-/// event fires on the `<iframe>` element (not on the iframe's document).
-fn dispatch_iframe_load_event(state: &mut super::ContentState, iframe_entity: Entity) {
-    let mut event = elidex_script_session::DispatchEvent::new("load", iframe_entity);
-    event.bubbles = false;
-    event.cancelable = false;
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
-}
-
-/// Try to load an iframe for `entity` if it has `IframeData`.
-///
-/// Respects `loading="lazy"`: lazy iframes are skipped here and will be
-/// loaded when `check_lazy_iframes` detects their `LayoutBox` is near the viewport.
-///
-/// When `force` is `true`, the lazy check is bypassed (e.g., for explicit
-/// navigation via `iframe.src = ...` which should load immediately regardless
-/// of the `loading` attribute).
-pub(super) fn try_load_iframe_entity(state: &mut super::ContentState, entity: Entity, force: bool) {
-    let iframe_data = state
-        .pipeline
-        .dom
-        .world()
-        .get::<&elidex_ecs::IframeData>(entity)
-        .ok()
-        .map(|d| (*d).clone());
-    if let Some(data) = iframe_data {
-        // loading="lazy": defer loading until near viewport (WHATWG HTML §4.8.5).
-        // Registers the entity in the pending list; the event loop checks
-        // LayoutBox positions each frame to detect viewport proximity.
-        // Explicit navigation (force=true) bypasses the lazy check.
-        if !force && data.loading == elidex_ecs::LoadingAttribute::Lazy {
-            if !state.lazy_iframe_pending.contains(&entity) {
-                state.lazy_iframe_pending.push(entity);
-            }
-            return;
-        }
-        let parent_origin = state.pipeline.runtime.bridge().origin();
-        let depth = count_iframe_ancestor_depth(&state.pipeline.dom, entity);
-        let ctx = IframeLoadContext {
-            parent_origin: &parent_origin,
-            parent_url: state.pipeline.url.as_ref(),
-            font_db: &state.pipeline.font_db,
-            fetch_handle: &state.pipeline.fetch_handle,
-            depth,
-            registry: &state.pipeline.registry,
-        };
-        let entry = load_iframe(entity, &data, &ctx);
-        register_iframe_entry(state, entity, entry);
-    }
-}
-
-/// Walk the DOM tree and load any `<iframe>` elements found during initial parse.
-///
-/// Mutation-based detection (`detect_iframe_mutations`) only catches iframes
-/// added via JS. This function handles iframes present in the initial HTML.
-pub(super) fn scan_initial_iframes(state: &mut super::ContentState) {
-    let mut iframes_to_load = Vec::new();
-    collect_iframe_entities(
-        &state.pipeline.dom,
-        state.pipeline.document,
-        &mut iframes_to_load,
-        0,
-    );
-    for entity in iframes_to_load {
-        try_load_iframe_entity(state, entity, false);
     }
 }
 

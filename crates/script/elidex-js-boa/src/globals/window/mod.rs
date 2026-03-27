@@ -318,11 +318,11 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                             replace: false,
                         });
                     }
-                    _named => {
-                        // Named target: search for iframe with matching name.
-                        // If not found, open in new tab.
-                        // MVP: always open in new tab (iframe name lookup deferred).
-                        bridge.set_pending_open_tab(url);
+                    named => {
+                        // Named target: queue iframe navigation by name.
+                        // Content thread will search iframes registry; if not
+                        // found, falls back to opening a new tab.
+                        bridge.set_pending_navigate_iframe(named.to_string(), url);
                     }
                 }
             }

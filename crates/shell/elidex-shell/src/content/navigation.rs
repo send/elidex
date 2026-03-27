@@ -86,6 +86,28 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         return true;
     }
 
+    // window.open with named target → navigate matching iframe or open new tab.
+    let navigate_iframes = state
+        .pipeline
+        .runtime
+        .bridge()
+        .drain_pending_navigate_iframe();
+    if !navigate_iframes.is_empty() {
+        for (name, url) in navigate_iframes {
+            if let Some(iframe_entity) = super::event_handlers::find_iframe_by_name(state, &name) {
+                super::event_handlers::navigate_iframe(state, iframe_entity, &url);
+            } else {
+                // No matching iframe → open in new tab.
+                let _ = state
+                    .channel
+                    .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            }
+        }
+        state.re_render();
+        state.send_display_list();
+        return true;
+    }
+
     false
 }
 

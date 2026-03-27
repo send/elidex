@@ -138,6 +138,9 @@ struct HostBridgeInner {
     /// URLs to open in new tabs (from `window.open` with `_blank` target).
     /// Vec to support multiple window.open calls before the event loop drains.
     pending_open_tabs: Vec<url::Url>,
+    /// Pending iframe navigations from `window.open` with named targets.
+    /// Each entry is `(iframe_name, url)`.
+    pending_navigate_iframe: Vec<(String, url::Url)>,
     // NOTE: `parent_bridge` and `iframe_bridges` fields are intentionally
     // omitted. Boa uses per-Context JsObject references that cannot cross
     // Context boundaries, so contentDocument/contentWindow return null for
@@ -257,6 +260,7 @@ impl HostBridge {
                 sandbox_flags: None,
                 pending_post_messages: Vec::new(),
                 pending_open_tabs: Vec::new(),
+                pending_navigate_iframe: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -500,6 +504,19 @@ impl HostBridge {
     /// Drain all pending new-tab URLs.
     pub fn drain_pending_open_tabs(&self) -> Vec<url::Url> {
         std::mem::take(&mut self.inner.borrow_mut().pending_open_tabs)
+    }
+
+    /// Queue a named-target iframe navigation from `window.open`.
+    pub fn set_pending_navigate_iframe(&self, name: String, url: url::Url) {
+        self.inner
+            .borrow_mut()
+            .pending_navigate_iframe
+            .push((name, url));
+    }
+
+    /// Drain pending named-target iframe navigations.
+    pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
+        std::mem::take(&mut self.inner.borrow_mut().pending_navigate_iframe)
     }
 
     /// Set a pending navigation request.

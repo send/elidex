@@ -727,7 +727,7 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
 ///
 /// Searches the parent DOM for `<iframe>` elements whose `IframeData.name`
 /// matches the given target name (WHATWG HTML §7.1.3).
-fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::Entity> {
+pub(super) fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::Entity> {
     for (&entity, _entry) in state.iframes.iter() {
         let matches = state
             .pipeline
@@ -747,7 +747,11 @@ fn find_iframe_by_name(state: &ContentState, name: &str) -> Option<elidex_ecs::E
 ///
 /// Dispatches unload events on the old iframe, removes it, loads the new URL,
 /// and inserts the new entry.
-fn navigate_iframe(state: &mut ContentState, iframe_entity: elidex_ecs::Entity, url: &url::Url) {
+pub(super) fn navigate_iframe(
+    state: &mut ContentState,
+    iframe_entity: elidex_ecs::Entity,
+    url: &url::Url,
+) {
     // Dispatch unload events on the old iframe before removing it (WHATWG HTML §7.1.3).
     if let Some(mut removed_entry) = state.iframes.remove(iframe_entity) {
         if let super::iframe::IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
