@@ -30,8 +30,10 @@ pub mod middleware;
 pub(crate) mod pool;
 pub(crate) mod redirect;
 pub mod resource_loader;
+pub mod sse;
 pub(crate) mod tls;
 pub mod transport;
+pub mod ws;
 
 use std::sync::Arc;
 

@@ -319,9 +319,14 @@ fn set_payload_properties(
         EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
         EventPayload::Composition(c) => set_composition_payload(init, c),
         EventPayload::Focus(_f) => set_focus_payload(init),
-        EventPayload::Message { data, origin } => {
-            set_message_payload(init, data, origin, empty_ports);
+        EventPayload::Message {
+            data,
+            origin,
+            last_event_id,
+        } => {
+            set_message_payload(init, data, origin, last_event_id, empty_ports);
         }
+        EventPayload::CloseEvent(c) => set_close_event_payload(init, c),
         EventPayload::None | _ => {}
     }
 }
@@ -404,16 +409,36 @@ fn set_composition_payload(
     );
 }
 
-fn set_message_payload(init: &mut ObjectInitializer<'_>, data: &str, origin: &str, ports: JsValue) {
-    // WHATWG HTML §9.4.3: MessageEvent.data and MessageEvent.origin.
-    // MVP: data is a JSON string (not structured clone). The listener
-    // should call JSON.parse(e.data) if needed.
+fn set_message_payload(
+    init: &mut ObjectInitializer<'_>,
+    data: &str,
+    origin: &str,
+    last_event_id: &str,
+    ports: JsValue,
+) {
+    // WHATWG HTML §9.4.3 / §9.2 / §9.3: MessageEvent properties.
     init.property(js_string!("data"), JsValue::from(js_string!(data)), RO);
     init.property(js_string!("origin"), JsValue::from(js_string!(origin)), RO);
+    init.property(
+        js_string!("lastEventId"),
+        JsValue::from(js_string!(last_event_id)),
+        RO,
+    );
     // source: null (cross-context WindowProxy not available in boa).
     init.property(js_string!("source"), JsValue::null(), RO);
     // ports: empty frozen array (MessagePort not implemented).
     init.property(js_string!("ports"), ports, RO);
+}
+
+fn set_close_event_payload(init: &mut ObjectInitializer<'_>, c: &elidex_plugin::CloseEventInit) {
+    // WHATWG HTML CloseEvent properties.
+    init.property(js_string!("code"), JsValue::from(i32::from(c.code)), RO);
+    init.property(
+        js_string!("reason"),
+        JsValue::from(js_string!(c.reason.as_str())),
+        RO,
+    );
+    init.property(js_string!("wasClean"), JsValue::from(c.was_clean), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

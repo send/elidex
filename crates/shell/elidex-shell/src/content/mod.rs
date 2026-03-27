@@ -651,6 +651,7 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     event.payload = elidex_plugin::EventPayload::Message {
         data: data.to_string(),
         origin: origin.to_string(),
+        last_event_id: String::new(),
     };
     state.pipeline.runtime.dispatch_event(
         &mut event,

@@ -188,6 +188,7 @@ fn dispatch_message_in_pipeline(pipeline: &mut crate::PipelineResult, data: &str
     event.payload = elidex_plugin::EventPayload::Message {
         data: data.to_string(),
         origin: origin.to_string(),
+        last_event_id: String::new(),
     };
     pipeline.runtime.dispatch_event(
         &mut event,
