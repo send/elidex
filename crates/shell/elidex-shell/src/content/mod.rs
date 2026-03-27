@@ -204,11 +204,21 @@ impl ContentState {
 
         // Detect iframe additions/removals from mutation records.
         // Added <iframe> entities trigger loading; removed ones trigger unloading.
-        iframe::detect_iframe_mutations(&mutation_records, self);
+        let iframes_changed = iframe::detect_iframe_mutations(&mutation_records, self);
 
         // Check lazy iframes: load those that have entered the viewport.
-        // Uses LayoutBox position vs viewport bounds with 200px margin.
-        iframe::check_lazy_iframes(self);
+        let lazy_loaded = iframe::check_lazy_iframes(self);
+
+        // Rebuild the parent display list if iframes were added/removed/navigated,
+        // since the display list was already built before iframe mutations were processed.
+        if iframes_changed || lazy_loaded {
+            self.pipeline.display_list = elidex_render::build_display_list_with_scroll(
+                &self.pipeline.dom,
+                &self.pipeline.font_db,
+                self.pipeline.caret_visible,
+                self.pipeline.scroll_offset,
+            );
+        }
 
         // Update viewport scroll dimensions after layout completes.
         scroll::update_viewport_scroll_dimensions(self);
@@ -294,6 +304,9 @@ fn content_thread_main(
     // Mutation-based detection only catches dynamically added iframes;
     // statically parsed iframes need an explicit initial scan.
     iframe::scan_initial_iframes(&mut state);
+    // Re-render after initial scan so statically parsed iframes are composited
+    // into the parent display list before the first send.
+    state.re_render();
     state.send_display_list();
     run_event_loop(&mut state);
 }
@@ -321,6 +334,7 @@ fn content_thread_main_url(
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
     iframe::scan_initial_iframes(&mut state);
+    state.re_render();
     state.notify_navigation(url);
     run_event_loop(&mut state);
 }

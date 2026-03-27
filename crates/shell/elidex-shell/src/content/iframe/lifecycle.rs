@@ -16,8 +16,9 @@ use super::types::{BrowserToIframe, IframeEntry, IframeHandle, IframeLoadContext
 pub(in crate::content) fn detect_iframe_mutations(
     records: &[elidex_script_session::MutationRecord],
     state: &mut crate::content::ContentState,
-) {
+) -> bool {
     use elidex_script_session::MutationKind;
+    let mut changed = false;
 
     for record in records {
         match record.kind {
@@ -31,6 +32,7 @@ pub(in crate::content) fn detect_iframe_mutations(
                             continue;
                         }
                         try_load_iframe_entity(state, iframe_entity, false);
+                        changed = true;
                     }
                 }
                 // Check removed nodes (and their subtrees) for <iframe> elements.
@@ -47,6 +49,7 @@ pub(in crate::content) fn detect_iframe_mutations(
                 }
                 if !removed_set.is_empty() {
                     state.iframes.remove_lazy_pending_batch(&removed_set);
+                    changed = true;
                 }
             }
             MutationKind::Attribute => {
@@ -65,11 +68,13 @@ pub(in crate::content) fn detect_iframe_mutations(
                     state.iframes.remove_lazy_pending(target);
                     // force=true: src change is explicit navigation.
                     try_load_iframe_entity(state, target, true);
+                    changed = true;
                 }
             }
             _ => {}
         }
     }
+    changed
 }
 
 /// Sync `IframeData.src` from `Attributes` — `setAttribute('src', ...)`
@@ -185,9 +190,9 @@ pub(in crate::content) fn scan_initial_iframes(state: &mut crate::content::Conte
 ///
 /// Uses `LayoutBox` position to determine if a lazy iframe is within 200px
 /// of the viewport bounds.
-pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::ContentState) {
+pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::ContentState) -> bool {
     if !state.iframes.has_lazy_pending() {
-        return;
+        return false;
     }
 
     let vp_width = state.pipeline.viewport.width;
@@ -229,7 +234,7 @@ pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::Content
         .collect();
 
     if to_load.is_empty() {
-        return;
+        return false;
     }
 
     state.iframes.remove_lazy_pending_list(&to_load);
@@ -249,6 +254,7 @@ pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::Content
             register_iframe_entry(state, entity, entry);
         }
     }
+    true
 }
 
 /// Find an iframe entity by its `name` attribute.
