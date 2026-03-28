@@ -144,7 +144,7 @@ impl RealtimeState {
         self.ws_connections.get(&id).is_some_and(|conn| {
             conn.handle
                 .command_tx
-                .send(WsCommand::SendText(data))
+                .blocking_send(WsCommand::SendText(data))
                 .is_ok()
         })
     }
@@ -156,7 +156,7 @@ impl RealtimeState {
         self.ws_connections.get(&id).is_some_and(|conn| {
             conn.handle
                 .command_tx
-                .send(WsCommand::SendBinary(data))
+                .blocking_send(WsCommand::SendBinary(data))
                 .is_ok()
         })
     }
@@ -164,7 +164,10 @@ impl RealtimeState {
     /// Initiate WebSocket close handshake.
     pub fn ws_close(&self, id: u64, code: u16, reason: String) {
         if let Some(conn) = self.ws_connections.get(&id) {
-            let _ = conn.handle.command_tx.send(WsCommand::Close(code, reason));
+            let _ = conn
+                .handle
+                .command_tx
+                .blocking_send(WsCommand::Close(code, reason));
         }
     }
 
@@ -196,7 +199,7 @@ impl RealtimeState {
         } else {
             None
         };
-        let handle = elidex_net::sse::spawn_sse_thread(url, None, jar, origin);
+        let handle = elidex_net::sse::spawn_sse_thread(url, None, jar, origin, with_credentials);
 
         let callbacks = SseCallbacks {
             onopen: None,
@@ -312,7 +315,7 @@ impl RealtimeState {
             let _ = conn
                 .handle
                 .command_tx
-                .send(WsCommand::Close(1001, String::new()));
+                .blocking_send(WsCommand::Close(1001, String::new()));
             // Don't join — thread will exit when it detects channel disconnect
             // or close handshake completes.
         }

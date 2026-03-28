@@ -294,12 +294,10 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                         return Ok(JsValue::undefined());
                     }
                 }
-                let data = args
-                    .first()
-                    .map(|v| v.to_string(ctx))
-                    .transpose()?
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
+                let data_val = args.first().ok_or_else(|| {
+                    JsNativeError::typ().with_message("WebSocket.send: 1 argument required")
+                })?;
+                let data = data_val.to_string(ctx)?.to_std_string_escaped();
                 // Calculate byte length before sending for bufferedAmount update.
                 let byte_len = data.len() as u64;
                 let sent = bridge.ws_send_text(id, data);

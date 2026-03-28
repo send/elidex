@@ -91,6 +91,7 @@ pub fn spawn_sse_thread(
     last_event_id: Option<String>,
     cookie_jar: Option<Arc<CookieJar>>,
     origin: Option<String>,
+    with_credentials: bool,
 ) -> SseHandle {
     let id = SseId::next();
 
@@ -107,6 +108,7 @@ pub fn spawn_sse_thread(
             last_event_id,
             cookie_jar,
             origin,
+            with_credentials,
             cmd_rx,
             evt_tx,
         ));
@@ -238,6 +240,7 @@ async fn sse_io_loop(
     last_event_id: Option<String>,
     cookie_jar: Option<Arc<CookieJar>>,
     origin: Option<String>,
+    with_credentials: bool,
     cmd_rx: Receiver<SseCommand>,
     evt_tx: Sender<SseEvent>,
 ) {
@@ -268,23 +271,26 @@ async fn sse_io_loop(
         }
 
         // Connect and get a streaming reader.
-        let mut reader = match connect_sse_stream(&url, &extra_headers, origin.as_deref()).await {
-            Ok(r) => r,
-            Err(SseConnectError::Fatal(msg)) => {
-                // Fatal errors are critical lifecycle events — use blocking send.
-                let _ = evt_tx.send(SseEvent::FatalError(msg));
-                return;
-            }
-            Err(SseConnectError::Recoverable(msg)) => {
-                // Error events are critical lifecycle events — use blocking send.
-                let _ = evt_tx.send(SseEvent::Error(msg));
-                // Only exit if receiver is disconnected, not if channel is full.
-                if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed).await {
+        let mut reader =
+            match connect_sse_stream(&url, &extra_headers, origin.as_deref(), with_credentials)
+                .await
+            {
+                Ok(r) => r,
+                Err(SseConnectError::Fatal(msg)) => {
+                    // Fatal errors are critical lifecycle events — use blocking send.
+                    let _ = evt_tx.send(SseEvent::FatalError(msg));
                     return;
                 }
-                continue;
-            }
-        };
+                Err(SseConnectError::Recoverable(msg)) => {
+                    // Error events are critical lifecycle events — use blocking send.
+                    let _ = evt_tx.send(SseEvent::Error(msg));
+                    // Only exit if receiver is disconnected, not if channel is full.
+                    if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed).await {
+                        return;
+                    }
+                    continue;
+                }
+            };
 
         // Connected successfully.
         // Only exit on Disconnected — Full (backpressure) is non-fatal.

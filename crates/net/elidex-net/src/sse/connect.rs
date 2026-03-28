@@ -49,11 +49,12 @@ pub(super) async fn connect_sse_stream(
     url: &url::Url,
     headers: &[(String, String)],
     origin: Option<&str>,
+    with_credentials: bool,
 ) -> Result<BufReader<Box<dyn AsyncReadWrite>>, SseConnectError> {
     let mut current_url = url.clone();
 
     for _ in 0..MAX_SSE_REDIRECTS {
-        let reader = connect_sse_single(&current_url, headers, origin).await?;
+        let reader = connect_sse_single(&current_url, headers, origin, with_credentials).await?;
         match reader {
             SseConnectResult::Connected(reader) => return Ok(reader),
             SseConnectResult::Redirect(location) => {
@@ -92,6 +93,7 @@ async fn connect_sse_single(
     url: &url::Url,
     headers: &[(String, String)],
     origin: Option<&str>,
+    with_credentials: bool,
 ) -> Result<SseConnectResult, SseConnectError> {
     let scheme = url.scheme();
     let host = url
@@ -139,7 +141,7 @@ async fn connect_sse_single(
     };
 
     // Send HTTP request and validate response (shared for TLS and plain TCP).
-    send_and_validate_sse(stream, &req_buf, origin).await
+    send_and_validate_sse(stream, &req_buf, origin, with_credentials).await
 }
 
 /// Send the HTTP request on a connected stream, validate the response, and
@@ -148,6 +150,7 @@ async fn send_and_validate_sse(
     mut stream: Box<dyn AsyncReadWrite>,
     req_buf: &str,
     origin: Option<&str>,
+    with_credentials: bool,
 ) -> Result<SseConnectResult, SseConnectError> {
     stream.write_all(req_buf.as_bytes()).await.map_err(|e| {
         SseConnectError::Recoverable(format!("SSE: failed to send HTTP request: {e}"))
@@ -161,7 +164,7 @@ async fn send_and_validate_sse(
     // and body streaming. Avoids double-buffering (BufReader<BufReader<Stream>>)
     // which would cause data loss from the inner buffer being invisible to the outer.
     let mut reader = BufReader::with_capacity(65536, stream);
-    match validate_sse_response(&mut reader, origin).await? {
+    match validate_sse_response(&mut reader, origin, with_credentials).await? {
         SseResponseResult::Ok => Ok(SseConnectResult::Connected(reader)),
         SseResponseResult::Redirect(loc) => Ok(SseConnectResult::Redirect(loc)),
     }
@@ -221,6 +224,7 @@ fn build_sse_request(
 async fn validate_sse_response<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     origin: Option<&str>,
+    with_credentials: bool,
 ) -> Result<SseResponseResult, SseConnectError> {
     // Read the response status line (I/O error → recoverable).
     let mut status_line = String::new();
@@ -245,6 +249,7 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
     let mut content_type_ok = false;
     let mut location: Option<String> = None;
     let mut acao: Option<String> = None;
+    let mut acac_true = false;
     loop {
         let mut header_line = String::new();
         reader.read_line(&mut header_line).await.map_err(|e| {
@@ -268,6 +273,11 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
                 }
                 "access-control-allow-origin" => {
                     acao = Some(value.trim().to_string());
+                }
+                "access-control-allow-credentials" => {
+                    if value.trim().eq_ignore_ascii_case("true") {
+                        acac_true = true;
+                    }
                 }
                 _ => {}
             }
@@ -298,14 +308,29 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
 
     // CORS validation: if Origin was sent, check Access-Control-Allow-Origin.
     if let Some(sent_origin) = origin {
-        match acao {
-            Some(ref allowed) if allowed == "*" || allowed == sent_origin => {
-                // CORS check passed.
+        if with_credentials {
+            // Credentialed requests: wildcard ACAO forbidden, credentials header required.
+            match acao {
+                Some(ref allowed) if allowed == sent_origin => {}
+                _ => {
+                    return Err(SseConnectError::Fatal(
+                        "CORS: origin mismatch for credentialed request".to_string(),
+                    ));
+                }
             }
-            _ => {
-                return Err(SseConnectError::Fatal(format!(
-                    "SSE: CORS check failed — Access-Control-Allow-Origin does not match origin '{sent_origin}'"
-                )));
+            if !acac_true {
+                return Err(SseConnectError::Fatal(
+                    "CORS: Access-Control-Allow-Credentials: true required".to_string(),
+                ));
+            }
+        } else {
+            match acao {
+                Some(ref allowed) if allowed == "*" || allowed == sent_origin => {}
+                _ => {
+                    return Err(SseConnectError::Fatal(format!(
+                        "SSE: CORS check failed — Access-Control-Allow-Origin does not match origin '{sent_origin}'"
+                    )));
+                }
             }
         }
     }

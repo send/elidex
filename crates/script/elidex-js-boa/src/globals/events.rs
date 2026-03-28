@@ -150,7 +150,9 @@ pub fn create_event_object(
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
-    // WHATWG DOM §2.1: isTrusted is true for events dispatched by the user agent.
+    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
+    // TODO: When JS `dispatchEvent()` / `CustomEvent` is implemented,
+    // parameterize via `DispatchEvent.is_trusted` (script-dispatched → false).
     init.property(js_string!("isTrusted"), JsValue::from(true), RO);
 
     // Payload-specific properties (also read-only).
@@ -304,7 +306,8 @@ pub fn create_standalone_event(
         JsValue::from(2_i32), // AT_TARGET
         RO,
     );
-    // WHATWG DOM §2.1: isTrusted is true for events dispatched by the user agent.
+    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
+    // Standalone events (WS/SSE) are always UA-dispatched.
     init.property(js_string!("isTrusted"), JsValue::from(true), RO);
 
     // defaultPrevented accessor.

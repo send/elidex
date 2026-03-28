@@ -2,7 +2,7 @@
 //!
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
 //! WebSocket connection. Commands use `tokio::sync::mpsc` (unbounded, since
-//! commands come from JS single-threaded at human rate). Events back to the
+//! commands are bounded at 256 for backpressure). Events back to the
 //! content thread use crossbeam bounded channel (drained via `try_recv`).
 //!
 //! **Architecture note**: In M4-7 (Sandbox Hardening), `spawn_ws_thread` will
@@ -79,7 +79,7 @@ pub struct WsHandle {
     /// Unique connection identifier.
     pub id: WsId,
     /// Send commands to the I/O thread.
-    pub command_tx: mpsc::UnboundedSender<WsCommand>,
+    pub command_tx: mpsc::Sender<WsCommand>,
     /// Receive events from the I/O thread.
     pub event_rx: crossbeam_channel::Receiver<WsEvent>,
     /// Thread join handle.
@@ -104,7 +104,7 @@ pub struct WsHandle {
 pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) -> WsHandle {
     let id = WsId::next();
 
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<WsCommand>();
+    let (cmd_tx, cmd_rx) = mpsc::channel::<WsCommand>(256);
     let (evt_tx, evt_rx) = crossbeam_channel::bounded::<WsEvent>(64);
 
     let thread = std::thread::spawn(move || {
@@ -213,7 +213,7 @@ async fn ws_io_loop(
     url: url::Url,
     protocols: Vec<String>,
     origin: String,
-    mut cmd_rx: mpsc::UnboundedReceiver<WsCommand>,
+    mut cmd_rx: mpsc::Receiver<WsCommand>,
     evt_tx: Sender<WsEvent>,
 ) {
     use futures_util::{SinkExt, StreamExt};
