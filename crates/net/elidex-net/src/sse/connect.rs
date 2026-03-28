@@ -161,10 +161,7 @@ async fn send_and_validate_sse(
     // and body streaming. Avoids double-buffering (BufReader<BufReader<Stream>>)
     // which would cause data loss from the inner buffer being invisible to the outer.
     let mut reader = BufReader::with_capacity(65536, stream);
-    match validate_sse_response(&mut reader, origin)
-        .await
-        .map_err(SseConnectError::Fatal)?
-    {
+    match validate_sse_response(&mut reader, origin).await? {
         SseResponseResult::Ok => Ok(SseConnectResult::Connected(reader)),
         SseResponseResult::Redirect(loc) => Ok(SseConnectResult::Redirect(loc)),
     }
@@ -224,22 +221,23 @@ fn build_sse_request(
 async fn validate_sse_response<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     origin: Option<&str>,
-) -> Result<SseResponseResult, String> {
-    // Read the response status line.
+) -> Result<SseResponseResult, SseConnectError> {
+    // Read the response status line (I/O error → recoverable).
     let mut status_line = String::new();
-    reader
-        .read_line(&mut status_line)
-        .await
-        .map_err(|e| format!("SSE: failed to read status line: {e}"))?;
+    reader.read_line(&mut status_line).await.map_err(|e| {
+        SseConnectError::Recoverable(format!("SSE: failed to read status line: {e}"))
+    })?;
 
     // Parse status code (e.g. "HTTP/1.1 200 OK\r\n").
     let parts: Vec<&str> = status_line.splitn(3, ' ').collect();
     if parts.len() < 2 {
-        return Err(format!("SSE: invalid status line: {status_line}"));
+        return Err(SseConnectError::Recoverable(format!(
+            "SSE: invalid status line: {status_line}"
+        )));
     }
-    let status: u16 = parts[1]
-        .parse()
-        .map_err(|_| format!("SSE: invalid status code: {}", parts[1]))?;
+    let status: u16 = parts[1].parse().map_err(|_| {
+        SseConnectError::Recoverable(format!("SSE: invalid status code: {}", parts[1]))
+    })?;
 
     let is_redirect = matches!(status, 301 | 302 | 303 | 307 | 308);
 
@@ -249,10 +247,9 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
     let mut acao: Option<String> = None;
     loop {
         let mut header_line = String::new();
-        reader
-            .read_line(&mut header_line)
-            .await
-            .map_err(|e| format!("SSE: failed to read header: {e}"))?;
+        reader.read_line(&mut header_line).await.map_err(|e| {
+            SseConnectError::Recoverable(format!("SSE: failed to read header: {e}"))
+        })?;
         let trimmed = header_line.trim();
         if trimmed.is_empty() {
             break;
@@ -282,17 +279,21 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
         if let Some(loc) = location {
             return Ok(SseResponseResult::Redirect(loc));
         }
-        return Err(format!(
+        return Err(SseConnectError::Fatal(format!(
             "SSE: HTTP {status} redirect without Location header"
-        ));
+        )));
     }
 
     if status != 200 {
-        return Err(format!("SSE: HTTP {status} (expected 200)"));
+        return Err(SseConnectError::Fatal(format!(
+            "SSE: HTTP {status} (expected 200)"
+        )));
     }
 
     if !content_type_ok {
-        return Err("SSE: response Content-Type is not text/event-stream".to_string());
+        return Err(SseConnectError::Fatal(
+            "SSE: response Content-Type is not text/event-stream".to_string(),
+        ));
     }
 
     // CORS validation: if Origin was sent, check Access-Control-Allow-Origin.
@@ -302,9 +303,9 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
                 // CORS check passed.
             }
             _ => {
-                return Err(format!(
+                return Err(SseConnectError::Fatal(format!(
                     "SSE: CORS check failed — Access-Control-Allow-Origin does not match origin '{sent_origin}'"
-                ));
+                )));
             }
         }
     }

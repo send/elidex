@@ -46,13 +46,17 @@ fn invoke_callback_and_listeners(
             eprintln!("[JS Event Error] {err}");
         }
         // Microtask checkpoint after each handler (HTML §8.1.7.3).
-        let _ = ctx.run_jobs();
+        if let Err(err) = ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
     }
     for listener in listeners {
         if let Err(err) = listener.call(this_value, std::slice::from_ref(event_obj), ctx) {
             eprintln!("[JS Event Error] {err}");
         }
-        let _ = ctx.run_jobs();
+        if let Err(err) = ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
     }
 }
 
@@ -64,10 +68,11 @@ fn dispatch_ws_event(id: u64, event: WsEvent, bridge: &HostBridge, ctx: &mut Con
         } => dispatch_ws_connected(id, protocol, extensions, bridge, ctx),
         WsEvent::TextMessage(data) => dispatch_ws_text(id, &data, bridge, ctx),
         WsEvent::BinaryMessage(data) => dispatch_ws_binary(id, &data, bridge, ctx),
-        WsEvent::BufferedAmountUpdate(n) => {
+        WsEvent::BytesSent(n) => {
             let inner = bridge.inner.borrow();
             if let Some(cb) = inner.realtime.ws_callbacks(id) {
-                cb.buffered_amount.set(n);
+                cb.buffered_amount
+                    .set(cb.buffered_amount.get().saturating_sub(n));
             }
         }
         WsEvent::Error(msg) => dispatch_ws_error(id, &msg, bridge, ctx),

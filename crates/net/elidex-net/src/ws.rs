@@ -64,8 +64,12 @@ pub enum WsEvent {
     },
     /// Connection error.
     Error(String),
-    /// Updated buffered byte count after a send completes.
-    BufferedAmountUpdate(u64),
+    /// Number of bytes successfully transmitted (decrement `bufferedAmount` by this).
+    ///
+    /// The JS layer increments `bufferedAmount` synchronously in `send()`.
+    /// The I/O thread sends this event after each successful frame transmission
+    /// so the content thread can decrement by the same amount.
+    BytesSent(u64),
 }
 
 /// Handle to a running WebSocket I/O thread.
@@ -173,18 +177,15 @@ async fn send_frame(
         Error = tokio_tungstenite::tungstenite::Error,
     > + Unpin),
     msg: tokio_tungstenite::tungstenite::Message,
-    buffered_bytes: &mut u64,
     evt_tx: &Sender<WsEvent>,
 ) -> bool {
     let len = msg.len() as u64;
-    *buffered_bytes += len;
     if write.send(msg).await.is_err() {
         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
         send_abnormal_close(evt_tx);
         return true;
     }
-    *buffered_bytes = buffered_bytes.saturating_sub(len);
-    let _ = evt_tx.send(WsEvent::BufferedAmountUpdate(*buffered_bytes));
+    let _ = evt_tx.send(WsEvent::BytesSent(len));
     false
 }
 
@@ -271,7 +272,6 @@ async fn ws_io_loop(
 
     let mut close_sent = false;
     let mut close_sent_at = tokio::time::Instant::now();
-    let mut buffered_bytes: u64 = 0;
 
     loop {
         // Poll WebSocket stream with 1ms timeout, then check commands.
@@ -330,13 +330,13 @@ async fn ws_io_loop(
                 Ok(cmd) => match cmd {
                     WsCommand::SendText(text) => {
                         let msg = tungstenite::Message::Text(text.into());
-                        if send_frame(&mut write, msg, &mut buffered_bytes, &evt_tx).await {
+                        if send_frame(&mut write, msg, &evt_tx).await {
                             return;
                         }
                     }
                     WsCommand::SendBinary(data) => {
                         let msg = tungstenite::Message::Binary(data.into());
-                        if send_frame(&mut write, msg, &mut buffered_bytes, &evt_tx).await {
+                        if send_frame(&mut write, msg, &evt_tx).await {
                             return;
                         }
                     }
@@ -436,11 +436,11 @@ mod tests {
 
     #[test]
     fn ws_event_buffered_amount() {
-        let evt = WsEvent::BufferedAmountUpdate(42);
-        if let WsEvent::BufferedAmountUpdate(n) = evt {
+        let evt = WsEvent::BytesSent(42);
+        if let WsEvent::BytesSent(n) = evt {
             assert_eq!(n, 42);
         } else {
-            panic!("expected BufferedAmountUpdate");
+            panic!("expected BytesSent");
         }
     }
 
