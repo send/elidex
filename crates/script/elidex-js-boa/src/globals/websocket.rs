@@ -412,7 +412,7 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     .transpose()?
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
-                let listener = args.get(1).and_then(JsValue::as_object).ok_or_else(|| {
+                let listener = args.get(1).and_then(JsValue::as_callable).ok_or_else(|| {
                     JsNativeError::typ()
                         .with_message("addEventListener: listener must be a function")
                 })?;
@@ -624,7 +624,7 @@ fn register_ws_event_accessor(
                 None
             } else {
                 Some(
-                    val.as_object()
+                    val.as_callable()
                         .ok_or_else(|| {
                             JsNativeError::typ()
                                 .with_message("event handler must be a function or null")

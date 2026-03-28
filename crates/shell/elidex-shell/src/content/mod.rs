@@ -447,6 +447,10 @@ fn run_event_loop(state: &mut ContentState) {
         // Drain WebSocket and SSE events from I/O threads.
         {
             let (ws_events, sse_events) = state.pipeline.runtime.bridge().drain_realtime_events();
+            let has_js_events = ws_events
+                .iter()
+                .any(|(_, e)| !matches!(e, elidex_net::ws::WsEvent::BytesSent(_)))
+                || !sse_events.is_empty();
             if !ws_events.is_empty() || !sse_events.is_empty() {
                 state.pipeline.runtime.dispatch_realtime_events(
                     ws_events,
@@ -455,7 +459,9 @@ fn run_event_loop(state: &mut ContentState) {
                     &mut state.pipeline.dom,
                     state.pipeline.document,
                 );
-                needs_render = true;
+                if has_js_events {
+                    needs_render = true;
+                }
             }
         }
 

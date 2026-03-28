@@ -1,9 +1,9 @@
 //! WebSocket I/O thread (RFC 6455).
 //!
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
-//! WebSocket connection. Commands use `tokio::sync::mpsc` (unbounded, since
-//! commands are bounded at 256 for backpressure). Events back to the
-//! content thread use crossbeam bounded channel (drained via `try_recv`).
+//! WebSocket connection. Commands use `tokio::sync::mpsc` (bounded at 256
+//! for backpressure). Events back to the content thread use crossbeam
+//! bounded channel (drained via `try_recv`).
 //!
 //! **Architecture note**: In M4-7 (Sandbox Hardening), `spawn_ws_thread` will
 //! migrate from direct thread spawning to Network Process IPC. The JS API layer

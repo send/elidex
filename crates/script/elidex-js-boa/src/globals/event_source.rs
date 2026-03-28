@@ -208,7 +208,7 @@ fn sse_constructor(
                     .transpose()?
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
-                let listener = args.get(1).and_then(JsValue::as_object).ok_or_else(|| {
+                let listener = args.get(1).and_then(JsValue::as_callable).ok_or_else(|| {
                     JsNativeError::typ()
                         .with_message("addEventListener: listener must be a function")
                 })?;
@@ -269,10 +269,16 @@ fn sse_constructor(
     }
 
     // 6. Open the SSE connection via the bridge.
-    // Pass the document origin for CORS validation on the SSE response.
-    let doc_origin = Some(bridge.origin().serialize());
+    // Same-origin requests skip CORS; cross-origin requests send Origin header.
+    let doc_origin = bridge.origin();
+    let sse_origin = elidex_plugin::SecurityOrigin::from_url(&url);
+    let cors_origin = if doc_origin == sse_origin {
+        None // Same-origin: no CORS needed
+    } else {
+        Some(doc_origin.serialize()) // Cross-origin: send Origin header
+    };
     let id = bridge
-        .open_event_source(url, with_credentials, doc_origin, es_obj.clone())
+        .open_event_source(url, with_credentials, cors_origin, es_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
     define_connection_id(&es_obj, SSE_ID_KEY, id, ctx);
@@ -341,7 +347,7 @@ fn register_sse_event_accessor(
                 None
             } else {
                 Some(
-                    val.as_object()
+                    val.as_callable()
                         .ok_or_else(|| {
                             JsNativeError::typ()
                                 .with_message("event handler must be a function or null")
