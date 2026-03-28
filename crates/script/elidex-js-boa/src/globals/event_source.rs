@@ -157,11 +157,9 @@ fn sse_constructor(
             NativeFunction::from_copy_closure_with_captures(
                 |this, _args, bridge, ctx| -> JsResult<JsValue> {
                     let id = extract_sse_id(this, ctx)?;
-                    let inner = bridge.inner.borrow();
-                    let state = inner
-                        .realtime
-                        .sse_callbacks(id)
-                        .map_or(2, |cb| cb.ready_state.get());
+                    let state = bridge
+                        .with_sse_callbacks(id, |cb| cb.ready_state.get())
+                        .unwrap_or(2);
                     Ok(JsValue::from(f64::from(state)))
                 },
                 b_rs,
@@ -180,14 +178,11 @@ fn sse_constructor(
                 let id = extract_sse_id(this, ctx)?;
 
                 // Set readyState to CLOSED (2).
-                {
-                    let inner = bridge.inner.borrow();
-                    if let Some(cb) = inner.realtime.sse_callbacks(id) {
-                        cb.ready_state.set(2);
-                    }
-                }
+                bridge.with_sse_callbacks(id, |cb| {
+                    cb.ready_state.set(2);
+                });
 
-                bridge.inner.borrow().realtime.sse_close(id);
+                bridge.sse_close(id);
                 Ok(JsValue::undefined())
             },
             b_close,
@@ -217,15 +212,14 @@ fn sse_constructor(
                     JsNativeError::typ()
                         .with_message("addEventListener: listener must be a function")
                 })?;
-                let mut inner = bridge.inner.borrow_mut();
-                if let Some(cb) = inner.realtime.sse_callbacks_mut(id) {
+                bridge.with_sse_callbacks_mut(id, |cb| {
                     let listeners = cb.listener_registry.entry(event_type).or_default();
                     // Deduplicate by JsObject pointer equality.
                     let already = listeners.iter().any(|l| JsObject::equals(l, &listener));
                     if !already {
                         listeners.push(listener);
                     }
-                }
+                });
                 Ok(JsValue::undefined())
             },
             b_add,
@@ -248,12 +242,11 @@ fn sse_constructor(
                     .unwrap_or_default();
                 let listener = args.get(1).and_then(JsValue::as_object);
                 if let Some(ref listener) = listener {
-                    let mut inner = bridge.inner.borrow_mut();
-                    if let Some(cb) = inner.realtime.sse_callbacks_mut(id) {
+                    bridge.with_sse_callbacks_mut(id, |cb| {
                         if let Some(listeners) = cb.listener_registry.get_mut(&event_type) {
                             listeners.retain(|l| !JsObject::equals(l, listener));
                         }
-                    }
+                    });
                 }
                 Ok(JsValue::undefined())
             },
@@ -271,11 +264,7 @@ fn sse_constructor(
     // 5. Ensure the shared cookie jar is set for withCredentials support.
     if with_credentials {
         if let Some(fh) = fetch_handle {
-            bridge
-                .inner
-                .borrow_mut()
-                .realtime
-                .set_cookie_jar(Some(fh.cookie_jar_arc()));
+            bridge.set_realtime_cookie_jar(Some(fh.cookie_jar_arc()));
         }
     }
 
@@ -283,9 +272,6 @@ fn sse_constructor(
     // Pass the document origin for CORS validation on the SSE response.
     let doc_origin = Some(bridge.origin().serialize());
     let id = bridge
-        .inner
-        .borrow_mut()
-        .realtime
         .open_event_source(url, with_credentials, doc_origin, es_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
@@ -334,12 +320,10 @@ fn register_sse_event_accessor(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, cap, ctx| -> JsResult<JsValue> {
             let id = extract_sse_id(this, ctx)?;
-            let inner = cap.bridge.inner.borrow();
-            let handler = inner
-                .realtime
-                .sse_callbacks(id)
-                .and_then(|cb| get_sse_handler(cb, cap.which));
-            Ok(handler.map_or(JsValue::null(), |h| JsValue::from(h.clone())))
+            let handler = cap
+                .bridge
+                .with_sse_callbacks(id, |cb| get_sse_handler(cb, cap.which).cloned());
+            Ok(handler.flatten().map_or(JsValue::null(), JsValue::from))
         },
         getter_cap,
     )
@@ -365,10 +349,9 @@ fn register_sse_event_accessor(
                         .clone(),
                 )
             };
-            let mut inner = cap.bridge.inner.borrow_mut();
-            if let Some(cb) = inner.realtime.sse_callbacks_mut(id) {
+            cap.bridge.with_sse_callbacks_mut(id, |cb| {
                 set_sse_handler(cb, cap.which, handler);
-            }
+            });
             Ok(JsValue::undefined())
         },
         setter_cap,

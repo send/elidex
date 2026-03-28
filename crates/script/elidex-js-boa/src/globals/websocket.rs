@@ -151,11 +151,9 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             NativeFunction::from_copy_closure_with_captures(
                 |this, _args, bridge, ctx| -> JsResult<JsValue> {
                     let id = extract_ws_id(this, ctx)?;
-                    let inner = bridge.inner.borrow();
-                    let state = inner
-                        .realtime
-                        .ws_callbacks(id)
-                        .map_or(3, |cb| cb.ready_state.get());
+                    let state = bridge
+                        .with_ws_callbacks(id, |cb| cb.ready_state.get())
+                        .unwrap_or(3);
                     Ok(JsValue::from(f64::from(state)))
                 },
                 b_rs,
@@ -174,11 +172,8 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             NativeFunction::from_copy_closure_with_captures(
                 |this, _args, bridge, ctx| -> JsResult<JsValue> {
                     let id = extract_ws_id(this, ctx)?;
-                    let inner = bridge.inner.borrow();
-                    let val = inner
-                        .realtime
-                        .ws_callbacks(id)
-                        .map(|cb| cb.protocol.borrow().clone())
+                    let val = bridge
+                        .with_ws_callbacks(id, |cb| cb.protocol.borrow().clone())
                         .unwrap_or_default();
                     Ok(JsValue::from(js_string!(val)))
                 },
@@ -198,11 +193,8 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             NativeFunction::from_copy_closure_with_captures(
                 |this, _args, bridge, ctx| -> JsResult<JsValue> {
                     let id = extract_ws_id(this, ctx)?;
-                    let inner = bridge.inner.borrow();
-                    let val = inner
-                        .realtime
-                        .ws_callbacks(id)
-                        .map(|cb| cb.extensions.borrow().clone())
+                    let val = bridge
+                        .with_ws_callbacks(id, |cb| cb.extensions.borrow().clone())
                         .unwrap_or_default();
                     Ok(JsValue::from(js_string!(val)))
                 },
@@ -222,11 +214,9 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             NativeFunction::from_copy_closure_with_captures(
                 |this, _args, bridge, ctx| -> JsResult<JsValue> {
                     let id = extract_ws_id(this, ctx)?;
-                    let inner = bridge.inner.borrow();
-                    let val = inner
-                        .realtime
-                        .ws_callbacks(id)
-                        .map_or(0, |cb| cb.buffered_amount.get());
+                    let val = bridge
+                        .with_ws_callbacks(id, |cb| cb.buffered_amount.get())
+                        .unwrap_or(0);
                     Ok(JsValue::from(val as f64))
                 },
                 b_ba,
@@ -290,13 +280,7 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             |this, args, bridge, ctx| -> JsResult<JsValue> {
                 let id = extract_ws_id(this, ctx)?;
                 // Check readyState == OPEN (1)
-                let state = {
-                    let inner = bridge.inner.borrow();
-                    inner
-                        .realtime
-                        .ws_callbacks(id)
-                        .map(|cb| cb.ready_state.get())
-                };
+                let state = bridge.with_ws_callbacks(id, |cb| cb.ready_state.get());
                 match state {
                     Some(1) => {} // OPEN — send normally
                     Some(0) => {
@@ -318,17 +302,14 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     .unwrap_or_default();
                 // Calculate byte length before sending for bufferedAmount update.
                 let byte_len = data.len() as u64;
-                let _ = bridge.inner.borrow().realtime.ws_send_text(id, data);
+                let _ = bridge.ws_send_text(id, data);
                 // Synchronously increment bufferedAmount per WHATWG §9.3.1.
                 // The I/O thread will send BufferedAmountUpdate to decrement
                 // after transmission.
-                {
-                    let inner = bridge.inner.borrow();
-                    if let Some(cb) = inner.realtime.ws_callbacks(id) {
-                        let current = cb.buffered_amount.get();
-                        cb.buffered_amount.set(current + byte_len);
-                    }
-                }
+                bridge.with_ws_callbacks(id, |cb| {
+                    let current = cb.buffered_amount.get();
+                    cb.buffered_amount.set(current + byte_len);
+                });
                 Ok(JsValue::undefined())
             },
             b_send,
@@ -346,11 +327,8 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
 
                 // Early return if already CLOSING or CLOSED per WHATWG §9.3.1.
                 let current_state = bridge
-                    .inner
-                    .borrow()
-                    .realtime
-                    .ws_callbacks(id)
-                    .map_or(3, |cb| cb.ready_state.get());
+                    .with_ws_callbacks(id, |cb| cb.ready_state.get())
+                    .unwrap_or(3);
                 if current_state == 2 || current_state == 3 {
                     return Ok(JsValue::undefined());
                 }
@@ -400,14 +378,11 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                 };
 
                 // Set readyState to CLOSING (2).
-                {
-                    let inner = bridge.inner.borrow();
-                    if let Some(cb) = inner.realtime.ws_callbacks(id) {
-                        cb.ready_state.set(2);
-                    }
-                }
+                bridge.with_ws_callbacks(id, |cb| {
+                    cb.ready_state.set(2);
+                });
 
-                bridge.inner.borrow().realtime.ws_close(id, code, reason);
+                bridge.ws_close(id, code, reason);
                 Ok(JsValue::undefined())
             },
             b_close,
@@ -438,15 +413,14 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     JsNativeError::typ()
                         .with_message("addEventListener: listener must be a function")
                 })?;
-                let mut inner = bridge.inner.borrow_mut();
-                if let Some(cb) = inner.realtime.ws_callbacks_mut(id) {
+                bridge.with_ws_callbacks_mut(id, |cb| {
                     let listeners = cb.listener_registry.entry(event_type).or_default();
                     // Deduplicate by JsObject pointer equality.
                     let already = listeners.iter().any(|l| JsObject::equals(l, &listener));
                     if !already {
                         listeners.push(listener);
                     }
-                }
+                });
                 Ok(JsValue::undefined())
             },
             b_add,
@@ -469,12 +443,11 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     .unwrap_or_default();
                 let listener = args.get(1).and_then(JsValue::as_object);
                 if let Some(ref listener) = listener {
-                    let mut inner = bridge.inner.borrow_mut();
-                    if let Some(cb) = inner.realtime.ws_callbacks_mut(id) {
+                    bridge.with_ws_callbacks_mut(id, |cb| {
                         if let Some(listeners) = cb.listener_registry.get_mut(&event_type) {
                             listeners.retain(|l| !JsObject::equals(l, listener));
                         }
-                    }
+                    });
                 }
                 Ok(JsValue::undefined())
             },
@@ -492,9 +465,6 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
     // 7. Open the WebSocket connection via the bridge.
     let origin_str = origin.serialize();
     let id = bridge
-        .inner
-        .borrow_mut()
-        .realtime
         .open_websocket(url, protocols, origin_str, ws_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
@@ -630,12 +600,10 @@ fn register_ws_event_accessor(
     let getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, cap, ctx| -> JsResult<JsValue> {
             let id = extract_ws_id(this, ctx)?;
-            let inner = cap.bridge.inner.borrow();
-            let handler = inner
-                .realtime
-                .ws_callbacks(id)
-                .and_then(|cb| get_ws_handler(cb, cap.which));
-            Ok(handler.map_or(JsValue::null(), |h| JsValue::from(h.clone())))
+            let handler = cap
+                .bridge
+                .with_ws_callbacks(id, |cb| get_ws_handler(cb, cap.which).cloned());
+            Ok(handler.flatten().map_or(JsValue::null(), JsValue::from))
         },
         getter_cap,
     )
@@ -661,10 +629,9 @@ fn register_ws_event_accessor(
                         .clone(),
                 )
             };
-            let mut inner = cap.bridge.inner.borrow_mut();
-            if let Some(cb) = inner.realtime.ws_callbacks_mut(id) {
+            cap.bridge.with_ws_callbacks_mut(id, |cb| {
                 set_ws_handler(cb, cap.which, handler);
-            }
+            });
             Ok(JsValue::undefined())
         },
         setter_cap,

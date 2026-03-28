@@ -38,7 +38,7 @@ use elidex_web_canvas::Canvas2dContext;
 /// clone of this bridge.
 #[derive(Clone)]
 pub struct HostBridge {
-    pub(crate) inner: Rc<RefCell<HostBridgeInner>>,
+    inner: Rc<RefCell<HostBridgeInner>>,
     dom_registry: Rc<DomHandlerRegistry>,
     cssom_registry: Rc<CssomHandlerRegistry>,
 }
@@ -122,7 +122,7 @@ pub(crate) struct HostBridgeInner {
     // --- iframe / multi-document ---
     iframe: IframeBridgeState,
     // --- WebSocket / SSE ---
-    pub(crate) realtime: realtime::RealtimeState,
+    realtime: realtime::RealtimeState,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -540,6 +540,106 @@ impl HostBridge {
     /// Shut down all WebSocket and SSE connections.
     pub fn shutdown_all_realtime(&self) {
         self.inner.borrow_mut().realtime.shutdown_all();
+    }
+
+    // --- WebSocket API ---
+
+    /// Open a WebSocket connection. Returns connection ID or error.
+    pub fn open_websocket(
+        &self,
+        url: url::Url,
+        protocols: Vec<String>,
+        origin: String,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .open_websocket(url, protocols, origin, js_object)
+    }
+
+    /// Read a WebSocket callback field via a closure.
+    /// The closure receives the `WsCallbacks` reference.
+    pub(crate) fn with_ws_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&realtime::WsCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.ws_callbacks(id).map(f)
+    }
+
+    /// Mutate a WebSocket callback field via a closure.
+    pub(crate) fn with_ws_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut realtime::WsCallbacks) -> R,
+    {
+        self.inner.borrow_mut().realtime.ws_callbacks_mut(id).map(f)
+    }
+
+    /// Send text on a WebSocket.
+    #[must_use]
+    pub fn ws_send_text(&self, id: u64, data: String) -> bool {
+        self.inner.borrow().realtime.ws_send_text(id, data)
+    }
+
+    /// Close a WebSocket.
+    pub fn ws_close(&self, id: u64, code: u16, reason: String) {
+        self.inner.borrow().realtime.ws_close(id, code, reason);
+    }
+
+    /// Remove a WebSocket from the registry.
+    pub fn remove_ws(&self, id: u64) {
+        self.inner.borrow_mut().realtime.remove_ws(id);
+    }
+
+    // --- EventSource API ---
+
+    /// Open an `EventSource` connection.
+    pub fn open_event_source(
+        &self,
+        url: url::Url,
+        with_credentials: bool,
+        origin: Option<String>,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .open_event_source(url, with_credentials, origin, js_object)
+    }
+
+    /// Read an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&realtime::SseCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.sse_callbacks(id).map(f)
+    }
+
+    /// Mutate an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut realtime::SseCallbacks) -> R,
+    {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .sse_callbacks_mut(id)
+            .map(f)
+    }
+
+    /// Close an SSE connection.
+    pub fn sse_close(&self, id: u64) {
+        self.inner.borrow().realtime.sse_close(id);
+    }
+
+    /// Remove an SSE from the registry.
+    pub fn remove_sse(&self, id: u64) {
+        self.inner.borrow_mut().realtime.remove_sse(id);
+    }
+
+    /// Set the cookie jar for SSE `withCredentials` support.
+    pub fn set_realtime_cookie_jar(&self, jar: Option<std::sync::Arc<elidex_net::CookieJar>>) {
+        self.inner.borrow_mut().realtime.set_cookie_jar(jar);
     }
 
     /// Set a URL to open in a new tab (from `window.open`).
