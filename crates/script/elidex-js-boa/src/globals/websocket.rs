@@ -341,10 +341,13 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                         1000u16
                     } else {
                         let code_f64 = v.to_number(ctx)?;
-                        if code_f64.fract() != 0.0 || !code_f64.is_finite() {
+                        if code_f64.fract() != 0.0
+                            || !code_f64.is_finite()
+                            || !(0.0..=65535.0).contains(&code_f64)
+                        {
                             return Err(JsNativeError::typ()
                                 .with_message(
-                                    "InvalidAccessError: close code must be an integer",
+                                    "InvalidAccessError: close code must be a valid integer",
                                 )
                                 .into());
                         }
