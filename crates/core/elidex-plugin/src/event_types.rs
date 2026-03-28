@@ -154,16 +154,33 @@ pub enum EventPayload {
     Wheel(WheelEventInit),
     /// Scroll event (no additional data — target is the scroll container).
     Scroll,
-    /// Cross-document message event data (WHATWG HTML §9.4.3).
+    /// Cross-document message event data (WHATWG HTML §9.4.3, §9.2, §9.3).
+    ///
+    /// Used for `postMessage`, WebSocket `onmessage`, and SSE events.
     Message {
-        /// JSON-serialized message data.
+        /// Message data (string for text, base64 for binary).
         data: String,
         /// Serialized origin of the sender.
         origin: String,
+        /// Last event ID (empty for postMessage/WebSocket, sticky for SSE).
+        last_event_id: String,
     },
+    /// WebSocket/SSE close event data (WHATWG HTML `CloseEvent`).
+    CloseEvent(CloseEventInit),
     /// No additional data (e.g. generic events).
     #[default]
     None,
+}
+
+/// Close event initialization data (WHATWG HTML `CloseEvent`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CloseEventInit {
+    /// The WebSocket connection close code (RFC 6455 §7.4).
+    pub code: u16,
+    /// The close reason string.
+    pub reason: String,
+    /// Whether the connection was closed cleanly (close handshake completed).
+    pub was_clean: bool,
 }
 
 #[cfg(test)]
@@ -258,5 +275,37 @@ mod tests {
             pseudo_element: String::new(),
         });
         assert!(matches!(p, EventPayload::Animation(_)));
+    }
+
+    #[test]
+    fn close_event_init_default() {
+        let init = CloseEventInit::default();
+        assert_eq!(init.code, 0);
+        assert!(init.reason.is_empty());
+        assert!(!init.was_clean);
+    }
+
+    #[test]
+    fn close_event_payload_variant() {
+        let payload = EventPayload::CloseEvent(CloseEventInit {
+            code: 1000,
+            reason: "normal".to_string(),
+            was_clean: true,
+        });
+        assert!(matches!(payload, EventPayload::CloseEvent(_)));
+    }
+
+    #[test]
+    fn message_payload_with_last_event_id() {
+        let payload = EventPayload::Message {
+            data: "hello".to_string(),
+            origin: "https://example.com".to_string(),
+            last_event_id: "42".to_string(),
+        };
+        if let EventPayload::Message { last_event_id, .. } = payload {
+            assert_eq!(last_event_id, "42");
+        } else {
+            panic!("expected Message");
+        }
     }
 }

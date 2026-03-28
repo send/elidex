@@ -444,6 +444,27 @@ fn run_event_loop(state: &mut ContentState) {
                 .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
         }
 
+        // Drain WebSocket and SSE events from I/O threads.
+        {
+            let (ws_events, sse_events) = state.pipeline.runtime.bridge().drain_realtime_events();
+            let has_js_events = ws_events
+                .iter()
+                .any(|(_, e)| !matches!(e, elidex_net::ws::WsEvent::BytesSent(_)))
+                || !sse_events.is_empty();
+            if !ws_events.is_empty() || !sse_events.is_empty() {
+                state.pipeline.runtime.dispatch_realtime_events(
+                    ws_events,
+                    sse_events,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if has_js_events {
+                    needs_render = true;
+                }
+            }
+        }
+
         // Drain timers for in-process (same-origin) iframes.
         iframe::tick_iframe_timers(state);
 
@@ -478,8 +499,9 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 return true; // Continue event loop.
             }
             // Shutdown all child iframes before parent (WHATWG HTML §7.1.3).
-            // Send Shutdown to all OOP iframes and join threads.
             state.iframes.shutdown_all();
+            // Close all WebSocket/SSE connections.
+            state.pipeline.runtime.bridge().shutdown_all_realtime();
             return false;
         }
 
@@ -651,6 +673,7 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     event.payload = elidex_plugin::EventPayload::Message {
         data: data.to_string(),
         origin: origin.to_string(),
+        last_event_id: String::new(),
     };
     state.pipeline.runtime.dispatch_event(
         &mut event,

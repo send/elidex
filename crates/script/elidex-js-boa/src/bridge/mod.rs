@@ -14,6 +14,7 @@ mod ce;
 mod cssom;
 mod media;
 mod observers;
+pub(crate) mod realtime;
 mod traversal;
 
 use std::cell::RefCell;
@@ -42,7 +43,7 @@ pub struct HostBridge {
     cssom_registry: Rc<CssomHandlerRegistry>,
 }
 
-struct HostBridgeInner {
+pub(crate) struct HostBridgeInner {
     session_ptr: *mut SessionCore,
     dom_ptr: *mut EcsDom,
     document_entity: Option<Entity>,
@@ -120,6 +121,8 @@ struct HostBridgeInner {
     when_defined_promises: HashMap<String, JsValue>,
     // --- iframe / multi-document ---
     iframe: IframeBridgeState,
+    // --- WebSocket / SSE ---
+    realtime: realtime::RealtimeState,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -277,6 +280,7 @@ impl HostBridge {
                 when_defined_resolvers: HashMap::new(),
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
+                realtime: realtime::RealtimeState::default(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -526,6 +530,114 @@ impl HostBridge {
     /// Drain all queued postMessage events.
     pub fn drain_post_messages(&self) -> Vec<(String, String)> {
         std::mem::take(&mut self.inner.borrow_mut().iframe.pending_post_messages)
+    }
+
+    /// Drain all pending WebSocket and SSE events.
+    pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
+        self.inner.borrow_mut().realtime.drain_realtime_events()
+    }
+
+    /// Shut down all WebSocket and SSE connections.
+    pub fn shutdown_all_realtime(&self) {
+        self.inner.borrow_mut().realtime.shutdown_all();
+    }
+
+    // --- WebSocket API ---
+
+    /// Open a WebSocket connection. Returns connection ID or error.
+    pub fn open_websocket(
+        &self,
+        url: url::Url,
+        protocols: Vec<String>,
+        origin: String,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .open_websocket(url, protocols, origin, js_object)
+    }
+
+    /// Read a WebSocket callback field via a closure.
+    /// The closure receives the `WsCallbacks` reference.
+    pub(crate) fn with_ws_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&realtime::WsCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.ws_callbacks(id).map(f)
+    }
+
+    /// Mutate a WebSocket callback field via a closure.
+    pub(crate) fn with_ws_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut realtime::WsCallbacks) -> R,
+    {
+        self.inner.borrow_mut().realtime.ws_callbacks_mut(id).map(f)
+    }
+
+    /// Send text on a WebSocket.
+    #[must_use]
+    pub fn ws_send_text(&self, id: u64, data: String) -> bool {
+        self.inner.borrow().realtime.ws_send_text(id, data)
+    }
+
+    /// Close a WebSocket.
+    pub fn ws_close(&self, id: u64, code: u16, reason: String) {
+        self.inner.borrow().realtime.ws_close(id, code, reason);
+    }
+
+    /// Remove a WebSocket from the registry.
+    pub fn remove_ws(&self, id: u64) {
+        self.inner.borrow_mut().realtime.remove_ws(id);
+    }
+
+    // --- EventSource API ---
+
+    /// Open an `EventSource` connection.
+    pub fn open_event_source(
+        &self,
+        url: url::Url,
+        with_credentials: bool,
+        origin: Option<String>,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .open_event_source(url, with_credentials, origin, js_object)
+    }
+
+    /// Read an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&realtime::SseCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.sse_callbacks(id).map(f)
+    }
+
+    /// Mutate an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut realtime::SseCallbacks) -> R,
+    {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .sse_callbacks_mut(id)
+            .map(f)
+    }
+
+    /// Close and remove an SSE connection.
+    ///
+    /// SSE has no close handshake (unlike WebSocket), so the connection
+    /// is removed immediately to prevent resource leaks.
+    pub fn sse_close(&self, id: u64) {
+        self.inner.borrow_mut().realtime.sse_close(id);
+    }
+
+    /// Set the cookie jar for SSE `withCredentials` support.
+    pub fn set_realtime_cookie_jar(&self, jar: Option<std::sync::Arc<elidex_net::CookieJar>>) {
+        self.inner.borrow_mut().realtime.set_cookie_jar(jar);
     }
 
     /// Set a URL to open in a new tab (from `window.open`).
@@ -849,6 +961,43 @@ unsafe impl boa_gc::Trace for HostBridge {
         }
         for promise in inner.when_defined_promises.values() {
             mark(promise);
+        }
+        for conn in inner.realtime.ws_iter() {
+            if let Some(ref cb) = conn.onopen {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onmessage {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onerror {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onclose {
+                mark(cb);
+            }
+            mark(&conn.js_object);
+            for listeners in conn.listener_registry.values() {
+                for listener in listeners {
+                    mark(listener);
+                }
+            }
+        }
+        for conn in inner.realtime.sse_iter() {
+            if let Some(ref cb) = conn.onopen {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onmessage {
+                mark(cb);
+            }
+            if let Some(ref cb) = conn.onerror {
+                mark(cb);
+            }
+            mark(&conn.js_object);
+            for listeners in conn.listener_registry.values() {
+                for listener in listeners {
+                    mark(listener);
+                }
+            }
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever

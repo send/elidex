@@ -23,6 +23,7 @@ elidex-api-observers.workspace = true
 elidex-wasm-runtime.workspace = true
 elidex-custom-elements.workspace = true
 wasmtime.workspace = true
+base64.workspace = true
 boa_engine.workspace = true
 boa_gc.workspace = true
 tracing.workspace = true

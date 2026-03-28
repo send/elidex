@@ -150,6 +150,10 @@ pub fn create_event_object(
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
+    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
+    // TODO: When JS `dispatchEvent()` / `CustomEvent` is implemented,
+    // parameterize via `DispatchEvent.is_trusted` (script-dispatched → false).
+    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload, empty_ports);
@@ -254,6 +258,118 @@ pub fn create_event_object(
     init.build().into()
 }
 
+/// Create a standalone Event object for non-DOM event targets (`WebSocket`, `EventSource`).
+///
+/// Unlike [`create_event_object`], this does not require a DOM entity target or
+/// shared dispatch flags. The event has `preventDefault()`/`stopPropagation()`
+/// methods and payload-specific properties.
+///
+/// If `target` is `Some`, `event.target` and `event.currentTarget` are set to
+/// that value (e.g. the `WebSocket` or `EventSource` JS object); otherwise they
+/// are set to `null`.
+///
+/// Used by `WebSocket` `onmessage`/`onclose`/`onopen`/`onerror` and `EventSource` events.
+pub fn create_standalone_event(
+    event_type: &str,
+    payload: &EventPayload,
+    cancelable: bool,
+    target: Option<&JsValue>,
+    ctx: &mut Context,
+) -> JsValue {
+    // Pre-build ports array for Message payloads.
+    let empty_ports: JsValue = if matches!(payload, EventPayload::Message { .. }) {
+        boa_engine::object::builtins::JsArray::new(ctx).into()
+    } else {
+        JsValue::undefined()
+    };
+
+    let prevent_default = Rc::new(Cell::new(false));
+    let realm = ctx.realm().clone();
+
+    let mut init = ObjectInitializer::new(ctx);
+
+    // Core event properties.
+    init.property(
+        js_string!("type"),
+        JsValue::from(js_string!(event_type)),
+        RO,
+    );
+    init.property(js_string!("bubbles"), JsValue::from(false), RO);
+    init.property(js_string!("cancelable"), JsValue::from(cancelable), RO);
+    let target_val = target.cloned().unwrap_or(JsValue::null());
+    init.property(js_string!("target"), target_val.clone(), RO);
+    init.property(js_string!("currentTarget"), target_val, RO);
+    init.property(js_string!("composed"), JsValue::from(false), RO);
+    init.property(js_string!("timeStamp"), JsValue::from(0), RO);
+    init.property(
+        js_string!("eventPhase"),
+        JsValue::from(2_i32), // AT_TARGET
+        RO,
+    );
+    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
+    // Standalone events (WS/SSE) are always UA-dispatched.
+    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+
+    // defaultPrevented accessor.
+    let pd_flag = SharedFlag(Rc::clone(&prevent_default));
+    init.accessor(
+        js_string!("defaultPrevented"),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
+                    Ok(JsValue::from(flag.0.get()))
+                },
+                pd_flag,
+            )
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // preventDefault().
+    let pd_shared = SharedFlag(Rc::clone(&prevent_default));
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, (f, cancel), _ctx| {
+                if *cancel {
+                    f.0.set(true);
+                }
+                Ok(JsValue::undefined())
+            },
+            (pd_shared, cancelable),
+        ),
+        js_string!("preventDefault"),
+        0,
+    );
+
+    // stopPropagation() / stopImmediatePropagation() — no-ops for standalone events.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopPropagation"),
+        0,
+    );
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopImmediatePropagation"),
+        0,
+    );
+
+    // composedPath() — empty array for standalone events.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, ctx| {
+            Ok(boa_engine::object::builtins::JsArray::new(ctx).into())
+        }),
+        js_string!("composedPath"),
+        0,
+    );
+
+    // Payload-specific properties.
+    set_payload_properties(&mut init, payload, empty_ports);
+
+    init.build().into()
+}
+
 /// Modifier key state (alt/ctrl/meta/shift).
 #[allow(clippy::struct_excessive_bools)] // DOM UIEvent spec requires 4 modifier key booleans.
 struct ModifierKeys {
@@ -319,9 +435,14 @@ fn set_payload_properties(
         EventPayload::Clipboard(c) => set_clipboard_payload(init, c),
         EventPayload::Composition(c) => set_composition_payload(init, c),
         EventPayload::Focus(_f) => set_focus_payload(init),
-        EventPayload::Message { data, origin } => {
-            set_message_payload(init, data, origin, empty_ports);
+        EventPayload::Message {
+            data,
+            origin,
+            last_event_id,
+        } => {
+            set_message_payload(init, data, origin, last_event_id, empty_ports);
         }
+        EventPayload::CloseEvent(c) => set_close_event_payload(init, c),
         EventPayload::None | _ => {}
     }
 }
@@ -404,16 +525,36 @@ fn set_composition_payload(
     );
 }
 
-fn set_message_payload(init: &mut ObjectInitializer<'_>, data: &str, origin: &str, ports: JsValue) {
-    // WHATWG HTML §9.4.3: MessageEvent.data and MessageEvent.origin.
-    // MVP: data is a JSON string (not structured clone). The listener
-    // should call JSON.parse(e.data) if needed.
+fn set_message_payload(
+    init: &mut ObjectInitializer<'_>,
+    data: &str,
+    origin: &str,
+    last_event_id: &str,
+    ports: JsValue,
+) {
+    // WHATWG HTML §9.4.3 / §9.2 / §9.3: MessageEvent properties.
     init.property(js_string!("data"), JsValue::from(js_string!(data)), RO);
     init.property(js_string!("origin"), JsValue::from(js_string!(origin)), RO);
+    init.property(
+        js_string!("lastEventId"),
+        JsValue::from(js_string!(last_event_id)),
+        RO,
+    );
     // source: null (cross-context WindowProxy not available in boa).
     init.property(js_string!("source"), JsValue::null(), RO);
     // ports: empty frozen array (MessagePort not implemented).
     init.property(js_string!("ports"), ports, RO);
+}
+
+fn set_close_event_payload(init: &mut ObjectInitializer<'_>, c: &elidex_plugin::CloseEventInit) {
+    // WHATWG HTML CloseEvent properties.
+    init.property(js_string!("code"), JsValue::from(i32::from(c.code)), RO);
+    init.property(
+        js_string!("reason"),
+        JsValue::from(js_string!(c.reason.as_str())),
+        RO,
+    );
+    init.property(js_string!("wasClean"), JsValue::from(c.was_clean), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

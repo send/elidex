@@ -7,6 +7,7 @@ pub mod custom_elements;
 pub mod document;
 pub mod element;
 pub(crate) mod element_form;
+pub mod event_source;
 pub mod events;
 pub mod fetch;
 pub mod history;
@@ -15,11 +16,12 @@ pub mod location;
 pub mod observers;
 pub mod timers;
 pub mod wasm;
+pub mod websocket;
 pub mod window;
 
 use std::rc::Rc;
 
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue};
 use elidex_ecs::Entity;
 use elidex_net::FetchHandle;
 use elidex_plugin::JsValue as ElidexJsValue;
@@ -254,6 +256,52 @@ pub(crate) fn remove_event_listener_for(
     Ok(JsValue::undefined())
 }
 
+/// Extract a numeric connection ID from a hidden property on `this`.
+///
+/// Shared by `WebSocket` (`__elidex_ws_id__`) and `EventSource` (`__elidex_sse_id__`).
+pub(crate) fn extract_connection_id(
+    this: &JsValue,
+    key: &str,
+    type_name: &str,
+    ctx: &mut Context,
+) -> JsResult<u64> {
+    let obj = this.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message(format!("{type_name}: not a {type_name} object"))
+    })?;
+    let id_val = obj.get(js_string!(key), ctx)?;
+    let id = id_val.as_number().ok_or_else(|| {
+        JsNativeError::typ().with_message(format!("{type_name}: missing connection ID"))
+    })?;
+    Ok(id as u64)
+}
+
+/// Define a hidden, non-writable connection ID property on a JS object.
+///
+/// Shared by `WebSocket` and `EventSource` to store the internal connection ID
+/// as a tamper-proof property.
+pub(crate) fn define_connection_id(obj: &JsObject, key: &str, id: u64, ctx: &mut Context) {
+    let _ = obj.define_property_or_throw(
+        js_string!(key),
+        boa_engine::property::PropertyDescriptor::builder()
+            .value(JsValue::from(id as f64))
+            .writable(false)
+            .enumerable(false)
+            .configurable(false)
+            .build(),
+        ctx,
+    );
+}
+
+/// Set readyState constants on a JS object.
+///
+/// Shared by `WebSocket` and `EventSource` for setting CONNECTING/OPEN/CLOSING/CLOSED
+/// constants on both the constructor and instance objects.
+pub(crate) fn set_readystate_constants(obj: &JsObject, names: &[(&str, i32)], ctx: &mut Context) {
+    for &(name, value) in names {
+        let _ = obj.set(js_string!(name), JsValue::from(value), false, ctx);
+    }
+}
+
 /// Register all elidex globals on the boa context.
 pub fn register_all_globals(
     ctx: &mut Context,
@@ -266,10 +314,12 @@ pub fn register_all_globals(
     document::register_document(ctx, bridge);
     window::register_window(ctx, bridge);
     timers::register_timers(ctx, timer_queue);
-    fetch::register_fetch(ctx, fetch_handle);
+    fetch::register_fetch(ctx, fetch_handle.clone());
     wasm::register_wasm(ctx, bridge);
     observers::register_observers(ctx, bridge);
     custom_elements::register_custom_elements_global(ctx, bridge);
+    websocket::register_websocket(ctx, bridge);
+    event_source::register_event_source(ctx, bridge, fetch_handle);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

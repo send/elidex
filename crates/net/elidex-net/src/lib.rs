@@ -30,8 +30,10 @@ pub mod middleware;
 pub(crate) mod pool;
 pub(crate) mod redirect;
 pub mod resource_loader;
+pub mod sse;
 pub(crate) mod tls;
 pub mod transport;
+pub mod ws;
 
 use std::sync::Arc;
 
@@ -204,6 +206,14 @@ impl NetClient {
     /// Access the cookie jar.
     pub fn cookie_jar(&self) -> &CookieJar {
         &self.cookie_jar
+    }
+
+    /// Get an `Arc` reference to the shared cookie jar.
+    ///
+    /// Used by `FetchHandle` and `EventSource` to share cookies across
+    /// connections (e.g., for `withCredentials` support).
+    pub fn cookie_jar_arc(&self) -> Arc<CookieJar> {
+        Arc::clone(&self.cookie_jar)
     }
 
     /// Add a network middleware to the chain.
