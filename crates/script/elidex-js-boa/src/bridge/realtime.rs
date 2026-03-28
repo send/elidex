@@ -214,9 +214,13 @@ impl RealtimeState {
         Ok(id)
     }
 
-    /// Close an SSE connection.
-    pub fn sse_close(&self, id: u64) {
-        if let Some(conn) = self.sse_connections.get(&id) {
+    /// Close and remove an SSE connection.
+    ///
+    /// Unlike WebSocket (which has a close handshake that produces a `Closed`
+    /// event), SSE close is immediate — the I/O thread exits without sending
+    /// an event, so the connection must be removed here.
+    pub fn sse_close(&mut self, id: u64) {
+        if let Some(conn) = self.sse_connections.remove(&id) {
             let _ = conn.handle.command_tx.send(SseCommand::Close);
         }
     }
@@ -263,11 +267,6 @@ impl RealtimeState {
     /// Remove a WebSocket connection from the registry.
     pub fn remove_ws(&mut self, id: u64) {
         self.ws_connections.remove(&id);
-    }
-
-    /// Remove an SSE connection from the registry.
-    pub fn remove_sse(&mut self, id: u64) {
-        self.sse_connections.remove(&id);
     }
 
     /// Iterate over all WS callback sets (for GC tracing).

@@ -627,14 +627,12 @@ impl HostBridge {
             .map(f)
     }
 
-    /// Close an SSE connection.
+    /// Close and remove an SSE connection.
+    ///
+    /// SSE has no close handshake (unlike WebSocket), so the connection
+    /// is removed immediately to prevent resource leaks.
     pub fn sse_close(&self, id: u64) {
-        self.inner.borrow().realtime.sse_close(id);
-    }
-
-    /// Remove an SSE from the registry.
-    pub fn remove_sse(&self, id: u64) {
-        self.inner.borrow_mut().realtime.remove_sse(id);
+        self.inner.borrow_mut().realtime.sse_close(id);
     }
 
     /// Set the cookie jar for SSE `withCredentials` support.

@@ -271,11 +271,11 @@ async fn sse_io_loop(
         let mut reader = match connect_sse_stream(&url, &extra_headers, origin.as_deref()).await {
             Ok(r) => r,
             Err(SseConnectError::Fatal(msg)) => {
-                let _ = evt_tx.send(SseEvent::FatalError(msg));
+                let _ = evt_tx.try_send(SseEvent::FatalError(msg));
                 return;
             }
             Err(SseConnectError::Recoverable(msg)) => {
-                if evt_tx.send(SseEvent::Error(msg)).is_err() {
+                if evt_tx.try_send(SseEvent::Error(msg)).is_err() {
                     return;
                 }
                 if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed).await {
@@ -286,7 +286,7 @@ async fn sse_io_loop(
         };
 
         // Connected successfully.
-        if evt_tx.send(SseEvent::Connected).is_err() {
+        if evt_tx.try_send(SseEvent::Connected).is_err() {
             return;
         }
 
@@ -334,7 +334,7 @@ async fn sse_io_loop(
                         if sub.is_empty() {
                             // Empty line: dispatch if data pending, else reset event_type.
                             if parser.has_pending_event() {
-                                if evt_tx.send(parser.take_event()).is_err() {
+                                if evt_tx.try_send(parser.take_event()).is_err() {
                                     return;
                                 }
                             } else {
@@ -357,7 +357,7 @@ async fn sse_io_loop(
 
         // Dispatch any remaining event (stream ended without trailing blank line).
         if parser.has_pending_event() {
-            if evt_tx.send(parser.take_event()).is_err() {
+            if evt_tx.try_send(parser.take_event()).is_err() {
                 return;
             }
         } else {

@@ -123,7 +123,7 @@ pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) ->
 
 /// Send an abnormal-close error event.
 fn send_abnormal_close(evt_tx: &Sender<WsEvent>) {
-    let _ = evt_tx.send(WsEvent::Closed {
+    let _ = evt_tx.try_send(WsEvent::Closed {
         code: 1006,
         reason: String::new(),
         was_clean: false,
@@ -140,17 +140,17 @@ fn handle_ws_message(
     use tokio_tungstenite::tungstenite;
 
     match msg {
-        tungstenite::Message::Text(text) => {
-            evt_tx.send(WsEvent::TextMessage(text.to_string())).is_err()
-        }
-        tungstenite::Message::Binary(data) => {
-            evt_tx.send(WsEvent::BinaryMessage(data.to_vec())).is_err()
-        }
+        tungstenite::Message::Text(text) => evt_tx
+            .try_send(WsEvent::TextMessage(text.to_string()))
+            .is_err(),
+        tungstenite::Message::Binary(data) => evt_tx
+            .try_send(WsEvent::BinaryMessage(data.to_vec()))
+            .is_err(),
         tungstenite::Message::Close(frame) => {
             let (code, reason) = frame.map_or((1005, String::new()), |f| {
                 (f.code.into(), f.reason.to_string())
             });
-            let _ = evt_tx.send(WsEvent::Closed {
+            let _ = evt_tx.try_send(WsEvent::Closed {
                 code,
                 reason,
                 was_clean: true,
@@ -181,11 +181,11 @@ async fn send_frame(
 ) -> bool {
     let len = msg.len() as u64;
     if write.send(msg).await.is_err() {
-        let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
+        let _ = evt_tx.try_send(WsEvent::Error("send failed".to_string()));
         send_abnormal_close(evt_tx);
         return true;
     }
-    let _ = evt_tx.send(WsEvent::BytesSent(len));
+    let _ = evt_tx.try_send(WsEvent::BytesSent(len));
     false
 }
 
@@ -217,7 +217,7 @@ async fn ws_io_loop(
     let request = match request.body(()) {
         Ok(r) => r,
         Err(e) => {
-            let _ = evt_tx.send(WsEvent::Error(format!("invalid WebSocket request: {e}")));
+            let _ = evt_tx.try_send(WsEvent::Error(format!("invalid WebSocket request: {e}")));
             send_abnormal_close(&evt_tx);
             return;
         }
@@ -237,7 +237,7 @@ async fn ws_io_loop(
     {
         Ok(pair) => pair,
         Err(e) => {
-            let _ = evt_tx.send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
+            let _ = evt_tx.try_send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
             send_abnormal_close(&evt_tx);
             return;
         }
@@ -285,7 +285,7 @@ async fn ws_io_loop(
                     if msg.is_close() {
                         // Received reciprocal close — connection cleanly closed.
                         let (code, reason) = extract_close_data(&msg);
-                        let _ = evt_tx.send(WsEvent::Closed {
+                        let _ = evt_tx.try_send(WsEvent::Closed {
                             code,
                             reason,
                             was_clean: true,
@@ -299,7 +299,7 @@ async fn ws_io_loop(
                 }
             }
             Ok(Some(Err(e))) => {
-                let _ = evt_tx.send(WsEvent::Error(format!("WebSocket error: {e}")));
+                let _ = evt_tx.try_send(WsEvent::Error(format!("WebSocket error: {e}")));
                 send_abnormal_close(&evt_tx);
                 return;
             }
@@ -316,7 +316,7 @@ async fn ws_io_loop(
         // Close handshake timeout: if 30s have elapsed since we sent a close frame
         // and the server hasn't responded, treat as unclean close.
         if close_sent && close_sent_at.elapsed() > Duration::from_secs(30) {
-            let _ = evt_tx.send(WsEvent::Closed {
+            let _ = evt_tx.try_send(WsEvent::Closed {
                 code: 1006,
                 reason: String::new(),
                 was_clean: false,

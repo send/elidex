@@ -383,7 +383,7 @@ fn dispatch_sse_fatal(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context
     let event_obj =
         create_standalone_event("error", &EventPayload::None, false, Some(&this_val), ctx);
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
-    // Remove from registry.
-    bridge.remove_sse(id);
+    // Close and remove from registry.
+    bridge.sse_close(id);
     eprintln!("[EventSource] fatal error: {msg}");
 }
