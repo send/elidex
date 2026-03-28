@@ -63,6 +63,21 @@ pub(super) async fn connect_sse_stream(
                         "SSE: invalid redirect Location '{location}': {e}"
                     ))
                 })?;
+                // Re-validate: redirect target must be http/https (not ws/ftp/etc.)
+                // and must pass SSRF checks.
+                match current_url.scheme() {
+                    "http" | "https" => {}
+                    s => {
+                        return Err(SseConnectError::Fatal(format!(
+                            "SSE: redirect to unsupported scheme '{s}'"
+                        )));
+                    }
+                }
+                if let Err(e) = elidex_plugin::url_security::validate_url(&current_url) {
+                    return Err(SseConnectError::Fatal(format!(
+                        "SSE: redirect target blocked: {e}"
+                    )));
+                }
             }
         }
     }

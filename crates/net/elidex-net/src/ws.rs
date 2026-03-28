@@ -177,6 +177,7 @@ async fn send_frame(
     evt_tx: &Sender<WsEvent>,
 ) -> bool {
     let len = msg.len() as u64;
+    *buffered_bytes += len;
     if write.send(msg).await.is_err() {
         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
         send_abnormal_close(evt_tx);
@@ -216,6 +217,7 @@ async fn ws_io_loop(
         Ok(r) => r,
         Err(e) => {
             let _ = evt_tx.send(WsEvent::Error(format!("invalid WebSocket request: {e}")));
+            send_abnormal_close(&evt_tx);
             return;
         }
     };
@@ -235,6 +237,7 @@ async fn ws_io_loop(
         Ok(pair) => pair,
         Err(e) => {
             let _ = evt_tx.send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
+            send_abnormal_close(&evt_tx);
             return;
         }
     };
