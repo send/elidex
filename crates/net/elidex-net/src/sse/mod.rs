@@ -96,7 +96,9 @@ pub fn spawn_sse_thread(
     let id = SseId::next();
 
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<SseCommand>();
-    let (evt_tx, evt_rx) = crossbeam_channel::bounded::<SseEvent>(256);
+    // Unbounded: SSE events must not be dropped (WHATWG HTML §9.2).
+    // Memory is bounded by TCP backpressure + MAX_SSE_LINE_SIZE (1 MiB).
+    let (evt_tx, evt_rx) = crossbeam_channel::unbounded::<SseEvent>();
 
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -294,9 +296,8 @@ async fn sse_io_loop(
 
         // Connected successfully.
         // Only exit on Disconnected — Full (backpressure) is non-fatal.
-        match evt_tx.try_send(SseEvent::Connected) {
-            Ok(()) | Err(crossbeam_channel::TrySendError::Full(_)) => {}
-            Err(crossbeam_channel::TrySendError::Disconnected(_)) => return,
+        if evt_tx.send(SseEvent::Connected).is_err() {
+            return;
         }
 
         // Stream body line-by-line.
@@ -344,9 +345,8 @@ async fn sse_io_loop(
                             // Empty line: dispatch if data pending, else reset event_type.
                             if parser.has_pending_event() {
                                 // Only exit on Disconnected — Full is non-fatal for data events.
-                                match evt_tx.try_send(parser.take_event()) {
-                                    Ok(()) | Err(crossbeam_channel::TrySendError::Full(_)) => {}
-                                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => return,
+                                if evt_tx.send(parser.take_event()).is_err() {
+                                    return;
                                 }
                             } else {
                                 // §9.2.6 step 1: reset event type even if no data.
@@ -369,9 +369,8 @@ async fn sse_io_loop(
         // Dispatch any remaining event (stream ended without trailing blank line).
         if parser.has_pending_event() {
             // Only exit on Disconnected — Full is non-fatal for data events.
-            match evt_tx.try_send(parser.take_event()) {
-                Ok(()) | Err(crossbeam_channel::TrySendError::Full(_)) => {}
-                Err(crossbeam_channel::TrySendError::Disconnected(_)) => return,
+            if evt_tx.send(parser.take_event()).is_err() {
+                return;
             }
         } else {
             parser.event_type = "message".to_string();
