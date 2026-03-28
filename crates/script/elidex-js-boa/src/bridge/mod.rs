@@ -10,12 +10,16 @@
 //! - bind/unbind bracket every eval call
 //! - `HostBridge` is `!Send` (via `Rc`)
 
+mod canvas;
 mod ce;
 mod cssom;
+mod iframe_bridge;
 mod media;
+mod navigation;
 mod observers;
 pub(crate) mod realtime;
 mod traversal;
+mod viewport;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -410,127 +414,8 @@ impl HostBridge {
             .is_some_and(|stored| JsObject::equals(stored, func))
     }
 
-    // --- Navigation state ---
-
-    /// Set the current page URL.
-    pub fn set_current_url(&self, url: Option<url::Url>) {
-        self.inner.borrow_mut().current_url = url;
-    }
-
-    /// Get the current page URL.
-    pub fn current_url(&self) -> Option<url::Url> {
-        self.inner.borrow().current_url.clone()
-    }
-
-    /// Set the security origin for this document.
-    pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
-        self.inner.borrow_mut().iframe.origin = origin;
-    }
-
-    /// Get the security origin of this document.
-    #[must_use]
-    pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
-        self.inner.borrow().iframe.origin.clone()
-    }
-
-    /// Set the `<iframe>` element entity in the parent DOM that contains this window.
-    pub fn set_frame_element(&self, entity: Option<Entity>) {
-        self.inner.borrow_mut().iframe.frame_element = entity;
-    }
-
-    /// Get the `<iframe>` element entity in the parent DOM.
-    #[must_use]
-    pub fn frame_element(&self) -> Option<Entity> {
-        self.inner.borrow().iframe.frame_element
-    }
-
-    /// Set the iframe nesting depth of this document.
-    pub fn set_iframe_depth(&self, depth: usize) {
-        self.inner.borrow_mut().iframe.iframe_depth = depth;
-    }
-
-    /// Get the iframe nesting depth of this document (0 for top-level).
-    #[must_use]
-    pub fn iframe_depth(&self) -> usize {
-        self.inner.borrow().iframe.iframe_depth
-    }
-
-    /// Set the referrer URL for this document (parent URL when loaded as iframe).
-    pub fn set_referrer(&self, referrer: Option<String>) {
-        self.inner.borrow_mut().iframe.referrer = referrer;
-    }
-
-    /// Get the referrer URL for this document.
-    #[must_use]
-    pub fn referrer(&self) -> Option<String> {
-        self.inner.borrow().iframe.referrer.clone()
-    }
-
-    /// Set sandbox flags for this document (if inside a sandboxed iframe).
-    pub fn set_sandbox_flags(&self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
-        self.inner.borrow_mut().iframe.sandbox_flags = flags;
-    }
-
-    /// Get sandbox flags for this document.
-    #[must_use]
-    pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
-        self.inner.borrow().iframe.sandbox_flags
-    }
-
-    /// Check if scripts are allowed (sandbox allow-scripts flag).
-    /// Returns `true` if not sandboxed or if allow-scripts is set.
-    #[must_use]
-    pub fn scripts_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
-    }
-
-    /// Check if forms are allowed (sandbox allow-forms flag).
-    #[must_use]
-    pub fn forms_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
-    }
-
-    /// Check if popups are allowed (sandbox allow-popups flag).
-    #[must_use]
-    pub fn popups_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
-    }
-
-    /// Check if modals (alert/confirm/prompt) are allowed.
-    #[must_use]
-    pub fn modals_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
-    }
-
-    /// Queue a postMessage for delivery in the next event loop tick.
-    pub fn queue_post_message(&self, data: String, origin: String) {
-        self.inner
-            .borrow_mut()
-            .iframe
-            .pending_post_messages
-            .push((data, origin));
-    }
-
-    /// Drain all queued postMessage events.
-    pub fn drain_post_messages(&self) -> Vec<(String, String)> {
-        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_post_messages)
-    }
+    // Navigation state methods are in navigation.rs
+    // Iframe bridge methods are in iframe_bridge.rs
 
     /// Drain all pending WebSocket and SSE events.
     pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
@@ -640,108 +525,9 @@ impl HostBridge {
         self.inner.borrow_mut().realtime.set_cookie_jar(jar);
     }
 
-    /// Set a URL to open in a new tab (from `window.open`).
-    pub fn queue_open_tab(&self, url: url::Url) {
-        self.inner.borrow_mut().iframe.pending_open_tabs.push(url);
-    }
-
-    /// Drain all pending new-tab URLs.
-    pub fn drain_pending_open_tabs(&self) -> Vec<url::Url> {
-        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_open_tabs)
-    }
-
-    /// Queue a named-target iframe navigation from `window.open`.
-    pub fn set_pending_navigate_iframe(&self, name: String, url: url::Url) {
-        self.inner
-            .borrow_mut()
-            .iframe
-            .pending_navigate_iframe
-            .push((name, url));
-    }
-
-    /// Drain pending named-target iframe navigations.
-    pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
-        std::mem::take(&mut self.inner.borrow_mut().iframe.pending_navigate_iframe)
-    }
-
-    /// Set a pending navigation request.
-    pub fn set_pending_navigation(&self, request: NavigationRequest) {
-        self.inner.borrow_mut().pending_navigation = Some(request);
-    }
-
-    /// Take (remove) the pending navigation request.
-    pub fn take_pending_navigation(&self) -> Option<NavigationRequest> {
-        self.inner.borrow_mut().pending_navigation.take()
-    }
-
-    /// Set a pending history action.
-    pub fn set_pending_history(&self, action: HistoryAction) {
-        self.inner.borrow_mut().pending_history = Some(action);
-    }
-
-    /// Take (remove) the pending history action.
-    pub fn take_pending_history(&self) -> Option<HistoryAction> {
-        self.inner.borrow_mut().pending_history.take()
-    }
-
-    /// Set the session history length.
-    pub fn set_history_length(&self, len: usize) {
-        self.inner.borrow_mut().history_length = len;
-    }
-
-    /// Get the session history length.
-    pub fn history_length(&self) -> usize {
-        self.inner.borrow().history_length
-    }
-
-    // --- Viewport ---
-
-    /// Update cached viewport dimensions (called by content thread on `SetViewport`).
-    pub fn set_viewport(&self, width: f32, height: f32) {
-        let mut inner = self.inner.borrow_mut();
-        inner.viewport_width = width;
-        inner.viewport_height = height;
-    }
-
-    /// Get cached viewport width.
-    pub fn viewport_width(&self) -> f32 {
-        self.inner.borrow().viewport_width
-    }
-
-    /// Get cached viewport height.
-    pub fn viewport_height(&self) -> f32 {
-        self.inner.borrow().viewport_height
-    }
-
-    /// Update cached scroll offset (called by content thread before re-render).
-    pub fn set_scroll_offset(&self, x: f32, y: f32) {
-        let mut inner = self.inner.borrow_mut();
-        inner.scroll_x = x;
-        inner.scroll_y = y;
-    }
-
-    /// Get cached horizontal scroll offset.
-    pub fn scroll_x(&self) -> f32 {
-        self.inner.borrow().scroll_x
-    }
-
-    /// Get cached vertical scroll offset.
-    pub fn scroll_y(&self) -> f32 {
-        self.inner.borrow().scroll_y
-    }
-
-    /// Set a pending scroll offset from JS `scrollTo`/`scrollBy`.
-    ///
-    /// The content thread picks this up on the next frame and applies it
-    /// to the viewport scroll state, then syncs back via `set_scroll_offset`.
-    pub fn set_pending_scroll(&self, x: f32, y: f32) {
-        self.inner.borrow_mut().pending_scroll = Some((x, y));
-    }
-
-    /// Take (remove) the pending scroll offset, if any.
-    pub fn take_pending_scroll(&self) -> Option<(f32, f32)> {
-        self.inner.borrow_mut().pending_scroll.take()
-    }
+    // Viewport/scroll methods are in viewport.rs
+    // Navigation queue methods (open_tab, navigate_iframe, pending_navigation,
+    // pending_history, history_length) are in navigation.rs
 
     // --- Registry access ---
 
@@ -757,68 +543,7 @@ impl HostBridge {
         &self.cssom_registry
     }
 
-    // --- Canvas 2D context ---
-
-    /// Get or create a Canvas 2D context for an entity.
-    ///
-    /// Returns `true` if a new context was created (first call for this entity).
-    pub fn ensure_canvas_context(&self, entity_bits: u64, width: u32, height: u32) -> bool {
-        let mut inner = self.inner.borrow_mut();
-        if inner.canvas_contexts.contains_key(&entity_bits) {
-            return false;
-        }
-        if let Some(ctx) = Canvas2dContext::new(width, height) {
-            inner.canvas_contexts.insert(entity_bits, ctx);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Access a canvas context for the duration of a closure.
-    ///
-    /// Returns `None` if no context exists for the entity.
-    pub fn with_canvas<R>(
-        &self,
-        entity_bits: u64,
-        f: impl FnOnce(&mut Canvas2dContext) -> R,
-    ) -> Option<R> {
-        let mut inner = self.inner.borrow_mut();
-        inner.canvas_contexts.get_mut(&entity_bits).map(f)
-    }
-
-    /// Mark a canvas as dirty (modified since last frame sync).
-    pub fn mark_canvas_dirty(&self, entity_bits: u64) {
-        self.inner.borrow_mut().dirty_canvases.insert(entity_bits);
-    }
-
-    /// Sync all dirty canvas pixel buffers to their ECS `ImageData` components.
-    ///
-    /// Called once per frame from the content thread loop, replacing per-draw-call syncs.
-    /// Takes `&mut EcsDom` directly so this can be called outside of JS eval context
-    /// (no `bind()` required).
-    pub fn sync_dirty_canvases(&self, dom: &mut EcsDom) {
-        let dirty: Vec<u64> = {
-            let mut inner = self.inner.borrow_mut();
-            inner.dirty_canvases.drain().collect()
-        };
-        for entity_bits in dirty {
-            let Some((width, height, pixels)) = self.with_canvas(entity_bits, |ctx| {
-                (ctx.width(), ctx.height(), ctx.to_rgba8_straight())
-            }) else {
-                continue;
-            };
-            let image_data = elidex_ecs::ImageData {
-                pixels: std::sync::Arc::new(pixels),
-                width,
-                height,
-            };
-            let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
-                continue;
-            };
-            let _ = dom.world_mut().insert_one(entity, image_data);
-        }
-    }
+    // Canvas 2D context methods are in canvas.rs
 
     // --- Entity cleanup ---
 
