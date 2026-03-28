@@ -1,8 +1,9 @@
 //! WebSocket I/O thread (RFC 6455).
 //!
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
-//! WebSocket connection. Communication with the content thread uses crossbeam
-//! channels (same pattern as OOP iframe threads).
+//! WebSocket connection. Commands use `tokio::sync::mpsc` (unbounded, since
+//! commands come from JS single-threaded at human rate). Events back to the
+//! content thread use crossbeam bounded channel (drained via `try_recv`).
 //!
 //! **Architecture note**: In M4-7 (Sandbox Hardening), `spawn_ws_thread` will
 //! migrate from direct thread spawning to Network Process IPC. The JS API layer
@@ -12,7 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
+use tokio::sync::mpsc;
 
 /// Unique WebSocket connection identifier.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -77,9 +79,9 @@ pub struct WsHandle {
     /// Unique connection identifier.
     pub id: WsId,
     /// Send commands to the I/O thread.
-    pub command_tx: Sender<WsCommand>,
+    pub command_tx: mpsc::UnboundedSender<WsCommand>,
     /// Receive events from the I/O thread.
-    pub event_rx: Receiver<WsEvent>,
+    pub event_rx: crossbeam_channel::Receiver<WsEvent>,
     /// Thread join handle.
     pub thread: Option<JoinHandle<()>>,
 }
@@ -102,7 +104,7 @@ pub struct WsHandle {
 pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) -> WsHandle {
     let id = WsId::next();
 
-    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<WsCommand>();
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<WsCommand>();
     let (evt_tx, evt_rx) = crossbeam_channel::bounded::<WsEvent>(64);
 
     let thread = std::thread::spawn(move || {
@@ -211,15 +213,11 @@ async fn ws_io_loop(
     url: url::Url,
     protocols: Vec<String>,
     origin: String,
-    cmd_rx: Receiver<WsCommand>,
+    mut cmd_rx: mpsc::UnboundedReceiver<WsCommand>,
     evt_tx: Sender<WsEvent>,
 ) {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite;
-
-    type WsReadResult = Option<
-        Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-    >;
 
     // Build the HTTP request for the WebSocket handshake.
     let mut request = tungstenite::http::Request::builder()
@@ -292,44 +290,79 @@ async fn ws_io_loop(
     let mut close_sent_at = tokio::time::Instant::now();
 
     loop {
-        // Poll WebSocket stream with 1ms timeout, then check commands.
-        let ws_msg: Result<WsReadResult, _> =
-            tokio::time::timeout(Duration::from_millis(1), read.next()).await;
-
-        match ws_msg {
-            Ok(Some(Ok(msg))) => {
-                if close_sent {
-                    // Discard data frames after close frame sent (RFC 6455 §5.5.1).
-                    if msg.is_close() {
-                        // Received reciprocal close — connection cleanly closed.
-                        let (code, reason) = extract_close_data(&msg);
-                        // Close events are critical — use blocking send.
-                        let _ = evt_tx.send(WsEvent::Closed {
-                            code,
-                            reason,
-                            was_clean: true,
-                        });
+        tokio::select! {
+            ws_msg = read.next() => {
+                match ws_msg {
+                    Some(Ok(msg)) => {
+                        if close_sent {
+                            // Discard data frames after close frame sent (RFC 6455 §5.5.1).
+                            if msg.is_close() {
+                                // Received reciprocal close — connection cleanly closed.
+                                let (code, reason) = extract_close_data(&msg);
+                                // Close events are critical — use blocking send.
+                                let _ = evt_tx.send(WsEvent::Closed {
+                                    code,
+                                    reason,
+                                    was_clean: true,
+                                });
+                                return;
+                            }
+                            continue;
+                        }
+                        if handle_ws_message(msg, &evt_tx) {
+                            return;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        // Error events precede close and must not be lost — use blocking send.
+                        let _ = evt_tx.send(WsEvent::Error(format!("WebSocket error: {e}")));
+                        send_abnormal_close(&evt_tx);
                         return;
                     }
-                    continue;
+                    None => {
+                        // Stream ended (server closed connection without close frame).
+                        send_abnormal_close(&evt_tx);
+                        return;
+                    }
                 }
-                if handle_ws_message(msg, &evt_tx) {
-                    return;
+            }
+            cmd = cmd_rx.recv() => {
+                match cmd {
+                    Some(WsCommand::SendText(text)) => {
+                        let msg = tungstenite::Message::Text(text.into());
+                        if send_frame(&mut write, msg, &evt_tx).await {
+                            return;
+                        }
+                    }
+                    Some(WsCommand::SendBinary(data)) => {
+                        let msg = tungstenite::Message::Binary(data.into());
+                        if send_frame(&mut write, msg, &evt_tx).await {
+                            return;
+                        }
+                    }
+                    Some(WsCommand::Close(code, reason)) => {
+                        close_sent = true;
+                        close_sent_at = tokio::time::Instant::now();
+                        let frame = tungstenite::protocol::CloseFrame {
+                            code: code.into(),
+                            reason: reason.into(),
+                        };
+                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                        // Continue loop to wait for reciprocal close.
+                    }
+                    None => {
+                        // Channel closed — content thread dropped sender.
+                        if !close_sent {
+                            let frame = tungstenite::protocol::CloseFrame {
+                                code: 1001u16.into(),
+                                reason: "going away".into(),
+                            };
+                            let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                        }
+                        send_abnormal_close(&evt_tx);
+                        return;
+                    }
                 }
-            }
-            Ok(Some(Err(e))) => {
-                // Error events precede close and must not be lost — use blocking send.
-                let _ = evt_tx.send(WsEvent::Error(format!("WebSocket error: {e}")));
-                send_abnormal_close(&evt_tx);
-                return;
-            }
-            Ok(None) => {
-                // Stream ended (server closed connection without close frame).
-                send_abnormal_close(&evt_tx);
-                return;
-            }
-            Err(_) => {
-                // Timeout — no data from server this iteration.
             }
         }
 
@@ -343,49 +376,6 @@ async fn ws_io_loop(
                 was_clean: false,
             });
             return;
-        }
-
-        // Check for commands from the content thread.
-        loop {
-            match cmd_rx.try_recv() {
-                Ok(cmd) => match cmd {
-                    WsCommand::SendText(text) => {
-                        let msg = tungstenite::Message::Text(text.into());
-                        if send_frame(&mut write, msg, &evt_tx).await {
-                            return;
-                        }
-                    }
-                    WsCommand::SendBinary(data) => {
-                        let msg = tungstenite::Message::Binary(data.into());
-                        if send_frame(&mut write, msg, &evt_tx).await {
-                            return;
-                        }
-                    }
-                    WsCommand::Close(code, reason) => {
-                        close_sent = true;
-                        close_sent_at = tokio::time::Instant::now();
-                        let frame = tungstenite::protocol::CloseFrame {
-                            code: code.into(),
-                            reason: reason.into(),
-                        };
-                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
-                        // Continue loop to wait for reciprocal close.
-                    }
-                },
-                Err(crossbeam_channel::TryRecvError::Empty) => break,
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    // Content thread dropped the command sender — close and exit.
-                    if !close_sent {
-                        let frame = tungstenite::protocol::CloseFrame {
-                            code: 1001u16.into(),
-                            reason: "going away".into(),
-                        };
-                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
-                    }
-                    send_abnormal_close(&evt_tx);
-                    return;
-                }
-            }
         }
     }
 }
