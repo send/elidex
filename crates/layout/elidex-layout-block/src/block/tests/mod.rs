@@ -3,13 +3,14 @@ use std::sync::Arc;
 use super::*;
 use elidex_ecs::{Attributes, ImageData};
 use elidex_plugin::{
-    BorderSide, BorderStyle, BoxSizing, Clear, ComputedStyle, Dimension, Direction, EdgeSizes,
-    Float,
+    BorderSide, BorderStyle, BoxSizing, BreakValue, Clear, ComputedStyle, Dimension, Direction,
+    EdgeSizes, Float,
 };
 use elidex_text::FontDatabase;
 
 mod float_layout;
-mod fragmentation;
+mod fragmentation_advanced;
+mod fragmentation_breaks;
 mod height_replaced;
 mod margin_collapse;
 mod width;
@@ -44,6 +45,59 @@ fn make_float_child(dom: &mut EcsDom, parent: Entity, float: Float, w: f32, h: f
         },
     );
     child
+}
+
+fn make_block_child(dom: &mut EcsDom, parent: Entity, height: f32) -> Entity {
+    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    dom.append_child(parent, child);
+    dom.world_mut().insert_one(
+        child,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(height),
+            ..Default::default()
+        },
+    );
+    child
+}
+
+fn make_block_child_with_break(
+    dom: &mut EcsDom,
+    parent: Entity,
+    height: f32,
+    break_before: elidex_plugin::BreakValue,
+    break_after: elidex_plugin::BreakValue,
+) -> Entity {
+    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    dom.append_child(parent, child);
+    dom.world_mut().insert_one(
+        child,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(height),
+            break_before,
+            break_after,
+            ..Default::default()
+        },
+    );
+    child
+}
+
+/// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
+fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
+    crate::LayoutInput {
+        containing: elidex_plugin::CssSize::definite(400.0, 1000.0),
+        containing_inline_size: 400.0,
+        offset: elidex_plugin::Point::ZERO,
+        font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: None,
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+    }
 }
 
 fn make_dom_with_image(style: ComputedStyle, img_w: u32, img_h: u32) -> (EcsDom, Entity) {
