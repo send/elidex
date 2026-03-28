@@ -5,14 +5,14 @@
 use std::rc::Rc;
 
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
+use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 
 use elidex_net::FetchHandle;
 
 use crate::bridge::HostBridge;
 
-use super::{extract_connection_id, set_readystate_constants};
+use super::{define_connection_id, extract_connection_id, set_readystate_constants};
 
 /// Hidden property key storing the SSE connection ID.
 const SSE_ID_KEY: &str = "__elidex_sse_id__";
@@ -289,17 +289,7 @@ fn sse_constructor(
         .open_event_source(url, with_credentials, doc_origin, es_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-    // Store hidden connection ID as non-configurable, non-writable (readonly).
-    let _ = es_obj.define_property_or_throw(
-        js_string!(SSE_ID_KEY),
-        PropertyDescriptorBuilder::new()
-            .value(JsValue::from(id as f64))
-            .writable(false)
-            .enumerable(false)
-            .configurable(false)
-            .build(),
-        ctx,
-    );
+    define_connection_id(&es_obj, SSE_ID_KEY, id, ctx);
 
     Ok(es_obj.into())
 }

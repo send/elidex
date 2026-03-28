@@ -4,12 +4,12 @@
 
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
+use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 
 use crate::bridge::HostBridge;
 
-use super::{extract_connection_id, set_readystate_constants};
+use super::{define_connection_id, extract_connection_id, set_readystate_constants};
 
 /// Hidden property key storing the WebSocket connection ID.
 const WS_ID_KEY: &str = "__elidex_ws_id__";
@@ -498,17 +498,7 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
         .open_websocket(url, protocols, origin_str, ws_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-    // Store hidden connection ID as non-configurable, non-writable (readonly).
-    let _ = ws_obj.define_property_or_throw(
-        js_string!(WS_ID_KEY),
-        PropertyDescriptorBuilder::new()
-            .value(JsValue::from(id as f64))
-            .writable(false)
-            .enumerable(false)
-            .configurable(false)
-            .build(),
-        ctx,
-    );
+    define_connection_id(&ws_obj, WS_ID_KEY, id, ctx);
 
     Ok(ws_obj.into())
 }

@@ -275,6 +275,23 @@ pub(crate) fn extract_connection_id(
     Ok(id as u64)
 }
 
+/// Define a hidden, non-writable connection ID property on a JS object.
+///
+/// Shared by `WebSocket` and `EventSource` to store the internal connection ID
+/// as a tamper-proof property.
+pub(crate) fn define_connection_id(obj: &JsObject, key: &str, id: u64, ctx: &mut Context) {
+    let _ = obj.define_property_or_throw(
+        js_string!(key),
+        boa_engine::property::PropertyDescriptor::builder()
+            .value(JsValue::from(id as f64))
+            .writable(false)
+            .enumerable(false)
+            .configurable(false)
+            .build(),
+        ctx,
+    );
+}
+
 /// Set readyState constants on a JS object.
 ///
 /// Shared by `WebSocket` and `EventSource` for setting CONNECTING/OPEN/CLOSING/CLOSED

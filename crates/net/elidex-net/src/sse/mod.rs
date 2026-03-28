@@ -217,6 +217,16 @@ impl SseParserState {
 /// Maximum SSE line size (1 MiB). Lines exceeding this are skipped.
 const MAX_SSE_LINE_SIZE: usize = 1 << 20;
 
+/// Check the SSE command channel for a close signal.
+///
+/// Returns `true` if the I/O loop should exit (Close received or channel disconnected).
+fn should_close(cmd_rx: &Receiver<SseCommand>) -> bool {
+    match cmd_rx.try_recv() {
+        Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => true,
+        Err(crossbeam_channel::TryRecvError::Empty) => false,
+    }
+}
+
 /// Async SSE I/O loop with auto-reconnection.
 ///
 /// Connects to the SSE endpoint using a raw TCP/TLS connection and reads the
@@ -240,11 +250,8 @@ async fn sse_io_loop(
         }
 
         // Check for close command before connecting.
-        match cmd_rx.try_recv() {
-            Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                return;
-            }
-            Err(crossbeam_channel::TryRecvError::Empty) => {}
+        if should_close(&cmd_rx) {
+            return;
         }
 
         // Build extra headers.
