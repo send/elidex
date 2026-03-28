@@ -1,304 +1,9 @@
-//! Block fragmentation tests (CSS Fragmentation Level 3).
+//! Box-decoration-break, margin collapse, break propagation, orphans/widows,
+//! nested fragmentation, and best-break selection tests.
 
 use super::*;
 use crate::{BreakTokenData, FragmentainerContext, FragmentationType, LayoutInput};
-use elidex_plugin::{BoxDecorationBreak, BreakInsideValue, BreakValue, Overflow};
-
-fn make_block_child(dom: &mut EcsDom, parent: Entity, height: f32) -> Entity {
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.append_child(parent, child);
-    dom.world_mut().insert_one(
-        child,
-        ComputedStyle {
-            display: Display::Block,
-            height: Dimension::Length(height),
-            ..Default::default()
-        },
-    );
-    child
-}
-
-fn make_block_child_with_break(
-    dom: &mut EcsDom,
-    parent: Entity,
-    height: f32,
-    break_before: BreakValue,
-    break_after: BreakValue,
-) -> Entity {
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.append_child(parent, child);
-    dom.world_mut().insert_one(
-        child,
-        ComputedStyle {
-            display: Display::Block,
-            height: Dimension::Length(height),
-            break_before,
-            break_after,
-            ..Default::default()
-        },
-    );
-    child
-}
-
-/// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
-fn base_input(font_db: &FontDatabase) -> LayoutInput<'_> {
-    LayoutInput {
-        containing: elidex_plugin::CssSize::definite(400.0, 1000.0),
-        containing_inline_size: 400.0,
-        offset: Point::ZERO,
-        font_db,
-        depth: 0,
-        float_ctx: None,
-        viewport: None,
-        fragmentainer: None,
-        break_token: None,
-        subgrid: None,
-        layout_generation: 0,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Forced break tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn forced_break_before_produces_break_token() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child(&mut dom, parent, 50.0);
-    make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
-
-    let frag = FragmentainerContext {
-        available_block_size: 500.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(
-        outcome.break_token.is_some(),
-        "forced break-before should produce a break token"
-    );
-    let bt = outcome.break_token.unwrap();
-    assert!(bt.child_break_token.is_some());
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
-        assert_eq!(
-            *child_index, 1,
-            "break should occur before 2nd child (index 1)"
-        );
-    } else {
-        panic!("expected Block break token data");
-    }
-}
-
-#[test]
-fn forced_break_after_produces_break_token() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
-    make_block_child(&mut dom, parent, 50.0);
-
-    let frag = FragmentainerContext {
-        available_block_size: 500.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(
-        outcome.break_token.is_some(),
-        "forced break-after should produce a break token"
-    );
-    let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
-        assert_eq!(
-            *child_index, 1,
-            "break should occur after 1st child (resume at index 1)"
-        );
-    } else {
-        panic!("expected Block break token data");
-    }
-}
-
-#[test]
-fn column_break_not_forced_in_page_context() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Column);
-    make_block_child(&mut dom, parent, 50.0);
-
-    let frag = FragmentainerContext {
-        available_block_size: 500.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(
-        outcome.break_token.is_none(),
-        "column break should not force in page context"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Overflow detection tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn overflow_produces_break_token() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child(&mut dom, parent, 100.0);
-    make_block_child(&mut dom, parent, 100.0);
-    make_block_child(&mut dom, parent, 100.0);
-
-    let frag = FragmentainerContext {
-        available_block_size: 150.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(
-        outcome.break_token.is_some(),
-        "overflow should produce a break token"
-    );
-}
-
-#[test]
-fn no_fragmentainer_no_break() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child(&mut dom, parent, 100.0);
-    make_block_child(&mut dom, parent, 100.0);
-
-    let input = base_input(&font_db);
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(
-        outcome.break_token.is_none(),
-        "no fragmentainer → no break token"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Break token resume tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn break_token_resume_starts_from_correct_child() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    make_block_child(&mut dom, parent, 80.0);
-    make_block_child(&mut dom, parent, 80.0);
-    make_block_child(&mut dom, parent, 80.0);
-
-    // First layout: 100px available → break after child 0 (80px consumed).
-    let frag = FragmentainerContext {
-        available_block_size: 100.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome1.break_token.is_some());
-
-    // Second layout: resume with 200px.
-    let bt = outcome1.break_token.unwrap();
-    let frag2 = FragmentainerContext {
-        available_block_size: 200.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input2 = LayoutInput {
-        fragmentainer: Some(&frag2),
-        break_token: Some(&bt),
-        ..base_input(&font_db)
-    };
-
-    let outcome2 = crate::layout_block_only(&mut dom, parent, &input2);
-    assert!(
-        outcome2.break_token.is_none(),
-        "remaining children should fit in 200px"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Monolithic handling tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn monolithic_first_child_overflows_without_break() {
-    let mut dom = EcsDom::new();
-    let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.world_mut().insert_one(parent, block_style());
-
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
-    dom.append_child(parent, child);
-    dom.world_mut().insert_one(
-        child,
-        ComputedStyle {
-            display: Display::Block,
-            height: Dimension::Length(200.0),
-            overflow_x: Overflow::Hidden,
-            ..Default::default()
-        },
-    );
-
-    let frag = FragmentainerContext {
-        available_block_size: 100.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = LayoutInput {
-        fragmentainer: Some(&frag),
-        ..base_input(&font_db)
-    };
-
-    let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    // First (and only) child is monolithic with no prior content → overflow allowed.
-    if let Some(bt) = &outcome.break_token {
-        let child_bt = bt.child_break_token.as_ref().unwrap();
-        if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
-            assert_eq!(*child_index, 1);
-        }
-    }
-    let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
-    assert!((lb.content.size.height - 200.0).abs() < 0.01);
-}
+use elidex_plugin::{BoxDecorationBreak, BreakInsideValue, Overflow};
 
 // ---------------------------------------------------------------------------
 // box-decoration-break tests
@@ -524,15 +229,12 @@ fn break_inside_avoid_penalizes_candidates() {
 #[test]
 fn orphans_widows_unit_basic() {
     use crate::inline::InlineFragConstraint;
-    // Test the inline fragmentation logic directly via InlineFragConstraint.
-    // orphans=2, widows=2, 10 lines, fragmentainer fits 5 → break at line 5.
     let constraint = InlineFragConstraint {
         available_block: 100.0,
         orphans: 2,
         widows: 2,
         skip_lines: 0,
     };
-    // Verify constraint fields are accessible (compile-time validation).
     assert_eq!(constraint.orphans, 2);
     assert_eq!(constraint.widows, 2);
     assert_eq!(constraint.skip_lines, 0);
@@ -542,21 +244,18 @@ fn orphans_widows_unit_basic() {
 #[test]
 fn orphans_widows_monolithic_when_exceeds_total() {
     use crate::inline::InlineFragConstraint;
-    // orphans=5, widows=5, total=8: orphans+widows > total → monolithic.
     let constraint = InlineFragConstraint {
         available_block: 50.0,
         orphans: 5,
         widows: 5,
         skip_lines: 0,
     };
-    // Verify constraint can represent high orphans+widows.
     assert_eq!(constraint.orphans, 5);
     assert_eq!(constraint.widows, 5);
 }
 
 #[test]
 fn inline_fragmentation_no_fragmentainer_no_break() {
-    // Inline-only children without fragmentainer should not produce break.
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
@@ -582,7 +281,6 @@ fn nested_block_fragmentation_break_token_chain() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
 
-    // Outer > Inner > Children
     let outer = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(outer, block_style());
 
@@ -607,7 +305,6 @@ fn nested_block_fragmentation_break_token_chain() {
         outcome.break_token.is_some(),
         "nested overflow should produce break token"
     );
-    // Verify chain: outer break → child break → inner break data.
     let bt = outcome.break_token.unwrap();
     assert!(
         bt.child_break_token.is_some(),
@@ -620,7 +317,6 @@ fn three_level_nested_break_propagation() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
 
-    // outer > middle > inner > children
     let outer = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(outer, block_style());
 
@@ -632,7 +328,6 @@ fn three_level_nested_break_propagation() {
     dom.append_child(middle, inner);
     dom.world_mut().insert_one(inner, block_style());
 
-    // First grandchild has break-before: page → should propagate up.
     make_block_child_with_break(&mut dom, inner, 50.0, BreakValue::Page, BreakValue::Auto);
     make_block_child(&mut dom, inner, 50.0);
 
@@ -646,7 +341,6 @@ fn three_level_nested_break_propagation() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, outer, &input);
-    // The forced break should produce a break token.
     assert!(outcome.break_token.is_some());
     assert_eq!(outcome.propagated_break_before, Some(BreakValue::Page));
 }
@@ -662,7 +356,6 @@ fn forced_break_before_first_child_produces_empty_fragment() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // First child has forced break-before → empty first fragment.
     make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
 
     let frag = FragmentainerContext {
@@ -676,7 +369,6 @@ fn forced_break_before_first_child_produces_empty_fragment() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
-    // The consumed_block_size of the child break token should be 0 (empty fragment).
     let bt = outcome.break_token.unwrap();
     let child_bt = bt.child_break_token.unwrap();
     assert!(
@@ -697,8 +389,6 @@ fn best_break_selects_last_fitting_candidate() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // 4 children of 30px each = 120px total. Fragmentainer = 100px.
-    // Should break between child 2 and child 3 (at 90px).
     make_block_child(&mut dom, parent, 30.0);
     make_block_child(&mut dom, parent, 30.0);
     make_block_child(&mut dom, parent, 30.0);
@@ -738,10 +428,8 @@ fn monolithic_non_first_child_breaks_before() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // First child: 80px normal block.
     make_block_child(&mut dom, parent, 80.0);
 
-    // Second child: monolithic (overflow:hidden), 80px tall.
     let child2 = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
@@ -754,9 +442,6 @@ fn monolithic_non_first_child_breaks_before() {
         },
     );
 
-    // 100px available: first child fits (80px). Second child is monolithic.
-    // After laying out, 160px consumed > 100px → overflow detection picks
-    // best break before the monolithic child (at 80px).
     let frag = FragmentainerContext {
         available_block_size: 100.0,
         fragmentation_type: FragmentationType::Page,
@@ -803,8 +488,6 @@ fn vertical_rl_block_fragmentation() {
         },
     );
 
-    // In vertical-rl, block axis = horizontal (width).
-    // Children with explicit width dimensions.
     let c1 = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, c1);
     dom.world_mut().insert_one(
@@ -838,7 +521,6 @@ fn vertical_rl_block_fragmentation() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    // 80 + 80 = 160px block-axis (horizontal), but fragmentainer only 100px.
     assert!(
         outcome.break_token.is_some(),
         "vertical-rl block fragmentation should produce break"
@@ -846,7 +528,7 @@ fn vertical_rl_block_fragmentation() {
 }
 
 // ---------------------------------------------------------------------------
-// M3: child_index correctness with display:none children
+// child_index correctness with display:none children
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -856,7 +538,6 @@ fn child_index_correct_with_display_none_children() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // children: [NONE(0), A(1, 80px), NONE(2), B(3, 80px)]
     let none1 = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, none1);
     dom.world_mut().insert_one(
@@ -866,7 +547,7 @@ fn child_index_correct_with_display_none_children() {
             ..Default::default()
         },
     );
-    make_block_child(&mut dom, parent, 80.0); // index 1
+    make_block_child(&mut dom, parent, 80.0);
     let none2 = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, none2);
     dom.world_mut().insert_one(
@@ -876,7 +557,7 @@ fn child_index_correct_with_display_none_children() {
             ..Default::default()
         },
     );
-    make_block_child(&mut dom, parent, 80.0); // index 3
+    make_block_child(&mut dom, parent, 80.0);
 
     let frag = FragmentainerContext {
         available_block_size: 100.0,
@@ -887,7 +568,6 @@ fn child_index_correct_with_display_none_children() {
         ..base_input(&font_db)
     };
 
-    // First layout: A (80px) fits, B overflows → break before B (index 3).
     let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome1.break_token.is_some());
     let bt = outcome1.break_token.unwrap();
@@ -901,7 +581,6 @@ fn child_index_correct_with_display_none_children() {
         panic!("expected Block break token data");
     }
 
-    // Resume: skip to index 3, display:none at 0 and 2 should be skipped.
     let frag2 = FragmentainerContext {
         available_block_size: 200.0,
         fragmentation_type: FragmentationType::Page,
@@ -919,7 +598,7 @@ fn child_index_correct_with_display_none_children() {
 }
 
 // ---------------------------------------------------------------------------
-// H1: break-after avoid penalty in break candidate
+// break-after avoid penalty in break candidate
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -929,19 +608,11 @@ fn break_after_avoid_penalizes_candidate() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // Child 0: 30px, break-after: avoid
     make_block_child_with_break(&mut dom, parent, 30.0, BreakValue::Auto, BreakValue::Avoid);
-    // Child 1: 30px (candidate between 0-1 should have avoid penalty)
     make_block_child(&mut dom, parent, 30.0);
-    // Child 2: 30px (candidate between 1-2 should be non-penalized)
     make_block_child(&mut dom, parent, 30.0);
-    // Child 3: 30px (overflows)
     make_block_child(&mut dom, parent, 30.0);
 
-    // Fragmentainer: 100px. Total = 120px → overflow.
-    // Candidates: between 0-1 (at 30px, avoid penalty), between 1-2 (at 60px, clean),
-    //             between 2-3 (at 90px, clean).
-    // Best break should prefer non-avoid candidates → break at child 3 (at 90px).
     let frag = FragmentainerContext {
         available_block_size: 100.0,
         fragmentation_type: FragmentationType::Page,
@@ -956,7 +627,6 @@ fn break_after_avoid_penalizes_candidate() {
     let bt = outcome.break_token.unwrap();
     let child_bt = bt.child_break_token.as_ref().unwrap();
     if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
-        // Should break at index 3 (90px), not index 1 (30px, penalized by avoid).
         assert_eq!(
             *child_index, 3,
             "best break should prefer non-avoid candidate (break at child 3)"
@@ -967,7 +637,7 @@ fn break_after_avoid_penalizes_candidate() {
 }
 
 // ---------------------------------------------------------------------------
-// M1: propagated_break_after only for last content child
+// propagated_break_after only for last content child
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -977,7 +647,6 @@ fn propagated_break_after_not_set_for_non_last_child() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // Child 0: forced break-after, but child 1 exists → NOT the last child.
     make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
     make_block_child(&mut dom, parent, 50.0);
 
@@ -992,7 +661,6 @@ fn propagated_break_after_not_set_for_non_last_child() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
-    // Child 0's break-after: page should NOT propagate because child 1 exists.
     assert_eq!(
         outcome.propagated_break_after, None,
         "break-after should not propagate from non-last child"
@@ -1000,7 +668,7 @@ fn propagated_break_after_not_set_for_non_last_child() {
 }
 
 // ---------------------------------------------------------------------------
-// H3: fragment height clamped to break point
+// fragment height clamped to break point
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1010,7 +678,6 @@ fn fragment_height_clamped_to_break_point() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // 3 children of 50px = 150px. Fragmentainer = 80px.
     make_block_child(&mut dom, parent, 50.0);
     make_block_child(&mut dom, parent, 50.0);
     make_block_child(&mut dom, parent, 50.0);
@@ -1026,8 +693,6 @@ fn fragment_height_clamped_to_break_point() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
-    // Fragment height should be clamped to the break point (50px for 1 child),
-    // not the full stacking height that includes the overflowing child.
     assert!(
         outcome.layout_box.content.size.height <= 80.0,
         "fragment height ({}) should not exceed fragmentainer (80px)",
@@ -1036,7 +701,7 @@ fn fragment_height_clamped_to_break_point() {
 }
 
 // ---------------------------------------------------------------------------
-// M2: monolithic with no remaining space defers
+// monolithic with no remaining space defers
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1046,9 +711,7 @@ fn monolithic_deferred_when_no_space_remaining() {
     let parent = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    // First child fills exactly the fragmentainer (100px).
     make_block_child(&mut dom, parent, 100.0);
-    // Second child: monolithic, 50px. No space left → deferred.
     let child2 = dom.create_element("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(

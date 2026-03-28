@@ -43,12 +43,7 @@ fn register_all_methods(
     super::element_form::register_form_accessors(init, bridge, realm);
     tree_nav::register_tree_nav_accessors(init, bridge, realm);
     tree_nav::register_node_info_accessors(init, bridge, realm);
-    accessors::register_node_methods(init, bridge);
-    accessors::register_child_parent_mixin_methods(init, bridge);
-    accessors::register_element_extra_methods(init, bridge);
-    accessors::register_element_extra_accessors(init, bridge, realm);
-    accessors::register_layout_query_accessors(init, bridge, realm);
-    accessors::register_dataset_accessor(init, bridge, realm);
+    accessors::register_element_accessors(init, bridge, realm);
     special_nodes::register_char_data_methods(init, bridge, realm);
     special_nodes::register_attr_node_methods(init, bridge);
 }
