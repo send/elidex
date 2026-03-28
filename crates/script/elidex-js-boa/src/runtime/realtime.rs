@@ -1,11 +1,13 @@
 //! WebSocket / SSE event dispatch for the content thread frame loop.
 
-use boa_engine::{js_string, Context, JsValue};
+use boa_engine::{Context, JsObject, JsValue};
 
 use elidex_net::sse::SseEvent;
 use elidex_net::ws::WsEvent;
+use elidex_plugin::{CloseEventInit, EventPayload};
 
 use crate::bridge::HostBridge;
+use crate::globals::events::create_standalone_event;
 
 /// Dispatch all pending WebSocket and SSE events.
 ///
@@ -26,243 +28,323 @@ pub(crate) fn dispatch_realtime_events(
     }
 }
 
+/// Invoke the `onXXX` callback (if set) and all `addEventListener` listeners
+/// for the given event object.
+fn invoke_callback_and_listeners(
+    callback: Option<JsObject>,
+    listeners: &[JsObject],
+    event_obj: &JsValue,
+    ctx: &mut Context,
+) {
+    if let Some(func) = callback {
+        let _ = func.call(&JsValue::undefined(), std::slice::from_ref(event_obj), ctx);
+        let _ = ctx.run_jobs();
+    }
+    for listener in listeners {
+        let _ = listener.call(&JsValue::undefined(), std::slice::from_ref(event_obj), ctx);
+        let _ = ctx.run_jobs();
+    }
+}
+
 fn dispatch_ws_event(id: u64, event: WsEvent, bridge: &HostBridge, ctx: &mut Context) {
     match event {
         WsEvent::Connected {
             protocol,
             extensions,
-        } => {
-            // Update readyState to OPEN and negotiated protocol/extensions.
-            let callback = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.ws_callbacks(id) else {
-                    return;
-                };
-                cb.ready_state.set(1); // OPEN
-                *cb.protocol.borrow_mut() = protocol;
-                *cb.extensions.borrow_mut() = extensions;
-                cb.onopen.clone()
-            };
-            if let Some(func) = callback {
-                let event_obj = create_simple_event("open", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-        }
-        WsEvent::TextMessage(data) => {
-            let (callback, origin) = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.ws_callbacks(id) else {
-                    return;
-                };
-                (cb.onmessage.clone(), cb.origin.clone())
-            };
-            if let Some(func) = callback {
-                let event_obj = create_message_event(&data, &origin, "", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-        }
-        WsEvent::BinaryMessage(data) => {
-            // Binary data represented as lossy UTF-8 string.
-            // Full ArrayBuffer support deferred to M4-9 (TypedArray infrastructure).
-            let text = String::from_utf8_lossy(&data);
-            let (callback, origin) = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.ws_callbacks(id) else {
-                    return;
-                };
-                (cb.onmessage.clone(), cb.origin.clone())
-            };
-            if let Some(func) = callback {
-                let event_obj = create_message_event(&text, &origin, "", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-        }
+        } => dispatch_ws_connected(id, protocol, extensions, bridge, ctx),
+        WsEvent::TextMessage(data) => dispatch_ws_text(id, &data, bridge, ctx),
+        WsEvent::BinaryMessage(data) => dispatch_ws_binary(id, &data, bridge, ctx),
         WsEvent::BufferedAmountUpdate(n) => {
             let inner = bridge.inner.borrow();
             if let Some(cb) = inner.realtime.ws_callbacks(id) {
                 cb.buffered_amount.set(n);
             }
         }
-        WsEvent::Error(msg) => {
-            let callback = {
-                let inner = bridge.inner.borrow();
-                inner
-                    .realtime
-                    .ws_callbacks(id)
-                    .and_then(|cb| cb.onerror.clone())
-            };
-            if let Some(func) = callback {
-                let event_obj = create_simple_event("error", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-            eprintln!("[WebSocket] error: {msg}");
-        }
+        WsEvent::Error(msg) => dispatch_ws_error(id, &msg, bridge, ctx),
         WsEvent::Closed {
             code,
             reason,
             was_clean,
-        } => {
-            // Update readyState to CLOSED and invoke onclose.
-            let callback = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.ws_callbacks(id) else {
-                    return;
-                };
-                cb.ready_state.set(3); // CLOSED
-                cb.onclose.clone()
-            };
-            if let Some(func) = callback {
-                let event_obj = create_close_event(code, &reason, was_clean, ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-            // Remove from registry.
-            bridge.inner.borrow_mut().realtime.remove_ws(id);
-        }
+        } => dispatch_ws_closed(id, code, &reason, was_clean, bridge, ctx),
     }
+}
+
+fn dispatch_ws_connected(
+    id: u64,
+    protocol: String,
+    extensions: String,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) {
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.ws_callbacks(id) else {
+            return;
+        };
+        // Guard: CONNECTING(0) → OPEN(1) is the only valid transition here.
+        if cb.ready_state.get() != 0 {
+            return;
+        }
+        cb.ready_state.set(1); // OPEN
+        *cb.protocol.borrow_mut() = protocol;
+        *cb.extensions.borrow_mut() = extensions;
+        (
+            cb.onopen.clone(),
+            cb.listener_registry
+                .get("open")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event("open", &EventPayload::None, false, ctx);
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+}
+
+fn dispatch_ws_text(id: u64, data: &str, bridge: &HostBridge, ctx: &mut Context) {
+    let (callback, origin, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.ws_callbacks(id) else {
+            return;
+        };
+        (
+            cb.onmessage.clone(),
+            cb.origin.clone(),
+            cb.listener_registry
+                .get("message")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event(
+        "message",
+        &EventPayload::Message {
+            data: data.to_string(),
+            origin: origin.clone(),
+            last_event_id: String::new(),
+        },
+        false,
+        ctx,
+    );
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+}
+
+fn dispatch_ws_binary(id: u64, data: &[u8], bridge: &HostBridge, ctx: &mut Context) {
+    // Binary data encoded as base64 string.
+    // Full ArrayBuffer support deferred to M4-9 (TypedArray infrastructure).
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+    let (callback, origin, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.ws_callbacks(id) else {
+            return;
+        };
+        (
+            cb.onmessage.clone(),
+            cb.origin.clone(),
+            cb.listener_registry
+                .get("message")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event(
+        "message",
+        &EventPayload::Message {
+            data: encoded,
+            origin: origin.clone(),
+            last_event_id: String::new(),
+        },
+        false,
+        ctx,
+    );
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+}
+
+fn dispatch_ws_error(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context) {
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.ws_callbacks(id) else {
+            eprintln!("[WebSocket] error: {msg}");
+            return;
+        };
+        (
+            cb.onerror.clone(),
+            cb.listener_registry
+                .get("error")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event("error", &EventPayload::None, false, ctx);
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+    eprintln!("[WebSocket] error: {msg}");
+}
+
+fn dispatch_ws_closed(
+    id: u64,
+    code: u16,
+    reason: &str,
+    was_clean: bool,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) {
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.ws_callbacks(id) else {
+            return;
+        };
+        // Guard: only OPEN(1) or CLOSING(2) can transition to CLOSED(3).
+        let state = cb.ready_state.get();
+        if state == 3 {
+            return; // Already CLOSED.
+        }
+        cb.ready_state.set(3); // CLOSED
+        (
+            cb.onclose.clone(),
+            cb.listener_registry
+                .get("close")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event(
+        "close",
+        &EventPayload::CloseEvent(CloseEventInit {
+            code,
+            reason: reason.to_string(),
+            was_clean,
+        }),
+        false,
+        ctx,
+    );
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+    // Remove from registry.
+    bridge.inner.borrow_mut().realtime.remove_ws(id);
 }
 
 fn dispatch_sse_event(id: u64, event: SseEvent, bridge: &HostBridge, ctx: &mut Context) {
     match event {
-        SseEvent::Connected => {
-            let callback = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.sse_callbacks(id) else {
-                    return;
-                };
-                cb.ready_state.set(1); // OPEN
-                cb.onopen.clone()
-            };
-            if let Some(func) = callback {
-                let event_obj = create_simple_event("open", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-        }
+        SseEvent::Connected => dispatch_sse_connected(id, bridge, ctx),
         SseEvent::Event {
             event_type,
             data,
             last_event_id,
-        } => {
-            let (callback, origin) = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.sse_callbacks(id) else {
-                    return;
-                };
-                let cb_fn = if event_type == "message" {
-                    cb.onmessage.clone()
-                } else {
-                    // TODO: custom event type dispatch via addEventListener
-                    // For now, fall back to onmessage for all event types.
-                    cb.onmessage.clone()
-                };
-                (cb_fn, cb.origin.clone())
-            };
-            if let Some(func) = callback {
-                let event_obj = create_message_event(&data, &origin, &last_event_id, ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-        }
-        SseEvent::Error(msg) => {
-            // Recoverable error — readyState back to CONNECTING (auto-reconnect).
-            let callback = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.sse_callbacks(id) else {
-                    return;
-                };
-                cb.ready_state.set(0); // CONNECTING
-                cb.onerror.clone()
-            };
-            if let Some(func) = callback {
-                let event_obj = create_simple_event("error", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-            eprintln!("[EventSource] recoverable error: {msg}");
-        }
-        SseEvent::FatalError(msg) => {
-            // Fatal error — readyState to CLOSED, no reconnect.
-            let callback = {
-                let inner = bridge.inner.borrow();
-                let Some(cb) = inner.realtime.sse_callbacks(id) else {
-                    return;
-                };
-                cb.ready_state.set(2); // CLOSED
-                cb.onerror.clone()
-            };
-            if let Some(func) = callback {
-                let event_obj = create_simple_event("error", ctx);
-                let _ = func.call(&JsValue::undefined(), &[event_obj], ctx);
-                let _ = ctx.run_jobs();
-            }
-            // Remove from registry.
-            bridge.inner.borrow_mut().realtime.remove_sse(id);
-            eprintln!("[EventSource] fatal error: {msg}");
-        }
+        } => dispatch_sse_message(id, &event_type, &data, &last_event_id, bridge, ctx),
+        SseEvent::Error(msg) => dispatch_sse_error(id, &msg, bridge, ctx),
+        SseEvent::FatalError(msg) => dispatch_sse_fatal(id, &msg, bridge, ctx),
     }
 }
 
-// ---------------------------------------------------------------------------
-// Event object helpers
-// ---------------------------------------------------------------------------
-
-/// Create a simple Event object with just a `type` property.
-fn create_simple_event(event_type: &str, ctx: &mut Context) -> JsValue {
-    use boa_engine::object::ObjectInitializer;
-    use boa_engine::property::Attribute;
-    let ro = Attribute::READONLY | Attribute::ENUMERABLE;
-    let obj = ObjectInitializer::new(ctx)
-        .property(
-            js_string!("type"),
-            JsValue::from(js_string!(event_type)),
-            ro,
+fn dispatch_sse_connected(id: u64, bridge: &HostBridge, ctx: &mut Context) {
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.sse_callbacks(id) else {
+            return;
+        };
+        // Guard: CONNECTING(0) → OPEN(1).
+        if cb.ready_state.get() != 0 {
+            return;
+        }
+        cb.ready_state.set(1); // OPEN
+        (
+            cb.onopen.clone(),
+            cb.listener_registry
+                .get("open")
+                .cloned()
+                .unwrap_or_default(),
         )
-        .build();
-    obj.into()
+    };
+    let event_obj = create_standalone_event("open", &EventPayload::None, false, ctx);
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
 }
 
-/// Create a `MessageEvent` object with `type`, `data`, `origin`, `lastEventId`, `source`, `ports`.
-fn create_message_event(
+fn dispatch_sse_message(
+    id: u64,
+    event_type: &str,
     data: &str,
-    origin: &str,
     last_event_id: &str,
+    bridge: &HostBridge,
     ctx: &mut Context,
-) -> JsValue {
-    use boa_engine::object::builtins::JsArray;
-    use boa_engine::object::ObjectInitializer;
-    use boa_engine::property::Attribute;
-    let ro = Attribute::READONLY | Attribute::ENUMERABLE;
-    let ports = JsArray::new(ctx);
-    let obj = ObjectInitializer::new(ctx)
-        .property(js_string!("type"), JsValue::from(js_string!("message")), ro)
-        .property(js_string!("data"), JsValue::from(js_string!(data)), ro)
-        .property(js_string!("origin"), JsValue::from(js_string!(origin)), ro)
-        .property(
-            js_string!("lastEventId"),
-            JsValue::from(js_string!(last_event_id)),
-            ro,
-        )
-        .property(js_string!("source"), JsValue::null(), ro)
-        .property(js_string!("ports"), JsValue::from(ports), ro)
-        .build();
-    obj.into()
+) {
+    let (callback, origin, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.sse_callbacks(id) else {
+            return;
+        };
+        // For "message" events: dispatch to onmessage + "message" listeners.
+        // For custom event types: dispatch only to addEventListener listeners
+        // for that type (per WHATWG HTML §9.2 — onmessage is NOT called for
+        // custom event types).
+        let cb_fn = if event_type == "message" {
+            cb.onmessage.clone()
+        } else {
+            None
+        };
+        let type_listeners = cb
+            .listener_registry
+            .get(event_type)
+            .cloned()
+            .unwrap_or_default();
+        (cb_fn, cb.origin.clone(), type_listeners)
+    };
+    let event_obj = create_standalone_event(
+        event_type,
+        &EventPayload::Message {
+            data: data.to_string(),
+            origin: origin.clone(),
+            last_event_id: last_event_id.to_string(),
+        },
+        false,
+        ctx,
+    );
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
 }
 
-/// Create a `CloseEvent` object with `type`, `code`, `reason`, `wasClean`.
-fn create_close_event(code: u16, reason: &str, was_clean: bool, ctx: &mut Context) -> JsValue {
-    use boa_engine::object::ObjectInitializer;
-    use boa_engine::property::Attribute;
-    let ro = Attribute::READONLY | Attribute::ENUMERABLE;
-    let obj = ObjectInitializer::new(ctx)
-        .property(js_string!("type"), JsValue::from(js_string!("close")), ro)
-        .property(js_string!("code"), JsValue::from(i32::from(code)), ro)
-        .property(js_string!("reason"), JsValue::from(js_string!(reason)), ro)
-        .property(js_string!("wasClean"), JsValue::from(was_clean), ro)
-        .build();
-    obj.into()
+fn dispatch_sse_error(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context) {
+    // Recoverable error — readyState back to CONNECTING (auto-reconnect).
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.sse_callbacks(id) else {
+            eprintln!("[EventSource] recoverable error: {msg}");
+            return;
+        };
+        cb.ready_state.set(0); // CONNECTING
+        (
+            cb.onerror.clone(),
+            cb.listener_registry
+                .get("error")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event("error", &EventPayload::None, false, ctx);
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+    eprintln!("[EventSource] recoverable error: {msg}");
+}
+
+fn dispatch_sse_fatal(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context) {
+    // Fatal error — readyState to CLOSED, no reconnect.
+    let (callback, listeners) = {
+        let inner = bridge.inner.borrow();
+        let Some(cb) = inner.realtime.sse_callbacks(id) else {
+            return;
+        };
+        // Guard: don't transition if already CLOSED.
+        if cb.ready_state.get() == 2 {
+            return;
+        }
+        cb.ready_state.set(2); // CLOSED
+        (
+            cb.onerror.clone(),
+            cb.listener_registry
+                .get("error")
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
+    let event_obj = create_standalone_event("error", &EventPayload::None, false, ctx);
+    invoke_callback_and_listeners(callback, &listeners, &event_obj, ctx);
+    // Remove from registry.
+    bridge.inner.borrow_mut().realtime.remove_sse(id);
+    eprintln!("[EventSource] fatal error: {msg}");
 }

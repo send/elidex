@@ -150,6 +150,8 @@ pub fn create_event_object(
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
+    // WHATWG DOM §2.1: isTrusted is true for events dispatched by the user agent.
+    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload, empty_ports);
@@ -250,6 +252,111 @@ pub fn create_event_object(
         js_string!("composedPath"),
         0,
     );
+
+    init.build().into()
+}
+
+/// Create a standalone Event object for non-DOM event targets (`WebSocket`, `EventSource`).
+///
+/// Unlike [`create_event_object`], this does not require a DOM entity target or
+/// shared dispatch flags. The event has `preventDefault()`/`stopPropagation()`
+/// methods, `target`/`currentTarget` set to null, and payload-specific properties.
+///
+/// Used by `WebSocket` `onmessage`/`onclose`/`onopen`/`onerror` and `EventSource` events.
+pub fn create_standalone_event(
+    event_type: &str,
+    payload: &EventPayload,
+    cancelable: bool,
+    ctx: &mut Context,
+) -> JsValue {
+    // Pre-build ports array for Message payloads.
+    let empty_ports: JsValue = if matches!(payload, EventPayload::Message { .. }) {
+        boa_engine::object::builtins::JsArray::new(ctx).into()
+    } else {
+        JsValue::undefined()
+    };
+
+    let prevent_default = Rc::new(Cell::new(false));
+    let realm = ctx.realm().clone();
+
+    let mut init = ObjectInitializer::new(ctx);
+
+    // Core event properties.
+    init.property(
+        js_string!("type"),
+        JsValue::from(js_string!(event_type)),
+        RO,
+    );
+    init.property(js_string!("bubbles"), JsValue::from(false), RO);
+    init.property(js_string!("cancelable"), JsValue::from(cancelable), RO);
+    init.property(js_string!("target"), JsValue::null(), RO);
+    init.property(js_string!("currentTarget"), JsValue::null(), RO);
+    init.property(js_string!("composed"), JsValue::from(false), RO);
+    init.property(js_string!("timeStamp"), JsValue::from(0), RO);
+    init.property(
+        js_string!("eventPhase"),
+        JsValue::from(0_i32), // NONE
+        RO,
+    );
+    // WHATWG DOM §2.1: isTrusted is true for events dispatched by the user agent.
+    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+
+    // defaultPrevented accessor.
+    let pd_flag = SharedFlag(Rc::clone(&prevent_default));
+    init.accessor(
+        js_string!("defaultPrevented"),
+        Some(
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, flag, _ctx| -> boa_engine::JsResult<JsValue> {
+                    Ok(JsValue::from(flag.0.get()))
+                },
+                pd_flag,
+            )
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // preventDefault().
+    let pd_shared = SharedFlag(Rc::clone(&prevent_default));
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, (f, cancel), _ctx| {
+                if *cancel {
+                    f.0.set(true);
+                }
+                Ok(JsValue::undefined())
+            },
+            (pd_shared, cancelable),
+        ),
+        js_string!("preventDefault"),
+        0,
+    );
+
+    // stopPropagation() / stopImmediatePropagation() — no-ops for standalone events.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopPropagation"),
+        0,
+    );
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopImmediatePropagation"),
+        0,
+    );
+
+    // composedPath() — empty array for standalone events.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, ctx| {
+            Ok(boa_engine::object::builtins::JsArray::new(ctx).into())
+        }),
+        js_string!("composedPath"),
+        0,
+    );
+
+    // Payload-specific properties.
+    set_payload_properties(&mut init, payload, empty_ports);
 
     init.build().into()
 }

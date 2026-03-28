@@ -40,6 +40,14 @@ impl FetchHandle {
     pub fn send_blocking(&self, request: Request) -> Result<Response, NetError> {
         self.rt.block_on(self.client.send(request))
     }
+
+    /// Get an `Arc` reference to the shared cookie jar.
+    ///
+    /// Used by `EventSource` to share cookies with the main browsing context
+    /// when `withCredentials` is true.
+    pub fn cookie_jar_arc(&self) -> std::sync::Arc<crate::CookieJar> {
+        self.client.cookie_jar_arc()
+    }
 }
 
 impl std::fmt::Debug for FetchHandle {

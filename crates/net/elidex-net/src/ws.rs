@@ -3,6 +3,10 @@
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
 //! WebSocket connection. Communication with the content thread uses crossbeam
 //! channels (same pattern as OOP iframe threads).
+//!
+//! **Architecture note**: In M4-7 (Sandbox Hardening), `spawn_ws_thread` will
+//! migrate from direct thread spawning to Network Process IPC. The JS API layer
+//! and drain logic are unchanged (channel abstraction is the same).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
@@ -85,12 +89,17 @@ pub struct WsHandle {
 ///
 /// The caller is responsible for SSRF validation (`validate_url`) and
 /// mixed-content blocking (`ws://` from `https://`) before calling this.
+///
+/// **Note**: DNS rebinding attacks are not fully mitigated because
+/// `tokio-tungstenite::connect_async` performs DNS resolution internally.
+/// The resolved IP is not re-validated against private address ranges.
+/// Full mitigation requires a custom connector (deferred to M4-7 Network Process).
 #[must_use]
 pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) -> WsHandle {
     let id = WsId::next();
 
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<WsCommand>();
-    let (evt_tx, evt_rx) = crossbeam_channel::bounded::<WsEvent>(256);
+    let (evt_tx, evt_rx) = crossbeam_channel::bounded::<WsEvent>(64);
 
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -151,6 +160,30 @@ fn handle_ws_message(
     }
 }
 
+/// Send a WebSocket frame and update buffered byte tracking.
+///
+/// Returns `true` if a send error occurred (caller should abort the loop).
+async fn send_frame(
+    write: &mut (impl futures_util::SinkExt<
+        tokio_tungstenite::tungstenite::Message,
+        Error = tokio_tungstenite::tungstenite::Error,
+    > + Unpin),
+    msg: tokio_tungstenite::tungstenite::Message,
+    buffered_bytes: &mut u64,
+    evt_tx: &Sender<WsEvent>,
+) -> bool {
+    let len = msg.len() as u64;
+    *buffered_bytes += len;
+    if write.send(msg).await.is_err() {
+        let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
+        send_abnormal_close(evt_tx);
+        return true;
+    }
+    *buffered_bytes = buffered_bytes.saturating_sub(len);
+    let _ = evt_tx.send(WsEvent::BufferedAmountUpdate(*buffered_bytes));
+    false
+}
+
 /// Async WebSocket I/O loop running inside the thread's tokio runtime.
 #[allow(clippy::too_many_lines)]
 async fn ws_io_loop(
@@ -184,8 +217,18 @@ async fn ws_io_loop(
         }
     };
 
-    // Perform the WebSocket handshake.
-    let (ws_stream, response) = match tokio_tungstenite::connect_async(request).await {
+    // Perform the WebSocket handshake with message size limits.
+    let mut ws_config = tungstenite::protocol::WebSocketConfig::default();
+    ws_config.max_message_size = Some(4 << 20); // 4 MiB
+    ws_config.max_frame_size = Some(1 << 20); // 1 MiB
+    let (ws_stream, response) = match tokio_tungstenite::connect_async_tls_with_config(
+        request,
+        Some(ws_config),
+        false, // disable_nagle
+        None,  // TLS connector (uses default rustls)
+    )
+    .await
+    {
         Ok(pair) => pair,
         Err(e) => {
             let _ = evt_tx.send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
@@ -221,6 +264,7 @@ async fn ws_io_loop(
     let (mut write, mut read) = ws_stream.split();
 
     let mut close_sent = false;
+    let mut close_sent_at = tokio::time::Instant::now();
     let mut buffered_bytes: u64 = 0;
 
     loop {
@@ -263,54 +307,58 @@ async fn ws_io_loop(
             }
         }
 
-        // Check for commands from the content thread.
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            match cmd {
-                WsCommand::SendText(text) => {
-                    let len = text.len() as u64;
-                    buffered_bytes += len;
-                    if write
-                        .send(tungstenite::Message::Text(text.into()))
-                        .await
-                        .is_err()
-                    {
-                        let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
-                        send_abnormal_close(&evt_tx);
-                        return;
-                    }
-                    buffered_bytes = buffered_bytes.saturating_sub(len);
-                    let _ = evt_tx.send(WsEvent::BufferedAmountUpdate(buffered_bytes));
-                }
-                WsCommand::SendBinary(data) => {
-                    let len = data.len() as u64;
-                    buffered_bytes += len;
-                    if write
-                        .send(tungstenite::Message::Binary(data.into()))
-                        .await
-                        .is_err()
-                    {
-                        let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
-                        send_abnormal_close(&evt_tx);
-                        return;
-                    }
-                    buffered_bytes = buffered_bytes.saturating_sub(len);
-                    let _ = evt_tx.send(WsEvent::BufferedAmountUpdate(buffered_bytes));
-                }
-                WsCommand::Close(code, reason) => {
-                    close_sent = true;
-                    let frame = tungstenite::protocol::CloseFrame {
-                        code: code.into(),
-                        reason: reason.into(),
-                    };
-                    let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
-                    // Continue loop to wait for reciprocal close.
-                }
-            }
+        // Close handshake timeout: if 30s have elapsed since we sent a close frame
+        // and the server hasn't responded, treat as unclean close.
+        if close_sent && close_sent_at.elapsed() > Duration::from_secs(30) {
+            let _ = evt_tx.send(WsEvent::Closed {
+                code: 1006,
+                reason: String::new(),
+                was_clean: false,
+            });
+            return;
         }
 
-        // Check if command channel is disconnected (content thread dropped sender).
-        if cmd_rx.is_empty() && evt_tx.is_empty() {
-            // Both channels may still be alive; only break if cmd channel disconnected.
+        // Check for commands from the content thread.
+        loop {
+            match cmd_rx.try_recv() {
+                Ok(cmd) => match cmd {
+                    WsCommand::SendText(text) => {
+                        let msg = tungstenite::Message::Text(text.into());
+                        if send_frame(&mut write, msg, &mut buffered_bytes, &evt_tx).await {
+                            return;
+                        }
+                    }
+                    WsCommand::SendBinary(data) => {
+                        let msg = tungstenite::Message::Binary(data.into());
+                        if send_frame(&mut write, msg, &mut buffered_bytes, &evt_tx).await {
+                            return;
+                        }
+                    }
+                    WsCommand::Close(code, reason) => {
+                        close_sent = true;
+                        close_sent_at = tokio::time::Instant::now();
+                        let frame = tungstenite::protocol::CloseFrame {
+                            code: code.into(),
+                            reason: reason.into(),
+                        };
+                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                        // Continue loop to wait for reciprocal close.
+                    }
+                },
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    // Content thread dropped the command sender — close and exit.
+                    if !close_sent {
+                        let frame = tungstenite::protocol::CloseFrame {
+                            code: 1001u16.into(),
+                            reason: "going away".into(),
+                        };
+                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                    }
+                    send_abnormal_close(&evt_tx);
+                    return;
+                }
+            }
         }
     }
 }
@@ -387,6 +435,26 @@ mod tests {
             assert_eq!(n, 42);
         } else {
             panic!("expected BufferedAmountUpdate");
+        }
+    }
+
+    #[test]
+    fn ws_event_text_message() {
+        let evt = WsEvent::TextMessage("hello".to_string());
+        if let WsEvent::TextMessage(data) = evt {
+            assert_eq!(data, "hello");
+        } else {
+            panic!("expected TextMessage");
+        }
+    }
+
+    #[test]
+    fn ws_event_binary_message() {
+        let evt = WsEvent::BinaryMessage(vec![1, 2, 3]);
+        if let WsEvent::BinaryMessage(data) = evt {
+            assert_eq!(data, vec![1, 2, 3]);
+        } else {
+            panic!("expected BinaryMessage");
         }
     }
 }

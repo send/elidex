@@ -878,6 +878,11 @@ unsafe impl boa_gc::Trace for HostBridge {
                 mark(cb);
             }
             mark(&conn.js_object);
+            for listeners in conn.listener_registry.values() {
+                for listener in listeners {
+                    mark(listener);
+                }
+            }
         }
         for conn in inner.realtime.sse_iter() {
             if let Some(ref cb) = conn.onopen {
@@ -890,6 +895,11 @@ unsafe impl boa_gc::Trace for HostBridge {
                 mark(cb);
             }
             mark(&conn.js_object);
+            for listeners in conn.listener_registry.values() {
+                for listener in listeners {
+                    mark(listener);
+                }
+            }
         }
         // canvas_contexts intentionally not traced: Canvas2dContext contains only
         // Pixmap + DrawingState (no GC-managed JsObjects). If Canvas2dContext ever

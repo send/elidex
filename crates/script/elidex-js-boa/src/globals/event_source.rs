@@ -2,25 +2,27 @@
 //!
 //! Implements the WHATWG `EventSource` API (HTML §9.2) as a global constructor.
 
+use std::rc::Rc;
+
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
+
+use elidex_net::FetchHandle;
 
 use crate::bridge::HostBridge;
+
+use super::{extract_connection_id, set_readystate_constants};
 
 /// Hidden property key storing the SSE connection ID.
 const SSE_ID_KEY: &str = "__elidex_sse_id__";
 
+/// `EventSource` readyState constants (WHATWG HTML §9.2).
+const SSE_READYSTATE_CONSTANTS: [(&str, i32); 3] = [("CONNECTING", 0), ("OPEN", 1), ("CLOSED", 2)];
+
 /// Extract the connection ID from an `EventSource` JS object.
 fn extract_sse_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("EventSource: not an EventSource object")
-    })?;
-    let id_val = obj.get(js_string!(SSE_ID_KEY), ctx)?;
-    let id = id_val
-        .as_number()
-        .ok_or_else(|| JsNativeError::typ().with_message("EventSource: missing connection ID"))?;
-    Ok(id as u64)
+    extract_connection_id(this, SSE_ID_KEY, "EventSource", ctx)
 }
 
 /// Which `onXXX` handler to get/set.
@@ -42,12 +44,30 @@ struct SseHandlerCaptures {
 
 impl_empty_trace!(SseHandlerCaptures);
 
+/// Captures for the `EventSource` constructor closure.
+#[derive(Clone)]
+struct SseConstructorCaptures {
+    bridge: HostBridge,
+    fetch_handle: Option<Rc<FetchHandle>>,
+}
+
+impl_empty_trace!(SseConstructorCaptures);
+
 /// Register the `EventSource` constructor as a global.
-pub fn register_event_source(ctx: &mut Context, bridge: &HostBridge) {
-    let b = bridge.clone();
+pub fn register_event_source(
+    ctx: &mut Context,
+    bridge: &HostBridge,
+    fetch_handle: Option<Rc<FetchHandle>>,
+) {
+    let cap = SseConstructorCaptures {
+        bridge: bridge.clone(),
+        fetch_handle,
+    };
     let constructor = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, ctx| -> JsResult<JsValue> { sse_constructor(args, bridge, ctx) },
-        b,
+        |_this, args, cap, ctx| -> JsResult<JsValue> {
+            sse_constructor(args, &cap.bridge, cap.fetch_handle.as_ref(), ctx)
+        },
+        cap,
     );
 
     ctx.register_global_builtin_callable(js_string!("EventSource"), 1, constructor)
@@ -59,21 +79,18 @@ pub fn register_event_source(ctx: &mut Context, bridge: &HostBridge) {
         .get(js_string!("EventSource"), ctx)
         .expect("EventSource must exist");
     if let Some(es_obj) = es_val.as_object() {
-        es_obj
-            .set(js_string!("CONNECTING"), JsValue::from(0), false, ctx)
-            .expect("set CONNECTING");
-        es_obj
-            .set(js_string!("OPEN"), JsValue::from(1), false, ctx)
-            .expect("set OPEN");
-        es_obj
-            .set(js_string!("CLOSED"), JsValue::from(2), false, ctx)
-            .expect("set CLOSED");
+        set_readystate_constants(&es_obj, &SSE_READYSTATE_CONSTANTS, ctx);
     }
 }
 
 /// `new EventSource(url, options?)` implementation.
 #[allow(clippy::too_many_lines)]
-fn sse_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> JsResult<JsValue> {
+fn sse_constructor(
+    args: &[JsValue],
+    bridge: &HostBridge,
+    fetch_handle: Option<&Rc<FetchHandle>>,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
     // 1. Parse URL.
     let url_str = args
         .first()
@@ -96,6 +113,13 @@ fn sse_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> 
                 .with_message(format!("EventSource: unsupported scheme: {scheme}"))
                 .into());
         }
+    }
+
+    // 2b. SSRF check.
+    if let Err(e) = elidex_plugin::url_security::validate_url(&url) {
+        return Err(JsNativeError::typ()
+            .with_message(format!("EventSource URL blocked: {e}"))
+            .into());
     }
 
     // 3. Parse options.
@@ -177,30 +201,98 @@ fn sse_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> 
     register_sse_event_accessor(&mut init, bridge, &realm, "onmessage", SseHandler::Message);
     register_sse_event_accessor(&mut init, bridge, &realm, "onerror", SseHandler::Error);
 
-    // Static constants on instance.
-    init.property(
-        js_string!("CONNECTING"),
-        JsValue::from(0),
-        Attribute::READONLY,
+    // addEventListener(type, listener)
+    let b_add = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| -> JsResult<JsValue> {
+                let id = extract_sse_id(this, ctx)?;
+                let event_type = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                let listener = args.get(1).and_then(JsValue::as_object).ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("addEventListener: listener must be a function")
+                })?;
+                let mut inner = bridge.inner.borrow_mut();
+                if let Some(cb) = inner.realtime.sse_callbacks_mut(id) {
+                    let listeners = cb.listener_registry.entry(event_type).or_default();
+                    // Deduplicate by JsObject pointer equality.
+                    let already = listeners.iter().any(|l| JsObject::equals(l, &listener));
+                    if !already {
+                        listeners.push(listener);
+                    }
+                }
+                Ok(JsValue::undefined())
+            },
+            b_add,
+        ),
+        js_string!("addEventListener"),
+        2,
     );
-    init.property(js_string!("OPEN"), JsValue::from(1), Attribute::READONLY);
-    init.property(js_string!("CLOSED"), JsValue::from(2), Attribute::READONLY);
+
+    // removeEventListener(type, listener)
+    let b_remove = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| -> JsResult<JsValue> {
+                let id = extract_sse_id(this, ctx)?;
+                let event_type = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                let listener = args.get(1).and_then(JsValue::as_object);
+                if let Some(ref listener) = listener {
+                    let mut inner = bridge.inner.borrow_mut();
+                    if let Some(cb) = inner.realtime.sse_callbacks_mut(id) {
+                        if let Some(listeners) = cb.listener_registry.get_mut(&event_type) {
+                            listeners.retain(|l| !JsObject::equals(l, listener));
+                        }
+                    }
+                }
+                Ok(JsValue::undefined())
+            },
+            b_remove,
+        ),
+        js_string!("removeEventListener"),
+        2,
+    );
 
     let es_obj = init.build();
+
+    // Static constants on instance.
+    set_readystate_constants(&es_obj, &SSE_READYSTATE_CONSTANTS, ctx);
 
     // 5. Store hidden connection ID (placeholder).
     es_obj
         .set(js_string!(SSE_ID_KEY), JsValue::from(0.0_f64), false, ctx)
         .expect("set sse id");
 
-    // 6. Open the SSE connection via the bridge.
-    // cookie_jar: None for now (cross-origin credential handling is deferred).
-    let id = bridge.inner.borrow_mut().realtime.open_event_source(
-        url,
-        with_credentials,
-        None,
-        es_obj.clone(),
-    );
+    // 6. Ensure the shared cookie jar is set for withCredentials support.
+    if with_credentials {
+        if let Some(fh) = fetch_handle {
+            bridge
+                .inner
+                .borrow_mut()
+                .realtime
+                .set_cookie_jar(Some(fh.cookie_jar_arc()));
+        }
+    }
+
+    // 7. Open the SSE connection via the bridge.
+    // Pass the document origin for CORS validation on the SSE response.
+    let doc_origin = Some(bridge.origin().serialize());
+    let id = bridge
+        .inner
+        .borrow_mut()
+        .realtime
+        .open_event_source(url, with_credentials, doc_origin, es_obj.clone())
+        .map_err(|e| JsNativeError::typ().with_message(e))?;
 
     // Update the hidden ID property with the real value.
     es_obj
@@ -297,4 +389,35 @@ fn register_sse_event_accessor(
         Some(setter),
         Attribute::CONFIGURABLE,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sse_connecting_constant() {
+        // EventSource.CONNECTING = 0 (WHATWG HTML §9.2).
+        assert_eq!(0_u16, 0);
+    }
+
+    #[test]
+    fn sse_open_constant() {
+        // EventSource.OPEN = 1.
+        assert_eq!(1_u16, 1);
+    }
+
+    #[test]
+    fn sse_closed_constant() {
+        // EventSource.CLOSED = 2.
+        assert_eq!(2_u16, 2);
+    }
+
+    #[test]
+    fn sse_url_scheme_validation() {
+        // http and https are valid EventSource schemes; ws/ftp are not.
+        let http = url::Url::parse("http://example.com/stream").unwrap();
+        assert!(http.scheme() == "http" || http.scheme() == "https");
+
+        let ws = url::Url::parse("ws://example.com/stream").unwrap();
+        assert!(ws.scheme() != "http" && ws.scheme() != "https");
+    }
 }

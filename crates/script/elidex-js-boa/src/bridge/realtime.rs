@@ -5,15 +5,19 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use boa_engine::JsObject;
 
 use elidex_net::sse::{SseCommand, SseEvent, SseHandle};
 use elidex_net::ws::{WsCommand, WsEvent, WsHandle};
+use elidex_net::CookieJar;
 
 /// Return type for `drain_realtime_events()`.
 pub(crate) type RealtimeEvents = (Vec<(u64, WsEvent)>, Vec<(u64, SseEvent)>);
+
+/// Maximum concurrent WebSocket + SSE connections per document.
+const MAX_REALTIME_CONNECTIONS: usize = 256;
 
 /// WebSocket/SSE connection state, stored in `HostBridgeInner`.
 #[derive(Default)]
@@ -24,6 +28,8 @@ pub(crate) struct RealtimeState {
     sse_connections: HashMap<u64, SseConnection>,
     /// Next connection ID (shared counter for WS and SSE).
     next_id: u64,
+    /// Shared cookie jar for `withCredentials` support on SSE connections.
+    cookie_jar: Option<Arc<CookieJar>>,
 }
 
 struct WsConnection {
@@ -32,7 +38,6 @@ struct WsConnection {
 }
 
 /// WebSocket JS callback state.
-#[allow(dead_code)]
 pub(crate) struct WsCallbacks {
     /// `onopen` handler.
     pub onopen: Option<JsObject>,
@@ -45,17 +50,20 @@ pub(crate) struct WsCallbacks {
     /// The JS `WebSocket` object (for `addEventListener` dispatch).
     pub js_object: JsObject,
     /// Connection URL (for `WebSocket.url` property).
+    #[allow(dead_code)]
     pub url: String,
     /// URL origin (for `MessageEvent.origin`).
     pub origin: String,
     /// Ready state (CONNECTING=0, OPEN=1, CLOSING=2, CLOSED=3).
-    pub ready_state: Rc<Cell<u16>>,
+    pub ready_state: Cell<u16>,
     /// Negotiated sub-protocol (updated on `Connected`).
-    pub protocol: Rc<RefCell<String>>,
+    pub protocol: RefCell<String>,
     /// Negotiated extensions (updated on `Connected`).
-    pub extensions: Rc<RefCell<String>>,
+    pub extensions: RefCell<String>,
     /// Buffered bytes awaiting send (updated by I/O thread).
-    pub buffered_amount: Rc<Cell<u64>>,
+    pub buffered_amount: Cell<u64>,
+    /// Event listeners registered via `addEventListener`, keyed by event type.
+    pub listener_registry: HashMap<String, Vec<JsObject>>,
 }
 
 struct SseConnection {
@@ -64,7 +72,6 @@ struct SseConnection {
 }
 
 /// SSE JS callback state.
-#[allow(dead_code)]
 pub(crate) struct SseCallbacks {
     /// `onopen` handler.
     pub onopen: Option<JsObject>,
@@ -75,22 +82,35 @@ pub(crate) struct SseCallbacks {
     /// The JS `EventSource` object (for `addEventListener` dispatch).
     pub js_object: JsObject,
     /// Connection URL (for `EventSource.url` property).
+    #[allow(dead_code)]
     pub url: String,
     /// URL origin (for `MessageEvent.origin`).
     pub origin: String,
     /// Ready state (CONNECTING=0, OPEN=1, CLOSED=2).
-    pub ready_state: Rc<Cell<u16>>,
+    pub ready_state: Cell<u16>,
+    /// Event listeners registered via `addEventListener`, keyed by event type.
+    pub listener_registry: HashMap<String, Vec<JsObject>>,
 }
 
 impl RealtimeState {
-    /// Open a new WebSocket connection. Returns the connection ID.
+    /// Set the shared cookie jar for `withCredentials` support.
+    pub fn set_cookie_jar(&mut self, jar: Option<Arc<CookieJar>>) {
+        self.cookie_jar = jar;
+    }
+    /// Open a new WebSocket connection. Returns the connection ID, or an error
+    /// if the per-document connection limit has been reached.
     pub fn open_websocket(
         &mut self,
         url: url::Url,
         protocols: Vec<String>,
         origin: String,
         js_object: JsObject,
-    ) -> u64 {
+    ) -> Result<u64, String> {
+        let total = self.ws_connections.len() + self.sse_connections.len();
+        if total >= MAX_REALTIME_CONNECTIONS {
+            return Err("too many concurrent connections".to_string());
+        }
+
         let id = self.next_id;
         self.next_id += 1;
 
@@ -106,15 +126,16 @@ impl RealtimeState {
             js_object,
             url: url_str,
             origin: url_origin,
-            ready_state: Rc::new(Cell::new(0)), // CONNECTING
-            protocol: Rc::new(RefCell::new(String::new())),
-            extensions: Rc::new(RefCell::new(String::new())),
-            buffered_amount: Rc::new(Cell::new(0)),
+            ready_state: Cell::new(0), // CONNECTING
+            protocol: RefCell::new(String::new()),
+            extensions: RefCell::new(String::new()),
+            buffered_amount: Cell::new(0),
+            listener_registry: HashMap::new(),
         };
 
         self.ws_connections
             .insert(id, WsConnection { handle, callbacks });
-        id
+        Ok(id)
     }
 
     /// Send a text message on a WebSocket. Returns `false` if the ID is invalid.
@@ -130,7 +151,7 @@ impl RealtimeState {
 
     /// Send a binary message on a WebSocket.
     #[must_use]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Called when binaryType="arraybuffer" support lands (M4-9).
     pub fn ws_send_binary(&self, id: u64, data: Vec<u8>) -> bool {
         self.ws_connections.get(&id).is_some_and(|conn| {
             conn.handle
@@ -147,20 +168,35 @@ impl RealtimeState {
         }
     }
 
-    /// Open a new SSE connection. Returns the connection ID.
+    /// Open a new SSE connection. Returns the connection ID, or an error
+    /// if the per-document connection limit has been reached.
+    ///
+    /// Uses the shared `cookie_jar` (set via `set_cookie_jar()`) when
+    /// `with_credentials` is true; otherwise no cookies are sent.
+    /// `origin` is the document origin for CORS validation.
     pub fn open_event_source(
         &mut self,
         url: url::Url,
         with_credentials: bool,
-        cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+        origin: Option<String>,
         js_object: JsObject,
-    ) -> u64 {
+    ) -> Result<u64, String> {
+        let total = self.ws_connections.len() + self.sse_connections.len();
+        if total >= MAX_REALTIME_CONNECTIONS {
+            return Err("too many concurrent connections".to_string());
+        }
+
         let id = self.next_id;
         self.next_id += 1;
 
         let url_str = url.to_string();
         let url_origin = url.origin().ascii_serialization();
-        let handle = elidex_net::sse::spawn_sse_thread(url, with_credentials, None, cookie_jar);
+        let jar = if with_credentials {
+            self.cookie_jar.clone()
+        } else {
+            None
+        };
+        let handle = elidex_net::sse::spawn_sse_thread(url, None, jar, origin);
 
         let callbacks = SseCallbacks {
             onopen: None,
@@ -169,12 +205,13 @@ impl RealtimeState {
             js_object,
             url: url_str,
             origin: url_origin,
-            ready_state: Rc::new(Cell::new(0)), // CONNECTING
+            ready_state: Cell::new(0), // CONNECTING
+            listener_registry: HashMap::new(),
         };
 
         self.sse_connections
             .insert(id, SseConnection { handle, callbacks });
-        id
+        Ok(id)
     }
 
     /// Close an SSE connection.
@@ -266,5 +303,87 @@ impl RealtimeState {
 impl Drop for RealtimeState {
     fn drop(&mut self) {
         self.shutdown_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn realtime_state_default_is_empty() {
+        let mut state = RealtimeState::default();
+        let (ws, sse) = state.drain_realtime_events();
+        assert!(ws.is_empty());
+        assert!(sse.is_empty());
+    }
+
+    #[test]
+    fn realtime_state_shutdown_empty_ok() {
+        let mut state = RealtimeState::default();
+        state.shutdown_all(); // Should not panic
+    }
+
+    #[test]
+    fn realtime_state_ws_callbacks_none_for_invalid_id() {
+        let state = RealtimeState::default();
+        assert!(state.ws_callbacks(999).is_none());
+    }
+
+    #[test]
+    fn realtime_state_sse_callbacks_none_for_invalid_id() {
+        let state = RealtimeState::default();
+        assert!(state.sse_callbacks(999).is_none());
+    }
+
+    #[test]
+    fn close_event_init_fields() {
+        let init = elidex_plugin::CloseEventInit {
+            code: 1000,
+            reason: "normal".to_string(),
+            was_clean: true,
+        };
+        assert_eq!(init.code, 1000);
+        assert_eq!(init.reason, "normal");
+        assert!(init.was_clean);
+    }
+
+    #[test]
+    fn close_event_init_abnormal() {
+        let init = elidex_plugin::CloseEventInit {
+            code: 1006,
+            reason: String::new(),
+            was_clean: false,
+        };
+        assert_eq!(init.code, 1006);
+        assert!(!init.was_clean);
+        assert!(init.reason.is_empty());
+    }
+
+    #[test]
+    fn event_payload_default_is_none() {
+        let payload = elidex_plugin::EventPayload::default();
+        assert!(matches!(payload, elidex_plugin::EventPayload::None));
+    }
+
+    #[test]
+    fn message_payload_construction() {
+        let payload = elidex_plugin::EventPayload::Message {
+            data: "hello".to_string(),
+            origin: "https://example.com".to_string(),
+            last_event_id: "42".to_string(),
+        };
+        if let elidex_plugin::EventPayload::Message {
+            data,
+            origin,
+            last_event_id,
+        } = &payload
+        {
+            assert_eq!(data, "hello");
+            assert_eq!(origin, "https://example.com");
+            assert_eq!(last_event_id, "42");
+        } else {
+            panic!("expected Message");
+        }
     }
 }

@@ -276,4 +276,36 @@ mod tests {
         });
         assert!(matches!(p, EventPayload::Animation(_)));
     }
+
+    #[test]
+    fn close_event_init_default() {
+        let init = CloseEventInit::default();
+        assert_eq!(init.code, 0);
+        assert!(init.reason.is_empty());
+        assert!(!init.was_clean);
+    }
+
+    #[test]
+    fn close_event_payload_variant() {
+        let payload = EventPayload::CloseEvent(CloseEventInit {
+            code: 1000,
+            reason: "normal".to_string(),
+            was_clean: true,
+        });
+        assert!(matches!(payload, EventPayload::CloseEvent(_)));
+    }
+
+    #[test]
+    fn message_payload_with_last_event_id() {
+        let payload = EventPayload::Message {
+            data: "hello".to_string(),
+            origin: "https://example.com".to_string(),
+            last_event_id: "42".to_string(),
+        };
+        if let EventPayload::Message { last_event_id, .. } = payload {
+            assert_eq!(last_event_id, "42");
+        } else {
+            panic!("expected Message");
+        }
+    }
 }

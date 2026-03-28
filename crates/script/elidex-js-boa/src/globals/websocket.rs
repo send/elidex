@@ -5,23 +5,26 @@
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 
 use crate::bridge::HostBridge;
+
+use super::{extract_connection_id, set_readystate_constants};
 
 /// Hidden property key storing the WebSocket connection ID.
 const WS_ID_KEY: &str = "__elidex_ws_id__";
 
+/// WebSocket readyState constants (WHATWG HTML §9.3).
+const WS_READYSTATE_CONSTANTS: [(&str, i32); 4] = [
+    ("CONNECTING", 0),
+    ("OPEN", 1),
+    ("CLOSING", 2),
+    ("CLOSED", 3),
+];
+
 /// Extract the connection ID from a WebSocket JS object.
 fn extract_ws_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
-    let obj = this
-        .as_object()
-        .ok_or_else(|| JsNativeError::typ().with_message("WebSocket: not a WebSocket object"))?;
-    let id_val = obj.get(js_string!(WS_ID_KEY), ctx)?;
-    let id = id_val
-        .as_number()
-        .ok_or_else(|| JsNativeError::typ().with_message("WebSocket: missing connection ID"))?;
-    Ok(id as u64)
+    extract_connection_id(this, WS_ID_KEY, "WebSocket", ctx)
 }
 
 /// Which `onXXX` handler to get/set.
@@ -61,18 +64,7 @@ pub fn register_websocket(ctx: &mut Context, bridge: &HostBridge) {
         .get(js_string!("WebSocket"), ctx)
         .expect("WebSocket must exist");
     if let Some(ws_obj) = ws_val.as_object() {
-        ws_obj
-            .set(js_string!("CONNECTING"), JsValue::from(0), false, ctx)
-            .expect("set CONNECTING");
-        ws_obj
-            .set(js_string!("OPEN"), JsValue::from(1), false, ctx)
-            .expect("set OPEN");
-        ws_obj
-            .set(js_string!("CLOSING"), JsValue::from(2), false, ctx)
-            .expect("set CLOSING");
-        ws_obj
-            .set(js_string!("CLOSED"), JsValue::from(3), false, ctx)
-            .expect("set CLOSED");
+        set_readystate_constants(&ws_obj, &WS_READYSTATE_CONSTANTS, ctx);
     }
 }
 
@@ -97,6 +89,22 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
         scheme => {
             return Err(JsNativeError::syntax()
                 .with_message(format!("WebSocket: unsupported scheme: {scheme}"))
+                .into());
+        }
+    }
+
+    // 2b. SSRF check: convert ws/wss to http/https for validate_url.
+    {
+        let http_scheme = if url.scheme() == "wss" {
+            "https"
+        } else {
+            "http"
+        };
+        let mut check_url = url.clone();
+        check_url.set_scheme(http_scheme).ok();
+        if let Err(e) = elidex_plugin::url_security::validate_url(&check_url) {
+            return Err(JsNativeError::typ()
+                .with_message(format!("WebSocket URL blocked: {e}"))
                 .into());
         }
     }
@@ -229,11 +237,50 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
         Attribute::CONFIGURABLE,
     );
 
-    // binaryType getter/setter (stored on the object itself)
+    // binaryType getter/setter with validation per WHATWG §9.3.1.
+    // Store the actual value in a hidden property.
     init.property(
-        js_string!("binaryType"),
+        js_string!("__elidex_binary_type__"),
         js_string!("blob"),
         Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
+    init.accessor(
+        js_string!("binaryType"),
+        Some(
+            NativeFunction::from_copy_closure(|this, _args, ctx| -> JsResult<JsValue> {
+                let obj = this
+                    .as_object()
+                    .ok_or_else(|| JsNativeError::typ().with_message("not a WebSocket object"))?;
+                obj.get(js_string!("__elidex_binary_type__"), ctx)
+            })
+            .to_js_function(&realm),
+        ),
+        Some(
+            NativeFunction::from_copy_closure(|this, args, ctx| -> JsResult<JsValue> {
+                let value = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                // Only accept "blob" or "arraybuffer" per WHATWG §9.3.1
+                if value != "blob" && value != "arraybuffer" {
+                    return Ok(JsValue::undefined());
+                }
+                let obj = this
+                    .as_object()
+                    .ok_or_else(|| JsNativeError::typ().with_message("not a WebSocket object"))?;
+                obj.set(
+                    js_string!("__elidex_binary_type__"),
+                    JsValue::from(js_string!(value)),
+                    false,
+                    ctx,
+                )?;
+                Ok(JsValue::undefined())
+            })
+            .to_js_function(&realm),
+        ),
+        Attribute::CONFIGURABLE,
     );
 
     // send(data)
@@ -251,11 +298,16 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                         .map(|cb| cb.ready_state.get())
                 };
                 match state {
-                    Some(1) => {} // OPEN
-                    _ => {
-                        return Err(JsNativeError::error()
-                            .with_message("WebSocket: send() called when readyState is not OPEN")
+                    Some(1) => {} // OPEN — send normally
+                    Some(0) => {
+                        // CONNECTING — throw InvalidStateError per WHATWG §9.3.1
+                        return Err(JsNativeError::typ()
+                            .with_message("InvalidStateError: WebSocket is in CONNECTING state")
                             .into());
+                    }
+                    _ => {
+                        // CLOSING (2) or CLOSED (3) — silently return per WHATWG §9.3.1
+                        return Ok(JsValue::undefined());
                     }
                 }
                 let data = args
@@ -264,7 +316,19 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     .transpose()?
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
+                // Calculate byte length before sending for bufferedAmount update.
+                let byte_len = data.len() as u64;
                 let _ = bridge.inner.borrow().realtime.ws_send_text(id, data);
+                // Synchronously increment bufferedAmount per WHATWG §9.3.1.
+                // The I/O thread will send BufferedAmountUpdate to decrement
+                // after transmission.
+                {
+                    let inner = bridge.inner.borrow();
+                    if let Some(cb) = inner.realtime.ws_callbacks(id) {
+                        let current = cb.buffered_amount.get();
+                        cb.buffered_amount.set(current + byte_len);
+                    }
+                }
                 Ok(JsValue::undefined())
             },
             b_send,
@@ -280,6 +344,17 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             |this, args, bridge, ctx| -> JsResult<JsValue> {
                 let id = extract_ws_id(this, ctx)?;
 
+                // Early return if already CLOSING or CLOSED per WHATWG §9.3.1.
+                let current_state = bridge
+                    .inner
+                    .borrow()
+                    .realtime
+                    .ws_callbacks(id)
+                    .map_or(3, |cb| cb.ready_state.get());
+                if current_state == 2 || current_state == 3 {
+                    return Ok(JsValue::undefined());
+                }
+
                 // Parse and validate code.
                 let code = if let Some(v) = args.first() {
                     if v.is_undefined() {
@@ -287,9 +362,9 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     } else {
                         let n = v.to_number(ctx)? as u16;
                         if n != 1000 && !(3000..=4999).contains(&n) {
-                            return Err(JsNativeError::error()
+                            return Err(JsNativeError::typ()
                                 .with_message(format!(
-                                    "WebSocket: invalid close code {n} (must be 1000 or 3000-4999)"
+                                    "InvalidAccessError: close code must be 1000 or in range 3000-4999, got {n}"
                                 ))
                                 .into());
                         }
@@ -339,17 +414,72 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
     register_ws_event_accessor(&mut init, bridge, &realm, "onerror", WsHandler::Error);
     register_ws_event_accessor(&mut init, bridge, &realm, "onclose", WsHandler::Close);
 
-    // Static constants on instance as well (per spec).
-    init.property(
-        js_string!("CONNECTING"),
-        JsValue::from(0),
-        Attribute::READONLY,
+    // addEventListener(type, listener)
+    let b_add = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| -> JsResult<JsValue> {
+                let id = extract_ws_id(this, ctx)?;
+                let event_type = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                let listener = args.get(1).and_then(JsValue::as_object).ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("addEventListener: listener must be a function")
+                })?;
+                let mut inner = bridge.inner.borrow_mut();
+                if let Some(cb) = inner.realtime.ws_callbacks_mut(id) {
+                    let listeners = cb.listener_registry.entry(event_type).or_default();
+                    // Deduplicate by JsObject pointer equality.
+                    let already = listeners.iter().any(|l| JsObject::equals(l, &listener));
+                    if !already {
+                        listeners.push(listener);
+                    }
+                }
+                Ok(JsValue::undefined())
+            },
+            b_add,
+        ),
+        js_string!("addEventListener"),
+        2,
     );
-    init.property(js_string!("OPEN"), JsValue::from(1), Attribute::READONLY);
-    init.property(js_string!("CLOSING"), JsValue::from(2), Attribute::READONLY);
-    init.property(js_string!("CLOSED"), JsValue::from(3), Attribute::READONLY);
+
+    // removeEventListener(type, listener)
+    let b_remove = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| -> JsResult<JsValue> {
+                let id = extract_ws_id(this, ctx)?;
+                let event_type = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                let listener = args.get(1).and_then(JsValue::as_object);
+                if let Some(ref listener) = listener {
+                    let mut inner = bridge.inner.borrow_mut();
+                    if let Some(cb) = inner.realtime.ws_callbacks_mut(id) {
+                        if let Some(listeners) = cb.listener_registry.get_mut(&event_type) {
+                            listeners.retain(|l| !JsObject::equals(l, listener));
+                        }
+                    }
+                }
+                Ok(JsValue::undefined())
+            },
+            b_remove,
+        ),
+        js_string!("removeEventListener"),
+        2,
+    );
 
     let ws_obj = init.build();
+
+    // Static constants on instance as well (per spec).
+    set_readystate_constants(&ws_obj, &WS_READYSTATE_CONSTANTS, ctx);
 
     // 7. Store hidden connection ID (placeholder).
     ws_obj
@@ -358,12 +488,12 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
 
     // 8. Open the WebSocket connection via the bridge.
     let origin_str = origin.serialize();
-    let id = bridge.inner.borrow_mut().realtime.open_websocket(
-        url,
-        protocols,
-        origin_str,
-        ws_obj.clone(),
-    );
+    let id = bridge
+        .inner
+        .borrow_mut()
+        .realtime
+        .open_websocket(url, protocols, origin_str, ws_obj.clone())
+        .map_err(|e| JsNativeError::typ().with_message(e))?;
 
     // Update the hidden ID property with the real value.
     ws_obj
@@ -394,6 +524,7 @@ fn parse_protocols(arg: Option<&JsValue>, ctx: &mut Context) -> JsResult<Vec<Str
             for i in 0..len {
                 let elem = arr.get(i, ctx)?;
                 let s = elem.to_string(ctx)?.to_std_string_escaped();
+                validate_protocol_string(&s)?;
                 protocols.push(s);
             }
             // Check duplicates.
@@ -411,7 +542,50 @@ fn parse_protocols(arg: Option<&JsValue>, ctx: &mut Context) -> JsResult<Vec<Str
 
     // Single string protocol.
     let s = val.to_string(ctx)?.to_std_string_escaped();
+    validate_protocol_string(&s)?;
     Ok(vec![s])
+}
+
+/// Validate a WebSocket sub-protocol string per RFC 6455 §4.1.
+fn validate_protocol_string(s: &str) -> JsResult<()> {
+    if s.is_empty() {
+        return Err(JsNativeError::syntax()
+            .with_message("WebSocket protocol must not be empty")
+            .into());
+    }
+    if !s.chars().all(is_valid_protocol_char) {
+        return Err(JsNativeError::syntax()
+            .with_message("WebSocket protocol contains invalid characters")
+            .into());
+    }
+    Ok(())
+}
+
+/// Check if a character is valid in a WebSocket sub-protocol name.
+/// RFC 6455 §4.1: token characters (RFC 2616 §2.2) — ASCII printable
+/// (0x21-0x7E) excluding separators.
+fn is_valid_protocol_char(c: char) -> bool {
+    let b = c as u32;
+    (0x21..=0x7E).contains(&b)
+        && !matches!(
+            c,
+            '"' | '('
+                | ')'
+                | ','
+                | '/'
+                | ':'
+                | ';'
+                | '<'
+                | '='
+                | '>'
+                | '?'
+                | '@'
+                | '['
+                | '\\'
+                | ']'
+                | '{'
+                | '}'
+        )
 }
 
 /// Get the `onXXX` callback reference from `WsCallbacks`.
@@ -544,5 +718,75 @@ mod tests {
         let val = JsValue::from(arr);
         let result = parse_protocols(Some(&val), &mut ctx);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_protocols_null_returns_empty() {
+        let mut ctx = Context::default();
+        let result = parse_protocols(Some(&JsValue::null()), &mut ctx).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_protocols_undefined_returns_empty() {
+        let mut ctx = Context::default();
+        let result = parse_protocols(Some(&JsValue::undefined()), &mut ctx).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_protocols_multiple_distinct() {
+        let mut ctx = Context::default();
+        let arr = JsArray::new(&mut ctx);
+        arr.push(js_string!("graphql-ws"), &mut ctx).unwrap();
+        arr.push(js_string!("graphql-transport-ws"), &mut ctx)
+            .unwrap();
+        arr.push(js_string!("mqtt"), &mut ctx).unwrap();
+        let val = JsValue::from(arr);
+        let result = parse_protocols(Some(&val), &mut ctx).unwrap();
+        assert_eq!(result, vec!["graphql-ws", "graphql-transport-ws", "mqtt"]);
+    }
+
+    #[test]
+    fn parse_protocols_empty_array() {
+        let mut ctx = Context::default();
+        let arr = JsArray::new(&mut ctx);
+        let val = JsValue::from(arr);
+        let result = parse_protocols(Some(&val), &mut ctx).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_protocols_empty_string_rejected() {
+        let mut ctx = Context::default();
+        let val = JsValue::from(js_string!(""));
+        let result = parse_protocols(Some(&val), &mut ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_protocols_invalid_chars_rejected() {
+        let mut ctx = Context::default();
+        // Space is not a valid token character
+        let val = JsValue::from(js_string!("bad protocol"));
+        let result = parse_protocols(Some(&val), &mut ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_protocols_separator_chars_rejected() {
+        let mut ctx = Context::default();
+        // Comma is a separator
+        let val = JsValue::from(js_string!("a,b"));
+        let result = parse_protocols(Some(&val), &mut ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_protocols_valid_chars_accepted() {
+        let mut ctx = Context::default();
+        let val = JsValue::from(js_string!("graphql-ws.v2"));
+        let result = parse_protocols(Some(&val), &mut ctx).unwrap();
+        assert_eq!(result, vec!["graphql-ws.v2"]);
     }
 }
