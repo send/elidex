@@ -228,17 +228,40 @@ impl RealtimeState {
     /// Drain all pending events from all WS and SSE connections.
     pub fn drain_realtime_events(&mut self) -> RealtimeEvents {
         let mut ws_events = Vec::new();
+        let mut ws_disconnected = Vec::new();
         for (&id, conn) in &self.ws_connections {
-            while let Ok(event) = conn.handle.event_rx.try_recv() {
-                ws_events.push((id, event));
+            loop {
+                match conn.handle.event_rx.try_recv() {
+                    Ok(event) => ws_events.push((id, event)),
+                    Err(e) if e.is_disconnected() => {
+                        // I/O thread exited — mark for removal.
+                        ws_disconnected.push(id);
+                        break;
+                    }
+                    Err(_) => break, // Empty — no more events this frame.
+                }
             }
+        }
+        for id in ws_disconnected {
+            self.ws_connections.remove(&id);
         }
 
         let mut sse_events = Vec::new();
+        let mut sse_disconnected = Vec::new();
         for (&id, conn) in &self.sse_connections {
-            while let Ok(event) = conn.handle.event_rx.try_recv() {
-                sse_events.push((id, event));
+            loop {
+                match conn.handle.event_rx.try_recv() {
+                    Ok(event) => sse_events.push((id, event)),
+                    Err(e) if e.is_disconnected() => {
+                        sse_disconnected.push(id);
+                        break;
+                    }
+                    Err(_) => break,
+                }
             }
+        }
+        for id in sse_disconnected {
+            self.sse_connections.remove(&id);
         }
 
         (ws_events, sse_events)

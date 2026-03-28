@@ -130,6 +130,17 @@ fn send_abnormal_close(evt_tx: &Sender<WsEvent>) {
     });
 }
 
+/// Check if a `try_send` result indicates the receiver is disconnected.
+///
+/// Returns `true` only for `Disconnected` (content thread dropped receiver).
+/// `Full` (temporary backpressure) drops the event but keeps the connection alive.
+fn is_disconnected<T>(result: &Result<(), crossbeam_channel::TrySendError<T>>) -> bool {
+    matches!(
+        result,
+        Err(crossbeam_channel::TrySendError::Disconnected(_))
+    )
+}
+
 /// Handle an incoming WebSocket message in normal (non-closing) state.
 ///
 /// Returns `true` if the caller should return from the I/O loop.
@@ -140,12 +151,12 @@ fn handle_ws_message(
     use tokio_tungstenite::tungstenite;
 
     match msg {
-        tungstenite::Message::Text(text) => evt_tx
-            .try_send(WsEvent::TextMessage(text.to_string()))
-            .is_err(),
-        tungstenite::Message::Binary(data) => evt_tx
-            .try_send(WsEvent::BinaryMessage(data.to_vec()))
-            .is_err(),
+        tungstenite::Message::Text(text) => {
+            is_disconnected(&evt_tx.try_send(WsEvent::TextMessage(text.to_string())))
+        }
+        tungstenite::Message::Binary(data) => {
+            is_disconnected(&evt_tx.try_send(WsEvent::BinaryMessage(data.to_vec())))
+        }
         tungstenite::Message::Close(frame) => {
             let (code, reason) = frame.map_or((1005, String::new()), |f| {
                 (f.code.into(), f.reason.to_string())

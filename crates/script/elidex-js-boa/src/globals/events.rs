@@ -301,7 +301,7 @@ pub fn create_standalone_event(
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(
         js_string!("eventPhase"),
-        JsValue::from(0_i32), // NONE
+        JsValue::from(2_i32), // AT_TARGET
         RO,
     );
     // WHATWG DOM §2.1: isTrusted is true for events dispatched by the user agent.

@@ -302,14 +302,16 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     .unwrap_or_default();
                 // Calculate byte length before sending for bufferedAmount update.
                 let byte_len = data.len() as u64;
-                let _ = bridge.ws_send_text(id, data);
-                // Synchronously increment bufferedAmount per WHATWG §9.3.1.
-                // The I/O thread will send BufferedAmountUpdate to decrement
-                // after transmission.
-                bridge.with_ws_callbacks(id, |cb| {
-                    let current = cb.buffered_amount.get();
-                    cb.buffered_amount.set(current + byte_len);
-                });
+                let sent = bridge.ws_send_text(id, data);
+                // Only increment bufferedAmount if the command was queued successfully.
+                // If the I/O thread has exited (channel disconnected), skip to avoid
+                // permanently inflated bufferedAmount.
+                if sent {
+                    bridge.with_ws_callbacks(id, |cb| {
+                        let current = cb.buffered_amount.get();
+                        cb.buffered_amount.set(current + byte_len);
+                    });
+                }
                 Ok(JsValue::undefined())
             },
             b_send,
