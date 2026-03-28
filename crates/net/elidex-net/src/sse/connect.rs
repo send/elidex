@@ -84,12 +84,14 @@ async fn connect_sse_single(
         .ok_or_else(|| SseConnectError::Recoverable("SSE: URL has no host".to_string()))?;
     let default_port: u16 = if scheme == "https" { 443 } else { 80 };
     let port = url.port().unwrap_or(default_port);
-    let addr = format!("{host}:{port}");
 
-    // Connect TCP.
-    let tcp = tokio::net::TcpStream::connect(&addr).await.map_err(|e| {
-        SseConnectError::Recoverable(format!("SSE: TCP connect to {addr} failed: {e}"))
-    })?;
+    // Connect TCP using (host, port) tuple — avoids IPv6 bracket issues with
+    // format!("{host}:{port}") since ToSocketAddrs handles bare IPv6 addresses.
+    let tcp = tokio::net::TcpStream::connect((host, port))
+        .await
+        .map_err(|e| {
+            SseConnectError::Recoverable(format!("SSE: TCP connect to {host}:{port} failed: {e}"))
+        })?;
 
     // SSRF re-validation: check the resolved IP address is not private.
     // This prevents DNS rebinding attacks where a hostname resolves to a
@@ -162,9 +164,28 @@ fn build_sse_request(
     headers: &[(String, String)],
     origin: Option<&str>,
 ) -> String {
-    let path = &url[url::Position::BeforePath..];
+    // Build path + query without fragment (fragments must not be sent in HTTP requests).
+    let mut path_and_query = url.path().to_owned();
+    if let Some(query) = url.query() {
+        path_and_query.push('?');
+        path_and_query.push_str(query);
+    }
+    // Build Host header: bracket IPv6 addresses, include port for non-default ports.
+    let default_port: u16 = if url.scheme() == "https" { 443 } else { 80 };
+    let host_header = if host.contains(':') {
+        // IPv6 address — wrap in brackets per RFC 2732.
+        match url.port() {
+            Some(p) if p != default_port => format!("[{host}]:{p}"),
+            _ => format!("[{host}]"),
+        }
+    } else {
+        match url.port() {
+            Some(p) if p != default_port => format!("{host}:{p}"),
+            _ => host.to_string(),
+        }
+    };
     let mut req_buf = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: text/event-stream\r\nCache-Control: no-cache\r\n"
+        "GET {path_and_query} HTTP/1.1\r\nHost: {host_header}\r\nAccept: text/event-stream\r\nCache-Control: no-cache\r\n"
     );
     if let Some(orig) = origin {
         use std::fmt::Write;

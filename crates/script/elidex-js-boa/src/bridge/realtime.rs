@@ -281,21 +281,21 @@ impl RealtimeState {
     }
 
     /// Shut down all connections gracefully.
+    ///
+    /// Sends close commands to all I/O threads and drops handles without joining.
+    /// Threads will exit when they detect channel disconnect or the close
+    /// handshake completes.
     pub fn shutdown_all(&mut self) {
         for (_, conn) in self.ws_connections.drain() {
             let _ = conn
                 .handle
                 .command_tx
                 .send(WsCommand::Close(1001, String::new()));
-            if let Some(thread) = conn.handle.thread {
-                let _ = thread.join();
-            }
+            // Don't join — thread will exit when it detects channel disconnect
+            // or close handshake completes.
         }
         for (_, conn) in self.sse_connections.drain() {
             let _ = conn.handle.command_tx.send(SseCommand::Close);
-            if let Some(thread) = conn.handle.thread {
-                let _ = thread.join();
-            }
         }
     }
 }

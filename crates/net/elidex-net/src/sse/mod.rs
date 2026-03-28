@@ -240,8 +240,11 @@ async fn sse_io_loop(
         }
 
         // Check for close command before connecting.
-        if cmd_rx.try_recv().is_ok() {
-            return;
+        match cmd_rx.try_recv() {
+            Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                return;
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => {}
         }
 
         // Build extra headers.
@@ -290,8 +293,12 @@ async fn sse_io_loop(
             match tokio::time::timeout(Duration::from_secs(60), reader.read_line(&mut line)).await {
                 Ok(Ok(0) | Err(_)) => break, // EOF or read error.
                 Ok(Ok(_)) => {
-                    if cmd_rx.try_recv().is_ok() {
-                        return;
+                    match cmd_rx.try_recv() {
+                        Ok(SseCommand::Close)
+                        | Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            return;
+                        }
+                        Err(crossbeam_channel::TryRecvError::Empty) => {}
                     }
                     // Skip oversized lines to prevent unbounded memory growth.
                     if line.len() > MAX_SSE_LINE_SIZE {
@@ -332,11 +339,12 @@ async fn sse_io_loop(
                         }
                     }
                 }
-                Err(_) => {
-                    if cmd_rx.try_recv().is_ok() {
+                Err(_) => match cmd_rx.try_recv() {
+                    Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
                         return;
                     }
-                }
+                    Err(crossbeam_channel::TryRecvError::Empty) => {}
+                },
             }
         }
 

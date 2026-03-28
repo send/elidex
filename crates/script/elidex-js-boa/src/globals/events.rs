@@ -260,13 +260,18 @@ pub fn create_event_object(
 ///
 /// Unlike [`create_event_object`], this does not require a DOM entity target or
 /// shared dispatch flags. The event has `preventDefault()`/`stopPropagation()`
-/// methods, `target`/`currentTarget` set to null, and payload-specific properties.
+/// methods and payload-specific properties.
+///
+/// If `target` is `Some`, `event.target` and `event.currentTarget` are set to
+/// that value (e.g. the `WebSocket` or `EventSource` JS object); otherwise they
+/// are set to `null`.
 ///
 /// Used by `WebSocket` `onmessage`/`onclose`/`onopen`/`onerror` and `EventSource` events.
 pub fn create_standalone_event(
     event_type: &str,
     payload: &EventPayload,
     cancelable: bool,
+    target: Option<&JsValue>,
     ctx: &mut Context,
 ) -> JsValue {
     // Pre-build ports array for Message payloads.
@@ -289,8 +294,9 @@ pub fn create_standalone_event(
     );
     init.property(js_string!("bubbles"), JsValue::from(false), RO);
     init.property(js_string!("cancelable"), JsValue::from(cancelable), RO);
-    init.property(js_string!("target"), JsValue::null(), RO);
-    init.property(js_string!("currentTarget"), JsValue::null(), RO);
+    let target_val = target.cloned().unwrap_or(JsValue::null());
+    init.property(js_string!("target"), target_val.clone(), RO);
+    init.property(js_string!("currentTarget"), target_val, RO);
     init.property(js_string!("composed"), JsValue::from(false), RO);
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(

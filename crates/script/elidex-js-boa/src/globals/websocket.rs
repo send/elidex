@@ -4,7 +4,7 @@
 
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
+use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 
 use crate::bridge::HostBridge;
@@ -360,7 +360,15 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
                     if v.is_undefined() {
                         1000u16
                     } else {
-                        let n = v.to_number(ctx)? as u16;
+                        let code_f64 = v.to_number(ctx)?;
+                        if code_f64.fract() != 0.0 || !code_f64.is_finite() {
+                            return Err(JsNativeError::typ()
+                                .with_message(
+                                    "InvalidAccessError: close code must be an integer",
+                                )
+                                .into());
+                        }
+                        let n = code_f64 as u16;
                         if n != 1000 && !(3000..=4999).contains(&n) {
                             return Err(JsNativeError::typ()
                                 .with_message(format!(
@@ -481,12 +489,7 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
     // Static constants on instance as well (per spec).
     set_readystate_constants(&ws_obj, &WS_READYSTATE_CONSTANTS, ctx);
 
-    // 7. Store hidden connection ID (placeholder).
-    ws_obj
-        .set(js_string!(WS_ID_KEY), JsValue::from(0.0_f64), false, ctx)
-        .expect("set ws id");
-
-    // 8. Open the WebSocket connection via the bridge.
+    // 7. Open the WebSocket connection via the bridge.
     let origin_str = origin.serialize();
     let id = bridge
         .inner
@@ -495,10 +498,17 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
         .open_websocket(url, protocols, origin_str, ws_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-    // Update the hidden ID property with the real value.
-    ws_obj
-        .set(js_string!(WS_ID_KEY), JsValue::from(id as f64), false, ctx)
-        .expect("set ws id");
+    // Store hidden connection ID as non-configurable, non-writable (readonly).
+    let _ = ws_obj.define_property_or_throw(
+        js_string!(WS_ID_KEY),
+        PropertyDescriptorBuilder::new()
+            .value(JsValue::from(id as f64))
+            .writable(false)
+            .enumerable(false)
+            .configurable(false)
+            .build(),
+        ctx,
+    );
 
     Ok(ws_obj.into())
 }

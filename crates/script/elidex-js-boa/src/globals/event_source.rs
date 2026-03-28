@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
+use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 
 use elidex_net::FetchHandle;
@@ -268,12 +268,7 @@ fn sse_constructor(
     // Static constants on instance.
     set_readystate_constants(&es_obj, &SSE_READYSTATE_CONSTANTS, ctx);
 
-    // 5. Store hidden connection ID (placeholder).
-    es_obj
-        .set(js_string!(SSE_ID_KEY), JsValue::from(0.0_f64), false, ctx)
-        .expect("set sse id");
-
-    // 6. Ensure the shared cookie jar is set for withCredentials support.
+    // 5. Ensure the shared cookie jar is set for withCredentials support.
     if with_credentials {
         if let Some(fh) = fetch_handle {
             bridge
@@ -284,7 +279,7 @@ fn sse_constructor(
         }
     }
 
-    // 7. Open the SSE connection via the bridge.
+    // 6. Open the SSE connection via the bridge.
     // Pass the document origin for CORS validation on the SSE response.
     let doc_origin = Some(bridge.origin().serialize());
     let id = bridge
@@ -294,10 +289,17 @@ fn sse_constructor(
         .open_event_source(url, with_credentials, doc_origin, es_obj.clone())
         .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-    // Update the hidden ID property with the real value.
-    es_obj
-        .set(js_string!(SSE_ID_KEY), JsValue::from(id as f64), false, ctx)
-        .expect("set sse id");
+    // Store hidden connection ID as non-configurable, non-writable (readonly).
+    let _ = es_obj.define_property_or_throw(
+        js_string!(SSE_ID_KEY),
+        PropertyDescriptorBuilder::new()
+            .value(JsValue::from(id as f64))
+            .writable(false)
+            .enumerable(false)
+            .configurable(false)
+            .build(),
+        ctx,
+    );
 
     Ok(es_obj.into())
 }
@@ -393,22 +395,15 @@ fn register_sse_event_accessor(
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn sse_connecting_constant() {
-        // EventSource.CONNECTING = 0 (WHATWG HTML §9.2).
-        assert_eq!(0_u16, 0);
-    }
+    use super::*;
 
     #[test]
-    fn sse_open_constant() {
-        // EventSource.OPEN = 1.
-        assert_eq!(1_u16, 1);
-    }
-
-    #[test]
-    fn sse_closed_constant() {
-        // EventSource.CLOSED = 2.
-        assert_eq!(2_u16, 2);
+    fn sse_readystate_constants_correct() {
+        // Verify the constant array matches WHATWG HTML §9.2 values.
+        assert_eq!(SSE_READYSTATE_CONSTANTS.len(), 3);
+        assert_eq!(SSE_READYSTATE_CONSTANTS[0], ("CONNECTING", 0));
+        assert_eq!(SSE_READYSTATE_CONSTANTS[1], ("OPEN", 1));
+        assert_eq!(SSE_READYSTATE_CONSTANTS[2], ("CLOSED", 2));
     }
 
     #[test]

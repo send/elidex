@@ -162,6 +162,10 @@ fn handle_ws_message(
 
 /// Send a WebSocket frame and update buffered byte tracking.
 ///
+/// The JS layer increments `bufferedAmount` synchronously when `send()` is called.
+/// After successful transmission, we decrement by the sent length. On error,
+/// the connection is closed (bufferedAmount becomes irrelevant).
+///
 /// Returns `true` if a send error occurred (caller should abort the loop).
 async fn send_frame(
     write: &mut (impl futures_util::SinkExt<
@@ -173,7 +177,6 @@ async fn send_frame(
     evt_tx: &Sender<WsEvent>,
 ) -> bool {
     let len = msg.len() as u64;
-    *buffered_bytes += len;
     if write.send(msg).await.is_err() {
         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
         send_abnormal_close(evt_tx);
