@@ -42,11 +42,16 @@ fn invoke_callback_and_listeners(
     ctx: &mut Context,
 ) {
     if let Some(func) = callback {
-        let _ = func.call(this_value, std::slice::from_ref(event_obj), ctx);
+        if let Err(err) = func.call(this_value, std::slice::from_ref(event_obj), ctx) {
+            eprintln!("[JS Event Error] {err}");
+        }
+        // Microtask checkpoint after each handler (HTML §8.1.7.3).
         let _ = ctx.run_jobs();
     }
     for listener in listeners {
-        let _ = listener.call(this_value, std::slice::from_ref(event_obj), ctx);
+        if let Err(err) = listener.call(this_value, std::slice::from_ref(event_obj), ctx) {
+            eprintln!("[JS Event Error] {err}");
+        }
         let _ = ctx.run_jobs();
     }
 }

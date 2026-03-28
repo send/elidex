@@ -308,19 +308,21 @@ impl JsRuntime {
                 eprintln!("[JS Event Error] {err}");
             }
 
+            // Microtask checkpoint after each listener (HTML §8.1.7.3).
+            // This ensures Promise.then() callbacks queued during the listener
+            // run before the next listener is invoked.
+            if let Err(err) = ctx.run_jobs() {
+                eprintln!("[JS Microtask Error] {err}");
+            }
+
             // Sync flags back from Rc<Cell> into the event.
+            // Microtasks may have called preventDefault() via the shared flags.
             ev.flags.default_prevented = prevent_default_flag.get();
             ev.flags.propagation_stopped = stop_propagation_flag.get();
             ev.flags.immediate_propagation_stopped = stop_immediate_flag.get();
         });
 
-        // Run microtask queue (Promise .then() callbacks) while bridge is bound.
-        if let Err(err) = ctx.run_jobs() {
-            eprintln!("[JS Microtask Error] {err}");
-        }
-
-        // Sync flags after microtask queue processing — microtasks may have
-        // called preventDefault() via the shared Rc<Cell> flags.
+        // Final flag sync after all listeners + microtasks.
         event.flags.default_prevented = prevent_default_flag.get();
         event.flags.propagation_stopped = stop_propagation_flag.get();
         event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
