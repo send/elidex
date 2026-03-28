@@ -1,9 +1,10 @@
 //! WebSocket I/O thread (RFC 6455).
 //!
 //! Spawns a dedicated thread with a current-thread tokio runtime for each
-//! WebSocket connection. Commands use `tokio::sync::mpsc` (bounded at 256
-//! for backpressure). Events back to the content thread use crossbeam
-//! bounded channel (drained via `try_recv`).
+//! WebSocket connection. Both channels are unbounded per WHATWG spec:
+//! Commands use `tokio::sync::mpsc` unbounded (JS `send()` must not block, §9.3.1).
+//! Events use crossbeam unbounded (messages must not be dropped, §9.3.2).
+//! Memory is bounded by the 4 MiB `max_message_size` + TCP backpressure.
 //!
 //! **Architecture note**: In M4-7 (Sandbox Hardening), `spawn_ws_thread` will
 //! migrate from direct thread spawning to Network Process IPC. The JS API layer
@@ -78,8 +79,8 @@ pub enum WsEvent {
 pub struct WsHandle {
     /// Unique connection identifier.
     pub id: WsId,
-    /// Send commands to the I/O thread.
-    pub command_tx: mpsc::Sender<WsCommand>,
+    /// Send commands to the I/O thread (unbounded — JS `send()` must not block).
+    pub command_tx: mpsc::UnboundedSender<WsCommand>,
     /// Receive events from the I/O thread.
     pub event_rx: crossbeam_channel::Receiver<WsEvent>,
     /// Thread join handle.
@@ -104,8 +105,12 @@ pub struct WsHandle {
 pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) -> WsHandle {
     let id = WsId::next();
 
-    let (cmd_tx, cmd_rx) = mpsc::channel::<WsCommand>(256);
-    let (evt_tx, evt_rx) = crossbeam_channel::bounded::<WsEvent>(64);
+    // Command channel: unbounded per WHATWG §9.3.1 — send() must not block JS.
+    // Memory is bounded by the 4MiB max_message_size on the WS config.
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<WsCommand>();
+    // Event channel: unbounded per WHATWG §9.3.2 — messages must not be dropped.
+    // Memory is bounded by the 4MiB max_message_size + TCP backpressure.
+    let (evt_tx, evt_rx) = crossbeam_channel::unbounded::<WsEvent>();
 
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -134,17 +139,6 @@ fn send_abnormal_close(evt_tx: &Sender<WsEvent>) {
     });
 }
 
-/// Check if a `try_send` result indicates the receiver is disconnected.
-///
-/// Returns `true` only for `Disconnected` (content thread dropped receiver).
-/// `Full` (temporary backpressure) drops the event but keeps the connection alive.
-fn is_disconnected<T>(result: &Result<(), crossbeam_channel::TrySendError<T>>) -> bool {
-    matches!(
-        result,
-        Err(crossbeam_channel::TrySendError::Disconnected(_))
-    )
-}
-
 /// Handle an incoming WebSocket message in normal (non-closing) state.
 ///
 /// Returns `true` if the caller should return from the I/O loop.
@@ -156,10 +150,10 @@ fn handle_ws_message(
 
     match msg {
         tungstenite::Message::Text(text) => {
-            is_disconnected(&evt_tx.try_send(WsEvent::TextMessage(text.to_string())))
+            evt_tx.send(WsEvent::TextMessage(text.to_string())).is_err()
         }
         tungstenite::Message::Binary(data) => {
-            is_disconnected(&evt_tx.try_send(WsEvent::BinaryMessage(data.to_vec())))
+            evt_tx.send(WsEvent::BinaryMessage(data.to_vec())).is_err()
         }
         tungstenite::Message::Close(frame) => {
             let (code, reason) = frame.map_or((1005, String::new()), |f| {
@@ -213,7 +207,7 @@ async fn ws_io_loop(
     url: url::Url,
     protocols: Vec<String>,
     origin: String,
-    mut cmd_rx: mpsc::Receiver<WsCommand>,
+    mut cmd_rx: mpsc::UnboundedReceiver<WsCommand>,
     evt_tx: Sender<WsEvent>,
 ) {
     use futures_util::{SinkExt, StreamExt};
