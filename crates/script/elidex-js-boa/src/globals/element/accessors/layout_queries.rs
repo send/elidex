@@ -149,7 +149,7 @@ pub(in crate::globals::element) fn register_layout_query_accessors(
             b,
         ),
         js_string!("scrollIntoView"),
-        1,
+        0,
     );
 
     // Read-only numeric property accessors via macro.

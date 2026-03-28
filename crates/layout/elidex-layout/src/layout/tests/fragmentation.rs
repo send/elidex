@@ -86,10 +86,8 @@ fn layout_fragmented_two_fragments_on_overflow() {
         fragments.len() >= 2,
         "240px in 100px fragments → at least 2 fragments"
     );
-    assert!(
-        fragments.len() >= 2,
-        "non-last fragments were fragmented (break_token moved to loop state)"
-    );
+    // Break tokens are consumed by the fragmentation loop — non-last fragments
+    // were successfully fragmented (verified by the fragment count above).
     assert!(
         fragments.last().unwrap().break_token.is_none(),
         "last fragment has no break token"

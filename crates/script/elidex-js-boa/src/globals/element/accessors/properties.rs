@@ -162,11 +162,18 @@ fn build_named_node_map(
         NativeFunction::from_copy_closure_with_captures(
             move |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let index = args
-                    .first()
-                    .and_then(JsValue::as_number)
-                    .map_or(0, |n| n as usize);
+                let index = match args.first().and_then(JsValue::as_number) {
+                    Some(n) if n.is_finite() => {
+                        let n = n.trunc();
+                        if n < 0.0 {
+                            return Ok(JsValue::null());
+                        }
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let idx = n as usize;
+                        idx
+                    }
+                    _ => return Ok(JsValue::null()),
+                };
                 // Get the attribute name at the given index.
                 let attr_name = bridge.with(|_session, dom| {
                     dom.world()
@@ -187,17 +194,7 @@ fn build_named_node_map(
                         if result.is_null() || result.is_undefined() {
                             return Ok(JsValue::null());
                         }
-                        if let Some(obj) = result.as_object() {
-                            let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
-                            if !entity_val.is_undefined() {
-                                let attr_entity = extract_entity(&result, ctx)?;
-                                return Ok(super::super::special_nodes::create_attr_object(
-                                    attr_entity,
-                                    bridge,
-                                    ctx,
-                                ));
-                            }
-                        }
+                        // Result is already an Attr/entity-backed wrapper; preserve identity.
                         Ok(result)
                     }
                     None => Ok(JsValue::null()),
@@ -242,17 +239,7 @@ fn build_named_node_map(
                 if result.is_null() || result.is_undefined() {
                     return Ok(JsValue::null());
                 }
-                if let Some(obj) = result.as_object() {
-                    let entity_val = obj.get(js_string!(ENTITY_KEY), ctx)?;
-                    if !entity_val.is_undefined() {
-                        let attr_entity = extract_entity(&result, ctx)?;
-                        return Ok(super::super::special_nodes::create_attr_object(
-                            attr_entity,
-                            bridge,
-                            ctx,
-                        ));
-                    }
-                }
+                // Result is already an Attr/entity-backed wrapper; preserve identity.
                 Ok(result)
             },
             b_named,
