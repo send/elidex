@@ -39,35 +39,16 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
         Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
-    // aborted — getter.
-    let realm = init.context().realm().clone();
-    let aborted_getter = NativeFunction::from_copy_closure(|this, _args, ctx| {
-        let obj = this.as_object().ok_or_else(|| {
-            JsNativeError::typ().with_message("AbortSignal: this is not an object")
-        })?;
-        obj.get(js_string!(ABORTED_KEY), ctx)
-    })
-    .to_js_function(&realm);
-    init.accessor(
+    // Visible "aborted" and "reason" properties (updated by fire_abort_on_signal).
+    init.property(
         js_string!("aborted"),
-        Some(aborted_getter),
-        None,
-        Attribute::CONFIGURABLE,
+        JsValue::from(false),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
-
-    // reason — getter.
-    let reason_getter = NativeFunction::from_copy_closure(|this, _args, ctx| {
-        let obj = this.as_object().ok_or_else(|| {
-            JsNativeError::typ().with_message("AbortSignal: this is not an object")
-        })?;
-        obj.get(js_string!(REASON_KEY), ctx)
-    })
-    .to_js_function(&realm);
-    init.accessor(
+    init.property(
         js_string!("reason"),
-        Some(reason_getter),
-        None,
-        Attribute::CONFIGURABLE,
+        JsValue::undefined(),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
     // throwIfAborted() — WHATWG DOM §3.2.
@@ -149,9 +130,11 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
 
 /// Fire the "abort" event on a signal object.
 fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) -> JsResult<()> {
-    // Set aborted = true, reason = value.
+    // Set aborted = true, reason = value (both hidden and visible).
     signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
     signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
+    signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
+    signal.set(js_string!("reason"), reason.clone(), false, ctx)?;
 
     // Call onabort if set.
     let onabort = signal.get(js_string!("onabort"), ctx)?;
@@ -234,7 +217,7 @@ fn register_controller_constructor(ctx: &mut Context, bridge: &HostBridge) {
         b,
     );
 
-    ctx.register_global_builtin_callable(js_string!("AbortController"), 0, constructor)
+    ctx.register_global_callable(js_string!("AbortController"), 0, constructor)
         .expect("failed to register AbortController");
 }
 
@@ -253,7 +236,9 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     JsValue::from(js_string!("AbortError: The operation was aborted"))
                 });
                 signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
-                signal.set(js_string!(REASON_KEY), reason, false, ctx)?;
+                signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
+                signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
+                signal.set(js_string!("reason"), reason, false, ctx)?;
                 Ok(JsValue::from(signal))
             },
             b2,
@@ -282,7 +267,9 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     let reason =
                         JsValue::from(js_string!("TimeoutError: The operation timed out"));
                     signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
-                    signal.set(js_string!(REASON_KEY), reason, false, ctx)?;
+                    signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
+                    signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
+                    signal.set(js_string!("reason"), reason, false, ctx)?;
                 }
                 // For positive ms: the signal will not auto-abort in this implementation
                 // since we don't have timer integration here. The signal is returned

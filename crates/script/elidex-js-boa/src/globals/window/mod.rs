@@ -60,7 +60,7 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
 /// Register `Image()` named constructor (WHATWG HTML §4.8.3).
 fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("Image"),
         0,
         NativeFunction::from_copy_closure_with_captures(
@@ -1056,11 +1056,11 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
         Attribute::READONLY,
     );
 
-    // Hidden entries storage.
+    // Hidden entries storage (writable so clearMarks/clearMeasures can replace).
     init.property(
         js_string!("__entries__"),
         entries_obj,
-        Attribute::empty(),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
     // performance.mark(name, options?) — W3C User Timing §3.
@@ -1690,7 +1690,7 @@ fn extract_point_dict(val: &JsValue, ctx: &mut Context) -> JsResult<(f64, f64, f
 /// Register `DOMPoint`, `DOMPointReadOnly`, `DOMMatrix`, `DOMMatrixReadOnly`, `DOMRect`.
 fn register_dom_geometry(ctx: &mut Context) {
     // DOMPointReadOnly constructor.
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("DOMPointReadOnly"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
@@ -1700,27 +1700,8 @@ fn register_dom_geometry(ctx: &mut Context) {
     )
     .expect("failed to register DOMPointReadOnly");
 
-    // DOMPointReadOnly.fromPoint(other)
-    let mut dpro_init = ObjectInitializer::new(ctx);
-    dpro_init.function(
-        NativeFunction::from_copy_closure(|_this, args, ctx| {
-            let dict = args.first().cloned().unwrap_or(JsValue::undefined());
-            let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
-            Ok(JsValue::from(build_dom_point(x, y, z, w, false, ctx)?))
-        }),
-        js_string!("fromPoint"),
-        0,
-    );
-    let dpro_proto = dpro_init.build();
-    ctx.register_global_property(
-        js_string!("DOMPointReadOnly"),
-        dpro_proto,
-        Attribute::WRITABLE | Attribute::CONFIGURABLE,
-    )
-    .expect("failed to register DOMPointReadOnly object");
-
     // DOMPoint constructor.
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("DOMPoint"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
@@ -1730,27 +1711,8 @@ fn register_dom_geometry(ctx: &mut Context) {
     )
     .expect("failed to register DOMPoint");
 
-    // DOMPoint.fromPoint(other)
-    let mut dp_init = ObjectInitializer::new(ctx);
-    dp_init.function(
-        NativeFunction::from_copy_closure(|_this, args, ctx| {
-            let dict = args.first().cloned().unwrap_or(JsValue::undefined());
-            let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
-            Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
-        }),
-        js_string!("fromPoint"),
-        0,
-    );
-    let dp_proto = dp_init.build();
-    ctx.register_global_property(
-        js_string!("DOMPoint"),
-        dp_proto,
-        Attribute::WRITABLE | Attribute::CONFIGURABLE,
-    )
-    .expect("failed to register DOMPoint object");
-
     // DOMRect constructor.
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("DOMRect"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
@@ -1890,7 +1852,7 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
         Ok(JsValue::from(init.build()))
     });
 
-    ctx.register_global_builtin_callable(js_string!(name), 0, constructor)
+    ctx.register_global_callable(js_string!(name), 0, constructor)
         .expect("failed to register DOMMatrix");
 }
 

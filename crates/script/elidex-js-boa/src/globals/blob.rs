@@ -246,7 +246,7 @@ fn register_blob_constructor(ctx: &mut Context) {
         Ok(JsValue::from(init.build()))
     });
 
-    ctx.register_global_builtin_callable(js_string!("Blob"), 0, constructor)
+    ctx.register_global_callable(js_string!("Blob"), 0, constructor)
         .expect("failed to register Blob");
 }
 
@@ -409,7 +409,7 @@ fn register_file_constructor(ctx: &mut Context) {
         Ok(JsValue::from(init.build()))
     });
 
-    ctx.register_global_builtin_callable(js_string!("File"), 2, constructor)
+    ctx.register_global_callable(js_string!("File"), 2, constructor)
         .expect("failed to register File");
 }
 

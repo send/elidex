@@ -9,7 +9,7 @@ use crate::bridge::HostBridge;
 /// Register `TextEncoder` and `TextDecoder` global constructors.
 pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
     // TextEncoder: new TextEncoder()
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("TextEncoder"),
         0,
         NativeFunction::from_copy_closure(|_this, _args, ctx| {
@@ -90,7 +90,7 @@ pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
     .expect("failed to register TextEncoder");
 
     // TextDecoder: new TextDecoder(label?, options?)
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("TextDecoder"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {

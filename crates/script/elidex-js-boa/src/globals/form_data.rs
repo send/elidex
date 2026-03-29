@@ -14,7 +14,7 @@ pub fn register_form_data(ctx: &mut Context) {
     let constructor = NativeFunction::from_copy_closure(|_this, _args, ctx| {
         Ok(JsValue::from(create_form_data_object(ctx)?))
     });
-    ctx.register_global_builtin_callable(js_string!("FormData"), 0, constructor)
+    ctx.register_global_callable(js_string!("FormData"), 0, constructor)
         .expect("failed to register FormData");
 }
 
@@ -29,7 +29,7 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     init.property(
         js_string!(ENTRIES_KEY),
         JsValue::from(entries),
-        Attribute::empty(),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
     // append(name, value, filename?)

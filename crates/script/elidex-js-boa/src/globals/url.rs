@@ -9,7 +9,7 @@ use crate::bridge::HostBridge;
 /// Register `URL` and `URLSearchParams` global constructors.
 pub fn register_url_constructors(ctx: &mut Context, _bridge: &HostBridge) {
     // URL constructor: new URL(url, base?)
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("URL"),
         1,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
@@ -49,7 +49,7 @@ pub fn register_url_constructors(ctx: &mut Context, _bridge: &HostBridge) {
     .expect("failed to register URL");
 
     // URLSearchParams constructor: new URLSearchParams(init?)
-    ctx.register_global_builtin_callable(
+    ctx.register_global_callable(
         js_string!("URLSearchParams"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
