@@ -506,7 +506,14 @@ pub(crate) fn dispatch_event_for(
     // listener invocations while reusing the same JS object identity.
     let user_event_obj = obj.clone();
 
-    let pd_flag = Rc::new(std::cell::Cell::new(false));
+    // Finding 5: preserve any pre-dispatch defaultPrevented state set before
+    // dispatchEvent() was called (e.g. event.preventDefault() called before dispatch).
+    let pre_dispatch_pd = obj
+        .get(js_string!("defaultPrevented"), ctx)
+        .ok()
+        .is_some_and(|v| v.to_boolean());
+
+    let pd_flag = Rc::new(std::cell::Cell::new(pre_dispatch_pd));
     let stop_prop_flag = Rc::new(std::cell::Cell::new(false));
     let stop_imm_flag = Rc::new(std::cell::Cell::new(false));
 
@@ -565,35 +572,54 @@ pub(crate) fn dispatch_event_for(
         );
     }
 
-    // Synchronous dispatch: invoke listeners directly with the same event object.
-    // Use with_dom_ref (no re-entrancy guard) so bridge.with() can be called
-    // inside the callback for once-listener removal before invoke.
-    bridge.with_dom_ref(|dom| {
-        elidex_script_session::dispatch_event(
-            dom,
-            &mut dispatch_event,
-            &mut |listener_id, entity, ev| {
-                // Look up listener metadata for once/passive options via bridge.with().
+    // Pre-compute the dispatch plan and composed path via bridge.with(),
+    // releasing the DOM borrow before any listener callbacks execute.
+    // This avoids the UB of with_dom_ref (creating &EcsDom) while bridge.with()
+    // inside callbacks creates &mut EcsDom.
+    let (plan, composed_path) = bridge.with(|_session, dom| {
+        let plan = elidex_script_session::build_dispatch_plan(dom, &dispatch_event);
+        let path =
+            elidex_script_session::build_propagation_path(dom, dispatch_event.target, composed);
+        (plan, path)
+    });
+
+    dispatch_event.composed_path = composed_path;
+    dispatch_event.dispatch_flag = true;
+    dispatch_event.flags.default_prevented = pre_dispatch_pd;
+
+    let saved_target = dispatch_event.target;
+
+    // Helper closure: invoke a list of listeners on an entity.
+    let mut invoke_phase_listeners =
+        |ids: &[elidex_script_session::ListenerId],
+         phase_entity: elidex_ecs::Entity,
+         ev: &mut elidex_script_session::DispatchEvent| {
+            for &listener_id in ids {
+                if ev.flags.immediate_propagation_stopped {
+                    break;
+                }
+
+                // Look up listener metadata for once/passive options.
                 let (is_once, is_passive) = bridge.with(|_session, dom| {
-                    dom.world().get::<&EventListeners>(entity).ok().map_or(
-                        (false, false),
-                        |listeners| {
+                    dom.world()
+                        .get::<&EventListeners>(phase_entity)
+                        .ok()
+                        .map_or((false, false), |listeners| {
                             listeners
                                 .find_entry(listener_id)
                                 .map_or((false, false), |entry| (entry.once, entry.passive))
-                        },
-                    )
+                        })
                 });
 
                 let Some(js_func) = bridge.get_listener(listener_id) else {
-                    return;
+                    continue;
                 };
 
                 // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
                 if is_once {
                     bridge.with(|_session, dom| {
                         if let Ok(mut listeners) =
-                            dom.world_mut().get::<&mut EventListeners>(entity)
+                            dom.world_mut().get::<&mut EventListeners>(phase_entity)
                         {
                             listeners.remove(listener_id);
                         }
@@ -601,14 +627,13 @@ pub(crate) fn dispatch_event_for(
                     bridge.remove_listener(listener_id);
                 }
 
-                // Update eventPhase, target, currentTarget hidden slots on the user's event object.
+                // Update eventPhase, target, currentTarget hidden slots.
                 let _ = user_event_obj.set(
                     js_string!(EVENT_PHASE_SLOT),
                     JsValue::from(i32::from(ev.phase as u8)),
                     false,
                     ctx,
                 );
-                // Build target/currentTarget wrappers for the user's event object.
                 let target_val = bridge.with(|session, _dom| {
                     let obj_ref = session.get_or_create_wrapper(
                         ev.target,
@@ -650,11 +675,9 @@ pub(crate) fn dispatch_event_for(
                 stop_imm_flag.set(ev.flags.immediate_propagation_stopped);
 
                 // WHATWG DOM §2.6: passive listeners cannot call preventDefault().
-                // Temporarily mask the cancelable flag so preventDefault() is a no-op.
                 let saved_cancelable = ev.cancelable;
                 if is_passive {
                     ev.cancelable = false;
-                    // Re-install preventDefault with cancelable=false so it's a no-op.
                     let pd_shared = crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
                     let _ = user_event_obj.set(
                         js_string!("preventDefault"),
@@ -684,7 +707,6 @@ pub(crate) fn dispatch_event_for(
                 // Restore cancelable after passive listener override.
                 if is_passive {
                     ev.cancelable = saved_cancelable;
-                    // Re-install preventDefault with the original cancelable flag.
                     let pd_shared = crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
                     let _ = user_event_obj.set(
                         js_string!("preventDefault"),
@@ -707,9 +729,74 @@ pub(crate) fn dispatch_event_for(
                 ev.flags.default_prevented = pd_flag.get();
                 ev.flags.propagation_stopped = stop_prop_flag.get();
                 ev.flags.immediate_propagation_stopped = stop_imm_flag.get();
-            },
-        );
-    });
+            }
+        };
+
+    // Phase 1: Capture (root → target, exclusive).
+    dispatch_event.phase = elidex_plugin::EventPhase::Capturing;
+    for (phase_entity, ids) in &plan.capture {
+        if dispatch_event.flags.propagation_stopped
+            || dispatch_event.flags.immediate_propagation_stopped
+        {
+            break;
+        }
+        // Per-listener retarget via bridge.with().
+        bridge.with(|_session, dom| {
+            elidex_script_session::apply_retarget(
+                &mut dispatch_event,
+                *phase_entity,
+                saved_target,
+                dom,
+            );
+        });
+        dispatch_event.current_target = Some(*phase_entity);
+        invoke_phase_listeners(ids, *phase_entity, &mut dispatch_event);
+    }
+
+    // Phase 2: At-target.
+    if !dispatch_event.flags.propagation_stopped
+        && !dispatch_event.flags.immediate_propagation_stopped
+    {
+        if let Some((target, ref ids)) = plan.at_target {
+            dispatch_event.phase = elidex_plugin::EventPhase::AtTarget;
+            dispatch_event.target = saved_target;
+            dispatch_event.original_target = None;
+            dispatch_event.current_target = Some(target);
+            invoke_phase_listeners(ids, target, &mut dispatch_event);
+        }
+    }
+
+    // Phase 3: Bubble (target → root, exclusive, reversed).
+    if dispatch_event.bubbles
+        && !dispatch_event.flags.propagation_stopped
+        && !dispatch_event.flags.immediate_propagation_stopped
+    {
+        dispatch_event.phase = elidex_plugin::EventPhase::Bubbling;
+        for (phase_entity, ids) in &plan.bubble {
+            if dispatch_event.flags.propagation_stopped
+                || dispatch_event.flags.immediate_propagation_stopped
+            {
+                break;
+            }
+            bridge.with(|_session, dom| {
+                elidex_script_session::apply_retarget(
+                    &mut dispatch_event,
+                    *phase_entity,
+                    saved_target,
+                    dom,
+                );
+            });
+            dispatch_event.current_target = Some(*phase_entity);
+            invoke_phase_listeners(ids, *phase_entity, &mut dispatch_event);
+        }
+    }
+
+    // Post-dispatch cleanup.
+    dispatch_event.phase = elidex_plugin::EventPhase::None;
+    dispatch_event.current_target = None;
+    dispatch_event.target = saved_target;
+    dispatch_event.original_target = None;
+    dispatch_event.dispatch_flag = false;
 
     let prevented = dispatch_event.flags.default_prevented;
 

@@ -51,10 +51,18 @@ pub struct HostBridge {
     cssom_registry: Rc<CssomHandlerRegistry>,
 }
 
+/// Monotonic counter for assigning unique IDs to each `HostBridgeInner`.
+///
+/// Used to isolate opaque-origin ("null") localStorage: each bridge gets
+/// a unique key like `"null:42"` instead of sharing a single `"null"`.
+static BRIDGE_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub(crate) struct HostBridgeInner {
     session_ptr: *mut SessionCore,
     dom_ptr: *mut EcsDom,
     document_entity: Option<Entity>,
+    /// Unique ID for this bridge instance, used for opaque origin isolation.
+    bridge_id: u64,
     /// Re-entrancy guard: true while inside a `with()` closure.
     in_with: bool,
     /// Cache: `JsObjectRef` → boa `JsObject` for element identity preservation.
@@ -313,6 +321,7 @@ impl HostBridge {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
+                bridge_id: BRIDGE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 in_with: false,
                 js_object_cache: HashMap::new(),
                 listener_store: HashMap::new(),
@@ -442,42 +451,6 @@ impl HostBridge {
         };
         self.inner.borrow_mut().in_with = false;
         result
-    }
-
-    /// Access `EcsDom` as an immutable reference for the duration of the closure.
-    ///
-    /// Unlike `with()`, this does NOT set the `in_with` re-entrancy guard,
-    /// allowing `with()` to be called inside the closure. This is specifically
-    /// designed for `dispatch_event_for` which needs to pass `&EcsDom` to
-    /// `dispatch_event()` while also calling `bridge.with()` inside the
-    /// listener callback for once-listener removal.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that no mutable access to `EcsDom` occurs
-    /// through other means while the returned reference is live, except
-    /// through `with()` calls that do not overlap with the immutable access.
-    /// In practice, `dispatch_event()` pre-collects the dispatch plan and
-    /// only uses the `dom` reference for tree-structure reads (`apply_retarget`),
-    /// so `with()` calls inside the callback that mutate `EventListeners`
-    /// are safe.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the bridge is not bound.
-    #[allow(unsafe_code)]
-    pub(crate) fn with_dom_ref<R>(&self, f: impl FnOnce(&EcsDom) -> R) -> R {
-        let dom_ptr = {
-            let inner = self.inner.borrow();
-            assert!(
-                !inner.dom_ptr.is_null(),
-                "HostBridge::with_dom_ref() called while unbound"
-            );
-            inner.dom_ptr
-        };
-        // Safety: pointer valid for the duration of eval (bind/unbind bracket).
-        // RefCell borrow dropped above. No in_with guard, allowing with() inside f.
-        unsafe { f(&*dom_ptr) }
     }
 
     /// Returns the document root entity.

@@ -223,20 +223,20 @@ pub fn build_propagation_path(dom: &EcsDom, target: Entity, composed: bool) -> V
 /// Built from `&EcsDom` before invoking any callbacks, so the DOM borrow
 /// is released before listener functions execute (enabling DOM mutation
 /// from callbacks).
-struct DispatchPlan {
+pub struct DispatchPlan {
     /// `(entity, capture_listener_ids)` for capture phase (root → target exclusive).
-    capture: Vec<(Entity, Vec<ListenerId>)>,
+    pub capture: Vec<(Entity, Vec<ListenerId>)>,
     /// `(entity, all_listener_ids)` for at-target phase.
-    at_target: Option<(Entity, Vec<ListenerId>)>,
+    pub at_target: Option<(Entity, Vec<ListenerId>)>,
     /// `(entity, bubble_listener_ids)` for bubble phase (target exclusive → root).
-    bubble: Vec<(Entity, Vec<ListenerId>)>,
+    pub bubble: Vec<(Entity, Vec<ListenerId>)>,
 }
 
 /// Build a dispatch plan by pre-collecting all listener IDs from the DOM.
 ///
 /// This releases the `&EcsDom` borrow *before* any listener callbacks run,
 /// allowing callbacks to safely mutate the DOM via the bridge.
-fn build_dispatch_plan(dom: &EcsDom, event: &DispatchEvent) -> DispatchPlan {
+pub fn build_dispatch_plan(dom: &EcsDom, event: &DispatchEvent) -> DispatchPlan {
     let path = build_propagation_path(dom, event.target, event.composed);
     if path.is_empty() {
         return DispatchPlan {
@@ -399,7 +399,7 @@ pub fn dispatch_event(
 ///
 /// Returns the retargeted entity (which may be `A` itself if no retargeting
 /// is needed).
-fn retarget(dom: &EcsDom, mut a: Entity, b: Entity) -> Entity {
+pub fn retarget(dom: &EcsDom, mut a: Entity, b: Entity) -> Entity {
     let mut depth = 0;
     loop {
         depth += 1;
@@ -441,7 +441,7 @@ fn is_in_subtree_of(dom: &EcsDom, entity: Entity, root: Entity) -> bool {
 /// listener_entity)`. Slotted elements (light DOM nodes assigned to a slot)
 /// are exempt from retargeting only when the listener is in light DOM context.
 /// Shadow-internal listeners still see the retargeted target.
-fn apply_retarget(
+pub fn apply_retarget(
     event: &mut DispatchEvent,
     listener_entity: Entity,
     original_target: Entity,

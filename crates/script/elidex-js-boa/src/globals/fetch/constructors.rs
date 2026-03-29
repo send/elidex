@@ -87,6 +87,27 @@ const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
 /// Hidden property key for the headers guard.
 const GUARD_KEY: &str = "__guard__";
 
+/// Validate a header name per Fetch spec §2.2.1 (HTTP token production).
+///
+/// A valid token consists of characters from the HTTP token production
+/// (RFC 7230 §3.2.6) and must not be empty.
+fn is_valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|b| {
+            matches!(b,
+                b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.'
+                | b'0'..=b'9' | b'A'..=b'Z' | b'^' | b'_' | b'`' | b'a'..=b'z' | b'|' | b'~'
+            )
+        })
+}
+
+/// Validate a header value per Fetch spec §2.2.2.
+///
+/// Header values must not contain NUL (`\0`), LF (`\n`), or CR (`\r`).
+fn is_valid_header_value(value: &str) -> bool {
+    value.bytes().all(|b| b != 0 && b != b'\n' && b != b'\r')
+}
+
 /// Check a header guard before mutation. Returns Err if disallowed.
 fn check_headers_guard(this: &JsValue, name: &str, ctx: &mut Context) -> boa_engine::JsResult<()> {
     let guard = this
@@ -197,6 +218,11 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            if !is_valid_header_name(&name) {
+                return Err(JsNativeError::typ()
+                    .with_message(format!("Headers.set: '{name}' is not a valid header name"))
+                    .into());
+            }
             check_headers_guard(this, &name, ctx)?;
             let value = args
                 .get(1)
@@ -204,6 +230,11 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            if !is_valid_header_value(&value) {
+                return Err(JsNativeError::typ()
+                    .with_message("Headers.set: header value contains invalid characters")
+                    .into());
+            }
             let mut headers = parse_headers(this, ctx)?;
             headers.retain(|(k, _)| !k.eq_ignore_ascii_case(&name));
             headers.push((name, value));
@@ -223,6 +254,13 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            if !is_valid_header_name(&name) {
+                return Err(JsNativeError::typ()
+                    .with_message(format!(
+                        "Headers.append: '{name}' is not a valid header name"
+                    ))
+                    .into());
+            }
             check_headers_guard(this, &name, ctx)?;
             let value = args
                 .get(1)
@@ -230,6 +268,11 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            if !is_valid_header_value(&value) {
+                return Err(JsNativeError::typ()
+                    .with_message("Headers.append: header value contains invalid characters")
+                    .into());
+            }
             let mut headers = parse_headers(this, ctx)?;
             headers.push((name, value));
             store_headers(this, &headers, ctx)?;
@@ -346,10 +389,20 @@ fn apply_headers_init(
                     .get(0_u32, ctx)?
                     .to_string(ctx)?
                     .to_std_string_escaped();
+                if !is_valid_header_name(&k) {
+                    return Err(JsNativeError::typ()
+                        .with_message(format!("Headers: '{k}' is not a valid header name"))
+                        .into());
+                }
                 let v = pair_obj
                     .get(1_u32, ctx)?
                     .to_string(ctx)?
                     .to_std_string_escaped();
+                if !is_valid_header_value(&v) {
+                    return Err(JsNativeError::typ()
+                        .with_message("Headers: header value contains invalid characters")
+                        .into());
+                }
                 entries.push((k, v));
             }
         }
@@ -368,10 +421,20 @@ fn apply_headers_init(
         if k.starts_with("__") {
             continue;
         }
+        if !is_valid_header_name(&k) {
+            return Err(JsNativeError::typ()
+                .with_message(format!("Headers: '{k}' is not a valid header name"))
+                .into());
+        }
         let v = init_obj
             .get(js_string!(&*k), ctx)?
             .to_string(ctx)?
             .to_std_string_escaped();
+        if !is_valid_header_value(&v) {
+            return Err(JsNativeError::typ()
+                .with_message("Headers: header value contains invalid characters")
+                .into());
+        }
         entries.push((k.clone(), v));
     }
     if !entries.is_empty() {

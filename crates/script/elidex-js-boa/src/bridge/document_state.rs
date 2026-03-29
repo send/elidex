@@ -103,8 +103,18 @@ impl HostBridge {
     ///
     /// Reads from the cached origin string in `HostBridgeInner`,
     /// which is updated whenever `set_current_url` is called.
+    ///
+    /// Opaque origins (data: URLs, sandboxed iframes) serialize to "null"
+    /// per the URL spec. To prevent storage cross-contamination between
+    /// unrelated opaque origins, we append a unique per-bridge ID:
+    /// `"null:<bridge_id>"`.
     fn local_storage_origin(&self) -> String {
-        self.inner.borrow().cached_origin.clone()
+        let inner = self.inner.borrow();
+        if inner.cached_origin == "null" {
+            format!("null:{}", inner.bridge_id)
+        } else {
+            inner.cached_origin.clone()
+        }
     }
 
     /// Push a storage change notification for cross-tab broadcast.

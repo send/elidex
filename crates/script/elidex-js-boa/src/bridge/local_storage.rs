@@ -223,6 +223,9 @@ pub(crate) fn local_storage_byte_size(origin: &str) -> usize {
 ///
 /// Call once per frame (after JS eval) rather than on every setItem/removeItem/clear.
 /// Only iterates origins that have been modified since the last flush.
+///
+/// The registry lock is released before any disk I/O occurs. Only per-origin
+/// locks are held during `persist()`, avoiding blocking other threads.
 pub fn flush_dirty_stores() {
     let dirty: Vec<String> = {
         let mut dirty_set = DIRTY_ORIGINS
@@ -236,15 +239,24 @@ pub fn flush_dirty_stores() {
         return;
     }
 
-    let registry = LOCAL_STORAGE_REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    for origin in &dirty {
-        if let Some(store) = registry.get(origin) {
-            let mut guard = store
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            guard.persist();
-        }
+    // Clone Arc handles while holding the registry lock, then drop it
+    // before doing any disk I/O.
+    let stores: Vec<Arc<Mutex<LocalStore>>> = {
+        let registry = LOCAL_STORAGE_REGISTRY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        dirty
+            .iter()
+            .filter_map(|origin| registry.get(origin).cloned())
+            .collect()
+    };
+    // Registry lock is dropped here.
+
+    // Persist with only per-origin locks held.
+    for store in &stores {
+        let mut guard = store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.persist();
     }
 }
