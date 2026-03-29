@@ -204,6 +204,17 @@ impl JsRuntime {
         self.bridge.bind(session, dom, document_entity);
         let _guard = UnbindGuard(&self.bridge);
 
+        // Phase 1: Pre-compute dispatch plan and composed path under a short
+        // DOM borrow. The borrow is released before any listener callbacks run,
+        // eliminating the aliased &EcsDom / &mut EcsDom UB.
+        let plan = self.bridge.with(|_session, dom| {
+            let plan = elidex_script_session::build_dispatch_plan(dom, event);
+            event.composed_path =
+                elidex_script_session::build_propagation_path(dom, event.target, event.composed);
+            event.dispatch_flag = true;
+            plan
+        });
+
         // Shared flags for JS event methods to write back into the dispatch loop.
         let prevent_default_flag = Rc::new(Cell::new(event.flags.default_prevented));
         let stop_propagation_flag = Rc::new(Cell::new(event.flags.propagation_stopped));
@@ -211,159 +222,194 @@ impl JsRuntime {
 
         let bridge = self.bridge.clone();
         let ctx = &mut self.ctx;
+        let saved_target = event.target;
 
-        elidex_script_session::dispatch_event(dom, event, &mut |listener_id, entity, ev| {
-            // Sync flags from Rc<Cell> into the event before checking.
-            ev.flags.default_prevented = prevent_default_flag.get();
-            ev.flags.propagation_stopped = stop_propagation_flag.get();
-            ev.flags.immediate_propagation_stopped = stop_immediate_flag.get();
+        // Phase 2: Iterate the pre-built plan, invoking listeners with bridge.with()
+        // for each DOM access. No aliased borrows.
+        let at_target_slice: &[(Entity, Vec<elidex_script_session::ListenerId>)] = plan
+            .at_target
+            .as_ref()
+            .map_or(&[], |t| std::slice::from_ref(t));
+        #[allow(clippy::type_complexity)]
+        let phases: [(
+            &[(Entity, Vec<elidex_script_session::ListenerId>)],
+            elidex_plugin::EventPhase,
+        ); 3] = [
+            (&plan.capture, elidex_plugin::EventPhase::Capturing),
+            (at_target_slice, elidex_plugin::EventPhase::AtTarget),
+            (&plan.bubble, elidex_plugin::EventPhase::Bubbling),
+        ];
 
-            // Look up listener metadata for once/passive options.
-            let (is_once, is_passive) = bridge.with(|_session, dom| {
-                dom.world()
-                    .get::<&elidex_script_session::EventListeners>(entity)
-                    .ok()
-                    .map_or((false, false), |listeners| {
-                        listeners
-                            .find_entry(listener_id)
-                            .map_or((false, false), |entry| (entry.once, entry.passive))
-                    })
-            });
-
-            let Some(js_func) = bridge.get_listener(listener_id) else {
-                return;
-            };
-
-            // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
-            if is_once {
-                bridge.with(|_session, dom| {
-                    if let Ok(mut listeners) =
-                        dom.world_mut()
-                            .get::<&mut elidex_script_session::EventListeners>(entity)
-                    {
-                        listeners.remove(listener_id);
-                    }
-                });
-                bridge.remove_listener(listener_id);
+        for (entries, phase) in &phases {
+            // Skip bubble phase if event doesn't bubble.
+            if *phase == elidex_plugin::EventPhase::Bubbling && !event.bubbles {
+                continue;
             }
 
-            // Create element wrapper for target and current_target.
-            let target_wrapper = bridge.with(|session, dom| {
-                let obj_ref = session.get_or_create_wrapper(ev.target, ComponentKind::Element);
-                let is_iframe = Self::is_iframe_entity(dom, ev.target);
-                crate::globals::element::create_element_wrapper(
-                    ev.target, &bridge, obj_ref, ctx, is_iframe,
-                )
-            });
-            let current_target_wrapper = if let Some(ct) = ev.current_target {
-                bridge.with(|session, dom| {
-                    let obj_ref = session.get_or_create_wrapper(ct, ComponentKind::Element);
-                    let is_iframe = Self::is_iframe_entity(dom, ct);
-                    crate::globals::element::create_element_wrapper(
-                        ct, &bridge, obj_ref, ctx, is_iframe,
-                    )
-                })
-            } else {
-                JsValue::null()
-            };
+            for (entity, listener_ids) in *entries {
+                if stop_propagation_flag.get() {
+                    break;
+                }
 
-            // H1+M5: Build composedPath() array using per-listener filtering.
-            // This ensures closed shadow DOM internals are not leaked to
-            // listeners outside the shadow tree.
-            let filtered_path =
-                bridge.with(|_session, dom| elidex_script_session::composed_path_for_js(ev, dom));
-            let composed_path_array = if filtered_path.is_empty() {
-                None
-            } else {
-                let arr = boa_engine::object::builtins::JsArray::new(ctx);
-                for &path_entity in &filtered_path {
-                    let wrapper = bridge.with(|session, dom| {
+                // Retarget for shadow DOM.
+                let retargeted_target = bridge.with(|_session, dom| {
+                    elidex_script_session::retarget(dom, saved_target, *entity)
+                });
+                event.target = retargeted_target;
+                event.current_target = Some(*entity);
+                event.phase = *phase;
+
+                for listener_id in listener_ids {
+                    if stop_immediate_flag.get() {
+                        break;
+                    }
+
+                    // Look up listener metadata for once/passive options.
+                    let (is_once, is_passive) = bridge.with(|_session, dom| {
+                        dom.world()
+                            .get::<&elidex_script_session::EventListeners>(*entity)
+                            .ok()
+                            .map_or((false, false), |listeners| {
+                                listeners
+                                    .find_entry(*listener_id)
+                                    .map_or((false, false), |e| (e.once, e.passive))
+                            })
+                    });
+
+                    let Some(js_func) = bridge.get_listener(*listener_id) else {
+                        continue;
+                    };
+
+                    // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
+                    if is_once {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut listeners) =
+                                dom.world_mut()
+                                    .get::<&mut elidex_script_session::EventListeners>(*entity)
+                            {
+                                listeners.remove(*listener_id);
+                            }
+                        });
+                        bridge.remove_listener(*listener_id);
+                    }
+
+                    // Create element wrappers for target and currentTarget.
+                    let target_wrapper = bridge.with(|session, dom| {
                         let obj_ref =
-                            session.get_or_create_wrapper(path_entity, ComponentKind::Element);
-                        let is_iframe = Self::is_iframe_entity(dom, path_entity);
+                            session.get_or_create_wrapper(event.target, ComponentKind::Element);
+                        let is_iframe = Self::is_iframe_entity(dom, event.target);
                         crate::globals::element::create_element_wrapper(
-                            path_entity,
+                            event.target,
                             &bridge,
                             obj_ref,
                             ctx,
                             is_iframe,
                         )
                     });
-                    let _ = arr.push(wrapper, ctx);
-                }
-                Some(JsValue::from(arr))
-            };
+                    let current_target_wrapper = bridge.with(|session, dom| {
+                        let obj_ref =
+                            session.get_or_create_wrapper(*entity, ComponentKind::Element);
+                        let is_iframe = Self::is_iframe_entity(dom, *entity);
+                        crate::globals::element::create_element_wrapper(
+                            *entity, &bridge, obj_ref, ctx, is_iframe,
+                        )
+                    });
 
-            // WHATWG DOM §2.6: passive listeners cannot call preventDefault().
-            // We achieve this by temporarily masking the cancelable flag so that
-            // the event object's preventDefault() becomes a no-op.
-            let effective_cancelable = ev.cancelable && !is_passive;
-            let saved_cancelable = ev.cancelable;
-            ev.cancelable = effective_cancelable;
+                    // Build composedPath() array with per-listener filtering.
+                    let filtered_path = bridge.with(|_session, dom| {
+                        elidex_script_session::composed_path_for_js(event, dom)
+                    });
+                    let composed_path_array = if filtered_path.is_empty() {
+                        None
+                    } else {
+                        let arr = boa_engine::object::builtins::JsArray::new(ctx);
+                        for &path_entity in &filtered_path {
+                            let wrapper = bridge.with(|session, dom| {
+                                let obj_ref = session
+                                    .get_or_create_wrapper(path_entity, ComponentKind::Element);
+                                let is_iframe = Self::is_iframe_entity(dom, path_entity);
+                                crate::globals::element::create_element_wrapper(
+                                    path_entity,
+                                    &bridge,
+                                    obj_ref,
+                                    ctx,
+                                    is_iframe,
+                                )
+                            });
+                            let _ = arr.push(wrapper, ctx);
+                        }
+                        Some(JsValue::from(arr))
+                    };
 
-            let event_flags = crate::globals::events::EventFlags {
-                prevent_default: Rc::clone(&prevent_default_flag),
-                stop_propagation: Rc::clone(&stop_propagation_flag),
-                stop_immediate: Rc::clone(&stop_immediate_flag),
-            };
-            let event_obj = crate::globals::events::create_event_object(
-                ev,
-                &target_wrapper,
-                &current_target_wrapper,
-                &event_flags,
-                composed_path_array,
-                ctx,
-            );
+                    // Passive: temporarily mask cancelable.
+                    let effective_cancelable = event.cancelable && !is_passive;
+                    let saved_cancelable = event.cancelable;
+                    event.cancelable = effective_cancelable;
 
-            // UI Events §5.2: resolve relatedTarget for focus events.
-            if let EventPayload::Focus(ref f) = ev.payload {
-                if let Some(related_bits) = f.related_target {
-                    if let Some(related_entity) = Entity::from_bits(related_bits) {
-                        let wrapper = bridge.with(|session, dom| {
-                            let obj_ref = session
-                                .get_or_create_wrapper(related_entity, ComponentKind::Element);
-                            let is_iframe = Self::is_iframe_entity(dom, related_entity);
-                            crate::globals::element::create_element_wrapper(
-                                related_entity,
-                                &bridge,
-                                obj_ref,
-                                ctx,
-                                is_iframe,
-                            )
-                        });
-                        if let Some(obj) = event_obj.as_object() {
-                            let _ = obj.set(js_string!("relatedTarget"), wrapper, false, ctx);
+                    let event_flags = crate::globals::events::EventFlags {
+                        prevent_default: Rc::clone(&prevent_default_flag),
+                        stop_propagation: Rc::clone(&stop_propagation_flag),
+                        stop_immediate: Rc::clone(&stop_immediate_flag),
+                    };
+                    let event_obj = crate::globals::events::create_event_object(
+                        event,
+                        &target_wrapper,
+                        &current_target_wrapper,
+                        &event_flags,
+                        composed_path_array,
+                        ctx,
+                    );
+
+                    // UI Events §5.2: resolve relatedTarget for focus events.
+                    if let EventPayload::Focus(ref f) = event.payload {
+                        if let Some(related_bits) = f.related_target {
+                            if let Some(related_entity) = Entity::from_bits(related_bits) {
+                                let wrapper = bridge.with(|session, dom| {
+                                    let obj_ref = session.get_or_create_wrapper(
+                                        related_entity,
+                                        ComponentKind::Element,
+                                    );
+                                    let is_iframe = Self::is_iframe_entity(dom, related_entity);
+                                    crate::globals::element::create_element_wrapper(
+                                        related_entity,
+                                        &bridge,
+                                        obj_ref,
+                                        ctx,
+                                        is_iframe,
+                                    )
+                                });
+                                if let Some(obj) = event_obj.as_object() {
+                                    let _ =
+                                        obj.set(js_string!("relatedTarget"), wrapper, false, ctx);
+                                }
+                            }
                         }
                     }
+
+                    // Call the listener function with `this` = currentTarget.
+                    if let Err(err) = js_func.call(&current_target_wrapper, &[event_obj], ctx) {
+                        eprintln!("[JS Event Error] {err}");
+                    }
+
+                    // Microtask checkpoint after each listener (HTML §8.1.7.3).
+                    if let Err(err) = ctx.run_jobs() {
+                        eprintln!("[JS Microtask Error] {err}");
+                    }
+
+                    // Restore cancelable.
+                    event.cancelable = saved_cancelable;
+
+                    // Sync flags back.
+                    event.flags.default_prevented = prevent_default_flag.get();
+                    event.flags.propagation_stopped = stop_propagation_flag.get();
+                    event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
                 }
             }
+        }
 
-            // Call the listener function with `this` = currentTarget.
-            if let Err(err) = js_func.call(&current_target_wrapper, &[event_obj], ctx) {
-                eprintln!("[JS Event Error] {err}");
-            }
-
-            // Microtask checkpoint after each listener (HTML §8.1.7.3).
-            // This ensures Promise.then() callbacks queued during the listener
-            // run before the next listener is invoked.
-            if let Err(err) = ctx.run_jobs() {
-                eprintln!("[JS Microtask Error] {err}");
-            }
-
-            // Restore cancelable after passive listener override.
-            ev.cancelable = saved_cancelable;
-
-            // Sync flags back from Rc<Cell> into the event.
-            // Microtasks may have called preventDefault() via the shared flags.
-            ev.flags.default_prevented = prevent_default_flag.get();
-            ev.flags.propagation_stopped = stop_propagation_flag.get();
-            ev.flags.immediate_propagation_stopped = stop_immediate_flag.get();
-        });
-
-        // Final flag sync after all listeners + microtasks.
-        event.flags.default_prevented = prevent_default_flag.get();
-        event.flags.propagation_stopped = stop_propagation_flag.get();
-        event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
+        event.dispatch_flag = false;
+        event.phase = elidex_plugin::EventPhase::None;
+        event.current_target = None;
 
         event.flags.default_prevented
     }
