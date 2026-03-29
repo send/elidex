@@ -464,6 +464,85 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         );
     }
 
+    // --- M4-4.5: Document API additions ---
+
+    // document.hidden — getter (W3C Page Visibility §4).
+    let b_hidden = b.clone();
+    let hidden_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.is_tab_hidden())),
+        b_hidden,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("hidden"),
+        Some(hidden_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.visibilityState — getter.
+    let b_vis = b.clone();
+    let vis_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            let state = if bridge.is_tab_hidden() {
+                "hidden"
+            } else {
+                "visible"
+            };
+            Ok(JsValue::from(js_string!(state)))
+        },
+        b_vis,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("visibilityState"),
+        Some(vis_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.hasFocus() — WHATWG HTML §6.5.4.
+    let b_focus = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.focus_target().is_some())),
+            b_focus,
+        ),
+        js_string!("hasFocus"),
+        0,
+    );
+
+    // document.activeElement — WHATWG HTML §6.5.4.2.
+    // Returns focused element, or document.body if none, or null if no body.
+    let b_ae = b.clone();
+    let ae_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, ctx| {
+            if let Some(focused) = bridge.focus_target() {
+                return Ok(traversal::resolve_entity_to_js(focused, bridge, ctx));
+            }
+            // No focus → return document.body (or null).
+            let doc = bridge.document_entity();
+            let body_handler = bridge.dom_registry().resolve("document.body.get");
+            if let Some(handler) = body_handler {
+                let result = bridge.with(|session, dom| {
+                    handler.invoke(doc, &[], session, dom).ok()
+                });
+                if let Some(val) = result {
+                    return Ok(resolve_object_ref(&val, bridge, ctx));
+                }
+            }
+            Ok(JsValue::null())
+        },
+        b_ae,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("activeElement"),
+        Some(ae_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
     // --- Legacy compat stubs ---
 
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)

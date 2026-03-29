@@ -13,6 +13,7 @@
 mod canvas;
 mod ce;
 mod cssom;
+mod document_state;
 mod iframe_bridge;
 mod media;
 mod navigation;
@@ -131,6 +132,13 @@ pub(crate) struct HostBridgeInner {
     /// Pending script-dispatched event (from `dispatchEvent()`).
     /// Set by `dispatch_event_for()`, consumed by runtime after eval.
     pending_script_dispatch: Option<elidex_script_session::DispatchEvent>,
+    // --- Document state ---
+    /// The currently focused entity, synced from ContentState before eval.
+    focus_target: Option<elidex_ecs::Entity>,
+    /// Whether the tab is hidden (not the active tab).
+    tab_hidden: bool,
+    /// Window name (getter/setter per WHATWG HTML).
+    window_name: String,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -290,6 +298,9 @@ impl HostBridge {
                 iframe: IframeBridgeState::default(),
                 realtime: realtime::RealtimeState::default(),
                 pending_script_dispatch: None,
+                focus_target: None,
+                tab_hidden: false,
+                window_name: String::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
