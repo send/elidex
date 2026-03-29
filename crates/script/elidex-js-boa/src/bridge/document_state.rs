@@ -100,35 +100,39 @@ impl HostBridge {
             .sum()
     }
 
-    // --- Local storage (origin-scoped, in-memory for now) ---
-    // TODO: Disk persistence via dirs + serde_json, Arc<Mutex> for cross-tab sharing.
-    // For now, uses the same session_storage HashMap as a placeholder.
+    // --- Local storage (origin-scoped, disk-persisted) ---
+
+    /// Get the origin string for localStorage keying.
+    fn local_storage_origin(&self) -> String {
+        self.current_url()
+            .map_or("null".to_string(), |url| url.origin().ascii_serialization())
+    }
 
     pub fn local_storage_get(&self, key: &str) -> Option<String> {
-        self.session_storage_get(key)
+        super::local_storage::local_storage_get(&self.local_storage_origin(), key)
     }
 
     pub fn local_storage_set(&self, key: &str, value: &str) {
-        self.session_storage_set(key, value);
+        super::local_storage::local_storage_set(&self.local_storage_origin(), key, value);
     }
 
     pub fn local_storage_remove(&self, key: &str) {
-        self.session_storage_remove(key);
+        super::local_storage::local_storage_remove(&self.local_storage_origin(), key);
     }
 
     pub fn local_storage_clear(&self) {
-        self.session_storage_clear();
+        super::local_storage::local_storage_clear(&self.local_storage_origin());
     }
 
     pub fn local_storage_len(&self) -> usize {
-        self.session_storage_len()
+        super::local_storage::local_storage_len(&self.local_storage_origin())
     }
 
     pub fn local_storage_key(&self, index: usize) -> Option<String> {
-        self.session_storage_key(index)
+        super::local_storage::local_storage_key(&self.local_storage_origin(), index)
     }
 
     pub fn local_storage_byte_size(&self) -> usize {
-        self.session_storage_byte_size()
+        super::local_storage::local_storage_byte_size(&self.local_storage_origin())
     }
 }

@@ -387,18 +387,52 @@ pub(crate) fn dispatch_event_for(
     dispatch_event.cancelable = cancelable;
     dispatch_event.composed = composed;
 
-    // Synchronous dispatch: enqueue as pending script dispatch for the runtime
-    // to process immediately after this NativeFunction returns. The runtime's
-    // eval loop calls drain_queued_events which will pick this up.
-    //
-    // For synchronous return value, we use the bridge's pending_script_dispatch
-    // mechanism: store the DispatchEvent, let runtime process it, read the result.
-    bridge.set_pending_script_dispatch(dispatch_event);
+    // Synchronous dispatch: invoke listeners directly.
+    // dispatch_event takes &EcsDom (immutable), so we use bridge.with
+    // to access dom, then dispatch. Listener callbacks invoke JS functions
+    // via the bridge's listener_store (no dom borrow needed).
+    bridge.with(|_session, dom| {
+        elidex_script_session::dispatch_event(
+            dom,
+            &mut dispatch_event,
+            &mut |listener_id, _entity, ev| {
+                let Some(js_func) = bridge.get_listener(listener_id) else {
+                    return;
+                };
 
-    // The dispatch happens synchronously when the runtime drains after eval.
-    // For now, return true (not prevented) as a placeholder.
-    // TODO: Wire synchronous dispatch through runtime for correct return value.
-    let prevented = false;
+                let pd_flag = std::rc::Rc::new(std::cell::Cell::new(ev.flags.default_prevented));
+                let sp_flag = std::rc::Rc::new(std::cell::Cell::new(ev.flags.propagation_stopped));
+                let si_flag =
+                    std::rc::Rc::new(std::cell::Cell::new(ev.flags.immediate_propagation_stopped));
+
+                let flags = crate::globals::events::EventFlags {
+                    prevent_default: std::rc::Rc::clone(&pd_flag),
+                    stop_propagation: std::rc::Rc::clone(&sp_flag),
+                    stop_immediate: std::rc::Rc::clone(&si_flag),
+                };
+                let event_obj = crate::globals::events::create_event_object(
+                    ev,
+                    &JsValue::null(),
+                    &JsValue::null(),
+                    &flags,
+                    None,
+                    ctx,
+                );
+
+                if let Err(err) = js_func.call(&JsValue::undefined(), &[event_obj], ctx) {
+                    eprintln!("[JS dispatchEvent Error] {err}");
+                }
+
+                // Microtask checkpoint (HTML §8.1.7.3).
+                let _ = ctx.run_jobs();
+
+                ev.flags.default_prevented = pd_flag.get();
+                ev.flags.propagation_stopped = sp_flag.get();
+                ev.flags.immediate_propagation_stopped = si_flag.get();
+            },
+        );
+    });
+    let prevented = dispatch_event.flags.default_prevented;
 
     // WHATWG DOM §2.10 steps 10-14: post-dispatch cleanup.
     let _ = obj.set(

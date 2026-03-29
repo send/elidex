@@ -81,7 +81,7 @@ pub(in crate::globals::element) fn register_animate_methods(
 /// A parsed keyframe for the animate() API.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct ParsedKeyframe {
+pub struct ParsedKeyframe {
     /// The offset (0.0 to 1.0), or None for auto-distributed.
     pub offset: Option<f64>,
     /// The easing for this keyframe interval.
@@ -93,7 +93,7 @@ pub(crate) struct ParsedKeyframe {
 /// Parsed animation options.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct AnimationOptions {
+pub struct AnimationOptions {
     /// Duration in milliseconds.
     pub duration: f64,
     /// Number of iterations (f64::INFINITY for infinite).
@@ -127,7 +127,7 @@ impl Default for AnimationOptions {
 /// A buffered script-initiated animation request.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct ScriptAnimation {
+pub struct ScriptAnimation {
     /// Entity ID bits.
     pub entity_id: u64,
     /// Parsed keyframes.

@@ -15,6 +15,7 @@ mod ce;
 mod cssom;
 mod document_state;
 mod iframe_bridge;
+pub(crate) mod local_storage;
 mod media;
 mod navigation;
 mod observers;
@@ -455,8 +456,7 @@ impl HostBridge {
     }
 
     /// Drain pending script-initiated animations.
-    #[allow(dead_code)]
-    pub(crate) fn drain_script_animations(
+    pub fn drain_script_animations(
         &self,
     ) -> Vec<crate::globals::element::accessors::animate::ScriptAnimation> {
         std::mem::take(&mut self.inner.borrow_mut().pending_script_animations)

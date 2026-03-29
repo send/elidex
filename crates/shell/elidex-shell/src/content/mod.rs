@@ -389,6 +389,9 @@ fn run_event_loop(state: &mut ContentState) {
         let dt = now.duration_since(last_frame);
         let mut needs_render = false;
 
+        // Drain script-initiated animations (element.animate()) and apply to engine.
+        apply_script_animations(state);
+
         // Tick animation engine if animations have active state (including fill values).
         // Use has_active() here (not has_running()) so fill-mode values are applied.
         // Guard against zero-dt (no elapsed time) but allow sub-millisecond ticks
@@ -681,6 +684,105 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
         &mut state.pipeline.dom,
         state.pipeline.document,
     );
+}
+
+/// Drain pending script-initiated animations from the bridge and apply them
+/// to the `AnimationEngine`. Converts `ScriptAnimation` options into
+/// `SingleAnimationSpec` + `KeyframesRule` and registers them.
+fn apply_script_animations(state: &mut ContentState) {
+    let bridge = state.pipeline.runtime.bridge();
+    let pending = bridge.drain_script_animations();
+    if pending.is_empty() {
+        return;
+    }
+
+    let current_time = state.pipeline.animation_engine.timeline().current_time();
+
+    for anim in pending {
+        // Convert parsed keyframes to KeyframesRule.
+        let mut keyframes = Vec::new();
+        let num_kf = anim.keyframes.len();
+        for (i, kf) in anim.keyframes.iter().enumerate() {
+            let offset = kf.offset.unwrap_or_else(|| {
+                if num_kf <= 1 {
+                    1.0
+                } else {
+                    i as f64 / (num_kf - 1) as f64
+                }
+            });
+            #[allow(clippy::cast_possible_truncation)]
+            let declarations: Vec<elidex_plugin::PropertyDeclaration> = kf
+                .declarations
+                .iter()
+                .map(|(prop, val)| elidex_plugin::PropertyDeclaration {
+                    property: prop.clone(),
+                    value: elidex_plugin::CssValue::Keyword(val.clone()),
+                })
+                .collect();
+            keyframes.push(elidex_css_anim::parse::Keyframe {
+                offset: offset as f32,
+                declarations,
+                timing_function: None,
+            });
+        }
+
+        // Generate a unique name for this script animation.
+        let name = if anim.options.id.is_empty() {
+            format!("__script_anim_{}", anim.entity_id)
+        } else {
+            anim.options.id.clone()
+        };
+
+        let rule = elidex_css_anim::parse::KeyframesRule {
+            name: name.clone(),
+            keyframes,
+        };
+        state.pipeline.animation_engine.register_keyframes(rule);
+
+        // Convert options to SingleAnimationSpec.
+        #[allow(clippy::cast_possible_truncation)]
+        let duration = (anim.options.duration / 1000.0) as f32; // ms → seconds
+        #[allow(clippy::cast_possible_truncation)]
+        let delay = (anim.options.delay / 1000.0) as f32;
+
+        let iteration_count = if anim.options.iterations.is_infinite() {
+            elidex_css_anim::style::IterationCount::Infinite
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            elidex_css_anim::style::IterationCount::Number(anim.options.iterations as f32)
+        };
+
+        let direction = match anim.options.direction.as_str() {
+            "reverse" => elidex_css_anim::style::AnimationDirection::Reverse,
+            "alternate" => elidex_css_anim::style::AnimationDirection::Alternate,
+            "alternate-reverse" => elidex_css_anim::style::AnimationDirection::AlternateReverse,
+            _ => elidex_css_anim::style::AnimationDirection::Normal,
+        };
+
+        let fill_mode = match anim.options.fill.as_str() {
+            "forwards" => elidex_css_anim::style::AnimationFillMode::Forwards,
+            "backwards" => elidex_css_anim::style::AnimationFillMode::Backwards,
+            "both" => elidex_css_anim::style::AnimationFillMode::Both,
+            _ => elidex_css_anim::style::AnimationFillMode::None,
+        };
+
+        let spec = elidex_css_anim::SingleAnimationSpec {
+            name,
+            duration,
+            timing_function: elidex_css_anim::timing::TimingFunction::Linear,
+            delay,
+            iteration_count,
+            direction,
+            fill_mode,
+            play_state: elidex_css_anim::style::PlayState::Running,
+        };
+
+        let instance = elidex_css_anim::instance::AnimationInstance::new(&spec, current_time);
+        state
+            .pipeline
+            .animation_engine
+            .add_animation(anim.entity_id, instance);
+    }
 }
 
 #[cfg(test)]
