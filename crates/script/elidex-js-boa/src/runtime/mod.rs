@@ -342,10 +342,11 @@ impl JsRuntime {
                     };
 
                     // Passive listeners: event.cancelable stays true (observable),
-                    // but preventDefault() is a no-op — use a disconnected Cell.
+                    // but preventDefault() is a no-op — use a disconnected Cell
+                    // seeded with the current state so defaultPrevented is readable.
                     let event_flags = crate::globals::events::EventFlags {
                         prevent_default: if is_passive {
-                            Rc::new(Cell::new(false))
+                            Rc::new(Cell::new(prevent_default_flag.get()))
                         } else {
                             Rc::clone(&prevent_default_flag)
                         },

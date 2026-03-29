@@ -184,6 +184,9 @@ pub(crate) fn register_content_accessors(
                         session,
                         dom,
                     );
+                    // Flush mutations so innerHTML changes are applied to the DOM
+                    // before we read temp's children.
+                    session.flush(dom);
                     // Move children from temp to before entity, then remove entity.
                     // Direct DOM mutations (same pattern as innerHTML setter's
                     // underlying SetInnerHtml mutation) — MutationObserver

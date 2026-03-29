@@ -625,7 +625,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 "visibilitychange",
                 state.pipeline.document,
             );
-            event.bubbles = true;
+            event.bubbles = false;
             event.cancelable = false;
             // Store visibility state in the bridge for document.visibilityState.
             state.pipeline.runtime.bridge().set_visibility(visible);
