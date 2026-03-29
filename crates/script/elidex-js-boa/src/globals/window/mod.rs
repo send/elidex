@@ -1209,6 +1209,9 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                 JsNativeError::typ().with_message("performance: internal error")
             })?;
 
+            // Read performance.now() once for all "use current time" branches.
+            let current_now = perf_now(&perf, ctx);
+
             // Helper: find a mark by name.
             let find_mark = |mark_name: &str, ctx: &mut Context| -> JsResult<f64> {
                 let len = entries_arr
@@ -1263,13 +1266,7 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                     } else if !e.is_undefined() && !e.is_null() {
                         find_mark(&e.to_string(ctx)?.to_std_string_escaped(), ctx)?
                     } else {
-                        // Use performance.now().
-                        let now_val = perf.get(js_string!("now"), ctx)?;
-                        if let Some(now_fn) = now_val.as_callable() {
-                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
-                        } else {
-                            0.0
-                        }
+                        current_now
                     };
                     (st, et)
                 }
@@ -1283,34 +1280,16 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                             let end_mark = end_v.to_string(ctx)?.to_std_string_escaped();
                             find_mark(&end_mark, ctx)?
                         } else {
-                            let now_val = perf.get(js_string!("now"), ctx)?;
-                            if let Some(now_fn) = now_val.as_callable() {
-                                now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
-                            } else {
-                                0.0
-                            }
+                            current_now
                         }
                     } else {
-                        let now_val = perf.get(js_string!("now"), ctx)?;
-                        if let Some(now_fn) = now_val.as_callable() {
-                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
-                        } else {
-                            0.0
-                        }
+                        current_now
                     };
                     (st, et)
                 }
                 _ => {
                     // No start specified → start from 0.
-                    let et = {
-                        let now_val = perf.get(js_string!("now"), ctx)?;
-                        if let Some(now_fn) = now_val.as_callable() {
-                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
-                        } else {
-                            0.0
-                        }
-                    };
-                    (0.0, et)
+                    (0.0, current_now)
                 }
             };
 
@@ -1987,7 +1966,7 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
         if mutable {
             // --- Mutation methods (return `this` for chaining) ---
 
-            // translateSelf(tx, ty, tz?)
+            // translateSelf(tx, ty, tz?) — post-multiply by translation matrix.
             init.function(
                 NativeFunction::from_copy_closure(|this, args, ctx| {
                     let obj = this.as_object().ok_or_else(|| {
@@ -1996,13 +1975,14 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let tx = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
                     let ty = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
                     let tz = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
-                    let e_val = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let f_val = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
                     let m43 = obj.get(js_string!("m43"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    obj.set(js_string!("e"), JsValue::from(e_val + tx), false, ctx)?;
-                    obj.set(js_string!("m41"), JsValue::from(e_val + tx), false, ctx)?;
-                    obj.set(js_string!("f"), JsValue::from(f_val + ty), false, ctx)?;
-                    obj.set(js_string!("m42"), JsValue::from(f_val + ty), false, ctx)?;
+                    let ne = a * tx + c * ty + e;
+                    let nf = b * tx + d * ty + f;
+                    obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
+                    obj.set(js_string!("m41"), JsValue::from(ne), false, ctx)?;
+                    obj.set(js_string!("f"), JsValue::from(nf), false, ctx)?;
+                    obj.set(js_string!("m42"), JsValue::from(nf), false, ctx)?;
                     obj.set(js_string!("m43"), JsValue::from(m43 + tz), false, ctx)?;
                     Ok(this.clone())
                 }),
@@ -2219,7 +2199,7 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
             1,
         );
 
-        // translate(tx, ty, tz?) — returns a new DOMMatrix with translation applied.
+        // translate(tx, ty, tz?) — returns a new DOMMatrix with translation post-multiplied.
         init.function(
             NativeFunction::from_copy_closure(|this, args, ctx| {
                 let obj = this.as_object().ok_or_else(|| {
@@ -2228,14 +2208,9 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 let tx = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
                 let ty = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
                 let _tz = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
-                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let ne = e + tx;
-                let nf = f + ty;
+                let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
+                let ne = a * tx + c * ty + e;
+                let nf = b * tx + d * ty + f;
                 let result = build_dom_matrix_obj(a, b, c, d, ne, nf, ctx)?;
                 Ok(JsValue::from(result))
             }),
@@ -2308,6 +2283,21 @@ fn invert_2d(
         (c * f - d * e) * inv,
         (b * e - a * f) * inv,
     ))
+}
+
+/// Call `performance.now()` on a performance object, returning 0.0 on failure.
+fn perf_now(perf: &boa_engine::JsObject, ctx: &mut Context) -> f64 {
+    let Ok(now_val) = perf.get(js_string!("now"), ctx) else {
+        return 0.0;
+    };
+    let Some(now_fn) = now_val.as_callable() else {
+        return 0.0;
+    };
+    now_fn
+        .call(&JsValue::from(perf.clone()), &[], ctx)
+        .ok()
+        .and_then(|v| v.as_number())
+        .unwrap_or(0.0)
 }
 
 /// Rotate a 2D matrix by `angle_deg` degrees around Z.

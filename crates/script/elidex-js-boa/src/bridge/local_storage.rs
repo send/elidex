@@ -26,6 +26,8 @@ struct LocalStore {
     file_path: PathBuf,
     /// Dirty flag: true when in-memory data has changed since last persist.
     dirty: bool,
+    /// Incremental byte size counter (sum of key.len() + value.len() for all entries).
+    byte_size: usize,
 }
 
 impl LocalStore {
@@ -40,7 +42,8 @@ impl LocalStore {
         } else {
             HashMap::new()
         };
-        Self { data, file_path, dirty: false }
+        let byte_size = data.iter().map(|(k, v)| k.len() + v.len()).sum();
+        Self { data, file_path, dirty: false, byte_size }
     }
 
     /// Mark the store as dirty (needs persist).
@@ -143,7 +146,9 @@ pub(crate) fn local_storage_get(origin: &str, key: &str) -> Option<String> {
 pub(crate) fn local_storage_set(origin: &str, key: &str, value: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let old_size = guard.data.get(key).map_or(0, |v| key.len() + v.len());
     guard.data.insert(key.to_string(), value.to_string());
+    guard.byte_size = guard.byte_size - old_size + key.len() + value.len();
     guard.mark_dirty();
     mark_origin_dirty(origin);
 }
@@ -151,7 +156,9 @@ pub(crate) fn local_storage_set(origin: &str, key: &str, value: &str) {
 pub(crate) fn local_storage_remove(origin: &str, key: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
-    guard.data.remove(key);
+    if let Some(old_val) = guard.data.remove(key) {
+        guard.byte_size -= key.len() + old_val.len();
+    }
     guard.mark_dirty();
     mark_origin_dirty(origin);
 }
@@ -160,6 +167,7 @@ pub(crate) fn local_storage_clear(origin: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     guard.data.clear();
+    guard.byte_size = 0;
     guard.mark_dirty();
     mark_origin_dirty(origin);
 }
@@ -179,7 +187,7 @@ pub(crate) fn local_storage_key(origin: &str, index: usize) -> Option<String> {
 pub(crate) fn local_storage_byte_size(origin: &str) -> usize {
     let store = get_store(origin);
     let guard = store.lock().unwrap_or_else(|e| e.into_inner());
-    guard.data.iter().map(|(k, v)| k.len() + v.len()).sum()
+    guard.byte_size
 }
 
 /// Persist all dirty localStorage stores to disk.

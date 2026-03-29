@@ -147,14 +147,20 @@ fn build_storage_object(
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
 
-                // Quota check.
+                // Quota check — subtract old entry size to avoid double-counting on overwrite.
                 let current_size = if is_local {
                     bridge.local_storage_byte_size()
                 } else {
                     bridge.session_storage_byte_size()
                 };
+                let old_entry_size = if is_local {
+                    bridge.local_storage_get(&key)
+                } else {
+                    bridge.session_storage_get(&key)
+                }
+                .map_or(0, |v| key.len() + v.len());
                 let new_entry_size = key.len() + value.len();
-                if current_size + new_entry_size > STORAGE_QUOTA_BYTES {
+                if current_size - old_entry_size + new_entry_size > STORAGE_QUOTA_BYTES {
                     return Err(JsNativeError::eval()
                         .with_message("QuotaExceededError: storage quota exceeded")
                         .into());

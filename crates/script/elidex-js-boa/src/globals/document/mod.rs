@@ -1015,25 +1015,21 @@ fn walk_descendants(
     callback: &mut dyn FnMut(Entity),
 ) {
     let mut stack = Vec::new();
-    // Push children in reverse order so first child is processed first.
-    let mut child = dom.get_first_child(root);
-    let mut children = Vec::new();
+    // Push children last-to-first so first child is popped first (pre-order).
+    let mut child = dom.get_last_child(root);
     while let Some(c) = child {
-        children.push(c);
-        child = dom.get_next_sibling(c);
+        stack.push(c);
+        child = dom.get_prev_sibling(c);
     }
-    stack.extend(children.into_iter().rev());
 
     while let Some(entity) = stack.pop() {
         callback(entity);
-        // Push children in reverse order.
-        let mut child = dom.get_first_child(entity);
-        let mut children = Vec::new();
+        // Push children last-to-first.
+        let mut child = dom.get_last_child(entity);
         while let Some(c) = child {
-            children.push(c);
-            child = dom.get_next_sibling(c);
+            stack.push(c);
+            child = dom.get_prev_sibling(c);
         }
-        stack.extend(children.into_iter().rev());
     }
 }
 
