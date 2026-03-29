@@ -1901,6 +1901,7 @@ dependencies = [
  "elidex-script-session",
  "elidex-wasm-runtime",
  "elidex-web-canvas",
+ "getrandom 0.4.2",
  "tracing",
  "url",
  "wasmtime",

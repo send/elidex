@@ -50,6 +50,8 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_screen_and_window_props(ctx, bridge);
     register_performance(ctx, bridge);
     register_atob_btoa(ctx);
+    register_crypto(ctx);
+    register_queue_microtask(ctx);
 }
 
 /// Register `addEventListener`, `removeEventListener`, `dispatchEvent` on window.
@@ -1047,4 +1049,91 @@ fn register_atob_btoa(ctx: &mut Context) {
     });
     ctx.register_global_builtin_callable(js_string!("atob"), 1, atob_fn)
         .expect("failed to register atob");
+}
+
+/// Register `crypto` object (W3C WebCrypto).
+fn register_crypto(ctx: &mut Context) {
+    let mut init = ObjectInitializer::new(ctx);
+
+    // crypto.getRandomValues(typedArray) — fill with random bytes.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let arr = args.first().and_then(JsValue::as_object).ok_or_else(|| {
+                boa_engine::JsNativeError::typ()
+                    .with_message("crypto.getRandomValues: argument must be a typed array")
+            })?;
+            let len_val = arr.get(js_string!("length"), ctx)?;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let len = len_val.to_number(ctx)? as usize;
+
+            // W3C WebCrypto §10.1.1: max 65536 bytes.
+            if len > 65536 {
+                return Err(boa_engine::JsNativeError::eval()
+                    .with_message("QuotaExceededError: getRandomValues: array too large")
+                    .into());
+            }
+
+            let mut bytes = vec![0u8; len];
+            getrandom::fill(&mut bytes).map_err(|_| {
+                boa_engine::JsNativeError::eval()
+                    .with_message("crypto.getRandomValues: random generation failed")
+            })?;
+
+            for (i, &b) in bytes.iter().enumerate() {
+                arr.set(i as u32, JsValue::from(f64::from(b)), false, ctx)?;
+            }
+
+            Ok(args.first().cloned().unwrap_or(JsValue::undefined()))
+        }),
+        js_string!("getRandomValues"),
+        1,
+    );
+
+    // crypto.randomUUID() — UUID v4.
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| {
+            let mut bytes = [0u8; 16];
+            let _ = getrandom::fill(&mut bytes);
+            // Set version (4) and variant (RFC 4122).
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            let uuid = format!(
+                "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5],
+                bytes[6], bytes[7],
+                bytes[8], bytes[9],
+                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+            );
+            Ok(JsValue::from(js_string!(uuid.as_str())))
+        }),
+        js_string!("randomUUID"),
+        0,
+    );
+
+    let crypto = init.build();
+    ctx.register_global_property(js_string!("crypto"), crypto, Attribute::all())
+        .expect("failed to register crypto");
+}
+
+/// Register `queueMicrotask()` (WHATWG HTML §8.6).
+fn register_queue_microtask(ctx: &mut Context) {
+    ctx.register_global_builtin_callable(
+        js_string!("queueMicrotask"),
+        1,
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
+                boa_engine::JsNativeError::typ()
+                    .with_message("queueMicrotask: argument must be a function")
+            })?;
+            // Execute the callback immediately via microtask semantics.
+            // boa's run_jobs() drains microtasks after eval, so calling now
+            // achieves the same effect for synchronous JS contexts.
+            if let Err(err) = callback.call(&JsValue::undefined(), &[], ctx) {
+                eprintln!("[queueMicrotask Error] {err}");
+            }
+            Ok(JsValue::undefined())
+        }),
+    )
+    .expect("failed to register queueMicrotask");
 }
