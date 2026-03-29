@@ -310,6 +310,11 @@ pub(crate) fn add_event_listener_for(
             JsValue::from(listener_fn_for_signal.unwrap()),
             boa_engine::property::Attribute::empty(),
         );
+        removal_ctx_init.property(
+            js_string!("__capture__"),
+            JsValue::from(opts.capture),
+            boa_engine::property::Attribute::empty(),
+        );
         let removal_ctx = removal_ctx_init.build();
 
         let b = bridge.clone();
@@ -329,6 +334,9 @@ pub(crate) fn add_event_listener_for(
                 let Some(listener_fn) = listener_val.as_callable() else {
                     return Ok(JsValue::undefined());
                 };
+                let capture = removal_obj
+                    .get(js_string!("__capture__"), ctx)?
+                    .to_boolean();
 
                 bridge.with(|_session, dom| {
                     let matching_id =
@@ -339,7 +347,10 @@ pub(crate) fn add_event_listener_for(
                                 listeners
                                     .matching_all(&event_type)
                                     .into_iter()
-                                    .find(|entry| bridge.listener_matches(entry.id, &listener_fn))
+                                    .find(|entry| {
+                                        entry.capture == capture
+                                            && bridge.listener_matches(entry.id, &listener_fn)
+                                    })
                                     .map(|entry| entry.id)
                             });
                     if let Some(id) = matching_id {

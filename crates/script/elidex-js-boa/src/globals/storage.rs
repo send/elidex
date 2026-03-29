@@ -40,7 +40,12 @@ pub fn register_storage(ctx: &mut Context, bridge: &HostBridge) {
 fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
     // Store the storage target on a temporary global so the eval can reference it.
     let global = ctx.global_object();
-    let _ = global.set(js_string!("__elidex_tmp_storage__"), storage, false, ctx);
+    let _ = global.set(
+        js_string!("__elidex_tmp_storage__"),
+        storage.clone(),
+        false,
+        ctx,
+    );
 
     let proxy_code = r"(function() {
         var target = __elidex_tmp_storage__;
@@ -68,9 +73,9 @@ fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
         });
     })()";
 
-    let result = ctx
-        .eval(Source::from_bytes(proxy_code))
-        .unwrap_or(JsValue::undefined());
+    // Fall back to the raw storage object if Proxy wrapping fails (e.g.
+    // engine doesn't support Proxy or eval fails for any reason).
+    let result = ctx.eval(Source::from_bytes(proxy_code)).unwrap_or(storage);
 
     // Clean up the temporary global.
     let _ = global.delete_property_or_throw(js_string!("__elidex_tmp_storage__"), ctx);
@@ -161,7 +166,9 @@ fn build_storage_object(ctx: &mut Context, bridge: &HostBridge, is_local: bool) 
                 }
                 .map_or(0, |v| key.len() + v.len());
                 let new_entry_size = key.len() + value.len();
-                if current_size - old_entry_size + new_entry_size > STORAGE_QUOTA_BYTES {
+                if current_size.saturating_sub(old_entry_size) + new_entry_size
+                    > STORAGE_QUOTA_BYTES
+                {
                     return Err(JsNativeError::eval()
                         .with_message("QuotaExceededError: storage quota exceeded")
                         .into());

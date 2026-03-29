@@ -12,6 +12,7 @@ mod ime;
 mod navigation;
 mod scroll;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,11 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Caret blink interval (500ms per HTML spec recommendation).
 const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Monotonic counter for script-created animation keyframes names.
+/// Ensures multiple `element.animate()` calls on the same element
+/// produce distinct keyframes without overwriting previous ones.
+static SCRIPT_ANIM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// State owned by the content thread.
 ///
@@ -823,8 +829,11 @@ fn apply_script_animations(state: &mut ContentState) {
         }
 
         // Generate a unique name for this script animation.
+        // Use a monotonic counter to avoid name collisions when multiple
+        // animations are created on the same element without explicit ids.
         let name = if anim.options.id.is_empty() {
-            format!("__script_anim_{}", anim.entity_id)
+            let seq = SCRIPT_ANIM_COUNTER.fetch_add(1, Ordering::Relaxed);
+            format!("__script_anim_{}_{seq}", anim.entity_id)
         } else {
             anim.options.id.clone()
         };

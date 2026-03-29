@@ -116,7 +116,11 @@ pub(crate) fn register_content_accessors(
                     .map(|a| {
                         use std::fmt::Write;
                         a.iter().fold(String::new(), |mut acc, (k, v)| {
-                            let escaped = v.replace('&', "&amp;").replace('"', "&quot;");
+                            let escaped = v
+                                .replace('&', "&amp;")
+                                .replace('"', "&quot;")
+                                .replace('<', "&lt;")
+                                .replace('>', "&gt;");
                             let _ = write!(acc, " {k}=\"{escaped}\"");
                             acc
                         })
@@ -161,7 +165,7 @@ pub(crate) fn register_content_accessors(
                 }
             });
             if !has_valid_parent {
-                return Err(boa_engine::JsNativeError::eval()
+                return Err(boa_engine::JsNativeError::typ()
                     .with_message(
                         "NoModificationAllowedError: outerHTML setter requires a non-Document parent",
                     )
