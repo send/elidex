@@ -360,3 +360,21 @@ fn extract_bool_opt(
         None => Ok(false),
     }
 }
+
+/// Build an uninitialized event for `document.createEvent()` (WHATWG DOM §4.1).
+///
+/// The event has `initialized=false`, so `initEvent()` must be called before dispatch.
+pub(crate) fn build_uninit_event(ctx: &mut Context) -> JsResult<JsValue> {
+    // Build a minimal Event with empty type and initialized=false.
+    let event = build_event_object(&[JsValue::from(js_string!(""))], false, ctx)?;
+    // Override initialized to false.
+    if let Some(obj) = event.as_object() {
+        let _ = obj.set(
+            js_string!(EVENT_INITIALIZED_KEY),
+            JsValue::from(false),
+            false,
+            ctx,
+        );
+    }
+    Ok(event)
+}

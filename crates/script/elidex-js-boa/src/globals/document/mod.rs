@@ -543,6 +543,163 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     );
 
+    // document.getElementsByClassName(className) — static array (live HTMLCollection in Step 5).
+    let b_gbcn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let class_name = crate::globals::require_js_string_arg(
+                    args,
+                    0,
+                    "getElementsByClassName",
+                    ctx,
+                )?;
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    collect_elements_by_class(doc, &class_name, dom)
+                });
+                Ok(entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbcn,
+        ),
+        js_string!("getElementsByClassName"),
+        1,
+    );
+
+    // document.getElementsByTagName(tagName) — static array.
+    let b_gbtn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let tag = crate::globals::require_js_string_arg(
+                    args,
+                    0,
+                    "getElementsByTagName",
+                    ctx,
+                )?;
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    collect_elements_by_tag(doc, &tag, dom)
+                });
+                Ok(entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbtn,
+        ),
+        js_string!("getElementsByTagName"),
+        1,
+    );
+
+    // document.getElementsByName(name) — static array.
+    let b_gbn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let name = crate::globals::require_js_string_arg(
+                    args,
+                    0,
+                    "getElementsByName",
+                    ctx,
+                )?;
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    collect_elements_by_name(doc, &name, dom)
+                });
+                Ok(entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbn,
+        ),
+        js_string!("getElementsByName"),
+        1,
+    );
+
+    // document.importNode(node, deep?) — WHATWG DOM §4.5.
+    let b_import = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let node = crate::globals::element::extract_entity(
+                    args.first().ok_or_else(|| {
+                        JsNativeError::typ().with_message("importNode: node required")
+                    })?,
+                    ctx,
+                )?;
+                let deep = args.get(1).is_some_and(JsValue::to_boolean);
+                // Use cloneNode — single-document assumption.
+                invoke_dom_handler_ref(
+                    "cloneNode",
+                    node,
+                    &[ElidexJsValue::Bool(deep)],
+                    bridge,
+                    ctx,
+                )
+            },
+            b_import,
+        ),
+        js_string!("importNode"),
+        2,
+    );
+
+    // document.adoptNode(node) — WHATWG DOM §4.5.
+    let b_adopt = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let node_val = args.first().ok_or_else(|| {
+                    JsNativeError::typ().with_message("adoptNode: node required")
+                })?;
+                let entity = crate::globals::element::extract_entity(node_val, ctx)?;
+                // Detach from parent if attached (via removeChild on parent).
+                bridge.with(|session, dom| {
+                    if let Some(parent) = dom.get_parent(entity) {
+                        let obj_ref = session.get_or_create_wrapper(
+                            entity,
+                            elidex_script_session::ComponentKind::Element,
+                        );
+                        let handler = bridge.dom_registry().resolve("removeChild");
+                        if let Some(h) = handler {
+                            let _ = h.invoke(
+                                parent,
+                                &[ElidexJsValue::ObjectRef(obj_ref.to_raw())],
+                                session,
+                                dom,
+                            );
+                        }
+                    }
+                });
+                Ok(node_val.clone())
+            },
+            b_adopt,
+        ),
+        js_string!("adoptNode"),
+        1,
+    );
+
+    // document.createEvent(interface) — legacy (WHATWG DOM §4.1).
+    init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let iface = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped().to_ascii_lowercase())
+                .unwrap_or_default();
+            match iface.as_str() {
+                "event" | "events" | "customevent" | "mouseevent" | "mouseevents"
+                | "uievent" | "uievents" => {
+                    // Create event with initialized=false via the Event constructor path,
+                    // then override initialized to false.
+                    let event = crate::globals::event_constructors::build_uninit_event(ctx)?;
+                    Ok(event)
+                }
+                _ => Err(JsNativeError::eval()
+                    .with_message("NotSupportedError: unsupported event interface")
+                    .into()),
+            }
+        }),
+        js_string!("createEvent"),
+        1,
+    );
+
     // --- Legacy compat stubs ---
 
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)
@@ -640,3 +797,118 @@ fn register_doc_val_accessor(
 use traversal::{build_node_iterator_object, build_tree_walker_object};
 
 // Traversal builders (TreeWalker, NodeIterator, Range) are in traversal.rs.
+
+// ---------------------------------------------------------------------------
+// getElementsBy* helpers
+// ---------------------------------------------------------------------------
+
+/// Collect all descendant elements matching a class name (space-separated class list).
+fn collect_elements_by_class(
+    root: Entity,
+    class_name: &str,
+    dom: &elidex_ecs::EcsDom,
+) -> Vec<Entity> {
+    let target_classes: Vec<&str> = class_name.split_whitespace().collect();
+    if target_classes.is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    walk_descendants(root, dom, &mut |entity| {
+        if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
+            if let Some(cls) = attrs.get("class") {
+                let element_classes: Vec<&str> = cls.split_whitespace().collect();
+                if target_classes
+                    .iter()
+                    .all(|tc| element_classes.contains(tc))
+                {
+                    results.push(entity);
+                }
+            }
+        }
+    });
+    results
+}
+
+/// Collect all descendant elements matching a tag name (case-insensitive).
+fn collect_elements_by_tag(
+    root: Entity,
+    tag: &str,
+    dom: &elidex_ecs::EcsDom,
+) -> Vec<Entity> {
+    let tag_lower = tag.to_ascii_lowercase();
+    let match_all = tag == "*";
+    let mut results = Vec::new();
+    walk_descendants(root, dom, &mut |entity| {
+        if match_all {
+            // "*" matches all elements.
+            if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
+                results.push(entity);
+            }
+        } else if let Ok(tt) = dom.world().get::<&elidex_ecs::TagType>(entity) {
+            if tt.0.eq_ignore_ascii_case(&tag_lower) {
+                results.push(entity);
+            }
+        }
+    });
+    results
+}
+
+/// Collect all descendant elements with a matching `name` attribute.
+fn collect_elements_by_name(
+    root: Entity,
+    name: &str,
+    dom: &elidex_ecs::EcsDom,
+) -> Vec<Entity> {
+    let mut results = Vec::new();
+    walk_descendants(root, dom, &mut |entity| {
+        if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
+            if attrs.get("name").is_some_and(|n| n == name) {
+                results.push(entity);
+            }
+        }
+    });
+    results
+}
+
+/// Pre-order walk of all descendants (excluding root).
+fn walk_descendants(
+    root: Entity,
+    dom: &elidex_ecs::EcsDom,
+    callback: &mut dyn FnMut(Entity),
+) {
+    let mut stack = Vec::new();
+    // Push children in reverse order so first child is processed first.
+    let mut child = dom.get_first_child(root);
+    let mut children = Vec::new();
+    while let Some(c) = child {
+        children.push(c);
+        child = dom.get_next_sibling(c);
+    }
+    stack.extend(children.into_iter().rev());
+
+    while let Some(entity) = stack.pop() {
+        callback(entity);
+        // Push children in reverse order.
+        let mut child = dom.get_first_child(entity);
+        let mut children = Vec::new();
+        while let Some(c) = child {
+            children.push(c);
+            child = dom.get_next_sibling(c);
+        }
+        stack.extend(children.into_iter().rev());
+    }
+}
+
+/// Convert a list of entities to a JS array of element wrappers.
+fn entities_to_js_array(
+    entities: &[Entity],
+    bridge: &HostBridge,
+    ctx: &mut boa_engine::Context,
+) -> JsValue {
+    let array = boa_engine::object::builtins::JsArray::new(ctx);
+    for &entity in entities {
+        let wrapper = traversal::resolve_entity_to_js(entity, bridge, ctx);
+        let _ = array.push(wrapper, ctx);
+    }
+    array.into()
+}
