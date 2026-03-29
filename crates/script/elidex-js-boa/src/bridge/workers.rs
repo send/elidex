@@ -25,7 +25,7 @@ impl HostBridge {
     }
 
     /// Terminate a specific worker by ID.
-    pub fn terminate_worker(&mut self, id: u64) {
+    pub fn terminate_worker(&self, id: u64) {
         self.inner.borrow_mut().worker_registry.terminate_worker(id);
     }
 

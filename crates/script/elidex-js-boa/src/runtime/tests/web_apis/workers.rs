@@ -510,7 +510,8 @@ fn worker_error_propagation() {
         }
     }
 
-    // Shutdown the worker (it's still running its event loop after eval error).
+    // worker_thread_main_with_source returns after sending Error + Closed on
+    // eval failure. Send Shutdown and join to synchronize with the thread.
     let _ = parent_ch.send(ParentToWorker::Shutdown);
     let _ = handle.join();
 

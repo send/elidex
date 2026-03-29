@@ -409,5 +409,10 @@ fn find_worker_id_from_this(this: &JsValue, ctx: &mut Context) -> Option<u64> {
     if id_val.is_undefined() {
         return None;
     }
-    id_val.to_number(ctx).ok().map(|n| n as u64)
+    id_val.to_number(ctx).ok().and_then(|n| {
+        if !n.is_finite() || n < 1.0 || n.fract() != 0.0 {
+            return None;
+        }
+        Some(n as u64)
+    })
 }

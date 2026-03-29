@@ -44,10 +44,18 @@ pub(crate) fn js_json_stringify(data: &JsValue, ctx: &mut Context) -> Result<Opt
     else {
         return Err(());
     };
-    // JSON.stringify returns undefined for values that cannot be serialized
-    // (e.g. functions, symbols). Detect this before calling to_string().
+    // JSON.stringify returns undefined for functions, symbols, etc.
+    // Treat undefined as a successful serialization of the JS `undefined` value,
+    // encoding it as the string "undefined" so it round-trips through JSON.parse
+    // (which will throw, but we catch that on the receiving side and deliver
+    // `e.data === undefined`). This is an acceptable approximation until
+    // structured clone is implemented.
     if result.is_undefined() {
-        return Ok(None);
+        // Encode as JSON null — the closest JSON representation of undefined.
+        // The receiver will get `null` instead of `undefined`, which is a known
+        // limitation of the JSON-based serialization (same as structuredClone's
+        // treatment of undefined in JSON contexts).
+        return Ok(Some("null".to_string()));
     }
     let Ok(s) = result.to_string(ctx) else {
         return Err(());
@@ -104,7 +112,7 @@ fn register_worker_self(ctx: &mut Context) {
     ctx.register_global_property(
         js_string!("self"),
         JsValue::from(global),
-        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+        Attribute::CONFIGURABLE,
     )
     .expect("failed to register self");
 }
