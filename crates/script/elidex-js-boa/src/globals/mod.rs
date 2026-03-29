@@ -17,6 +17,7 @@ pub(crate) mod iframe;
 pub mod location;
 pub mod observers;
 pub mod timers;
+pub mod url;
 pub mod wasm;
 pub mod websocket;
 pub mod window;
@@ -474,6 +475,7 @@ pub fn register_all_globals(
     event_source::register_event_source(ctx, bridge, fetch_handle);
     event_constructors::register_event_constructors(ctx, bridge);
     navigator::register_navigator(ctx, bridge);
+    url::register_url_constructors(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);
