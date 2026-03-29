@@ -277,14 +277,14 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
                 JsNativeError::typ().with_message("Blob.arrayBuffer: this is not a Blob")
             })?;
             let data = extract_blob_bytes(&obj, ctx)?;
-            // Return the byte array as a regular array (boa ArrayBuffer construction
-            // from bytes requires typed array APIs).
-            let arr = boa_engine::object::builtins::JsArray::new(ctx);
-            for &b in &data {
-                arr.push(JsValue::from(f64::from(b)), ctx)?;
-            }
-            let promise =
-                boa_engine::object::builtins::JsPromise::resolve(JsValue::from(arr), ctx);
+            let aligned =
+                boa_engine::object::builtins::AlignedVec::from_iter(0, data.into_iter());
+            let array_buffer =
+                boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, ctx)?;
+            let promise = boa_engine::object::builtins::JsPromise::resolve(
+                JsValue::from(array_buffer),
+                ctx,
+            );
             Ok(promise.into())
         }),
         js_string!("arrayBuffer"),

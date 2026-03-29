@@ -460,6 +460,13 @@ fn run_event_loop(state: &mut ContentState) {
                 .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
         }
 
+        // Drain pending window.focus() request.
+        if state.pipeline.runtime.bridge().take_pending_focus() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::FocusWindow);
+        }
+
         // Drain WebSocket and SSE events from I/O threads.
         {
             let (ws_events, sse_events) = state.pipeline.runtime.bridge().drain_realtime_events();

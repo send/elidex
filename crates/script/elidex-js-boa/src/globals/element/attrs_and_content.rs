@@ -154,13 +154,24 @@ pub(crate) fn register_content_accessors(
                 .map(|v| v.to_string(ctx))
                 .transpose()?
                 .map_or(String::new(), |s| s.to_std_string_escaped());
-            // WHATWG HTML §3.1.5: throw if no parent or parent is Document.
-            bridge.with(|session, dom| {
-                let parent = dom.get_parent(entity);
-                if parent.is_none() {
-                    return;
+            // WHATWG HTML §3.1.5: throw NoModificationAllowedError if no parent
+            // or parent is a Document node.
+            let doc_entity = bridge.document_entity();
+            let has_valid_parent = bridge.with(|_session, dom| {
+                match dom.get_parent(entity) {
+                    None => false,
+                    Some(p) => p != doc_entity,
                 }
-                let parent = parent.unwrap();
+            });
+            if !has_valid_parent {
+                return Err(boa_engine::JsNativeError::eval()
+                    .with_message(
+                        "NoModificationAllowedError: outerHTML setter requires a non-Document parent",
+                    )
+                    .into());
+            }
+            bridge.with(|session, dom| {
+                let parent = dom.get_parent(entity).unwrap();
                 // Parse HTML fragment and replace this element.
                 let handler = bridge.dom_registry().resolve("innerHTML.set");
                 if let Some(h) = handler {

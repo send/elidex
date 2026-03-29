@@ -96,6 +96,8 @@ pub struct App {
     cursor_in_content: bool,
     /// Legacy inline interactive state.
     pub(super) interactive: Option<InteractiveState>,
+    /// Pending window focus request from `window.focus()`.
+    pub(super) pending_focus: bool,
 }
 
 impl App {
@@ -108,6 +110,7 @@ impl App {
             modifiers: Modifiers::default(),
             cursor_in_content: false,
             interactive: None,
+            pending_focus: false,
         }
     }
 
@@ -162,6 +165,7 @@ impl App {
                 nav_controller: NavigationController::new(),
                 window_title: "elidex".to_string(),
             }),
+            pending_focus: false,
         }
     }
 
@@ -190,6 +194,7 @@ impl App {
                 nav_controller,
                 window_title: title,
             }),
+            pending_focus: false,
         }
     }
 
@@ -236,6 +241,9 @@ impl App {
                     }
                     ContentToBrowser::OpenNewTab(url) => {
                         new_tab_urls.push(url);
+                    }
+                    ContentToBrowser::FocusWindow => {
+                        self.pending_focus = true;
                     }
                     ContentToBrowser::StorageChanged {
                         origin,

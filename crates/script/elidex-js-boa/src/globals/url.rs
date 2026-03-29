@@ -603,7 +603,12 @@ fn build_search_params_object(params: &[(String, String)], ctx: &mut Context) ->
     init.build().into()
 }
 
-/// Parse URLSearchParams init argument (string, object, or entries).
+/// Parse URLSearchParams init argument (WHATWG URL §6.2).
+///
+/// Handles three init forms:
+/// 1. String: `"key=value&key2=value2"` (strip leading `?`)
+/// 2. Array (sequence of sequences): `[["key", "value"], ...]`
+/// 3. Object (record): `{ key: "value", ... }`
 fn parse_search_params_init(
     init: Option<&JsValue>,
     ctx: &mut Context,
@@ -624,7 +629,54 @@ fn parse_search_params_init(
             .collect());
     }
 
-    // Try to convert to string.
+    // Object forms: array or record.
+    if let Some(obj) = val.as_object() {
+        // Check for array-like (has numeric `length` property).
+        let len_val = obj.get(js_string!("length"), ctx)?;
+        if let Some(len) = len_val.as_number() {
+            // Array form: sequence of [key, value] pairs.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let len = len as u32;
+            let mut params = Vec::with_capacity(len as usize);
+            for i in 0..len {
+                let pair = obj.get(i, ctx)?;
+                let pair_obj = pair.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message(
+                        "URLSearchParams: each entry must be a [key, value] pair",
+                    )
+                })?;
+                let k = pair_obj
+                    .get(0_u32, ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let v = pair_obj
+                    .get(1_u32, ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                params.push((k, v));
+            }
+            return Ok(params);
+        }
+
+        // Record form: iterate own property keys.
+        let keys = obj.own_property_keys(ctx)?;
+        let mut params = Vec::with_capacity(keys.len());
+        for key in keys {
+            let k = key.to_string();
+            // Skip internal/hidden properties.
+            if k.starts_with("__") {
+                continue;
+            }
+            let v = obj
+                .get(js_string!(&*k), ctx)?
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            params.push((k.to_string(), v));
+        }
+        return Ok(params);
+    }
+
+    // Fallback: convert to string.
     let s = val.to_string(ctx)?.to_std_string_escaped();
     let s = s.strip_prefix('?').unwrap_or(&s);
     Ok(url::form_urlencoded::parse(s.as_bytes())

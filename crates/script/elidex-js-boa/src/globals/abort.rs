@@ -136,13 +136,17 @@ fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) 
     signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
     signal.set(js_string!("reason"), reason.clone(), false, ctx)?;
 
-    // Call onabort if set.
+    // Create an Event-like object for dispatch.
+    let event = create_abort_event(signal, ctx)?;
+    let event_val = JsValue::from(event);
+
+    // Call onabort if set, passing the event object.
     let onabort = signal.get(js_string!("onabort"), ctx)?;
     if let Some(func) = onabort.as_callable() {
-        let _ = func.call(&JsValue::from(signal.clone()), &[], ctx);
+        let _ = func.call(&JsValue::from(signal.clone()), &[event_val.clone()], ctx);
     }
 
-    // Call registered abort listeners.
+    // Call registered abort listeners, passing the event object.
     let listeners_key = js_string!("__abort_listeners__");
     let listeners = signal.get(listeners_key, ctx)?;
     if let Some(arr) = listeners.as_object() {
@@ -153,7 +157,7 @@ fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) 
         for i in 0..len {
             let listener = arr.get(i, ctx)?;
             if let Some(func) = listener.as_callable() {
-                let _ = func.call(&JsValue::from(signal.clone()), &[], ctx);
+                let _ = func.call(&JsValue::from(signal.clone()), &[event_val.clone()], ctx);
             }
         }
     }
@@ -201,9 +205,11 @@ fn register_controller_constructor(ctx: &mut Context, bridge: &HostBridge) {
                         return Ok(JsValue::undefined());
                     }
 
-                    let reason = args.first().cloned().unwrap_or_else(|| {
-                        JsValue::from(js_string!("AbortError: The operation was aborted"))
-                    });
+                    let reason = if let Some(r) = args.first().filter(|v| !v.is_undefined()) {
+                        r.clone()
+                    } else {
+                        JsValue::from(create_abort_error_object(ctx)?)
+                    };
 
                     fire_abort_on_signal(&signal, &reason, ctx)?;
                     Ok(JsValue::undefined())
@@ -232,9 +238,11 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
                 let signal = create_abort_signal(ctx, bridge);
-                let reason = args.first().cloned().unwrap_or_else(|| {
-                    JsValue::from(js_string!("AbortError: The operation was aborted"))
-                });
+                let reason = if let Some(r) = args.first().filter(|v| !v.is_undefined()) {
+                    r.clone()
+                } else {
+                    JsValue::from(create_abort_error_object(ctx)?)
+                };
                 signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
                 signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
                 signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
@@ -328,6 +336,95 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
     let signal_obj = init.build();
     ctx.register_global_property(js_string!("AbortSignal"), signal_obj, Attribute::all())
         .expect("failed to register AbortSignal");
+}
+
+/// Create a DOMException-like AbortError object.
+///
+/// Returns a JS object with `name: "AbortError"`, `message: "The operation was aborted"`,
+/// `code: 20` (DOMException.ABORT_ERR).
+pub(crate) fn create_abort_error_object(ctx: &mut Context) -> JsResult<JsObject> {
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!("name"),
+        JsValue::from(js_string!("AbortError")),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("message"),
+        JsValue::from(js_string!("The operation was aborted")),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("code"),
+        JsValue::from(20),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
+    Ok(init.build())
+}
+
+/// Create a minimal Event-like object for abort event dispatch.
+///
+/// The object has `type: "abort"`, `bubbles: false`, `cancelable: false`,
+/// `target` set to the signal object, and `defaultPrevented: false`.
+fn create_abort_event(signal: &JsObject, ctx: &mut Context) -> JsResult<JsObject> {
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!("type"),
+        JsValue::from(js_string!("abort")),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("bubbles"),
+        JsValue::from(false),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("cancelable"),
+        JsValue::from(false),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("defaultPrevented"),
+        JsValue::from(false),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("target"),
+        JsValue::from(signal.clone()),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("currentTarget"),
+        JsValue::from(signal.clone()),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("isTrusted"),
+        JsValue::from(true),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("timeStamp"),
+        JsValue::from(0.0),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    // preventDefault / stopPropagation stubs.
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("preventDefault"),
+        0,
+    );
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopPropagation"),
+        0,
+    );
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("stopImmediatePropagation"),
+        0,
+    );
+    Ok(init.build())
 }
 
 /// Check if a JS value is an AbortSignal object.

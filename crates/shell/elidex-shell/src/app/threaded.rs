@@ -119,6 +119,14 @@ impl App {
     fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
         self.drain_content_messages();
 
+        // Apply pending window.focus() request.
+        if self.pending_focus {
+            self.pending_focus = false;
+            if let Some(state) = &self.render_state {
+                state.window.focus_window();
+            }
+        }
+
         let tab_infos = self.tab_bar_infos();
         let position = self.tab_bar_position();
 

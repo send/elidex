@@ -163,6 +163,9 @@ pub(crate) struct HostBridgeInner {
     // --- Animations (Web Animations API) ---
     /// Pending script-initiated animations, consumed by content thread.
     pending_script_animations: Vec<crate::globals::element::accessors::animate::ScriptAnimation>,
+    // --- Window focus ---
+    /// Pending window focus request from `window.focus()`.
+    pending_focus: bool,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -350,6 +353,7 @@ impl HostBridge {
                 session_storage: HashMap::new(),
                 pending_storage_changes: Vec::new(),
                 pending_script_animations: Vec::new(),
+                pending_focus: false,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -553,6 +557,26 @@ impl HostBridge {
         None
     }
 
+    /// Collect form control name/value pairs from a form entity.
+    ///
+    /// Walks child elements of the given entity, collecting submittable
+    /// controls (input, select, textarea) with a name attribute.
+    pub(crate) fn collect_form_data(&self, entity_bits: u64) -> Vec<(String, String)> {
+        let inner = self.inner.borrow();
+        #[allow(unsafe_code)]
+        let Some(dom) = (unsafe { inner.dom_ptr.as_ref() }) else {
+            return Vec::new();
+        };
+        let entity = match Entity::from_bits(entity_bits) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+
+        let mut pairs = Vec::new();
+        collect_form_data_recursive(dom, entity, &mut pairs);
+        pairs
+    }
+
     /// Drain all pending WebSocket and SSE events.
     pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
         self.inner.borrow_mut().realtime.drain_realtime_events()
@@ -716,6 +740,41 @@ impl HostBridge {
 
 /// Parse a raw CSS rule string into a `CssomRule`.
 ///
+/// Recursively walk children of a form entity, collecting submittable name/value pairs.
+fn collect_form_data_recursive(
+    dom: &EcsDom,
+    parent: Entity,
+    pairs: &mut Vec<(String, String)>,
+) {
+    let mut child_opt = dom.get_first_child(parent);
+    while let Some(child) = child_opt {
+        // Check if this child has a FormControlState.
+        if let Ok(fcs) = dom.world().get::<&elidex_form::FormControlState>(child) {
+            // Skip disabled controls and controls without a name.
+            if !fcs.disabled && !fcs.name.is_empty() {
+                // For checkbox/radio, only include if checked.
+                if fcs.kind == elidex_form::FormControlKind::Checkbox
+                    || fcs.kind == elidex_form::FormControlKind::Radio
+                {
+                    if fcs.checked {
+                        let value = if fcs.value().is_empty() {
+                            "on".to_string()
+                        } else {
+                            fcs.value().to_string()
+                        };
+                        pairs.push((fcs.name.clone(), value));
+                    }
+                } else if fcs.kind.is_submittable() {
+                    pairs.push((fcs.name.clone(), fcs.value().to_string()));
+                }
+            }
+        }
+        // Recurse into children (fieldset, div, etc. can contain form controls).
+        collect_form_data_recursive(dom, child, pairs);
+        child_opt = dom.get_next_sibling(child);
+    }
+}
+
 /// Performs lightweight parsing without the full CSS parser: splits on `{`
 /// to extract the selector and the declaration block. Returns `None` if
 /// the text doesn't contain a valid `selector { declarations }` structure.

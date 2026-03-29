@@ -175,6 +175,8 @@ pub enum ContentToBrowser {
     },
     /// Request to open a URL in a new tab (`window.open` with `_blank` target).
     OpenNewTab(url::Url),
+    /// Request the browser thread to focus the window (from `window.focus()`).
+    FocusWindow,
     /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
     ///
     /// Sent to the browser thread so it can broadcast `StorageEvent` to other

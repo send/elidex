@@ -115,4 +115,21 @@ impl HostBridge {
     pub fn is_tab_hidden(&self) -> bool {
         self.inner.borrow().tab_hidden
     }
+
+    // --- Window focus ---
+
+    /// Request window focus (from `window.focus()`).
+    ///
+    /// Sets a pending flag that the content thread picks up and sends via IPC.
+    pub fn request_focus(&self) {
+        self.inner.borrow_mut().pending_focus = true;
+    }
+
+    /// Take (remove) the pending focus request, if any.
+    pub fn take_pending_focus(&self) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let val = inner.pending_focus;
+        inner.pending_focus = false;
+        val
+    }
 }

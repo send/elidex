@@ -494,6 +494,14 @@ fn build_request_object(
         }
     }
 
+    // Extract signal from init (WHATWG Fetch §5.5).
+    let signal = init
+        .and_then(JsValue::as_object)
+        .map(|obj| obj.get(js_string!("signal"), ctx))
+        .transpose()?
+        .filter(|v| !v.is_undefined())
+        .unwrap_or(JsValue::null());
+
     let mut init_obj = ObjectInitializer::new(ctx);
 
     init_obj.property(js_string!("url"), JsValue::from(js_string!(url.as_str())), Attribute::READONLY);
@@ -503,6 +511,7 @@ fn build_request_object(
     init_obj.property(js_string!("redirect"), JsValue::from(js_string!(redirect.as_str())), Attribute::READONLY);
     init_obj.property(js_string!("mode"), JsValue::from(js_string!(mode.as_str())), Attribute::READONLY);
     init_obj.property(js_string!("credentials"), JsValue::from(js_string!(credentials.as_str())), Attribute::READONLY);
+    init_obj.property(js_string!("signal"), signal, Attribute::READONLY);
 
     Ok(init_obj.build().into())
 }
@@ -544,8 +553,25 @@ fn build_response_object(
 
     let status_text = extract_string_opt(init, "statusText", "", ctx)?;
 
+    // WHATWG Fetch §5.4: Extract body string from various body types.
     let body_str = if body.is_null() || body.is_undefined() {
         String::new()
+    } else if let Some(body_obj) = body.as_object() {
+        // Check for URLSearchParams (has __params__ hidden property).
+        let params_val = body_obj.get(js_string!("__params__"), ctx)?;
+        if !params_val.is_undefined() {
+            // URLSearchParams → use toString() (encoded form).
+            params_val.to_string(ctx)?.to_std_string_escaped()
+        } else {
+            // Check for Blob-like (has __blob_data__ hidden property).
+            let blob_data = body_obj.get(js_string!("__blob_data__"), ctx)?;
+            if !blob_data.is_undefined() {
+                blob_data.to_string(ctx)?.to_std_string_escaped()
+            } else {
+                // Generic object → toString().
+                body.to_string(ctx)?.to_std_string_escaped()
+            }
+        }
     } else {
         body.to_string(ctx)?.to_std_string_escaped()
     };

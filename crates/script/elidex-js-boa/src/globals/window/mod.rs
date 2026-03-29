@@ -1042,11 +1042,18 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         .define_property_or_throw(js_string!("origin"), desc, ctx)
         .expect("failed to register window.origin");
 
-    // window.focus() — no-op (TODO: winit focus_window via IPC).
+    // window.focus() — requests window focus via IPC (WHATWG HTML §7.2.7.1).
+    let b_focus = bridge.clone();
     ctx.register_global_builtin_callable(
         js_string!("focus"),
         0,
-        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| {
+                bridge.request_focus();
+                Ok(JsValue::undefined())
+            },
+            b_focus,
+        ),
     )
     .expect("failed to register window.focus");
 
@@ -2152,9 +2159,168 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 js_string!("invertSelf"),
                 0,
             );
+            // setMatrixValue(transformList) — parse "matrix(a,b,c,d,e,f)" or "none".
+            init.function(
+                NativeFunction::from_copy_closure(|this, args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    let input = args
+                        .first()
+                        .map(|v| v.to_string(ctx))
+                        .transpose()?
+                        .map_or(String::new(), |s| s.to_std_string_escaped());
+                    let trimmed = input.trim();
+                    if trimmed == "none" || trimmed.is_empty() {
+                        for key in ["a", "m11"] {
+                            obj.set(js_string!(key), JsValue::from(1.0), false, ctx)?;
+                        }
+                        for key in ["b", "m12", "c", "m21", "e", "m41", "f", "m42"] {
+                            obj.set(js_string!(key), JsValue::from(0.0), false, ctx)?;
+                        }
+                        for key in ["d", "m22"] {
+                            obj.set(js_string!(key), JsValue::from(1.0), false, ctx)?;
+                        }
+                    } else if let Some(inner) =
+                        trimmed.strip_prefix("matrix(").and_then(|s| s.strip_suffix(')'))
+                    {
+                        let parts: Vec<f64> = inner
+                            .split(',')
+                            .filter_map(|s| s.trim().parse::<f64>().ok())
+                            .collect();
+                        if parts.len() == 6 {
+                            let keys = [
+                                ("a", "m11"),
+                                ("b", "m12"),
+                                ("c", "m21"),
+                                ("d", "m22"),
+                                ("e", "m41"),
+                                ("f", "m42"),
+                            ];
+                            for (i, (k1, k2)) in keys.iter().enumerate() {
+                                obj.set(js_string!(*k1), JsValue::from(parts[i]), false, ctx)?;
+                                obj.set(js_string!(*k2), JsValue::from(parts[i]), false, ctx)?;
+                            }
+                        } else {
+                            return Err(JsNativeError::syntax()
+                                .with_message("setMatrixValue: invalid matrix() format")
+                                .into());
+                        }
+                    } else {
+                        return Err(JsNativeError::syntax()
+                            .with_message(
+                                "setMatrixValue: unsupported transform (only matrix(a,b,c,d,e,f) and none)",
+                            )
+                            .into());
+                    }
+                    Ok(this.clone())
+                }),
+                js_string!("setMatrixValue"),
+                1,
+            );
         }
 
         // --- Immutable methods (return new DOMMatrix) ---
+
+        // multiply(other) — return new DOMMatrix = this * other (2D).
+        init.function(
+            NativeFunction::from_copy_closure(|this, args, ctx| {
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                let other = args.first().and_then(JsValue::as_object).ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("multiply: argument must be a DOMMatrix")
+                })?;
+                let a1 = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b1 = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c1 = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d1 = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e1 = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f1 = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let a2 = other.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b2 = other.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c2 = other.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d2 = other.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e2 = other.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f2 = other.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let na = a1 * a2 + c1 * b2;
+                let nb = b1 * a2 + d1 * b2;
+                let nc = a1 * c2 + c1 * d2;
+                let nd = b1 * c2 + d1 * d2;
+                let ne = a1 * e2 + c1 * f2 + e1;
+                let nf = b1 * e2 + d1 * f2 + f1;
+                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, ne, nf, ctx)?))
+            }),
+            js_string!("multiply"),
+            1,
+        );
+
+        // inverse() — return new inverted DOMMatrix (2D).
+        init.function(
+            NativeFunction::from_copy_closure(|this, _args, ctx| {
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let det = a * d - b * c;
+                if det.abs() < f64::EPSILON {
+                    // Singular — all NaN per spec.
+                    Ok(JsValue::from(build_dom_matrix_obj(
+                        f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, ctx,
+                    )?))
+                } else {
+                    let inv = 1.0 / det;
+                    Ok(JsValue::from(build_dom_matrix_obj(
+                        d * inv,
+                        -b * inv,
+                        -c * inv,
+                        a * inv,
+                        (c * f - d * e) * inv,
+                        (b * e - a * f) * inv,
+                        ctx,
+                    )?))
+                }
+            }),
+            js_string!("inverse"),
+            0,
+        );
+
+        // rotate(rotX, rotY?, rotZ?) — return new rotated DOMMatrix (2D Z-rotation).
+        init.function(
+            NativeFunction::from_copy_closure(|this, args, ctx| {
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                // Per spec: if only one arg, it's rotZ; rotX and rotY are 0.
+                let angle_deg = if args.len() <= 1 {
+                    args.first().and_then(JsValue::as_number).unwrap_or(0.0)
+                } else {
+                    args.get(2).and_then(JsValue::as_number).unwrap_or(0.0)
+                };
+                let angle = angle_deg * std::f64::consts::PI / 180.0;
+                let cos = angle.cos();
+                let sin = angle.sin();
+                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let na = a * cos + c * sin;
+                let nb = b * cos + d * sin;
+                let nc = a * -sin + c * cos;
+                let nd = b * -sin + d * cos;
+                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, e, f, ctx)?))
+            }),
+            js_string!("rotate"),
+            1,
+        );
 
         // translate(tx, ty, tz?) — returns a new DOMMatrix with translation applied.
         init.function(

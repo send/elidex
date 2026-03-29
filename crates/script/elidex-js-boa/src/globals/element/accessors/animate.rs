@@ -405,7 +405,10 @@ fn build_animation_object(
 ) -> boa_engine::JsResult<boa_engine::JsObject> {
     // Pre-build promises before ObjectInitializer borrows ctx.
     let ready = boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
-    let (finished, _resolvers) = boa_engine::object::builtins::JsPromise::new_pending(ctx);
+    let (finished, finished_resolvers) = boa_engine::object::builtins::JsPromise::new_pending(ctx);
+
+    // Store reject function so cancel() can reject the finished promise.
+    let finished_reject: boa_engine::JsObject = finished_resolvers.reject.into();
 
     let mut init = ObjectInitializer::new(ctx);
 
@@ -474,13 +477,42 @@ fn build_animation_object(
     init.property(
         js_string!("finished"),
         JsValue::from(finished),
-        Attribute::READONLY | Attribute::CONFIGURABLE,
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    );
+
+    // Hidden property to store the reject function for the finished promise.
+    init.property(
+        js_string!("__finished_reject__"),
+        JsValue::from(finished_reject),
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
     // play()
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
             if let Some(obj) = this.as_object() {
+                // If playState was "finished" or "idle", create a fresh finished promise.
+                let state = obj
+                    .get(js_string!("playState"), ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                if state == "finished" || state == "idle" {
+                    let (new_finished, new_resolvers) =
+                        boa_engine::object::builtins::JsPromise::new_pending(ctx);
+                    let new_reject: boa_engine::JsObject = new_resolvers.reject.into();
+                    obj.set(
+                        js_string!("finished"),
+                        JsValue::from(new_finished),
+                        false,
+                        ctx,
+                    )?;
+                    obj.set(
+                        js_string!("__finished_reject__"),
+                        JsValue::from(new_reject),
+                        false,
+                        ctx,
+                    )?;
+                }
                 obj.set(
                     js_string!("playState"),
                     JsValue::from(js_string!("running")),
@@ -522,6 +554,35 @@ fn build_animation_object(
                     ctx,
                 )?;
                 obj.set(js_string!("currentTime"), JsValue::null(), false, ctx)?;
+
+                // Reject the current finished promise with AbortError.
+                let reject_fn = obj.get(js_string!("__finished_reject__"), ctx)?;
+                if let Some(callable) = reject_fn.as_callable() {
+                    let abort_error = crate::globals::abort::create_abort_error_object(ctx)?;
+                    let _ = callable.call(
+                        &JsValue::undefined(),
+                        &[JsValue::from(abort_error)],
+                        ctx,
+                    );
+                }
+
+                // Replace finished with a new pending promise.
+                let (new_finished, new_resolvers) =
+                    boa_engine::object::builtins::JsPromise::new_pending(ctx);
+                let new_reject: boa_engine::JsObject = new_resolvers.reject.into();
+                obj.set(
+                    js_string!("finished"),
+                    JsValue::from(new_finished),
+                    false,
+                    ctx,
+                )?;
+                obj.set(
+                    js_string!("__finished_reject__"),
+                    JsValue::from(new_reject),
+                    false,
+                    ctx,
+                )?;
+
                 // Fire oncancel if set.
                 let oncancel = obj.get(js_string!("oncancel"), ctx)?;
                 if let Some(f) = oncancel.as_callable() {

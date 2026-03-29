@@ -2,7 +2,9 @@
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
+
+use crate::bridge::HostBridge;
 
 /// Hidden property key storing the entries Vec serialized as JSON-like pairs.
 const ENTRIES_KEY: &str = "__elidex_formdata_entries__";
@@ -10,12 +12,60 @@ const ENTRIES_KEY: &str = "__elidex_formdata_entries__";
 const FORMDATA_MARKER: &str = "__elidex_formdata__";
 
 /// Register `FormData` constructor on the global object.
-pub fn register_form_data(ctx: &mut Context) {
-    let constructor = NativeFunction::from_copy_closure(|_this, _args, ctx| {
-        Ok(JsValue::from(create_form_data_object(ctx)?))
-    });
+pub fn register_form_data(ctx: &mut Context, bridge: &HostBridge) {
+    let b = bridge.clone();
+    let constructor = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let fd = create_form_data_object(ctx)?;
+
+            // If a form element is passed, collect its control values (WHATWG XHR §4.3).
+            if let Some(form_val) = args.first() {
+                if let Some(form_obj) = form_val.as_object() {
+                    collect_form_controls(&fd, &form_obj, bridge, ctx)?;
+                }
+            }
+
+            Ok(JsValue::from(fd))
+        },
+        b,
+    );
     ctx.register_global_callable(js_string!("FormData"), 0, constructor)
         .expect("failed to register FormData");
+}
+
+/// Walk form controls under a form element via the bridge and extract name/value pairs.
+fn collect_form_controls(
+    fd: &JsObject,
+    form_obj: &JsObject,
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<()> {
+    use crate::globals::element::ENTITY_KEY;
+
+    // Check if the argument is an element (has __elidex_entity__).
+    let entity_val = form_obj.get(js_string!(ENTITY_KEY), ctx)?;
+    let entity_bits = match entity_val.as_number() {
+        Some(n) if n > 0.0 => n as u64,
+        _ => return Ok(()), // Not an element — silently ignore.
+    };
+
+    // Use the bridge to walk form controls and collect name/value pairs.
+    let pairs = bridge.collect_form_data(entity_bits);
+
+    let entries = fd.get(js_string!(ENTRIES_KEY), ctx)?;
+    let arr = entries.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message("FormData: internal error")
+    })?;
+
+    for (name, value) in pairs {
+        let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+        let pair = boa_engine::object::builtins::JsArray::new(ctx);
+        pair.push(JsValue::from(js_string!(name.as_str())), ctx)?;
+        pair.push(JsValue::from(js_string!(value.as_str())), ctx)?;
+        arr.set(len, JsValue::from(pair), false, ctx)?;
+    }
+
+    Ok(())
 }
 
 /// Create a new `FormData` JS object with all methods.

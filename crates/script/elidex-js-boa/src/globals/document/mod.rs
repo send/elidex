@@ -623,6 +623,13 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                     })?,
                     ctx,
                 )?;
+                // WHATWG DOM §4.5: throw NotSupportedError if node is a Document.
+                let doc_entity = bridge.document_entity();
+                if node == doc_entity {
+                    return Err(JsNativeError::eval()
+                        .with_message("NotSupportedError: importNode: Document nodes cannot be imported")
+                        .into());
+                }
                 let deep = args.get(1).is_some_and(JsValue::to_boolean);
                 // Use cloneNode — single-document assumption.
                 invoke_dom_handler_ref(
@@ -648,6 +655,13 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                     JsNativeError::typ().with_message("adoptNode: node required")
                 })?;
                 let entity = crate::globals::element::extract_entity(node_val, ctx)?;
+                // WHATWG DOM §4.5: throw NotSupportedError if node is a Document.
+                let doc_entity = bridge.document_entity();
+                if entity == doc_entity {
+                    return Err(JsNativeError::eval()
+                        .with_message("NotSupportedError: adoptNode: Document nodes cannot be adopted")
+                        .into());
+                }
                 // Detach from parent if attached (via removeChild on parent).
                 bridge.with(|session, dom| {
                     if let Some(parent) = dom.get_parent(entity) {

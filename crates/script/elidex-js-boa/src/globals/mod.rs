@@ -691,7 +691,7 @@ pub fn register_all_globals(
     storage::register_storage(ctx, bridge);
     abort::register_abort_controller(ctx, bridge);
     blob::register_blob_file(ctx);
-    form_data::register_form_data(ctx);
+    form_data::register_form_data(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);
