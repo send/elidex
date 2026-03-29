@@ -838,6 +838,42 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     );
 
+    // document.currentScript — getter (WHATWG HTML §4.12.1.1).
+    // Returns the <script> element currently being evaluated, or null.
+    let b_cs = b.clone();
+    let cs_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, ctx| {
+            match bridge.current_script_entity() {
+                Some(entity) => {
+                    let wrapper = bridge.with(|session, dom| {
+                        let obj_ref = session.get_or_create_wrapper(
+                            entity,
+                            elidex_script_session::ComponentKind::Element,
+                        );
+                        let is_iframe = dom
+                            .world()
+                            .get::<&elidex_ecs::TagType>(entity)
+                            .ok()
+                            .is_some_and(|t| t.0 == "iframe");
+                        crate::globals::element::create_element_wrapper(
+                            entity, bridge, obj_ref, ctx, is_iframe,
+                        )
+                    });
+                    Ok(wrapper)
+                }
+                None => Ok(JsValue::null()),
+            }
+        },
+        b_cs,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("currentScript"),
+        Some(cs_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
     let document = init.build();
     ctx.register_global_property(js_string!("document"), document, Attribute::all())
         .expect("failed to register document");

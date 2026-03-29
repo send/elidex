@@ -166,6 +166,10 @@ pub(crate) struct HostBridgeInner {
     // --- Window focus ---
     /// Pending window focus request from `window.focus()`.
     pending_focus: bool,
+    // --- Script execution ---
+    /// The `<script>` element entity currently being evaluated (WHATWG HTML §4.12.1.1).
+    /// Set before each script evaluation, cleared after. Used by `document.currentScript`.
+    current_script_entity: Option<Entity>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -354,6 +358,7 @@ impl HostBridge {
                 pending_storage_changes: Vec::new(),
                 pending_script_animations: Vec::new(),
                 pending_focus: false,
+                current_script_entity: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -498,6 +503,20 @@ impl HostBridge {
         if let Some(ref tq) = self.inner.borrow().timer_queue {
             tq.borrow_mut().clear_all();
         }
+    }
+
+    /// Set the currently executing `<script>` element entity.
+    ///
+    /// Called before evaluating each script; cleared after. Used by
+    /// `document.currentScript` (WHATWG HTML §4.12.1.1).
+    pub fn set_current_script_entity(&self, entity: Option<Entity>) {
+        self.inner.borrow_mut().current_script_entity = entity;
+    }
+
+    /// Get the currently executing `<script>` element entity, if any.
+    #[must_use]
+    pub fn current_script_entity(&self) -> Option<Entity> {
+        self.inner.borrow().current_script_entity
     }
 
     // --- Web Animations API ---
