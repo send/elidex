@@ -167,9 +167,29 @@ pub enum EventPayload {
     },
     /// WebSocket/SSE close event data (WHATWG HTML `CloseEvent`).
     CloseEvent(CloseEventInit),
+    /// HashChange event data (WHATWG HTML §7.7.4).
+    HashChange(HashChangeEventInit),
+    /// Page transition event data (WHATWG HTML §7.8.2.4).
+    PageTransition(PageTransitionEventInit),
     /// No additional data (e.g. generic events).
     #[default]
     None,
+}
+
+/// Initialization data for hashchange events (WHATWG HTML §7.7.4).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HashChangeEventInit {
+    /// The previous URL (before the hash change).
+    pub old_url: String,
+    /// The new URL (after the hash change).
+    pub new_url: String,
+}
+
+/// Initialization data for pagehide/pageshow events (WHATWG HTML §7.8.2.4).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PageTransitionEventInit {
+    /// Whether the page was restored from BFCache.
+    pub persisted: bool,
 }
 
 /// Close event initialization data (WHATWG HTML `CloseEvent`).

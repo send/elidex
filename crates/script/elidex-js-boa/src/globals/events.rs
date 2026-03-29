@@ -446,6 +446,8 @@ fn set_payload_properties(
             set_message_payload(init, data, origin, last_event_id, empty_ports);
         }
         EventPayload::CloseEvent(c) => set_close_event_payload(init, c),
+        EventPayload::HashChange(h) => set_hashchange_payload(init, h),
+        EventPayload::PageTransition(p) => set_page_transition_payload(init, p),
         EventPayload::None | _ => {}
     }
 }
@@ -558,6 +560,29 @@ fn set_close_event_payload(init: &mut ObjectInitializer<'_>, c: &elidex_plugin::
         RO,
     );
     init.property(js_string!("wasClean"), JsValue::from(c.was_clean), RO);
+}
+
+fn set_hashchange_payload(
+    init: &mut ObjectInitializer<'_>,
+    h: &elidex_plugin::HashChangeEventInit,
+) {
+    init.property(
+        js_string!("oldURL"),
+        JsValue::from(js_string!(h.old_url.as_str())),
+        RO,
+    );
+    init.property(
+        js_string!("newURL"),
+        JsValue::from(js_string!(h.new_url.as_str())),
+        RO,
+    );
+}
+
+fn set_page_transition_payload(
+    init: &mut ObjectInitializer<'_>,
+    p: &elidex_plugin::PageTransitionEventInit,
+) {
+    init.property(js_string!("persisted"), JsValue::from(p.persisted), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {
