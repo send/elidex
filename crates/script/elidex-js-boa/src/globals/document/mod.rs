@@ -762,9 +762,11 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         let cookie_getter = NativeFunction::from_copy_closure_with_captures(
             |_this, _args, bridge, _ctx| {
                 // Return cookie string for current URL, filtering HttpOnly cookies.
+                // Note: cookies_for_script borrows inner, so do NOT wrap in bridge.with()
+                // which also borrows inner — that would cause a double RefCell borrow panic.
                 let url = bridge.current_url();
                 let cookie_str = if let Some(ref url) = url {
-                    bridge.with(|_session, _dom| bridge.cookies_for_script(url))
+                    bridge.cookies_for_script(url)
                 } else {
                     String::new()
                 };

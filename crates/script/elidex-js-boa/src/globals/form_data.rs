@@ -68,6 +68,20 @@ fn collect_form_controls(
     Ok(())
 }
 
+/// Extract the internal entries array and its length from a FormData `this` value.
+fn fd_entries(this: &JsValue, ctx: &mut Context) -> JsResult<(JsObject, u32)> {
+    let obj = this.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message("FormData: not an object")
+    })?;
+    let arr = obj
+        .get(js_string!(ENTRIES_KEY), ctx)?
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("FormData: internal error"))?;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+    Ok((arr, len))
+}
+
 /// Create a new `FormData` JS object with all methods.
 fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> {
     // Entries stored as a JsArray of [name, value] pairs.
@@ -85,17 +99,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // append(name, value, filename?)
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.append", ctx)?;
             let value = args.get(1).cloned().unwrap_or(JsValue::undefined());
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+            let (arr, len) = fd_entries(this, ctx)?;
 
             let pair = boa_engine::object::builtins::JsArray::new(ctx);
             pair.push(JsValue::from(js_string!(name.as_str())), ctx)?;
@@ -116,14 +123,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             })?;
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.delete", ctx)?;
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
+            let (arr, len) = fd_entries(this, ctx)?;
 
             // Rebuild array without matching entries.
             let new_arr = boa_engine::object::builtins::JsArray::new(ctx);
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -146,16 +149,9 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // get(name) → value or null
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.get", ctx)?;
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+            let (arr, len) = fd_entries(this, ctx)?;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -174,17 +170,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // getAll(name) → array
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.getAll", ctx)?;
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
+            let (arr, len) = fd_entries(this, ctx)?;
             let result = boa_engine::object::builtins::JsArray::new(ctx);
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -204,16 +193,9 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // has(name) → bool
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.has", ctx)?;
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+            let (arr, len) = fd_entries(this, ctx)?;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -238,15 +220,11 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             let name = crate::globals::require_js_string_arg(args, 0, "FormData.set", ctx)?;
             let value = args.get(1).cloned().unwrap_or(JsValue::undefined());
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
+            let (arr, len) = fd_entries(this, ctx)?;
 
             // Remove all existing entries with this name, then add at the position
             // of the first removed entry (WHATWG XHR §4.3).
             let new_arr = boa_engine::object::builtins::JsArray::new(ctx);
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             let mut inserted = false;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
@@ -283,12 +261,8 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // entries() → iterator-like array of [name, value]
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            // Return a copy of the entries array.
-            Ok(entries)
+            let (arr, _len) = fd_entries(this, ctx)?;
+            Ok(JsValue::from(arr))
         }),
         js_string!("entries"),
         0,
@@ -297,15 +271,8 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // keys() → array of names
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
+            let (arr, len) = fd_entries(this, ctx)?;
             let result = boa_engine::object::builtins::JsArray::new(ctx);
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -322,15 +289,8 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     // values() → array of values
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: this is not an object")
-            })?;
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
+            let (arr, len) = fd_entries(this, ctx)?;
             let result = boa_engine::object::builtins::JsArray::new(ctx);
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
@@ -356,11 +316,7 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             })?;
             let this_arg = args.get(1).cloned().unwrap_or(JsValue::undefined());
 
-            let entries = obj.get(js_string!(ENTRIES_KEY), ctx)?;
-            let arr = entries.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("FormData: internal error")
-            })?;
-            let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+            let (arr, len) = fd_entries(this, ctx)?;
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {

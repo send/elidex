@@ -2011,6 +2011,8 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
             );
 
             // scaleSelf(scaleX, scaleY?, scaleZ?)
+            // Post-multiply by a scale matrix: a' = a*sx, b' = b*sx, c' = c*sy, d' = d*sy.
+            // e and f are unchanged by pure scale.
             init.function(
                 NativeFunction::from_copy_closure(|this, args, ctx| {
                     let obj = this.as_object().ok_or_else(|| {
@@ -2020,10 +2022,16 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let sy = args.get(1).and_then(JsValue::as_number).unwrap_or(sx);
                     let sz = args.get(2).and_then(JsValue::as_number).unwrap_or(1.0);
                     let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
                     let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
                     let m33 = obj.get(js_string!("m33"), ctx)?.to_number(ctx).unwrap_or(1.0);
                     obj.set(js_string!("a"), JsValue::from(a * sx), false, ctx)?;
                     obj.set(js_string!("m11"), JsValue::from(a * sx), false, ctx)?;
+                    obj.set(js_string!("b"), JsValue::from(b * sx), false, ctx)?;
+                    obj.set(js_string!("m12"), JsValue::from(b * sx), false, ctx)?;
+                    obj.set(js_string!("c"), JsValue::from(c * sy), false, ctx)?;
+                    obj.set(js_string!("m21"), JsValue::from(c * sy), false, ctx)?;
                     obj.set(js_string!("d"), JsValue::from(d * sy), false, ctx)?;
                     obj.set(js_string!("m22"), JsValue::from(d * sy), false, ctx)?;
                     obj.set(js_string!("m33"), JsValue::from(m33 * sz), false, ctx)?;
@@ -2236,6 +2244,7 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
         );
 
         // scale(scaleX, scaleY?, scaleZ?) — returns a new scaled DOMMatrix.
+        // Post-multiply by a scale matrix: a' = a*sx, b' = b*sx, c' = c*sy, d' = d*sy.
         init.function(
             NativeFunction::from_copy_closure(|this, args, ctx| {
                 let obj = this.as_object().ok_or_else(|| {
@@ -2249,7 +2258,7 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
                 let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
                 let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let result = build_dom_matrix_obj(a * sx, b, c, d * sy, e, f, ctx)?;
+                let result = build_dom_matrix_obj(a * sx, b * sx, c * sy, d * sy, e, f, ctx)?;
                 Ok(JsValue::from(result))
             }),
             js_string!("scale"),

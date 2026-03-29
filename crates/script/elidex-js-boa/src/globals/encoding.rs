@@ -51,25 +51,40 @@ pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
                     let dest = args.get(1).and_then(JsValue::as_object);
                     let bytes = source.as_bytes();
 
-                    let written = if let Some(dest_obj) = dest {
+                    let dest_len = if let Some(dest_obj) = &dest {
                         let len_val = dest_obj.get(js_string!("length"), ctx)?;
                         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let len = len_val.to_number(ctx)? as usize;
-                        let write_count = bytes.len().min(len);
-                        for (i, &b) in bytes[..write_count].iter().enumerate() {
-                            dest_obj.set(i as u32, JsValue::from(f64::from(b)), false, ctx)?;
-                        }
-                        write_count
+                        len
                     } else {
                         0
                     };
+
+                    // Count characters consumed corresponding to bytes that fit
+                    // in the destination buffer (UTF-8 chars may be multi-byte).
+                    let mut read = 0usize;
+                    let mut written = 0usize;
+                    for (_i, ch) in source.char_indices() {
+                        let ch_len = ch.len_utf8();
+                        if written + ch_len > dest_len {
+                            break;
+                        }
+                        written += ch_len;
+                        read += 1;
+                    }
+
+                    if let Some(dest_obj) = &dest {
+                        for (i, &b) in bytes[..written].iter().enumerate() {
+                            dest_obj.set(i as u32, JsValue::from(f64::from(b)), false, ctx)?;
+                        }
+                    }
 
                     let mut result = ObjectInitializer::new(ctx);
                     #[allow(clippy::cast_precision_loss)]
                     {
                         result.property(
                             js_string!("read"),
-                            JsValue::from(source.chars().count() as f64),
+                            JsValue::from(read as f64),
                             Attribute::all(),
                         );
                         result.property(

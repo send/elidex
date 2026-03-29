@@ -160,6 +160,8 @@ pub(crate) struct HostBridgeInner {
     // --- Storage ---
     /// Session storage (tab-scoped).
     session_storage: HashMap<String, String>,
+    /// Cached byte size of session storage (sum of key.len() + value.len() for all entries).
+    session_storage_bytes: usize,
     /// Pending localStorage change notifications for cross-tab broadcast.
     pending_storage_changes: Vec<StorageChange>,
     // --- Animations (Web Animations API) ---
@@ -358,6 +360,7 @@ impl HostBridge {
                 tab_hidden: false,
                 window_name: String::new(),
                 session_storage: HashMap::new(),
+                session_storage_bytes: 0,
                 pending_storage_changes: Vec::new(),
                 pending_script_animations: Vec::new(),
                 pending_focus: false,

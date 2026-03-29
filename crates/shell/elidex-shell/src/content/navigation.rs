@@ -88,12 +88,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         return true;
     }
 
-    // window.focus() → send FocusWindow to browser thread.
-    if state.pipeline.runtime.bridge().take_pending_focus() {
-        let _ = state
-            .channel
-            .send(crate::ipc::ContentToBrowser::FocusWindow);
-    }
+    // window.focus() is handled in content/mod.rs drain loop — do not duplicate here.
 
     // window.open with named target → navigate matching iframe or open new tab.
     let navigate_iframes = state

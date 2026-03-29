@@ -285,9 +285,11 @@ impl CookieJar {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Remove existing cookie with same name/domain/path.
         jar.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
-        if jar.len() < MAX_TOTAL_COOKIES {
-            jar.push(cookie);
+        // Evict the oldest cookie (first inserted) if at the global limit.
+        if jar.len() >= MAX_TOTAL_COOKIES {
+            jar.remove(0);
         }
+        jar.push(cookie);
     }
 }
 

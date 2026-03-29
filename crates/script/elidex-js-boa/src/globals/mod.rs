@@ -27,6 +27,7 @@ pub mod wasm;
 pub mod websocket;
 pub mod window;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
@@ -565,15 +566,36 @@ pub(crate) fn dispatch_event_for(
         );
     }
 
+    // Collect listener IDs to remove after dispatch (for once: true listeners).
+    let once_removal_ids: Rc<RefCell<Vec<(Entity, elidex_script_session::ListenerId)>>> =
+        Rc::new(RefCell::new(Vec::new()));
+    let once_ids = Rc::clone(&once_removal_ids);
+
     // Synchronous dispatch: invoke listeners directly with the same event object.
     bridge.with(|_session, dom| {
         elidex_script_session::dispatch_event(
             dom,
             &mut dispatch_event,
-            &mut |listener_id, _entity, ev| {
+            &mut |listener_id, entity, ev| {
+                // Look up listener metadata for once/passive options.
+                let (is_once, is_passive) = dom
+                    .world()
+                    .get::<&EventListeners>(entity)
+                    .ok()
+                    .map_or((false, false), |listeners| {
+                        listeners
+                            .find_entry(listener_id)
+                            .map_or((false, false), |entry| (entry.once, entry.passive))
+                    });
+
                 let Some(js_func) = bridge.get_listener(listener_id) else {
                     return;
                 };
+
+                // WHATWG DOM §2.10 step 15: collect once listeners for removal after dispatch.
+                if is_once {
+                    once_ids.borrow_mut().push((entity, listener_id));
+                }
 
                 // Update eventPhase on the user's event object.
                 let _ = user_event_obj.set(
@@ -588,6 +610,31 @@ pub(crate) fn dispatch_event_for(
                 sp_flag.set(ev.flags.propagation_stopped);
                 si_flag.set(ev.flags.immediate_propagation_stopped);
 
+                // WHATWG DOM §2.6: passive listeners cannot call preventDefault().
+                // Temporarily mask the cancelable flag so preventDefault() is a no-op.
+                let saved_cancelable = ev.cancelable;
+                if is_passive {
+                    ev.cancelable = false;
+                    // Re-install preventDefault with cancelable=false so it's a no-op.
+                    let pd_shared =
+                        crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
+                    let _ = user_event_obj.set(
+                        js_string!("preventDefault"),
+                        NativeFunction::from_copy_closure_with_captures(
+                            |_this, _args, (f, cancel), _ctx| {
+                                if *cancel {
+                                    f.0.set(true);
+                                }
+                                Ok(JsValue::undefined())
+                            },
+                            (pd_shared, false),
+                        )
+                        .to_js_function(ctx.realm()),
+                        false,
+                        ctx,
+                    );
+                }
+
                 let event_val: JsValue = user_event_obj.clone().into();
                 if let Err(err) = js_func.call(&JsValue::undefined(), &[event_val], ctx) {
                     eprintln!("[JS dispatchEvent Error] {err}");
@@ -596,6 +643,29 @@ pub(crate) fn dispatch_event_for(
                 // Microtask checkpoint (HTML §8.1.7.3).
                 let _ = ctx.run_jobs();
 
+                // Restore cancelable after passive listener override.
+                if is_passive {
+                    ev.cancelable = saved_cancelable;
+                    // Re-install preventDefault with the original cancelable flag.
+                    let pd_shared =
+                        crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
+                    let _ = user_event_obj.set(
+                        js_string!("preventDefault"),
+                        NativeFunction::from_copy_closure_with_captures(
+                            |_this, _args, (f, cancel), _ctx| {
+                                if *cancel {
+                                    f.0.set(true);
+                                }
+                                Ok(JsValue::undefined())
+                            },
+                            (pd_shared, saved_cancelable),
+                        )
+                        .to_js_function(ctx.realm()),
+                        false,
+                        ctx,
+                    );
+                }
+
                 // Read back flag state from our owned Rc<Cell>s.
                 ev.flags.default_prevented = pd_flag.get();
                 ev.flags.propagation_stopped = sp_flag.get();
@@ -603,6 +673,22 @@ pub(crate) fn dispatch_event_for(
             },
         );
     });
+
+    // Remove once-listeners after dispatch completes.
+    let removals = once_removal_ids.borrow();
+    if !removals.is_empty() {
+        bridge.with(|_session, dom| {
+            for &(entity, listener_id) in removals.iter() {
+                if let Ok(mut listeners) = dom
+                    .world_mut()
+                    .get::<&mut EventListeners>(entity)
+                {
+                    listeners.remove(listener_id);
+                }
+                bridge.remove_listener(listener_id);
+            }
+        });
+    }
     let prevented = dispatch_event.flags.default_prevented;
 
     // WHATWG DOM §2.10 steps 10-14: post-dispatch cleanup.

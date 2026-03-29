@@ -114,7 +114,37 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
     );
 
     init.function(
-        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let event_type = crate::globals::require_js_string_arg(args, 0, "removeEventListener", ctx)?;
+            if event_type != "abort" {
+                return Ok(JsValue::undefined());
+            }
+            let listener = args.get(1).cloned().unwrap_or(JsValue::undefined());
+            let obj = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("AbortSignal: this is not an object")
+            })?;
+            let listeners_key = js_string!("__abort_listeners__");
+            let existing = obj.get(listeners_key.clone(), ctx)?;
+            if let Some(arr) = existing.as_object() {
+                let len = arr.get(js_string!("length"), ctx)?.to_number(ctx).unwrap_or(0.0) as u32;
+                let new_arr = boa_engine::object::builtins::JsArray::new(ctx);
+                for i in 0..len {
+                    let entry = arr.get(i, ctx)?;
+                    // Remove by reference identity: skip the matching function.
+                    let is_match = entry.as_object().is_some()
+                        && listener.as_object().is_some()
+                        && std::ptr::eq(
+                            entry.as_object().unwrap().as_ref(),
+                            listener.as_object().unwrap().as_ref(),
+                        );
+                    if !is_match {
+                        new_arr.push(entry, ctx)?;
+                    }
+                }
+                obj.set(listeners_key, JsValue::from(new_arr), false, ctx)?;
+            }
+            Ok(JsValue::undefined())
+        }),
         js_string!("removeEventListener"),
         2,
     );

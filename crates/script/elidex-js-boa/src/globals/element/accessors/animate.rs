@@ -290,6 +290,25 @@ fn parse_keyframes(
     }
 }
 
+/// Extract an optional string property from a JS object, returning a default if missing.
+fn get_opt_string(
+    obj: &boa_engine::JsObject,
+    key: &str,
+    default: &str,
+    ctx: &mut boa_engine::Context,
+) -> String {
+    obj.get(js_string!(key), ctx)
+        .ok()
+        .and_then(|v| {
+            if v.is_undefined() {
+                None
+            } else {
+                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+            }
+        })
+        .unwrap_or_else(|| default.to_string())
+}
+
 /// Parse animation options from the second argument of animate().
 fn parse_animation_options(
     val: Option<&JsValue>,
@@ -325,65 +344,11 @@ fn parse_animation_options(
         .to_number(ctx)
         .unwrap_or(0.0);
 
-    let easing = obj
-        .get(js_string!("easing"), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        })
-        .unwrap_or_else(|| "linear".into());
-
-    let fill = obj
-        .get(js_string!("fill"), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        })
-        .unwrap_or_else(|| "none".into());
-
-    let direction = obj
-        .get(js_string!("direction"), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        })
-        .unwrap_or_else(|| "normal".into());
-
-    let id = obj
-        .get(js_string!("id"), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        })
-        .unwrap_or_default();
-
-    let composite = obj
-        .get(js_string!("composite"), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        })
-        .unwrap_or_else(|| "replace".into());
+    let easing = get_opt_string(&obj, "easing", "linear", ctx);
+    let fill = get_opt_string(&obj, "fill", "none", ctx);
+    let direction = get_opt_string(&obj, "direction", "normal", ctx);
+    let id = get_opt_string(&obj, "id", "", ctx);
+    let composite = get_opt_string(&obj, "composite", "replace", ctx);
 
     Ok(AnimationOptions {
         duration,
