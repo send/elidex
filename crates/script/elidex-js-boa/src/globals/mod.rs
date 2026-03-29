@@ -150,10 +150,45 @@ pub(crate) fn boa_args_to_elidex(
         .collect()
 }
 
-/// Extract the `capture` flag from the third argument of addEventListener/removeEventListener.
+/// Parsed listener options from the third argument of addEventListener/removeEventListener.
+pub(crate) struct ListenerOptions {
+    pub capture: bool,
+    pub once: bool,
+    pub passive: bool,
+}
+
+/// Extract listener options from the third argument of addEventListener/removeEventListener.
 ///
 /// Handles both the boolean form (`el.addEventListener('click', fn, true)`)
-/// and the options object form (`el.addEventListener('click', fn, {capture: true})`).
+/// and the options object form (`el.addEventListener('click', fn, {capture: true, once: true})`).
+/// WHATWG DOM §2.6.
+pub(crate) fn extract_listener_options(
+    args: &[JsValue],
+    ctx: &mut Context,
+) -> JsResult<ListenerOptions> {
+    match args.get(2) {
+        Some(v) if v.is_object() => {
+            let obj = v.as_object().unwrap();
+            Ok(ListenerOptions {
+                capture: obj.get(js_string!("capture"), ctx)?.to_boolean(),
+                once: obj.get(js_string!("once"), ctx)?.to_boolean(),
+                passive: obj.get(js_string!("passive"), ctx)?.to_boolean(),
+            })
+        }
+        Some(v) => Ok(ListenerOptions {
+            capture: v.to_boolean(),
+            once: false,
+            passive: false,
+        }),
+        None => Ok(ListenerOptions {
+            capture: false,
+            once: false,
+            passive: false,
+        }),
+    }
+}
+
+/// Extract only the `capture` flag (for removeEventListener which ignores once/passive).
 pub(crate) fn extract_capture(args: &[JsValue], ctx: &mut Context) -> JsResult<bool> {
     match args.get(2) {
         Some(v) if v.is_object() => {
@@ -179,16 +214,19 @@ pub(crate) fn add_event_listener_for(
     let listener_fn = args.get(1).and_then(JsValue::as_callable).ok_or_else(|| {
         JsNativeError::typ().with_message("addEventListener: argument 1 must be a function")
     })?;
-    let capture = extract_capture(args, ctx)?;
+    let opts = extract_listener_options(args, ctx)?;
 
     bridge.with(|_session, dom| {
+        // WHATWG DOM §2.6 step 4: duplicate check by (type, callback, capture).
+        // Per spec, once/passive are NOT part of the duplicate check.
         let is_duplicate =
             dom.world()
                 .get::<&EventListeners>(entity)
                 .ok()
                 .is_some_and(|listeners| {
                     listeners.matching_all(&event_type).iter().any(|entry| {
-                        entry.capture == capture && bridge.listener_matches(entry.id, &listener_fn)
+                        entry.capture == opts.capture
+                            && bridge.listener_matches(entry.id, &listener_fn)
                     })
                 });
 
@@ -201,10 +239,10 @@ pub(crate) fn add_event_listener_for(
             dom.world_mut()
                 .get::<&mut EventListeners>(entity)
                 .unwrap()
-                .add(&event_type, capture)
+                .add_with_options(&event_type, opts.capture, opts.once, opts.passive)
         } else {
             let mut listeners = EventListeners::new();
-            let id = listeners.add(&event_type, capture);
+            let id = listeners.add_with_options(&event_type, opts.capture, opts.once, opts.passive);
             let _ = dom.world_mut().insert_one(entity, listeners);
             id
         };

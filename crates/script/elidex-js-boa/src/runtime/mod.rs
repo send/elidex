@@ -209,15 +209,40 @@ impl JsRuntime {
         let bridge = self.bridge.clone();
         let ctx = &mut self.ctx;
 
-        elidex_script_session::dispatch_event(dom, event, &mut |listener_id, _entity, ev| {
+        elidex_script_session::dispatch_event(dom, event, &mut |listener_id, entity, ev| {
             // Sync flags from Rc<Cell> into the event before checking.
             ev.flags.default_prevented = prevent_default_flag.get();
             ev.flags.propagation_stopped = stop_propagation_flag.get();
             ev.flags.immediate_propagation_stopped = stop_immediate_flag.get();
 
+            // Look up listener metadata for once/passive options.
+            let (is_once, is_passive) = bridge.with(|_session, dom| {
+                dom.world()
+                    .get::<&elidex_script_session::EventListeners>(entity)
+                    .ok()
+                    .map_or((false, false), |listeners| {
+                        listeners
+                            .find_entry(listener_id)
+                            .map_or((false, false), |entry| (entry.once, entry.passive))
+                    })
+            });
+
             let Some(js_func) = bridge.get_listener(listener_id) else {
                 return;
             };
+
+            // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
+            if is_once {
+                bridge.with(|_session, dom| {
+                    if let Ok(mut listeners) = dom
+                        .world_mut()
+                        .get::<&mut elidex_script_session::EventListeners>(entity)
+                    {
+                        listeners.remove(listener_id);
+                    }
+                });
+                bridge.remove_listener(listener_id);
+            }
 
             // Create element wrapper for target and current_target.
             let target_wrapper = bridge.with(|session, dom| {
@@ -265,6 +290,13 @@ impl JsRuntime {
                 }
                 Some(JsValue::from(arr))
             };
+
+            // WHATWG DOM §2.6: passive listeners cannot call preventDefault().
+            // We achieve this by temporarily masking the cancelable flag so that
+            // the event object's preventDefault() becomes a no-op.
+            let effective_cancelable = ev.cancelable && !is_passive;
+            let saved_cancelable = ev.cancelable;
+            ev.cancelable = effective_cancelable;
 
             let event_flags = crate::globals::events::EventFlags {
                 prevent_default: Rc::clone(&prevent_default_flag),
@@ -314,6 +346,9 @@ impl JsRuntime {
             if let Err(err) = ctx.run_jobs() {
                 eprintln!("[JS Microtask Error] {err}");
             }
+
+            // Restore cancelable after passive listener override.
+            ev.cancelable = saved_cancelable;
 
             // Sync flags back from Rc<Cell> into the event.
             // Microtasks may have called preventDefault() via the shared flags.

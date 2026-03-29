@@ -150,10 +150,13 @@ pub fn create_event_object(
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
-    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
-    // TODO: When JS `dispatchEvent()` / `CustomEvent` is implemented,
-    // parameterize via `DispatchEvent.is_trusted` (script-dispatched → false).
-    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+    // WHATWG DOM §2.1: isTrusted is [LegacyUnforgeable] — non-configurable, non-writable.
+    // boa Attribute::READONLY = writable:false; no CONFIGURABLE flag = configurable:false.
+    init.property(
+        js_string!("isTrusted"),
+        JsValue::from(event.is_trusted),
+        RO,
+    );
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload, empty_ports);
@@ -273,6 +276,7 @@ pub fn create_standalone_event(
     event_type: &str,
     payload: &EventPayload,
     cancelable: bool,
+    is_trusted: bool,
     target: Option<&JsValue>,
     ctx: &mut Context,
 ) -> JsValue {
@@ -306,9 +310,8 @@ pub fn create_standalone_event(
         JsValue::from(2_i32), // AT_TARGET
         RO,
     );
-    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
-    // Standalone events (WS/SSE) are always UA-dispatched.
-    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+    // WHATWG DOM §2.1: isTrusted is [LegacyUnforgeable].
+    init.property(js_string!("isTrusted"), JsValue::from(is_trusted), RO);
 
     // defaultPrevented accessor.
     let pd_flag = SharedFlag(Rc::clone(&prevent_default));
