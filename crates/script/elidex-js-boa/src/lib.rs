@@ -47,6 +47,7 @@ pub mod runtime;
 pub mod script_extract;
 mod timer_queue;
 mod value_conv;
+pub mod worker_thread;
 
 pub use runtime::JsRuntime;
 // Re-export EvalResult from the canonical location in elidex-script-session.

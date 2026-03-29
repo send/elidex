@@ -6,7 +6,7 @@ use boa_engine::{js_string, Context, JsValue, NativeFunction};
 use boa_engine::object::ObjectInitializer;
 
 /// Register `atob()` and `btoa()` (WHATWG HTML §8.3).
-pub(super) fn register_atob_btoa(ctx: &mut Context) {
+pub(crate) fn register_atob_btoa(ctx: &mut Context) {
     use base64::Engine;
 
     // btoa(str) — Latin1 -> Base64.
@@ -65,7 +65,7 @@ pub(super) fn register_atob_btoa(ctx: &mut Context) {
 }
 
 /// Register `crypto` object (W3C `WebCrypto`).
-pub(super) fn register_crypto(ctx: &mut Context) {
+pub(crate) fn register_crypto(ctx: &mut Context) {
     let mut init = ObjectInitializer::new(ctx);
 
     // crypto.getRandomValues(typedArray) — fill with random bytes.
@@ -133,7 +133,7 @@ pub(super) fn register_crypto(ctx: &mut Context) {
 }
 
 /// Register `queueMicrotask()` (WHATWG HTML §8.6).
-pub(super) fn register_queue_microtask(ctx: &mut Context) {
+pub(crate) fn register_queue_microtask(ctx: &mut Context) {
     ctx.register_global_builtin_callable(
         js_string!("queueMicrotask"),
         1,

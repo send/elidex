@@ -388,7 +388,7 @@ pub(super) fn register_xml_serializer(ctx: &mut Context, bridge: &HostBridge) {
 }
 
 /// Register `requestIdleCallback` and `cancelIdleCallback` global functions.
-pub(super) fn register_idle_callbacks(ctx: &mut Context) {
+pub(crate) fn register_idle_callbacks(ctx: &mut Context) {
     // requestIdleCallback(callback, options?) -> id
     let ric_fn = NativeFunction::from_copy_closure(|_this, args, ctx| {
         let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
@@ -473,7 +473,7 @@ pub(super) fn register_idle_callbacks(ctx: &mut Context) {
 }
 
 /// Register `structuredClone(value, options?)` global function.
-pub(super) fn register_structured_clone(ctx: &mut Context) {
+pub(crate) fn register_structured_clone(ctx: &mut Context) {
     let sc_fn = NativeFunction::from_copy_closure(|_this, args, ctx| {
         let value = args.first().cloned().unwrap_or(JsValue::undefined());
 

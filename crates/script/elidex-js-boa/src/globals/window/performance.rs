@@ -22,7 +22,7 @@ impl boa_gc::Finalize for TracedInstant {
 
 /// Register `performance` object (W3C HR-Time §4 + User Timing §3-4).
 #[allow(clippy::too_many_lines)]
-pub(super) fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
+pub(crate) fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
     // Capture time origin at registration (approximates navigation start).
     let origin = TracedInstant(std::time::Instant::now());
 

@@ -4,6 +4,7 @@
 //! generic `PluginRegistry` used throughout the elidex browser engine.
 
 pub mod background;
+mod channel;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -21,6 +22,7 @@ pub mod transform_math;
 pub mod url_security;
 mod values;
 
+pub use channel::{channel_pair, LocalChannel};
 pub use computed_style::{
     is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
     AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,

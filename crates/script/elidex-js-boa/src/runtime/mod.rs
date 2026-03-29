@@ -81,6 +81,44 @@ impl JsRuntime {
         }
     }
 
+    /// Create a new JS runtime for a dedicated worker thread.
+    ///
+    /// Registers only the subset of globals available in `WorkerGlobalScope`
+    /// (no `document`, `window`, DOM API). The bridge is initialized with
+    /// worker-specific state (name, script URL, outgoing message queue).
+    pub fn for_worker(
+        fetch_handle: Option<Rc<FetchHandle>>,
+        name: String,
+        script_url: url::Url,
+    ) -> Self {
+        let bridge = HostBridge::new();
+        bridge.init_worker_state(name, script_url);
+
+        let console_output = ConsoleOutput::new();
+        let timer_queue = TimerQueueHandle::new();
+
+        let mut ctx = Context::default();
+
+        // Register worker globals (subset of Web Platform APIs + worker-specific).
+        crate::globals::worker_scope::register_worker_globals(
+            &mut ctx,
+            &bridge,
+            &console_output,
+            &timer_queue,
+            fetch_handle,
+        );
+
+        // Store timer queue handle in bridge for close() timer cleanup.
+        bridge.set_timer_queue(timer_queue.clone());
+
+        Self {
+            ctx,
+            bridge,
+            console_output,
+            timer_queue,
+        }
+    }
+
     /// Evaluate a JavaScript source string.
     ///
     /// The bridge is bound to `session` and `dom` for the duration of eval,
@@ -461,6 +499,31 @@ impl JsRuntime {
         &self.bridge
     }
 
+    /// Drain outgoing messages from the worker bridge, converting them to
+    /// `WorkerToParent` IPC messages.
+    ///
+    /// Returns an empty vec if this is not a worker runtime.
+    pub fn drain_worker_outgoing(&self) -> Vec<elidex_api_workers::WorkerToParent> {
+        use crate::bridge::worker_state::OutgoingMessage;
+        self.bridge
+            .worker_drain_messages()
+            .into_iter()
+            .map(|msg| match msg {
+                OutgoingMessage::Data(data) => {
+                    let origin = self
+                        .bridge
+                        .worker_script_url()
+                        .origin()
+                        .ascii_serialization();
+                    elidex_api_workers::WorkerToParent::PostMessage { data, origin }
+                }
+                OutgoingMessage::SerializationError => {
+                    elidex_api_workers::WorkerToParent::MessageError
+                }
+            })
+            .collect()
+    }
+
     // --- Navigation state delegates ---
 
     /// Set the current page URL on the bridge.
@@ -504,6 +567,213 @@ impl JsRuntime {
         let _guard = UnbindGuard(&self.bridge);
 
         realtime::dispatch_realtime_events(ws_events, sse_events, &self.bridge, &mut self.ctx);
+    }
+
+    /// Build a JS source string that evaluates to a MessageEvent-like object.
+    fn build_message_event_script(data_json: &str, origin: &str) -> String {
+        format!(
+            r#"(function() {{ var __data = JSON.parse({}); return {{ data: __data, origin: {}, lastEventId: "", source: null, ports: [], type: "message", isTrusted: true, bubbles: false, cancelable: false }}; }})()"#,
+            serde_json::to_string(data_json).unwrap_or_else(|_| "null".to_string()),
+            serde_json::to_string(origin).unwrap_or_else(|_| "\"\"".to_string()),
+        )
+    }
+
+    /// Build a JS source string that evaluates to an ErrorEvent-like object.
+    fn build_error_event_script(message: &str, filename: &str, error_value: &str) -> String {
+        format!(
+            r#"({{ type: "error", message: {}, filename: {}, lineno: 0, colno: 0, error: {}, isTrusted: true, bubbles: false, cancelable: true }})"#,
+            serde_json::to_string(message).unwrap_or_else(|_| "\"\"".to_string()),
+            serde_json::to_string(filename).unwrap_or_else(|_| "\"\"".to_string()),
+            serde_json::to_string(error_value).unwrap_or_else(|_| "null".to_string()),
+        )
+    }
+
+    /// Dispatch a `message` event to the worker's global scope handlers.
+    ///
+    /// Called from the worker thread event loop when a `PostMessage` is received
+    /// from the parent. Builds a `MessageEvent`-like object and invokes all
+    /// registered `onmessage` / `addEventListener("message", ...)` callbacks.
+    pub fn dispatch_worker_message(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+        data_json: &str,
+        origin: &str,
+    ) {
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        let callbacks = self.bridge.worker_get_callbacks("message");
+        if callbacks.is_empty() {
+            return;
+        }
+
+        // Build MessageEvent object via JS eval.
+        let event_script = Self::build_message_event_script(data_json, origin);
+
+        let event_result = self.ctx.eval(Source::from_bytes(event_script.as_bytes()));
+        let Ok(event_obj) = event_result else {
+            return;
+        };
+
+        let global = self.ctx.global_object();
+        for cb in callbacks {
+            let _ = cb.call(
+                &JsValue::from(global.clone()),
+                std::slice::from_ref(&event_obj),
+                &mut self.ctx,
+            );
+        }
+
+        let _ = self.ctx.run_jobs();
+    }
+
+    /// Drain and dispatch all pending worker messages in the parent context.
+    ///
+    /// Called from the content thread. Returns `true` if any events were dispatched.
+    pub fn drain_and_dispatch_worker_events(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+    ) -> bool {
+        let messages = self.bridge.drain_worker_messages();
+        if messages.is_empty() {
+            return false;
+        }
+
+        let mut had_events = false;
+
+        for (worker_id, msg) in messages {
+            match msg {
+                elidex_api_workers::WorkerToParent::PostMessage { data, origin } => {
+                    let event_script = Self::build_message_event_script(&data, &origin);
+                    self.dispatch_parent_worker_event(
+                        session,
+                        dom,
+                        document_entity,
+                        worker_id,
+                        "message",
+                        &event_script,
+                    );
+                    had_events = true;
+                }
+                elidex_api_workers::WorkerToParent::Error {
+                    message,
+                    filename,
+                    error_value,
+                    ..
+                } => {
+                    let event_script =
+                        Self::build_error_event_script(&message, &filename, &error_value);
+                    self.dispatch_parent_worker_event(
+                        session,
+                        dom,
+                        document_entity,
+                        worker_id,
+                        "error",
+                        &event_script,
+                    );
+                    had_events = true;
+                }
+                elidex_api_workers::WorkerToParent::Closed => {
+                    self.bridge.remove_worker(worker_id);
+                }
+                elidex_api_workers::WorkerToParent::MessageError => {
+                    let event_script = r#"({ type: "messageerror", isTrusted: true, bubbles: false, cancelable: false, data: null, origin: "", lastEventId: "", source: null, ports: [] })"#;
+                    self.dispatch_parent_worker_event(
+                        session,
+                        dom,
+                        document_entity,
+                        worker_id,
+                        "messageerror",
+                        event_script,
+                    );
+                    had_events = true;
+                }
+            }
+        }
+
+        had_events
+    }
+
+    /// Dispatch a worker event to parent-side callbacks (IDL handler + addEventListener).
+    fn dispatch_parent_worker_event(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+        worker_id: u64,
+        event_type: &str,
+        event_script: &str,
+    ) {
+        let callbacks = self
+            .bridge
+            .get_parent_worker_callbacks(worker_id, event_type);
+        if callbacks.is_empty() {
+            // WHATWG HTML §10.1.3: if no error handler is registered, report
+            // the error to the console so it is not silently swallowed.
+            if event_type == "error" {
+                tracing::warn!("Unhandled worker error (worker_id={worker_id}): {event_script}");
+            }
+            return;
+        }
+
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        let Ok(event_obj) = self.ctx.eval(Source::from_bytes(event_script.as_bytes())) else {
+            return;
+        };
+
+        let this_val = self
+            .bridge
+            .get_worker_js_object(worker_id)
+            .map_or_else(|| JsValue::from(self.ctx.global_object()), JsValue::from);
+        for cb in callbacks {
+            let _ = cb.call(&this_val, std::slice::from_ref(&event_obj), &mut self.ctx);
+        }
+        let _ = self.ctx.run_jobs();
+    }
+
+    /// Dispatch an `error` event to the worker's global scope handlers.
+    pub fn dispatch_worker_error(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+        message: &str,
+        filename: &str,
+    ) {
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
+
+        let callbacks = self.bridge.worker_get_callbacks("error");
+        if callbacks.is_empty() {
+            // WHATWG HTML §10.2.4: if no error handler is registered, report
+            // the error to the console so it is not silently swallowed.
+            tracing::warn!("Unhandled error in worker: {message} ({filename})");
+            return;
+        }
+
+        let event_script = Self::build_error_event_script(message, filename, message);
+
+        let event_result = self.ctx.eval(Source::from_bytes(event_script.as_bytes()));
+        let Ok(event_obj) = event_result else {
+            return;
+        };
+
+        let global = self.ctx.global_object();
+        for cb in callbacks {
+            let _ = cb.call(
+                &JsValue::from(global.clone()),
+                std::slice::from_ref(&event_obj),
+                &mut self.ctx,
+            );
+        }
+
+        let _ = self.ctx.run_jobs();
     }
 }
 

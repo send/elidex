@@ -497,6 +497,13 @@ fn run_event_loop(state: &mut ContentState) {
             }
         }
 
+        // Drain worker messages.
+        needs_render |= state.pipeline.runtime.drain_and_dispatch_worker_events(
+            &mut state.pipeline.session,
+            &mut state.pipeline.dom,
+            state.pipeline.document,
+        );
+
         // Drain timers for in-process (same-origin) iframes.
         iframe::tick_iframe_timers(state);
 
@@ -534,6 +541,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             state.iframes.shutdown_all();
             // Close all WebSocket/SSE connections.
             state.pipeline.runtime.bridge().shutdown_all_realtime();
+            // Terminate all workers.
+            state.pipeline.runtime.bridge().shutdown_all_workers();
             return false;
         }
 
