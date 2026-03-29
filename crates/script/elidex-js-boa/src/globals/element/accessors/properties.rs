@@ -248,6 +248,41 @@ fn build_named_node_map(
         1,
     );
 
+    // setNamedItem(attr) — sets the attribute via setAttribute.
+    // WHATWG DOM §4.4.10: accepts an Attr object, sets the attribute.
+    let b_set = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            move |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let attr_obj = args.first().and_then(JsValue::as_object).ok_or_else(|| {
+                    boa_engine::JsNativeError::typ()
+                        .with_message("setNamedItem: argument must be an Attr object")
+                })?;
+                let name = attr_obj
+                    .get(js_string!("name"), ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let value = attr_obj
+                    .get(js_string!("value"), ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                invoke_dom_handler_void(
+                    "setAttribute",
+                    entity,
+                    &[
+                        ElidexJsValue::String(name),
+                        ElidexJsValue::String(value),
+                    ],
+                    bridge,
+                )
+            },
+            b_set,
+        ),
+        js_string!("setNamedItem"),
+        1,
+    );
+
     // removeNamedItem(name) — removes the attribute from the element.
     let b_rm = bridge.clone();
     init.function(

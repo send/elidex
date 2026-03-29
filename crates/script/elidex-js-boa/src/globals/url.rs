@@ -11,6 +11,8 @@ use crate::bridge::HostBridge;
 const URL_HIDDEN_KEY: &str = "__url__";
 /// Hidden property key storing the encoded query string on URLSearchParams.
 const PARAMS_HIDDEN_KEY: &str = "__params__";
+/// Hidden property key linking URLSearchParams back to its parent URL object.
+const URL_OBJ_KEY: &str = "__url_obj__";
 
 /// Register `URL` and `URLSearchParams` global constructors.
 pub fn register_url_constructors(ctx: &mut Context, _bridge: &HostBridge) {
@@ -207,6 +209,18 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
     );
 
     let url_obj = init.build();
+
+    // Link searchParams back to the URL object for mutation sync.
+    if let Ok(sp_val) = url_obj.get(js_string!("searchParams"), ctx) {
+        if let Some(sp_obj) = sp_val.as_object() {
+            let _ = sp_obj.set(
+                js_string!(URL_OBJ_KEY),
+                JsValue::from(url_obj.clone()),
+                false,
+                ctx,
+            );
+        }
+    }
 
     // --- URL property setters ---
     // We set these as methods since boa ObjectInitializer's property() creates
@@ -633,6 +647,9 @@ fn get_params(this: &JsValue, ctx: &mut Context) -> JsResult<Vec<(String, String
 }
 
 /// Set params back into the hidden `__params__` property.
+///
+/// If the URLSearchParams is linked to a parent URL object (via `__url_obj__`),
+/// also update the parent URL's query string and sync all its properties.
 fn set_params(this: &JsValue, params: &[(String, String)], ctx: &mut Context) -> JsResult<()> {
     let obj = this.as_object().ok_or_else(|| {
         JsNativeError::typ().with_message("URLSearchParams: not an object")
@@ -646,5 +663,22 @@ fn set_params(this: &JsValue, params: &[(String, String)], ctx: &mut Context) ->
         false,
         ctx,
     )?;
+
+    // Sync back to parent URL object if linked.
+    let url_obj_val = obj.get(js_string!(URL_OBJ_KEY), ctx)?;
+    if let Some(url_obj) = url_obj_val.as_object() {
+        let href = url_obj
+            .get(js_string!(URL_HIDDEN_KEY), ctx)?
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        if let Ok(mut parsed) = url::Url::parse(&href) {
+            if encoded.is_empty() {
+                parsed.set_query(None);
+            } else {
+                parsed.set_query(Some(&encoded));
+            }
+            sync_url_properties(&url_obj, &parsed, ctx);
+        }
+    }
     Ok(())
 }

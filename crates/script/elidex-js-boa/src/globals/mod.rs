@@ -163,6 +163,9 @@ pub(crate) struct ListenerOptions {
     pub capture: bool,
     pub once: bool,
     pub passive: bool,
+    /// An `AbortSignal` object. If present and already aborted, the listener must not be added.
+    /// If not yet aborted, an abort callback is registered to auto-remove the listener.
+    pub signal: Option<JsObject>,
 }
 
 /// Extract listener options from the third argument of addEventListener/removeEventListener.
@@ -177,21 +180,30 @@ pub(crate) fn extract_listener_options(
     match args.get(2) {
         Some(v) if v.is_object() => {
             let obj = v.as_object().unwrap();
+            let signal_val = obj.get(js_string!("signal"), ctx)?;
+            let signal = if abort::is_abort_signal(&signal_val, ctx) {
+                signal_val.as_object().map(|o| o.clone())
+            } else {
+                None
+            };
             Ok(ListenerOptions {
                 capture: obj.get(js_string!("capture"), ctx)?.to_boolean(),
                 once: obj.get(js_string!("once"), ctx)?.to_boolean(),
                 passive: obj.get(js_string!("passive"), ctx)?.to_boolean(),
+                signal,
             })
         }
         Some(v) => Ok(ListenerOptions {
             capture: v.to_boolean(),
             once: false,
             passive: false,
+            signal: None,
         }),
         None => Ok(ListenerOptions {
             capture: false,
             once: false,
             passive: false,
+            signal: None,
         }),
     }
 }
@@ -223,6 +235,20 @@ pub(crate) fn add_event_listener_for(
         JsNativeError::typ().with_message("addEventListener: argument 1 must be a function")
     })?;
     let opts = extract_listener_options(args, ctx)?;
+
+    // WHATWG DOM §2.6 step 3: if signal is already aborted, do not add the listener.
+    if let Some(ref signal) = opts.signal {
+        if abort::is_signal_aborted(signal, ctx) {
+            return Ok(JsValue::undefined());
+        }
+    }
+
+    // Clone listener_fn for potential signal abort callback (before bridge.with consumes it).
+    let listener_fn_for_signal = if opts.signal.is_some() {
+        Some(listener_fn.clone())
+    } else {
+        None
+    };
 
     bridge.with(|_session, dom| {
         // WHATWG DOM §2.6 step 4: duplicate check by (type, callback, capture).
@@ -256,6 +282,92 @@ pub(crate) fn add_event_listener_for(
         };
         bridge.store_listener(id, listener_fn);
     });
+
+    // WHATWG DOM §2.6 step 5: if signal is present, register an abort callback
+    // that removes the listener when the signal fires.
+    if let Some(signal) = opts.signal {
+        let listeners_key = js_string!("__abort_listeners__");
+        let existing = signal.get(listeners_key.clone(), ctx)?;
+
+        // Build a wrapper object that holds the removal context. We store the
+        // entity, event type, and listener function reference as properties so
+        // the abort callback can use them. This avoids Trace requirements on
+        // non-GC types like Entity and String.
+        let mut removal_ctx_init = boa_engine::object::ObjectInitializer::new(ctx);
+        removal_ctx_init.property(
+            js_string!("__entity__"),
+            JsValue::from(entity.to_bits().get() as f64),
+            boa_engine::property::Attribute::empty(),
+        );
+        removal_ctx_init.property(
+            js_string!("__event_type__"),
+            JsValue::from(js_string!(event_type.as_str())),
+            boa_engine::property::Attribute::empty(),
+        );
+        removal_ctx_init.property(
+            js_string!("__listener__"),
+            JsValue::from(listener_fn_for_signal.unwrap()),
+            boa_engine::property::Attribute::empty(),
+        );
+        let removal_ctx = removal_ctx_init.build();
+
+        let b = bridge.clone();
+        let remove_callback = NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, (bridge, removal_obj), ctx| {
+                let entity_bits = removal_obj
+                    .get(js_string!("__entity__"), ctx)?
+                    .to_number(ctx)? as u64;
+                let Some(entity) = Entity::from_bits(entity_bits) else {
+                    return Ok(JsValue::undefined());
+                };
+                let event_type = removal_obj
+                    .get(js_string!("__event_type__"), ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let listener_val = removal_obj.get(js_string!("__listener__"), ctx)?;
+                let Some(listener_fn) = listener_val.as_callable() else {
+                    return Ok(JsValue::undefined());
+                };
+
+                bridge.with(|_session, dom| {
+                    let matching_id = dom
+                        .world()
+                        .get::<&EventListeners>(entity)
+                        .ok()
+                        .and_then(|listeners| {
+                            listeners
+                                .matching_all(&event_type)
+                                .into_iter()
+                                .find(|entry| bridge.listener_matches(entry.id, &listener_fn))
+                                .map(|entry| entry.id)
+                        });
+                    if let Some(id) = matching_id {
+                        if let Ok(mut listeners) =
+                            dom.world_mut().get::<&mut EventListeners>(entity)
+                        {
+                            listeners.remove(id);
+                        }
+                        bridge.remove_listener(id);
+                    }
+                });
+                Ok(JsValue::undefined())
+            },
+            (b, removal_ctx),
+        )
+        .to_js_function(ctx.realm());
+
+        if existing.is_undefined() || existing.is_null() {
+            let arr = boa_engine::object::builtins::JsArray::new(ctx);
+            let _ = arr.push(JsValue::from(remove_callback), ctx);
+            let _ = signal.set(listeners_key, JsValue::from(arr), false, ctx);
+        } else if let Some(arr) = existing.as_object() {
+            let len = arr
+                .get(js_string!("length"), ctx)?
+                .to_number(ctx)
+                .unwrap_or(0.0) as u32;
+            let _ = arr.set(len, JsValue::from(remove_callback), false, ctx);
+        }
+    }
 
     Ok(JsValue::undefined())
 }

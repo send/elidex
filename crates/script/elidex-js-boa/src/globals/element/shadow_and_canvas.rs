@@ -57,7 +57,9 @@ pub(crate) fn register_shadow_dom_methods(
                     let sr_ref = session.get_or_create_wrapper(sr, ComponentKind::Element);
                     Ok((sr, sr_ref))
                 })?;
-                Ok(create_element_wrapper(sr_entity, bridge, sr_ref, ctx, false))
+                let wrapper = create_element_wrapper(sr_entity, bridge, sr_ref, ctx, false);
+                add_shadow_root_active_element(&wrapper, bridge, ctx);
+                Ok(wrapper)
             },
             b,
         ),
@@ -84,7 +86,9 @@ pub(crate) fn register_shadow_dom_methods(
                     return Ok(JsValue::null());
                 }
                 let sr_ref = session.get_or_create_wrapper(sr, ComponentKind::Element);
-                Ok(create_element_wrapper(sr, bridge, sr_ref, ctx, false))
+                let wrapper = create_element_wrapper(sr, bridge, sr_ref, ctx, false);
+                add_shadow_root_active_element(&wrapper, bridge, ctx);
+                Ok(wrapper)
             })
         },
         b,
@@ -171,4 +175,54 @@ pub(crate) fn register_canvas_method(init: &mut ObjectInitializer<'_>, bridge: &
         js_string!("getContext"),
         1,
     );
+}
+
+/// Add `activeElement` getter to a ShadowRoot wrapper.
+///
+/// WHATWG DOM §4.2.12: `ShadowRoot.activeElement` returns the focused element
+/// if it is within the shadow tree, or null otherwise.
+fn add_shadow_root_active_element(
+    wrapper: &boa_engine::JsValue,
+    bridge: &HostBridge,
+    ctx: &mut boa_engine::Context,
+) {
+    let Some(obj) = wrapper.as_object() else {
+        return;
+    };
+    let b = bridge.clone();
+    let realm = ctx.realm().clone();
+    let getter = boa_engine::NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let sr_entity = extract_entity(this, ctx)?;
+            bridge.with(|session, dom| {
+                let Some(focused) = bridge.focus_target() else {
+                    return Ok(boa_engine::JsValue::null());
+                };
+                // Walk ancestors of focused element. If we find sr_entity,
+                // the focused element is within this shadow tree.
+                let mut current = Some(focused);
+                while let Some(e) = current {
+                    if e == sr_entity {
+                        let ref_ = session.get_or_create_wrapper(
+                            focused,
+                            ComponentKind::Element,
+                        );
+                        return Ok(create_element_wrapper(
+                            focused, bridge, ref_, ctx, false,
+                        ));
+                    }
+                    current = dom.get_parent(e);
+                }
+                Ok(boa_engine::JsValue::null())
+            })
+        },
+        b,
+    )
+    .to_js_function(&realm);
+    let desc = boa_engine::property::PropertyDescriptor::builder()
+        .get(getter)
+        .configurable(true)
+        .enumerable(true)
+        .build();
+    let _ = obj.define_property_or_throw(js_string!("activeElement"), desc, ctx);
 }

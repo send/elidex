@@ -11,7 +11,7 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
         js_string!("Headers"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
-            build_headers_object(args.first(), ctx)
+            build_headers_object(args.first(), "none", ctx)
         }),
     )
     .expect("failed to register Headers");
@@ -66,14 +66,78 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
     }
 }
 
+/// Forbidden request header names (Fetch spec §2.2.1).
+const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
+    "accept-charset",
+    "accept-encoding",
+    "access-control-request-headers",
+    "access-control-request-method",
+    "connection",
+    "content-length",
+    "cookie",
+    "cookie2",
+    "date",
+    "dnt",
+    "expect",
+    "host",
+    "keep-alive",
+    "origin",
+    "referer",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "via",
+];
+
+/// Hidden property key for the headers guard.
+const GUARD_KEY: &str = "__guard__";
+
+/// Check a header guard before mutation. Returns Err if disallowed.
+fn check_headers_guard(
+    this: &JsValue,
+    name: &str,
+    ctx: &mut Context,
+) -> boa_engine::JsResult<()> {
+    let guard = this
+        .as_object()
+        .map(|obj| obj.get(js_string!(GUARD_KEY), ctx))
+        .transpose()?
+        .map(|v| v.to_string(ctx))
+        .transpose()?
+        .map(|s| s.to_std_string_escaped())
+        .unwrap_or_default();
+
+    match guard.as_str() {
+        "immutable" => Err(JsNativeError::typ()
+            .with_message("Headers: cannot modify immutable headers")
+            .into()),
+        "request" => {
+            let lower = name.to_ascii_lowercase();
+            if FORBIDDEN_REQUEST_HEADERS.contains(&lower.as_str())
+                || lower.starts_with("proxy-")
+                || lower.starts_with("sec-")
+            {
+                Err(JsNativeError::typ()
+                    .with_message(format!("Headers: '{name}' is a forbidden header name"))
+                    .into())
+            } else {
+                Ok(())
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Build a mutable Headers object.
+///
+/// `guard` determines mutation rules: "none" (default), "request" (rejects
+/// forbidden header names), or "immutable" (rejects all mutations).
 fn build_headers_object(
-    _init: Option<&JsValue>,
+    init: Option<&JsValue>,
+    guard: &str,
     ctx: &mut Context,
 ) -> boa_engine::JsResult<JsValue> {
-    // Start with empty headers. Init parsing from objects requires
-    // property enumeration which conflicts with ObjectInitializer borrow.
-    // Headers populated via set/append after construction.
     let encoded = String::new();
 
     let mut init_obj = ObjectInitializer::new(ctx);
@@ -81,6 +145,12 @@ fn build_headers_object(
     init_obj.property(
         js_string!("__headers__"),
         JsValue::from(js_string!(encoded.as_str())),
+        Attribute::empty(),
+    );
+
+    init_obj.property(
+        js_string!(GUARD_KEY),
+        JsValue::from(js_string!(guard)),
         Attribute::empty(),
     );
 
@@ -136,6 +206,7 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            check_headers_guard(this, &name, ctx)?;
             let value = args
                 .get(1)
                 .map(|v| v.to_string(ctx))
@@ -161,6 +232,7 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
+            check_headers_guard(this, &name, ctx)?;
             let value = args
                 .get(1)
                 .map(|v| v.to_string(ctx))
@@ -185,6 +257,7 @@ fn build_headers_object(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped().to_ascii_lowercase())
                 .unwrap_or_default();
+            check_headers_guard(this, &name, ctx)?;
             let mut headers = parse_headers(this, ctx)?;
             headers.retain(|(k, _)| k.to_ascii_lowercase() != name);
             store_headers(this, &headers, ctx)?;
@@ -217,39 +290,209 @@ fn build_headers_object(
         1,
     );
 
-    Ok(init_obj.build().into())
+    let headers_obj = init_obj.build();
+
+    // Parse init argument (Gap 11: Headers constructor parses init).
+    if let Some(init_val) = init {
+        if !init_val.is_undefined() && !init_val.is_null() {
+            apply_headers_init(&headers_obj, init_val, ctx)?;
+        }
+    }
+
+    Ok(headers_obj.into())
+}
+
+/// Apply headers init data to an existing Headers object.
+///
+/// Handles three init forms (WHATWG Fetch §5.1):
+/// 1. Headers object (has `__headers__` hidden property) — copy entries
+/// 2. Array of [name, value] pairs (sequence<sequence<ByteString>>)
+/// 3. Object (record<ByteString, ByteString>) — iterate own properties
+fn apply_headers_init(
+    headers_obj: &boa_engine::JsObject,
+    init_val: &JsValue,
+    ctx: &mut Context,
+) -> boa_engine::JsResult<()> {
+    let Some(init_obj) = init_val.as_object() else {
+        return Ok(());
+    };
+
+    // Case 1: another Headers object (has __headers__ property).
+    let h_val = init_obj.get(js_string!("__headers__"), ctx)?;
+    if !h_val.is_undefined() {
+        let encoded = h_val.to_string(ctx)?.to_std_string_escaped();
+        if !encoded.is_empty() {
+            // Merge: parse and set each entry.
+            let existing = headers_obj
+                .get(js_string!("__headers__"), ctx)?
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let merged = if existing.is_empty() {
+                encoded
+            } else {
+                format!("{existing}\n{encoded}")
+            };
+            headers_obj.set(
+                js_string!("__headers__"),
+                JsValue::from(js_string!(merged.as_str())),
+                false,
+                ctx,
+            )?;
+        }
+        return Ok(());
+    }
+
+    // Case 2: array (sequence of sequences).
+    let len_val = init_obj.get(js_string!("length"), ctx)?;
+    if let Some(len) = len_val.as_number() {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let len = len as u32;
+        let mut entries: Vec<(String, String)> = Vec::new();
+        for i in 0..len {
+            let pair = init_obj.get(i, ctx)?;
+            if let Some(pair_obj) = pair.as_object() {
+                let k = pair_obj
+                    .get(0_u32, ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let v = pair_obj
+                    .get(1_u32, ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                entries.push((k, v));
+            }
+        }
+        if !entries.is_empty() {
+            store_headers(&JsValue::from(headers_obj.clone()), &entries, ctx)?;
+        }
+        return Ok(());
+    }
+
+    // Case 3: plain object (record).
+    let keys = init_obj.own_property_keys(ctx)?;
+    let mut entries: Vec<(String, String)> = Vec::new();
+    for key in keys {
+        let k = key.to_string();
+        // Skip hidden/internal properties.
+        if k.starts_with("__") {
+            continue;
+        }
+        let v = init_obj
+            .get(js_string!(&*k), ctx)?
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        entries.push((k.to_string(), v));
+    }
+    if !entries.is_empty() {
+        store_headers(&JsValue::from(headers_obj.clone()), &entries, ctx)?;
+    }
+    Ok(())
 }
 
 /// Build a Request object.
+///
+/// WHATWG Fetch §5.5: If `input` is a Request object, clone its URL/method/headers.
+/// Then apply any `init` overrides on top.
 fn build_request_object(
     args: &[JsValue],
     ctx: &mut Context,
 ) -> boa_engine::JsResult<JsValue> {
-    let url = args
-        .first()
-        .map(|v| v.to_string(ctx))
-        .transpose()?
-        .map(|s| s.to_std_string_escaped())
-        .unwrap_or_default();
-
+    let input = args.first();
     let init = args.get(1);
 
-    let method = init
+    // Check if input is a Request object (has both url and method properties).
+    let is_request_input = input
         .and_then(JsValue::as_object)
-        .map(|obj| obj.get(js_string!("method"), ctx))
-        .transpose()?
-        .filter(|v| !v.is_undefined())
-        .map(|v| v.to_string(ctx))
-        .transpose()?
-        .map(|s| s.to_std_string_escaped().to_ascii_uppercase())
-        .unwrap_or_else(|| "GET".to_string());
+        .is_some_and(|obj| {
+            obj.has_own_property(js_string!("method"), ctx)
+                .unwrap_or(false)
+        });
+
+    let (url, mut method, base_headers_encoded) = if is_request_input {
+        let input_obj = input.unwrap().as_object().unwrap();
+
+        // WHATWG Fetch §5.5 step 13: if body is used, throw TypeError.
+        let body_used = input_obj
+            .get(js_string!("bodyUsed"), ctx)?
+            .to_boolean();
+        if body_used {
+            return Err(JsNativeError::typ()
+                .with_message("Request: body has already been consumed")
+                .into());
+        }
+
+        let u = input_obj
+            .get(js_string!("url"), ctx)?
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        let m = input_obj
+            .get(js_string!("method"), ctx)?
+            .to_string(ctx)?
+            .to_std_string_escaped();
+
+        // Clone the serialized headers from the input Request.
+        let h_encoded: String = input_obj
+            .get(js_string!("headers"), ctx)
+            .ok()
+            .and_then(|v| {
+                let h_obj = v.as_object()?;
+                h_obj
+                    .get(js_string!("__headers__"), ctx)
+                    .ok()
+                    .and_then(|hv| {
+                        hv.to_string(ctx)
+                            .ok()
+                            .map(|s| s.to_std_string_escaped())
+                    })
+            })
+            .unwrap_or_default();
+
+        (u, m, h_encoded)
+    } else {
+        let u = input
+            .map(|v| v.to_string(ctx))
+            .transpose()?
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_default();
+        (u, "GET".to_string(), String::new())
+    };
+
+    // Apply init overrides.
+    if let Some(init_obj) = init.and_then(JsValue::as_object) {
+        let m = init_obj.get(js_string!("method"), ctx)?;
+        if !m.is_undefined() {
+            method = m.to_string(ctx)?.to_std_string_escaped().to_ascii_uppercase();
+        }
+    }
 
     let redirect = extract_string_opt(init, "redirect", "follow", ctx)?;
     let mode = extract_string_opt(init, "mode", "cors", ctx)?;
     let credentials = extract_string_opt(init, "credentials", "same-origin", ctx)?;
 
-    // Pre-build headers before ObjectInitializer borrows ctx.
-    let headers = build_headers_object(None, ctx)?;
+    // Build headers with "request" guard.
+    let headers = build_headers_object(None, "request", ctx)?;
+    // Populate from base (cloned from input Request).
+    if let Some(h_obj) = headers.as_object() {
+        if !base_headers_encoded.is_empty() {
+            let _ = h_obj.set(
+                js_string!("__headers__"),
+                JsValue::from(js_string!(base_headers_encoded.as_str())),
+                false,
+                ctx,
+            );
+        }
+    }
+    // Apply init.headers overrides if provided.
+    if let Some(init_headers_val) = init
+        .and_then(JsValue::as_object)
+        .map(|obj| obj.get(js_string!("headers"), ctx))
+        .transpose()?
+        .filter(|v| !v.is_undefined() && !v.is_null())
+    {
+        if let Some(h_obj) = headers.as_object() {
+            apply_headers_init(&h_obj, &init_headers_val, ctx)?;
+        }
+    }
 
     let mut init_obj = ObjectInitializer::new(ctx);
 
@@ -307,8 +550,8 @@ fn build_response_object(
         body.to_string(ctx)?.to_std_string_escaped()
     };
 
-    // Pre-build headers before ObjectInitializer.
-    let headers = build_headers_object(None, ctx)?;
+    // Pre-build headers with "immutable" guard (Response headers are immutable).
+    let headers = build_headers_object(None, "immutable", ctx)?;
 
     let mut init_obj = ObjectInitializer::new(ctx);
 
@@ -403,7 +646,7 @@ fn parse_headers(
 ///
 /// Returns a Response with type "error", status 0, empty statusText, and no body.
 fn build_error_response(ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
-    let headers = build_headers_object(None, ctx)?;
+    let headers = build_headers_object(None, "immutable", ctx)?;
 
     let mut init_obj = ObjectInitializer::new(ctx);
 
@@ -498,7 +741,7 @@ fn build_redirect_response(
     }
 
     // Build headers with Location set.
-    let headers = build_headers_object(None, ctx)?;
+    let headers = build_headers_object(None, "immutable", ctx)?;
     if let Some(h_obj) = headers.as_object() {
         let mut h = parse_headers(&headers, ctx)?;
         h.push(("Location".to_string(), url_str.clone()));

@@ -104,16 +104,7 @@ pub fn register_navigator(ctx: &mut Context, _bridge: &HostBridge) {
 
 /// Detect the system language (BCP 47 tag).
 fn detect_language() -> String {
-    // Try sys-locale crate if available, otherwise fall back.
-    // For now, use a simple environment variable check.
-    std::env::var("LANG")
-        .ok()
-        .and_then(|lang| {
-            // Convert "en_US.UTF-8" → "en-US"
-            let base = lang.split('.').next()?;
-            Some(base.replace('_', "-"))
-        })
-        .unwrap_or_else(|| "en-US".to_string())
+    sys_locale::get_locale().unwrap_or_else(|| "en-US".to_string())
 }
 
 /// Build the `navigator.permissions` object with `query()` method.

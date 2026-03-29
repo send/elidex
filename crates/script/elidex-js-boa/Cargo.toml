@@ -32,6 +32,8 @@ bytes.workspace = true
 getrandom = "0.4.2"
 dirs = "6.0.0"
 serde_json.workspace = true
+sys-locale = "0.3.2"
+encoding_rs.workspace = true
 
 [dev-dependencies]
 elidex-html-parser.workspace = true

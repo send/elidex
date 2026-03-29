@@ -987,19 +987,26 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let isc_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             let is_secure = bridge.current_url().is_some_and(|url| {
-                let scheme = url.scheme();
-                if scheme == "https" || scheme == "file" {
-                    return true;
-                }
-                // localhost / 127.x / [::1]
-                url.host_str().is_some_and(|host| {
-                    host == "localhost"
-                        || host.ends_with(".localhost")
-                        || host == "127.0.0.1"
-                        || host.starts_with("127.")
-                        || host == "[::1]"
-                })
+                is_potentially_trustworthy_url(&url)
             });
+            // WHATWG HTML §3.4: an iframe context is secure only if both the
+            // current context and all ancestor contexts are secure. If this
+            // document is in an iframe (frame_element is Some), also check:
+            // - the origin must not be opaque (sandboxed without allow-same-origin)
+            // - the parent origin must be a tuple origin (non-opaque)
+            let is_secure = is_secure && {
+                if bridge.frame_element().is_some() {
+                    let origin = bridge.origin();
+                    match origin {
+                        elidex_plugin::SecurityOrigin::Opaque(_) => false,
+                        elidex_plugin::SecurityOrigin::Tuple { ref scheme, .. } => {
+                            scheme == "https" || scheme == "file"
+                        }
+                    }
+                } else {
+                    true
+                }
+            };
             Ok(JsValue::from(is_secure))
         },
         b,
@@ -2394,4 +2401,21 @@ fn register_visual_viewport(ctx: &mut Context, bridge: &HostBridge) {
     global
         .define_property_or_throw(js_string!("visualViewport"), desc, ctx)
         .expect("failed to register visualViewport");
+}
+
+/// Check if a URL is potentially trustworthy (WHATWG Secure Contexts §3.1).
+///
+/// A URL is potentially trustworthy if it uses `https`, `file`, or is localhost.
+fn is_potentially_trustworthy_url(url: &url::Url) -> bool {
+    let scheme = url.scheme();
+    if scheme == "https" || scheme == "file" {
+        return true;
+    }
+    url.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host.ends_with(".localhost")
+            || host == "127.0.0.1"
+            || host.starts_with("127.")
+            || host == "[::1]"
+    })
 }
