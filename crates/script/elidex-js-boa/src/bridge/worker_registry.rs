@@ -74,17 +74,29 @@ impl WorkerRegistry {
 
     /// Drain all pending messages from all workers.
     ///
-    /// Returns `(worker_id, message)` pairs. Workers that have disconnected
-    /// channels are silently skipped.
+    /// Returns `(worker_id, message)` pairs. Workers whose channels are
+    /// disconnected (thread exited without sending `Closed`) are automatically
+    /// removed from the registry.
     pub(crate) fn drain_all_messages(&mut self) -> Vec<(u64, WorkerToParent)> {
         if self.workers.is_empty() {
             return Vec::new();
         }
         let mut messages = Vec::new();
+        let mut disconnected = Vec::new();
         for (&id, entry) in &mut self.workers {
-            while let Some(msg) = entry.handle.try_recv() {
-                messages.push((id, msg));
+            loop {
+                match entry.handle.try_recv() {
+                    Ok(msg) => messages.push((id, msg)),
+                    Err(crossbeam_channel::TryRecvError::Empty) => break,
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                        disconnected.push(id);
+                        break;
+                    }
+                }
             }
+        }
+        for id in disconnected {
+            self.workers.remove(&id);
         }
         messages
     }
@@ -164,16 +176,6 @@ impl WorkerRegistry {
     /// Check if the registry has any workers.
     pub(crate) fn is_empty(&self) -> bool {
         self.workers.is_empty()
-    }
-
-    /// Find the worker ID whose JS object matches the given object.
-    pub(crate) fn find_id_by_js_object(&self, obj: &JsObject) -> Option<u64> {
-        for (&id, entry) in &self.workers {
-            if JsObject::equals(obj, &entry.js_object) {
-                return Some(id);
-            }
-        }
-        None
     }
 
     /// Get all callbacks (IDL handler + addEventListener listeners) for a worker.

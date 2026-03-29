@@ -110,7 +110,7 @@ fn construct_worker(
     // Affects cookie inclusion on script fetch. Since each worker gets an
     // independent FetchHandle with no shared cookie jar, this currently has
     // no practical effect, but we validate per spec.
-    let _credentials = options
+    let credentials = options
         .and_then(JsValue::as_object)
         .map(|opts| opts.get(js_string!("credentials"), ctx))
         .transpose()?
@@ -118,6 +118,14 @@ fn construct_worker(
         .map(|v| v.to_string(ctx))
         .transpose()?
         .map_or_else(|| "same-origin".to_string(), |s| s.to_std_string_escaped());
+
+    if !["omit", "same-origin", "include"].contains(&credentials.as_str()) {
+        return Err(JsNativeError::typ()
+            .with_message(format!(
+                "Worker: invalid credentials value: {credentials}"
+            ))
+            .into());
+    }
 
     // 3. Resolve URL relative to current document URL.
     let base_url = bridge
@@ -159,7 +167,18 @@ fn construct_worker(
     let handle =
         elidex_api_workers::WorkerHandle::new(name, resolved, parent_channel, thread_handle);
 
-    bridge.register_worker(handle, worker_obj.clone());
+    let worker_id = bridge.register_worker(handle, worker_obj.clone());
+
+    // Store worker ID on the JS object for O(1) lookup.
+    #[allow(clippy::cast_precision_loss)]
+    worker_obj
+        .set(
+            js_string!("__elidex_worker_id__"),
+            JsValue::from(worker_id as f64),
+            false,
+            ctx,
+        )
+        .expect("failed to set worker ID");
 
     Ok(JsValue::from(worker_obj))
 }
@@ -178,20 +197,25 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
             |this, args, bridge, ctx| {
                 let data = args.first().cloned().unwrap_or(JsValue::undefined());
 
-                if let Ok(json_str) = crate::globals::worker_scope::js_json_stringify(&data, ctx) {
-                    // Find the worker by matching the JS object.
-                    let worker_id = find_worker_id_from_this(this, bridge);
-                    if let Some(id) = worker_id {
-                        let origin = bridge.current_url().map_or_else(
-                            || "null".to_string(),
-                            |u| u.origin().ascii_serialization(),
-                        );
-                        bridge.with_worker_registry(|reg| {
-                            if let Some(entry) = reg.get_entry_mut(id) {
-                                entry.handle.post_message(json_str, origin);
-                            }
-                        });
-                    }
+                let Ok(Some(json_str)) =
+                    crate::globals::worker_scope::js_json_stringify(&data, ctx)
+                else {
+                    return Err(JsNativeError::typ()
+                        .with_message("Failed to serialize message")
+                        .into());
+                };
+
+                let worker_id = find_worker_id_from_this(this, ctx);
+                if let Some(id) = worker_id {
+                    let origin = bridge.current_url().map_or_else(
+                        || "null".to_string(),
+                        |u| u.origin().ascii_serialization(),
+                    );
+                    bridge.with_worker_registry(|reg| {
+                        if let Some(entry) = reg.get_entry_mut(id) {
+                            entry.handle.post_message(json_str, origin);
+                        }
+                    });
                 }
                 Ok(JsValue::undefined())
             },
@@ -205,8 +229,8 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
     let b_term = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, _ctx| {
-                let worker_id = find_worker_id_from_this(this, bridge);
+            |this, _args, bridge, ctx| {
+                let worker_id = find_worker_id_from_this(this, ctx);
                 if let Some(id) = worker_id {
                     bridge.with_worker_registry(|reg| {
                         reg.terminate_worker(id);
@@ -232,7 +256,7 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
                 if let Some(cb) = args.get(1).and_then(JsValue::as_object) {
-                    if let Some(id) = find_worker_id_from_this(this, bridge) {
+                    if let Some(id) = find_worker_id_from_this(this, ctx) {
                         bridge.with_worker_registry(|reg| {
                             reg.add_event_listener(id, event_type, cb.clone());
                         });
@@ -258,7 +282,7 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
                     .map(|s| s.to_std_string_escaped())
                     .unwrap_or_default();
                 if let Some(cb) = args.get(1).and_then(JsValue::as_object) {
-                    if let Some(id) = find_worker_id_from_this(this, bridge) {
+                    if let Some(id) = find_worker_id_from_this(this, ctx) {
                         bridge.with_worker_registry(|reg| {
                             reg.remove_event_listener(id, &event_type, &cb);
                         });
@@ -285,7 +309,7 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
                     .get(js_string!("type"), ctx)?
                     .to_string(ctx)?
                     .to_std_string_escaped();
-                if let Some(id) = find_worker_id_from_this(this, bridge) {
+                if let Some(id) = find_worker_id_from_this(this, ctx) {
                     let callbacks =
                         bridge.with_worker_registry(|reg| reg.get_callbacks(id, &event_type));
                     for cb in callbacks {
@@ -332,9 +356,9 @@ fn register_worker_event_handler_prop(
     let b_set = bridge.clone();
     let et_set = event_type.to_string();
     let setter = NativeFunction::from_copy_closure_with_captures(
-        |this, args, (bridge, event_type): &(HostBridge, String), _ctx| {
+        |this, args, (bridge, event_type): &(HostBridge, String), ctx| {
             let callback = args.first().and_then(JsValue::as_object);
-            if let Some(id) = find_worker_id_from_this(this, bridge) {
+            if let Some(id) = find_worker_id_from_this(this, ctx) {
                 match event_type.as_str() {
                     "message" => bridge.with_worker_registry(|reg| reg.set_onmessage(id, callback)),
                     "error" => bridge.with_worker_registry(|reg| reg.set_onerror(id, callback)),
@@ -352,8 +376,8 @@ fn register_worker_event_handler_prop(
     let b_get = bridge.clone();
     let et_get = event_type.to_string();
     let getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, (bridge, event_type): &(HostBridge, String), _ctx| {
-            let handler = find_worker_id_from_this(this, bridge).and_then(|id| {
+        |this, _args, (bridge, event_type): &(HostBridge, String), ctx| {
+            let handler = find_worker_id_from_this(this, ctx).and_then(|id| {
                 bridge.with_worker_registry(|reg| reg.get_event_handler(id, event_type))
             });
             Ok(handler.map_or(JsValue::null(), JsValue::from))
@@ -371,10 +395,17 @@ fn register_worker_event_handler_prop(
         .expect("failed to define worker event handler");
 }
 
-/// Find the worker registry ID that matches a `this` [`JsValue`].
+/// Find the worker registry ID from a `this` [`JsValue`].
 ///
-/// Iterates all registered workers and checks if `this` is the same JS object.
-fn find_worker_id_from_this(this: &JsValue, bridge: &HostBridge) -> Option<u64> {
+/// Reads the hidden `__elidex_worker_id__` property stored on the Worker JS
+/// object at construction time for O(1) lookup.
+fn find_worker_id_from_this(this: &JsValue, ctx: &mut Context) -> Option<u64> {
     let this_obj = this.as_object()?;
-    bridge.with_worker_registry(|reg| reg.find_id_by_js_object(&this_obj))
+    let id_val = this_obj
+        .get(js_string!("__elidex_worker_id__"), ctx)
+        .ok()?;
+    if id_val.is_undefined() {
+        return None;
+    }
+    id_val.to_number(ctx).ok().map(|n| n as u64)
 }

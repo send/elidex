@@ -58,29 +58,22 @@ impl WorkerHandle {
     }
 
     /// Try to receive a message from the worker without blocking.
-    pub fn try_recv(&self) -> Option<WorkerToParent> {
-        self.channel.try_recv().ok()
+    ///
+    /// Returns `Ok(msg)` if a message is available, `Err(Empty)` if the channel
+    /// is empty, or `Err(Disconnected)` if the worker thread has exited.
+    pub fn try_recv(&self) -> Result<WorkerToParent, crossbeam_channel::TryRecvError> {
+        self.channel.try_recv()
     }
 
     /// Terminate the worker thread.
     ///
-    /// Sends `Shutdown`, then joins the thread with a 1-second timeout.
-    /// If the thread doesn't finish in time, it is detached.
+    /// Sends `Shutdown` and drops the `JoinHandle` to detach the thread.
+    /// The worker will exit when it processes `Shutdown` or detects channel
+    /// disconnect.
     pub fn terminate(&mut self) {
         let _ = self.channel.send(ParentToWorker::Shutdown);
-        if let Some(handle) = self.thread.take() {
-            // Park the current thread for up to 1s waiting for the worker.
-            // std::thread::JoinHandle has no timeout API, so we use a
-            // crossbeam channel as a signaling mechanism.
-            let (done_tx, done_rx) = crossbeam_channel::bounded(1);
-            std::thread::spawn(move || {
-                let _ = handle.join();
-                let _ = done_tx.send(());
-            });
-            let _ = done_rx.recv_timeout(std::time::Duration::from_secs(1));
-            // If the thread didn't finish, it's now detached (the spawned
-            // helper thread will join it eventually).
-        }
+        // Drop the JoinHandle to detach the worker thread.
+        self.thread.take();
     }
 }
 

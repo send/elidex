@@ -65,6 +65,7 @@ pub fn worker_thread_main(
                 format!("Failed to fetch worker script: {e}"),
                 script_url.as_ref(),
             );
+            let _ = channel.send(WorkerToParent::Closed);
             return;
         }
     };
@@ -77,6 +78,7 @@ pub fn worker_thread_main(
         Ok(source) => source,
         Err(msg) => {
             send_worker_error(&channel, msg, script_url.as_ref());
+            let _ = channel.send(WorkerToParent::Closed);
             return;
         }
     };

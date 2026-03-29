@@ -21,7 +21,12 @@ use crate::globals::timers::TimerQueueHandle;
 ///
 /// Used by both worker-side `postMessage` and parent-side `postMessage` to
 /// serialize data for cross-thread transport.
-pub(crate) fn js_json_stringify(data: &JsValue, ctx: &mut Context) -> Result<String, ()> {
+///
+/// Returns:
+/// - `Ok(Some(string))` — successful serialization
+/// - `Ok(None)` — `JSON.stringify` returned `undefined` (uncloneable value, e.g. a function)
+/// - `Err(())` — `JSON.stringify` threw (e.g. circular reference)
+pub(crate) fn js_json_stringify(data: &JsValue, ctx: &mut Context) -> Result<Option<String>, ()> {
     let json_global = ctx.global_object();
     let Ok(json_obj) = json_global.get(js_string!("JSON"), ctx) else {
         return Err(());
@@ -39,10 +44,15 @@ pub(crate) fn js_json_stringify(data: &JsValue, ctx: &mut Context) -> Result<Str
     else {
         return Err(());
     };
+    // JSON.stringify returns undefined for values that cannot be serialized
+    // (e.g. functions, symbols). Detect this before calling to_string().
+    if result.is_undefined() {
+        return Ok(None);
+    }
     let Ok(s) = result.to_string(ctx) else {
         return Err(());
     };
-    Ok(s.to_std_string_escaped())
+    Ok(Some(s.to_std_string_escaped()))
 }
 
 /// Register all worker globals on the boa `Context`.
@@ -115,10 +125,10 @@ fn register_worker_post_message(ctx: &mut Context, bridge: &HostBridge) {
             let data = args.first().cloned().unwrap_or(JsValue::undefined());
 
             match js_json_stringify(&data, ctx) {
-                Ok(json_str) => {
+                Ok(Some(json_str)) => {
                     bridge.worker_queue_message(OutgoingMessage::Data(json_str));
                 }
-                Err(()) => {
+                Ok(None) | Err(()) => {
                     bridge.worker_queue_message(OutgoingMessage::SerializationError);
                 }
             }
