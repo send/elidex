@@ -1,11 +1,11 @@
 //! `document` global object registration.
 
+mod collections;
 mod traversal;
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
-use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 
 use crate::bridge::HostBridge;
@@ -13,6 +13,9 @@ use crate::error_conv::dom_error_to_js_error;
 use crate::globals::element::resolve_object_ref;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_ref, require_js_string_arg};
 
+pub(crate) use collections::{
+    collect_elements_by_class, collect_elements_by_tag, entities_to_js_array,
+};
 pub(crate) use traversal::build_range_object;
 
 /// Common pattern for document methods that take a single string argument,
@@ -550,9 +553,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let class_name =
                     crate::globals::require_js_string_arg(args, 0, "getElementsByClassName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities =
-                    bridge.with(|_session, dom| collect_elements_by_class(doc, &class_name, dom));
-                Ok(entities_to_js_array(&entities, bridge, ctx))
+                let entities = bridge.with(|_session, dom| {
+                    collections::collect_elements_by_class(doc, &class_name, dom)
+                });
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbcn,
         ),
@@ -568,8 +572,9 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let tag =
                     crate::globals::require_js_string_arg(args, 0, "getElementsByTagName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities = bridge.with(|_session, dom| collect_elements_by_tag(doc, &tag, dom));
-                Ok(entities_to_js_array(&entities, bridge, ctx))
+                let entities = bridge
+                    .with(|_session, dom| collections::collect_elements_by_tag(doc, &tag, dom));
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbtn,
         ),
@@ -585,9 +590,9 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let name =
                     crate::globals::require_js_string_arg(args, 0, "getElementsByName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities =
-                    bridge.with(|_session, dom| collect_elements_by_name(doc, &name, dom));
-                Ok(entities_to_js_array(&entities, bridge, ctx))
+                let entities = bridge
+                    .with(|_session, dom| collections::collect_elements_by_name(doc, &name, dom));
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbn,
         ),
@@ -696,11 +701,11 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     );
 
     // document.forms — live-ish getter (re-queries on each access).
-    register_collection_getter(&mut init, &b, &realm, "forms", "form");
+    collections::register_collection_getter(&mut init, &b, &realm, "forms", "form");
     // document.images
-    register_collection_getter(&mut init, &b, &realm, "images", "img");
+    collections::register_collection_getter(&mut init, &b, &realm, "images", "img");
     // document.scripts
-    register_collection_getter(&mut init, &b, &realm, "scripts", "script");
+    collections::register_collection_getter(&mut init, &b, &realm, "scripts", "script");
     // document.links — <a href> + <area href>
     {
         let b_links = b.clone();
@@ -709,7 +714,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let doc = bridge.document_entity();
                 let entities = bridge.with(|_session, dom| {
                     let mut results = Vec::new();
-                    walk_descendants(doc, dom, &mut |entity| {
+                    collections::walk_descendants(doc, dom, &mut |entity| {
                         if let Ok(tt) = dom.world().get::<&elidex_ecs::TagType>(entity) {
                             if (tt.0 == "a" || tt.0 == "area")
                                 && dom
@@ -724,7 +729,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                     });
                     results
                 });
-                Ok(entities_to_js_array(&entities, bridge, ctx))
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
             },
             b_links,
         )
@@ -912,131 +917,4 @@ fn register_doc_val_accessor(
 
 // TreeWalker / NodeIterator / Range JS object builders are in traversal.rs.
 use traversal::{build_node_iterator_object, build_tree_walker_object};
-
-// Traversal builders (TreeWalker, NodeIterator, Range) are in traversal.rs.
-
-// ---------------------------------------------------------------------------
-// getElementsBy* helpers
-// ---------------------------------------------------------------------------
-
-/// Collect all descendant elements matching a class name (space-separated class list).
-pub(crate) fn collect_elements_by_class(
-    root: Entity,
-    class_name: &str,
-    dom: &elidex_ecs::EcsDom,
-) -> Vec<Entity> {
-    let target_classes: Vec<&str> = class_name.split_whitespace().collect();
-    if target_classes.is_empty() {
-        return Vec::new();
-    }
-    let mut results = Vec::new();
-    walk_descendants(root, dom, &mut |entity| {
-        if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
-            if let Some(cls) = attrs.get("class") {
-                let element_classes: Vec<&str> = cls.split_whitespace().collect();
-                if target_classes.iter().all(|tc| element_classes.contains(tc)) {
-                    results.push(entity);
-                }
-            }
-        }
-    });
-    results
-}
-
-/// Collect all descendant elements matching a tag name (case-insensitive).
-pub(crate) fn collect_elements_by_tag(
-    root: Entity,
-    tag: &str,
-    dom: &elidex_ecs::EcsDom,
-) -> Vec<Entity> {
-    let tag_lower = tag.to_ascii_lowercase();
-    let match_all = tag == "*";
-    let mut results = Vec::new();
-    walk_descendants(root, dom, &mut |entity| {
-        if match_all {
-            // "*" matches all elements.
-            if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
-                results.push(entity);
-            }
-        } else if let Ok(tt) = dom.world().get::<&elidex_ecs::TagType>(entity) {
-            if tt.0.eq_ignore_ascii_case(&tag_lower) {
-                results.push(entity);
-            }
-        }
-    });
-    results
-}
-
-/// Collect all descendant elements with a matching `name` attribute.
-fn collect_elements_by_name(root: Entity, name: &str, dom: &elidex_ecs::EcsDom) -> Vec<Entity> {
-    let mut results = Vec::new();
-    walk_descendants(root, dom, &mut |entity| {
-        if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
-            if attrs.get("name").is_some_and(|n| n == name) {
-                results.push(entity);
-            }
-        }
-    });
-    results
-}
-
-/// Pre-order walk of all descendants (excluding root).
-fn walk_descendants(root: Entity, dom: &elidex_ecs::EcsDom, callback: &mut dyn FnMut(Entity)) {
-    let mut stack = Vec::new();
-    // Push children last-to-first so first child is popped first (pre-order).
-    let mut child = dom.get_last_child(root);
-    while let Some(c) = child {
-        stack.push(c);
-        child = dom.get_prev_sibling(c);
-    }
-
-    while let Some(entity) = stack.pop() {
-        callback(entity);
-        // Push children last-to-first.
-        let mut child = dom.get_last_child(entity);
-        while let Some(c) = child {
-            stack.push(c);
-            child = dom.get_prev_sibling(c);
-        }
-    }
-}
-
-/// Convert a list of entities to a JS array of element wrappers.
-pub(crate) fn entities_to_js_array(
-    entities: &[Entity],
-    bridge: &HostBridge,
-    ctx: &mut boa_engine::Context,
-) -> JsValue {
-    let array = boa_engine::object::builtins::JsArray::new(ctx);
-    for &entity in entities {
-        let wrapper = traversal::resolve_entity_to_js(entity, bridge, ctx);
-        let _ = array.push(wrapper, ctx);
-    }
-    array.into()
-}
-
-/// Register a document collection getter that returns elements matching a tag name.
-fn register_collection_getter(
-    init: &mut ObjectInitializer<'_>,
-    bridge: &HostBridge,
-    realm: &boa_engine::realm::Realm,
-    js_name: &str,
-    tag: &'static str,
-) {
-    let b = bridge.clone();
-    let getter = NativeFunction::from_copy_closure_with_captures(
-        move |_this, _args, bridge, ctx| {
-            let doc = bridge.document_entity();
-            let entities = bridge.with(|_session, dom| collect_elements_by_tag(doc, tag, dom));
-            Ok(entities_to_js_array(&entities, bridge, ctx))
-        },
-        b,
-    )
-    .to_js_function(realm);
-    init.accessor(
-        js_string!(js_name),
-        Some(getter),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-}
+// Collection helpers (getElementsBy*, entities_to_js_array) are in collections.rs.
