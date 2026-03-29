@@ -889,7 +889,7 @@ use traversal::{build_node_iterator_object, build_tree_walker_object};
 // ---------------------------------------------------------------------------
 
 /// Collect all descendant elements matching a class name (space-separated class list).
-fn collect_elements_by_class(
+pub(crate) fn collect_elements_by_class(
     root: Entity,
     class_name: &str,
     dom: &elidex_ecs::EcsDom,
@@ -916,7 +916,7 @@ fn collect_elements_by_class(
 }
 
 /// Collect all descendant elements matching a tag name (case-insensitive).
-fn collect_elements_by_tag(
+pub(crate) fn collect_elements_by_tag(
     root: Entity,
     tag: &str,
     dom: &elidex_ecs::EcsDom,
@@ -986,7 +986,7 @@ fn walk_descendants(
 }
 
 /// Convert a list of entities to a JS array of element wrappers.
-fn entities_to_js_array(
+pub(crate) fn entities_to_js_array(
     entities: &[Entity],
     bridge: &HostBridge,
     ctx: &mut boa_engine::Context,

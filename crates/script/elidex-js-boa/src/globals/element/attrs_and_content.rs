@@ -96,6 +96,105 @@ pub(crate) fn register_content_accessors(
         Some(setter),
         Attribute::CONFIGURABLE,
     );
+
+    // outerHTML getter + setter
+    let b = bridge.clone();
+    let oh_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            // outerHTML = opening tag + innerHTML + closing tag.
+            let (tag, attrs_str, inner) = bridge.with(|session, dom| {
+                let tag_name = dom
+                    .world()
+                    .get::<&elidex_ecs::TagType>(entity)
+                    .map_or("div".to_string(), |t| t.0.clone());
+                let attrs = dom
+                    .world()
+                    .get::<&elidex_ecs::Attributes>(entity)
+                    .ok()
+                    .map(|a| {
+                        a.iter()
+                            .map(|(k, v)| {
+                                format!(
+                                    " {}=\"{}\"",
+                                    k,
+                                    v.replace('&', "&amp;")
+                                        .replace('"', "&quot;")
+                                )
+                            })
+                            .collect::<String>()
+                    })
+                    .unwrap_or_default();
+                let handler = bridge.dom_registry().resolve("innerHTML.get");
+                let inner_html = handler
+                    .and_then(|h| h.invoke(entity, &[], session, dom).ok())
+                    .and_then(|v| {
+                        if let elidex_plugin::JsValue::String(s) = v {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                (tag_name, attrs, inner_html)
+            });
+            let html = format!("<{tag}{attrs_str}>{inner}</{tag}>");
+            Ok(boa_engine::JsValue::from(js_string!(html.as_str())))
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    let b = bridge.clone();
+    let oh_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let html = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or(String::new(), |s| s.to_std_string_escaped());
+            // WHATWG HTML §3.1.5: throw if no parent or parent is Document.
+            bridge.with(|session, dom| {
+                let parent = dom.get_parent(entity);
+                if parent.is_none() {
+                    return;
+                }
+                let parent = parent.unwrap();
+                // Parse HTML fragment and replace this element.
+                let handler = bridge.dom_registry().resolve("innerHTML.set");
+                if let Some(h) = handler {
+                    // Create a temp container, set innerHTML, then replace.
+                    let temp = dom.create_element("div", elidex_ecs::Attributes::default());
+                    let _ = h.invoke(
+                        temp,
+                        &[ElidexJsValue::String(html)],
+                        session,
+                        dom,
+                    );
+                    // Move children from temp to before entity, then remove entity.
+                    let mut child = dom.get_first_child(temp);
+                    while let Some(c) = child {
+                        let next = dom.get_next_sibling(c);
+                        let _ = dom.insert_before(parent, c, entity);
+                        child = next;
+                    }
+                    let _ = dom.destroy_entity(temp);
+                }
+                let _ = dom.destroy_entity(entity);
+            });
+            Ok(boa_engine::JsValue::undefined())
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("outerHTML"),
+        Some(oh_getter),
+        Some(oh_setter),
+        Attribute::CONFIGURABLE,
+    );
 }
 
 /// Register the `style` cached accessor.
