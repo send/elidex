@@ -357,6 +357,20 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         2,
     );
 
+    // document.dispatchEvent(event)
+    let b_dispatch = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                crate::globals::dispatch_event_for(doc, args, bridge, ctx)
+            },
+            b_dispatch,
+        ),
+        js_string!("dispatchEvent"),
+        1,
+    );
+
     // --- TreeWalker / NodeIterator / Range ---
 
     // document.createTreeWalker(root, whatToShow?)

@@ -127,6 +127,10 @@ pub(crate) struct HostBridgeInner {
     iframe: IframeBridgeState,
     // --- WebSocket / SSE ---
     realtime: realtime::RealtimeState,
+    // --- Script dispatch ---
+    /// Pending script-dispatched event (from `dispatchEvent()`).
+    /// Set by `dispatch_event_for()`, consumed by runtime after eval.
+    pending_script_dispatch: Option<elidex_script_session::DispatchEvent>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -285,6 +289,7 @@ impl HostBridge {
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
                 realtime: realtime::RealtimeState::default(),
+                pending_script_dispatch: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),

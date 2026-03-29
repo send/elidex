@@ -46,6 +46,46 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_window_open(ctx, bridge);
     register_messaging(ctx, bridge);
     register_modals(ctx, bridge);
+    register_window_event_target(ctx, bridge);
+}
+
+/// Register `addEventListener`, `removeEventListener`, `dispatchEvent` on window.
+///
+/// Window events target the document entity (matching browser behavior where
+/// window-level listeners participate in the DOM propagation path).
+fn register_window_event_target(ctx: &mut Context, bridge: &HostBridge) {
+    let b = bridge.clone();
+    let add_listener = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::add_event_listener_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("addEventListener"), 2, add_listener)
+        .expect("failed to register window.addEventListener");
+
+    let b = bridge.clone();
+    let rm_listener = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::remove_event_listener_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("removeEventListener"), 2, rm_listener)
+        .expect("failed to register window.removeEventListener");
+
+    let b = bridge.clone();
+    let dispatch = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::dispatch_event_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("dispatchEvent"), 1, dispatch)
+        .expect("failed to register window.dispatchEvent");
 }
 
 /// Register `innerWidth`, `innerHeight`, `scrollX`, `scrollY` (and `pageXOffset`/`pageYOffset`

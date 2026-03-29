@@ -68,4 +68,16 @@ impl HostBridge {
     pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
         std::mem::take(&mut self.inner.borrow_mut().iframe.pending_navigate_iframe)
     }
+
+    /// Set a pending script dispatch event (from `dispatchEvent()`).
+    pub fn set_pending_script_dispatch(&self, event: elidex_script_session::DispatchEvent) {
+        self.inner.borrow_mut().pending_script_dispatch = Some(event);
+    }
+
+    /// Take (remove) the pending script dispatch event.
+    pub fn take_pending_script_dispatch(
+        &self,
+    ) -> Option<elidex_script_session::DispatchEvent> {
+        self.inner.borrow_mut().pending_script_dispatch.take()
+    }
 }

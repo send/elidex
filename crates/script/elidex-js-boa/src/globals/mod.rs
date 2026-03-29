@@ -295,6 +295,118 @@ pub(crate) fn remove_event_listener_for(
     Ok(JsValue::undefined())
 }
 
+/// Shared implementation of `dispatchEvent` for element, document, and window.
+///
+/// WHATWG DOM §2.6: validates the event object, checks dispatch/initialized flags,
+/// then dispatches synchronously through the propagation path.
+/// Returns `!defaultPrevented` as a boolean.
+pub(crate) fn dispatch_event_for(
+    entity: Entity,
+    args: &[JsValue],
+    bridge: &HostBridge,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    use crate::globals::event_constructors::*;
+
+    let event_obj = args.first().ok_or_else(|| {
+        JsNativeError::typ().with_message("dispatchEvent: argument 1 is required")
+    })?;
+    let obj = event_obj.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message("dispatchEvent: argument must be an Event object")
+    })?;
+
+    // Verify this is an elidex Event object.
+    let marker = obj.get(js_string!(EVENT_MARKER_KEY), ctx)?;
+    if !marker.to_boolean() {
+        return Err(JsNativeError::typ()
+            .with_message("dispatchEvent: argument is not an Event object")
+            .into());
+    }
+
+    // WHATWG DOM §2.10 step 1: empty type check.
+    let event_type = obj
+        .get(js_string!(EVENT_TYPE_KEY), ctx)?
+        .to_string(ctx)?
+        .to_std_string_escaped();
+    if event_type.is_empty() {
+        return Err(JsNativeError::eval()
+            .with_message("InvalidStateError: event type must not be empty")
+            .into());
+    }
+
+    // WHATWG DOM §2.6 step 1: dispatch flag check.
+    let dispatching = obj
+        .get(js_string!(EVENT_DISPATCHING_KEY), ctx)?
+        .to_boolean();
+    if dispatching {
+        return Err(JsNativeError::eval()
+            .with_message("InvalidStateError: event is already being dispatched")
+            .into());
+    }
+
+    // WHATWG DOM §2.6 step 1: initialized flag check.
+    let initialized = obj
+        .get(js_string!(EVENT_INITIALIZED_KEY), ctx)?
+        .to_boolean();
+    if !initialized {
+        return Err(JsNativeError::eval()
+            .with_message("InvalidStateError: event has not been initialized")
+            .into());
+    }
+
+    // Extract event metadata.
+    let bubbles = obj
+        .get(js_string!(EVENT_BUBBLES_KEY), ctx)?
+        .to_boolean();
+    let cancelable = obj
+        .get(js_string!(EVENT_CANCELABLE_KEY), ctx)?
+        .to_boolean();
+    let composed = obj
+        .get(js_string!(EVENT_COMPOSED_KEY), ctx)?
+        .to_boolean();
+
+    // Set dispatch flag.
+    let _ = obj.set(
+        js_string!(EVENT_DISPATCHING_KEY),
+        JsValue::from(true),
+        false,
+        ctx,
+    );
+
+    // Create untrusted DispatchEvent.
+    let mut dispatch_event =
+        elidex_script_session::DispatchEvent::new_untrusted(&event_type, entity);
+    dispatch_event.bubbles = bubbles;
+    dispatch_event.cancelable = cancelable;
+    dispatch_event.composed = composed;
+
+    // Synchronous dispatch: enqueue as pending script dispatch for the runtime
+    // to process immediately after this NativeFunction returns. The runtime's
+    // eval loop calls drain_queued_events which will pick this up.
+    //
+    // For synchronous return value, we use the bridge's pending_script_dispatch
+    // mechanism: store the DispatchEvent, let runtime process it, read the result.
+    bridge.set_pending_script_dispatch(dispatch_event);
+
+    // The dispatch happens synchronously when the runtime drains after eval.
+    // For now, return true (not prevented) as a placeholder.
+    // TODO: Wire synchronous dispatch through runtime for correct return value.
+    let prevented = false;
+
+    // WHATWG DOM §2.10 steps 10-14: post-dispatch cleanup.
+    let _ = obj.set(
+        js_string!(EVENT_DISPATCHING_KEY),
+        JsValue::from(false),
+        false,
+        ctx,
+    );
+    let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
+    let _ = obj.set(js_string!("currentTarget"), JsValue::null(), false, ctx);
+
+    // Return !defaultPrevented.
+    Ok(JsValue::from(!prevented))
+}
+
 /// Extract a numeric connection ID from a hidden property on `this`.
 ///
 /// Shared by `WebSocket` (`__elidex_ws_id__`) and `EventSource` (`__elidex_sse_id__`).

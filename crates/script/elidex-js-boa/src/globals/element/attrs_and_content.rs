@@ -160,4 +160,17 @@ pub(crate) fn register_event_listener_methods(
         js_string!("removeEventListener"),
         2,
     );
+
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                crate::globals::dispatch_event_for(entity, args, bridge, ctx)
+            },
+            b,
+        ),
+        js_string!("dispatchEvent"),
+        1,
+    );
 }
