@@ -1,20 +1,18 @@
 [package]
-name = "elidex-plugin"
-description = "Plugin system traits and registry for elidex"
+name = "elidex-api-workers"
+description = "Dedicated Web Worker types and thread management for elidex"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
-readme = "README.md"
-keywords = ["browser-engine", "plugin", "ecs"]
+keywords = ["browser-engine", "web-workers"]
 categories = ["web-programming"]
 
 [dependencies]
-bitflags = { workspace = true }
 crossbeam-channel = { workspace = true }
-cssparser.workspace = true
+elidex-plugin = { workspace = true }
 url = { workspace = true }
 
 [lints]

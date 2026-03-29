@@ -24,6 +24,9 @@ mod observers;
 pub(crate) mod realtime;
 mod traversal;
 mod viewport;
+pub(crate) mod worker_registry;
+pub(crate) mod worker_state;
+mod workers;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -186,6 +189,13 @@ pub(crate) struct HostBridgeInner {
     /// The `<script>` element entity currently being evaluated (WHATWG HTML §4.12.1.1).
     /// Set before each script evaluation, cleared after. Used by `document.currentScript`.
     current_script_entity: Option<Entity>,
+    // --- Workers ---
+    /// Parent-side registry of active dedicated workers.
+    /// Only used when this bridge belongs to a parent (non-worker) context.
+    worker_registry: worker_registry::WorkerRegistry,
+    /// Worker-side state (outgoing messages, close flag, name, script URL).
+    /// `Some` only when this bridge belongs to a dedicated worker thread.
+    worker_state: Option<worker_state::WorkerBridgeState>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -378,6 +388,8 @@ impl HostBridge {
                 pending_script_animations: Vec::new(),
                 pending_focus: false,
                 current_script_entity: None,
+                worker_registry: worker_registry::WorkerRegistry::default(),
+                worker_state: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -700,6 +712,8 @@ impl HostBridge {
         inner.resize_observers.remove_entity(entity);
         inner.intersection_observers.remove_entity(entity);
     }
+
+    // Worker methods are in workers.rs
 }
 
 /// Performs lightweight parsing without the full CSS parser: splits on `{`

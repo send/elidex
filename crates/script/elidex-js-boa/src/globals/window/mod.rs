@@ -1,11 +1,11 @@
 //! `window` global and related registrations.
 
 mod computed_style;
-mod dom_parser;
-mod encoding;
+pub(crate) mod dom_parser;
+pub(crate) mod encoding;
 mod geometry;
 mod media_query;
-mod performance;
+pub(crate) mod performance;
 mod screen;
 mod selection;
 

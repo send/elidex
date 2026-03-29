@@ -39,6 +39,7 @@ members = [
     "crates/script/elidex-js",
     "crates/script/elidex-js-boa",
     "crates/script/elidex-wasm-runtime",
+    "crates/script/elidex-api-workers",
     "crates/web/elidex-web-canvas",
     "crates/shell/elidex-shell",
     "crates/shell/elidex-navigation",
@@ -123,6 +124,7 @@ elidex-script-session = { path = "crates/script/elidex-script-session" }
 elidex-js = { path = "crates/script/elidex-js" }
 elidex-js-boa = { path = "crates/script/elidex-js-boa" }
 elidex-wasm-runtime = { path = "crates/script/elidex-wasm-runtime" }
+elidex-api-workers = { path = "crates/script/elidex-api-workers" }
 elidex-web-canvas = { path = "crates/web/elidex-web-canvas" }
 elidex-dom-api = { path = "crates/dom/elidex-dom-api" }
 elidex-dom-compat = { path = "crates/dom/elidex-dom-compat" }

@@ -30,3 +30,4 @@ mod geometry;
 mod performance;
 mod url;
 mod window;
+mod workers;
