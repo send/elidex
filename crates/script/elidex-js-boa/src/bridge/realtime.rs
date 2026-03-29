@@ -93,6 +93,11 @@ pub(crate) struct SseCallbacks {
 }
 
 impl RealtimeState {
+    /// Get a reference to the shared cookie jar.
+    pub fn cookie_jar_ref(&self) -> Option<&Arc<CookieJar>> {
+        self.cookie_jar.as_ref()
+    }
+
     /// Set the shared cookie jar for `withCredentials` support.
     pub fn set_cookie_jar(&mut self, jar: Option<Arc<CookieJar>>) {
         self.cookie_jar = jar;

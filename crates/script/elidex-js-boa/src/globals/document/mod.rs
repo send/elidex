@@ -700,6 +700,92 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         1,
     );
 
+    // document.forms — live-ish getter (re-queries on each access).
+    register_collection_getter(&mut init, &b, &realm, "forms", "form");
+    // document.images
+    register_collection_getter(&mut init, &b, &realm, "images", "img");
+    // document.scripts
+    register_collection_getter(&mut init, &b, &realm, "scripts", "script");
+    // document.links — <a href> + <area href>
+    {
+        let b_links = b.clone();
+        let links_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    let mut results = Vec::new();
+                    walk_descendants(doc, dom, &mut |entity| {
+                        if let Ok(tt) = dom.world().get::<&elidex_ecs::TagType>(entity) {
+                            if (tt.0 == "a" || tt.0 == "area")
+                                && dom
+                                    .world()
+                                    .get::<&elidex_ecs::Attributes>(entity)
+                                    .ok()
+                                    .is_some_and(|a| a.get("href").is_some())
+                            {
+                                results.push(entity);
+                            }
+                        }
+                    });
+                    results
+                });
+                Ok(entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_links,
+        )
+        .to_js_function(&realm);
+        init.accessor(
+            js_string!("links"),
+            Some(links_getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
+
+    // document.cookie — getter/setter (RFC 6265, WHATWG HTML §3.1.3).
+    {
+        let b_cg = b.clone();
+        let cookie_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| {
+                // Return cookie string for current URL, filtering HttpOnly cookies.
+                let url = bridge.current_url();
+                let cookie_str = if let Some(ref url) = url {
+                    bridge.with(|_session, _dom| bridge.cookies_for_script(url))
+                } else {
+                    String::new()
+                };
+                Ok(JsValue::from(js_string!(cookie_str)))
+            },
+            b_cg,
+        )
+        .to_js_function(&realm);
+
+        let b_cs = b.clone();
+        let cookie_setter = NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let value = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                if let Some(ref url) = bridge.current_url() {
+                    bridge.set_cookie_from_script(url, &value);
+                }
+                Ok(JsValue::undefined())
+            },
+            b_cs,
+        )
+        .to_js_function(&realm);
+
+        init.accessor(
+            js_string!("cookie"),
+            Some(cookie_getter),
+            Some(cookie_setter),
+            Attribute::CONFIGURABLE,
+        );
+    }
+
     // --- Legacy compat stubs ---
 
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)
@@ -911,4 +997,31 @@ fn entities_to_js_array(
         let _ = array.push(wrapper, ctx);
     }
     array.into()
+}
+
+/// Register a document collection getter that returns elements matching a tag name.
+fn register_collection_getter(
+    init: &mut ObjectInitializer<'_>,
+    bridge: &HostBridge,
+    realm: &boa_engine::realm::Realm,
+    js_name: &str,
+    tag: &'static str,
+) {
+    let b = bridge.clone();
+    let getter = NativeFunction::from_copy_closure_with_captures(
+        move |_this, _args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            let entities =
+                bridge.with(|_session, dom| collect_elements_by_tag(doc, tag, dom));
+            Ok(entities_to_js_array(&entities, bridge, ctx))
+        },
+        b,
+    )
+    .to_js_function(realm);
+    init.accessor(
+        js_string!(js_name),
+        Some(getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
 }

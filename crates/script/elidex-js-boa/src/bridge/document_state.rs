@@ -1,10 +1,32 @@
 //! Document-level state methods on `HostBridge`.
 //!
-//! Focus target, visibility, and window name.
+//! Focus target, visibility, window name, and cookie access.
 
 use super::HostBridge;
 
 impl HostBridge {
+    /// Get cookies for script access (filters out HttpOnly cookies).
+    ///
+    /// Uses the shared `CookieJar` from the realtime state.
+    pub fn cookies_for_script(&self, url: &url::Url) -> String {
+        let inner = self.inner.borrow();
+        if let Some(ref jar) = inner.realtime.cookie_jar_ref() {
+            jar.cookies_for_script(url)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Set a cookie from script (`document.cookie = "..."` setter).
+    ///
+    /// Rejects HttpOnly and Secure-over-non-HTTPS cookies.
+    pub fn set_cookie_from_script(&self, url: &url::Url, value: &str) {
+        let inner = self.inner.borrow();
+        if let Some(ref jar) = inner.realtime.cookie_jar_ref() {
+            jar.set_cookie_from_script(url, value);
+        }
+    }
+
     /// Get the currently focused entity.
     pub fn focus_target(&self) -> Option<elidex_ecs::Entity> {
         self.inner.borrow().focus_target
