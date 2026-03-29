@@ -15,6 +15,7 @@ mod canvas;
 mod ce;
 mod cssom;
 mod document_state;
+mod form;
 mod iframe_bridge;
 pub mod local_storage;
 mod media;
@@ -538,7 +539,7 @@ impl HostBridge {
     }
 
     // Web Animations API methods are in animation.rs
-    // collect_form_data is in animation.rs
+    // Form data collection is in form.rs
 
     /// Drain all pending WebSocket and SSE events.
     pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {

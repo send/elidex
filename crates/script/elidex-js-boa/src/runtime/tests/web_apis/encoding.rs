@@ -63,15 +63,19 @@ fn text_encoder_decode_roundtrip() {
 #[test]
 fn queue_microtask_executes() {
     let (mut rt, mut s, mut d, doc) = setup();
-    eval_true(
-        &mut rt,
-        &mut s,
-        &mut d,
-        doc,
+    // Per WHATWG HTML §8.6, queueMicrotask queues for after the current
+    // synchronous code. The callback fires during run_jobs() (within eval),
+    // so a second eval sees the effect.
+    let result = rt.eval(
         r"
         var executed = false;
         queueMicrotask(function() { executed = true; });
-        console.log(executed);
     ",
+        &mut s,
+        &mut d,
+        doc,
     );
+    assert!(result.success, "JS error: {:?}", result.error);
+    // After eval, microtask has been drained by run_jobs(). Verify the effect.
+    eval_true(&mut rt, &mut s, &mut d, doc, r"console.log(executed);");
 }

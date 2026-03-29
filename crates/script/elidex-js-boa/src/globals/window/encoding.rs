@@ -142,11 +142,16 @@ pub(super) fn register_queue_microtask(ctx: &mut Context) {
                 boa_engine::JsNativeError::typ()
                     .with_message("queueMicrotask: argument must be a function")
             })?;
-            // Execute the callback immediately via microtask semantics.
-            // boa's run_jobs() drains microtasks after eval, so calling now
-            // achieves the same effect for synchronous JS contexts.
-            if let Err(err) = callback.call(&JsValue::undefined(), &[], ctx) {
-                eprintln!("[queueMicrotask Error] {err}");
+            // Queue the callback as a microtask via Promise.resolve().then().
+            // boa's run_jobs() drains microtasks after eval completes, giving
+            // correct WHATWG microtask timing.
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+            // The callback is already verified callable, so from_object always succeeds.
+            if let Some(cb_fn) =
+                boa_engine::object::builtins::JsFunction::from_object(callback.clone())
+            {
+                let _ = promise.then(Some(cb_fn), None, ctx);
             }
             Ok(JsValue::undefined())
         }),

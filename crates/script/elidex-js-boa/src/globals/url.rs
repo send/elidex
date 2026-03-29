@@ -2,7 +2,7 @@
 
 use boa_engine::object::builtins::JsArray;
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
+use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
 use crate::bridge::HostBridge;
@@ -82,97 +82,16 @@ fn read_url(this: &JsValue, ctx: &mut Context) -> JsResult<url::Url> {
     })
 }
 
-/// After mutating a URL, update all derived properties on the JS object.
-#[allow(clippy::too_many_lines)]
+/// After mutating a URL, update the hidden `__url__` property and sync `searchParams`.
+///
+/// All visible properties (href, origin, protocol, etc.) are accessor descriptors
+/// that derive their values from `__url__` on each access, so only the hidden
+/// property and searchParams need updating here.
 fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Context) {
     let href = url.as_str();
-    let origin = url.origin().ascii_serialization();
-    let protocol = format!("{}:", url.scheme());
-    let host = url
-        .host_str()
-        .map(|h| {
-            if let Some(port) = url.port() {
-                format!("{h}:{port}")
-            } else {
-                h.to_string()
-            }
-        })
-        .unwrap_or_default();
-    let hostname = url.host_str().unwrap_or("").to_string();
-    let port = url.port().map_or(String::new(), |p| p.to_string());
-    let pathname = url.path().to_string();
-    let search = url.query().map_or(String::new(), |q| format!("?{q}"));
-    let hash = url.fragment().map_or(String::new(), |f| format!("#{f}"));
-
     let _ = obj.set(
         js_string!(URL_HIDDEN_KEY),
         JsValue::from(js_string!(href)),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("href"),
-        JsValue::from(js_string!(href)),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("origin"),
-        JsValue::from(js_string!(origin.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("protocol"),
-        JsValue::from(js_string!(protocol.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("host"),
-        JsValue::from(js_string!(host.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("hostname"),
-        JsValue::from(js_string!(hostname.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("port"),
-        JsValue::from(js_string!(port.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("pathname"),
-        JsValue::from(js_string!(pathname.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("search"),
-        JsValue::from(js_string!(search.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("hash"),
-        JsValue::from(js_string!(hash.as_str())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("username"),
-        JsValue::from(js_string!(url.username())),
-        false,
-        ctx,
-    );
-    let _ = obj.set(
-        js_string!("password"),
-        JsValue::from(js_string!(url.password().unwrap_or(""))),
         false,
         ctx,
     );
@@ -199,31 +118,24 @@ fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Con
 
 /// Build a JS URL object from a parsed `url::Url`.
 ///
-/// Creates a minimal object with hidden `__url__`, searchParams, and methods,
-/// then calls `sync_url_properties` to populate all derived properties.
+/// Creates an object with hidden `__url__`, searchParams, accessor properties
+/// for all URL components (getter reads from `__url__`, setter parses/syncs),
+/// and `toString()`/`toJSON()` methods.
 #[allow(clippy::too_many_lines)]
 fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
     // Build searchParams with back-reference to URL object.
     let params: Vec<(String, String)> = url.query_pairs().into_owned().collect();
     let search_params = build_search_params_object(&params, ctx);
 
-    let rw = Attribute::CONFIGURABLE | Attribute::WRITABLE;
     let mut init = ObjectInitializer::new(ctx);
 
-    // Hidden property storing the full URL for setters to parse/modify.
+    // Hidden property storing the full URL for accessors to parse/modify.
     init.property(
         js_string!(URL_HIDDEN_KEY),
         JsValue::from(js_string!("")),
-        Attribute::empty(),
+        Attribute::WRITABLE,
     );
 
-    // Placeholder writable properties — sync_url_properties will fill them.
-    for key in [
-        "href", "origin", "protocol", "host", "hostname", "port", "pathname", "search", "hash",
-        "username", "password",
-    ] {
-        init.property(js_string!(key), JsValue::from(js_string!("")), rw);
-    }
     init.property(
         js_string!("searchParams"),
         search_params,
@@ -236,7 +148,8 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this
                 .as_object()
                 .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
-            obj.get(js_string!("href"), ctx)
+            let parsed = read_url(&JsValue::from(obj), ctx)?;
+            Ok(JsValue::from(js_string!(parsed.as_str())))
         }),
         js_string!("toString"),
         0,
@@ -246,7 +159,8 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this
                 .as_object()
                 .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
-            obj.get(js_string!("href"), ctx)
+            let parsed = read_url(&JsValue::from(obj), ctx)?;
+            Ok(JsValue::from(js_string!(parsed.as_str())))
         }),
         js_string!("toJSON"),
         0,
@@ -266,29 +180,49 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
         }
     }
 
-    // Populate all derived properties from the parsed URL.
+    // Populate the hidden URL from the parsed value.
     sync_url_properties(&url_obj, url, ctx);
 
-    // --- URL property setters ---
-    // We set these as methods since boa ObjectInitializer's property() creates
-    // data properties. The setter pattern: modify the hidden URL, then sync.
+    // --- Define accessor properties (getter/setter) ---
+    // Each getter reads from __url__ and derives the property.
+    // Each setter parses the URL, applies the change, and calls sync_url_properties.
+    let realm = ctx.realm().clone();
 
-    // Helper: define a setter function on the URL object.
-    macro_rules! url_setter {
-        ($obj:expr, $name:expr, $setter_fn:expr, $ctx:expr) => {
-            let _ = $obj.set(
-                js_string!(concat!("__set_", $name)),
-                NativeFunction::from_copy_closure($setter_fn).to_js_function($ctx.realm()),
-                false,
-                $ctx,
-            );
+    // Helper macro: define a URL accessor with getter and setter.
+    macro_rules! url_accessor {
+        ($name:expr, $getter_fn:expr, $setter_fn:expr) => {
+            let getter = NativeFunction::from_copy_closure($getter_fn).to_js_function(&realm);
+            let setter = NativeFunction::from_copy_closure($setter_fn).to_js_function(&realm);
+            let desc = PropertyDescriptorBuilder::new()
+                .get(getter)
+                .set(setter)
+                .configurable(true)
+                .enumerable(true)
+                .build();
+            let _ = url_obj.define_property_or_throw(js_string!($name), desc, ctx);
         };
     }
 
-    // href setter: full reparse.
-    url_setter!(
-        url_obj,
+    // Helper macro: define a read-only URL accessor (getter only).
+    macro_rules! url_getter_only {
+        ($name:expr, $getter_fn:expr) => {
+            let getter = NativeFunction::from_copy_closure($getter_fn).to_js_function(&realm);
+            let desc = PropertyDescriptorBuilder::new()
+                .get(getter)
+                .configurable(true)
+                .enumerable(true)
+                .build();
+            let _ = url_obj.define_property_or_throw(js_string!($name), desc, ctx);
+        };
+    }
+
+    // href: full reparse on set.
+    url_accessor!(
         "href",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed.as_str())))
+        },
         |this, args, ctx| {
             let new_href = args
                 .first()
@@ -304,14 +238,26 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
                 .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // protocol setter: strip trailing colon.
-    url_setter!(
-        url_obj,
+    // origin: read-only.
+    url_getter_only!("origin", |this, _args, ctx| {
+        let parsed = read_url(this, ctx)?;
+        Ok(JsValue::from(js_string!(parsed
+            .origin()
+            .ascii_serialization()
+            .as_str())))
+    });
+
+    // protocol: strip trailing colon on set.
+    url_accessor!(
         "protocol",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            let protocol = format!("{}:", parsed.scheme());
+            Ok(JsValue::from(js_string!(protocol.as_str())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -326,14 +272,26 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
                 sync_url_properties(&obj, &parsed, ctx);
             }
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // host setter.
-    url_setter!(
-        url_obj,
+    // host
+    url_accessor!(
         "host",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            let host = parsed
+                .host_str()
+                .map(|h| {
+                    if let Some(port) = parsed.port() {
+                        format!("{h}:{port}")
+                    } else {
+                        h.to_string()
+                    }
+                })
+                .unwrap_or_default();
+            Ok(JsValue::from(js_string!(host.as_str())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -346,14 +304,16 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // hostname setter.
-    url_setter!(
-        url_obj,
+    // hostname
+    url_accessor!(
         "hostname",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed.host_str().unwrap_or(""))))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -363,18 +323,22 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
                 .unwrap_or_default();
             let mut parsed = read_url(this, ctx)?;
             let _ = parsed.set_host(Some(&val));
-            // Preserve port — set_host may clear it if the value has no port.
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // port setter: "" removes port.
-    url_setter!(
-        url_obj,
+    // port: "" removes port.
+    url_accessor!(
         "port",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed
+                .port()
+                .map_or(String::new(), |p| p.to_string())
+                .as_str())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -391,14 +355,16 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // pathname setter.
-    url_setter!(
-        url_obj,
+    // pathname
+    url_accessor!(
         "pathname",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed.path())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -411,14 +377,17 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // search setter: strip leading ?.
-    url_setter!(
-        url_obj,
+    // search: strip leading ?.
+    url_accessor!(
         "search",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            let search = parsed.query().map_or(String::new(), |q| format!("?{q}"));
+            Ok(JsValue::from(js_string!(search.as_str())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -436,14 +405,17 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // hash setter: strip leading #.
-    url_setter!(
-        url_obj,
+    // hash: strip leading #.
+    url_accessor!(
         "hash",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            let hash = parsed.fragment().map_or(String::new(), |f| format!("#{f}"));
+            Ok(JsValue::from(js_string!(hash.as_str())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -461,14 +433,16 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // username setter.
-    url_setter!(
-        url_obj,
+    // username
+    url_accessor!(
         "username",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed.username())))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -481,14 +455,16 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
-    // password setter.
-    url_setter!(
-        url_obj,
+    // password
+    url_accessor!(
         "password",
+        |this, _args, ctx| {
+            let parsed = read_url(this, ctx)?;
+            Ok(JsValue::from(js_string!(parsed.password().unwrap_or(""))))
+        },
         |this, args, ctx| {
             let val = args
                 .first()
@@ -501,8 +477,7 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             let obj = this.as_object().unwrap();
             sync_url_properties(&obj, &parsed, ctx);
             Ok(JsValue::undefined())
-        },
-        ctx
+        }
     );
 
     url_obj.into()

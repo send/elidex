@@ -71,7 +71,7 @@ pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
                             break;
                         }
                         written += ch_len;
-                        read += 1;
+                        read += ch.len_utf16();
                     }
 
                     if let Some(dest_obj) = &dest {

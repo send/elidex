@@ -2,7 +2,9 @@
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
+use boa_engine::{
+    js_string, Context, JsError, JsNativeError, JsObject, JsResult, JsValue, NativeFunction,
+};
 
 use crate::bridge::HostBridge;
 
@@ -59,20 +61,13 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
             let aborted = obj.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
             if aborted {
                 let reason = obj.get(js_string!(REASON_KEY), ctx)?;
-                if reason.is_undefined() {
-                    return Err(JsNativeError::eval()
-                        .with_message("AbortError: The operation was aborted")
-                        .into());
-                }
-                return Err(JsNativeError::typ()
-                    .with_message(
-                        reason
-                            .to_string(ctx)
-                            .map_or("The operation was aborted".into(), |s| {
-                                s.to_std_string_escaped()
-                            }),
-                    )
-                    .into());
+                let throw_val = if reason.is_undefined() {
+                    // Default abort reason per WHATWG DOM §3.2.
+                    JsValue::from(create_abort_error_object(ctx)?)
+                } else {
+                    reason
+                };
+                return Err(JsError::from_opaque(throw_val));
             }
             Ok(JsValue::undefined())
         }),

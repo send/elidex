@@ -193,6 +193,8 @@ pub(crate) fn register_content_accessors(
                     }
                     let _ = dom.destroy_entity(temp);
                 }
+                // Detach from parent before destroying to ensure clean removal.
+                let _ = dom.remove_child(parent, entity);
                 let _ = dom.destroy_entity(entity);
             });
             Ok(boa_engine::JsValue::undefined())
