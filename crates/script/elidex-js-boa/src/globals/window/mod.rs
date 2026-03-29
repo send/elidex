@@ -48,6 +48,8 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_modals(ctx, bridge);
     register_window_event_target(ctx, bridge);
     register_screen_and_window_props(ctx, bridge);
+    register_performance(ctx, bridge);
+    register_atob_btoa(ctx);
 }
 
 /// Register `addEventListener`, `removeEventListener`, `dispatchEvent` on window.
@@ -945,4 +947,104 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
     )
     .expect("failed to register window.stop");
+}
+
+/// Wrapper around `Instant` to implement `boa_gc::Trace` (no GC objects inside).
+#[derive(Clone, Copy)]
+struct TracedInstant(std::time::Instant);
+impl_empty_trace!(TracedInstant);
+
+/// Register `performance` object (W3C HR-Time §4).
+fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
+    // Capture time origin at registration (approximates navigation start).
+    let origin = TracedInstant(std::time::Instant::now());
+
+    // Pre-build performance.now() closure before ObjectInitializer borrows ctx.
+    let now_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, origin, _ctx| {
+            let elapsed_ms = origin.0.elapsed().as_secs_f64() * 1000.0;
+            // Round to 100μs for security (W3C HR-Time §4.4).
+            let rounded = (elapsed_ms * 10.0).floor() / 10.0;
+            Ok(JsValue::from(rounded))
+        },
+        origin,
+    );
+
+    // timeOrigin — Unix epoch milliseconds at navigation start.
+    let time_origin = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+
+    let mut init = ObjectInitializer::new(ctx);
+
+    init.function(now_fn, js_string!("now"), 0);
+
+    init.property(
+        js_string!("timeOrigin"),
+        JsValue::from(time_origin),
+        Attribute::READONLY,
+    );
+
+    let perf = init.build();
+    ctx.register_global_property(js_string!("performance"), perf, Attribute::all())
+        .expect("failed to register performance");
+}
+
+/// Register `atob()` and `btoa()` (WHATWG HTML §8.3).
+fn register_atob_btoa(ctx: &mut Context) {
+    use base64::Engine;
+
+    // btoa(str) — Latin1 → Base64.
+    let btoa_fn = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let input = args
+            .first()
+            .map(|v| v.to_string(ctx))
+            .transpose()?
+            .map_or(String::new(), |s| s.to_std_string_escaped());
+
+        // Check for non-Latin1 characters (> U+00FF).
+        if input.chars().any(|c| c as u32 > 0xFF) {
+            return Err(boa_engine::JsNativeError::eval()
+                .with_message("InvalidCharacterError: btoa: string contains non-Latin1 character")
+                .into());
+        }
+
+        let bytes: Vec<u8> = input.chars().map(|c| c as u8).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        Ok(JsValue::from(js_string!(encoded.as_str())))
+    });
+    ctx.register_global_builtin_callable(js_string!("btoa"), 1, btoa_fn)
+        .expect("failed to register btoa");
+
+    // atob(str) — Base64 → Latin1.
+    let atob_fn = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let input = args
+            .first()
+            .map(|v| v.to_string(ctx))
+            .transpose()?
+            .map_or(String::new(), |s| s.to_std_string_escaped());
+
+        // Strip ASCII whitespace (WHATWG HTML §8.3).
+        let stripped: String = input
+            .chars()
+            .filter(|c| !matches!(c, '\t' | '\n' | '\x0C' | '\r' | ' '))
+            .collect();
+
+        // Forgiving decode — accept missing padding.
+        let engine = base64::engine::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            base64::engine::GeneralPurposeConfig::new()
+                .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+        );
+        let bytes = engine.decode(&stripped).map_err(|_| {
+            boa_engine::JsNativeError::eval()
+                .with_message("InvalidCharacterError: atob: invalid base64 input")
+        })?;
+
+        // Convert bytes to Latin1 string.
+        let result: String = bytes.iter().map(|&b| b as char).collect();
+        Ok(JsValue::from(js_string!(result.as_str())))
+    });
+    ctx.register_global_builtin_callable(js_string!("atob"), 1, atob_fn)
+        .expect("failed to register atob");
 }
