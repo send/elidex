@@ -7,6 +7,7 @@ pub mod custom_elements;
 pub mod document;
 pub mod element;
 pub(crate) mod element_form;
+pub mod event_constructors;
 pub mod event_source;
 pub mod events;
 pub mod fetch;
@@ -358,6 +359,7 @@ pub fn register_all_globals(
     custom_elements::register_custom_elements_global(ctx, bridge);
     websocket::register_websocket(ctx, bridge);
     event_source::register_event_source(ctx, bridge, fetch_handle);
+    event_constructors::register_event_constructors(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

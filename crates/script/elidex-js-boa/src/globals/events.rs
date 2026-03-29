@@ -40,7 +40,7 @@ const RO: Attribute = Attribute::READONLY;
 /// Register a flag-setting method on an event object (e.g. `preventDefault`).
 ///
 /// The method sets the shared `Rc<Cell<bool>>` flag to `true` when called.
-fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<Cell<bool>>) {
+pub(crate) fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<Cell<bool>>) {
     let shared = SharedFlag(Rc::clone(flag));
     init.function(
         NativeFunction::from_copy_closure_with_captures(
