@@ -7,8 +7,12 @@
 //! prevent corruption on crash.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+use indexmap::IndexMap;
+use sha2::{Digest, Sha256};
 
 /// Global registry of localStorage instances, keyed by origin string.
 ///
@@ -21,8 +25,11 @@ static DIRTY_ORIGINS: std::sync::LazyLock<Mutex<HashSet<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// In-memory + disk-backed storage for a single origin.
+///
+/// Uses `IndexMap` for insertion-order-preserving key iteration,
+/// matching WHATWG `Storage.key(n)` semantics.
 struct LocalStore {
-    data: HashMap<String, String>,
+    data: IndexMap<String, String>,
     file_path: PathBuf,
     /// Dirty flag: true when in-memory data has changed since last persist.
     dirty: bool,
@@ -38,11 +45,11 @@ impl LocalStore {
             std::fs::read_to_string(&file_path)
                 .ok()
                 .and_then(|contents| {
-                    serde_json::from_str::<HashMap<String, String>>(&contents).ok()
+                    serde_json::from_str::<IndexMap<String, String>>(&contents).ok()
                 })
                 .unwrap_or_default()
         } else {
-            HashMap::new()
+            IndexMap::new()
         };
         let byte_size = data.iter().map(|(k, v)| k.len() + v.len()).sum();
         Self {
@@ -78,23 +85,21 @@ impl LocalStore {
 
 /// Compute the storage file path for an origin.
 ///
-/// Uses the origin string directly as the filename, replacing
-/// non-filesystem-safe characters with `_`. This avoids relying on
-/// `DefaultHasher` which is not guaranteed to be stable across Rust versions.
+/// Uses a SHA-256 hex digest of the origin string as the filename,
+/// avoiding filesystem-unsafe characters and preventing collisions
+/// between origins that differ only in characters like `:` vs `/`.
 fn storage_file_path(origin: &str) -> PathBuf {
     let base = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("elidex")
         .join("localStorage");
 
-    let safe_name: String = origin
-        .chars()
-        .map(|c| match c {
-            '/' | ':' | '?' | '#' | '\\' | '*' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect();
-    base.join(format!("{safe_name}.json"))
+    let hash = Sha256::digest(origin.as_bytes());
+    let hex = hash.iter().fold(String::with_capacity(64), |mut acc, b| {
+        let _ = write!(acc, "{b:02x}");
+        acc
+    });
+    base.join(format!("{hex}.json"))
 }
 
 // Thread-local cache to avoid hitting the global registry mutex on every access.
@@ -172,7 +177,7 @@ pub(crate) fn local_storage_remove(origin: &str, key: &str) {
     let mut guard = store
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(old_val) = guard.data.remove(key) {
+    if let Some(old_val) = guard.data.shift_remove(key) {
         guard.byte_size -= key.len() + old_val.len();
     }
     guard.mark_dirty();

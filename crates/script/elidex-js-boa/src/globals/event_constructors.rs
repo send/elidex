@@ -23,6 +23,12 @@ pub(crate) const EVENT_BUBBLES_KEY: &str = "__elidex_event_bubbles__";
 pub(crate) const EVENT_CANCELABLE_KEY: &str = "__elidex_event_cancelable__";
 pub(crate) const EVENT_COMPOSED_KEY: &str = "__elidex_event_composed__";
 pub(crate) const EVENT_PD_FLAG_KEY: &str = "__elidex_event_pd_flag__";
+/// Hidden writable slot for `eventPhase` (updated during dispatch).
+pub(crate) const EVENT_PHASE_SLOT: &str = "__elidex_event_phase__";
+/// Hidden writable slot for `target` (updated during dispatch).
+pub(crate) const EVENT_TARGET_SLOT: &str = "__elidex_event_target__";
+/// Hidden writable slot for `currentTarget` (updated during dispatch).
+pub(crate) const EVENT_CURRENT_TARGET_SLOT: &str = "__elidex_event_current_target__";
 
 /// Read-only attribute shorthand.
 const RO: Attribute = Attribute::READONLY;
@@ -104,13 +110,64 @@ fn build_event_object(args: &[JsValue], is_custom: bool, ctx: &mut Context) -> J
     // Script-created events are untrusted ([LegacyUnforgeable]).
     init_obj.property(js_string!("isTrusted"), JsValue::from(false), RO);
     init_obj.property(js_string!("timeStamp"), JsValue::from(0), RO);
-    init_obj.property(
+    // eventPhase / target / currentTarget — getter-backed by hidden writable slots.
+    // dispatch_event_for updates the hidden slots during dispatch; the getters read them.
+    init_obj.accessor(
         js_string!("eventPhase"),
-        JsValue::from(0_i32), // NONE
-        RO,
+        Some(
+            NativeFunction::from_copy_closure(|this, _args, ctx| {
+                let Some(obj) = this.as_object() else {
+                    return Ok(JsValue::from(0_i32));
+                };
+                Ok(obj
+                    .get(js_string!(EVENT_PHASE_SLOT), ctx)
+                    .unwrap_or(JsValue::from(0_i32)))
+            })
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
     );
-    init_obj.property(js_string!("target"), JsValue::null(), RO);
-    init_obj.property(js_string!("currentTarget"), JsValue::null(), RO);
+    init_obj.accessor(
+        js_string!("target"),
+        Some(
+            NativeFunction::from_copy_closure(|this, _args, ctx| {
+                let Some(obj) = this.as_object() else {
+                    return Ok(JsValue::null());
+                };
+                let val = obj
+                    .get(js_string!(EVENT_TARGET_SLOT), ctx)
+                    .unwrap_or(JsValue::null());
+                if val.is_undefined() {
+                    return Ok(JsValue::null());
+                }
+                Ok(val)
+            })
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+    init_obj.accessor(
+        js_string!("currentTarget"),
+        Some(
+            NativeFunction::from_copy_closure(|this, _args, ctx| {
+                let Some(obj) = this.as_object() else {
+                    return Ok(JsValue::null());
+                };
+                let val = obj
+                    .get(js_string!(EVENT_CURRENT_TARGET_SLOT), ctx)
+                    .unwrap_or(JsValue::null());
+                if val.is_undefined() {
+                    return Ok(JsValue::null());
+                }
+                Ok(val)
+            })
+            .to_js_function(&realm),
+        ),
+        None,
+        Attribute::CONFIGURABLE,
+    );
 
     // defaultPrevented — live accessor reading from shared flag.
     let pd_accessor = SharedFlag(Rc::clone(&pd_flag));
@@ -256,6 +313,23 @@ fn build_event_object(args: &[JsValue], is_custom: bool, ctx: &mut Context) -> J
         hidden,
     );
 
+    // Hidden writable slots for eventPhase/target/currentTarget (updated during dispatch).
+    init_obj.property(
+        js_string!(EVENT_PHASE_SLOT),
+        JsValue::from(0_i32),
+        Attribute::WRITABLE,
+    );
+    init_obj.property(
+        js_string!(EVENT_TARGET_SLOT),
+        JsValue::null(),
+        Attribute::WRITABLE,
+    );
+    init_obj.property(
+        js_string!(EVENT_CURRENT_TARGET_SLOT),
+        JsValue::null(),
+        Attribute::WRITABLE,
+    );
+
     // Store shared flags as hidden properties for dispatch_event_for() to extract.
     init_obj.property(
         js_string!(EVENT_PD_FLAG_KEY),
@@ -335,7 +409,19 @@ fn apply_init_event(
         );
     }
     // Reset target to null (WHATWG DOM §2.5).
-    let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
+    let _ = obj.set(js_string!(EVENT_TARGET_SLOT), JsValue::null(), false, ctx);
+    let _ = obj.set(
+        js_string!(EVENT_CURRENT_TARGET_SLOT),
+        JsValue::null(),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!(EVENT_PHASE_SLOT),
+        JsValue::from(0_i32),
+        false,
+        ctx,
+    );
     Ok(JsValue::undefined())
 }
 

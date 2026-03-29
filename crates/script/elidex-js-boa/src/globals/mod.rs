@@ -27,7 +27,6 @@ pub mod wasm;
 pub mod websocket;
 pub mod window;
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
@@ -429,8 +428,9 @@ pub(crate) fn dispatch_event_for(
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
     use crate::globals::event_constructors::{
-        EVENT_BUBBLES_KEY, EVENT_CANCELABLE_KEY, EVENT_COMPOSED_KEY, EVENT_DISPATCHING_KEY,
-        EVENT_INITIALIZED_KEY, EVENT_MARKER_KEY, EVENT_TYPE_KEY,
+        EVENT_BUBBLES_KEY, EVENT_CANCELABLE_KEY, EVENT_COMPOSED_KEY, EVENT_CURRENT_TARGET_SLOT,
+        EVENT_DISPATCHING_KEY, EVENT_INITIALIZED_KEY, EVENT_MARKER_KEY, EVENT_PHASE_SLOT,
+        EVENT_TARGET_SLOT, EVENT_TYPE_KEY,
     };
 
     let event_obj = args.first().ok_or_else(|| {
@@ -565,43 +565,84 @@ pub(crate) fn dispatch_event_for(
         );
     }
 
-    // Collect listener IDs to remove after dispatch (for once: true listeners).
-    let once_removal_ids: Rc<RefCell<Vec<(Entity, elidex_script_session::ListenerId)>>> =
-        Rc::new(RefCell::new(Vec::new()));
-    let once_ids = Rc::clone(&once_removal_ids);
-
     // Synchronous dispatch: invoke listeners directly with the same event object.
-    bridge.with(|_session, dom| {
+    // Use with_dom_ref (no re-entrancy guard) so bridge.with() can be called
+    // inside the callback for once-listener removal before invoke.
+    bridge.with_dom_ref(|dom| {
         elidex_script_session::dispatch_event(
             dom,
             &mut dispatch_event,
             &mut |listener_id, entity, ev| {
-                // Look up listener metadata for once/passive options.
-                let (is_once, is_passive) = dom.world().get::<&EventListeners>(entity).ok().map_or(
-                    (false, false),
-                    |listeners| {
-                        listeners
-                            .find_entry(listener_id)
-                            .map_or((false, false), |entry| (entry.once, entry.passive))
-                    },
-                );
+                // Look up listener metadata for once/passive options via bridge.with().
+                let (is_once, is_passive) = bridge.with(|_session, dom| {
+                    dom.world().get::<&EventListeners>(entity).ok().map_or(
+                        (false, false),
+                        |listeners| {
+                            listeners
+                                .find_entry(listener_id)
+                                .map_or((false, false), |entry| (entry.once, entry.passive))
+                        },
+                    )
+                });
 
                 let Some(js_func) = bridge.get_listener(listener_id) else {
                     return;
                 };
 
-                // WHATWG DOM §2.10 step 15: collect once listeners for removal after dispatch.
+                // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
                 if is_once {
-                    once_ids.borrow_mut().push((entity, listener_id));
+                    bridge.with(|_session, dom| {
+                        if let Ok(mut listeners) =
+                            dom.world_mut().get::<&mut EventListeners>(entity)
+                        {
+                            listeners.remove(listener_id);
+                        }
+                    });
+                    bridge.remove_listener(listener_id);
                 }
 
-                // Update eventPhase on the user's event object.
+                // Update eventPhase, target, currentTarget hidden slots on the user's event object.
                 let _ = user_event_obj.set(
-                    js_string!("eventPhase"),
+                    js_string!(EVENT_PHASE_SLOT),
                     JsValue::from(i32::from(ev.phase as u8)),
                     false,
                     ctx,
                 );
+                // Build target/currentTarget wrappers for the user's event object.
+                let target_val = bridge.with(|session, _dom| {
+                    let obj_ref = session.get_or_create_wrapper(
+                        ev.target,
+                        elidex_script_session::ComponentKind::Element,
+                    );
+                    crate::globals::element::create_element_wrapper(
+                        ev.target, bridge, obj_ref, ctx, false,
+                    )
+                });
+                let _ = user_event_obj.set(js_string!(EVENT_TARGET_SLOT), target_val, false, ctx);
+                if let Some(ct) = ev.current_target {
+                    let ct_val = bridge.with(|session, _dom| {
+                        let obj_ref = session.get_or_create_wrapper(
+                            ct,
+                            elidex_script_session::ComponentKind::Element,
+                        );
+                        crate::globals::element::create_element_wrapper(
+                            ct, bridge, obj_ref, ctx, false,
+                        )
+                    });
+                    let _ = user_event_obj.set(
+                        js_string!(EVENT_CURRENT_TARGET_SLOT),
+                        ct_val,
+                        false,
+                        ctx,
+                    );
+                } else {
+                    let _ = user_event_obj.set(
+                        js_string!(EVENT_CURRENT_TARGET_SLOT),
+                        JsValue::null(),
+                        false,
+                        ctx,
+                    );
+                }
 
                 // Sync dispatch flags into our Rc<Cell>s before each listener.
                 pd_flag.set(ev.flags.default_prevented);
@@ -670,18 +711,6 @@ pub(crate) fn dispatch_event_for(
         );
     });
 
-    // Remove once-listeners after dispatch completes.
-    let removals = once_removal_ids.borrow();
-    if !removals.is_empty() {
-        bridge.with(|_session, dom| {
-            for &(entity, listener_id) in removals.iter() {
-                if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
-                    listeners.remove(listener_id);
-                }
-                bridge.remove_listener(listener_id);
-            }
-        });
-    }
     let prevented = dispatch_event.flags.default_prevented;
 
     // WHATWG DOM §2.10 steps 10-14: post-dispatch cleanup.
@@ -691,8 +720,19 @@ pub(crate) fn dispatch_event_for(
         false,
         ctx,
     );
-    let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
-    let _ = obj.set(js_string!("currentTarget"), JsValue::null(), false, ctx);
+    let _ = obj.set(
+        js_string!(EVENT_PHASE_SLOT),
+        JsValue::from(0_i32),
+        false,
+        ctx,
+    );
+    let _ = obj.set(js_string!(EVENT_TARGET_SLOT), JsValue::null(), false, ctx);
+    let _ = obj.set(
+        js_string!(EVENT_CURRENT_TARGET_SLOT),
+        JsValue::null(),
+        false,
+        ctx,
+    );
 
     // Return !defaultPrevented.
     Ok(JsValue::from(!prevented))

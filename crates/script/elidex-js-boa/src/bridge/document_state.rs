@@ -69,7 +69,7 @@ impl HostBridge {
 
     pub fn session_storage_remove(&self, key: &str) {
         let mut inner = self.inner.borrow_mut();
-        if let Some(old_value) = inner.session_storage.remove(key) {
+        if let Some(old_value) = inner.session_storage.shift_remove(key) {
             inner.session_storage_bytes -= key.len() + old_value.len();
         }
     }

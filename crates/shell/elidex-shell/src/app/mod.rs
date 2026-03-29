@@ -235,6 +235,7 @@ impl App {
                     }
                     ContentToBrowser::UrlChanged(url) => {
                         tab.chrome.set_url(&url);
+                        tab.current_origin = Some(url.origin().ascii_serialization());
                     }
                     ContentToBrowser::NavigationFailed { url, error } => {
                         eprintln!("Navigation to {url} failed: {error}");
@@ -267,10 +268,18 @@ impl App {
             }
         }
 
-        // Broadcast storage changes to all other tabs.
+        // Broadcast storage changes to other same-origin tabs (WHATWG HTML §11.2.1).
         for (source_tab_id, change) in &storage_changes {
             for tab in mgr.tabs_mut() {
                 if tab.id == *source_tab_id {
+                    continue;
+                }
+                // Only send to tabs whose origin matches the storage change origin.
+                let tab_matches = tab
+                    .current_origin
+                    .as_ref()
+                    .is_some_and(|o| *o == change.origin);
+                if !tab_matches {
                     continue;
                 }
                 let _ = tab.channel.send(BrowserToContent::StorageEvent {

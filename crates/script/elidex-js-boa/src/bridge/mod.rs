@@ -25,6 +25,8 @@ mod viewport;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+
+use indexmap::IndexMap;
 use std::rc::Rc;
 
 use boa_engine::{JsObject, JsValue};
@@ -158,8 +160,8 @@ pub(crate) struct HostBridgeInner {
     /// Window name (getter/setter per WHATWG HTML).
     window_name: String,
     // --- Storage ---
-    /// Session storage (tab-scoped).
-    session_storage: HashMap<String, String>,
+    /// Session storage (tab-scoped, insertion-order-preserving for `key(n)`).
+    session_storage: IndexMap<String, String>,
     /// Cached byte size of session storage (sum of `key.len()` + `value.len()` for all entries).
     session_storage_bytes: usize,
     /// Pending localStorage change notifications for cross-tab broadcast.
@@ -359,7 +361,7 @@ impl HostBridge {
                 focus_target: None,
                 tab_hidden: false,
                 window_name: String::new(),
-                session_storage: HashMap::new(),
+                session_storage: IndexMap::new(),
                 session_storage_bytes: 0,
                 pending_storage_changes: Vec::new(),
                 pending_script_animations: Vec::new(),
@@ -440,6 +442,42 @@ impl HostBridge {
         };
         self.inner.borrow_mut().in_with = false;
         result
+    }
+
+    /// Access `EcsDom` as an immutable reference for the duration of the closure.
+    ///
+    /// Unlike `with()`, this does NOT set the `in_with` re-entrancy guard,
+    /// allowing `with()` to be called inside the closure. This is specifically
+    /// designed for `dispatch_event_for` which needs to pass `&EcsDom` to
+    /// `dispatch_event()` while also calling `bridge.with()` inside the
+    /// listener callback for once-listener removal.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no mutable access to `EcsDom` occurs
+    /// through other means while the returned reference is live, except
+    /// through `with()` calls that do not overlap with the immutable access.
+    /// In practice, `dispatch_event()` pre-collects the dispatch plan and
+    /// only uses the `dom` reference for tree-structure reads (`apply_retarget`),
+    /// so `with()` calls inside the callback that mutate `EventListeners`
+    /// are safe.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bridge is not bound.
+    #[allow(unsafe_code)]
+    pub(crate) fn with_dom_ref<R>(&self, f: impl FnOnce(&EcsDom) -> R) -> R {
+        let dom_ptr = {
+            let inner = self.inner.borrow();
+            assert!(
+                !inner.dom_ptr.is_null(),
+                "HostBridge::with_dom_ref() called while unbound"
+            );
+            inner.dom_ptr
+        };
+        // Safety: pointer valid for the duration of eval (bind/unbind bracket).
+        // RefCell borrow dropped above. No in_with guard, allowing with() inside f.
+        unsafe { f(&*dom_ptr) }
     }
 
     /// Returns the document root entity.
