@@ -40,7 +40,11 @@ const RO: Attribute = Attribute::READONLY;
 /// Register a flag-setting method on an event object (e.g. `preventDefault`).
 ///
 /// The method sets the shared `Rc<Cell<bool>>` flag to `true` when called.
-pub(crate) fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<Cell<bool>>) {
+pub(crate) fn register_flag_method(
+    init: &mut ObjectInitializer<'_>,
+    name: &str,
+    flag: &Rc<Cell<bool>>,
+) {
     let shared = SharedFlag(Rc::clone(flag));
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -152,11 +156,7 @@ pub fn create_event_object(
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
     // WHATWG DOM §2.1: isTrusted is [LegacyUnforgeable] — non-configurable, non-writable.
     // boa Attribute::READONLY = writable:false; no CONFIGURABLE flag = configurable:false.
-    init.property(
-        js_string!("isTrusted"),
-        JsValue::from(event.is_trusted),
-        RO,
-    );
+    init.property(js_string!("isTrusted"), JsValue::from(event.is_trusted), RO);
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload, empty_ports);
@@ -454,7 +454,13 @@ fn set_payload_properties(
             new_value,
             url,
         } => {
-            set_storage_payload(init, key, old_value, new_value, url);
+            set_storage_payload(
+                init,
+                key.as_ref(),
+                old_value.as_ref(),
+                new_value.as_ref(),
+                url,
+            );
         }
         EventPayload::None | _ => {}
     }
@@ -595,37 +601,28 @@ fn set_page_transition_payload(
 
 fn set_storage_payload(
     init: &mut ObjectInitializer<'_>,
-    key: &Option<String>,
-    old_value: &Option<String>,
-    new_value: &Option<String>,
+    key: Option<&String>,
+    old_value: Option<&String>,
+    new_value: Option<&String>,
     url: &str,
 ) {
     // WHATWG HTML §11.2.1 StorageEvent properties.
     init.property(
         js_string!("key"),
-        key.as_deref()
-            .map_or(JsValue::null(), |k| JsValue::from(js_string!(k))),
+        key.map_or(JsValue::null(), |k| JsValue::from(js_string!(k.as_str()))),
         RO,
     );
     init.property(
         js_string!("oldValue"),
-        old_value
-            .as_deref()
-            .map_or(JsValue::null(), |v| JsValue::from(js_string!(v))),
+        old_value.map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
         RO,
     );
     init.property(
         js_string!("newValue"),
-        new_value
-            .as_deref()
-            .map_or(JsValue::null(), |v| JsValue::from(js_string!(v))),
+        new_value.map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
         RO,
     );
-    init.property(
-        js_string!("url"),
-        JsValue::from(js_string!(url)),
-        RO,
-    );
+    init.property(js_string!("url"), JsValue::from(js_string!(url)), RO);
     init.property(js_string!("storageArea"), JsValue::null(), RO);
 }
 

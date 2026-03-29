@@ -241,7 +241,9 @@ pub(in crate::globals::element) fn register_element_extra_methods(
                 let entities = bridge.with(|_session, dom| {
                     crate::globals::document::collect_elements_by_class(entity, &class_name, dom)
                 });
-                Ok(crate::globals::document::entities_to_js_array(&entities, bridge, ctx))
+                Ok(crate::globals::document::entities_to_js_array(
+                    &entities, bridge, ctx,
+                ))
             },
             b,
         ),
@@ -259,7 +261,9 @@ pub(in crate::globals::element) fn register_element_extra_methods(
                 let entities = bridge.with(|_session, dom| {
                     crate::globals::document::collect_elements_by_tag(entity, &tag, dom)
                 });
-                Ok(crate::globals::document::entities_to_js_array(&entities, bridge, ctx))
+                Ok(crate::globals::document::entities_to_js_array(
+                    &entities, bridge, ctx,
+                ))
             },
             b,
         ),

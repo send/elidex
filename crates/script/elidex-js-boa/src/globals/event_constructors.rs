@@ -54,24 +54,19 @@ pub fn register_event_constructors(ctx: &mut Context, _bridge: &HostBridge) {
     .expect("failed to register CustomEvent");
 }
 
-/// Build an Event (or CustomEvent) JS object from constructor arguments.
+/// Build an Event (or `CustomEvent`) JS object from constructor arguments.
 ///
 /// WHATWG DOM §2.1/§2.2: `new Event(type, { bubbles, cancelable, composed })`
 /// and `new CustomEvent(type, { bubbles, cancelable, composed, detail })`.
-fn build_event_object(
-    args: &[JsValue],
-    is_custom: bool,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
+#[allow(clippy::too_many_lines)]
+fn build_event_object(args: &[JsValue], is_custom: bool, ctx: &mut Context) -> JsResult<JsValue> {
     // Argument 0: type (required).
     let event_type = args
         .first()
         .map(|v| v.to_string(ctx))
         .transpose()?
         .map(|s| s.to_std_string_escaped())
-        .ok_or_else(|| {
-            JsNativeError::typ().with_message("Event: argument 1 (type) is required")
-        })?;
+        .ok_or_else(|| JsNativeError::typ().with_message("Event: argument 1 (type) is required"))?;
 
     // Argument 1: eventInitDict (optional).
     let init = args.get(1);
@@ -81,7 +76,7 @@ fn build_event_object(
 
     // CustomEvent.detail (default: null).
     let detail = if is_custom {
-        init.and_then(|v| v.as_object())
+        init.and_then(boa_engine::JsValue::as_object)
             .map(|obj| obj.get(js_string!("detail"), ctx))
             .transpose()?
             .unwrap_or(JsValue::null())
@@ -91,8 +86,8 @@ fn build_event_object(
 
     // Shared flags for preventDefault / stopPropagation / stopImmediatePropagation.
     let pd_flag = Rc::new(Cell::new(false));
-    let sp_flag = Rc::new(Cell::new(false));
-    let si_flag = Rc::new(Cell::new(false));
+    let stop_prop_flag = Rc::new(Cell::new(false));
+    let stop_imm_flag = Rc::new(Cell::new(false));
 
     let realm = ctx.realm().clone();
     let mut init_obj = ObjectInitializer::new(ctx);
@@ -123,9 +118,7 @@ fn build_event_object(
         js_string!("defaultPrevented"),
         Some(
             NativeFunction::from_copy_closure_with_captures(
-                |_this, _args, flag, _ctx| -> JsResult<JsValue> {
-                    Ok(JsValue::from(flag.0.get()))
-                },
+                |_this, _args, flag, _ctx| -> JsResult<JsValue> { Ok(JsValue::from(flag.0.get())) },
                 pd_accessor,
             )
             .to_js_function(&realm),
@@ -151,8 +144,8 @@ fn build_event_object(
     );
 
     // stopPropagation / stopImmediatePropagation.
-    register_flag_method(&mut init_obj, "stopPropagation", &sp_flag);
-    register_flag_method(&mut init_obj, "stopImmediatePropagation", &si_flag);
+    register_flag_method(&mut init_obj, "stopPropagation", &stop_prop_flag);
+    register_flag_method(&mut init_obj, "stopImmediatePropagation", &stop_imm_flag);
 
     // composedPath() — returns empty array (populated during dispatch).
     init_obj.function(
@@ -188,14 +181,14 @@ fn build_event_object(
     // initEvent(type, bubbles, cancelable) — legacy method (WHATWG DOM §2.5).
     // No-op if dispatch flag is set. Resets stop/canceled/propagation flags, sets initialized.
     let init_pd = SharedFlagStore(Rc::clone(&pd_flag));
-    let init_sp = SharedFlagStore(Rc::clone(&sp_flag));
-    let init_si = SharedFlagStore(Rc::clone(&si_flag));
+    let init_stop_prop = SharedFlagStore(Rc::clone(&stop_prop_flag));
+    let init_stop_imm = SharedFlagStore(Rc::clone(&stop_imm_flag));
     init_obj.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, (pd_f, sp_f, si_f), ctx| {
                 apply_init_event(this, args, pd_f, sp_f, si_f, ctx)
             },
-            (init_pd, init_sp, init_si),
+            (init_pd, init_stop_prop, init_stop_imm),
         ),
         js_string!("initEvent"),
         3,
@@ -204,8 +197,8 @@ fn build_event_object(
     // initCustomEvent (legacy, WHATWG DOM §2.5) — same as initEvent + sets detail.
     if is_custom {
         let ice_pd = SharedFlagStore(Rc::clone(&pd_flag));
-        let ice_sp = SharedFlagStore(Rc::clone(&sp_flag));
-        let ice_si = SharedFlagStore(Rc::clone(&si_flag));
+        let ice_stop_prop = SharedFlagStore(Rc::clone(&stop_prop_flag));
+        let ice_stop_imm = SharedFlagStore(Rc::clone(&stop_imm_flag));
         init_obj.function(
             NativeFunction::from_copy_closure_with_captures(
                 |this, args, (pd_f, sp_f, si_f), ctx| {
@@ -222,7 +215,7 @@ fn build_event_object(
                     }
                     Ok(JsValue::undefined())
                 },
-                (ice_pd, ice_sp, ice_si),
+                (ice_pd, ice_stop_prop, ice_stop_imm),
             ),
             js_string!("initCustomEvent"),
             4,
@@ -277,6 +270,7 @@ fn build_event_object(
 ///
 /// Checks dispatch flag, resets internal flags, updates type/bubbles/cancelable,
 /// and resets target to null. Used by both initEvent and initCustomEvent.
+#[allow(clippy::similar_names)]
 fn apply_init_event(
     this: &JsValue,
     args: &[JsValue],
@@ -346,11 +340,7 @@ fn apply_init_event(
 }
 
 /// Extract a boolean from an optional options object property, defaulting to `false`.
-fn extract_bool_opt(
-    init: Option<&JsValue>,
-    key: &str,
-    ctx: &mut Context,
-) -> JsResult<bool> {
+fn extract_bool_opt(init: Option<&JsValue>, key: &str, ctx: &mut Context) -> JsResult<bool> {
     match init.and_then(JsValue::as_object) {
         Some(obj) => Ok(obj.get(js_string!(key), ctx)?.to_boolean()),
         None => Ok(false),

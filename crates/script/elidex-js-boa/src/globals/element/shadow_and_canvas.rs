@@ -177,7 +177,7 @@ pub(crate) fn register_canvas_method(init: &mut ObjectInitializer<'_>, bridge: &
     );
 }
 
-/// Add `activeElement` getter to a ShadowRoot wrapper.
+/// Add `activeElement` getter to a `ShadowRoot` wrapper.
 ///
 /// WHATWG DOM §4.2.12: `ShadowRoot.activeElement` returns the focused element
 /// if it is within the shadow tree, or null otherwise.
@@ -203,13 +203,8 @@ fn add_shadow_root_active_element(
                 let mut current = Some(focused);
                 while let Some(e) = current {
                     if e == sr_entity {
-                        let ref_ = session.get_or_create_wrapper(
-                            focused,
-                            ComponentKind::Element,
-                        );
-                        return Ok(create_element_wrapper(
-                            focused, bridge, ref_, ctx, false,
-                        ));
+                        let ref_ = session.get_or_create_wrapper(focused, ComponentKind::Element);
+                        return Ok(create_element_wrapper(focused, bridge, ref_, ctx, false));
                     }
                     current = dom.get_parent(e);
                 }

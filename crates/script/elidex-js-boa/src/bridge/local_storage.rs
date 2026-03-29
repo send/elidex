@@ -26,7 +26,7 @@ struct LocalStore {
     file_path: PathBuf,
     /// Dirty flag: true when in-memory data has changed since last persist.
     dirty: bool,
-    /// Incremental byte size counter (sum of key.len() + value.len() for all entries).
+    /// Incremental byte size counter (sum of `key.len()` + `value.len()` for all entries).
     byte_size: usize,
 }
 
@@ -37,13 +37,20 @@ impl LocalStore {
         let data = if file_path.exists() {
             std::fs::read_to_string(&file_path)
                 .ok()
-                .and_then(|contents| serde_json::from_str::<HashMap<String, String>>(&contents).ok())
+                .and_then(|contents| {
+                    serde_json::from_str::<HashMap<String, String>>(&contents).ok()
+                })
                 .unwrap_or_default()
         } else {
             HashMap::new()
         };
         let byte_size = data.iter().map(|(k, v)| k.len() + v.len()).sum();
-        Self { data, file_path, dirty: false, byte_size }
+        Self {
+            data,
+            file_path,
+            dirty: false,
+            byte_size,
+        }
     }
 
     /// Mark the store as dirty (needs persist).
@@ -115,7 +122,9 @@ fn get_store(origin: &str) -> Arc<Mutex<LocalStore>> {
     }
 
     // Slow path: look up or create in global registry.
-    let mut registry = LOCAL_STORAGE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = LOCAL_STORAGE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let store = registry
         .entry(origin.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(LocalStore::load(origin))))
@@ -131,21 +140,26 @@ fn get_store(origin: &str) -> Arc<Mutex<LocalStore>> {
 
 /// Mark an origin as dirty so `flush_dirty_stores` will persist it.
 fn mark_origin_dirty(origin: &str) {
-    let mut dirty = DIRTY_ORIGINS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut dirty = DIRTY_ORIGINS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     dirty.insert(origin.to_string());
 }
 
-/// Public API for localStorage, called from HostBridge.
-
+/// Public API for localStorage, called from `HostBridge`.
 pub(crate) fn local_storage_get(origin: &str, key: &str) -> Option<String> {
     let store = get_store(origin);
-    let guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.data.get(key).cloned()
 }
 
 pub(crate) fn local_storage_set(origin: &str, key: &str, value: &str) {
     let store = get_store(origin);
-    let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let old_size = guard.data.get(key).map_or(0, |v| key.len() + v.len());
     guard.data.insert(key.to_string(), value.to_string());
     guard.byte_size = guard.byte_size - old_size + key.len() + value.len();
@@ -155,7 +169,9 @@ pub(crate) fn local_storage_set(origin: &str, key: &str, value: &str) {
 
 pub(crate) fn local_storage_remove(origin: &str, key: &str) {
     let store = get_store(origin);
-    let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(old_val) = guard.data.remove(key) {
         guard.byte_size -= key.len() + old_val.len();
     }
@@ -165,7 +181,9 @@ pub(crate) fn local_storage_remove(origin: &str, key: &str) {
 
 pub(crate) fn local_storage_clear(origin: &str) {
     let store = get_store(origin);
-    let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.data.clear();
     guard.byte_size = 0;
     guard.mark_dirty();
@@ -174,19 +192,25 @@ pub(crate) fn local_storage_clear(origin: &str) {
 
 pub(crate) fn local_storage_len(origin: &str) -> usize {
     let store = get_store(origin);
-    let guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.data.len()
 }
 
 pub(crate) fn local_storage_key(origin: &str, index: usize) -> Option<String> {
     let store = get_store(origin);
-    let guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.data.keys().nth(index).cloned()
 }
 
 pub(crate) fn local_storage_byte_size(origin: &str) -> usize {
     let store = get_store(origin);
-    let guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = store
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.byte_size
 }
 
@@ -196,7 +220,9 @@ pub(crate) fn local_storage_byte_size(origin: &str) -> usize {
 /// Only iterates origins that have been modified since the last flush.
 pub fn flush_dirty_stores() {
     let dirty: Vec<String> = {
-        let mut dirty_set = DIRTY_ORIGINS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut dirty_set = DIRTY_ORIGINS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let origins: Vec<String> = dirty_set.drain().collect();
         origins
     };
@@ -205,10 +231,14 @@ pub fn flush_dirty_stores() {
         return;
     }
 
-    let registry = LOCAL_STORAGE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let registry = LOCAL_STORAGE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for origin in &dirty {
         if let Some(store) = registry.get(origin) {
-            let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = store
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.persist();
         }
     }

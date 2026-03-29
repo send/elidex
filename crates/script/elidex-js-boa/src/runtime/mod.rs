@@ -237,9 +237,9 @@ impl JsRuntime {
             // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
             if is_once {
                 bridge.with(|_session, dom| {
-                    if let Ok(mut listeners) = dom
-                        .world_mut()
-                        .get::<&mut elidex_script_session::EventListeners>(entity)
+                    if let Ok(mut listeners) =
+                        dom.world_mut()
+                            .get::<&mut elidex_script_session::EventListeners>(entity)
                     {
                         listeners.remove(listener_id);
                     }

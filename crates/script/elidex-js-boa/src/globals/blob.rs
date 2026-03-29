@@ -4,7 +4,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
-/// Hidden property key for blob data (stored as a JsValue string of comma-separated bytes).
+/// Hidden property key for blob data (stored as a `JsValue` string of comma-separated bytes).
 const BLOB_DATA_KEY: &str = "__elidex_blob_data__";
 /// Hidden property key marking an object as a Blob.
 const BLOB_MARKER: &str = "__elidex_blob__";
@@ -23,9 +23,8 @@ pub fn register_blob_file(ctx: &mut Context) {
 fn collect_blob_parts(parts: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
     let mut result = Vec::new();
 
-    let obj = match parts.as_object() {
-        Some(o) => o,
-        None => return Ok(result),
+    let Some(obj) = parts.as_object() else {
+        return Ok(result);
     };
 
     let len = obj
@@ -39,9 +38,7 @@ fn collect_blob_parts(parts: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
             result.extend_from_slice(s.to_std_string_escaped().as_bytes());
         } else if let Some(part_obj) = part.as_object() {
             // Check if it's a Blob (has our marker).
-            let is_blob = part_obj
-                .get(js_string!(BLOB_MARKER), ctx)?
-                .to_boolean();
+            let is_blob = part_obj.get(js_string!(BLOB_MARKER), ctx)?.to_boolean();
             if is_blob {
                 let data = extract_blob_bytes(&part_obj, ctx)?;
                 result.extend_from_slice(&data);
@@ -72,14 +69,15 @@ fn collect_blob_parts(parts: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
 /// Reads from a `JsArrayBuffer` stored in the hidden `__elidex_blob_data__` property.
 fn extract_blob_bytes(obj: &boa_engine::JsObject, ctx: &mut Context) -> JsResult<Vec<u8>> {
     let data_val = obj.get(js_string!(BLOB_DATA_KEY), ctx)?;
-    let data_obj = data_val.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("Blob: internal data missing")
-    })?;
-    let ab = boa_engine::object::builtins::JsArrayBuffer::from_object(data_obj.clone())
-        .map_err(|_| JsNativeError::typ().with_message("Blob: internal data is not an ArrayBuffer"))?;
-    let data_ref = ab.data().ok_or_else(|| {
-        JsNativeError::typ().with_message("Blob: ArrayBuffer is detached")
-    })?;
+    let data_obj = data_val
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("Blob: internal data missing"))?;
+    let ab = boa_engine::object::builtins::JsArrayBuffer::from_object(data_obj.clone()).map_err(
+        |_| JsNativeError::typ().with_message("Blob: internal data is not an ArrayBuffer"),
+    )?;
+    let data_ref = ab
+        .data()
+        .ok_or_else(|| JsNativeError::typ().with_message("Blob: ArrayBuffer is detached"))?;
     Ok(data_ref.to_vec())
 }
 
@@ -97,7 +95,7 @@ fn register_blob_constructor(ctx: &mut Context) {
 
         // Extract type from options.
         let blob_type = options
-            .and_then(|o| o.as_object())
+            .and_then(boa_engine::JsValue::as_object)
             .map(|o| {
                 o.get(js_string!("type"), ctx)
                     .ok()
@@ -105,7 +103,12 @@ fn register_blob_constructor(ctx: &mut Context) {
                         if v.is_undefined() {
                             None
                         } else {
-                            Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase())
+                            Some(
+                                v.to_string(ctx)
+                                    .ok()?
+                                    .to_std_string_escaped()
+                                    .to_ascii_lowercase(),
+                            )
                         }
                     })
                     .unwrap_or_default()
@@ -121,11 +124,15 @@ fn register_blob_constructor(ctx: &mut Context) {
 
 /// Build a new Blob JS object from raw bytes and content type.
 ///
-/// Creates the Blob with marker, data (JsArrayBuffer), size, type,
+/// Creates the Blob with marker, data (`JsArrayBuffer`), size, type,
 /// and all standard methods (text, arrayBuffer, slice).
 fn build_blob_from_bytes(bytes: &[u8], content_type: &str, ctx: &mut Context) -> JsResult<JsValue> {
     let mut init = ObjectInitializer::new(ctx);
-    init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
+    init.property(
+        js_string!(BLOB_MARKER),
+        JsValue::from(true),
+        Attribute::empty(),
+    );
 
     // Store bytes as JsArrayBuffer internally.
     let aligned = boa_engine::object::builtins::AlignedVec::from_iter(0, bytes.iter().copied());
@@ -153,7 +160,7 @@ fn build_blob_from_bytes(bytes: &[u8], content_type: &str, ctx: &mut Context) ->
     Ok(JsValue::from(init.build()))
 }
 
-/// Add `text()`, `arrayBuffer()`, and `slice()` methods to a Blob ObjectInitializer.
+/// Add `text()`, `arrayBuffer()`, and `slice()` methods to a Blob `ObjectInitializer`.
 fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
     // text() → Promise<string> (resolves synchronously via microtask).
     init.function(
@@ -180,14 +187,11 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
                 JsNativeError::typ().with_message("Blob.arrayBuffer: this is not a Blob")
             })?;
             let data = extract_blob_bytes(&obj, ctx)?;
-            let aligned =
-                boa_engine::object::builtins::AlignedVec::from_iter(0, data.into_iter());
+            let aligned = boa_engine::object::builtins::AlignedVec::from_iter(0, data);
             let array_buffer =
                 boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, ctx)?;
-            let promise = boa_engine::object::builtins::JsPromise::resolve(
-                JsValue::from(array_buffer),
-                ctx,
-            );
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::from(array_buffer), ctx);
             Ok(promise.into())
         }),
         js_string!("arrayBuffer"),
@@ -202,6 +206,7 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
             })?;
 
             let data = extract_blob_bytes(&obj, ctx)?;
+            #[allow(clippy::cast_possible_wrap)]
             let size = data.len() as i64;
 
             // Resolve start/end with negative index support (relative to size).
@@ -222,11 +227,7 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
                 raw_end.min(size) as usize
             };
 
-            let slice_bytes = if start < end {
-                &data[start..end]
-            } else {
-                &[]
-            };
+            let slice_bytes = if start < end { &data[start..end] } else { &[] };
 
             // contentType — ASCII lowercase (File API §4.2.1).
             let content_type = args
@@ -235,7 +236,12 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
                     if v.is_undefined() || v.is_null() {
                         None
                     } else {
-                        Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase())
+                        Some(
+                            v.to_string(ctx)
+                                .ok()?
+                                .to_std_string_escaped()
+                                .to_ascii_lowercase(),
+                        )
                     }
                 })
                 .unwrap_or_default();
@@ -261,7 +267,7 @@ fn register_file_constructor(ctx: &mut Context) {
         };
 
         let file_type = options
-            .and_then(|o| o.as_object())
+            .and_then(boa_engine::JsValue::as_object)
             .map(|o| {
                 o.get(js_string!("type"), ctx)
                     .ok()
@@ -269,7 +275,12 @@ fn register_file_constructor(ctx: &mut Context) {
                         if v.is_undefined() {
                             None
                         } else {
-                            Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase())
+                            Some(
+                                v.to_string(ctx)
+                                    .ok()?
+                                    .to_std_string_escaped()
+                                    .to_ascii_lowercase(),
+                            )
                         }
                     })
                     .unwrap_or_default()
@@ -277,7 +288,7 @@ fn register_file_constructor(ctx: &mut Context) {
             .unwrap_or_default();
 
         let last_modified = options
-            .and_then(|o| o.as_object())
+            .and_then(boa_engine::JsValue::as_object)
             .and_then(|o| {
                 o.get(js_string!("lastModified"), ctx)
                     .ok()
@@ -292,12 +303,21 @@ fn register_file_constructor(ctx: &mut Context) {
         let size = bytes.len();
 
         let mut init = ObjectInitializer::new(ctx);
-        init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
-        init.property(js_string!(FILE_MARKER), JsValue::from(true), Attribute::empty());
+        init.property(
+            js_string!(BLOB_MARKER),
+            JsValue::from(true),
+            Attribute::empty(),
+        );
+        init.property(
+            js_string!(FILE_MARKER),
+            JsValue::from(true),
+            Attribute::empty(),
+        );
 
         // Store bytes as JsArrayBuffer internally.
         let aligned = boa_engine::object::builtins::AlignedVec::from_iter(0, bytes.iter().copied());
-        let ab = boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, init.context())?;
+        let ab =
+            boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, init.context())?;
         init.property(
             js_string!(BLOB_DATA_KEY),
             JsValue::from(ab),

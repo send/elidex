@@ -167,7 +167,7 @@ pub enum EventPayload {
     },
     /// WebSocket/SSE close event data (WHATWG HTML `CloseEvent`).
     CloseEvent(CloseEventInit),
-    /// HashChange event data (WHATWG HTML §7.7.4).
+    /// `HashChange` event data (WHATWG HTML §7.7.4).
     HashChange(HashChangeEventInit),
     /// Page transition event data (WHATWG HTML §7.8.2.4).
     PageTransition(PageTransitionEventInit),
@@ -199,7 +199,7 @@ pub struct HashChangeEventInit {
 /// Initialization data for pagehide/pageshow events (WHATWG HTML §7.8.2.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PageTransitionEventInit {
-    /// Whether the page was restored from BFCache.
+    /// Whether the page was restored from `BFCache`.
     pub persisted: bool,
 }
 

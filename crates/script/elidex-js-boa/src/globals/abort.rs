@@ -6,7 +6,7 @@ use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue,
 
 use crate::bridge::HostBridge;
 
-/// Hidden property key marking an object as an AbortSignal.
+/// Hidden property key marking an object as an `AbortSignal`.
 const SIGNAL_KEY: &str = "__elidex_abort_signal__";
 /// Property key for the aborted state (visible "aborted" property — single source of truth).
 const ABORTED_KEY: &str = "aborted";
@@ -22,11 +22,16 @@ pub fn register_abort_controller(ctx: &mut Context, bridge: &HostBridge) {
 }
 
 /// Create an `AbortSignal` JS object.
+#[allow(clippy::too_many_lines)]
 fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
     let b = bridge.clone();
     let mut init = ObjectInitializer::new(ctx);
 
-    init.property(js_string!(SIGNAL_KEY), JsValue::from(true), Attribute::empty());
+    init.property(
+        js_string!(SIGNAL_KEY),
+        JsValue::from(true),
+        Attribute::empty(),
+    );
     init.property(
         js_string!("onabort"),
         JsValue::null(),
@@ -82,7 +87,8 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
             |this, args, bridge, ctx| {
                 let entity = bridge.document_entity();
                 // Store signal listeners on the signal object itself via a list.
-                let event_type = crate::globals::require_js_string_arg(args, 0, "addEventListener", ctx)?;
+                let event_type =
+                    crate::globals::require_js_string_arg(args, 0, "addEventListener", ctx)?;
                 if event_type != "abort" {
                     return Ok(JsValue::undefined());
                 }
@@ -98,9 +104,9 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
                     arr.push(listener, ctx)?;
                     obj.set(listeners_key, JsValue::from(arr), false, ctx)?;
                 } else {
-                    let arr = existing.as_object().ok_or_else(|| {
-                        JsNativeError::typ().with_message("internal error")
-                    })?;
+                    let arr = existing
+                        .as_object()
+                        .ok_or_else(|| JsNativeError::typ().with_message("internal error"))?;
                     let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
                     arr.set(len, listener, false, ctx)?;
                 }
@@ -115,7 +121,8 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
 
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
-            let event_type = crate::globals::require_js_string_arg(args, 0, "removeEventListener", ctx)?;
+            let event_type =
+                crate::globals::require_js_string_arg(args, 0, "removeEventListener", ctx)?;
             if event_type != "abort" {
                 return Ok(JsValue::undefined());
             }
@@ -126,7 +133,10 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
             let listeners_key = js_string!("__abort_listeners__");
             let existing = obj.get(listeners_key.clone(), ctx)?;
             if let Some(arr) = existing.as_object() {
-                let len = arr.get(js_string!("length"), ctx)?.to_number(ctx).unwrap_or(0.0) as u32;
+                let len = arr
+                    .get(js_string!("length"), ctx)?
+                    .to_number(ctx)
+                    .unwrap_or(0.0) as u32;
                 let new_arr = boa_engine::object::builtins::JsArray::new(ctx);
                 for i in 0..len {
                     let entry = arr.get(i, ctx)?;
@@ -165,7 +175,11 @@ fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) 
     // Call onabort if set, passing the event object.
     let onabort = signal.get(js_string!("onabort"), ctx)?;
     if let Some(func) = onabort.as_callable() {
-        let _ = func.call(&JsValue::from(signal.clone()), &[event_val.clone()], ctx);
+        let _ = func.call(
+            &JsValue::from(signal.clone()),
+            std::slice::from_ref(&event_val),
+            ctx,
+        );
     }
 
     // Call registered abort listeners, passing the event object.
@@ -179,7 +193,11 @@ fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) 
         for i in 0..len {
             let listener = arr.get(i, ctx)?;
             if let Some(func) = listener.as_callable() {
-                let _ = func.call(&JsValue::from(signal.clone()), &[event_val.clone()], ctx);
+                let _ = func.call(
+                    &JsValue::from(signal.clone()),
+                    std::slice::from_ref(&event_val),
+                    ctx,
+                );
             }
         }
     }
@@ -213,8 +231,7 @@ fn register_controller_constructor(ctx: &mut Context, bridge: &HostBridge) {
             init.function(
                 NativeFunction::from_copy_closure(|this, args, ctx| {
                     let obj = this.as_object().ok_or_else(|| {
-                        JsNativeError::typ()
-                            .with_message("AbortController: this is not an object")
+                        JsNativeError::typ().with_message("AbortController: this is not an object")
                     })?;
                     let signal_val = obj.get(js_string!(CONTROLLER_SIGNAL_KEY), ctx)?;
                     let signal = signal_val.as_object().ok_or_else(|| {
@@ -280,20 +297,16 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let ms = args
-                    .first()
-                    .and_then(JsValue::as_number)
-                    .ok_or_else(|| {
-                        JsNativeError::typ()
-                            .with_message("AbortSignal.timeout: argument must be a number")
-                    })?;
+                let ms = args.first().and_then(JsValue::as_number).ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("AbortSignal.timeout: argument must be a number")
+                })?;
 
                 let signal = create_abort_signal(ctx, bridge);
 
                 if ms <= 0.0 {
                     // Immediately abort with TimeoutError.
-                    let reason =
-                        JsValue::from(js_string!("TimeoutError: The operation timed out"));
+                    let reason = JsValue::from(js_string!("TimeoutError: The operation timed out"));
                     signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
                     signal.set(js_string!(REASON_KEY), reason, false, ctx)?;
                 } else {
@@ -305,21 +318,19 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     impl_empty_trace!(SignalCapture);
 
                     let captured = SignalCapture(signal.clone());
-                    let abort_callback =
-                        NativeFunction::from_copy_closure_with_captures(
-                            |_this, _args, cap, ctx| {
-                                let already =
-                                    cap.0.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
-                                if !already {
-                                    let reason = JsValue::from(js_string!(
-                                        "TimeoutError: The operation timed out"
-                                    ));
-                                    fire_abort_on_signal(&cap.0, &reason, ctx)?;
-                                }
-                                Ok(JsValue::undefined())
-                            },
-                            captured,
-                        );
+                    let abort_callback = NativeFunction::from_copy_closure_with_captures(
+                        |_this, _args, cap, ctx| {
+                            let already = cap.0.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
+                            if !already {
+                                let reason = JsValue::from(js_string!(
+                                    "TimeoutError: The operation timed out"
+                                ));
+                                fire_abort_on_signal(&cap.0, &reason, ctx)?;
+                            }
+                            Ok(JsValue::undefined())
+                        },
+                        captured,
+                    );
                     // Call setTimeout(callback, ms).
                     let global = ctx.global_object();
                     let set_timeout_fn = global.get(js_string!("setTimeout"), ctx)?;
@@ -327,9 +338,7 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                         let _ = callable.call(
                             &JsValue::undefined(),
                             &[
-                                JsValue::from(
-                                    abort_callback.to_js_function(ctx.realm()),
-                                ),
+                                JsValue::from(abort_callback.to_js_function(ctx.realm())),
                                 JsValue::from(ms),
                             ],
                             ctx,
@@ -350,10 +359,11 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register AbortSignal");
 }
 
-/// Create a DOMException-like AbortError object.
+/// Create a DOMException-like `AbortError` object.
 ///
 /// Returns a JS object with `name: "AbortError"`, `message: "The operation was aborted"`,
-/// `code: 20` (DOMException.ABORT_ERR).
+/// `code: 20` (`DOMException.ABORT_ERR`).
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn create_abort_error_object(ctx: &mut Context) -> JsResult<JsObject> {
     let mut init = ObjectInitializer::new(ctx);
     init.property(
@@ -378,6 +388,7 @@ pub(crate) fn create_abort_error_object(ctx: &mut Context) -> JsResult<JsObject>
 ///
 /// The object has `type: "abort"`, `bubbles: false`, `cancelable: false`,
 /// `target` set to the signal object, and `defaultPrevented: false`.
+#[allow(clippy::unnecessary_wraps)]
 fn create_abort_event(signal: &JsObject, ctx: &mut Context) -> JsResult<JsObject> {
     let mut init = ObjectInitializer::new(ctx);
     init.property(
@@ -439,7 +450,7 @@ fn create_abort_event(signal: &JsObject, ctx: &mut Context) -> JsResult<JsObject
     Ok(init.build())
 }
 
-/// Check if a JS value is an AbortSignal object.
+/// Check if a JS value is an `AbortSignal` object.
 pub(crate) fn is_abort_signal(val: &JsValue, ctx: &mut Context) -> bool {
     val.as_object().is_some_and(|obj| {
         obj.get(js_string!(SIGNAL_KEY), ctx)
@@ -448,7 +459,7 @@ pub(crate) fn is_abort_signal(val: &JsValue, ctx: &mut Context) -> bool {
     })
 }
 
-/// Check if an AbortSignal is aborted.
+/// Check if an `AbortSignal` is aborted.
 pub(crate) fn is_signal_aborted(signal: &JsObject, ctx: &mut Context) -> bool {
     signal
         .get(js_string!(ABORTED_KEY), ctx)

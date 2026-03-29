@@ -9,9 +9,9 @@ use crate::bridge::HostBridge;
 
 /// Hidden property key storing the serialized URL string on URL objects.
 const URL_HIDDEN_KEY: &str = "__url__";
-/// Hidden property key storing the encoded query string on URLSearchParams.
+/// Hidden property key storing the encoded query string on `URLSearchParams`.
 const PARAMS_HIDDEN_KEY: &str = "__params__";
-/// Hidden property key linking URLSearchParams back to its parent URL object.
+/// Hidden property key linking `URLSearchParams` back to its parent URL object.
 const URL_OBJ_KEY: &str = "__url_obj__";
 
 /// Register `URL` and `URLSearchParams` global constructors.
@@ -37,17 +37,14 @@ pub fn register_url_constructors(ctx: &mut Context, _bridge: &HostBridge) {
 
             let parsed = if let Some(base_str) = base {
                 let base_url = url::Url::parse(&base_str).map_err(|_| {
-                    JsNativeError::typ()
-                        .with_message(format!("URL: invalid base URL: {base_str}"))
+                    JsNativeError::typ().with_message(format!("URL: invalid base URL: {base_str}"))
                 })?;
                 base_url.join(&url_str).map_err(|_| {
-                    JsNativeError::typ()
-                        .with_message(format!("URL: invalid URL: {url_str}"))
+                    JsNativeError::typ().with_message(format!("URL: invalid URL: {url_str}"))
                 })?
             } else {
                 url::Url::parse(&url_str).map_err(|_| {
-                    JsNativeError::typ()
-                        .with_message(format!("URL: invalid URL: {url_str}"))
+                    JsNativeError::typ().with_message(format!("URL: invalid URL: {url_str}"))
                 })?
             };
 
@@ -71,9 +68,9 @@ pub fn register_url_constructors(ctx: &mut Context, _bridge: &HostBridge) {
 
 /// Read the hidden URL string from a URL object, parse it, and return it.
 fn read_url(this: &JsValue, ctx: &mut Context) -> JsResult<url::Url> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("URL: not a URL object")
-    })?;
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
     let href = obj
         .get(js_string!(URL_HIDDEN_KEY), ctx)?
         .to_string(ctx)?
@@ -86,6 +83,7 @@ fn read_url(this: &JsValue, ctx: &mut Context) -> JsResult<url::Url> {
 }
 
 /// After mutating a URL, update all derived properties on the JS object.
+#[allow(clippy::too_many_lines)]
 fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Context) {
     let href = url.as_str();
     let origin = url.origin().ascii_serialization();
@@ -106,18 +104,78 @@ fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Con
     let search = url.query().map_or(String::new(), |q| format!("?{q}"));
     let hash = url.fragment().map_or(String::new(), |f| format!("#{f}"));
 
-    let _ = obj.set(js_string!(URL_HIDDEN_KEY), JsValue::from(js_string!(href)), false, ctx);
-    let _ = obj.set(js_string!("href"), JsValue::from(js_string!(href)), false, ctx);
-    let _ = obj.set(js_string!("origin"), JsValue::from(js_string!(origin.as_str())), false, ctx);
-    let _ = obj.set(js_string!("protocol"), JsValue::from(js_string!(protocol.as_str())), false, ctx);
-    let _ = obj.set(js_string!("host"), JsValue::from(js_string!(host.as_str())), false, ctx);
-    let _ = obj.set(js_string!("hostname"), JsValue::from(js_string!(hostname.as_str())), false, ctx);
-    let _ = obj.set(js_string!("port"), JsValue::from(js_string!(port.as_str())), false, ctx);
-    let _ = obj.set(js_string!("pathname"), JsValue::from(js_string!(pathname.as_str())), false, ctx);
-    let _ = obj.set(js_string!("search"), JsValue::from(js_string!(search.as_str())), false, ctx);
-    let _ = obj.set(js_string!("hash"), JsValue::from(js_string!(hash.as_str())), false, ctx);
-    let _ = obj.set(js_string!("username"), JsValue::from(js_string!(url.username())), false, ctx);
-    let _ = obj.set(js_string!("password"), JsValue::from(js_string!(url.password().unwrap_or(""))), false, ctx);
+    let _ = obj.set(
+        js_string!(URL_HIDDEN_KEY),
+        JsValue::from(js_string!(href)),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("href"),
+        JsValue::from(js_string!(href)),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("origin"),
+        JsValue::from(js_string!(origin.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("protocol"),
+        JsValue::from(js_string!(protocol.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("host"),
+        JsValue::from(js_string!(host.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("hostname"),
+        JsValue::from(js_string!(hostname.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("port"),
+        JsValue::from(js_string!(port.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("pathname"),
+        JsValue::from(js_string!(pathname.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("search"),
+        JsValue::from(js_string!(search.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("hash"),
+        JsValue::from(js_string!(hash.as_str())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("username"),
+        JsValue::from(js_string!(url.username())),
+        false,
+        ctx,
+    );
+    let _ = obj.set(
+        js_string!("password"),
+        JsValue::from(js_string!(url.password().unwrap_or(""))),
+        false,
+        ctx,
+    );
 
     // Update the searchParams object's __params__ to reflect the new query.
     if let Ok(sp_val) = obj.get(js_string!("searchParams"), ctx) {
@@ -143,6 +201,7 @@ fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Con
 ///
 /// Creates a minimal object with hidden `__url__`, searchParams, and methods,
 /// then calls `sync_url_properties` to populate all derived properties.
+#[allow(clippy::too_many_lines)]
 fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
     // Build searchParams with back-reference to URL object.
     let params: Vec<(String, String)> = url.query_pairs().into_owned().collect();
@@ -160,19 +219,23 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
 
     // Placeholder writable properties — sync_url_properties will fill them.
     for key in [
-        "href", "origin", "protocol", "host", "hostname", "port", "pathname",
-        "search", "hash", "username", "password",
+        "href", "origin", "protocol", "host", "hostname", "port", "pathname", "search", "hash",
+        "username", "password",
     ] {
         init.property(js_string!(key), JsValue::from(js_string!("")), rw);
     }
-    init.property(js_string!("searchParams"), search_params, Attribute::CONFIGURABLE);
+    init.property(
+        js_string!("searchParams"),
+        search_params,
+        Attribute::CONFIGURABLE,
+    );
 
     // toString() / toJSON() — return href.
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("URL: not a URL object")
-            })?;
+            let obj = this
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
             obj.get(js_string!("href"), ctx)
         }),
         js_string!("toString"),
@@ -180,9 +243,9 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
     );
     init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("URL: not a URL object")
-            })?;
+            let obj = this
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
             obj.get(js_string!("href"), ctx)
         }),
         js_string!("toJSON"),
@@ -223,139 +286,230 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
     }
 
     // href setter: full reparse.
-    url_setter!(url_obj, "href", |this, args, ctx| {
-        let new_href = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let parsed = url::Url::parse(&new_href).map_err(|_| {
-            JsNativeError::typ().with_message(format!("URL: invalid URL: {new_href}"))
-        })?;
-        let obj = this.as_object().ok_or_else(|| {
-            JsNativeError::typ().with_message("URL: not a URL object")
-        })?;
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "href",
+        |this, args, ctx| {
+            let new_href = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let parsed = url::Url::parse(&new_href).map_err(|_| {
+                JsNativeError::typ().with_message(format!("URL: invalid URL: {new_href}"))
+            })?;
+            let obj = this
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("URL: not a URL object"))?;
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // protocol setter: strip trailing colon.
-    url_setter!(url_obj, "protocol", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let scheme = val.strip_suffix(':').unwrap_or(&val);
-        let mut parsed = read_url(this, ctx)?;
-        if parsed.set_scheme(scheme).is_ok() {
-            let obj = this.as_object().unwrap();
-            sync_url_properties(&obj, &parsed, ctx);
-        }
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "protocol",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let scheme = val.strip_suffix(':').unwrap_or(&val);
+            let mut parsed = read_url(this, ctx)?;
+            if parsed.set_scheme(scheme).is_ok() {
+                let obj = this.as_object().unwrap();
+                sync_url_properties(&obj, &parsed, ctx);
+            }
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // host setter.
-    url_setter!(url_obj, "host", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        let _ = parsed.set_host(Some(&val));
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "host",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            let _ = parsed.set_host(Some(&val));
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // hostname setter.
-    url_setter!(url_obj, "hostname", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        let _ = parsed.set_host(Some(&val));
-        // Preserve port — set_host may clear it if the value has no port.
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "hostname",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            let _ = parsed.set_host(Some(&val));
+            // Preserve port — set_host may clear it if the value has no port.
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // port setter: "" removes port.
-    url_setter!(url_obj, "port", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        if val.is_empty() {
-            let _ = parsed.set_port(None);
-        } else if let Ok(p) = val.parse::<u16>() {
-            let _ = parsed.set_port(Some(p));
-        }
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "port",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            if val.is_empty() {
+                let _ = parsed.set_port(None);
+            } else if let Ok(p) = val.parse::<u16>() {
+                let _ = parsed.set_port(Some(p));
+            }
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // pathname setter.
-    url_setter!(url_obj, "pathname", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        parsed.set_path(&val);
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "pathname",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            parsed.set_path(&val);
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // search setter: strip leading ?.
-    url_setter!(url_obj, "search", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let query = val.strip_prefix('?').unwrap_or(&val);
-        let mut parsed = read_url(this, ctx)?;
-        if query.is_empty() {
-            parsed.set_query(None);
-        } else {
-            parsed.set_query(Some(query));
-        }
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "search",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let query = val.strip_prefix('?').unwrap_or(&val);
+            let mut parsed = read_url(this, ctx)?;
+            if query.is_empty() {
+                parsed.set_query(None);
+            } else {
+                parsed.set_query(Some(query));
+            }
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // hash setter: strip leading #.
-    url_setter!(url_obj, "hash", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let frag = val.strip_prefix('#').unwrap_or(&val);
-        let mut parsed = read_url(this, ctx)?;
-        if frag.is_empty() {
-            parsed.set_fragment(None);
-        } else {
-            parsed.set_fragment(Some(frag));
-        }
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "hash",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let frag = val.strip_prefix('#').unwrap_or(&val);
+            let mut parsed = read_url(this, ctx)?;
+            if frag.is_empty() {
+                parsed.set_fragment(None);
+            } else {
+                parsed.set_fragment(Some(frag));
+            }
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // username setter.
-    url_setter!(url_obj, "username", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        let _ = parsed.set_username(&val);
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "username",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            let _ = parsed.set_username(&val);
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     // password setter.
-    url_setter!(url_obj, "password", |this, args, ctx| {
-        let val = args.first().map(|v| v.to_string(ctx)).transpose()?
-            .map(|s| s.to_std_string_escaped()).unwrap_or_default();
-        let mut parsed = read_url(this, ctx)?;
-        let _ = parsed.set_password(if val.is_empty() { None } else { Some(&val) });
-        let obj = this.as_object().unwrap();
-        sync_url_properties(&obj, &parsed, ctx);
-        Ok(JsValue::undefined())
-    }, ctx);
+    url_setter!(
+        url_obj,
+        "password",
+        |this, args, ctx| {
+            let val = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+            let mut parsed = read_url(this, ctx)?;
+            let _ = parsed.set_password(if val.is_empty() { None } else { Some(&val) });
+            let obj = this.as_object().unwrap();
+            sync_url_properties(&obj, &parsed, ctx);
+            Ok(JsValue::undefined())
+        },
+        ctx
+    );
 
     url_obj.into()
 }
 
-/// Build a JS URLSearchParams object from a list of (key, value) pairs.
+/// Build a JS `URLSearchParams` object from a list of (key, value) pairs.
+#[allow(clippy::too_many_lines)]
 fn build_search_params_object(params: &[(String, String)], ctx: &mut Context) -> JsValue {
     let encoded = url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs(params)
@@ -380,7 +534,10 @@ fn build_search_params_object(params: &[(String, String)], ctx: &mut Context) ->
                 .transpose()?
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
-            let value = params.iter().find(|(k, _)| k == &name).map(|(_, v)| v.as_str());
+            let value = params
+                .iter()
+                .find(|(k, _)| k == &name)
+                .map(|(_, v)| v.as_str());
             Ok(value.map_or(JsValue::null(), |v| JsValue::from(js_string!(v))))
         }),
         js_string!("get"),
@@ -565,9 +722,10 @@ fn build_search_params_object(params: &[(String, String)], ctx: &mut Context) ->
     init.function(
         NativeFunction::from_copy_closure(|this, args, ctx| {
             let params = get_params(this, ctx)?;
-            let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
-                JsNativeError::typ().with_message("forEach: callback required")
-            })?;
+            let callback = args
+                .first()
+                .and_then(JsValue::as_callable)
+                .ok_or_else(|| JsNativeError::typ().with_message("forEach: callback required"))?;
             for (key, value) in &params {
                 let _ = callback.call(
                     &JsValue::undefined(),
@@ -587,7 +745,7 @@ fn build_search_params_object(params: &[(String, String)], ctx: &mut Context) ->
     init.build().into()
 }
 
-/// Parse URLSearchParams init argument (WHATWG URL §6.2).
+/// Parse `URLSearchParams` init argument (WHATWG URL §6.2).
 ///
 /// Handles three init forms:
 /// 1. String: `"key=value&key2=value2"` (strip leading `?`)
@@ -625,9 +783,8 @@ fn parse_search_params_init(
             for i in 0..len {
                 let pair = obj.get(i, ctx)?;
                 let pair_obj = pair.as_object().ok_or_else(|| {
-                    JsNativeError::typ().with_message(
-                        "URLSearchParams: each entry must be a [key, value] pair",
-                    )
+                    JsNativeError::typ()
+                        .with_message("URLSearchParams: each entry must be a [key, value] pair")
                 })?;
                 let k = pair_obj
                     .get(0_u32, ctx)?
@@ -655,7 +812,7 @@ fn parse_search_params_init(
                 .get(js_string!(&*k), ctx)?
                 .to_string(ctx)?
                 .to_std_string_escaped();
-            params.push((k.to_string(), v));
+            params.push((k.clone(), v));
         }
         return Ok(params);
     }
@@ -670,9 +827,9 @@ fn parse_search_params_init(
 
 /// Get params from the hidden `__params__` property.
 fn get_params(this: &JsValue, ctx: &mut Context) -> JsResult<Vec<(String, String)>> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("URLSearchParams: not an object")
-    })?;
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("URLSearchParams: not an object"))?;
     let encoded = obj
         .get(js_string!(PARAMS_HIDDEN_KEY), ctx)?
         .to_string(ctx)?
@@ -684,12 +841,12 @@ fn get_params(this: &JsValue, ctx: &mut Context) -> JsResult<Vec<(String, String
 
 /// Set params back into the hidden `__params__` property.
 ///
-/// If the URLSearchParams is linked to a parent URL object (via `__url_obj__`),
+/// If the `URLSearchParams` is linked to a parent URL object (via `__url_obj__`),
 /// also update the parent URL's query string and sync all its properties.
 fn set_params(this: &JsValue, params: &[(String, String)], ctx: &mut Context) -> JsResult<()> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("URLSearchParams: not an object")
-    })?;
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("URLSearchParams: not an object"))?;
     let encoded = url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs(params)
         .finish();

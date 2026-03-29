@@ -57,7 +57,7 @@ impl HostBridge {
         self.inner.borrow().device_pixel_ratio
     }
 
-    /// Set device pixel ratio (called by content thread from winit scale_factor).
+    /// Set device pixel ratio (called by content thread from winit `scale_factor`).
     pub fn set_device_pixel_ratio(&self, dpr: f32) {
         self.inner.borrow_mut().device_pixel_ratio = dpr;
     }

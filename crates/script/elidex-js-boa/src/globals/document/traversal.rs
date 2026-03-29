@@ -1,4 +1,4 @@
-//! TreeWalker, NodeIterator, and Range JS object builders.
+//! `TreeWalker`, `NodeIterator`, and Range JS object builders.
 //!
 //! Extracted from `document.rs` to keep file sizes manageable.
 

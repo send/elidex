@@ -190,9 +190,7 @@ pub(in crate::globals::element) fn register_child_parent_mixin_methods(
                 .transpose()?
                 .map(|s| s.to_std_string_escaped());
             match prefix.as_deref() {
-                None | Some("") => Ok(JsValue::from(js_string!(
-                    "http://www.w3.org/1999/xhtml"
-                ))),
+                None | Some("") => Ok(JsValue::from(js_string!("http://www.w3.org/1999/xhtml"))),
                 _ => Ok(JsValue::null()),
             }
         }),

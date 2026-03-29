@@ -73,9 +73,13 @@ fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
             |_this, args, bridge, ctx| {
                 // Create <img> element via createElement.
                 let doc = bridge.document_entity();
-                let handler = bridge.dom_registry().resolve("createElement").ok_or_else(|| {
-                    boa_engine::JsNativeError::typ().with_message("createElement handler not found")
-                })?;
+                let handler = bridge
+                    .dom_registry()
+                    .resolve("createElement")
+                    .ok_or_else(|| {
+                        boa_engine::JsNativeError::typ()
+                            .with_message("createElement handler not found")
+                    })?;
                 let result = bridge.with(|session, dom| {
                     handler
                         .invoke(
@@ -86,14 +90,12 @@ fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
                         )
                         .map_err(crate::error_conv::dom_error_to_js_error)
                 })?;
-                let wrapper =
-                    crate::globals::element::resolve_object_ref(&result, bridge, ctx);
+                let wrapper = crate::globals::element::resolve_object_ref(&result, bridge, ctx);
 
                 // Set width/height content attributes if provided.
-                if let Some(entity) =
-                    wrapper.as_object().and_then(|_| {
-                        crate::globals::element::extract_entity(&wrapper, ctx).ok()
-                    })
+                if let Some(entity) = wrapper
+                    .as_object()
+                    .and_then(|_| crate::globals::element::extract_entity(&wrapper, ctx).ok())
                 {
                     if let Some(w) = args.first().and_then(JsValue::as_number) {
                         bridge.with(|_session, dom| {
@@ -101,7 +103,7 @@ fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
                                 dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
                             {
                                 #[allow(clippy::cast_possible_truncation)]
-                                attrs.set("width", &(w as i64).to_string());
+                                attrs.set("width", (w as i64).to_string());
                             }
                         });
                     }
@@ -111,7 +113,7 @@ fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
                                 dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
                             {
                                 #[allow(clippy::cast_possible_truncation)]
-                                attrs.set("height", &(h as i64).to_string());
+                                attrs.set("height", (h as i64).to_string());
                             }
                         });
                     }
@@ -781,8 +783,10 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
 }
 
 /// Register `screen` object and additional window properties (M4-4.5 Step 8).
+#[allow(clippy::similar_names, clippy::too_many_lines)]
 fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     use boa_engine::property::PropertyDescriptorBuilder;
+    const CHROME_OVERHEAD: f64 = 64.0;
 
     let global = ctx.global_object();
 
@@ -795,7 +799,7 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let sw_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.monitor_width() as f64))
+            Ok(JsValue::from(f64::from(bridge.monitor_width())))
         },
         b,
     )
@@ -805,7 +809,7 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let sh_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.monitor_height() as f64))
+            Ok(JsValue::from(f64::from(bridge.monitor_height())))
         },
         b,
     )
@@ -882,10 +886,20 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     // --- Simple window properties as globals ---
     // window.self / window.window — self-reference.
     global
-        .set(js_string!("self"), JsValue::from(global.clone()), false, ctx)
+        .set(
+            js_string!("self"),
+            JsValue::from(global.clone()),
+            false,
+            ctx,
+        )
         .expect("failed to register window.self");
     global
-        .set(js_string!("window"), JsValue::from(global.clone()), false, ctx)
+        .set(
+            js_string!("window"),
+            JsValue::from(global.clone()),
+            false,
+            ctx,
+        )
         .expect("failed to register window.window");
 
     // window.closed
@@ -898,7 +912,7 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let dpr_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.device_pixel_ratio() as f64))
+            Ok(JsValue::from(f64::from(bridge.device_pixel_ratio())))
         },
         b,
     );
@@ -914,12 +928,11 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
 
     // window.outerWidth / outerHeight — viewport + chrome bar heights.
     // CHROME_HEIGHT (36.0) + TAB_BAR_HEIGHT (28.0) = 64.0 total chrome.
-    const CHROME_OVERHEAD: f64 = 64.0;
     let b = bridge.clone();
     let ow_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_width() as f64))
+            Ok(JsValue::from(f64::from(bridge.viewport_width())))
         },
         b,
     );
@@ -937,7 +950,9 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let oh_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_height() as f64 + CHROME_OVERHEAD))
+            Ok(JsValue::from(
+                f64::from(bridge.viewport_height()) + CHROME_OVERHEAD,
+            ))
         },
         b,
     );
@@ -992,9 +1007,9 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
     let isc_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
-            let is_secure = bridge.current_url().is_some_and(|url| {
-                is_potentially_trustworthy_url(&url)
-            });
+            let is_secure = bridge
+                .current_url()
+                .is_some_and(|url| is_potentially_trustworthy_url(&url));
             // WHATWG HTML §3.4: an iframe context is secure only if both the
             // current context and all ancestor contexts are secure. If this
             // document is in an iframe (frame_element is Some), also check:
@@ -1093,6 +1108,7 @@ struct TracedInstant(std::time::Instant);
 impl_empty_trace!(TracedInstant);
 
 /// Register `performance` object (W3C HR-Time §4 + User Timing §3-4).
+#[allow(clippy::too_many_lines)]
 fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
     // Capture time origin at registration (approximates navigation start).
     let origin = TracedInstant(std::time::Instant::now());
@@ -1143,7 +1159,7 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
 
                 let start_time = args
                     .get(1)
-                    .and_then(|o| o.as_object())
+                    .and_then(boa_engine::JsValue::as_object)
                     .and_then(|o| {
                         o.get(js_string!("startTime"), ctx)
                             .ok()
@@ -1205,18 +1221,16 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                 JsNativeError::typ().with_message("performance: this is not an object")
             })?;
             let entries_val = perf.get(js_string!("__entries__"), ctx)?;
-            let entries_arr = entries_val.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("performance: internal error")
-            })?;
+            let entries_arr = entries_val
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("performance: internal error"))?;
 
             // Read performance.now() once for all "use current time" branches.
             let current_now = perf_now(&perf, ctx);
 
             // Helper: find a mark by name.
             let find_mark = |mark_name: &str, ctx: &mut Context| -> JsResult<f64> {
-                let len = entries_arr
-                    .get(js_string!("length"), ctx)?
-                    .to_number(ctx)? as u32;
+                let len = entries_arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
                 // Search from end (latest mark with this name wins).
                 let mut i = len;
                 while i > 0 {
@@ -1248,10 +1262,8 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                 Some(v) if v.is_object() => {
                     // Options object form: { start, end, duration }.
                     let opts = v.as_object().unwrap();
-                    let s = opts
-                        .get(js_string!("start"), ctx)?;
-                    let e = opts
-                        .get(js_string!("end"), ctx)?;
+                    let s = opts.get(js_string!("start"), ctx)?;
+                    let e = opts.get(js_string!("end"), ctx)?;
 
                     let st = if let Some(n) = s.as_number() {
                         n
@@ -1319,9 +1331,7 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
             let measure_obj = entry.build();
 
             // Append to entries list.
-            let len = entries_arr
-                .get(js_string!("length"), ctx)?
-                .to_number(ctx)? as u32;
+            let len = entries_arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
             entries_arr.set(len, JsValue::from(measure_obj.clone()), false, ctx)?;
 
             Ok(JsValue::from(measure_obj))
@@ -1389,15 +1399,13 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
                 JsNativeError::typ().with_message("performance: this is not an object")
             })?;
             let name = crate::globals::require_js_string_arg(args, 0, "getEntriesByName", ctx)?;
-            let type_filter = args
-                .get(1)
-                .and_then(|v| {
-                    if v.is_undefined() || v.is_null() {
-                        None
-                    } else {
-                        Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-                    }
-                });
+            let type_filter = args.get(1).and_then(|v| {
+                if v.is_undefined() || v.is_null() {
+                    None
+                } else {
+                    Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+                }
+            });
             let entries_val = perf.get(js_string!("__entries__"), ctx)?;
             let result = boa_engine::object::builtins::JsArray::new(ctx);
             if let Some(arr) = entries_val.as_object() {
@@ -1461,18 +1469,16 @@ fn clear_entries_by_type(
     entry_type: &str,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    let perf = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("performance: this is not an object")
-    })?;
-    let name_filter = args
-        .first()
-        .and_then(|v| {
-            if v.is_undefined() || v.is_null() {
-                None
-            } else {
-                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
-            }
-        });
+    let perf = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("performance: this is not an object"))?;
+    let name_filter = args.first().and_then(|v| {
+        if v.is_undefined() || v.is_null() {
+            None
+        } else {
+            Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+        }
+    });
 
     let entries_val = perf.get(js_string!("__entries__"), ctx)?;
     if let Some(arr) = entries_val.as_object() {
@@ -1504,7 +1510,12 @@ fn clear_entries_by_type(
                 new_arr.push(e, ctx)?;
             }
         }
-        perf.set(js_string!("__entries__"), JsValue::from(new_arr), false, ctx)?;
+        perf.set(
+            js_string!("__entries__"),
+            JsValue::from(new_arr),
+            false,
+            ctx,
+        )?;
     }
     Ok(JsValue::undefined())
 }
@@ -1568,7 +1579,7 @@ fn register_atob_btoa(ctx: &mut Context) {
         .expect("failed to register atob");
 }
 
-/// Register `crypto` object (W3C WebCrypto).
+/// Register `crypto` object (W3C `WebCrypto`).
 fn register_crypto(ctx: &mut Context) {
     let mut init = ObjectInitializer::new(ctx);
 
@@ -1659,7 +1670,8 @@ fn register_queue_microtask(ctx: &mut Context) {
 // DOM Geometry (CSSWG Geometry §5-6)
 // ---------------------------------------------------------------------------
 
-/// Helper: build a DOMPoint-like JS object (shared by DOMPoint and DOMPointReadOnly).
+/// Helper: build a DOMPoint-like JS object (shared by `DOMPoint` and `DOMPointReadOnly`).
+#[allow(clippy::unnecessary_wraps)]
 fn build_dom_point(
     x: f64,
     y: f64,
@@ -1743,6 +1755,7 @@ fn dict_number(
 }
 
 /// Register `DOMPoint`, `DOMPointReadOnly`, `DOMMatrix`, `DOMMatrixReadOnly`, `DOMRect`.
+#[allow(clippy::too_many_lines)]
 fn register_dom_geometry(ctx: &mut Context) {
     // DOMPointReadOnly constructor.
     ctx.register_global_callable(
@@ -1819,35 +1832,35 @@ fn register_dom_geometry(ctx: &mut Context) {
         js_string!("DOMRect"),
         0,
         NativeFunction::from_copy_closure(|_this, args, ctx| {
-            let x = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
-            let y = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
-            let w = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
-            let h = args.get(3).and_then(JsValue::as_number).unwrap_or(0.0);
+            let rx = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+            let ry = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
+            let rw = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
+            let rh = args.get(3).and_then(JsValue::as_number).unwrap_or(0.0);
             let mut init = ObjectInitializer::new(ctx);
             let attr = Attribute::WRITABLE | Attribute::CONFIGURABLE;
-            init.property(js_string!("x"), JsValue::from(x), attr);
-            init.property(js_string!("y"), JsValue::from(y), attr);
-            init.property(js_string!("width"), JsValue::from(w), attr);
-            init.property(js_string!("height"), JsValue::from(h), attr);
+            init.property(js_string!("x"), JsValue::from(rx), attr);
+            init.property(js_string!("y"), JsValue::from(ry), attr);
+            init.property(js_string!("width"), JsValue::from(rw), attr);
+            init.property(js_string!("height"), JsValue::from(rh), attr);
             // Derived read-only properties.
             init.property(
                 js_string!("top"),
-                JsValue::from(y.min(y + h)),
+                JsValue::from(ry.min(ry + rh)),
                 Attribute::READONLY | Attribute::CONFIGURABLE,
             );
             init.property(
                 js_string!("right"),
-                JsValue::from(x.max(x + w)),
+                JsValue::from(rx.max(rx + rw)),
                 Attribute::READONLY | Attribute::CONFIGURABLE,
             );
             init.property(
                 js_string!("bottom"),
-                JsValue::from(y.max(y + h)),
+                JsValue::from(ry.max(ry + rh)),
                 Attribute::READONLY | Attribute::CONFIGURABLE,
             );
             init.property(
                 js_string!("left"),
-                JsValue::from(x.min(x + w)),
+                JsValue::from(rx.min(rx + rw)),
                 Attribute::READONLY | Attribute::CONFIGURABLE,
             );
             init.function(
@@ -1855,13 +1868,15 @@ fn register_dom_geometry(ctx: &mut Context) {
                     let obj = this.as_object().ok_or_else(|| {
                         JsNativeError::typ().with_message("DOMRect: this is not an object")
                     })?;
-                    let vals: Vec<(String, JsValue)> = ["x", "y", "width", "height", "top", "right", "bottom", "left"]
-                        .iter()
-                        .map(|key| {
-                            let v = obj.get(js_string!(*key), ctx).unwrap_or(JsValue::from(0.0));
-                            ((*key).to_string(), v)
-                        })
-                        .collect();
+                    let vals: Vec<(String, JsValue)> = [
+                        "x", "y", "width", "height", "top", "right", "bottom", "left",
+                    ]
+                    .iter()
+                    .map(|key| {
+                        let v = obj.get(js_string!(*key), ctx).unwrap_or(JsValue::from(0.0));
+                        ((*key).to_string(), v)
+                    })
+                    .collect();
                     let mut json_init = ObjectInitializer::new(ctx);
                     for (key, v) in vals {
                         json_init.property(js_string!(key.as_str()), v, Attribute::all());
@@ -1881,7 +1896,8 @@ fn register_dom_geometry(ctx: &mut Context) {
     register_dom_matrix(ctx, "DOMMatrix", true);
 }
 
-/// Register a DOMMatrix or DOMMatrixReadOnly constructor.
+/// Register a `DOMMatrix` or `DOMMatrixReadOnly` constructor.
+#[allow(clippy::too_many_lines, clippy::many_single_char_names)]
 fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
     let constructor = NativeFunction::from_copy_closure(move |_this, _args, ctx| {
         // Default: 4×4 identity matrix.
@@ -1976,7 +1992,10 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let ty = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
                     let tz = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
                     let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
-                    let m43 = obj.get(js_string!("m43"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let m43 = obj
+                        .get(js_string!("m43"), ctx)?
+                        .to_number(ctx)
+                        .unwrap_or(0.0);
                     let ne = a * tx + c * ty + e;
                     let nf = b * tx + d * ty + f;
                     obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
@@ -2005,7 +2024,10 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
                     let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
                     let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let m33 = obj.get(js_string!("m33"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let m33 = obj
+                        .get(js_string!("m33"), ctx)?
+                        .to_number(ctx)
+                        .unwrap_or(1.0);
                     obj.set(js_string!("a"), JsValue::from(a * sx), false, ctx)?;
                     obj.set(js_string!("m11"), JsValue::from(a * sx), false, ctx)?;
                     obj.set(js_string!("b"), JsValue::from(b * sx), false, ctx)?;
@@ -2049,11 +2071,13 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                         JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                     })?;
                     let other = args.first().and_then(JsValue::as_object).ok_or_else(|| {
-                        JsNativeError::typ().with_message("multiplySelf: argument must be a DOMMatrix")
+                        JsNativeError::typ()
+                            .with_message("multiplySelf: argument must be a DOMMatrix")
                     })?;
                     let (a1, b1, c1, d1, e1, f1) = read_matrix_components(&obj, ctx)?;
                     let (a2, b2, c2, d2, e2, f2) = read_matrix_components(&other, ctx)?;
-                    let (na, nb, nc, nd, ne, nf) = multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
+                    let (na, nb, nc, nd, ne, nf) =
+                        multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
                     write_matrix_to_obj(&obj, na, nb, nc, nd, ne, nf, ctx)?;
                     Ok(this.clone())
                 }),
@@ -2074,7 +2098,12 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                         // Singular matrix — set all to NaN per spec.
                         write_matrix_to_obj(
                             &obj,
-                            f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN,
+                            f64::NAN,
+                            f64::NAN,
+                            f64::NAN,
+                            f64::NAN,
+                            f64::NAN,
+                            f64::NAN,
                             ctx,
                         )?;
                     }
@@ -2153,13 +2182,15 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                 })?;
                 let other = args.first().and_then(JsValue::as_object).ok_or_else(|| {
-                    JsNativeError::typ()
-                        .with_message("multiply: argument must be a DOMMatrix")
+                    JsNativeError::typ().with_message("multiply: argument must be a DOMMatrix")
                 })?;
                 let (a1, b1, c1, d1, e1, f1) = read_matrix_components(&obj, ctx)?;
                 let (a2, b2, c2, d2, e2, f2) = read_matrix_components(&other, ctx)?;
-                let (na, nb, nc, nd, ne, nf) = multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
-                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, ne, nf, ctx)?))
+                let (na, nb, nc, nd, ne, nf) =
+                    multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
+                Ok(JsValue::from(build_dom_matrix_obj(
+                    na, nb, nc, nd, ne, nf, ctx,
+                )?))
             }),
             js_string!("multiply"),
             1,
@@ -2172,9 +2203,17 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                 })?;
                 let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
-                let (na, nb, nc, nd, ne, nf) = invert_2d(a, b, c, d, e, f)
-                    .unwrap_or((f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN));
-                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, ne, nf, ctx)?))
+                let (na, nb, nc, nd, ne, nf) = invert_2d(a, b, c, d, e, f).unwrap_or((
+                    f64::NAN,
+                    f64::NAN,
+                    f64::NAN,
+                    f64::NAN,
+                    f64::NAN,
+                    f64::NAN,
+                ));
+                Ok(JsValue::from(build_dom_matrix_obj(
+                    na, nb, nc, nd, ne, nf, ctx,
+                )?))
             }),
             js_string!("inverse"),
             0,
@@ -2193,7 +2232,9 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 };
                 let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
                 let (na, nb, nc, nd) = rotate_2d(a, b, c, d, e, f, angle_deg);
-                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, e, f, ctx)?))
+                Ok(JsValue::from(build_dom_matrix_obj(
+                    na, nb, nc, nd, e, f, ctx,
+                )?))
             }),
             js_string!("rotate"),
             1,
@@ -2247,14 +2288,23 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
         .expect("failed to register DOMMatrix");
 }
 
-/// Build a new DOMMatrix JS object with the given 2D affine values.
 // --- Pure 2D matrix math helpers ---
 
 /// 2D matrix multiply: `[a1 c1 e1; b1 d1 f1; 0 0 1] * [a2 c2 e2; b2 d2 f2; 0 0 1]`.
 #[allow(clippy::too_many_arguments)]
 fn multiply_2d(
-    a1: f64, b1: f64, c1: f64, d1: f64, e1: f64, f1: f64,
-    a2: f64, b2: f64, c2: f64, d2: f64, e2: f64, f2: f64,
+    a1: f64,
+    b1: f64,
+    c1: f64,
+    d1: f64,
+    e1: f64,
+    f1: f64,
+    a2: f64,
+    b2: f64,
+    c2: f64,
+    d2: f64,
+    e2: f64,
+    f2: f64,
 ) -> (f64, f64, f64, f64, f64, f64) {
     (
         a1 * a2 + c1 * b2,
@@ -2267,8 +2317,14 @@ fn multiply_2d(
 }
 
 /// Invert a 2D matrix. Returns `None` if the matrix is singular.
+#[allow(clippy::many_single_char_names)]
 fn invert_2d(
-    a: f64, b: f64, c: f64, d: f64, e: f64, f: f64,
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+    e: f64,
+    f: f64,
 ) -> Option<(f64, f64, f64, f64, f64, f64)> {
     let det = a * d - b * c;
     if det.abs() < f64::EPSILON {
@@ -2302,7 +2358,12 @@ fn perf_now(perf: &boa_engine::JsObject, ctx: &mut Context) -> f64 {
 
 /// Rotate a 2D matrix by `angle_deg` degrees around Z.
 fn rotate_2d(
-    a: f64, b: f64, c: f64, d: f64, _e: f64, _f: f64,
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+    _e: f64,
+    _f: f64,
     angle_deg: f64,
 ) -> (f64, f64, f64, f64) {
     let angle = angle_deg * std::f64::consts::PI / 180.0;
@@ -2331,10 +2392,16 @@ fn read_matrix_components(
     ))
 }
 
-/// Write 2D matrix components (a-f + m aliases) to a mutable DOMMatrix JS object.
+/// Write 2D matrix components (a-f + m aliases) to a mutable `DOMMatrix` JS object.
+#[allow(clippy::many_single_char_names, clippy::too_many_arguments)]
 fn write_matrix_to_obj(
     obj: &boa_engine::JsObject,
-    a: f64, b: f64, c: f64, d: f64, e: f64, f: f64,
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+    e: f64,
+    f: f64,
     ctx: &mut Context,
 ) -> JsResult<()> {
     obj.set(js_string!("a"), JsValue::from(a), false, ctx)?;
@@ -2352,6 +2419,11 @@ fn write_matrix_to_obj(
     Ok(())
 }
 
+#[allow(
+    clippy::unnecessary_wraps,
+    clippy::many_single_char_names,
+    clippy::too_many_arguments
+)]
 fn build_dom_matrix_obj(
     a: f64,
     b: f64,
@@ -2430,6 +2502,7 @@ fn build_dom_matrix_obj(
 // ---------------------------------------------------------------------------
 
 /// Register `window.visualViewport` object.
+#[allow(clippy::similar_names)]
 fn register_visual_viewport(ctx: &mut Context, bridge: &HostBridge) {
     use boa_engine::property::PropertyDescriptorBuilder;
 
@@ -2446,7 +2519,7 @@ fn register_visual_viewport(ctx: &mut Context, bridge: &HostBridge) {
     let w_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_width() as f64))
+            Ok(JsValue::from(f64::from(bridge.viewport_width())))
         },
         b_w,
     )
@@ -2463,7 +2536,7 @@ fn register_visual_viewport(ctx: &mut Context, bridge: &HostBridge) {
     let h_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_height() as f64))
+            Ok(JsValue::from(f64::from(bridge.viewport_height())))
         },
         b_h,
     )
@@ -2651,9 +2724,8 @@ fn build_parsed_document(
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, (bridge, bits), ctx| {
-                let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                    JsNativeError::typ().with_message("invalid entity")
-                })?;
+                let entity = Entity::from_bits(*bits as u64)
+                    .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
                 let selector = require_js_string_arg(args, 0, "querySelector", ctx)?;
                 invoke_dom_handler_ref(
                     "querySelector",
@@ -2674,9 +2746,8 @@ fn build_parsed_document(
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, (bridge, bits), ctx| {
-                let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                    JsNativeError::typ().with_message("invalid entity")
-                })?;
+                let entity = Entity::from_bits(*bits as u64)
+                    .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
                 let selector = require_js_string_arg(args, 0, "querySelectorAll", ctx)?;
                 let entities = bridge.with(|_session, dom| {
                     elidex_dom_api::query_selector_all(entity, &selector, dom)
@@ -2697,9 +2768,8 @@ fn build_parsed_document(
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, (bridge, bits), ctx| {
-                let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                    JsNativeError::typ().with_message("invalid entity")
-                })?;
+                let entity = Entity::from_bits(*bits as u64)
+                    .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
                 let id = require_js_string_arg(args, 0, "getElementById", ctx)?;
                 invoke_dom_handler_ref(
                     "getElementById",
@@ -2719,15 +2789,11 @@ fn build_parsed_document(
     let b = bridge.clone();
     let doc_elem_getter = NativeFunction::from_copy_closure_with_captures(
         move |_this, _args, (bridge, bits), ctx| {
-            let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                JsNativeError::typ().with_message("invalid entity")
-            })?;
+            let entity = Entity::from_bits(*bits as u64)
+                .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
             let first_elem = bridge.with(|_session, dom| {
-                dom.children_iter(entity).find(|&child| {
-                    dom.world()
-                        .get::<&elidex_ecs::TagType>(child)
-                        .is_ok()
-                })
+                dom.children_iter(entity)
+                    .find(|&child| dom.world().get::<&elidex_ecs::TagType>(child).is_ok())
             });
             match first_elem {
                 Some(e) => {
@@ -2759,12 +2825,10 @@ fn build_parsed_document(
     let b = bridge.clone();
     let body_getter = NativeFunction::from_copy_closure_with_captures(
         move |_this, _args, (bridge, bits), ctx| {
-            let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                JsNativeError::typ().with_message("invalid entity")
-            })?;
-            let body_entity = bridge.with(|_session, dom| {
-                find_first_tag_descendant(dom, entity, "body")
-            });
+            let entity = Entity::from_bits(*bits as u64)
+                .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
+            let body_entity =
+                bridge.with(|_session, dom| find_first_tag_descendant(dom, entity, "body"));
             match body_entity {
                 Some(e) => {
                     let wrapper = bridge.with(|session, _dom| {
@@ -2795,12 +2859,10 @@ fn build_parsed_document(
     let b = bridge.clone();
     let head_getter = NativeFunction::from_copy_closure_with_captures(
         move |_this, _args, (bridge, bits), ctx| {
-            let entity = Entity::from_bits(*bits as u64).ok_or_else(|| {
-                JsNativeError::typ().with_message("invalid entity")
-            })?;
-            let head_entity = bridge.with(|_session, dom| {
-                find_first_tag_descendant(dom, entity, "head")
-            });
+            let entity = Entity::from_bits(*bits as u64)
+                .ok_or_else(|| JsNativeError::typ().with_message("invalid entity"))?;
+            let head_entity =
+                bridge.with(|_session, dom| find_first_tag_descendant(dom, entity, "head"));
             match head_entity {
                 Some(e) => {
                     let wrapper = bridge.with(|session, _dom| {
@@ -2831,11 +2893,7 @@ fn build_parsed_document(
 }
 
 /// Find the first descendant element with the given tag name (depth-first).
-fn find_first_tag_descendant(
-    dom: &elidex_ecs::EcsDom,
-    root: Entity,
-    tag: &str,
-) -> Option<Entity> {
+fn find_first_tag_descendant(dom: &elidex_ecs::EcsDom, root: Entity, tag: &str) -> Option<Entity> {
     let mut stack = vec![root];
     while let Some(entity) = stack.pop() {
         if entity != root {
@@ -2892,10 +2950,7 @@ fn register_xml_serializer(ctx: &mut Context, bridge: &HostBridge) {
                                     .world()
                                     .get::<&elidex_ecs::TagType>(entity)
                                     .is_err()
-                                    && dom
-                                        .world()
-                                        .get::<&elidex_ecs::TextContent>(entity)
-                                        .is_ok();
+                                    && dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
 
                                 if is_text {
                                     // Return text content directly.
@@ -2921,8 +2976,7 @@ fn register_xml_serializer(ctx: &mut Context, bridge: &HostBridge) {
                                                 s.push_str(k);
                                                 s.push_str("=\"");
                                                 s.push_str(
-                                                    &v.replace('&', "&amp;")
-                                                        .replace('"', "&quot;"),
+                                                    &v.replace('&', "&amp;").replace('"', "&quot;"),
                                                 );
                                                 s.push('"');
                                             }
@@ -2934,9 +2988,7 @@ fn register_xml_serializer(ctx: &mut Context, bridge: &HostBridge) {
                                     let inner = bridge
                                         .dom_registry()
                                         .resolve("innerHTML.get")
-                                        .and_then(|h| {
-                                            h.invoke(entity, &[], session, dom).ok()
-                                        })
+                                        .and_then(|h| h.invoke(entity, &[], session, dom).ok())
                                         .and_then(|v| match v {
                                             elidex_plugin::JsValue::String(s) => Some(s),
                                             _ => None,
@@ -2976,8 +3028,7 @@ fn register_idle_callbacks(ctx: &mut Context) {
     // requestIdleCallback(callback, options?) → id
     let ric_fn = NativeFunction::from_copy_closure(|_this, args, ctx| {
         let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
-            JsNativeError::typ()
-                .with_message("requestIdleCallback: argument 1 must be a function")
+            JsNativeError::typ().with_message("requestIdleCallback: argument 1 must be a function")
         })?;
 
         // Extract optional timeout from options.
@@ -2991,11 +3042,7 @@ fn register_idle_callbacks(ctx: &mut Context) {
             })
             .unwrap_or(0.0);
 
-        let delay = if timeout_ms > 0.0 {
-            timeout_ms
-        } else {
-            0.0
-        };
+        let delay = if timeout_ms > 0.0 { timeout_ms } else { 0.0 };
 
         // Build IdleDeadline object.
         let did_timeout = delay > 0.0;
@@ -3033,13 +3080,14 @@ fn register_idle_callbacks(ctx: &mut Context) {
         // Use setTimeout to schedule.
         let global = ctx.global_object();
         let set_timeout = global.get(js_string!("setTimeout"), ctx)?;
-        let result = set_timeout.as_callable().ok_or_else(|| {
-            JsNativeError::typ().with_message("setTimeout not found")
-        })?.call(
-            &JsValue::undefined(),
-            &[JsValue::from(wrapped), JsValue::from(delay)],
-            ctx,
-        )?;
+        let result = set_timeout
+            .as_callable()
+            .ok_or_else(|| JsNativeError::typ().with_message("setTimeout not found"))?
+            .call(
+                &JsValue::undefined(),
+                &[JsValue::from(wrapped), JsValue::from(delay)],
+                ctx,
+            )?;
 
         Ok(result)
     });
@@ -3094,19 +3142,19 @@ fn register_structured_clone(ctx: &mut Context) {
         // For objects/arrays: JSON roundtrip.
         let global = ctx.global_object();
         let json = global.get(js_string!("JSON"), ctx)?;
-        let json_obj = json.as_object().ok_or_else(|| {
-            JsNativeError::typ().with_message("JSON global not found")
-        })?;
+        let json_obj = json
+            .as_object()
+            .ok_or_else(|| JsNativeError::typ().with_message("JSON global not found"))?;
 
         let stringify = json_obj.get(js_string!("stringify"), ctx)?;
         let parse = json_obj.get(js_string!("parse"), ctx)?;
 
-        let stringify_fn = stringify.as_callable().ok_or_else(|| {
-            JsNativeError::typ().with_message("JSON.stringify is not callable")
-        })?;
-        let parse_fn = parse.as_callable().ok_or_else(|| {
-            JsNativeError::typ().with_message("JSON.parse is not callable")
-        })?;
+        let stringify_fn = stringify
+            .as_callable()
+            .ok_or_else(|| JsNativeError::typ().with_message("JSON.stringify is not callable"))?;
+        let parse_fn = parse
+            .as_callable()
+            .ok_or_else(|| JsNativeError::typ().with_message("JSON.parse is not callable"))?;
 
         let json_str = stringify_fn.call(&json, &[value], ctx)?;
 

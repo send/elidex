@@ -183,7 +183,7 @@ pub(crate) fn extract_listener_options(
             let obj = v.as_object().unwrap();
             let signal_val = obj.get(js_string!("signal"), ctx)?;
             let signal = if abort::is_abort_signal(&signal_val, ctx) {
-                signal_val.as_object().map(|o| o.clone())
+                signal_val.as_object()
             } else {
                 None
             };
@@ -225,6 +225,7 @@ pub(crate) fn extract_capture(args: &[JsValue], ctx: &mut Context) -> JsResult<b
 ///
 /// Checks for duplicate listeners (same type, capture, and JS function identity),
 /// registers in ECS `EventListeners`, and stores the JS function in the bridge.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn add_event_listener_for(
     entity: Entity,
     args: &[JsValue],
@@ -331,17 +332,17 @@ pub(crate) fn add_event_listener_for(
                 };
 
                 bridge.with(|_session, dom| {
-                    let matching_id = dom
-                        .world()
-                        .get::<&EventListeners>(entity)
-                        .ok()
-                        .and_then(|listeners| {
-                            listeners
-                                .matching_all(&event_type)
-                                .into_iter()
-                                .find(|entry| bridge.listener_matches(entry.id, &listener_fn))
-                                .map(|entry| entry.id)
-                        });
+                    let matching_id =
+                        dom.world()
+                            .get::<&EventListeners>(entity)
+                            .ok()
+                            .and_then(|listeners| {
+                                listeners
+                                    .matching_all(&event_type)
+                                    .into_iter()
+                                    .find(|entry| bridge.listener_matches(entry.id, &listener_fn))
+                                    .map(|entry| entry.id)
+                            });
                     if let Some(id) = matching_id {
                         if let Ok(mut listeners) =
                             dom.world_mut().get::<&mut EventListeners>(entity)
@@ -420,13 +421,17 @@ pub(crate) fn remove_event_listener_for(
 /// WHATWG DOM §2.6: validates the event object, checks dispatch/initialized flags,
 /// then dispatches synchronously through the propagation path.
 /// Returns `!defaultPrevented` as a boolean.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn dispatch_event_for(
     entity: Entity,
     args: &[JsValue],
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    use crate::globals::event_constructors::*;
+    use crate::globals::event_constructors::{
+        EVENT_BUBBLES_KEY, EVENT_CANCELABLE_KEY, EVENT_COMPOSED_KEY, EVENT_DISPATCHING_KEY,
+        EVENT_INITIALIZED_KEY, EVENT_MARKER_KEY, EVENT_TYPE_KEY,
+    };
 
     let event_obj = args.first().ok_or_else(|| {
         JsNativeError::typ().with_message("dispatchEvent: argument 1 is required")
@@ -475,15 +480,9 @@ pub(crate) fn dispatch_event_for(
     }
 
     // Extract event metadata.
-    let bubbles = obj
-        .get(js_string!(EVENT_BUBBLES_KEY), ctx)?
-        .to_boolean();
-    let cancelable = obj
-        .get(js_string!(EVENT_CANCELABLE_KEY), ctx)?
-        .to_boolean();
-    let composed = obj
-        .get(js_string!(EVENT_COMPOSED_KEY), ctx)?
-        .to_boolean();
+    let bubbles = obj.get(js_string!(EVENT_BUBBLES_KEY), ctx)?.to_boolean();
+    let cancelable = obj.get(js_string!(EVENT_CANCELABLE_KEY), ctx)?.to_boolean();
+    let composed = obj.get(js_string!(EVENT_COMPOSED_KEY), ctx)?.to_boolean();
 
     // Set dispatch flag.
     let _ = obj.set(
@@ -508,8 +507,8 @@ pub(crate) fn dispatch_event_for(
     let user_event_obj = obj.clone();
 
     let pd_flag = Rc::new(std::cell::Cell::new(false));
-    let sp_flag = Rc::new(std::cell::Cell::new(false));
-    let si_flag = Rc::new(std::cell::Cell::new(false));
+    let stop_prop_flag = Rc::new(std::cell::Cell::new(false));
+    let stop_imm_flag = Rc::new(std::cell::Cell::new(false));
 
     // Install dispatch-owned flag methods on the user's event object.
     // These override the constructor-created methods for the duration of dispatch.
@@ -533,7 +532,7 @@ pub(crate) fn dispatch_event_for(
             ctx,
         );
 
-        let sp_shared = SharedFlag(Rc::clone(&sp_flag));
+        let stop_prop_shared = SharedFlag(Rc::clone(&stop_prop_flag));
         let _ = user_event_obj.set(
             js_string!("stopPropagation"),
             NativeFunction::from_copy_closure_with_captures(
@@ -541,15 +540,15 @@ pub(crate) fn dispatch_event_for(
                     f.0.set(true);
                     Ok(JsValue::undefined())
                 },
-                sp_shared,
+                stop_prop_shared,
             )
             .to_js_function(ctx.realm()),
             false,
             ctx,
         );
 
-        let si_shared_sp = SharedFlag(Rc::clone(&sp_flag));
-        let si_shared_si = SharedFlag(Rc::clone(&si_flag));
+        let imm_shared_prop = SharedFlag(Rc::clone(&stop_prop_flag));
+        let imm_shared_imm = SharedFlag(Rc::clone(&stop_imm_flag));
         let _ = user_event_obj.set(
             js_string!("stopImmediatePropagation"),
             NativeFunction::from_copy_closure_with_captures(
@@ -558,7 +557,7 @@ pub(crate) fn dispatch_event_for(
                     si.0.set(true);
                     Ok(JsValue::undefined())
                 },
-                (si_shared_sp, si_shared_si),
+                (imm_shared_prop, imm_shared_imm),
             )
             .to_js_function(ctx.realm()),
             false,
@@ -578,15 +577,14 @@ pub(crate) fn dispatch_event_for(
             &mut dispatch_event,
             &mut |listener_id, entity, ev| {
                 // Look up listener metadata for once/passive options.
-                let (is_once, is_passive) = dom
-                    .world()
-                    .get::<&EventListeners>(entity)
-                    .ok()
-                    .map_or((false, false), |listeners| {
+                let (is_once, is_passive) = dom.world().get::<&EventListeners>(entity).ok().map_or(
+                    (false, false),
+                    |listeners| {
                         listeners
                             .find_entry(listener_id)
                             .map_or((false, false), |entry| (entry.once, entry.passive))
-                    });
+                    },
+                );
 
                 let Some(js_func) = bridge.get_listener(listener_id) else {
                     return;
@@ -607,8 +605,8 @@ pub(crate) fn dispatch_event_for(
 
                 // Sync dispatch flags into our Rc<Cell>s before each listener.
                 pd_flag.set(ev.flags.default_prevented);
-                sp_flag.set(ev.flags.propagation_stopped);
-                si_flag.set(ev.flags.immediate_propagation_stopped);
+                stop_prop_flag.set(ev.flags.propagation_stopped);
+                stop_imm_flag.set(ev.flags.immediate_propagation_stopped);
 
                 // WHATWG DOM §2.6: passive listeners cannot call preventDefault().
                 // Temporarily mask the cancelable flag so preventDefault() is a no-op.
@@ -616,8 +614,7 @@ pub(crate) fn dispatch_event_for(
                 if is_passive {
                     ev.cancelable = false;
                     // Re-install preventDefault with cancelable=false so it's a no-op.
-                    let pd_shared =
-                        crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
+                    let pd_shared = crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
                     let _ = user_event_obj.set(
                         js_string!("preventDefault"),
                         NativeFunction::from_copy_closure_with_captures(
@@ -647,8 +644,7 @@ pub(crate) fn dispatch_event_for(
                 if is_passive {
                     ev.cancelable = saved_cancelable;
                     // Re-install preventDefault with the original cancelable flag.
-                    let pd_shared =
-                        crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
+                    let pd_shared = crate::globals::events::SharedFlag(Rc::clone(&pd_flag));
                     let _ = user_event_obj.set(
                         js_string!("preventDefault"),
                         NativeFunction::from_copy_closure_with_captures(
@@ -668,8 +664,8 @@ pub(crate) fn dispatch_event_for(
 
                 // Read back flag state from our owned Rc<Cell>s.
                 ev.flags.default_prevented = pd_flag.get();
-                ev.flags.propagation_stopped = sp_flag.get();
-                ev.flags.immediate_propagation_stopped = si_flag.get();
+                ev.flags.propagation_stopped = stop_prop_flag.get();
+                ev.flags.immediate_propagation_stopped = stop_imm_flag.get();
             },
         );
     });
@@ -679,10 +675,7 @@ pub(crate) fn dispatch_event_for(
     if !removals.is_empty() {
         bridge.with(|_session, dom| {
             for &(entity, listener_id) in removals.iter() {
-                if let Ok(mut listeners) = dom
-                    .world_mut()
-                    .get::<&mut EventListeners>(entity)
-                {
+                if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
                     listeners.remove(listener_id);
                 }
                 bridge.remove_listener(listener_id);

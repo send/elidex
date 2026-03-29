@@ -81,9 +81,7 @@ impl HostBridge {
     }
 
     /// Take (remove) the pending script dispatch event.
-    pub fn take_pending_script_dispatch(
-        &self,
-    ) -> Option<elidex_script_session::DispatchEvent> {
+    pub fn take_pending_script_dispatch(&self) -> Option<elidex_script_session::DispatchEvent> {
         self.inner.borrow_mut().pending_script_dispatch.take()
     }
 }

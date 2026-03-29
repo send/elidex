@@ -96,9 +96,7 @@ impl App {
             WindowEvent::Occluded(occluded) => {
                 // Page Visibility §4.1: dispatch visibilitychange when window
                 // becomes occluded/unoccluded.
-                self.send_to_content(BrowserToContent::VisibilityChanged {
-                    visible: !occluded,
-                });
+                self.send_to_content(BrowserToContent::VisibilityChanged { visible: !occluded });
                 needs_redraw = false;
             }
             _ => {
@@ -435,16 +433,16 @@ impl App {
                 if let Some(mgr) = &mut self.tab_manager {
                     // Notify the old active tab that it is now hidden.
                     if let Some(old_tab) = mgr.active_tab() {
-                        let _ = old_tab.channel.send(BrowserToContent::VisibilityChanged {
-                            visible: false,
-                        });
+                        let _ = old_tab
+                            .channel
+                            .send(BrowserToContent::VisibilityChanged { visible: false });
                     }
                     mgr.set_active(id);
                     // Notify the new active tab that it is now visible.
                     if let Some(new_tab) = mgr.active_tab() {
-                        let _ = new_tab.channel.send(BrowserToContent::VisibilityChanged {
-                            visible: true,
-                        });
+                        let _ = new_tab
+                            .channel
+                            .send(BrowserToContent::VisibilityChanged { visible: true });
                     }
                 }
             }

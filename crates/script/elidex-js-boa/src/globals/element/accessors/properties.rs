@@ -270,10 +270,7 @@ fn build_named_node_map(
                 invoke_dom_handler_void(
                     "setAttribute",
                     entity,
-                    &[
-                        ElidexJsValue::String(name),
-                        ElidexJsValue::String(value),
-                    ],
+                    &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
                     bridge,
                 )
             },

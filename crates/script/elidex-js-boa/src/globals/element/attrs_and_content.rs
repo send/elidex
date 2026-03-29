@@ -14,6 +14,7 @@ use crate::bridge::HostBridge;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_void};
 
 /// Register textContent (getter/setter) and innerHTML (getter) accessors.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub(crate) fn register_content_accessors(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
@@ -99,7 +100,7 @@ pub(crate) fn register_content_accessors(
 
     // outerHTML getter + setter
     let b = bridge.clone();
-    let oh_getter = NativeFunction::from_copy_closure_with_captures(
+    let outer_html_getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
             // outerHTML = opening tag + innerHTML + closing tag.
@@ -113,16 +114,12 @@ pub(crate) fn register_content_accessors(
                     .get::<&elidex_ecs::Attributes>(entity)
                     .ok()
                     .map(|a| {
-                        a.iter()
-                            .map(|(k, v)| {
-                                format!(
-                                    " {}=\"{}\"",
-                                    k,
-                                    v.replace('&', "&amp;")
-                                        .replace('"', "&quot;")
-                                )
-                            })
-                            .collect::<String>()
+                        use std::fmt::Write;
+                        a.iter().fold(String::new(), |mut acc, (k, v)| {
+                            let escaped = v.replace('&', "&amp;").replace('"', "&quot;");
+                            let _ = write!(acc, " {k}=\"{escaped}\"");
+                            acc
+                        })
                     })
                     .unwrap_or_default();
                 let handler = bridge.dom_registry().resolve("innerHTML.get");
@@ -146,7 +143,7 @@ pub(crate) fn register_content_accessors(
     .to_js_function(realm);
 
     let b = bridge.clone();
-    let oh_setter = NativeFunction::from_copy_closure_with_captures(
+    let outer_html_setter = NativeFunction::from_copy_closure_with_captures(
         |this, args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
             let html = args
@@ -202,8 +199,8 @@ pub(crate) fn register_content_accessors(
 
     init.accessor(
         js_string!("outerHTML"),
-        Some(oh_getter),
-        Some(oh_setter),
+        Some(outer_html_getter),
+        Some(outer_html_setter),
         Attribute::CONFIGURABLE,
     );
 }

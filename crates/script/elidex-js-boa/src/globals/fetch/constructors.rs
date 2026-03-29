@@ -20,9 +20,7 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
     ctx.register_global_builtin_callable(
         js_string!("Request"),
         1,
-        NativeFunction::from_copy_closure(|_this, args, ctx| {
-            build_request_object(args, ctx)
-        }),
+        NativeFunction::from_copy_closure(|_this, args, ctx| build_request_object(args, ctx)),
     )
     .expect("failed to register Request");
 
@@ -30,9 +28,7 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
     ctx.register_global_builtin_callable(
         js_string!("Response"),
         0,
-        NativeFunction::from_copy_closure(|_this, args, ctx| {
-            build_response_object(args, ctx)
-        }),
+        NativeFunction::from_copy_closure(|_this, args, ctx| build_response_object(args, ctx)),
     )
     .expect("failed to register Response");
 
@@ -45,10 +41,8 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
         // Response.error() — returns a network error Response (WHATWG Fetch §5.4).
         let _ = response_obj.set(
             js_string!("error"),
-            NativeFunction::from_copy_closure(|_this, _args, ctx| {
-                build_error_response(ctx)
-            })
-            .to_js_function(ctx.realm()),
+            NativeFunction::from_copy_closure(|_this, _args, ctx| build_error_response(ctx))
+                .to_js_function(ctx.realm()),
             false,
             ctx,
         );
@@ -94,11 +88,7 @@ const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
 const GUARD_KEY: &str = "__guard__";
 
 /// Check a header guard before mutation. Returns Err if disallowed.
-fn check_headers_guard(
-    this: &JsValue,
-    name: &str,
-    ctx: &mut Context,
-) -> boa_engine::JsResult<()> {
+fn check_headers_guard(this: &JsValue, name: &str, ctx: &mut Context) -> boa_engine::JsResult<()> {
     let guard = this
         .as_object()
         .map(|obj| obj.get(js_string!(GUARD_KEY), ctx))
@@ -133,6 +123,7 @@ fn check_headers_guard(
 ///
 /// `guard` determines mutation rules: "none" (default), "request" (rejects
 /// forbidden header names), or "immutable" (rejects all mutations).
+#[allow(clippy::too_many_lines)]
 fn build_headers_object(
     init: Option<&JsValue>,
     guard: &str,
@@ -214,7 +205,7 @@ fn build_headers_object(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             let mut headers = parse_headers(this, ctx)?;
-            headers.retain(|(k, _)| k.to_ascii_lowercase() != name.to_ascii_lowercase());
+            headers.retain(|(k, _)| !k.eq_ignore_ascii_case(&name));
             headers.push((name, value));
             store_headers(this, &headers, ctx)?;
             Ok(JsValue::undefined())
@@ -307,7 +298,7 @@ fn build_headers_object(
 /// Handles three init forms (WHATWG Fetch §5.1):
 /// 1. Headers object (has `__headers__` hidden property) — copy entries
 /// 2. Array of [name, value] pairs (sequence<sequence<ByteString>>)
-/// 3. Object (record<ByteString, ByteString>) — iterate own properties
+/// 3. Object (record<`ByteString`, `ByteString`>) — iterate own properties
 fn apply_headers_init(
     headers_obj: &boa_engine::JsObject,
     init_val: &JsValue,
@@ -381,7 +372,7 @@ fn apply_headers_init(
             .get(js_string!(&*k), ctx)?
             .to_string(ctx)?
             .to_std_string_escaped();
-        entries.push((k.to_string(), v));
+        entries.push((k.clone(), v));
     }
     if !entries.is_empty() {
         store_headers(&JsValue::from(headers_obj.clone()), &entries, ctx)?;
@@ -393,28 +384,22 @@ fn apply_headers_init(
 ///
 /// WHATWG Fetch §5.5: If `input` is a Request object, clone its URL/method/headers.
 /// Then apply any `init` overrides on top.
-fn build_request_object(
-    args: &[JsValue],
-    ctx: &mut Context,
-) -> boa_engine::JsResult<JsValue> {
+#[allow(clippy::too_many_lines)]
+fn build_request_object(args: &[JsValue], ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
     let input = args.first();
     let init = args.get(1);
 
     // Check if input is a Request object (has both url and method properties).
-    let is_request_input = input
-        .and_then(JsValue::as_object)
-        .is_some_and(|obj| {
-            obj.has_own_property(js_string!("method"), ctx)
-                .unwrap_or(false)
-        });
+    let is_request_input = input.and_then(JsValue::as_object).is_some_and(|obj| {
+        obj.has_own_property(js_string!("method"), ctx)
+            .unwrap_or(false)
+    });
 
     let (url, mut method, base_headers_encoded) = if is_request_input {
         let input_obj = input.unwrap().as_object().unwrap();
 
         // WHATWG Fetch §5.5 step 13: if body is used, throw TypeError.
-        let body_used = input_obj
-            .get(js_string!("bodyUsed"), ctx)?
-            .to_boolean();
+        let body_used = input_obj.get(js_string!("bodyUsed"), ctx)?.to_boolean();
         if body_used {
             return Err(JsNativeError::typ()
                 .with_message("Request: body has already been consumed")
@@ -439,11 +424,7 @@ fn build_request_object(
                 h_obj
                     .get(js_string!("__headers__"), ctx)
                     .ok()
-                    .and_then(|hv| {
-                        hv.to_string(ctx)
-                            .ok()
-                            .map(|s| s.to_std_string_escaped())
-                    })
+                    .and_then(|hv| hv.to_string(ctx).ok().map(|s| s.to_std_string_escaped()))
             })
             .unwrap_or_default();
 
@@ -461,7 +442,10 @@ fn build_request_object(
     if let Some(init_obj) = init.and_then(JsValue::as_object) {
         let m = init_obj.get(js_string!("method"), ctx)?;
         if !m.is_undefined() {
-            method = m.to_string(ctx)?.to_std_string_escaped().to_ascii_uppercase();
+            method = m
+                .to_string(ctx)?
+                .to_std_string_escaped()
+                .to_ascii_uppercase();
         }
     }
 
@@ -504,13 +488,37 @@ fn build_request_object(
 
     let mut init_obj = ObjectInitializer::new(ctx);
 
-    init_obj.property(js_string!("url"), JsValue::from(js_string!(url.as_str())), Attribute::READONLY);
-    init_obj.property(js_string!("method"), JsValue::from(js_string!(method.as_str())), Attribute::READONLY);
-    init_obj.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
+    init_obj.property(
+        js_string!("url"),
+        JsValue::from(js_string!(url.as_str())),
+        Attribute::READONLY,
+    );
+    init_obj.property(
+        js_string!("method"),
+        JsValue::from(js_string!(method.as_str())),
+        Attribute::READONLY,
+    );
+    init_obj.property(
+        js_string!("bodyUsed"),
+        JsValue::from(false),
+        Attribute::READONLY,
+    );
     init_obj.property(js_string!("headers"), headers, Attribute::READONLY);
-    init_obj.property(js_string!("redirect"), JsValue::from(js_string!(redirect.as_str())), Attribute::READONLY);
-    init_obj.property(js_string!("mode"), JsValue::from(js_string!(mode.as_str())), Attribute::READONLY);
-    init_obj.property(js_string!("credentials"), JsValue::from(js_string!(credentials.as_str())), Attribute::READONLY);
+    init_obj.property(
+        js_string!("redirect"),
+        JsValue::from(js_string!(redirect.as_str())),
+        Attribute::READONLY,
+    );
+    init_obj.property(
+        js_string!("mode"),
+        JsValue::from(js_string!(mode.as_str())),
+        Attribute::READONLY,
+    );
+    init_obj.property(
+        js_string!("credentials"),
+        JsValue::from(js_string!(credentials.as_str())),
+        Attribute::READONLY,
+    );
     init_obj.property(js_string!("signal"), signal, Attribute::READONLY);
 
     Ok(init_obj.build().into())
@@ -529,15 +537,12 @@ fn extract_string_opt(
         .filter(|v| !v.is_undefined())
         .map(|v| v.to_string(ctx))
         .transpose()
-        .map(|opt| {
-            opt.map(|s| s.to_std_string_escaped())
-                .unwrap_or_else(|| default.to_string())
-        })
+        .map(|opt| opt.map_or_else(|| default.to_string(), |s| s.to_std_string_escaped()))
 }
 
 /// Extract the body string from a Response constructor body argument.
 ///
-/// WHATWG Fetch §5.4: Handles null/undefined, URLSearchParams, Blob, and generic objects.
+/// WHATWG Fetch §5.4: Handles null/undefined, `URLSearchParams`, Blob, and generic objects.
 fn extract_body_string(body: &JsValue, ctx: &mut Context) -> boa_engine::JsResult<String> {
     if body.is_null() || body.is_undefined() {
         return Ok(String::new());
@@ -557,9 +562,10 @@ fn extract_body_string(body: &JsValue, ctx: &mut Context) -> boa_engine::JsResul
     Ok(body.to_string(ctx)?.to_std_string_escaped())
 }
 
-/// Add common Response properties to an ObjectInitializer.
+/// Add common Response properties to an `ObjectInitializer`.
 ///
 /// Sets status, statusText, ok, type, url, redirected, bodyUsed, headers, and __body__.
+#[allow(clippy::too_many_arguments)]
 fn add_response_properties(
     init: &mut ObjectInitializer<'_>,
     status: u16,
@@ -570,13 +576,41 @@ fn add_response_properties(
     headers: JsValue,
     body_str: &str,
 ) {
-    init.property(js_string!("status"), JsValue::from(f64::from(status)), Attribute::READONLY);
-    init.property(js_string!("statusText"), JsValue::from(js_string!(status_text)), Attribute::READONLY);
-    init.property(js_string!("ok"), JsValue::from((200..300).contains(&status)), Attribute::READONLY);
-    init.property(js_string!("type"), JsValue::from(js_string!(response_type)), Attribute::READONLY);
-    init.property(js_string!("url"), JsValue::from(js_string!(url_str)), Attribute::READONLY);
-    init.property(js_string!("redirected"), JsValue::from(redirected), Attribute::READONLY);
-    init.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
+    init.property(
+        js_string!("status"),
+        JsValue::from(f64::from(status)),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("statusText"),
+        JsValue::from(js_string!(status_text)),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("ok"),
+        JsValue::from((200..300).contains(&status)),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("type"),
+        JsValue::from(js_string!(response_type)),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("url"),
+        JsValue::from(js_string!(url_str)),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("redirected"),
+        JsValue::from(redirected),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("bodyUsed"),
+        JsValue::from(false),
+        Attribute::READONLY,
+    );
     init.property(js_string!("headers"), headers, Attribute::READONLY);
     init.property(
         js_string!("__body__"),
@@ -585,7 +619,7 @@ fn add_response_properties(
     );
 }
 
-/// Add text(), json(), and clone() methods to a constructor-built Response.
+/// Add `text()`, `json()`, and `clone()` methods to a constructor-built Response.
 fn add_response_methods(init: &mut ObjectInitializer<'_>) {
     // text() → Promise<string>
     init.function(
@@ -612,13 +646,13 @@ fn add_response_methods(init: &mut ObjectInitializer<'_>) {
                 .to_string(ctx)?
                 .to_std_string_escaped();
             let json_global = ctx.global_object().get(js_string!("JSON"), ctx)?;
-            let json_obj = json_global.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON global not found")
-            })?;
+            let json_obj = json_global
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("JSON global not found"))?;
             let parse_fn = json_obj.get(js_string!("parse"), ctx)?;
-            let parse_callable = parse_fn.as_callable().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON.parse not callable")
-            })?;
+            let parse_callable = parse_fn
+                .as_callable()
+                .ok_or_else(|| JsNativeError::typ().with_message("JSON.parse not callable"))?;
             let result = parse_callable.call(
                 &json_global,
                 &[JsValue::from(js_string!(body_str.as_str()))],
@@ -634,10 +668,7 @@ fn add_response_methods(init: &mut ObjectInitializer<'_>) {
 
 /// Build a Response object from constructor.
 #[allow(clippy::cast_possible_truncation)]
-fn build_response_object(
-    args: &[JsValue],
-    ctx: &mut Context,
-) -> boa_engine::JsResult<JsValue> {
+fn build_response_object(args: &[JsValue], ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
     let body = args.first().cloned().unwrap_or(JsValue::null());
     let init = args.get(1);
 
@@ -654,7 +685,14 @@ fn build_response_object(
 
     let mut init_obj = ObjectInitializer::new(ctx);
     add_response_properties(
-        &mut init_obj, status, &status_text, "default", "", false, headers, &body_str,
+        &mut init_obj,
+        status,
+        &status_text,
+        "default",
+        "",
+        false,
+        headers,
+        &body_str,
     );
     add_response_methods(&mut init_obj);
 
@@ -662,13 +700,10 @@ fn build_response_object(
 }
 
 /// Parse headers from the hidden `__headers__` property.
-fn parse_headers(
-    this: &JsValue,
-    ctx: &mut Context,
-) -> boa_engine::JsResult<Vec<(String, String)>> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("Headers: not a Headers object")
-    })?;
+fn parse_headers(this: &JsValue, ctx: &mut Context) -> boa_engine::JsResult<Vec<(String, String)>> {
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("Headers: not a Headers object"))?;
     let encoded = obj
         .get(js_string!("__headers__"), ctx)?
         .to_string(ctx)?
@@ -706,10 +741,7 @@ fn build_error_response(ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
 /// `Location` header set to the provided URL. Valid redirect statuses are
 /// 301, 302, 303, 307, and 308.
 #[allow(clippy::cast_possible_truncation)]
-fn build_redirect_response(
-    args: &[JsValue],
-    ctx: &mut Context,
-) -> boa_engine::JsResult<JsValue> {
+fn build_redirect_response(args: &[JsValue], ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
     let url_str = args
         .first()
         .map(|v| v.to_string(ctx))
@@ -719,7 +751,7 @@ fn build_redirect_response(
 
     let status = args
         .get(1)
-        .and_then(|v| v.as_number())
+        .and_then(boa_engine::JsValue::as_number)
         .map_or(302_u16, |n| n as u16);
 
     // Validate redirect status.
@@ -751,9 +783,9 @@ fn store_headers(
     headers: &[(String, String)],
     ctx: &mut Context,
 ) -> boa_engine::JsResult<()> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("Headers: not a Headers object")
-    })?;
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("Headers: not a Headers object"))?;
     let encoded = headers
         .iter()
         .map(|(k, v)| format!("{k}\0{v}"))

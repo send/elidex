@@ -87,7 +87,7 @@ pub(crate) struct HostBridgeInner {
     /// Cached viewport dimensions (set by content thread on `SetViewport`).
     viewport_width: f32,
     viewport_height: f32,
-    /// Device pixel ratio (set by content thread from winit scale_factor).
+    /// Device pixel ratio (set by content thread from winit `scale_factor`).
     device_pixel_ratio: f32,
     /// Window screen position X (set by content thread from winit).
     screen_x: i32,
@@ -151,7 +151,7 @@ pub(crate) struct HostBridgeInner {
     /// Set by `dispatch_event_for()`, consumed by runtime after eval.
     pending_script_dispatch: Option<elidex_script_session::DispatchEvent>,
     // --- Document state ---
-    /// The currently focused entity, synced from ContentState before eval.
+    /// The currently focused entity, synced from `ContentState` before eval.
     focus_target: Option<elidex_ecs::Entity>,
     /// Whether the tab is hidden (not the active tab).
     tab_hidden: bool,
@@ -160,7 +160,7 @@ pub(crate) struct HostBridgeInner {
     // --- Storage ---
     /// Session storage (tab-scoped).
     session_storage: HashMap<String, String>,
-    /// Cached byte size of session storage (sum of key.len() + value.len() for all entries).
+    /// Cached byte size of session storage (sum of `key.len()` + `value.len()` for all entries).
     session_storage_bytes: usize,
     /// Pending localStorage change notifications for cross-tab broadcast.
     pending_storage_changes: Vec<StorageChange>,
@@ -532,10 +532,7 @@ impl HostBridge {
         &self,
         anim: crate::globals::element::accessors::animate::ScriptAnimation,
     ) {
-        self.inner
-            .borrow_mut()
-            .pending_script_animations
-            .push(anim);
+        self.inner.borrow_mut().pending_script_animations.push(anim);
     }
 
     /// Drain pending script-initiated animations.
@@ -549,13 +546,13 @@ impl HostBridge {
     ///
     /// Currently returns 0 (pending animations not yet applied). In the full
     /// implementation, the content thread would sync animation state back.
-    pub(crate) fn animation_count(&self, _entity_id: u64) -> usize {
+    pub(crate) fn animation_count(&self, entity_id: u64) -> usize {
         // Count pending + active (from engine). For now, count pending only.
         self.inner
             .borrow()
             .pending_script_animations
             .iter()
-            .filter(|a| a.entity_id == _entity_id)
+            .filter(|a| a.entity_id == entity_id)
             .count()
     }
 
@@ -592,9 +589,8 @@ impl HostBridge {
         let Some(dom) = (unsafe { inner.dom_ptr.as_ref() }) else {
             return Vec::new();
         };
-        let entity = match Entity::from_bits(entity_bits) {
-            Some(e) => e,
-            None => return Vec::new(),
+        let Some(entity) = Entity::from_bits(entity_bits) else {
+            return Vec::new();
         };
 
         let mut pairs = Vec::new();
@@ -766,11 +762,7 @@ impl HostBridge {
 /// Parse a raw CSS rule string into a `CssomRule`.
 ///
 /// Recursively walk children of a form entity, collecting submittable name/value pairs.
-fn collect_form_data_recursive(
-    dom: &EcsDom,
-    parent: Entity,
-    pairs: &mut Vec<(String, String)>,
-) {
+fn collect_form_data_recursive(dom: &EcsDom, parent: Entity, pairs: &mut Vec<(String, String)>) {
     let mut child_opt = dom.get_first_child(parent);
     while let Some(child) = child_opt {
         // Check if this child has a FormControlState.

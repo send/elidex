@@ -7,6 +7,7 @@ use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
 use crate::bridge::HostBridge;
 
 /// Register `TextEncoder` and `TextDecoder` global constructors.
+#[allow(clippy::too_many_lines)]
 pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
     // TextEncoder: new TextEncoder()
     ctx.register_global_callable(
@@ -114,8 +115,7 @@ pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
                 .filter(|v| !v.is_undefined())
                 .map(|v| v.to_string(ctx))
                 .transpose()?
-                .map(|s| s.to_std_string_escaped())
-                .unwrap_or_else(|| "utf-8".to_string());
+                .map_or_else(|| "utf-8".to_string(), |s| s.to_std_string_escaped());
 
             // Resolve the label to an encoding via encoding_rs.
             let encoding = encoding_rs::Encoding::for_label(label.as_bytes()).ok_or_else(|| {
@@ -181,8 +181,7 @@ pub fn register_encoding(ctx: &mut Context, _bridge: &HostBridge) {
                                     .map(|v| v.to_string(ctx))
                             })
                             .transpose()?
-                            .map(|s| s.to_std_string_escaped())
-                            .unwrap_or_else(|| "UTF-8".to_string());
+                            .map_or_else(|| "UTF-8".to_string(), |s| s.to_std_string_escaped());
                         let encoding = encoding_rs::Encoding::for_label(enc_name.as_bytes())
                             .unwrap_or(encoding_rs::UTF_8);
 

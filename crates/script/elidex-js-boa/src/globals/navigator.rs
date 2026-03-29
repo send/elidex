@@ -67,8 +67,7 @@ pub fn register_navigator(ctx: &mut Context, _bridge: &HostBridge) {
     );
 
     // hardwareConcurrency
-    let cores = std::thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get);
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
     #[allow(clippy::cast_precision_loss)]
     init.property(
         js_string!("hardwareConcurrency"),

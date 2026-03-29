@@ -8,7 +8,7 @@ use crate::bridge::HostBridge;
 
 /// Hidden property key storing the entries Vec serialized as JSON-like pairs.
 const ENTRIES_KEY: &str = "__elidex_formdata_entries__";
-/// Hidden property key marking an object as FormData.
+/// Hidden property key marking an object as `FormData`.
 const FORMDATA_MARKER: &str = "__elidex_formdata__";
 
 /// Register `FormData` constructor on the global object.
@@ -53,9 +53,9 @@ fn collect_form_controls(
     let pairs = bridge.collect_form_data(entity_bits);
 
     let entries = fd.get(js_string!(ENTRIES_KEY), ctx)?;
-    let arr = entries.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("FormData: internal error")
-    })?;
+    let arr = entries
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("FormData: internal error"))?;
 
     for (name, value) in pairs {
         let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
@@ -68,11 +68,11 @@ fn collect_form_controls(
     Ok(())
 }
 
-/// Extract the internal entries array and its length from a FormData `this` value.
+/// Extract the internal entries array and its length from a `FormData` `this` value.
 fn fd_entries(this: &JsValue, ctx: &mut Context) -> JsResult<(JsObject, u32)> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("FormData: not an object")
-    })?;
+    let obj = this
+        .as_object()
+        .ok_or_else(|| JsNativeError::typ().with_message("FormData: not an object"))?;
     let arr = obj
         .get(js_string!(ENTRIES_KEY), ctx)?
         .as_object()
@@ -83,13 +83,18 @@ fn fd_entries(this: &JsValue, ctx: &mut Context) -> JsResult<(JsObject, u32)> {
 }
 
 /// Create a new `FormData` JS object with all methods.
+#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
 fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> {
     // Entries stored as a JsArray of [name, value] pairs.
     let entries = boa_engine::object::builtins::JsArray::new(ctx);
 
     let mut init = ObjectInitializer::new(ctx);
 
-    init.property(js_string!(FORMDATA_MARKER), JsValue::from(true), Attribute::empty());
+    init.property(
+        js_string!(FORMDATA_MARKER),
+        JsValue::from(true),
+        Attribute::empty(),
+    );
     init.property(
         js_string!(ENTRIES_KEY),
         JsValue::from(entries),
@@ -130,7 +135,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
-                    let entry_name = pair_obj.get(0, ctx)?.to_string(ctx)?.to_std_string_escaped();
+                    let entry_name = pair_obj
+                        .get(0, ctx)?
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
                     if entry_name != name {
                         let new_len =
                             new_arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
@@ -155,7 +163,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
-                    let entry_name = pair_obj.get(0, ctx)?.to_string(ctx)?.to_std_string_escaped();
+                    let entry_name = pair_obj
+                        .get(0, ctx)?
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
                     if entry_name == name {
                         return pair_obj.get(1, ctx);
                     }
@@ -177,7 +188,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
-                    let entry_name = pair_obj.get(0, ctx)?.to_string(ctx)?.to_std_string_escaped();
+                    let entry_name = pair_obj
+                        .get(0, ctx)?
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
                     if entry_name == name {
                         let val = pair_obj.get(1, ctx)?;
                         result.push(val, ctx)?;
@@ -199,7 +213,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
-                    let entry_name = pair_obj.get(0, ctx)?.to_string(ctx)?.to_std_string_escaped();
+                    let entry_name = pair_obj
+                        .get(0, ctx)?
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
                     if entry_name == name {
                         return Ok(JsValue::from(true));
                     }
@@ -229,7 +246,10 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
             for i in 0..len {
                 let pair = arr.get(i, ctx)?;
                 if let Some(pair_obj) = pair.as_object() {
-                    let entry_name = pair_obj.get(0, ctx)?.to_string(ctx)?.to_std_string_escaped();
+                    let entry_name = pair_obj
+                        .get(0, ctx)?
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
                     if entry_name == name {
                         if !inserted {
                             // Insert the new value at the first occurrence position.
@@ -311,8 +331,7 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
                 JsNativeError::typ().with_message("FormData: this is not an object")
             })?;
             let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
-                JsNativeError::typ()
-                    .with_message("FormData.forEach: argument must be a function")
+                JsNativeError::typ().with_message("FormData.forEach: argument must be a function")
             })?;
             let this_arg = args.get(1).cloned().unwrap_or(JsValue::undefined());
 
@@ -334,7 +353,7 @@ fn create_form_data_object(ctx: &mut Context) -> JsResult<boa_engine::JsObject> 
     Ok(init.build())
 }
 
-/// Check if a JS value is a FormData object.
+/// Check if a JS value is a `FormData` object.
 #[allow(dead_code)]
 pub(crate) fn is_form_data(val: &JsValue, ctx: &mut Context) -> bool {
     val.as_object().is_some_and(|obj| {

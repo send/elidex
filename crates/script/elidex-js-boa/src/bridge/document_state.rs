@@ -5,12 +5,12 @@
 use super::HostBridge;
 
 impl HostBridge {
-    /// Get cookies for script access (filters out HttpOnly cookies).
+    /// Get cookies for script access (filters out `HttpOnly` cookies).
     ///
     /// Uses the shared `CookieJar` from the realtime state.
     pub fn cookies_for_script(&self, url: &url::Url) -> String {
         let inner = self.inner.borrow();
-        if let Some(ref jar) = inner.realtime.cookie_jar_ref() {
+        if let Some(jar) = inner.realtime.cookie_jar_ref() {
             jar.cookies_for_script(url)
         } else {
             String::new()
@@ -19,10 +19,10 @@ impl HostBridge {
 
     /// Set a cookie from script (`document.cookie = "..."` setter).
     ///
-    /// Rejects HttpOnly and Secure-over-non-HTTPS cookies.
+    /// Rejects `HttpOnly` and Secure-over-non-HTTPS cookies.
     pub fn set_cookie_from_script(&self, url: &url::Url, value: &str) {
         let inner = self.inner.borrow();
-        if let Some(ref jar) = inner.realtime.cookie_jar_ref() {
+        if let Some(jar) = inner.realtime.cookie_jar_ref() {
             jar.set_cookie_from_script(url, value);
         }
     }
@@ -32,7 +32,7 @@ impl HostBridge {
         self.inner.borrow().focus_target
     }
 
-    /// Set the focused entity (synced from ContentState before eval).
+    /// Set the focused entity (synced from `ContentState` before eval).
     pub fn set_focus_target(&self, entity: Option<elidex_ecs::Entity>) {
         self.inner.borrow_mut().focus_target = entity;
     }
@@ -136,11 +136,7 @@ impl HostBridge {
         let origin = self.local_storage_origin();
         let old_value = super::local_storage::local_storage_get(&origin, key);
         super::local_storage::local_storage_set(&origin, key, value);
-        self.push_storage_change(
-            Some(key.to_string()),
-            old_value,
-            Some(value.to_string()),
-        );
+        self.push_storage_change(Some(key.to_string()), old_value, Some(value.to_string()));
     }
 
     pub fn local_storage_remove(&self, key: &str) {

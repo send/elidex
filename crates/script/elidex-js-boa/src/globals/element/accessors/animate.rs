@@ -78,7 +78,7 @@ pub(in crate::globals::element) fn register_animate_methods(
     );
 }
 
-/// A parsed keyframe for the animate() API.
+/// A parsed keyframe for the `animate()` API.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct ParsedKeyframe {
@@ -96,7 +96,7 @@ pub struct ParsedKeyframe {
 pub struct AnimationOptions {
     /// Duration in milliseconds.
     pub duration: f64,
-    /// Number of iterations (f64::INFINITY for infinite).
+    /// Number of iterations (`f64::INFINITY` for infinite).
     pub iterations: f64,
     /// Easing function name.
     pub easing: String,
@@ -155,13 +155,13 @@ pub(crate) struct AnimationInfo {
 /// Two formats (Web Animations §5.1):
 /// 1. Array of keyframe objects: `[{ opacity: 0 }, { opacity: 1 }]`
 /// 2. Property arrays: `{ opacity: [0, 1] }`
+#[allow(clippy::too_many_lines)]
 fn parse_keyframes(
     val: &JsValue,
     ctx: &mut boa_engine::Context,
 ) -> boa_engine::JsResult<Vec<ParsedKeyframe>> {
-    let obj = match val.as_object() {
-        Some(o) => o,
-        None => return Ok(Vec::new()),
+    let Some(obj) = val.as_object() else {
+        return Ok(Vec::new());
     };
 
     // Check if it's an array (format 1) by checking for numeric length.
@@ -176,9 +176,8 @@ fn parse_keyframes(
 
         for i in 0..len {
             let kf_val = obj.get(i, ctx)?;
-            let kf_obj = match kf_val.as_object() {
-                Some(o) => o,
-                None => continue,
+            let Some(kf_obj) = kf_val.as_object() else {
+                continue;
             };
 
             let offset = kf_obj
@@ -206,10 +205,7 @@ fn parse_keyframes(
                     boa_engine::property::PropertyKey::String(s) => s.to_std_string_escaped(),
                     _ => continue,
                 };
-                if matches!(
-                    key_str.as_str(),
-                    "offset" | "easing" | "composite"
-                ) {
+                if matches!(key_str.as_str(), "offset" | "easing" | "composite") {
                     continue;
                 }
                 let val_str = kf_obj
@@ -244,15 +240,12 @@ fn parse_keyframes(
                 continue;
             }
             let arr_val = obj.get(key.clone(), ctx)?;
-            let arr_obj = match arr_val.as_object() {
-                Some(o) => o,
-                None => {
-                    // Single value → treat as [value].
-                    let v = arr_val.to_string(ctx)?.to_std_string_escaped();
-                    prop_arrays.push((camel_to_kebab(&key_str), vec![v]));
-                    max_len = max_len.max(1);
-                    continue;
-                }
+            let Some(arr_obj) = arr_val.as_object() else {
+                // Single value → treat as [value].
+                let v = arr_val.to_string(ctx)?.to_std_string_escaped();
+                prop_arrays.push((camel_to_kebab(&key_str), vec![v]));
+                max_len = max_len.max(1);
+                continue;
             };
             let arr_len = arr_obj
                 .get(js_string!("length"), ctx)?
@@ -309,7 +302,7 @@ fn get_opt_string(
         .unwrap_or_else(|| default.to_string())
 }
 
-/// Parse animation options from the second argument of animate().
+/// Parse animation options from the second argument of `animate()`.
 fn parse_animation_options(
     val: Option<&JsValue>,
     ctx: &mut boa_engine::Context,
@@ -326,9 +319,8 @@ fn parse_animation_options(
         });
     }
 
-    let obj = match v.as_object() {
-        Some(o) => o,
-        None => return Ok(AnimationOptions::default()),
+    let Some(obj) = v.as_object() else {
+        return Ok(AnimationOptions::default());
     };
 
     let duration = obj
@@ -363,6 +355,7 @@ fn parse_animation_options(
 }
 
 /// Build an `Animation` JS object (Web Animations §4.4).
+#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
 fn build_animation_object(
     _entity_id: u64,
     options: &AnimationOptions,
@@ -524,11 +517,8 @@ fn build_animation_object(
                 let reject_fn = obj.get(js_string!("__finished_reject__"), ctx)?;
                 if let Some(callable) = reject_fn.as_callable() {
                     let abort_error = crate::globals::abort::create_abort_error_object(ctx)?;
-                    let _ = callable.call(
-                        &JsValue::undefined(),
-                        &[JsValue::from(abort_error)],
-                        ctx,
-                    );
+                    let _ =
+                        callable.call(&JsValue::undefined(), &[JsValue::from(abort_error)], ctx);
                 }
 
                 // Replace finished with a new pending promise.
@@ -590,12 +580,7 @@ fn build_animation_object(
                     .get(js_string!("playbackRate"), ctx)?
                     .to_number(ctx)
                     .unwrap_or(1.0);
-                obj.set(
-                    js_string!("playbackRate"),
-                    JsValue::from(-rate),
-                    false,
-                    ctx,
-                )?;
+                obj.set(js_string!("playbackRate"), JsValue::from(-rate), false, ctx)?;
             }
             Ok(JsValue::undefined())
         }),
@@ -620,7 +605,7 @@ fn build_animation_object(
 
 /// Build an Animation object from bridge info (for getAnimations).
 fn build_animation_from_info(
-    _entity_id: u64,
+    entity_id: u64,
     info: &AnimationInfo,
     ctx: &mut boa_engine::Context,
 ) -> boa_engine::JsResult<boa_engine::JsObject> {
@@ -628,7 +613,7 @@ fn build_animation_from_info(
         id: info.id.clone(),
         ..Default::default()
     };
-    let obj = build_animation_object(_entity_id, &opts, ctx)?;
+    let obj = build_animation_object(entity_id, &opts, ctx)?;
     obj.set(
         js_string!("playState"),
         JsValue::from(js_string!(info.play_state.as_str())),

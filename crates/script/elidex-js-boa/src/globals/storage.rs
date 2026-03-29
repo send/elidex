@@ -23,8 +23,12 @@ pub fn register_storage(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
     let session = build_storage_object(ctx, &b, false);
     let session_proxy = wrap_storage_with_proxy(ctx, session);
-    ctx.register_global_property(js_string!("sessionStorage"), session_proxy, Attribute::all())
-        .expect("failed to register sessionStorage");
+    ctx.register_global_property(
+        js_string!("sessionStorage"),
+        session_proxy,
+        Attribute::all(),
+    )
+    .expect("failed to register sessionStorage");
 }
 
 /// Wrap a Storage object in a JS `Proxy` with get/set traps.
@@ -38,7 +42,7 @@ fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
     let global = ctx.global_object();
     let _ = global.set(js_string!("__elidex_tmp_storage__"), storage, false, ctx);
 
-    let proxy_code = r#"(function() {
+    let proxy_code = r"(function() {
         var target = __elidex_tmp_storage__;
         var methodNames = {
             getItem: true, setItem: true, removeItem: true, clear: true,
@@ -62,7 +66,7 @@ fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
                 return true;
             }
         });
-    })()"#;
+    })()";
 
     let result = ctx
         .eval(Source::from_bytes(proxy_code))
@@ -75,11 +79,8 @@ fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
 }
 
 /// Build a Storage object (shared implementation for local/session).
-fn build_storage_object(
-    ctx: &mut Context,
-    bridge: &HostBridge,
-    is_local: bool,
-) -> JsValue {
+#[allow(clippy::too_many_lines)]
+fn build_storage_object(ctx: &mut Context, bridge: &HostBridge, is_local: bool) -> JsValue {
     let mut init = ObjectInitializer::new(ctx);
     let realm = init.context().realm().clone();
 
@@ -226,10 +227,7 @@ fn build_storage_object(
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, bridge, _ctx| {
-                let index = args
-                    .first()
-                    .and_then(JsValue::as_number)
-                    .unwrap_or(0.0);
+                let index = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
                 if !index.is_finite() || index < 0.0 {
                     return Ok(JsValue::null());
                 }

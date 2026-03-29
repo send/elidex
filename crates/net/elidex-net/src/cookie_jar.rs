@@ -259,7 +259,7 @@ impl CookieJar {
     /// Set a cookie from script (`document.cookie` setter).
     ///
     /// Parses the value as a `Set-Cookie` header. Rejects cookies with
-    /// `HttpOnly` attribute (scripts cannot set HttpOnly cookies) and
+    /// `HttpOnly` attribute (scripts cannot set `HttpOnly` cookies) and
     /// `Secure` cookies on non-HTTPS pages.
     pub fn set_cookie_from_script(&self, url: &url::Url, value: &str) {
         let Some(domain) = url.host_str() else {
@@ -284,7 +284,9 @@ impl CookieJar {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Remove existing cookie with same name/domain/path.
-        jar.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
+        jar.retain(|c| {
+            !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+        });
         // Evict the oldest cookie (first inserted) if at the global limit.
         if jar.len() >= MAX_TOTAL_COOKIES {
             jar.remove(0);

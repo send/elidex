@@ -524,9 +524,8 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
             let doc = bridge.document_entity();
             let body_handler = bridge.dom_registry().resolve("document.body.get");
             if let Some(handler) = body_handler {
-                let result = bridge.with(|session, dom| {
-                    handler.invoke(doc, &[], session, dom).ok()
-                });
+                let result =
+                    bridge.with(|session, dom| handler.invoke(doc, &[], session, dom).ok());
                 if let Some(val) = result {
                     return Ok(resolve_object_ref(&val, bridge, ctx));
                 }
@@ -548,16 +547,11 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let class_name = crate::globals::require_js_string_arg(
-                    args,
-                    0,
-                    "getElementsByClassName",
-                    ctx,
-                )?;
+                let class_name =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByClassName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities = bridge.with(|_session, dom| {
-                    collect_elements_by_class(doc, &class_name, dom)
-                });
+                let entities =
+                    bridge.with(|_session, dom| collect_elements_by_class(doc, &class_name, dom));
                 Ok(entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbcn,
@@ -571,16 +565,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let tag = crate::globals::require_js_string_arg(
-                    args,
-                    0,
-                    "getElementsByTagName",
-                    ctx,
-                )?;
+                let tag =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByTagName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities = bridge.with(|_session, dom| {
-                    collect_elements_by_tag(doc, &tag, dom)
-                });
+                let entities = bridge.with(|_session, dom| collect_elements_by_tag(doc, &tag, dom));
                 Ok(entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbtn,
@@ -594,16 +582,11 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let name = crate::globals::require_js_string_arg(
-                    args,
-                    0,
-                    "getElementsByName",
-                    ctx,
-                )?;
+                let name =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByName", ctx)?;
                 let doc = bridge.document_entity();
-                let entities = bridge.with(|_session, dom| {
-                    collect_elements_by_name(doc, &name, dom)
-                });
+                let entities =
+                    bridge.with(|_session, dom| collect_elements_by_name(doc, &name, dom));
                 Ok(entities_to_js_array(&entities, bridge, ctx))
             },
             b_gbn,
@@ -627,18 +610,14 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let doc_entity = bridge.document_entity();
                 if node == doc_entity {
                     return Err(JsNativeError::eval()
-                        .with_message("NotSupportedError: importNode: Document nodes cannot be imported")
+                        .with_message(
+                            "NotSupportedError: importNode: Document nodes cannot be imported",
+                        )
                         .into());
                 }
                 let deep = args.get(1).is_some_and(JsValue::to_boolean);
                 // Use cloneNode — single-document assumption.
-                invoke_dom_handler_ref(
-                    "cloneNode",
-                    node,
-                    &[ElidexJsValue::Bool(deep)],
-                    bridge,
-                    ctx,
-                )
+                invoke_dom_handler_ref("cloneNode", node, &[ElidexJsValue::Bool(deep)], bridge, ctx)
             },
             b_import,
         ),
@@ -651,15 +630,17 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let node_val = args.first().ok_or_else(|| {
-                    JsNativeError::typ().with_message("adoptNode: node required")
-                })?;
+                let node_val = args
+                    .first()
+                    .ok_or_else(|| JsNativeError::typ().with_message("adoptNode: node required"))?;
                 let entity = crate::globals::element::extract_entity(node_val, ctx)?;
                 // WHATWG DOM §4.5: throw NotSupportedError if node is a Document.
                 let doc_entity = bridge.document_entity();
                 if entity == doc_entity {
                     return Err(JsNativeError::eval()
-                        .with_message("NotSupportedError: adoptNode: Document nodes cannot be adopted")
+                        .with_message(
+                            "NotSupportedError: adoptNode: Document nodes cannot be adopted",
+                        )
                         .into());
                 }
                 // Detach from parent if attached (via removeChild on parent).
@@ -698,8 +679,8 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 .map(|s| s.to_std_string_escaped().to_ascii_lowercase())
                 .unwrap_or_default();
             match iface.as_str() {
-                "event" | "events" | "customevent" | "mouseevent" | "mouseevents"
-                | "uievent" | "uievents" => {
+                "event" | "events" | "customevent" | "mouseevent" | "mouseevents" | "uievent"
+                | "uievents" => {
                     // Create event with initialized=false via the Event constructor path,
                     // then override initialized to false.
                     let event = crate::globals::event_constructors::build_uninit_event(ctx)?;
@@ -844,27 +825,25 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     // Returns the <script> element currently being evaluated, or null.
     let b_cs = b.clone();
     let cs_getter = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, bridge, ctx| {
-            match bridge.current_script_entity() {
-                Some(entity) => {
-                    let wrapper = bridge.with(|session, dom| {
-                        let obj_ref = session.get_or_create_wrapper(
-                            entity,
-                            elidex_script_session::ComponentKind::Element,
-                        );
-                        let is_iframe = dom
-                            .world()
-                            .get::<&elidex_ecs::TagType>(entity)
-                            .ok()
-                            .is_some_and(|t| t.0 == "iframe");
-                        crate::globals::element::create_element_wrapper(
-                            entity, bridge, obj_ref, ctx, is_iframe,
-                        )
-                    });
-                    Ok(wrapper)
-                }
-                None => Ok(JsValue::null()),
+        |_this, _args, bridge, ctx| match bridge.current_script_entity() {
+            Some(entity) => {
+                let wrapper = bridge.with(|session, dom| {
+                    let obj_ref = session.get_or_create_wrapper(
+                        entity,
+                        elidex_script_session::ComponentKind::Element,
+                    );
+                    let is_iframe = dom
+                        .world()
+                        .get::<&elidex_ecs::TagType>(entity)
+                        .ok()
+                        .is_some_and(|t| t.0 == "iframe");
+                    crate::globals::element::create_element_wrapper(
+                        entity, bridge, obj_ref, ctx, is_iframe,
+                    )
+                });
+                Ok(wrapper)
             }
+            None => Ok(JsValue::null()),
         },
         b_cs,
     )
@@ -955,10 +934,7 @@ pub(crate) fn collect_elements_by_class(
         if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
             if let Some(cls) = attrs.get("class") {
                 let element_classes: Vec<&str> = cls.split_whitespace().collect();
-                if target_classes
-                    .iter()
-                    .all(|tc| element_classes.contains(tc))
-                {
+                if target_classes.iter().all(|tc| element_classes.contains(tc)) {
                     results.push(entity);
                 }
             }
@@ -992,11 +968,7 @@ pub(crate) fn collect_elements_by_tag(
 }
 
 /// Collect all descendant elements with a matching `name` attribute.
-fn collect_elements_by_name(
-    root: Entity,
-    name: &str,
-    dom: &elidex_ecs::EcsDom,
-) -> Vec<Entity> {
+fn collect_elements_by_name(root: Entity, name: &str, dom: &elidex_ecs::EcsDom) -> Vec<Entity> {
     let mut results = Vec::new();
     walk_descendants(root, dom, &mut |entity| {
         if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
@@ -1009,11 +981,7 @@ fn collect_elements_by_name(
 }
 
 /// Pre-order walk of all descendants (excluding root).
-fn walk_descendants(
-    root: Entity,
-    dom: &elidex_ecs::EcsDom,
-    callback: &mut dyn FnMut(Entity),
-) {
+fn walk_descendants(root: Entity, dom: &elidex_ecs::EcsDom, callback: &mut dyn FnMut(Entity)) {
     let mut stack = Vec::new();
     // Push children last-to-first so first child is popped first (pre-order).
     let mut child = dom.get_last_child(root);
@@ -1059,8 +1027,7 @@ fn register_collection_getter(
     let getter = NativeFunction::from_copy_closure_with_captures(
         move |_this, _args, bridge, ctx| {
             let doc = bridge.document_entity();
-            let entities =
-                bridge.with(|_session, dom| collect_elements_by_tag(doc, tag, dom));
+            let entities = bridge.with(|_session, dom| collect_elements_by_tag(doc, tag, dom));
             Ok(entities_to_js_array(&entities, bridge, ctx))
         },
         b,

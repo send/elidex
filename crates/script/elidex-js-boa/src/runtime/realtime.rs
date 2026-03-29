@@ -113,8 +113,14 @@ fn dispatch_ws_connected(
         return;
     };
     let this_val = JsValue::from(js_object);
-    let event_obj =
-        create_standalone_event("open", &EventPayload::None, false, true, Some(&this_val), ctx);
+    let event_obj = create_standalone_event(
+        "open",
+        &EventPayload::None,
+        false,
+        true,
+        Some(&this_val),
+        ctx,
+    );
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
 }
 
@@ -197,8 +203,14 @@ fn dispatch_ws_error(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context)
         return;
     };
     let this_val = JsValue::from(js_object);
-    let event_obj =
-        create_standalone_event("error", &EventPayload::None, false, true, Some(&this_val), ctx);
+    let event_obj = create_standalone_event(
+        "error",
+        &EventPayload::None,
+        false,
+        true,
+        Some(&this_val),
+        ctx,
+    );
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
     eprintln!("[WebSocket] error: {msg}");
 }
@@ -285,8 +297,14 @@ fn dispatch_sse_connected(id: u64, bridge: &HostBridge, ctx: &mut Context) {
         return;
     };
     let this_val = JsValue::from(js_object);
-    let event_obj =
-        create_standalone_event("open", &EventPayload::None, false, true, Some(&this_val), ctx);
+    let event_obj = create_standalone_event(
+        "open",
+        &EventPayload::None,
+        false,
+        true,
+        Some(&this_val),
+        ctx,
+    );
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
 }
 
@@ -355,8 +373,14 @@ fn dispatch_sse_error(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context
         return;
     };
     let this_val = JsValue::from(js_object);
-    let event_obj =
-        create_standalone_event("error", &EventPayload::None, false, true, Some(&this_val), ctx);
+    let event_obj = create_standalone_event(
+        "error",
+        &EventPayload::None,
+        false,
+        true,
+        Some(&this_val),
+        ctx,
+    );
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
     eprintln!("[EventSource] recoverable error: {msg}");
 }
@@ -384,8 +408,14 @@ fn dispatch_sse_fatal(id: u64, msg: &str, bridge: &HostBridge, ctx: &mut Context
         return;
     };
     let this_val = JsValue::from(js_object);
-    let event_obj =
-        create_standalone_event("error", &EventPayload::None, false, true, Some(&this_val), ctx);
+    let event_obj = create_standalone_event(
+        "error",
+        &EventPayload::None,
+        false,
+        true,
+        Some(&this_val),
+        ctx,
+    );
     invoke_callback_and_listeners(callback, &listeners, &event_obj, &this_val, ctx);
     // Close and remove from registry.
     bridge.sse_close(id);

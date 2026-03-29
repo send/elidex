@@ -34,6 +34,7 @@ impl ConsoleOutput {
 impl_empty_trace!(ConsoleOutput);
 
 /// Register the `console` global object.
+#[allow(clippy::too_many_lines)]
 pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     // ConsoleOutput now carries timers/counters for shared state.
 
@@ -65,7 +66,10 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
             |_this, args, out, ctx| {
                 let parts: Vec<String> = args
                     .iter()
-                    .map(|a| a.to_string(ctx).map_or("[error]".into(), |s| s.to_std_string_escaped()))
+                    .map(|a| {
+                        a.to_string(ctx)
+                            .map_or("[error]".into(), |s| s.to_std_string_escaped())
+                    })
                     .collect();
                 let msg = format!("Trace: {}", parts.join(" "));
                 eprintln!("[console.trace] {msg}");
@@ -85,8 +89,13 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
             |_this, args, out, ctx| {
                 let condition = args.first().is_some_and(JsValue::to_boolean);
                 if !condition {
-                    let parts: Vec<String> = args.iter().skip(1)
-                        .map(|a| a.to_string(ctx).map_or("[error]".into(), |s| s.to_std_string_escaped()))
+                    let parts: Vec<String> = args
+                        .iter()
+                        .skip(1)
+                        .map(|a| {
+                            a.to_string(ctx)
+                                .map_or("[error]".into(), |s| s.to_std_string_escaped())
+                        })
                         .collect();
                     let msg = if parts.is_empty() {
                         "Assertion failed".to_string()
@@ -131,7 +140,8 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, out, ctx| {
-                let label = args.first()
+                let label = args
+                    .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map_or("default".into(), |s| s.to_std_string_escaped());
@@ -140,7 +150,9 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
                     eprintln!("[console.time] {msg}");
                     out.push("warn", msg);
                 } else {
-                    out.timers.borrow_mut().insert(label, std::time::Instant::now());
+                    out.timers
+                        .borrow_mut()
+                        .insert(label, std::time::Instant::now());
                 }
                 Ok(JsValue::undefined())
             },
@@ -154,7 +166,8 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, out, ctx| {
-                let label = args.first()
+                let label = args
+                    .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map_or("default".into(), |s| s.to_std_string_escaped());
@@ -180,7 +193,8 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, out, ctx| {
-                let label = args.first()
+                let label = args
+                    .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map_or("default".into(), |s| s.to_std_string_escaped());
@@ -207,7 +221,8 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, out, ctx| {
-                let label = args.first()
+                let label = args
+                    .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map_or("default".into(), |s| s.to_std_string_escaped());
@@ -232,7 +247,8 @@ pub fn register_console(ctx: &mut Context, output: &ConsoleOutput) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, out, ctx| {
-                let label = args.first()
+                let label = args
+                    .first()
                     .map(|v| v.to_string(ctx))
                     .transpose()?
                     .map_or("default".into(), |s| s.to_std_string_escaped());

@@ -619,11 +619,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event.bubbles = true;
             event.cancelable = false;
             // Store visibility state in the bridge for document.visibilityState.
-            state
-                .pipeline
-                .runtime
-                .bridge()
-                .set_visibility(visible);
+            state.pipeline.runtime.bridge().set_visibility(visible);
             state.pipeline.runtime.dispatch_event(
                 &mut event,
                 &mut state.pipeline.session,
@@ -801,6 +797,7 @@ fn apply_script_animations(state: &mut ContentState) {
         let mut keyframes = Vec::new();
         let num_kf = anim.keyframes.len();
         for (i, kf) in anim.keyframes.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
             let offset = kf.offset.unwrap_or_else(|| {
                 if num_kf <= 1 {
                     1.0
@@ -818,6 +815,7 @@ fn apply_script_animations(state: &mut ContentState) {
                 })
                 .collect();
             keyframes.push(elidex_css_anim::parse::Keyframe {
+                #[allow(clippy::cast_possible_truncation)]
                 offset: offset as f32,
                 declarations,
                 timing_function: None,
