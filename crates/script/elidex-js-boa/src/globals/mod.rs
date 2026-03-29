@@ -470,6 +470,7 @@ pub fn register_all_globals(
     window::register_window(ctx, bridge);
     timers::register_timers(ctx, timer_queue);
     fetch::register_fetch(ctx, fetch_handle.clone());
+    fetch::constructors::register_fetch_constructors(ctx);
     wasm::register_wasm(ctx, bridge);
     observers::register_observers(ctx, bridge);
     custom_elements::register_custom_elements_global(ctx, bridge);

@@ -52,6 +52,69 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_atob_btoa(ctx);
     register_crypto(ctx);
     register_queue_microtask(ctx);
+    register_image_constructor(ctx, bridge);
+}
+
+/// Register `Image()` named constructor (WHATWG HTML §4.8.3).
+fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
+    let b = bridge.clone();
+    ctx.register_global_builtin_callable(
+        js_string!("Image"),
+        0,
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                // Create <img> element via createElement.
+                let doc = bridge.document_entity();
+                let handler = bridge.dom_registry().resolve("createElement").ok_or_else(|| {
+                    boa_engine::JsNativeError::typ().with_message("createElement handler not found")
+                })?;
+                let result = bridge.with(|session, dom| {
+                    handler
+                        .invoke(
+                            doc,
+                            &[elidex_plugin::JsValue::String("img".to_string())],
+                            session,
+                            dom,
+                        )
+                        .map_err(crate::error_conv::dom_error_to_js_error)
+                })?;
+                let wrapper =
+                    crate::globals::element::resolve_object_ref(&result, bridge, ctx);
+
+                // Set width/height content attributes if provided.
+                if let Some(entity) =
+                    wrapper.as_object().and_then(|_| {
+                        crate::globals::element::extract_entity(&wrapper, ctx).ok()
+                    })
+                {
+                    if let Some(w) = args.first().and_then(JsValue::as_number) {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                #[allow(clippy::cast_possible_truncation)]
+                                attrs.set("width", &(w as i64).to_string());
+                            }
+                        });
+                    }
+                    if let Some(h) = args.get(1).and_then(JsValue::as_number) {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                #[allow(clippy::cast_possible_truncation)]
+                                attrs.set("height", &(h as i64).to_string());
+                            }
+                        });
+                    }
+                }
+
+                Ok(wrapper)
+            },
+            b,
+        ),
+    )
+    .expect("failed to register Image");
 }
 
 /// Register `addEventListener`, `removeEventListener`, `dispatchEvent` on window.

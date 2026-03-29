@@ -8,6 +8,8 @@
 //!   Response headers are immutable per the Fetch spec. A mutable `Headers`
 //!   constructor will be added in Phase 3 alongside the `Request` object.
 
+pub(crate) mod constructors;
+
 use std::rc::Rc;
 
 use boa_engine::object::builtins::JsPromise;
