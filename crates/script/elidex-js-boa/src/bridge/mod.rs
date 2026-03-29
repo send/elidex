@@ -139,6 +139,9 @@ pub(crate) struct HostBridgeInner {
     tab_hidden: bool,
     /// Window name (getter/setter per WHATWG HTML).
     window_name: String,
+    // --- Storage ---
+    /// Session storage (tab-scoped).
+    session_storage: HashMap<String, String>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -301,6 +304,7 @@ impl HostBridge {
                 focus_target: None,
                 tab_hidden: false,
                 window_name: String::new(),
+                session_storage: HashMap::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),

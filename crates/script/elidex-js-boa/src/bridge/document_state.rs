@@ -56,4 +56,79 @@ impl HostBridge {
     pub fn set_window_name(&self, name: String) {
         self.inner.borrow_mut().window_name = name;
     }
+
+    // --- Session storage (tab-scoped) ---
+
+    pub fn session_storage_get(&self, key: &str) -> Option<String> {
+        self.inner.borrow().session_storage.get(key).cloned()
+    }
+
+    pub fn session_storage_set(&self, key: &str, value: &str) {
+        self.inner
+            .borrow_mut()
+            .session_storage
+            .insert(key.to_string(), value.to_string());
+    }
+
+    pub fn session_storage_remove(&self, key: &str) {
+        self.inner.borrow_mut().session_storage.remove(key);
+    }
+
+    pub fn session_storage_clear(&self) {
+        self.inner.borrow_mut().session_storage.clear();
+    }
+
+    pub fn session_storage_len(&self) -> usize {
+        self.inner.borrow().session_storage.len()
+    }
+
+    pub fn session_storage_key(&self, index: usize) -> Option<String> {
+        self.inner
+            .borrow()
+            .session_storage
+            .keys()
+            .nth(index)
+            .cloned()
+    }
+
+    pub fn session_storage_byte_size(&self) -> usize {
+        self.inner
+            .borrow()
+            .session_storage
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum()
+    }
+
+    // --- Local storage (origin-scoped, in-memory for now) ---
+    // TODO: Disk persistence via dirs + serde_json, Arc<Mutex> for cross-tab sharing.
+    // For now, uses the same session_storage HashMap as a placeholder.
+
+    pub fn local_storage_get(&self, key: &str) -> Option<String> {
+        self.session_storage_get(key)
+    }
+
+    pub fn local_storage_set(&self, key: &str, value: &str) {
+        self.session_storage_set(key, value);
+    }
+
+    pub fn local_storage_remove(&self, key: &str) {
+        self.session_storage_remove(key);
+    }
+
+    pub fn local_storage_clear(&self) {
+        self.session_storage_clear();
+    }
+
+    pub fn local_storage_len(&self) -> usize {
+        self.session_storage_len()
+    }
+
+    pub fn local_storage_key(&self, index: usize) -> Option<String> {
+        self.session_storage_key(index)
+    }
+
+    pub fn local_storage_byte_size(&self) -> usize {
+        self.session_storage_byte_size()
+    }
 }
