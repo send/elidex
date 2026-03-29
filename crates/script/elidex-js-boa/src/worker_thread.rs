@@ -115,6 +115,9 @@ pub fn worker_thread_main_with_source(
         if let Some(ref err) = eval_result.error {
             send_worker_error(&channel, err.clone(), script_url.as_ref());
         }
+        runtime.bridge().clear_all_timers();
+        let _ = channel.send(WorkerToParent::Closed);
+        return;
     }
 
     // 5. Event loop.

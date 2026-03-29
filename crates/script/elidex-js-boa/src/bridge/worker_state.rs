@@ -34,6 +34,9 @@ pub(crate) enum OutgoingMessage {
     /// Successfully JSON-stringified data.
     Data(String),
     /// JSON.stringify failed (circular reference, etc.) — fire `messageerror` on parent.
+    /// Worker-side `postMessage` now throws `DataCloneError` synchronously, but this
+    /// variant is retained for the parent-side drain match arm.
+    #[allow(dead_code)]
     SerializationError,
 }
 

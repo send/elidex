@@ -135,9 +135,16 @@ fn construct_worker(
         .map_err(|e| JsNativeError::typ().with_message(format!("Worker: invalid URL: {e}")))?;
 
     // 4. Same-origin check (WHATWG HTML §10.1.3).
-    let is_same_origin = resolved.scheme() == "data"
-        || resolved.scheme() == "blob"
-        || base_url.origin() == resolved.origin();
+    let mut is_same_origin = resolved.scheme() == "data" || base_url.origin() == resolved.origin();
+
+    // For blob: URLs, the origin is embedded in the URL: blob:https://example.com/uuid
+    // Parse it and compare with base_url's origin.
+    if resolved.scheme() == "blob" {
+        let blob_origin = resolved.path();
+        if let Ok(inner_url) = url::Url::parse(blob_origin) {
+            is_same_origin = inner_url.origin() == base_url.origin();
+        }
+    }
 
     if !is_same_origin {
         return Err(JsNativeError::typ()
@@ -199,7 +206,7 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
                     crate::globals::worker_scope::js_json_stringify(&data, ctx)
                 else {
                     return Err(JsNativeError::typ()
-                        .with_message("Failed to serialize message")
+                        .with_message("DataCloneError: Failed to serialize message")
                         .into());
                 };
 

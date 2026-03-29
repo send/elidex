@@ -66,6 +66,9 @@ pub fn register_worker_globals(
     timer_queue: &TimerQueueHandle,
     fetch_handle: Option<Rc<FetchHandle>>,
 ) {
+    // Clone fetch_handle before register_fetch moves the original.
+    let import_fetch_handle = fetch_handle.clone();
+
     // --- Shared Web Platform APIs ---
     crate::globals::console::register_console(ctx, console_output);
     crate::globals::timers::register_timers(ctx, timer_queue);
@@ -88,7 +91,7 @@ pub fn register_worker_globals(
     register_worker_name(ctx, bridge);
     register_worker_post_message(ctx, bridge);
     register_worker_close(ctx, bridge);
-    register_import_scripts(ctx, bridge);
+    register_import_scripts(ctx, bridge, import_fetch_handle);
     register_worker_location(ctx, bridge);
     register_worker_navigator(ctx);
     register_is_secure_context(ctx, bridge);
@@ -127,12 +130,12 @@ fn register_worker_post_message(ctx: &mut Context, bridge: &HostBridge) {
             match js_json_stringify(&data, ctx) {
                 Ok(Some(json_str)) => {
                     bridge.worker_queue_message(OutgoingMessage::Data(json_str));
+                    Ok(JsValue::undefined())
                 }
-                Ok(None) | Err(()) => {
-                    bridge.worker_queue_message(OutgoingMessage::SerializationError);
-                }
+                Ok(None) | Err(()) => Err(JsNativeError::typ()
+                    .with_message("DataCloneError: Failed to serialize message")
+                    .into()),
             }
-            Ok(JsValue::undefined())
         },
         b,
     );
@@ -154,13 +157,30 @@ fn register_worker_close(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register close");
 }
 
+/// Captures for `importScripts` closure.
+#[derive(Clone)]
+struct ImportScriptsCaptures {
+    bridge: HostBridge,
+    fetch_handle: Rc<FetchHandle>,
+}
+
+// Trace/Finalize: FetchHandle + HostBridge contain only Rust types, no GC objects.
+impl_empty_trace!(ImportScriptsCaptures);
+
 /// Register `importScripts(...urls)` on the worker global scope (WHATWG HTML §10.3.2).
-fn register_import_scripts(ctx: &mut Context, bridge: &HostBridge) {
-    let b = bridge.clone();
+fn register_import_scripts(
+    ctx: &mut Context,
+    bridge: &HostBridge,
+    fetch_handle: Option<Rc<FetchHandle>>,
+) {
+    let captures = ImportScriptsCaptures {
+        bridge: bridge.clone(),
+        fetch_handle: fetch_handle.unwrap_or_else(|| Rc::new(FetchHandle::with_default_client())),
+    };
     let import_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, ctx| {
-            let script_url = bridge.worker_script_url();
-            let fetch_handle = elidex_net::FetchHandle::with_default_client();
+        |_this, args, captures, ctx| {
+            let script_url = captures.bridge.worker_script_url();
+            let fetch_handle = &captures.fetch_handle;
 
             for arg in args {
                 let url_str = arg.to_string(ctx)?.to_std_string_escaped();
@@ -194,7 +214,7 @@ fn register_import_scripts(ctx: &mut Context, bridge: &HostBridge) {
 
             Ok(JsValue::undefined())
         },
-        b,
+        captures,
     );
     ctx.register_global_builtin_callable(js_string!("importScripts"), 0, import_fn)
         .expect("failed to register importScripts");

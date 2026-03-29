@@ -709,12 +709,17 @@ fn worker_message_event_properties() {
 fn worker_messageerror_on_clone_failure() {
     let (mut rt, mut session, mut dom, doc) = setup_worker("", "https://example.com/worker.js");
     // Create a circular reference and try to postMessage it.
+    // Per spec, postMessage should throw a DataCloneError synchronously.
     let result = rt.eval(
         r#"
         var obj = {};
         obj.self = obj;
-        postMessage(obj);
-        console.log("sent");
+        try {
+            postMessage(obj);
+            console.log("no error");
+        } catch(e) {
+            console.log("caught:" + e.message);
+        }
         "#,
         &mut session,
         &mut dom,
@@ -722,13 +727,12 @@ fn worker_messageerror_on_clone_failure() {
     );
     assert!(result.success, "JS error: {:?}", result.error);
 
-    // Check that a SerializationError was queued (becomes MessageError).
-    let outgoing = rt.drain_worker_outgoing();
+    let msgs = rt.console_output().messages();
+    assert_eq!(msgs.len(), 1, "Expected 1 console message, got: {msgs:?}");
     assert!(
-        outgoing
-            .iter()
-            .any(|msg| matches!(msg, elidex_api_workers::WorkerToParent::MessageError)),
-        "Expected MessageError for circular reference, got: {outgoing:?}"
+        msgs[0].1.starts_with("caught:DataCloneError:"),
+        "Expected DataCloneError, got: {}",
+        msgs[0].1
     );
 }
 

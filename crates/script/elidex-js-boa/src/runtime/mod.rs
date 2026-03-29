@@ -727,13 +727,12 @@ impl JsRuntime {
             return;
         };
 
-        let global = self.ctx.global_object();
+        let this_val = self
+            .bridge
+            .get_worker_js_object(worker_id)
+            .map_or_else(|| JsValue::from(self.ctx.global_object()), JsValue::from);
         for cb in callbacks {
-            let _ = cb.call(
-                &JsValue::from(global.clone()),
-                std::slice::from_ref(&event_obj),
-                &mut self.ctx,
-            );
+            let _ = cb.call(&this_val, std::slice::from_ref(&event_obj), &mut self.ctx);
         }
         let _ = self.ctx.run_jobs();
     }
