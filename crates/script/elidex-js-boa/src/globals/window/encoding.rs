@@ -106,7 +106,10 @@ pub(super) fn register_crypto(ctx: &mut Context) {
     init.function(
         NativeFunction::from_copy_closure(|_this, _args, _ctx| {
             let mut bytes = [0u8; 16];
-            let _ = getrandom::fill(&mut bytes);
+            getrandom::fill(&mut bytes).map_err(|_| {
+                boa_engine::JsNativeError::eval()
+                    .with_message("crypto.randomUUID: random generation failed")
+            })?;
             // Set version (4) and variant (RFC 4122).
             bytes[6] = (bytes[6] & 0x0f) | 0x40;
             bytes[8] = (bytes[8] & 0x3f) | 0x80;

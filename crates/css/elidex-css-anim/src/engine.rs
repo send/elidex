@@ -567,6 +567,20 @@ impl AnimationEngine {
         self.animations.retain(|id, _| alive(*id));
     }
 
+    /// Remove keyframes rules that are no longer referenced by any active animation.
+    ///
+    /// Call periodically to prevent unbounded growth of the keyframes store
+    /// from script-initiated `element.animate()` calls.
+    pub fn prune_unused_keyframes(&mut self) {
+        let referenced: std::collections::HashSet<&str> = self
+            .animations
+            .values()
+            .flat_map(|anims| anims.iter().map(AnimationInstance::name))
+            .collect();
+        self.keyframes
+            .retain(|name, _| referenced.contains(name.as_str()));
+    }
+
     /// Cancel all running animations for an entity, emitting `animationcancel` events.
     ///
     /// Returns cancel events for all non-finished animations. Used when
