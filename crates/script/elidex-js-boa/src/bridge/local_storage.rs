@@ -20,6 +20,8 @@ static LOCAL_STORAGE_REGISTRY: std::sync::LazyLock<Mutex<HashMap<String, Arc<Mut
 struct LocalStore {
     data: HashMap<String, String>,
     file_path: PathBuf,
+    /// Dirty flag: true when in-memory data has changed since last persist.
+    dirty: bool,
 }
 
 impl LocalStore {
@@ -34,11 +36,19 @@ impl LocalStore {
         } else {
             HashMap::new()
         };
-        Self { data, file_path }
+        Self { data, file_path, dirty: false }
     }
 
-    /// Write to disk atomically (temp file + rename).
-    fn persist(&self) {
+    /// Mark the store as dirty (needs persist).
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Write to disk atomically (temp file + rename), only if dirty.
+    fn persist(&mut self) {
+        if !self.dirty {
+            return;
+        }
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -46,6 +56,7 @@ impl LocalStore {
         if let Ok(json) = serde_json::to_string(&self.data) {
             if std::fs::write(&tmp_path, json).is_ok() {
                 let _ = std::fs::rename(&tmp_path, &self.file_path);
+                self.dirty = false;
             }
         }
     }
@@ -87,21 +98,21 @@ pub(crate) fn local_storage_set(origin: &str, key: &str, value: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     guard.data.insert(key.to_string(), value.to_string());
-    guard.persist();
+    guard.mark_dirty();
 }
 
 pub(crate) fn local_storage_remove(origin: &str, key: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     guard.data.remove(key);
-    guard.persist();
+    guard.mark_dirty();
 }
 
 pub(crate) fn local_storage_clear(origin: &str) {
     let store = get_store(origin);
     let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
     guard.data.clear();
-    guard.persist();
+    guard.mark_dirty();
 }
 
 pub(crate) fn local_storage_len(origin: &str) -> usize {
@@ -120,4 +131,15 @@ pub(crate) fn local_storage_byte_size(origin: &str) -> usize {
     let store = get_store(origin);
     let guard = store.lock().unwrap_or_else(|e| e.into_inner());
     guard.data.iter().map(|(k, v)| k.len() + v.len()).sum()
+}
+
+/// Persist all dirty localStorage stores to disk.
+///
+/// Call once per frame (after JS eval) rather than on every setItem/removeItem/clear.
+pub fn flush_dirty_stores() {
+    let registry = LOCAL_STORAGE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    for store in registry.values() {
+        let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+        guard.persist();
+    }
 }

@@ -140,50 +140,31 @@ fn sync_url_properties(obj: &boa_engine::JsObject, url: &url::Url, ctx: &mut Con
 }
 
 /// Build a JS URL object from a parsed `url::Url`.
+///
+/// Creates a minimal object with hidden `__url__`, searchParams, and methods,
+/// then calls `sync_url_properties` to populate all derived properties.
 fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
-    let href = url.as_str().to_string();
-    let origin = url.origin().ascii_serialization();
-    let protocol = format!("{}:", url.scheme());
-    let host = url
-        .host_str()
-        .map(|h| {
-            if let Some(port) = url.port() {
-                format!("{h}:{port}")
-            } else {
-                h.to_string()
-            }
-        })
-        .unwrap_or_default();
-    let hostname = url.host_str().unwrap_or("").to_string();
-    let port = url.port().map_or(String::new(), |p| p.to_string());
-    let pathname = url.path().to_string();
-    let search = url.query().map_or(String::new(), |q| format!("?{q}"));
-    let hash = url.fragment().map_or(String::new(), |f| format!("#{f}"));
-
     // Build searchParams with back-reference to URL object.
     let params: Vec<(String, String)> = url.query_pairs().into_owned().collect();
     let search_params = build_search_params_object(&params, ctx);
 
+    let rw = Attribute::CONFIGURABLE | Attribute::WRITABLE;
     let mut init = ObjectInitializer::new(ctx);
 
     // Hidden property storing the full URL for setters to parse/modify.
     init.property(
         js_string!(URL_HIDDEN_KEY),
-        JsValue::from(js_string!(href.as_str())),
+        JsValue::from(js_string!("")),
         Attribute::empty(),
     );
 
-    init.property(js_string!("href"), JsValue::from(js_string!(href.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("origin"), JsValue::from(js_string!(origin.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("protocol"), JsValue::from(js_string!(protocol.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("host"), JsValue::from(js_string!(host.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("hostname"), JsValue::from(js_string!(hostname.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("port"), JsValue::from(js_string!(port.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("pathname"), JsValue::from(js_string!(pathname.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("search"), JsValue::from(js_string!(search.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("hash"), JsValue::from(js_string!(hash.as_str())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("username"), JsValue::from(js_string!(url.username())), Attribute::CONFIGURABLE | Attribute::WRITABLE);
-    init.property(js_string!("password"), JsValue::from(js_string!(url.password().unwrap_or(""))), Attribute::CONFIGURABLE | Attribute::WRITABLE);
+    // Placeholder writable properties — sync_url_properties will fill them.
+    for key in [
+        "href", "origin", "protocol", "host", "hostname", "port", "pathname",
+        "search", "hash", "username", "password",
+    ] {
+        init.property(js_string!(key), JsValue::from(js_string!("")), rw);
+    }
     init.property(js_string!("searchParams"), search_params, Attribute::CONFIGURABLE);
 
     // toString() / toJSON() — return href.
@@ -221,6 +202,9 @@ fn build_url_object(url: &url::Url, ctx: &mut Context) -> JsValue {
             );
         }
     }
+
+    // Populate all derived properties from the parsed URL.
+    sync_url_properties(&url_obj, url, ctx);
 
     // --- URL property setters ---
     // We set these as methods since boa ObjectInitializer's property() creates

@@ -6,8 +6,14 @@ use super::HostBridge;
 
 impl HostBridge {
     /// Set the current page URL.
+    ///
+    /// Also updates the cached origin string for localStorage keying.
     pub fn set_current_url(&self, url: Option<url::Url>) {
-        self.inner.borrow_mut().current_url = url;
+        let mut inner = self.inner.borrow_mut();
+        inner.cached_origin = url
+            .as_ref()
+            .map_or("null".to_string(), |u| u.origin().ascii_serialization());
+        inner.current_url = url;
     }
 
     /// Get the current page URL.

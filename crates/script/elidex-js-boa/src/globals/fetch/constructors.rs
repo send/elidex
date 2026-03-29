@@ -535,68 +535,60 @@ fn extract_string_opt(
         })
 }
 
-/// Build a Response object from constructor.
-#[allow(clippy::cast_possible_truncation)]
-fn build_response_object(
-    args: &[JsValue],
-    ctx: &mut Context,
-) -> boa_engine::JsResult<JsValue> {
-    let body = args.first().cloned().unwrap_or(JsValue::null());
-    let init = args.get(1);
-
-    let status = init
-        .and_then(JsValue::as_object)
-        .map(|obj| obj.get(js_string!("status"), ctx))
-        .transpose()?
-        .and_then(|v| v.as_number())
-        .map_or(200_u16, |n| n as u16);
-
-    let status_text = extract_string_opt(init, "statusText", "", ctx)?;
-
-    // WHATWG Fetch §5.4: Extract body string from various body types.
-    let body_str = if body.is_null() || body.is_undefined() {
-        String::new()
-    } else if let Some(body_obj) = body.as_object() {
+/// Extract the body string from a Response constructor body argument.
+///
+/// WHATWG Fetch §5.4: Handles null/undefined, URLSearchParams, Blob, and generic objects.
+fn extract_body_string(body: &JsValue, ctx: &mut Context) -> boa_engine::JsResult<String> {
+    if body.is_null() || body.is_undefined() {
+        return Ok(String::new());
+    }
+    if let Some(body_obj) = body.as_object() {
         // Check for URLSearchParams (has __params__ hidden property).
         let params_val = body_obj.get(js_string!("__params__"), ctx)?;
         if !params_val.is_undefined() {
-            // URLSearchParams → use toString() (encoded form).
-            params_val.to_string(ctx)?.to_std_string_escaped()
-        } else {
-            // Check for Blob-like (has __blob_data__ hidden property).
-            let blob_data = body_obj.get(js_string!("__blob_data__"), ctx)?;
-            if !blob_data.is_undefined() {
-                blob_data.to_string(ctx)?.to_std_string_escaped()
-            } else {
-                // Generic object → toString().
-                body.to_string(ctx)?.to_std_string_escaped()
-            }
+            return Ok(params_val.to_string(ctx)?.to_std_string_escaped());
         }
-    } else {
-        body.to_string(ctx)?.to_std_string_escaped()
-    };
+        // Check for Blob-like (has __blob_data__ hidden property).
+        let blob_data = body_obj.get(js_string!("__blob_data__"), ctx)?;
+        if !blob_data.is_undefined() {
+            return Ok(blob_data.to_string(ctx)?.to_std_string_escaped());
+        }
+    }
+    Ok(body.to_string(ctx)?.to_std_string_escaped())
+}
 
-    // Pre-build headers with "immutable" guard (Response headers are immutable).
-    let headers = build_headers_object(None, "immutable", ctx)?;
-
-    let mut init_obj = ObjectInitializer::new(ctx);
-
-    init_obj.property(js_string!("status"), JsValue::from(f64::from(status)), Attribute::READONLY);
-    init_obj.property(js_string!("statusText"), JsValue::from(js_string!(status_text.as_str())), Attribute::READONLY);
-    init_obj.property(js_string!("ok"), JsValue::from((200..300).contains(&status)), Attribute::READONLY);
-    init_obj.property(js_string!("type"), JsValue::from(js_string!("default")), Attribute::READONLY);
-    init_obj.property(js_string!("url"), JsValue::from(js_string!("")), Attribute::READONLY);
-    init_obj.property(js_string!("redirected"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("headers"), headers, Attribute::READONLY);
-    init_obj.property(
+/// Add common Response properties to an ObjectInitializer.
+///
+/// Sets status, statusText, ok, type, url, redirected, bodyUsed, headers, and __body__.
+fn add_response_properties(
+    init: &mut ObjectInitializer<'_>,
+    status: u16,
+    status_text: &str,
+    response_type: &str,
+    url_str: &str,
+    redirected: bool,
+    headers: JsValue,
+    body_str: &str,
+) {
+    init.property(js_string!("status"), JsValue::from(f64::from(status)), Attribute::READONLY);
+    init.property(js_string!("statusText"), JsValue::from(js_string!(status_text)), Attribute::READONLY);
+    init.property(js_string!("ok"), JsValue::from((200..300).contains(&status)), Attribute::READONLY);
+    init.property(js_string!("type"), JsValue::from(js_string!(response_type)), Attribute::READONLY);
+    init.property(js_string!("url"), JsValue::from(js_string!(url_str)), Attribute::READONLY);
+    init.property(js_string!("redirected"), JsValue::from(redirected), Attribute::READONLY);
+    init.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
+    init.property(js_string!("headers"), headers, Attribute::READONLY);
+    init.property(
         js_string!("__body__"),
-        JsValue::from(js_string!(body_str.as_str())),
+        JsValue::from(js_string!(body_str)),
         Attribute::empty(),
     );
+}
 
+/// Add text(), json(), and clone() methods to a constructor-built Response.
+fn add_response_methods(init: &mut ObjectInitializer<'_>) {
     // text() → Promise<string>
-    init_obj.function(
+    init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
             let obj = this.as_object().ok_or_else(|| {
                 JsNativeError::typ().with_message("Response.text: not a Response")
@@ -610,7 +602,7 @@ fn build_response_object(
     );
 
     // json() → Promise<parsed>
-    init_obj.function(
+    init.function(
         NativeFunction::from_copy_closure(|this, _args, ctx| {
             let obj = this.as_object().ok_or_else(|| {
                 JsNativeError::typ().with_message("Response.json: not a Response")
@@ -638,6 +630,33 @@ fn build_response_object(
         js_string!("json"),
         0,
     );
+}
+
+/// Build a Response object from constructor.
+#[allow(clippy::cast_possible_truncation)]
+fn build_response_object(
+    args: &[JsValue],
+    ctx: &mut Context,
+) -> boa_engine::JsResult<JsValue> {
+    let body = args.first().cloned().unwrap_or(JsValue::null());
+    let init = args.get(1);
+
+    let status = init
+        .and_then(JsValue::as_object)
+        .map(|obj| obj.get(js_string!("status"), ctx))
+        .transpose()?
+        .and_then(|v| v.as_number())
+        .map_or(200_u16, |n| n as u16);
+
+    let status_text = extract_string_opt(init, "statusText", "", ctx)?;
+    let body_str = extract_body_string(&body, ctx)?;
+    let headers = build_headers_object(None, "immutable", ctx)?;
+
+    let mut init_obj = ObjectInitializer::new(ctx);
+    add_response_properties(
+        &mut init_obj, status, &status_text, "default", "", false, headers, &body_str,
+    );
+    add_response_methods(&mut init_obj);
 
     Ok(init_obj.build().into())
 }
@@ -675,64 +694,8 @@ fn build_error_response(ctx: &mut Context) -> boa_engine::JsResult<JsValue> {
     let headers = build_headers_object(None, "immutable", ctx)?;
 
     let mut init_obj = ObjectInitializer::new(ctx);
-
-    init_obj.property(js_string!("status"), JsValue::from(0), Attribute::READONLY);
-    init_obj.property(js_string!("statusText"), JsValue::from(js_string!("")), Attribute::READONLY);
-    init_obj.property(js_string!("ok"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("type"), JsValue::from(js_string!("error")), Attribute::READONLY);
-    init_obj.property(js_string!("url"), JsValue::from(js_string!("")), Attribute::READONLY);
-    init_obj.property(js_string!("redirected"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("headers"), headers, Attribute::READONLY);
-    init_obj.property(
-        js_string!("__body__"),
-        JsValue::from(js_string!("")),
-        Attribute::empty(),
-    );
-
-    // text() -> Promise<string>
-    init_obj.function(
-        NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("Response.text: not a Response")
-            })?;
-            let body = obj.get(js_string!("__body__"), ctx)?;
-            let promise = boa_engine::object::builtins::JsPromise::resolve(body, ctx);
-            Ok(promise.into())
-        }),
-        js_string!("text"),
-        0,
-    );
-
-    // json() -> Promise<parsed>
-    init_obj.function(
-        NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("Response.json: not a Response")
-            })?;
-            let body_str = obj
-                .get(js_string!("__body__"), ctx)?
-                .to_string(ctx)?
-                .to_std_string_escaped();
-            let json_global = ctx.global_object().get(js_string!("JSON"), ctx)?;
-            let json_obj = json_global.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON global not found")
-            })?;
-            let parse_fn = json_obj.get(js_string!("parse"), ctx)?;
-            let parse_callable = parse_fn.as_callable().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON.parse not callable")
-            })?;
-            let result = parse_callable.call(
-                &json_global,
-                &[JsValue::from(js_string!(body_str.as_str()))],
-                ctx,
-            )?;
-            let promise = boa_engine::object::builtins::JsPromise::resolve(result, ctx);
-            Ok(promise.into())
-        }),
-        js_string!("json"),
-        0,
-    );
+    add_response_properties(&mut init_obj, 0, "", "error", "", false, headers, "");
+    add_response_methods(&mut init_obj);
 
     Ok(init_obj.build().into())
 }
@@ -776,64 +739,8 @@ fn build_redirect_response(
     }
 
     let mut init_obj = ObjectInitializer::new(ctx);
-
-    init_obj.property(js_string!("status"), JsValue::from(f64::from(status)), Attribute::READONLY);
-    init_obj.property(js_string!("statusText"), JsValue::from(js_string!("")), Attribute::READONLY);
-    init_obj.property(js_string!("ok"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("type"), JsValue::from(js_string!("default")), Attribute::READONLY);
-    init_obj.property(js_string!("url"), JsValue::from(js_string!("")), Attribute::READONLY);
-    init_obj.property(js_string!("redirected"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("bodyUsed"), JsValue::from(false), Attribute::READONLY);
-    init_obj.property(js_string!("headers"), headers, Attribute::READONLY);
-    init_obj.property(
-        js_string!("__body__"),
-        JsValue::from(js_string!("")),
-        Attribute::empty(),
-    );
-
-    // text() -> Promise<string>
-    init_obj.function(
-        NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("Response.text: not a Response")
-            })?;
-            let body = obj.get(js_string!("__body__"), ctx)?;
-            let promise = boa_engine::object::builtins::JsPromise::resolve(body, ctx);
-            Ok(promise.into())
-        }),
-        js_string!("text"),
-        0,
-    );
-
-    // json() -> Promise<parsed>
-    init_obj.function(
-        NativeFunction::from_copy_closure(|this, _args, ctx| {
-            let obj = this.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("Response.json: not a Response")
-            })?;
-            let body_str = obj
-                .get(js_string!("__body__"), ctx)?
-                .to_string(ctx)?
-                .to_std_string_escaped();
-            let json_global = ctx.global_object().get(js_string!("JSON"), ctx)?;
-            let json_obj = json_global.as_object().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON global not found")
-            })?;
-            let parse_fn = json_obj.get(js_string!("parse"), ctx)?;
-            let parse_callable = parse_fn.as_callable().ok_or_else(|| {
-                JsNativeError::typ().with_message("JSON.parse not callable")
-            })?;
-            let result = parse_callable.call(
-                &json_global,
-                &[JsValue::from(js_string!(body_str.as_str()))],
-                ctx,
-            )?;
-            let promise = boa_engine::object::builtins::JsPromise::resolve(result, ctx);
-            Ok(promise.into())
-        }),
-        js_string!("json"),
-        0,
-    );
+    add_response_properties(&mut init_obj, status, "", "default", "", false, headers, "");
+    add_response_methods(&mut init_obj);
 
     Ok(init_obj.build().into())
 }

@@ -2040,32 +2040,14 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let obj = this.as_object().ok_or_else(|| {
                         JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                     })?;
-                    // Per spec: if only one arg, it's rotZ; rotX and rotY are 0.
                     let angle_deg = if args.len() <= 1 {
                         args.first().and_then(JsValue::as_number).unwrap_or(0.0)
                     } else {
                         args.get(2).and_then(JsValue::as_number).unwrap_or(0.0)
                     };
-                    let angle = angle_deg * std::f64::consts::PI / 180.0;
-                    let cos = angle.cos();
-                    let sin = angle.sin();
-                    let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    // Multiply: [a b; c d] * [cos sin; -sin cos]
-                    let new_a = a * cos + c * sin;
-                    let new_b = b * cos + d * sin;
-                    let new_c = a * -sin + c * cos;
-                    let new_d = b * -sin + d * cos;
-                    obj.set(js_string!("a"), JsValue::from(new_a), false, ctx)?;
-                    obj.set(js_string!("m11"), JsValue::from(new_a), false, ctx)?;
-                    obj.set(js_string!("b"), JsValue::from(new_b), false, ctx)?;
-                    obj.set(js_string!("m12"), JsValue::from(new_b), false, ctx)?;
-                    obj.set(js_string!("c"), JsValue::from(new_c), false, ctx)?;
-                    obj.set(js_string!("m21"), JsValue::from(new_c), false, ctx)?;
-                    obj.set(js_string!("d"), JsValue::from(new_d), false, ctx)?;
-                    obj.set(js_string!("m22"), JsValue::from(new_d), false, ctx)?;
+                    let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
+                    let (na, nb, nc, nd) = rotate_2d(a, b, c, d, e, f, angle_deg);
+                    write_matrix_to_obj(&obj, na, nb, nc, nd, e, f, ctx)?;
                     Ok(this.clone())
                 }),
                 js_string!("rotateSelf"),
@@ -2081,39 +2063,10 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let other = args.first().and_then(JsValue::as_object).ok_or_else(|| {
                         JsNativeError::typ().with_message("multiplySelf: argument must be a DOMMatrix")
                     })?;
-                    let a1 = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let b1 = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let c1 = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let d1 = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let e1 = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let f1 = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let a2 = other.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let b2 = other.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let c2 = other.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let d2 = other.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let e2 = other.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let f2 = other.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    // 2D matrix multiply: [a1 c1 e1] * [a2 c2 e2]
-                    //                     [b1 d1 f1]   [b2 d2 f2]
-                    //                     [0  0  1 ]   [0  0  1 ]
-                    let na = a1 * a2 + c1 * b2;
-                    let nb = b1 * a2 + d1 * b2;
-                    let nc = a1 * c2 + c1 * d2;
-                    let nd = b1 * c2 + d1 * d2;
-                    let ne = a1 * e2 + c1 * f2 + e1;
-                    let nf = b1 * e2 + d1 * f2 + f1;
-                    obj.set(js_string!("a"), JsValue::from(na), false, ctx)?;
-                    obj.set(js_string!("m11"), JsValue::from(na), false, ctx)?;
-                    obj.set(js_string!("b"), JsValue::from(nb), false, ctx)?;
-                    obj.set(js_string!("m12"), JsValue::from(nb), false, ctx)?;
-                    obj.set(js_string!("c"), JsValue::from(nc), false, ctx)?;
-                    obj.set(js_string!("m21"), JsValue::from(nc), false, ctx)?;
-                    obj.set(js_string!("d"), JsValue::from(nd), false, ctx)?;
-                    obj.set(js_string!("m22"), JsValue::from(nd), false, ctx)?;
-                    obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
-                    obj.set(js_string!("m41"), JsValue::from(ne), false, ctx)?;
-                    obj.set(js_string!("f"), JsValue::from(nf), false, ctx)?;
-                    obj.set(js_string!("m42"), JsValue::from(nf), false, ctx)?;
+                    let (a1, b1, c1, d1, e1, f1) = read_matrix_components(&obj, ctx)?;
+                    let (a2, b2, c2, d2, e2, f2) = read_matrix_components(&other, ctx)?;
+                    let (na, nb, nc, nd, ne, nf) = multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
+                    write_matrix_to_obj(&obj, na, nb, nc, nd, ne, nf, ctx)?;
                     Ok(this.clone())
                 }),
                 js_string!("multiplySelf"),
@@ -2126,39 +2079,16 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     let obj = this.as_object().ok_or_else(|| {
                         JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                     })?;
-                    let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                    let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                    let det = a * d - b * c;
-                    if det.abs() < f64::EPSILON {
-                        // Singular matrix — set all to NaN per spec.
-                        let nan = JsValue::from(f64::NAN);
-                        for key in ["a", "b", "c", "d", "e", "f", "m11", "m12", "m21", "m22", "m41", "m42"] {
-                            obj.set(js_string!(key), nan.clone(), false, ctx)?;
-                        }
+                    let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
+                    if let Some((na, nb, nc, nd, ne, nf)) = invert_2d(a, b, c, d, e, f) {
+                        write_matrix_to_obj(&obj, na, nb, nc, nd, ne, nf, ctx)?;
                     } else {
-                        let inv_det = 1.0 / det;
-                        let na = d * inv_det;
-                        let nb = -b * inv_det;
-                        let nc = -c * inv_det;
-                        let nd = a * inv_det;
-                        let ne = (c * f - d * e) * inv_det;
-                        let nf = (b * e - a * f) * inv_det;
-                        obj.set(js_string!("a"), JsValue::from(na), false, ctx)?;
-                        obj.set(js_string!("m11"), JsValue::from(na), false, ctx)?;
-                        obj.set(js_string!("b"), JsValue::from(nb), false, ctx)?;
-                        obj.set(js_string!("m12"), JsValue::from(nb), false, ctx)?;
-                        obj.set(js_string!("c"), JsValue::from(nc), false, ctx)?;
-                        obj.set(js_string!("m21"), JsValue::from(nc), false, ctx)?;
-                        obj.set(js_string!("d"), JsValue::from(nd), false, ctx)?;
-                        obj.set(js_string!("m22"), JsValue::from(nd), false, ctx)?;
-                        obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
-                        obj.set(js_string!("m41"), JsValue::from(ne), false, ctx)?;
-                        obj.set(js_string!("f"), JsValue::from(nf), false, ctx)?;
-                        obj.set(js_string!("m42"), JsValue::from(nf), false, ctx)?;
+                        // Singular matrix — set all to NaN per spec.
+                        write_matrix_to_obj(
+                            &obj,
+                            f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN,
+                            ctx,
+                        )?;
                     }
                     Ok(this.clone())
                 }),
@@ -2238,24 +2168,9 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                     JsNativeError::typ()
                         .with_message("multiply: argument must be a DOMMatrix")
                 })?;
-                let a1 = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let b1 = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let c1 = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let d1 = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let e1 = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let f1 = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let a2 = other.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let b2 = other.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let c2 = other.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let d2 = other.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let e2 = other.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let f2 = other.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let na = a1 * a2 + c1 * b2;
-                let nb = b1 * a2 + d1 * b2;
-                let nc = a1 * c2 + c1 * d2;
-                let nd = b1 * c2 + d1 * d2;
-                let ne = a1 * e2 + c1 * f2 + e1;
-                let nf = b1 * e2 + d1 * f2 + f1;
+                let (a1, b1, c1, d1, e1, f1) = read_matrix_components(&obj, ctx)?;
+                let (a2, b2, c2, d2, e2, f2) = read_matrix_components(&other, ctx)?;
+                let (na, nb, nc, nd, ne, nf) = multiply_2d(a1, b1, c1, d1, e1, f1, a2, b2, c2, d2, e2, f2);
                 Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, ne, nf, ctx)?))
             }),
             js_string!("multiply"),
@@ -2268,30 +2183,10 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 let obj = this.as_object().ok_or_else(|| {
                     JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                 })?;
-                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let det = a * d - b * c;
-                if det.abs() < f64::EPSILON {
-                    // Singular — all NaN per spec.
-                    Ok(JsValue::from(build_dom_matrix_obj(
-                        f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, ctx,
-                    )?))
-                } else {
-                    let inv = 1.0 / det;
-                    Ok(JsValue::from(build_dom_matrix_obj(
-                        d * inv,
-                        -b * inv,
-                        -c * inv,
-                        a * inv,
-                        (c * f - d * e) * inv,
-                        (b * e - a * f) * inv,
-                        ctx,
-                    )?))
-                }
+                let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
+                let (na, nb, nc, nd, ne, nf) = invert_2d(a, b, c, d, e, f)
+                    .unwrap_or((f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN));
+                Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, ne, nf, ctx)?))
             }),
             js_string!("inverse"),
             0,
@@ -2303,25 +2198,13 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
                 let obj = this.as_object().ok_or_else(|| {
                     JsNativeError::typ().with_message("DOMMatrix: this is not an object")
                 })?;
-                // Per spec: if only one arg, it's rotZ; rotX and rotY are 0.
                 let angle_deg = if args.len() <= 1 {
                     args.first().and_then(JsValue::as_number).unwrap_or(0.0)
                 } else {
                     args.get(2).and_then(JsValue::as_number).unwrap_or(0.0)
                 };
-                let angle = angle_deg * std::f64::consts::PI / 180.0;
-                let cos = angle.cos();
-                let sin = angle.sin();
-                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
-                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
-                let na = a * cos + c * sin;
-                let nb = b * cos + d * sin;
-                let nc = a * -sin + c * cos;
-                let nd = b * -sin + d * cos;
+                let (a, b, c, d, e, f) = read_matrix_components(&obj, ctx)?;
+                let (na, nb, nc, nd) = rotate_2d(a, b, c, d, e, f, angle_deg);
                 Ok(JsValue::from(build_dom_matrix_obj(na, nb, nc, nd, e, f, ctx)?))
             }),
             js_string!("rotate"),
@@ -2381,6 +2264,95 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
 }
 
 /// Build a new DOMMatrix JS object with the given 2D affine values.
+// --- Pure 2D matrix math helpers ---
+
+/// 2D matrix multiply: `[a1 c1 e1; b1 d1 f1; 0 0 1] * [a2 c2 e2; b2 d2 f2; 0 0 1]`.
+#[allow(clippy::too_many_arguments)]
+fn multiply_2d(
+    a1: f64, b1: f64, c1: f64, d1: f64, e1: f64, f1: f64,
+    a2: f64, b2: f64, c2: f64, d2: f64, e2: f64, f2: f64,
+) -> (f64, f64, f64, f64, f64, f64) {
+    (
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * e2 + c1 * f2 + e1,
+        b1 * e2 + d1 * f2 + f1,
+    )
+}
+
+/// Invert a 2D matrix. Returns `None` if the matrix is singular.
+fn invert_2d(
+    a: f64, b: f64, c: f64, d: f64, e: f64, f: f64,
+) -> Option<(f64, f64, f64, f64, f64, f64)> {
+    let det = a * d - b * c;
+    if det.abs() < f64::EPSILON {
+        return None;
+    }
+    let inv = 1.0 / det;
+    Some((
+        d * inv,
+        -b * inv,
+        -c * inv,
+        a * inv,
+        (c * f - d * e) * inv,
+        (b * e - a * f) * inv,
+    ))
+}
+
+/// Rotate a 2D matrix by `angle_deg` degrees around Z.
+fn rotate_2d(
+    a: f64, b: f64, c: f64, d: f64, _e: f64, _f: f64,
+    angle_deg: f64,
+) -> (f64, f64, f64, f64) {
+    let angle = angle_deg * std::f64::consts::PI / 180.0;
+    let cos = angle.cos();
+    let sin = angle.sin();
+    (
+        a * cos + c * sin,
+        b * cos + d * sin,
+        a * -sin + c * cos,
+        b * -sin + d * cos,
+    )
+}
+
+/// Read the 6 2D matrix components (a-f) from a JS object.
+fn read_matrix_components(
+    obj: &boa_engine::JsObject,
+    ctx: &mut Context,
+) -> JsResult<(f64, f64, f64, f64, f64, f64)> {
+    Ok((
+        obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0),
+        obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0),
+        obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0),
+        obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0),
+        obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0),
+        obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0),
+    ))
+}
+
+/// Write 2D matrix components (a-f + m aliases) to a mutable DOMMatrix JS object.
+fn write_matrix_to_obj(
+    obj: &boa_engine::JsObject,
+    a: f64, b: f64, c: f64, d: f64, e: f64, f: f64,
+    ctx: &mut Context,
+) -> JsResult<()> {
+    obj.set(js_string!("a"), JsValue::from(a), false, ctx)?;
+    obj.set(js_string!("m11"), JsValue::from(a), false, ctx)?;
+    obj.set(js_string!("b"), JsValue::from(b), false, ctx)?;
+    obj.set(js_string!("m12"), JsValue::from(b), false, ctx)?;
+    obj.set(js_string!("c"), JsValue::from(c), false, ctx)?;
+    obj.set(js_string!("m21"), JsValue::from(c), false, ctx)?;
+    obj.set(js_string!("d"), JsValue::from(d), false, ctx)?;
+    obj.set(js_string!("m22"), JsValue::from(d), false, ctx)?;
+    obj.set(js_string!("e"), JsValue::from(e), false, ctx)?;
+    obj.set(js_string!("m41"), JsValue::from(e), false, ctx)?;
+    obj.set(js_string!("f"), JsValue::from(f), false, ctx)?;
+    obj.set(js_string!("m42"), JsValue::from(f), false, ctx)?;
+    Ok(())
+}
+
 fn build_dom_matrix_obj(
     a: f64,
     b: f64,

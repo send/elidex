@@ -453,6 +453,9 @@ fn run_event_loop(state: &mut ContentState) {
                 });
         }
 
+        // Batch-persist all dirty localStorage stores to disk (once per frame).
+        elidex_js_boa::bridge::local_storage::flush_dirty_stores();
+
         // Drain pending window.open(_blank) requests from timers/animations.
         for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
             let _ = state

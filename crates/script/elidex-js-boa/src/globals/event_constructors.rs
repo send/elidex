@@ -193,64 +193,7 @@ fn build_event_object(
     init_obj.function(
         NativeFunction::from_copy_closure_with_captures(
             |this, args, (pd_f, sp_f, si_f), ctx| {
-                // Check dispatch flag — no-op during dispatch.
-                if let Some(obj) = this.as_object() {
-                    let dispatching = obj
-                        .get(js_string!(EVENT_DISPATCHING_KEY), ctx)?
-                        .to_boolean();
-                    if dispatching {
-                        return Ok(JsValue::undefined());
-                    }
-                    // Set initialized flag.
-                    let _ = obj.set(
-                        js_string!(EVENT_INITIALIZED_KEY),
-                        JsValue::from(true),
-                        false,
-                        ctx,
-                    );
-                    // WHATWG DOM §2.5: reset stopPropagation, stopImmediatePropagation,
-                    // and canceled (defaultPrevented) flags.
-                    pd_f.0.set(false);
-                    sp_f.0.set(false);
-                    si_f.0.set(false);
-                    // Update type/bubbles/cancelable from arguments.
-                    if let Some(t) = args.first() {
-                        let type_str = t.to_string(ctx)?;
-                        let _ = obj.set(
-                            js_string!(EVENT_TYPE_KEY),
-                            JsValue::from(js_string!(type_str.to_std_string_escaped().as_str())),
-                            false,
-                            ctx,
-                        );
-                        let _ = obj.set(
-                            js_string!("type"),
-                            JsValue::from(js_string!(type_str.to_std_string_escaped().as_str())),
-                            false,
-                            ctx,
-                        );
-                    }
-                    if let Some(b) = args.get(1) {
-                        let bubbles_val = b.to_boolean();
-                        let _ = obj.set(
-                            js_string!(EVENT_BUBBLES_KEY),
-                            JsValue::from(bubbles_val),
-                            false,
-                            ctx,
-                        );
-                    }
-                    if let Some(c) = args.get(2) {
-                        let cancelable_val = c.to_boolean();
-                        let _ = obj.set(
-                            js_string!(EVENT_CANCELABLE_KEY),
-                            JsValue::from(cancelable_val),
-                            false,
-                            ctx,
-                        );
-                    }
-                    // Reset target to null (WHATWG DOM §2.5).
-                    let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
-                }
-                Ok(JsValue::undefined())
+                apply_init_event(this, args, pd_f, sp_f, si_f, ctx)
             },
             (init_pd, init_sp, init_si),
         ),
@@ -266,54 +209,16 @@ fn build_event_object(
         init_obj.function(
             NativeFunction::from_copy_closure_with_captures(
                 |this, args, (pd_f, sp_f, si_f), ctx| {
+                    apply_init_event(this, args, pd_f, sp_f, si_f, ctx)?;
+                    // Set detail (WHATWG DOM §2.5 — initCustomEvent extension).
                     if let Some(obj) = this.as_object() {
                         let dispatching = obj
                             .get(js_string!(EVENT_DISPATCHING_KEY), ctx)?
                             .to_boolean();
-                        if dispatching {
-                            return Ok(JsValue::undefined());
+                        if !dispatching {
+                            let detail_val = args.get(3).cloned().unwrap_or(JsValue::null());
+                            let _ = obj.set(js_string!("detail"), detail_val, false, ctx);
                         }
-                        let _ = obj.set(
-                            js_string!(EVENT_INITIALIZED_KEY),
-                            JsValue::from(true),
-                            false,
-                            ctx,
-                        );
-                        // Reset flags (WHATWG DOM §2.5).
-                        pd_f.0.set(false);
-                        sp_f.0.set(false);
-                        si_f.0.set(false);
-                        if let Some(t) = args.first() {
-                            let type_str = t.to_string(ctx)?;
-                            let _ = obj.set(
-                                js_string!(EVENT_TYPE_KEY),
-                                JsValue::from(
-                                    js_string!(type_str.to_std_string_escaped().as_str()),
-                                ),
-                                false,
-                                ctx,
-                            );
-                        }
-                        if let Some(b) = args.get(1) {
-                            let _ = obj.set(
-                                js_string!(EVENT_BUBBLES_KEY),
-                                JsValue::from(b.to_boolean()),
-                                false,
-                                ctx,
-                            );
-                        }
-                        if let Some(c) = args.get(2) {
-                            let _ = obj.set(
-                                js_string!(EVENT_CANCELABLE_KEY),
-                                JsValue::from(c.to_boolean()),
-                                false,
-                                ctx,
-                            );
-                        }
-                        // Set detail.
-                        let detail_val = args.get(3).cloned().unwrap_or(JsValue::null());
-                        let _ = obj.set(js_string!("detail"), detail_val, false, ctx);
-                        let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
                     }
                     Ok(JsValue::undefined())
                 },
@@ -366,6 +271,78 @@ fn build_event_object(
     );
 
     Ok(init_obj.build().into())
+}
+
+/// Common initEvent logic (WHATWG DOM §2.5).
+///
+/// Checks dispatch flag, resets internal flags, updates type/bubbles/cancelable,
+/// and resets target to null. Used by both initEvent and initCustomEvent.
+fn apply_init_event(
+    this: &JsValue,
+    args: &[JsValue],
+    pd_f: &SharedFlagStore,
+    sp_f: &SharedFlagStore,
+    si_f: &SharedFlagStore,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(obj) = this.as_object() else {
+        return Ok(JsValue::undefined());
+    };
+    // Check dispatch flag — no-op during dispatch.
+    let dispatching = obj
+        .get(js_string!(EVENT_DISPATCHING_KEY), ctx)?
+        .to_boolean();
+    if dispatching {
+        return Ok(JsValue::undefined());
+    }
+    // Set initialized flag.
+    let _ = obj.set(
+        js_string!(EVENT_INITIALIZED_KEY),
+        JsValue::from(true),
+        false,
+        ctx,
+    );
+    // WHATWG DOM §2.5: reset stopPropagation, stopImmediatePropagation,
+    // and canceled (defaultPrevented) flags.
+    pd_f.0.set(false);
+    sp_f.0.set(false);
+    si_f.0.set(false);
+    // Update type/bubbles/cancelable from arguments.
+    if let Some(t) = args.first() {
+        let type_str = t.to_string(ctx)?;
+        let s = type_str.to_std_string_escaped();
+        let _ = obj.set(
+            js_string!(EVENT_TYPE_KEY),
+            JsValue::from(js_string!(s.as_str())),
+            false,
+            ctx,
+        );
+        let _ = obj.set(
+            js_string!("type"),
+            JsValue::from(js_string!(s.as_str())),
+            false,
+            ctx,
+        );
+    }
+    if let Some(b) = args.get(1) {
+        let _ = obj.set(
+            js_string!(EVENT_BUBBLES_KEY),
+            JsValue::from(b.to_boolean()),
+            false,
+            ctx,
+        );
+    }
+    if let Some(c) = args.get(2) {
+        let _ = obj.set(
+            js_string!(EVENT_CANCELABLE_KEY),
+            JsValue::from(c.to_boolean()),
+            false,
+            ctx,
+        );
+    }
+    // Reset target to null (WHATWG DOM §2.5).
+    let _ = obj.set(js_string!("target"), JsValue::null(), false, ctx);
+    Ok(JsValue::undefined())
 }
 
 /// Extract a boolean from an optional options object property, defaulting to `false`.

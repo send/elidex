@@ -15,7 +15,7 @@ mod ce;
 mod cssom;
 mod document_state;
 mod iframe_bridge;
-pub(crate) mod local_storage;
+pub mod local_storage;
 mod media;
 mod navigation;
 mod observers;
@@ -61,6 +61,8 @@ pub(crate) struct HostBridgeInner {
     listener_store: HashMap<ListenerId, JsObject>,
     /// The URL of the currently loaded page.
     current_url: Option<url::Url>,
+    /// Cached origin string derived from `current_url` (avoids re-parsing on every localStorage op).
+    cached_origin: String,
     /// A navigation request pending after script execution.
     pending_navigation: Option<NavigationRequest>,
     /// A history action pending after script execution.
@@ -311,6 +313,7 @@ impl HostBridge {
                 js_object_cache: HashMap::new(),
                 listener_store: HashMap::new(),
                 current_url: None,
+                cached_origin: "null".to_string(),
                 pending_navigation: None,
                 pending_history: None,
                 history_length: 0,

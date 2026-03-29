@@ -8,10 +8,10 @@ use crate::bridge::HostBridge;
 
 /// Hidden property key marking an object as an AbortSignal.
 const SIGNAL_KEY: &str = "__elidex_abort_signal__";
-/// Hidden property key for the aborted state.
-const ABORTED_KEY: &str = "__elidex_abort_aborted__";
-/// Hidden property key for the abort reason.
-const REASON_KEY: &str = "__elidex_abort_reason__";
+/// Property key for the aborted state (visible "aborted" property — single source of truth).
+const ABORTED_KEY: &str = "aborted";
+/// Property key for the abort reason (visible "reason" property — single source of truth).
+const REASON_KEY: &str = "reason";
 /// Hidden property key linking a controller to its signal.
 const CONTROLLER_SIGNAL_KEY: &str = "__elidex_controller_signal__";
 
@@ -27,26 +27,20 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
     let mut init = ObjectInitializer::new(ctx);
 
     init.property(js_string!(SIGNAL_KEY), JsValue::from(true), Attribute::empty());
-    init.property(js_string!(ABORTED_KEY), JsValue::from(false), Attribute::empty());
-    init.property(
-        js_string!(REASON_KEY),
-        JsValue::undefined(),
-        Attribute::empty(),
-    );
     init.property(
         js_string!("onabort"),
         JsValue::null(),
         Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
 
-    // Visible "aborted" and "reason" properties (updated by fire_abort_on_signal).
+    // "aborted" and "reason" properties (single source of truth).
     init.property(
-        js_string!("aborted"),
+        js_string!(ABORTED_KEY),
         JsValue::from(false),
         Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
     init.property(
-        js_string!("reason"),
+        js_string!(REASON_KEY),
         JsValue::undefined(),
         Attribute::WRITABLE | Attribute::CONFIGURABLE,
     );
@@ -130,11 +124,9 @@ fn create_abort_signal(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
 
 /// Fire the "abort" event on a signal object.
 fn fire_abort_on_signal(signal: &JsObject, reason: &JsValue, ctx: &mut Context) -> JsResult<()> {
-    // Set aborted = true, reason = value (both hidden and visible).
+    // Set aborted = true, reason = value.
     signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
     signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
-    signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
-    signal.set(js_string!("reason"), reason.clone(), false, ctx)?;
 
     // Create an Event-like object for dispatch.
     let event = create_abort_event(signal, ctx)?;
@@ -244,9 +236,7 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     JsValue::from(create_abort_error_object(ctx)?)
                 };
                 signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
-                signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
-                signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
-                signal.set(js_string!("reason"), reason, false, ctx)?;
+                signal.set(js_string!(REASON_KEY), reason, false, ctx)?;
                 Ok(JsValue::from(signal))
             },
             b2,
@@ -275,39 +265,33 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     let reason =
                         JsValue::from(js_string!("TimeoutError: The operation timed out"));
                     signal.set(js_string!(ABORTED_KEY), JsValue::from(true), false, ctx)?;
-                    signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
-                    signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
-                    signal.set(js_string!("reason"), reason, false, ctx)?;
+                    signal.set(js_string!(REASON_KEY), reason, false, ctx)?;
                 } else {
                     // For positive ms: schedule a setTimeout to abort the signal.
-                    // Store the signal on a temporary global, set up the timer, then clean up.
-                    let global = ctx.global_object();
-                    let _ = global.set(
-                        js_string!("__elidex_timeout_signal__"),
-                        JsValue::from(signal.clone()),
-                        false,
-                        ctx,
-                    );
-                    // Build the timer callback that aborts the signal.
-                    let abort_callback = NativeFunction::from_copy_closure(
-                        |_this, _args, ctx| {
-                            let global = ctx.global_object();
-                            let sig_val =
-                                global.get(js_string!("__elidex_timeout_signal__"), ctx)?;
-                            if let Some(sig_obj) = sig_val.as_object() {
+                    // Capture the signal directly in the callback closure to avoid
+                    // the global-variable-overwrite bug with multiple timeout signals.
+                    #[derive(Clone)]
+                    struct SignalCapture(JsObject);
+                    impl_empty_trace!(SignalCapture);
+
+                    let captured = SignalCapture(signal.clone());
+                    let abort_callback =
+                        NativeFunction::from_copy_closure_with_captures(
+                            |_this, _args, cap, ctx| {
                                 let already =
-                                    sig_obj.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
+                                    cap.0.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
                                 if !already {
                                     let reason = JsValue::from(js_string!(
                                         "TimeoutError: The operation timed out"
                                     ));
-                                    fire_abort_on_signal(&sig_obj, &reason, ctx)?;
+                                    fire_abort_on_signal(&cap.0, &reason, ctx)?;
                                 }
-                            }
-                            Ok(JsValue::undefined())
-                        },
-                    );
+                                Ok(JsValue::undefined())
+                            },
+                            captured,
+                        );
                     // Call setTimeout(callback, ms).
+                    let global = ctx.global_object();
                     let set_timeout_fn = global.get(js_string!("setTimeout"), ctx)?;
                     if let Some(callable) = set_timeout_fn.as_callable() {
                         let _ = callable.call(
@@ -321,8 +305,6 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                             ctx,
                         );
                     }
-                    // Note: __elidex_timeout_signal__ is intentionally NOT cleaned up
-                    // because the timer callback needs it when it fires later.
                 }
 
                 Ok(JsValue::from(signal))

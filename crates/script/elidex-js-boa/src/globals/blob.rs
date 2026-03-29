@@ -68,37 +68,19 @@ fn collect_blob_parts(parts: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
 }
 
 /// Extract raw bytes from a Blob JS object.
+///
+/// Reads from a `JsArrayBuffer` stored in the hidden `__elidex_blob_data__` property.
 fn extract_blob_bytes(obj: &boa_engine::JsObject, ctx: &mut Context) -> JsResult<Vec<u8>> {
     let data_val = obj.get(js_string!(BLOB_DATA_KEY), ctx)?;
     let data_obj = data_val.as_object().ok_or_else(|| {
         JsNativeError::typ().with_message("Blob: internal data missing")
     })?;
-    let len = data_obj
-        .get(js_string!("length"), ctx)?
-        .to_number(ctx)
-        .unwrap_or(0.0) as u32;
-    let mut bytes = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let b = data_obj.get(i, ctx)?.to_number(ctx).unwrap_or(0.0);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        bytes.push(b as u8);
-    }
-    Ok(bytes)
-}
-
-/// Store bytes into a JsArray on a Blob object.
-#[allow(dead_code)]
-fn store_blob_bytes(
-    obj: &boa_engine::JsObject,
-    bytes: &[u8],
-    ctx: &mut Context,
-) -> JsResult<()> {
-    let arr = boa_engine::object::builtins::JsArray::new(ctx);
-    for &b in bytes {
-        arr.push(JsValue::from(f64::from(b)), ctx)?;
-    }
-    obj.set(js_string!(BLOB_DATA_KEY), JsValue::from(arr), false, ctx)?;
-    Ok(())
+    let ab = boa_engine::object::builtins::JsArrayBuffer::from_object(data_obj.clone())
+        .map_err(|_| JsNativeError::typ().with_message("Blob: internal data is not an ArrayBuffer"))?;
+    let data_ref = ab.data().ok_or_else(|| {
+        JsNativeError::typ().with_message("Blob: ArrayBuffer is detached")
+    })?;
+    Ok(data_ref.to_vec())
 }
 
 /// Register `Blob` constructor.
@@ -130,127 +112,48 @@ fn register_blob_constructor(ctx: &mut Context) {
             })
             .unwrap_or_default();
 
-        let size = bytes.len();
-
-        let mut init = ObjectInitializer::new(ctx);
-        init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
-
-        // Store bytes in hidden array.
-        let data_arr = boa_engine::object::builtins::JsArray::new(init.context());
-        for &b in &bytes {
-            data_arr.push(JsValue::from(f64::from(b)), init.context())?;
-        }
-        init.property(
-            js_string!(BLOB_DATA_KEY),
-            JsValue::from(data_arr),
-            Attribute::empty(),
-        );
-
-        // size — read-only.
-        #[allow(clippy::cast_precision_loss)]
-        init.property(
-            js_string!("size"),
-            JsValue::from(size as f64),
-            Attribute::READONLY | Attribute::CONFIGURABLE,
-        );
-
-        // type — read-only.
-        init.property(
-            js_string!("type"),
-            JsValue::from(js_string!(blob_type.as_str())),
-            Attribute::READONLY | Attribute::CONFIGURABLE,
-        );
-
-        // slice(start?, end?, contentType?) — WHATWG File API §4.2.1.
-        init.function(
-            NativeFunction::from_copy_closure(|this, args, ctx| {
-                let obj = this.as_object().ok_or_else(|| {
-                    JsNativeError::typ().with_message("Blob.slice: this is not a Blob")
-                })?;
-
-                let data = extract_blob_bytes(&obj, ctx)?;
-                let size = data.len() as i64;
-
-                // Resolve start/end with negative index support (relative to size).
-                let raw_start = args.first().and_then(JsValue::as_number).unwrap_or(0.0) as i64;
-                let raw_end = args
-                    .get(1)
-                    .and_then(JsValue::as_number)
-                    .unwrap_or(size as f64) as i64;
-
-                let start = if raw_start < 0 {
-                    (size + raw_start).max(0) as usize
-                } else {
-                    raw_start.min(size) as usize
-                };
-                let end = if raw_end < 0 {
-                    (size + raw_end).max(0) as usize
-                } else {
-                    raw_end.min(size) as usize
-                };
-
-                let slice_bytes = if start < end {
-                    &data[start..end]
-                } else {
-                    &[]
-                };
-
-                // contentType — ASCII lowercase (File API §4.2.1).
-                let content_type = args
-                    .get(2)
-                    .and_then(|v| {
-                        if v.is_undefined() || v.is_null() {
-                            None
-                        } else {
-                            Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase())
-                        }
-                    })
-                    .unwrap_or_default();
-
-                // Build new Blob from slice.
-                let mut slice_init = ObjectInitializer::new(ctx);
-                slice_init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
-
-                let slice_arr = boa_engine::object::builtins::JsArray::new(slice_init.context());
-                for &b in slice_bytes {
-                    slice_arr.push(JsValue::from(f64::from(b)), slice_init.context())?;
-                }
-                slice_init.property(
-                    js_string!(BLOB_DATA_KEY),
-                    JsValue::from(slice_arr),
-                    Attribute::empty(),
-                );
-                #[allow(clippy::cast_precision_loss)]
-                slice_init.property(
-                    js_string!("size"),
-                    JsValue::from(slice_bytes.len() as f64),
-                    Attribute::READONLY | Attribute::CONFIGURABLE,
-                );
-                slice_init.property(
-                    js_string!("type"),
-                    JsValue::from(js_string!(content_type.as_str())),
-                    Attribute::READONLY | Attribute::CONFIGURABLE,
-                );
-
-                // Add text() and arrayBuffer() to sliced blob too.
-                add_blob_methods(&mut slice_init);
-
-                Ok(JsValue::from(slice_init.build()))
-            }),
-            js_string!("slice"),
-            0,
-        );
-
-        add_blob_methods(&mut init);
-
-        Ok(JsValue::from(init.build()))
+        build_blob_from_bytes(&bytes, &blob_type, ctx)
     });
 
     ctx.register_global_callable(js_string!("Blob"), 0, constructor)
         .expect("failed to register Blob");
 }
 
-/// Add `text()` and `arrayBuffer()` methods to a Blob ObjectInitializer.
+/// Build a new Blob JS object from raw bytes and content type.
+///
+/// Creates the Blob with marker, data (JsArrayBuffer), size, type,
+/// and all standard methods (text, arrayBuffer, slice).
+fn build_blob_from_bytes(bytes: &[u8], content_type: &str, ctx: &mut Context) -> JsResult<JsValue> {
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
+
+    // Store bytes as JsArrayBuffer internally.
+    let aligned = boa_engine::object::builtins::AlignedVec::from_iter(0, bytes.iter().copied());
+    let ab = boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, init.context())?;
+    init.property(
+        js_string!(BLOB_DATA_KEY),
+        JsValue::from(ab),
+        Attribute::empty(),
+    );
+
+    #[allow(clippy::cast_precision_loss)]
+    init.property(
+        js_string!("size"),
+        JsValue::from(bytes.len() as f64),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("type"),
+        JsValue::from(js_string!(content_type)),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+
+    add_blob_methods(&mut init);
+
+    Ok(JsValue::from(init.build()))
+}
+
+/// Add `text()`, `arrayBuffer()`, and `slice()` methods to a Blob ObjectInitializer.
 fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
     // text() → Promise<string> (resolves synchronously via microtask).
     init.function(
@@ -288,6 +191,58 @@ fn add_blob_methods(init: &mut ObjectInitializer<'_>) {
             Ok(promise.into())
         }),
         js_string!("arrayBuffer"),
+        0,
+    );
+
+    // slice(start?, end?, contentType?) — WHATWG File API §4.2.1.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let obj = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("Blob.slice: this is not a Blob")
+            })?;
+
+            let data = extract_blob_bytes(&obj, ctx)?;
+            let size = data.len() as i64;
+
+            // Resolve start/end with negative index support (relative to size).
+            let raw_start = args.first().and_then(JsValue::as_number).unwrap_or(0.0) as i64;
+            let raw_end = args
+                .get(1)
+                .and_then(JsValue::as_number)
+                .unwrap_or(size as f64) as i64;
+
+            let start = if raw_start < 0 {
+                (size + raw_start).max(0) as usize
+            } else {
+                raw_start.min(size) as usize
+            };
+            let end = if raw_end < 0 {
+                (size + raw_end).max(0) as usize
+            } else {
+                raw_end.min(size) as usize
+            };
+
+            let slice_bytes = if start < end {
+                &data[start..end]
+            } else {
+                &[]
+            };
+
+            // contentType — ASCII lowercase (File API §4.2.1).
+            let content_type = args
+                .get(2)
+                .and_then(|v| {
+                    if v.is_undefined() || v.is_null() {
+                        None
+                    } else {
+                        Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase())
+                    }
+                })
+                .unwrap_or_default();
+
+            build_blob_from_bytes(slice_bytes, &content_type, ctx)
+        }),
+        js_string!("slice"),
         0,
     );
 }
@@ -340,13 +295,12 @@ fn register_file_constructor(ctx: &mut Context) {
         init.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
         init.property(js_string!(FILE_MARKER), JsValue::from(true), Attribute::empty());
 
-        let data_arr = boa_engine::object::builtins::JsArray::new(init.context());
-        for &b in &bytes {
-            data_arr.push(JsValue::from(f64::from(b)), init.context())?;
-        }
+        // Store bytes as JsArrayBuffer internally.
+        let aligned = boa_engine::object::builtins::AlignedVec::from_iter(0, bytes.iter().copied());
+        let ab = boa_engine::object::builtins::JsArrayBuffer::from_byte_block(aligned, init.context())?;
         init.property(
             js_string!(BLOB_DATA_KEY),
-            JsValue::from(data_arr),
+            JsValue::from(ab),
             Attribute::empty(),
         );
 
@@ -370,38 +324,6 @@ fn register_file_constructor(ctx: &mut Context) {
             js_string!("lastModified"),
             JsValue::from(last_modified),
             Attribute::READONLY | Attribute::CONFIGURABLE,
-        );
-
-        // slice method.
-        init.function(
-            NativeFunction::from_copy_closure(|this, args, ctx| {
-                let obj = this.as_object().ok_or_else(|| {
-                    JsNativeError::typ().with_message("File.slice: this is not a File")
-                })?;
-                let data = extract_blob_bytes(&obj, ctx)?;
-                let size = data.len() as i64;
-                let raw_start = args.first().and_then(JsValue::as_number).unwrap_or(0.0) as i64;
-                let raw_end = args.get(1).and_then(JsValue::as_number).unwrap_or(size as f64) as i64;
-                let start = if raw_start < 0 { (size + raw_start).max(0) as usize } else { raw_start.min(size) as usize };
-                let end = if raw_end < 0 { (size + raw_end).max(0) as usize } else { raw_end.min(size) as usize };
-                let slice_bytes = if start < end { &data[start..end] } else { &[] };
-                let content_type = args.get(2)
-                    .and_then(|v| if v.is_undefined() || v.is_null() { None } else { Some(v.to_string(ctx).ok()?.to_std_string_escaped().to_ascii_lowercase()) })
-                    .unwrap_or_default();
-
-                let mut si = ObjectInitializer::new(ctx);
-                si.property(js_string!(BLOB_MARKER), JsValue::from(true), Attribute::empty());
-                let sa = boa_engine::object::builtins::JsArray::new(si.context());
-                for &b in slice_bytes { sa.push(JsValue::from(f64::from(b)), si.context())?; }
-                si.property(js_string!(BLOB_DATA_KEY), JsValue::from(sa), Attribute::empty());
-                #[allow(clippy::cast_precision_loss)]
-                si.property(js_string!("size"), JsValue::from(slice_bytes.len() as f64), Attribute::READONLY | Attribute::CONFIGURABLE);
-                si.property(js_string!("type"), JsValue::from(js_string!(content_type.as_str())), Attribute::READONLY | Attribute::CONFIGURABLE);
-                add_blob_methods(&mut si);
-                Ok(JsValue::from(si.build()))
-            }),
-            js_string!("slice"),
-            0,
         );
 
         add_blob_methods(&mut init);

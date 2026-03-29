@@ -95,9 +95,11 @@ impl HostBridge {
     // --- Local storage (origin-scoped, disk-persisted) ---
 
     /// Get the origin string for localStorage keying.
+    ///
+    /// Reads from the cached origin string in `HostBridgeInner`,
+    /// which is updated whenever `set_current_url` is called.
     fn local_storage_origin(&self) -> String {
-        self.current_url()
-            .map_or("null".to_string(), |url| url.origin().ascii_serialization())
+        self.inner.borrow().cached_origin.clone()
     }
 
     pub fn local_storage_get(&self, key: &str) -> Option<String> {
