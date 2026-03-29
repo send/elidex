@@ -1,5 +1,7 @@
 //! Global object registration for the boa JS context.
 
+pub mod abort;
+pub mod blob;
 pub mod canvas;
 pub mod console;
 pub mod cssom;
@@ -11,14 +13,15 @@ pub mod encoding;
 pub mod event_constructors;
 pub mod event_source;
 pub mod events;
-pub mod navigator;
 pub mod fetch;
+pub mod form_data;
 pub mod history;
 pub(crate) mod iframe;
 pub mod location;
+pub mod navigator;
 pub mod observers;
-pub mod timers;
 pub mod storage;
+pub mod timers;
 pub mod url;
 pub mod wasm;
 pub mod websocket;
@@ -481,6 +484,9 @@ pub fn register_all_globals(
     url::register_url_constructors(ctx, bridge);
     encoding::register_encoding(ctx, bridge);
     storage::register_storage(ctx, bridge);
+    abort::register_abort_controller(ctx, bridge);
+    blob::register_blob_file(ctx);
+    form_data::register_form_data(ctx);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

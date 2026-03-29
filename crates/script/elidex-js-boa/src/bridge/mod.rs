@@ -142,6 +142,9 @@ pub(crate) struct HostBridgeInner {
     // --- Storage ---
     /// Session storage (tab-scoped).
     session_storage: HashMap<String, String>,
+    // --- Animations (Web Animations API) ---
+    /// Pending script-initiated animations, consumed by content thread.
+    pending_script_animations: Vec<crate::globals::element::accessors::animate::ScriptAnimation>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -305,6 +308,7 @@ impl HostBridge {
                 tab_hidden: false,
                 window_name: String::new(),
                 session_storage: HashMap::new(),
+                pending_script_animations: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -436,6 +440,64 @@ impl HostBridge {
 
     // Navigation state methods are in navigation.rs
     // Iframe bridge methods are in iframe_bridge.rs
+
+    // --- Web Animations API ---
+
+    /// Queue a script-initiated animation for the content thread to apply.
+    pub(crate) fn queue_script_animation(
+        &self,
+        anim: crate::globals::element::accessors::animate::ScriptAnimation,
+    ) {
+        self.inner
+            .borrow_mut()
+            .pending_script_animations
+            .push(anim);
+    }
+
+    /// Drain pending script-initiated animations.
+    #[allow(dead_code)]
+    pub(crate) fn drain_script_animations(
+        &self,
+    ) -> Vec<crate::globals::element::accessors::animate::ScriptAnimation> {
+        std::mem::take(&mut self.inner.borrow_mut().pending_script_animations)
+    }
+
+    /// Get the number of active animations for an entity.
+    ///
+    /// Currently returns 0 (pending animations not yet applied). In the full
+    /// implementation, the content thread would sync animation state back.
+    pub(crate) fn animation_count(&self, _entity_id: u64) -> usize {
+        // Count pending + active (from engine). For now, count pending only.
+        self.inner
+            .borrow()
+            .pending_script_animations
+            .iter()
+            .filter(|a| a.entity_id == _entity_id)
+            .count()
+    }
+
+    /// Get info about an active animation for an entity.
+    pub(crate) fn animation_info(
+        &self,
+        entity_id: u64,
+        index: usize,
+    ) -> Option<crate::globals::element::accessors::animate::AnimationInfo> {
+        let inner = self.inner.borrow();
+        let mut count = 0;
+        for a in &inner.pending_script_animations {
+            if a.entity_id == entity_id {
+                if count == index {
+                    return Some(crate::globals::element::accessors::animate::AnimationInfo {
+                        id: a.options.id.clone(),
+                        play_state: "running".into(),
+                        current_time: 0.0,
+                    });
+                }
+                count += 1;
+            }
+        }
+        None
+    }
 
     /// Drain all pending WebSocket and SSE events.
     pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {

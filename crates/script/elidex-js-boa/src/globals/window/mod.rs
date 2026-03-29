@@ -6,7 +6,7 @@ mod selection;
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 
@@ -53,6 +53,8 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_crypto(ctx);
     register_queue_microtask(ctx);
     register_image_constructor(ctx, bridge);
+    register_dom_geometry(ctx);
+    register_visual_viewport(ctx, bridge);
 }
 
 /// Register `Image()` named constructor (WHATWG HTML §4.8.3).
@@ -1019,12 +1021,12 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
 struct TracedInstant(std::time::Instant);
 impl_empty_trace!(TracedInstant);
 
-/// Register `performance` object (W3C HR-Time §4).
+/// Register `performance` object (W3C HR-Time §4 + User Timing §3-4).
 fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
     // Capture time origin at registration (approximates navigation start).
     let origin = TracedInstant(std::time::Instant::now());
 
-    // Pre-build performance.now() closure before ObjectInitializer borrows ctx.
+    // Pre-build closures that capture origin before ObjectInitializer borrows ctx.
     let now_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, origin, _ctx| {
             let elapsed_ms = origin.0.elapsed().as_secs_f64() * 1000.0;
@@ -1040,6 +1042,10 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
 
+    // Performance entries stored in a shared JsArray.
+    let entries = boa_engine::object::builtins::JsArray::new(ctx);
+    let entries_obj = JsValue::from(entries);
+
     let mut init = ObjectInitializer::new(ctx);
 
     init.function(now_fn, js_string!("now"), 0);
@@ -1050,9 +1056,407 @@ fn register_performance(ctx: &mut Context, _bridge: &HostBridge) {
         Attribute::READONLY,
     );
 
+    // Hidden entries storage.
+    init.property(
+        js_string!("__entries__"),
+        entries_obj,
+        Attribute::empty(),
+    );
+
+    // performance.mark(name, options?) — W3C User Timing §3.
+    let o2 = origin;
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, origin, ctx| {
+                let name = crate::globals::require_js_string_arg(args, 0, "performance.mark", ctx)?;
+
+                let start_time = args
+                    .get(1)
+                    .and_then(|o| o.as_object())
+                    .and_then(|o| {
+                        o.get(js_string!("startTime"), ctx)
+                            .ok()
+                            .and_then(|v| v.as_number())
+                    })
+                    .unwrap_or_else(|| {
+                        let elapsed_ms = origin.0.elapsed().as_secs_f64() * 1000.0;
+                        (elapsed_ms * 10.0).floor() / 10.0
+                    });
+
+                // Build PerformanceMark entry.
+                let mut entry = ObjectInitializer::new(ctx);
+                entry.property(
+                    js_string!("entryType"),
+                    JsValue::from(js_string!("mark")),
+                    Attribute::READONLY | Attribute::CONFIGURABLE,
+                );
+                entry.property(
+                    js_string!("name"),
+                    JsValue::from(js_string!(name.as_str())),
+                    Attribute::READONLY | Attribute::CONFIGURABLE,
+                );
+                entry.property(
+                    js_string!("startTime"),
+                    JsValue::from(start_time),
+                    Attribute::READONLY | Attribute::CONFIGURABLE,
+                );
+                entry.property(
+                    js_string!("duration"),
+                    JsValue::from(0.0),
+                    Attribute::READONLY | Attribute::CONFIGURABLE,
+                );
+                let mark_obj = entry.build();
+
+                // Append to entries list.
+                let perf = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("performance: this is not an object")
+                })?;
+                let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+                if let Some(arr) = entries_val.as_object() {
+                    let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+                    arr.set(len, JsValue::from(mark_obj.clone()), false, ctx)?;
+                }
+
+                Ok(JsValue::from(mark_obj))
+            },
+            o2,
+        ),
+        js_string!("mark"),
+        1,
+    );
+
+    // performance.measure(name, startOrOptions?, endMark?) — W3C User Timing §4.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let name = crate::globals::require_js_string_arg(args, 0, "performance.measure", ctx)?;
+
+            let perf = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("performance: this is not an object")
+            })?;
+            let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+            let entries_arr = entries_val.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("performance: internal error")
+            })?;
+
+            // Helper: find a mark by name.
+            let find_mark = |mark_name: &str, ctx: &mut Context| -> JsResult<f64> {
+                let len = entries_arr
+                    .get(js_string!("length"), ctx)?
+                    .to_number(ctx)? as u32;
+                // Search from end (latest mark with this name wins).
+                let mut i = len;
+                while i > 0 {
+                    i -= 1;
+                    let e = entries_arr.get(i, ctx)?;
+                    if let Some(e_obj) = e.as_object() {
+                        let e_type = e_obj
+                            .get(js_string!("entryType"), ctx)?
+                            .to_string(ctx)?
+                            .to_std_string_escaped();
+                        let e_name = e_obj
+                            .get(js_string!("name"), ctx)?
+                            .to_string(ctx)?
+                            .to_std_string_escaped();
+                        if e_type == "mark" && e_name == mark_name {
+                            return e_obj.get(js_string!("startTime"), ctx)?.to_number(ctx);
+                        }
+                    }
+                }
+                Err(JsNativeError::syntax()
+                    .with_message(format!(
+                        "SyntaxError: performance.measure: mark '{mark_name}' not found"
+                    ))
+                    .into())
+            };
+
+            // Resolve start and end times.
+            let (start_time, end_time) = match args.get(1) {
+                Some(v) if v.is_object() => {
+                    // Options object form: { start, end, duration }.
+                    let opts = v.as_object().unwrap();
+                    let s = opts
+                        .get(js_string!("start"), ctx)?;
+                    let e = opts
+                        .get(js_string!("end"), ctx)?;
+
+                    let st = if let Some(n) = s.as_number() {
+                        n
+                    } else if !s.is_undefined() && !s.is_null() {
+                        find_mark(&s.to_string(ctx)?.to_std_string_escaped(), ctx)?
+                    } else {
+                        0.0
+                    };
+
+                    let et = if let Some(n) = e.as_number() {
+                        n
+                    } else if !e.is_undefined() && !e.is_null() {
+                        find_mark(&e.to_string(ctx)?.to_std_string_escaped(), ctx)?
+                    } else {
+                        // Use performance.now().
+                        let now_val = perf.get(js_string!("now"), ctx)?;
+                        if let Some(now_fn) = now_val.as_callable() {
+                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
+                        } else {
+                            0.0
+                        }
+                    };
+                    (st, et)
+                }
+                Some(v) if !v.is_undefined() && !v.is_null() => {
+                    // String form: startMark name.
+                    let start_mark = v.to_string(ctx)?.to_std_string_escaped();
+                    let st = find_mark(&start_mark, ctx)?;
+
+                    let et = if let Some(end_v) = args.get(2) {
+                        if !end_v.is_undefined() && !end_v.is_null() {
+                            let end_mark = end_v.to_string(ctx)?.to_std_string_escaped();
+                            find_mark(&end_mark, ctx)?
+                        } else {
+                            let now_val = perf.get(js_string!("now"), ctx)?;
+                            if let Some(now_fn) = now_val.as_callable() {
+                                now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
+                            } else {
+                                0.0
+                            }
+                        }
+                    } else {
+                        let now_val = perf.get(js_string!("now"), ctx)?;
+                        if let Some(now_fn) = now_val.as_callable() {
+                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
+                        } else {
+                            0.0
+                        }
+                    };
+                    (st, et)
+                }
+                _ => {
+                    // No start specified → start from 0.
+                    let et = {
+                        let now_val = perf.get(js_string!("now"), ctx)?;
+                        if let Some(now_fn) = now_val.as_callable() {
+                            now_fn.call(&JsValue::from(perf.clone()), &[], ctx)?.to_number(ctx)?
+                        } else {
+                            0.0
+                        }
+                    };
+                    (0.0, et)
+                }
+            };
+
+            let duration = end_time - start_time;
+
+            let mut entry = ObjectInitializer::new(ctx);
+            entry.property(
+                js_string!("entryType"),
+                JsValue::from(js_string!("measure")),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            entry.property(
+                js_string!("name"),
+                JsValue::from(js_string!(name.as_str())),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            entry.property(
+                js_string!("startTime"),
+                JsValue::from(start_time),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            entry.property(
+                js_string!("duration"),
+                JsValue::from(duration),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            let measure_obj = entry.build();
+
+            // Append to entries list.
+            let len = entries_arr
+                .get(js_string!("length"), ctx)?
+                .to_number(ctx)? as u32;
+            entries_arr.set(len, JsValue::from(measure_obj.clone()), false, ctx)?;
+
+            Ok(JsValue::from(measure_obj))
+        }),
+        js_string!("measure"),
+        1,
+    );
+
+    // performance.getEntries() — W3C Performance Timeline §4.
+    init.function(
+        NativeFunction::from_copy_closure(|this, _args, ctx| {
+            let perf = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("performance: this is not an object")
+            })?;
+            let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+            // Return a copy of the entries array.
+            let result = boa_engine::object::builtins::JsArray::new(ctx);
+            if let Some(arr) = entries_val.as_object() {
+                let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+                for i in 0..len {
+                    result.push(arr.get(i, ctx)?, ctx)?;
+                }
+            }
+            Ok(JsValue::from(result))
+        }),
+        js_string!("getEntries"),
+        0,
+    );
+
+    // performance.getEntriesByType(type) — W3C Performance Timeline §4.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let perf = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("performance: this is not an object")
+            })?;
+            let entry_type =
+                crate::globals::require_js_string_arg(args, 0, "getEntriesByType", ctx)?;
+            let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+            let result = boa_engine::object::builtins::JsArray::new(ctx);
+            if let Some(arr) = entries_val.as_object() {
+                let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+                for i in 0..len {
+                    let e = arr.get(i, ctx)?;
+                    if let Some(e_obj) = e.as_object() {
+                        let t = e_obj
+                            .get(js_string!("entryType"), ctx)?
+                            .to_string(ctx)?
+                            .to_std_string_escaped();
+                        if t == entry_type {
+                            result.push(e, ctx)?;
+                        }
+                    }
+                }
+            }
+            Ok(JsValue::from(result))
+        }),
+        js_string!("getEntriesByType"),
+        1,
+    );
+
+    // performance.getEntriesByName(name, type?) — W3C Performance Timeline §4.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let perf = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("performance: this is not an object")
+            })?;
+            let name = crate::globals::require_js_string_arg(args, 0, "getEntriesByName", ctx)?;
+            let type_filter = args
+                .get(1)
+                .and_then(|v| {
+                    if v.is_undefined() || v.is_null() {
+                        None
+                    } else {
+                        Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+                    }
+                });
+            let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+            let result = boa_engine::object::builtins::JsArray::new(ctx);
+            if let Some(arr) = entries_val.as_object() {
+                let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+                for i in 0..len {
+                    let e = arr.get(i, ctx)?;
+                    if let Some(e_obj) = e.as_object() {
+                        let n = e_obj
+                            .get(js_string!("name"), ctx)?
+                            .to_string(ctx)?
+                            .to_std_string_escaped();
+                        if n != name {
+                            continue;
+                        }
+                        if let Some(ref tf) = type_filter {
+                            let t = e_obj
+                                .get(js_string!("entryType"), ctx)?
+                                .to_string(ctx)?
+                                .to_std_string_escaped();
+                            if &t != tf {
+                                continue;
+                            }
+                        }
+                        result.push(e, ctx)?;
+                    }
+                }
+            }
+            Ok(JsValue::from(result))
+        }),
+        js_string!("getEntriesByName"),
+        1,
+    );
+
+    // performance.clearMarks(name?) — W3C User Timing §3.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            clear_entries_by_type(this, args, "mark", ctx)
+        }),
+        js_string!("clearMarks"),
+        0,
+    );
+
+    // performance.clearMeasures(name?) — W3C User Timing §4.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            clear_entries_by_type(this, args, "measure", ctx)
+        }),
+        js_string!("clearMeasures"),
+        0,
+    );
+
     let perf = init.build();
     ctx.register_global_property(js_string!("performance"), perf, Attribute::all())
         .expect("failed to register performance");
+}
+
+/// Helper: clear performance entries by type, optionally filtered by name.
+fn clear_entries_by_type(
+    this: &JsValue,
+    args: &[JsValue],
+    entry_type: &str,
+    ctx: &mut Context,
+) -> JsResult<JsValue> {
+    let perf = this.as_object().ok_or_else(|| {
+        JsNativeError::typ().with_message("performance: this is not an object")
+    })?;
+    let name_filter = args
+        .first()
+        .and_then(|v| {
+            if v.is_undefined() || v.is_null() {
+                None
+            } else {
+                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+            }
+        });
+
+    let entries_val = perf.get(js_string!("__entries__"), ctx)?;
+    if let Some(arr) = entries_val.as_object() {
+        let new_arr = boa_engine::object::builtins::JsArray::new(ctx);
+        let len = arr.get(js_string!("length"), ctx)?.to_number(ctx)? as u32;
+        for i in 0..len {
+            let e = arr.get(i, ctx)?;
+            let mut keep = true;
+            if let Some(e_obj) = e.as_object() {
+                let t = e_obj
+                    .get(js_string!("entryType"), ctx)?
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                if t == entry_type {
+                    if let Some(ref nf) = name_filter {
+                        let n = e_obj
+                            .get(js_string!("name"), ctx)?
+                            .to_string(ctx)?
+                            .to_std_string_escaped();
+                        if &n == nf {
+                            keep = false;
+                        }
+                    } else {
+                        keep = false;
+                    }
+                }
+            }
+            if keep {
+                new_arr.push(e, ctx)?;
+            }
+        }
+        perf.set(js_string!("__entries__"), JsValue::from(new_arr), false, ctx)?;
+    }
+    Ok(JsValue::undefined())
 }
 
 /// Register `atob()` and `btoa()` (WHATWG HTML §8.3).
@@ -1199,4 +1603,414 @@ fn register_queue_microtask(ctx: &mut Context) {
         }),
     )
     .expect("failed to register queueMicrotask");
+}
+
+// ---------------------------------------------------------------------------
+// DOM Geometry (CSSWG Geometry §5-6)
+// ---------------------------------------------------------------------------
+
+/// Helper: build a DOMPoint-like JS object (shared by DOMPoint and DOMPointReadOnly).
+fn build_dom_point(
+    x: f64,
+    y: f64,
+    z: f64,
+    w: f64,
+    mutable: bool,
+    ctx: &mut Context,
+) -> JsResult<boa_engine::JsObject> {
+    let mut init = ObjectInitializer::new(ctx);
+    let attr = if mutable {
+        Attribute::WRITABLE | Attribute::CONFIGURABLE
+    } else {
+        Attribute::READONLY | Attribute::CONFIGURABLE
+    };
+    init.property(js_string!("x"), JsValue::from(x), attr);
+    init.property(js_string!("y"), JsValue::from(y), attr);
+    init.property(js_string!("z"), JsValue::from(z), attr);
+    init.property(js_string!("w"), JsValue::from(w), attr);
+
+    // toJSON()
+    init.function(
+        NativeFunction::from_copy_closure(|this, _args, ctx| {
+            let obj = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("DOMPoint: this is not an object")
+            })?;
+            let vx = obj.get(js_string!("x"), ctx)?;
+            let vy = obj.get(js_string!("y"), ctx)?;
+            let vz = obj.get(js_string!("z"), ctx)?;
+            let vw = obj.get(js_string!("w"), ctx)?;
+            let mut json_init = ObjectInitializer::new(ctx);
+            json_init.property(js_string!("x"), vx, Attribute::all());
+            json_init.property(js_string!("y"), vy, Attribute::all());
+            json_init.property(js_string!("z"), vz, Attribute::all());
+            json_init.property(js_string!("w"), vw, Attribute::all());
+            Ok(JsValue::from(json_init.build()))
+        }),
+        js_string!("toJSON"),
+        0,
+    );
+
+    Ok(init.build())
+}
+
+/// Extract point coordinates from args (x?, y?, z?, w?) with defaults.
+fn extract_point_args(args: &[JsValue]) -> (f64, f64, f64, f64) {
+    let x = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+    let y = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
+    let z = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
+    let w = args.get(3).and_then(JsValue::as_number).unwrap_or(1.0);
+    (x, y, z, w)
+}
+
+/// Extract point from an object dict (for `fromPoint` static methods).
+fn extract_point_dict(val: &JsValue, ctx: &mut Context) -> JsResult<(f64, f64, f64, f64)> {
+    if let Some(obj) = val.as_object() {
+        let x = obj
+            .get(js_string!("x"), ctx)?
+            .to_number(ctx)
+            .unwrap_or(0.0);
+        let y = obj
+            .get(js_string!("y"), ctx)?
+            .to_number(ctx)
+            .unwrap_or(0.0);
+        let z = obj
+            .get(js_string!("z"), ctx)?
+            .to_number(ctx)
+            .unwrap_or(0.0);
+        let w = obj
+            .get(js_string!("w"), ctx)?
+            .to_number(ctx)
+            .unwrap_or(1.0);
+        Ok((x, y, z, w))
+    } else {
+        Ok((0.0, 0.0, 0.0, 1.0))
+    }
+}
+
+/// Register `DOMPoint`, `DOMPointReadOnly`, `DOMMatrix`, `DOMMatrixReadOnly`, `DOMRect`.
+fn register_dom_geometry(ctx: &mut Context) {
+    // DOMPointReadOnly constructor.
+    ctx.register_global_builtin_callable(
+        js_string!("DOMPointReadOnly"),
+        0,
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let (x, y, z, w) = extract_point_args(args);
+            Ok(JsValue::from(build_dom_point(x, y, z, w, false, ctx)?))
+        }),
+    )
+    .expect("failed to register DOMPointReadOnly");
+
+    // DOMPointReadOnly.fromPoint(other)
+    let mut dpro_init = ObjectInitializer::new(ctx);
+    dpro_init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+            let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
+            Ok(JsValue::from(build_dom_point(x, y, z, w, false, ctx)?))
+        }),
+        js_string!("fromPoint"),
+        0,
+    );
+    let dpro_proto = dpro_init.build();
+    ctx.register_global_property(
+        js_string!("DOMPointReadOnly"),
+        dpro_proto,
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register DOMPointReadOnly object");
+
+    // DOMPoint constructor.
+    ctx.register_global_builtin_callable(
+        js_string!("DOMPoint"),
+        0,
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let (x, y, z, w) = extract_point_args(args);
+            Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
+        }),
+    )
+    .expect("failed to register DOMPoint");
+
+    // DOMPoint.fromPoint(other)
+    let mut dp_init = ObjectInitializer::new(ctx);
+    dp_init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+            let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
+            Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
+        }),
+        js_string!("fromPoint"),
+        0,
+    );
+    let dp_proto = dp_init.build();
+    ctx.register_global_property(
+        js_string!("DOMPoint"),
+        dp_proto,
+        Attribute::WRITABLE | Attribute::CONFIGURABLE,
+    )
+    .expect("failed to register DOMPoint object");
+
+    // DOMRect constructor.
+    ctx.register_global_builtin_callable(
+        js_string!("DOMRect"),
+        0,
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let x = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+            let y = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
+            let w = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
+            let h = args.get(3).and_then(JsValue::as_number).unwrap_or(0.0);
+            let mut init = ObjectInitializer::new(ctx);
+            let attr = Attribute::WRITABLE | Attribute::CONFIGURABLE;
+            init.property(js_string!("x"), JsValue::from(x), attr);
+            init.property(js_string!("y"), JsValue::from(y), attr);
+            init.property(js_string!("width"), JsValue::from(w), attr);
+            init.property(js_string!("height"), JsValue::from(h), attr);
+            // Derived read-only properties.
+            init.property(
+                js_string!("top"),
+                JsValue::from(y.min(y + h)),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            init.property(
+                js_string!("right"),
+                JsValue::from(x.max(x + w)),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            init.property(
+                js_string!("bottom"),
+                JsValue::from(y.max(y + h)),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            init.property(
+                js_string!("left"),
+                JsValue::from(x.min(x + w)),
+                Attribute::READONLY | Attribute::CONFIGURABLE,
+            );
+            init.function(
+                NativeFunction::from_copy_closure(|this, _args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMRect: this is not an object")
+                    })?;
+                    let vals: Vec<(String, JsValue)> = ["x", "y", "width", "height", "top", "right", "bottom", "left"]
+                        .iter()
+                        .map(|key| {
+                            let v = obj.get(js_string!(*key), ctx).unwrap_or(JsValue::from(0.0));
+                            ((*key).to_string(), v)
+                        })
+                        .collect();
+                    let mut json_init = ObjectInitializer::new(ctx);
+                    for (key, v) in vals {
+                        json_init.property(js_string!(key.as_str()), v, Attribute::all());
+                    }
+                    Ok(JsValue::from(json_init.build()))
+                }),
+                js_string!("toJSON"),
+                0,
+            );
+            Ok(JsValue::from(init.build()))
+        }),
+    )
+    .expect("failed to register DOMRect");
+
+    // DOMMatrix / DOMMatrixReadOnly — 4×4 identity matrix by default.
+    register_dom_matrix(ctx, "DOMMatrixReadOnly", false);
+    register_dom_matrix(ctx, "DOMMatrix", true);
+}
+
+/// Register a DOMMatrix or DOMMatrixReadOnly constructor.
+fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
+    let constructor = NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+        // Default: 4×4 identity matrix.
+        let attr = if mutable {
+            Attribute::WRITABLE | Attribute::CONFIGURABLE
+        } else {
+            Attribute::READONLY | Attribute::CONFIGURABLE
+        };
+
+        let mut init = ObjectInitializer::new(ctx);
+
+        // 2D aliases (CSS transform): a=m11, b=m12, c=m21, d=m22, e=m41, f=m42.
+        let identity = [
+            ("a", 1.0),
+            ("b", 0.0),
+            ("c", 0.0),
+            ("d", 1.0),
+            ("e", 0.0),
+            ("f", 0.0),
+        ];
+        for (key, val) in &identity {
+            init.property(js_string!(*key), JsValue::from(*val), attr);
+        }
+
+        // Full 4×4 matrix elements.
+        let m4x4 = [
+            ("m11", 1.0),
+            ("m12", 0.0),
+            ("m13", 0.0),
+            ("m14", 0.0),
+            ("m21", 0.0),
+            ("m22", 1.0),
+            ("m23", 0.0),
+            ("m24", 0.0),
+            ("m31", 0.0),
+            ("m32", 0.0),
+            ("m33", 1.0),
+            ("m34", 0.0),
+            ("m41", 0.0),
+            ("m42", 0.0),
+            ("m43", 0.0),
+            ("m44", 1.0),
+        ];
+        for (key, val) in &m4x4 {
+            init.property(js_string!(*key), JsValue::from(*val), attr);
+        }
+
+        init.property(
+            js_string!("is2D"),
+            JsValue::from(true),
+            Attribute::READONLY | Attribute::CONFIGURABLE,
+        );
+        init.property(
+            js_string!("isIdentity"),
+            JsValue::from(true),
+            Attribute::READONLY | Attribute::CONFIGURABLE,
+        );
+
+        // transformPoint(point) — returns a new DOMPoint with identity transform.
+        init.function(
+            NativeFunction::from_copy_closure(|_this, args, ctx| {
+                let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+                let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
+                // Identity transform — return point unchanged.
+                Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
+            }),
+            js_string!("transformPoint"),
+            0,
+        );
+
+        Ok(JsValue::from(init.build()))
+    });
+
+    ctx.register_global_builtin_callable(js_string!(name), 0, constructor)
+        .expect("failed to register DOMMatrix");
+}
+
+// ---------------------------------------------------------------------------
+// Visual Viewport (CSSWG Visual Viewport §4)
+// ---------------------------------------------------------------------------
+
+/// Register `window.visualViewport` object.
+fn register_visual_viewport(ctx: &mut Context, bridge: &HostBridge) {
+    use boa_engine::property::PropertyDescriptorBuilder;
+
+    let global = ctx.global_object();
+
+    let b = bridge.clone();
+    let realm = ctx.realm().clone();
+
+    // Build the visualViewport object with dynamic getters.
+    let mut init = ObjectInitializer::new(ctx);
+
+    // width — same as innerWidth.
+    let b_w = b.clone();
+    let w_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            #[allow(clippy::cast_precision_loss)]
+            Ok(JsValue::from(bridge.viewport_width() as f64))
+        },
+        b_w,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("width"),
+        Some(w_getter.clone()),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // height — same as innerHeight.
+    let b_h = b.clone();
+    let h_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            #[allow(clippy::cast_precision_loss)]
+            Ok(JsValue::from(bridge.viewport_height() as f64))
+        },
+        b_h,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("height"),
+        Some(h_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // offsetLeft, offsetTop — offset of visual viewport from layout viewport.
+    init.property(
+        js_string!("offsetLeft"),
+        JsValue::from(0.0),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("offsetTop"),
+        JsValue::from(0.0),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+
+    // pageLeft, pageTop — offset relative to page origin.
+    let b_pl = b.clone();
+    let pl_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_x()))),
+        b_pl,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("pageLeft"),
+        Some(pl_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    let b_pt = b.clone();
+    let pt_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(f64::from(bridge.scroll_y()))),
+        b_pt,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("pageTop"),
+        Some(pt_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // scale — pinch-zoom scale factor (1.0 = no zoom).
+    init.property(
+        js_string!("scale"),
+        JsValue::from(1.0),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+
+    // addEventListener / removeEventListener stubs.
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("addEventListener"),
+        2,
+    );
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        js_string!("removeEventListener"),
+        2,
+    );
+
+    let vv = init.build();
+
+    let desc = PropertyDescriptorBuilder::new()
+        .value(vv)
+        .writable(false)
+        .configurable(true)
+        .enumerable(true)
+        .build();
+    global
+        .define_property_or_throw(js_string!("visualViewport"), desc, ctx)
+        .expect("failed to register visualViewport");
 }

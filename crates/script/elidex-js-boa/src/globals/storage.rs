@@ -5,7 +5,7 @@
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
 
 use crate::bridge::HostBridge;
 
@@ -170,7 +170,7 @@ fn build_storage_object(
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
-            move |_this, args, bridge, ctx| {
+            move |_this, args, bridge, _ctx| {
                 let index = args
                     .first()
                     .and_then(JsValue::as_number)
