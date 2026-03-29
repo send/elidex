@@ -597,7 +597,10 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                     dispatch_media_query_changes(&changed, state);
                 }
 
-                // Dispatch "resize" event on the document (CSSOM View §4.2).
+                // Dispatch "resize" event (CSSOM View §4.2).
+                // Per spec this fires on Window; in our architecture window
+                // listeners are wired to the document entity, so targeting
+                // document is equivalent.
                 let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
                     "resize",
                     state.pipeline.document,
@@ -742,6 +745,8 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
 ///
 /// Fired when another tab changes `localStorage` for the same origin.
+/// Per spec this fires on `Window`; in our architecture window listeners
+/// are wired to the document entity, so targeting document is equivalent.
 fn dispatch_storage_event(
     state: &mut ContentState,
     key: Option<String>,

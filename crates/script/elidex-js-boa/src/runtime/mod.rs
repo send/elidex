@@ -341,13 +341,14 @@ impl JsRuntime {
                         Some(JsValue::from(arr))
                     };
 
-                    // Passive: temporarily mask cancelable.
-                    let effective_cancelable = event.cancelable && !is_passive;
-                    let saved_cancelable = event.cancelable;
-                    event.cancelable = effective_cancelable;
-
+                    // Passive listeners: event.cancelable stays true (observable),
+                    // but preventDefault() is a no-op — use a disconnected Cell.
                     let event_flags = crate::globals::events::EventFlags {
-                        prevent_default: Rc::clone(&prevent_default_flag),
+                        prevent_default: if is_passive {
+                            Rc::new(Cell::new(false))
+                        } else {
+                            Rc::clone(&prevent_default_flag)
+                        },
                         stop_propagation: Rc::clone(&stop_propagation_flag),
                         stop_immediate: Rc::clone(&stop_immediate_flag),
                     };
@@ -396,9 +397,6 @@ impl JsRuntime {
                         eprintln!("[JS Microtask Error] {err}");
                     }
 
-                    // Restore cancelable.
-                    event.cancelable = saved_cancelable;
-
                     // Sync flags back.
                     event.flags.default_prevented = prevent_default_flag.get();
                     event.flags.propagation_stopped = stop_propagation_flag.get();
@@ -410,6 +408,8 @@ impl JsRuntime {
         event.dispatch_flag = false;
         event.phase = elidex_plugin::EventPhase::None;
         event.current_target = None;
+        // Restore original target after dispatch (retargeting is per-listener only).
+        event.target = saved_target;
 
         event.flags.default_prevented
     }

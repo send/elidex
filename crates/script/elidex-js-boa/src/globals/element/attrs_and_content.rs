@@ -185,6 +185,9 @@ pub(crate) fn register_content_accessors(
                         dom,
                     );
                     // Move children from temp to before entity, then remove entity.
+                    // Direct DOM mutations (same pattern as innerHTML setter's
+                    // underlying SetInnerHtml mutation) — MutationObserver
+                    // integration is tracked separately through the session layer.
                     let mut child = dom.get_first_child(temp);
                     while let Some(c) = child {
                         let next = dom.get_next_sibling(c);
