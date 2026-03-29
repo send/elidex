@@ -41,6 +41,13 @@ pub struct ListenerEntry {
     pub event_type: String,
     /// Whether this listener was registered for the capture phase.
     pub capture: bool,
+    /// WHATWG DOM §2.6: if `true`, the listener is automatically removed
+    /// after its first invocation (removed **before** the callback runs,
+    /// per §2.10 step 15).
+    pub once: bool,
+    /// WHATWG DOM §2.6: if `true`, `preventDefault()` inside this listener
+    /// is a silent no-op (the canceled flag is not set).
+    pub passive: bool,
 }
 
 /// ECS component holding all event listeners for a single entity.
@@ -61,11 +68,24 @@ impl EventListeners {
 
     /// Register a new listener and return its globally unique ID.
     pub fn add(&mut self, event_type: impl Into<String>, capture: bool) -> ListenerId {
+        self.add_with_options(event_type, capture, false, false)
+    }
+
+    /// Register a new listener with `once`/`passive` options.
+    pub fn add_with_options(
+        &mut self,
+        event_type: impl Into<String>,
+        capture: bool,
+        once: bool,
+        passive: bool,
+    ) -> ListenerId {
         let id = ListenerId(NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed));
         self.entries.push(ListenerEntry {
             id,
             event_type: event_type.into(),
             capture,
+            once,
+            passive,
         });
         id
     }
@@ -103,6 +123,12 @@ impl EventListeners {
             .into_iter()
             .map(|e| e.id)
             .collect()
+    }
+
+    /// Find a listener entry by its ID.
+    #[must_use]
+    pub fn find_entry(&self, id: ListenerId) -> Option<&ListenerEntry> {
+        self.entries.iter().find(|e| e.id == id)
     }
 
     /// Returns `true` if there are no registered listeners.

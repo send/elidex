@@ -10,10 +10,14 @@
 //! - bind/unbind bracket every eval call
 //! - `HostBridge` is `!Send` (via `Rc`)
 
+mod animation;
 mod canvas;
 mod ce;
 mod cssom;
+mod document_state;
+mod form;
 mod iframe_bridge;
+pub mod local_storage;
 mod media;
 mod navigation;
 mod observers;
@@ -23,6 +27,8 @@ mod viewport;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+
+use indexmap::IndexMap;
 use std::rc::Rc;
 
 use boa_engine::{JsObject, JsValue};
@@ -47,10 +53,18 @@ pub struct HostBridge {
     cssom_registry: Rc<CssomHandlerRegistry>,
 }
 
+/// Monotonic counter for assigning unique IDs to each `HostBridgeInner`.
+///
+/// Used to isolate opaque-origin ("null") localStorage: each bridge gets
+/// a unique key like `"null:42"` instead of sharing a single `"null"`.
+static BRIDGE_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub(crate) struct HostBridgeInner {
     session_ptr: *mut SessionCore,
     dom_ptr: *mut EcsDom,
     document_entity: Option<Entity>,
+    /// Unique ID for this bridge instance, used for opaque origin isolation.
+    bridge_id: u64,
     /// Re-entrancy guard: true while inside a `with()` closure.
     in_with: bool,
     /// Cache: `JsObjectRef` → boa `JsObject` for element identity preservation.
@@ -59,6 +73,8 @@ pub(crate) struct HostBridgeInner {
     listener_store: HashMap<ListenerId, JsObject>,
     /// The URL of the currently loaded page.
     current_url: Option<url::Url>,
+    /// Cached origin string derived from `current_url` (avoids re-parsing on every localStorage op).
+    cached_origin: String,
     /// A navigation request pending after script execution.
     pending_navigation: Option<NavigationRequest>,
     /// A history action pending after script execution.
@@ -83,6 +99,18 @@ pub(crate) struct HostBridgeInner {
     /// Cached viewport dimensions (set by content thread on `SetViewport`).
     viewport_width: f32,
     viewport_height: f32,
+    /// Device pixel ratio (set by content thread from winit `scale_factor`).
+    device_pixel_ratio: f32,
+    /// Window screen position X (set by content thread from winit).
+    screen_x: i32,
+    /// Window screen position Y (set by content thread from winit).
+    screen_y: i32,
+    /// Monitor width in CSS pixels (set by content thread from winit).
+    monitor_width: f32,
+    /// Monitor height in CSS pixels (set by content thread from winit).
+    monitor_height: f32,
+    /// Screen color depth in bits (set by content thread from GPU surface format).
+    color_depth: u32,
     /// Cached viewport scroll offset.
     scroll_x: f32,
     scroll_y: f32,
@@ -127,6 +155,37 @@ pub(crate) struct HostBridgeInner {
     iframe: IframeBridgeState,
     // --- WebSocket / SSE ---
     realtime: realtime::RealtimeState,
+    // --- Timer queue ---
+    /// Reference to the timer queue for `window.stop()`.
+    timer_queue: Option<crate::globals::timers::TimerQueueHandle>,
+    // --- Script dispatch ---
+    /// Pending script-dispatched event (from `dispatchEvent()`).
+    /// Set by `dispatch_event_for()`, consumed by runtime after eval.
+    pending_script_dispatch: Option<elidex_script_session::DispatchEvent>,
+    // --- Document state ---
+    /// The currently focused entity, synced from `ContentState` before eval.
+    focus_target: Option<elidex_ecs::Entity>,
+    /// Whether the tab is hidden (not the active tab).
+    tab_hidden: bool,
+    /// Window name (getter/setter per WHATWG HTML).
+    window_name: String,
+    // --- Storage ---
+    /// Session storage (tab-scoped, insertion-order-preserving for `key(n)`).
+    session_storage: IndexMap<String, String>,
+    /// Cached byte size of session storage (sum of `key.len()` + `value.len()` for all entries).
+    session_storage_bytes: usize,
+    /// Pending localStorage change notifications for cross-tab broadcast.
+    pending_storage_changes: Vec<StorageChange>,
+    // --- Animations (Web Animations API) ---
+    /// Pending script-initiated animations, consumed by content thread.
+    pending_script_animations: Vec<crate::globals::element::accessors::animate::ScriptAnimation>,
+    // --- Window focus ---
+    /// Pending window focus request from `window.focus()`.
+    pending_focus: bool,
+    // --- Script execution ---
+    /// The `<script>` element entity currently being evaluated (WHATWG HTML §4.12.1.1).
+    /// Set before each script evaluation, cleared after. Used by `document.currentScript`.
+    current_script_entity: Option<Entity>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -175,6 +234,21 @@ impl Default for IframeBridgeState {
             pending_navigate_iframe: Vec::new(),
         }
     }
+}
+
+/// A pending `localStorage` change notification for cross-tab broadcast.
+#[derive(Clone, Debug)]
+pub struct StorageChange {
+    /// The origin that owns the storage area.
+    pub origin: String,
+    /// The key that changed (`None` for `clear()`).
+    pub key: Option<String>,
+    /// The old value (`None` if the key was newly set or cleared).
+    pub old_value: Option<String>,
+    /// The new value (`None` if the key was removed or cleared).
+    pub new_value: Option<String>,
+    /// The URL of the document that triggered the change.
+    pub url: String,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -249,10 +323,12 @@ impl HostBridge {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
+                bridge_id: BRIDGE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 in_with: false,
                 js_object_cache: HashMap::new(),
                 listener_store: HashMap::new(),
                 current_url: None,
+                cached_origin: "null".to_string(),
                 pending_navigation: None,
                 pending_history: None,
                 history_length: 0,
@@ -265,6 +341,12 @@ impl HostBridge {
                 observer_objects: HashMap::new(),
                 viewport_width: 800.0,
                 viewport_height: 600.0,
+                device_pixel_ratio: 1.0,
+                screen_x: 0,
+                screen_y: 0,
+                monitor_width: 800.0,
+                monitor_height: 600.0,
+                color_depth: 24,
                 scroll_x: 0.0,
                 scroll_y: 0.0,
                 pending_scroll: None,
@@ -285,6 +367,17 @@ impl HostBridge {
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
                 realtime: realtime::RealtimeState::default(),
+                timer_queue: None,
+                pending_script_dispatch: None,
+                focus_target: None,
+                tab_hidden: false,
+                window_name: String::new(),
+                session_storage: IndexMap::new(),
+                session_storage_bytes: 0,
+                pending_storage_changes: Vec::new(),
+                pending_script_animations: Vec::new(),
+                pending_focus: false,
+                current_script_entity: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -416,6 +509,37 @@ impl HostBridge {
 
     // Navigation state methods are in navigation.rs
     // Iframe bridge methods are in iframe_bridge.rs
+
+    // --- Timer queue ---
+
+    /// Store the timer queue handle for `window.stop()`.
+    pub fn set_timer_queue(&self, tq: crate::globals::timers::TimerQueueHandle) {
+        self.inner.borrow_mut().timer_queue = Some(tq);
+    }
+
+    /// Clear all pending timers (`window.stop()` support).
+    pub fn clear_all_timers(&self) {
+        if let Some(ref tq) = self.inner.borrow().timer_queue {
+            tq.borrow_mut().clear_all();
+        }
+    }
+
+    /// Set the currently executing `<script>` element entity.
+    ///
+    /// Called before evaluating each script; cleared after. Used by
+    /// `document.currentScript` (WHATWG HTML §4.12.1.1).
+    pub fn set_current_script_entity(&self, entity: Option<Entity>) {
+        self.inner.borrow_mut().current_script_entity = entity;
+    }
+
+    /// Get the currently executing `<script>` element entity, if any.
+    #[must_use]
+    pub fn current_script_entity(&self) -> Option<Entity> {
+        self.inner.borrow().current_script_entity
+    }
+
+    // Web Animations API methods are in animation.rs
+    // Form data collection is in form.rs
 
     /// Drain all pending WebSocket and SSE events.
     pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
@@ -578,8 +702,6 @@ impl HostBridge {
     }
 }
 
-/// Parse a raw CSS rule string into a `CssomRule`.
-///
 /// Performs lightweight parsing without the full CSS parser: splits on `{`
 /// to extract the selector and the declaration block. Returns `None` if
 /// the text doesn't contain a valid `selector { declarations }` structure.

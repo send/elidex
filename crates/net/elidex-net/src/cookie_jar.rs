@@ -213,6 +213,86 @@ impl CookieJar {
     pub fn is_third_party(request_domain: &str, cookie_domain: &str) -> bool {
         !is_same_site(request_domain, cookie_domain)
     }
+
+    /// Return cookies for script access (`document.cookie` getter).
+    ///
+    /// Filters out `HttpOnly` cookies (RFC 6265 §5.3) and `Secure` cookies
+    /// on non-HTTPS pages. Returns a `"name=value; name2=value2"` string
+    /// (empty string when no cookies, never null).
+    pub fn cookies_for_script(&self, url: &url::Url) -> String {
+        let Some(domain) = url.host_str() else {
+            return String::new();
+        };
+        let path = url.path();
+        let is_secure = url.scheme() == "https";
+        let now = SystemTime::now();
+
+        let mut jar = self
+            .cookies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        jar.retain(|c| c.expires.is_none_or(|exp| now <= exp));
+
+        let pairs: Vec<String> = jar
+            .iter()
+            .filter(|c| {
+                // HttpOnly cookies must not be exposed to scripts.
+                if c.http_only {
+                    return false;
+                }
+                if c.secure && !is_secure {
+                    return false;
+                }
+                if !domain_matches(domain, &c.domain) {
+                    return false;
+                }
+                if !path_matches(path, &c.path) {
+                    return false;
+                }
+                true
+            })
+            .map(|c| format!("{}={}", c.name, c.value))
+            .collect();
+        pairs.join("; ")
+    }
+
+    /// Set a cookie from script (`document.cookie` setter).
+    ///
+    /// Parses the value as a `Set-Cookie` header. Rejects cookies with
+    /// `HttpOnly` attribute (scripts cannot set `HttpOnly` cookies) and
+    /// `Secure` cookies on non-HTTPS pages.
+    pub fn set_cookie_from_script(&self, url: &url::Url, value: &str) {
+        let Some(domain) = url.host_str() else {
+            return;
+        };
+        let is_secure = url.scheme() == "https";
+        let path = url.path();
+
+        let Some(cookie) = parse_set_cookie(value, domain, path) else {
+            return;
+        };
+        // Reject HttpOnly cookies set from script.
+        if cookie.http_only {
+            return;
+        }
+        // Reject Secure cookies on non-HTTPS pages.
+        if cookie.secure && !is_secure {
+            return;
+        }
+        let mut jar = self
+            .cookies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Remove existing cookie with same name/domain/path.
+        jar.retain(|c| {
+            !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+        });
+        // Evict the oldest cookie (first inserted) if at the global limit.
+        if jar.len() >= MAX_TOTAL_COOKIES {
+            jar.remove(0);
+        }
+        jar.push(cookie);
+    }
 }
 
 impl Default for CookieJar {

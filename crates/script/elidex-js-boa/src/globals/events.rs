@@ -40,7 +40,11 @@ const RO: Attribute = Attribute::READONLY;
 /// Register a flag-setting method on an event object (e.g. `preventDefault`).
 ///
 /// The method sets the shared `Rc<Cell<bool>>` flag to `true` when called.
-fn register_flag_method(init: &mut ObjectInitializer<'_>, name: &str, flag: &Rc<Cell<bool>>) {
+pub(crate) fn register_flag_method(
+    init: &mut ObjectInitializer<'_>,
+    name: &str,
+    flag: &Rc<Cell<bool>>,
+) {
     let shared = SharedFlag(Rc::clone(flag));
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -150,10 +154,9 @@ pub fn create_event_object(
     );
     init.property(js_string!("timeStamp"), JsValue::from(0), RO);
     init.property(js_string!("composed"), JsValue::from(event.composed), RO);
-    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
-    // TODO: When JS `dispatchEvent()` / `CustomEvent` is implemented,
-    // parameterize via `DispatchEvent.is_trusted` (script-dispatched → false).
-    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+    // WHATWG DOM §2.1: isTrusted is [LegacyUnforgeable] — non-configurable, non-writable.
+    // boa Attribute::READONLY = writable:false; no CONFIGURABLE flag = configurable:false.
+    init.property(js_string!("isTrusted"), JsValue::from(event.is_trusted), RO);
 
     // Payload-specific properties (also read-only).
     set_payload_properties(&mut init, &event.payload, empty_ports);
@@ -273,6 +276,7 @@ pub fn create_standalone_event(
     event_type: &str,
     payload: &EventPayload,
     cancelable: bool,
+    is_trusted: bool,
     target: Option<&JsValue>,
     ctx: &mut Context,
 ) -> JsValue {
@@ -306,9 +310,8 @@ pub fn create_standalone_event(
         JsValue::from(2_i32), // AT_TARGET
         RO,
     );
-    // WHATWG DOM §2.1: isTrusted is true for UA-dispatched events.
-    // Standalone events (WS/SSE) are always UA-dispatched.
-    init.property(js_string!("isTrusted"), JsValue::from(true), RO);
+    // WHATWG DOM §2.1: isTrusted is [LegacyUnforgeable].
+    init.property(js_string!("isTrusted"), JsValue::from(is_trusted), RO);
 
     // defaultPrevented accessor.
     let pd_flag = SharedFlag(Rc::clone(&prevent_default));
@@ -443,6 +446,22 @@ fn set_payload_properties(
             set_message_payload(init, data, origin, last_event_id, empty_ports);
         }
         EventPayload::CloseEvent(c) => set_close_event_payload(init, c),
+        EventPayload::HashChange(h) => set_hashchange_payload(init, h),
+        EventPayload::PageTransition(p) => set_page_transition_payload(init, p),
+        EventPayload::Storage {
+            key,
+            old_value,
+            new_value,
+            url,
+        } => {
+            set_storage_payload(
+                init,
+                key.as_ref(),
+                old_value.as_ref(),
+                new_value.as_ref(),
+                url,
+            );
+        }
         EventPayload::None | _ => {}
     }
 }
@@ -555,6 +574,56 @@ fn set_close_event_payload(init: &mut ObjectInitializer<'_>, c: &elidex_plugin::
         RO,
     );
     init.property(js_string!("wasClean"), JsValue::from(c.was_clean), RO);
+}
+
+fn set_hashchange_payload(
+    init: &mut ObjectInitializer<'_>,
+    h: &elidex_plugin::HashChangeEventInit,
+) {
+    init.property(
+        js_string!("oldURL"),
+        JsValue::from(js_string!(h.old_url.as_str())),
+        RO,
+    );
+    init.property(
+        js_string!("newURL"),
+        JsValue::from(js_string!(h.new_url.as_str())),
+        RO,
+    );
+}
+
+fn set_page_transition_payload(
+    init: &mut ObjectInitializer<'_>,
+    p: &elidex_plugin::PageTransitionEventInit,
+) {
+    init.property(js_string!("persisted"), JsValue::from(p.persisted), RO);
+}
+
+fn set_storage_payload(
+    init: &mut ObjectInitializer<'_>,
+    key: Option<&String>,
+    old_value: Option<&String>,
+    new_value: Option<&String>,
+    url: &str,
+) {
+    // WHATWG HTML §11.2.1 StorageEvent properties.
+    init.property(
+        js_string!("key"),
+        key.map_or(JsValue::null(), |k| JsValue::from(js_string!(k.as_str()))),
+        RO,
+    );
+    init.property(
+        js_string!("oldValue"),
+        old_value.map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
+        RO,
+    );
+    init.property(
+        js_string!("newValue"),
+        new_value.map_or(JsValue::null(), |v| JsValue::from(js_string!(v.as_str()))),
+        RO,
+    );
+    init.property(js_string!("url"), JsValue::from(js_string!(url)), RO);
+    init.property(js_string!("storageArea"), JsValue::null(), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

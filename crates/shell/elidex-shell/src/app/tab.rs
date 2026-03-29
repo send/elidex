@@ -37,6 +37,9 @@ pub(super) struct Tab {
     pub(super) chrome: ChromeState,
     pub(super) display_list: DisplayList,
     pub(super) window_title: String,
+    /// The serialized origin of the tab's current URL (e.g. `"https://example.com"`).
+    /// Used for same-origin filtering of `StorageEvent` broadcasts (WHATWG HTML §11.2.1).
+    pub(super) current_origin: Option<String>,
 }
 
 impl Tab {
@@ -57,6 +60,7 @@ impl Tab {
             chrome,
             display_list: DisplayList::default(),
             window_title,
+            current_origin: None,
         }
     }
 

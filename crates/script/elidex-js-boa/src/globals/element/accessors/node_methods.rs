@@ -174,4 +174,42 @@ pub(in crate::globals::element) fn register_child_parent_mixin_methods(
         js_string!("remove"),
         0,
     );
+
+    // Namespace API (WHATWG DOM §4.4) — HTML documents always return null/xhtml.
+    init.function(
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::null())),
+        js_string!("lookupPrefix"),
+        1,
+    );
+    init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let prefix = args
+                .first()
+                .filter(|v| !v.is_undefined() && !v.is_null())
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped());
+            match prefix.as_deref() {
+                None | Some("") => Ok(JsValue::from(js_string!("http://www.w3.org/1999/xhtml"))),
+                _ => Ok(JsValue::null()),
+            }
+        }),
+        js_string!("lookupNamespaceURI"),
+        1,
+    );
+    init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let ns = args
+                .first()
+                .filter(|v| !v.is_undefined() && !v.is_null())
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped());
+            Ok(JsValue::from(
+                ns.as_deref() == Some("http://www.w3.org/1999/xhtml"),
+            ))
+        }),
+        js_string!("isDefaultNamespace"),
+        1,
+    );
 }

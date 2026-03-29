@@ -37,8 +37,8 @@ pub use computed_style::{
 pub use error::ParseError;
 pub use event_types::{
     AnimationEventInit, ClipboardEventInit, CloseEventInit, CompositionEventInit, EventPayload,
-    EventPhase, FocusEventInit, InputEventInit, KeyboardEventInit, MouseEventInit,
-    TransitionEventInit, WheelEventInit,
+    EventPhase, FocusEventInit, HashChangeEventInit, InputEventInit, KeyboardEventInit,
+    MouseEventInit, PageTransitionEventInit, TransitionEventInit, WheelEventInit,
 };
 pub use js_value::JsValue;
 pub use layout_types::{

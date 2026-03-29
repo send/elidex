@@ -1,15 +1,22 @@
 //! `document` global object registration.
 
+mod collections;
+mod traversal;
+
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
-use elidex_ecs::Entity;
 use elidex_plugin::JsValue as ElidexJsValue;
 
 use crate::bridge::HostBridge;
 use crate::error_conv::dom_error_to_js_error;
 use crate::globals::element::resolve_object_ref;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_ref, require_js_string_arg};
+
+pub(crate) use collections::{
+    collect_elements_by_class, collect_elements_by_tag, entities_to_js_array,
+};
+pub(crate) use traversal::build_range_object;
 
 /// Common pattern for document methods that take a single string argument,
 /// invoke a DOM API handler by name on the document entity, and return an element ref.
@@ -357,6 +364,20 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         2,
     );
 
+    // document.dispatchEvent(event)
+    let b_dispatch = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                crate::globals::dispatch_event_for(doc, args, bridge, ctx)
+            },
+            b_dispatch,
+        ),
+        js_string!("dispatchEvent"),
+        1,
+    );
+
     // --- TreeWalker / NodeIterator / Range ---
 
     // document.createTreeWalker(root, whatToShow?)
@@ -446,6 +467,327 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         );
     }
 
+    // --- M4-4.5: Document API additions ---
+
+    // document.hidden — getter (W3C Page Visibility §4).
+    let b_hidden = b.clone();
+    let hidden_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.is_tab_hidden())),
+        b_hidden,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("hidden"),
+        Some(hidden_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.visibilityState — getter.
+    let b_vis = b.clone();
+    let vis_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            let state = if bridge.is_tab_hidden() {
+                "hidden"
+            } else {
+                "visible"
+            };
+            Ok(JsValue::from(js_string!(state)))
+        },
+        b_vis,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("visibilityState"),
+        Some(vis_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.hasFocus() — WHATWG HTML §6.5.4.
+    let b_focus = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.focus_target().is_some())),
+            b_focus,
+        ),
+        js_string!("hasFocus"),
+        0,
+    );
+
+    // document.activeElement — WHATWG HTML §6.5.4.2.
+    // Returns focused element, or document.body if none, or null if no body.
+    let b_ae = b.clone();
+    let ae_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, ctx| {
+            if let Some(focused) = bridge.focus_target() {
+                return Ok(traversal::resolve_entity_to_js(focused, bridge, ctx));
+            }
+            // No focus → return document.body (or null).
+            let doc = bridge.document_entity();
+            let body_handler = bridge.dom_registry().resolve("document.body.get");
+            if let Some(handler) = body_handler {
+                let result =
+                    bridge.with(|session, dom| handler.invoke(doc, &[], session, dom).ok());
+                if let Some(val) = result {
+                    return Ok(resolve_object_ref(&val, bridge, ctx));
+                }
+            }
+            Ok(JsValue::null())
+        },
+        b_ae,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("activeElement"),
+        Some(ae_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.getElementsByClassName(className) — static array (live HTMLCollection in Step 5).
+    let b_gbcn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let class_name =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByClassName", ctx)?;
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    collections::collect_elements_by_class(doc, &class_name, dom)
+                });
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbcn,
+        ),
+        js_string!("getElementsByClassName"),
+        1,
+    );
+
+    // document.getElementsByTagName(tagName) — static array.
+    let b_gbtn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let tag =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByTagName", ctx)?;
+                let doc = bridge.document_entity();
+                let entities = bridge
+                    .with(|_session, dom| collections::collect_elements_by_tag(doc, &tag, dom));
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbtn,
+        ),
+        js_string!("getElementsByTagName"),
+        1,
+    );
+
+    // document.getElementsByName(name) — static array.
+    let b_gbn = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let name =
+                    crate::globals::require_js_string_arg(args, 0, "getElementsByName", ctx)?;
+                let doc = bridge.document_entity();
+                let entities = bridge
+                    .with(|_session, dom| collections::collect_elements_by_name(doc, &name, dom));
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_gbn,
+        ),
+        js_string!("getElementsByName"),
+        1,
+    );
+
+    // document.importNode(node, deep?) — WHATWG DOM §4.5.
+    let b_import = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let node = crate::globals::element::extract_entity(
+                    args.first().ok_or_else(|| {
+                        JsNativeError::typ().with_message("importNode: node required")
+                    })?,
+                    ctx,
+                )?;
+                // WHATWG DOM §4.5: throw NotSupportedError if node is a Document.
+                let doc_entity = bridge.document_entity();
+                if node == doc_entity {
+                    return Err(JsNativeError::eval()
+                        .with_message(
+                            "NotSupportedError: importNode: Document nodes cannot be imported",
+                        )
+                        .into());
+                }
+                let deep = args.get(1).is_some_and(JsValue::to_boolean);
+                // Use cloneNode — single-document assumption.
+                invoke_dom_handler_ref("cloneNode", node, &[ElidexJsValue::Bool(deep)], bridge, ctx)
+            },
+            b_import,
+        ),
+        js_string!("importNode"),
+        2,
+    );
+
+    // document.adoptNode(node) — WHATWG DOM §4.5.
+    let b_adopt = b.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let node_val = args
+                    .first()
+                    .ok_or_else(|| JsNativeError::typ().with_message("adoptNode: node required"))?;
+                let entity = crate::globals::element::extract_entity(node_val, ctx)?;
+                // WHATWG DOM §4.5: throw NotSupportedError if node is a Document.
+                let doc_entity = bridge.document_entity();
+                if entity == doc_entity {
+                    return Err(JsNativeError::eval()
+                        .with_message(
+                            "NotSupportedError: adoptNode: Document nodes cannot be adopted",
+                        )
+                        .into());
+                }
+                // Detach from parent if attached (via removeChild on parent).
+                bridge.with(|session, dom| {
+                    if let Some(parent) = dom.get_parent(entity) {
+                        let obj_ref = session.get_or_create_wrapper(
+                            entity,
+                            elidex_script_session::ComponentKind::Element,
+                        );
+                        let handler = bridge.dom_registry().resolve("removeChild");
+                        if let Some(h) = handler {
+                            let _ = h.invoke(
+                                parent,
+                                &[ElidexJsValue::ObjectRef(obj_ref.to_raw())],
+                                session,
+                                dom,
+                            );
+                        }
+                    }
+                });
+                Ok(node_val.clone())
+            },
+            b_adopt,
+        ),
+        js_string!("adoptNode"),
+        1,
+    );
+
+    // document.createEvent(interface) — legacy (WHATWG DOM §4.1).
+    init.function(
+        NativeFunction::from_copy_closure(|_this, args, ctx| {
+            let iface = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map(|s| s.to_std_string_escaped().to_ascii_lowercase())
+                .unwrap_or_default();
+            match iface.as_str() {
+                "event" | "events" | "customevent" | "mouseevent" | "mouseevents" | "uievent"
+                | "uievents" => {
+                    // Create event with initialized=false via the Event constructor path,
+                    // then override initialized to false.
+                    let event = crate::globals::event_constructors::build_uninit_event(ctx)?;
+                    Ok(event)
+                }
+                _ => Err(JsNativeError::eval()
+                    .with_message("NotSupportedError: unsupported event interface")
+                    .into()),
+            }
+        }),
+        js_string!("createEvent"),
+        1,
+    );
+
+    // document.forms — live-ish getter (re-queries on each access).
+    collections::register_collection_getter(&mut init, &b, &realm, "forms", "form");
+    // document.images
+    collections::register_collection_getter(&mut init, &b, &realm, "images", "img");
+    // document.scripts
+    collections::register_collection_getter(&mut init, &b, &realm, "scripts", "script");
+    // document.links — <a href> + <area href>
+    {
+        let b_links = b.clone();
+        let links_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, ctx| {
+                let doc = bridge.document_entity();
+                let entities = bridge.with(|_session, dom| {
+                    let mut results = Vec::new();
+                    collections::walk_descendants(doc, dom, &mut |entity| {
+                        if let Ok(tt) = dom.world().get::<&elidex_ecs::TagType>(entity) {
+                            if (tt.0 == "a" || tt.0 == "area")
+                                && dom
+                                    .world()
+                                    .get::<&elidex_ecs::Attributes>(entity)
+                                    .ok()
+                                    .is_some_and(|a| a.get("href").is_some())
+                            {
+                                results.push(entity);
+                            }
+                        }
+                    });
+                    results
+                });
+                Ok(collections::entities_to_js_array(&entities, bridge, ctx))
+            },
+            b_links,
+        )
+        .to_js_function(&realm);
+        init.accessor(
+            js_string!("links"),
+            Some(links_getter),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
+
+    // document.cookie — getter/setter (RFC 6265, WHATWG HTML §3.1.3).
+    {
+        let b_cg = b.clone();
+        let cookie_getter = NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| {
+                // Return cookie string for current URL, filtering HttpOnly cookies.
+                // Note: cookies_for_script borrows inner, so do NOT wrap in bridge.with()
+                // which also borrows inner — that would cause a double RefCell borrow panic.
+                let url = bridge.current_url();
+                let cookie_str = if let Some(ref url) = url {
+                    bridge.cookies_for_script(url)
+                } else {
+                    String::new()
+                };
+                Ok(JsValue::from(js_string!(cookie_str)))
+            },
+            b_cg,
+        )
+        .to_js_function(&realm);
+
+        let b_cs = b.clone();
+        let cookie_setter = NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                let value = args
+                    .first()
+                    .map(|v| v.to_string(ctx))
+                    .transpose()?
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default();
+                if let Some(ref url) = bridge.current_url() {
+                    bridge.set_cookie_from_script(url, &value);
+                }
+                Ok(JsValue::undefined())
+            },
+            b_cs,
+        )
+        .to_js_function(&realm);
+
+        init.accessor(
+            js_string!("cookie"),
+            Some(cookie_getter),
+            Some(cookie_setter),
+            Attribute::CONFIGURABLE,
+        );
+    }
+
     // --- Legacy compat stubs ---
 
     // document.all → undefined (compat stub, Phase 4 TODO: HTMLAllCollection)
@@ -480,6 +822,40 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.accessor(
         js_string!("referrer"),
         Some(referrer_getter),
+        None,
+        Attribute::CONFIGURABLE,
+    );
+
+    // document.currentScript — getter (WHATWG HTML §4.12.1.1).
+    // Returns the <script> element currently being evaluated, or null.
+    let b_cs = b.clone();
+    let cs_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, ctx| match bridge.current_script_entity() {
+            Some(entity) => {
+                let wrapper = bridge.with(|session, dom| {
+                    let obj_ref = session.get_or_create_wrapper(
+                        entity,
+                        elidex_script_session::ComponentKind::Element,
+                    );
+                    let is_iframe = dom
+                        .world()
+                        .get::<&elidex_ecs::TagType>(entity)
+                        .ok()
+                        .is_some_and(|t| t.0 == "iframe");
+                    crate::globals::element::create_element_wrapper(
+                        entity, bridge, obj_ref, ctx, is_iframe,
+                    )
+                });
+                Ok(wrapper)
+            }
+            None => Ok(JsValue::null()),
+        },
+        b_cs,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("currentScript"),
+        Some(cs_getter),
         None,
         Attribute::CONFIGURABLE,
     );
@@ -539,414 +915,6 @@ fn register_doc_val_accessor(
     );
 }
 
-// ---------------------------------------------------------------------------
-// TreeWalker / NodeIterator / Range JS object builders
-// ---------------------------------------------------------------------------
-
-/// Hidden property key for the traversal object ID.
-const TRAVERSAL_ID_KEY: &str = "__elidex_traversal_id__";
-
-/// Build a JS object wrapping a `TreeWalker`.
-#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
-fn build_tree_walker_object(
-    tw_id: u64,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
-    let mut init = ObjectInitializer::new(ctx);
-
-    #[allow(clippy::cast_precision_loss)]
-    init.property(
-        js_string!(TRAVERSAL_ID_KEY),
-        JsValue::from(tw_id as f64),
-        Attribute::empty(),
-    );
-
-    // nextNode()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.next_node(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("nextNode"),
-        0,
-    );
-
-    // previousNode()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.previous_node(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("previousNode"),
-        0,
-    );
-
-    // parentNode()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.parent_node(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("parentNode"),
-        0,
-    );
-
-    // firstChild()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.first_child(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("firstChild"),
-        0,
-    );
-
-    // lastChild()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.last_child(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("lastChild"),
-        0,
-    );
-
-    // nextSibling()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_tree_walker(id, |tw| tw.next_sibling(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("nextSibling"),
-        0,
-    );
-
-    // previousSibling()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge.with(|_session, dom| {
-                    bridge.with_tree_walker(id, |tw| tw.previous_sibling(dom))
-                });
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("previousSibling"),
-        0,
-    );
-
-    Ok(init.build().into())
-}
-
-/// Build a JS object wrapping a `NodeIterator`.
-#[allow(clippy::unnecessary_wraps)]
-fn build_node_iterator_object(
-    ni_id: u64,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
-    let mut init = ObjectInitializer::new(ctx);
-
-    #[allow(clippy::cast_precision_loss)]
-    init.property(
-        js_string!(TRAVERSAL_ID_KEY),
-        JsValue::from(ni_id as f64),
-        Attribute::empty(),
-    );
-
-    // nextNode()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge
-                    .with(|_session, dom| bridge.with_node_iterator(id, |ni| ni.next_node(dom)));
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("nextNode"),
-        0,
-    );
-
-    // previousNode()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let result = bridge.with(|_session, dom| {
-                    bridge.with_node_iterator(id, |ni| ni.previous_node(dom))
-                });
-                match result {
-                    Some(Some(entity)) => Ok(resolve_entity_to_js(entity, bridge, ctx)),
-                    _ => Ok(JsValue::null()),
-                }
-            },
-            b,
-        ),
-        js_string!("previousNode"),
-        0,
-    );
-
-    Ok(init.build().into())
-}
-
-/// Build a JS object wrapping a Range.
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::unnecessary_wraps)]
-pub(crate) fn build_range_object(
-    range_id: u64,
-    bridge: &HostBridge,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
-    let mut init = ObjectInitializer::new(ctx);
-
-    #[allow(clippy::cast_precision_loss)]
-    init.property(
-        js_string!(TRAVERSAL_ID_KEY),
-        JsValue::from(range_id as f64),
-        Attribute::empty(),
-    );
-
-    // collapsed (getter)
-    let b = bridge.clone();
-    let realm = init.context().realm().clone();
-    let collapsed_getter = NativeFunction::from_copy_closure_with_captures(
-        |this, _args, bridge, ctx| {
-            let id = extract_traversal_id(this, ctx)?;
-            let result = bridge.with_range(id, |r| r.collapsed());
-            Ok(JsValue::from(result.unwrap_or(true)))
-        },
-        b,
-    )
-    .to_js_function(&realm);
-    init.accessor(
-        js_string!("collapsed"),
-        Some(collapsed_getter),
-        None,
-        Attribute::CONFIGURABLE,
-    );
-
-    // setStart(node, offset)
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let node = crate::globals::element::extract_entity(
-                    args.first().ok_or_else(|| {
-                        JsNativeError::typ().with_message("setStart: node required")
-                    })?,
-                    ctx,
-                )?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let offset = args
-                    .get(1)
-                    .and_then(JsValue::as_number)
-                    .map_or(0, |n| n as usize);
-                bridge.with_range(id, |r| r.set_start(node, offset));
-                Ok(JsValue::undefined())
-            },
-            b,
-        ),
-        js_string!("setStart"),
-        2,
-    );
-
-    // setEnd(node, offset)
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let node = crate::globals::element::extract_entity(
-                    args.first().ok_or_else(|| {
-                        JsNativeError::typ().with_message("setEnd: node required")
-                    })?,
-                    ctx,
-                )?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let offset = args
-                    .get(1)
-                    .and_then(JsValue::as_number)
-                    .map_or(0, |n| n as usize);
-                bridge.with_range(id, |r| r.set_end(node, offset));
-                Ok(JsValue::undefined())
-            },
-            b,
-        ),
-        js_string!("setEnd"),
-        2,
-    );
-
-    // collapse(toStart?)
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let to_start = args.first().is_some_and(JsValue::to_boolean);
-                bridge.with_range(id, |r| r.collapse(to_start));
-                Ok(JsValue::undefined())
-            },
-            b,
-        ),
-        js_string!("collapse"),
-        0,
-    );
-
-    // selectNode(node)
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let node = crate::globals::element::extract_entity(
-                    args.first().ok_or_else(|| {
-                        JsNativeError::typ().with_message("selectNode: node required")
-                    })?,
-                    ctx,
-                )?;
-                bridge.with(|_session, dom| {
-                    bridge.with_range(id, |r| r.select_node(node, dom));
-                });
-                Ok(JsValue::undefined())
-            },
-            b,
-        ),
-        js_string!("selectNode"),
-        1,
-    );
-
-    // toString()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                let text = bridge.with(|_session, dom| bridge.with_range(id, |r| r.to_string(dom)));
-                Ok(JsValue::from(js_string!(text.unwrap_or_default())))
-            },
-            b,
-        ),
-        js_string!("toString"),
-        0,
-    );
-
-    // deleteContents()
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, _args, bridge, ctx| {
-                let id = extract_traversal_id(this, ctx)?;
-                bridge.with(|_session, dom| {
-                    bridge.with_range(id, |r| r.delete_contents(dom));
-                });
-                Ok(JsValue::undefined())
-            },
-            b,
-        ),
-        js_string!("deleteContents"),
-        0,
-    );
-
-    Ok(init.build().into())
-}
-
-/// Extract the traversal ID from a JS object's hidden property.
-fn extract_traversal_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
-    let obj = this.as_object().ok_or_else(|| {
-        JsNativeError::typ().with_message("traversal method called on non-object")
-    })?;
-    let id_val = obj.get(js_string!(TRAVERSAL_ID_KEY), ctx)?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let id = id_val
-        .as_number()
-        .ok_or_else(|| JsNativeError::typ().with_message("invalid traversal object"))?
-        as u64;
-    Ok(id)
-}
-
-/// Resolve an Entity to a JS element wrapper.
-fn resolve_entity_to_js(entity: Entity, bridge: &HostBridge, ctx: &mut Context) -> JsValue {
-    let (obj_ref, is_iframe) = bridge.with(|session, dom| {
-        let kind = dom.node_kind(entity).map_or(
-            elidex_script_session::ComponentKind::Element,
-            elidex_script_session::ComponentKind::from_node_kind,
-        );
-        let r = session.get_or_create_wrapper(entity, kind);
-        let iframe = dom
-            .world()
-            .get::<&elidex_ecs::TagType>(entity)
-            .ok()
-            .is_some_and(|t| t.0 == "iframe");
-        (r, iframe)
-    });
-    crate::globals::element::create_element_wrapper(entity, bridge, obj_ref, ctx, is_iframe)
-}
+// TreeWalker / NodeIterator / Range JS object builders are in traversal.rs.
+use traversal::{build_node_iterator_object, build_tree_walker_object};
+// Collection helpers (getElementsBy*, entities_to_js_array) are in collections.rs.

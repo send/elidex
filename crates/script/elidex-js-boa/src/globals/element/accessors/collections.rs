@@ -355,5 +355,41 @@ pub(crate) fn create_class_list_object(
         Attribute::CONFIGURABLE,
     );
 
+    // forEach(callback) — iterates over all class names.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
+                    JsNativeError::typ()
+                        .with_message("classList.forEach: argument must be a function")
+                })?;
+                let class_str = bridge.with(|_session, dom| {
+                    dom.world()
+                        .get::<&elidex_ecs::Attributes>(entity)
+                        .ok()
+                        .and_then(|a| a.get("class").map(String::from))
+                        .unwrap_or_default()
+                });
+                for (i, class_name) in class_str.split_whitespace().enumerate() {
+                    #[allow(clippy::cast_precision_loss)]
+                    let _ = callback.call(
+                        &JsValue::undefined(),
+                        &[
+                            JsValue::from(js_string!(class_name)),
+                            JsValue::from(i as f64),
+                        ],
+                        ctx,
+                    );
+                }
+                Ok(JsValue::undefined())
+            },
+            b,
+        ),
+        js_string!("forEach"),
+        1,
+    );
+
     init.build().into()
 }

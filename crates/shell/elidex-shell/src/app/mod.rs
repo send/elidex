@@ -35,7 +35,7 @@ use crate::chrome::{self, TabBarInfo};
 use crate::ipc::{BrowserToContent, ContentToBrowser, ModifierState};
 
 use render::try_init_render_state;
-use tab::TabManager;
+use tab::{TabId, TabManager};
 
 /// Convert a winit mouse button to the DOM spec button number.
 ///
@@ -96,6 +96,8 @@ pub struct App {
     cursor_in_content: bool,
     /// Legacy inline interactive state.
     pub(super) interactive: Option<InteractiveState>,
+    /// Pending window focus request from `window.focus()`.
+    pub(super) pending_focus: bool,
 }
 
 impl App {
@@ -108,6 +110,7 @@ impl App {
             modifiers: Modifiers::default(),
             cursor_in_content: false,
             interactive: None,
+            pending_focus: false,
         }
     }
 
@@ -162,6 +165,7 @@ impl App {
                 nav_controller: NavigationController::new(),
                 window_title: "elidex".to_string(),
             }),
+            pending_focus: false,
         }
     }
 
@@ -190,6 +194,7 @@ impl App {
                 nav_controller,
                 window_title: title,
             }),
+            pending_focus: false,
         }
     }
 
@@ -205,6 +210,8 @@ impl App {
             return;
         };
         let mut new_tab_urls: Vec<url::Url> = Vec::new();
+        // Collect (source_tab_id, storage_change) for cross-tab broadcast.
+        let mut storage_changes: Vec<(TabId, crate::ipc::StorageChangedMsg)> = Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
             while drained < Self::MAX_DRAIN_PER_TAB {
@@ -228,6 +235,7 @@ impl App {
                     }
                     ContentToBrowser::UrlChanged(url) => {
                         tab.chrome.set_url(&url);
+                        tab.current_origin = Some(url.origin().ascii_serialization());
                     }
                     ContentToBrowser::NavigationFailed { url, error } => {
                         eprintln!("Navigation to {url} failed: {error}");
@@ -235,7 +243,51 @@ impl App {
                     ContentToBrowser::OpenNewTab(url) => {
                         new_tab_urls.push(url);
                     }
+                    ContentToBrowser::FocusWindow => {
+                        self.pending_focus = true;
+                    }
+                    ContentToBrowser::StorageChanged {
+                        origin,
+                        key,
+                        old_value,
+                        new_value,
+                        url,
+                    } => {
+                        storage_changes.push((
+                            tab.id,
+                            crate::ipc::StorageChangedMsg {
+                                origin,
+                                key,
+                                old_value,
+                                new_value,
+                                url,
+                            },
+                        ));
+                    }
                 }
+            }
+        }
+
+        // Broadcast storage changes to other same-origin tabs (WHATWG HTML §11.2.1).
+        for (source_tab_id, change) in &storage_changes {
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    continue;
+                }
+                // Only send to tabs whose origin matches the storage change origin.
+                let tab_matches = tab
+                    .current_origin
+                    .as_ref()
+                    .is_some_and(|o| *o == change.origin);
+                if !tab_matches {
+                    continue;
+                }
+                let _ = tab.channel.send(BrowserToContent::StorageEvent {
+                    key: change.key.clone(),
+                    old_value: change.old_value.clone(),
+                    new_value: change.new_value.clone(),
+                    url: change.url.clone(),
+                });
             }
         }
 

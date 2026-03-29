@@ -93,6 +93,12 @@ impl App {
             } => {
                 self.handle_keyboard_threaded(event_loop, &key_event, address_focused);
             }
+            WindowEvent::Occluded(occluded) => {
+                // Page Visibility §4.1: dispatch visibilitychange when window
+                // becomes occluded/unoccluded.
+                self.send_to_content(BrowserToContent::VisibilityChanged { visible: !occluded });
+                needs_redraw = false;
+            }
             _ => {
                 needs_redraw = false;
             }
@@ -110,6 +116,14 @@ impl App {
     /// Returns `true` if a redraw is needed (due to chrome actions).
     fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
         self.drain_content_messages();
+
+        // Apply pending window.focus() request.
+        if self.pending_focus {
+            self.pending_focus = false;
+            if let Some(state) = &self.render_state {
+                state.window.focus_window();
+            }
+        }
 
         let tab_infos = self.tab_bar_infos();
         let position = self.tab_bar_position();
@@ -417,7 +431,19 @@ impl App {
             }
             ChromeAction::SwitchTab(id) => {
                 if let Some(mgr) = &mut self.tab_manager {
+                    // Notify the old active tab that it is now hidden.
+                    if let Some(old_tab) = mgr.active_tab() {
+                        let _ = old_tab
+                            .channel
+                            .send(BrowserToContent::VisibilityChanged { visible: false });
+                    }
                     mgr.set_active(id);
+                    // Notify the new active tab that it is now visible.
+                    if let Some(new_tab) = mgr.active_tab() {
+                        let _ = new_tab
+                            .channel
+                            .send(BrowserToContent::VisibilityChanged { visible: true });
+                    }
                 }
             }
         }

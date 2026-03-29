@@ -178,4 +178,96 @@ pub(in crate::globals::element) fn register_element_extra_methods(
         js_string!("getAttributeNames"),
         0,
     );
+
+    // children — Element children only (static array, WHATWG DOM §4.2.6).
+    let b = bridge.clone();
+    let realm = init.context().realm().clone();
+    let children_getter = boa_engine::NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let children = bridge.with(|_session, dom| {
+                let mut result = Vec::new();
+                let mut child = dom.get_first_child(entity);
+                while let Some(c) = child {
+                    // Only include element nodes (have TagType).
+                    if dom.world().get::<&elidex_ecs::TagType>(c).is_ok() {
+                        result.push(c);
+                    }
+                    child = dom.get_next_sibling(c);
+                }
+                result
+            });
+            let array = JsArray::new(ctx);
+            for child_entity in children {
+                let wrapper = bridge.with(|session, dom| {
+                    let obj_ref = session.get_or_create_wrapper(
+                        child_entity,
+                        elidex_script_session::ComponentKind::Element,
+                    );
+                    let is_iframe = dom
+                        .world()
+                        .get::<&elidex_ecs::TagType>(child_entity)
+                        .ok()
+                        .is_some_and(|t| t.0 == "iframe");
+                    crate::globals::element::create_element_wrapper(
+                        child_entity,
+                        bridge,
+                        obj_ref,
+                        ctx,
+                        is_iframe,
+                    )
+                });
+                let _ = array.push(wrapper, ctx);
+            }
+            Ok(array.into())
+        },
+        b,
+    )
+    .to_js_function(&realm);
+    init.accessor(
+        js_string!("children"),
+        Some(children_getter),
+        None,
+        boa_engine::property::Attribute::CONFIGURABLE,
+    );
+
+    // getElementsByClassName(className)
+    let b = bridge.clone();
+    init.function(
+        boa_engine::NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let class_name = require_js_string_arg(args, 0, "getElementsByClassName", ctx)?;
+                let entities = bridge.with(|_session, dom| {
+                    crate::globals::document::collect_elements_by_class(entity, &class_name, dom)
+                });
+                Ok(crate::globals::document::entities_to_js_array(
+                    &entities, bridge, ctx,
+                ))
+            },
+            b,
+        ),
+        js_string!("getElementsByClassName"),
+        1,
+    );
+
+    // getElementsByTagName(tagName)
+    let b = bridge.clone();
+    init.function(
+        boa_engine::NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let tag = require_js_string_arg(args, 0, "getElementsByTagName", ctx)?;
+                let entities = bridge.with(|_session, dom| {
+                    crate::globals::document::collect_elements_by_tag(entity, &tag, dom)
+                });
+                Ok(crate::globals::document::entities_to_js_array(
+                    &entities, bridge, ctx,
+                ))
+            },
+            b,
+        ),
+        js_string!("getElementsByTagName"),
+        1,
+    );
 }

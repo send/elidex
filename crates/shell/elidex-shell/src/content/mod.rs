@@ -12,6 +12,7 @@ mod ime;
 mod navigation;
 mod scroll;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,11 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Caret blink interval (500ms per HTML spec recommendation).
 const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Monotonic counter for script-created animation keyframes names.
+/// Ensures multiple `element.animate()` calls on the same element
+/// produce distinct keyframes without overwriting previous ones.
+static SCRIPT_ANIM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// State owned by the content thread.
 ///
@@ -389,6 +395,9 @@ fn run_event_loop(state: &mut ContentState) {
         let dt = now.duration_since(last_frame);
         let mut needs_render = false;
 
+        // Drain script-initiated animations (element.animate()) and apply to engine.
+        apply_script_animations(state);
+
         // Tick animation engine if animations have active state (including fill values).
         // Use has_active() here (not has_running()) so fill-mode values are applied.
         // Guard against zero-dt (no elapsed time) but allow sub-millisecond ticks
@@ -437,11 +446,34 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // Drain pending localStorage changes and send to browser for cross-tab broadcast.
+        for change in state.pipeline.runtime.bridge().drain_storage_changes() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::StorageChanged {
+                    origin: change.origin,
+                    key: change.key,
+                    old_value: change.old_value,
+                    new_value: change.new_value,
+                    url: change.url,
+                });
+        }
+
+        // Batch-persist all dirty localStorage stores to disk (once per frame).
+        elidex_js_boa::bridge::local_storage::flush_dirty_stores();
+
         // Drain pending window.open(_blank) requests from timers/animations.
         for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
             let _ = state
                 .channel
                 .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        }
+
+        // Drain pending window.focus() request.
+        if state.pipeline.runtime.bridge().take_pending_focus() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::FocusWindow);
         }
 
         // Drain WebSocket and SSE events from I/O threads.
@@ -565,9 +597,46 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                     dispatch_media_query_changes(&changed, state);
                 }
 
+                // Dispatch "resize" event (CSSOM View §4.2).
+                // Per spec this fires on Window; in our architecture window
+                // listeners are wired to the document entity, so targeting
+                // document is equivalent.
+                let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
+                    "resize",
+                    state.pipeline.document,
+                );
+                resize_event.bubbles = false;
+                resize_event.cancelable = false;
+                state.pipeline.runtime.dispatch_event(
+                    &mut resize_event,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+
                 state.re_render();
                 state.send_display_list();
             }
+        }
+
+        BrowserToContent::VisibilityChanged { visible } => {
+            // Dispatch "visibilitychange" event on the document (Page Visibility §4.1).
+            let mut event = elidex_script_session::DispatchEvent::new_composed(
+                "visibilitychange",
+                state.pipeline.document,
+            );
+            event.bubbles = false;
+            event.cancelable = false;
+            // Store visibility state in the bridge for document.visibilityState.
+            state.pipeline.runtime.bridge().set_visibility(visible);
+            state.pipeline.runtime.dispatch_event(
+                &mut event,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            state.re_render();
+            state.send_display_list();
         }
 
         BrowserToContent::GoBack => {
@@ -624,6 +693,15 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         BrowserToContent::Ime { kind } => {
             ime::handle_ime(state, kind);
         }
+
+        BrowserToContent::StorageEvent {
+            key,
+            old_value,
+            new_value,
+            url,
+        } => {
+            dispatch_storage_event(state, key, old_value, new_value, url);
+        }
     }
     true
 }
@@ -664,6 +742,36 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
     })
 }
 
+/// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
+///
+/// Fired when another tab changes `localStorage` for the same origin.
+/// Per spec this fires on `Window`; in our architecture window listeners
+/// are wired to the document entity, so targeting document is equivalent.
+fn dispatch_storage_event(
+    state: &mut ContentState,
+    key: Option<String>,
+    old_value: Option<String>,
+    new_value: Option<String>,
+    url: String,
+) {
+    let mut event =
+        elidex_script_session::DispatchEvent::new_composed("storage", state.pipeline.document);
+    event.bubbles = false;
+    event.cancelable = false;
+    event.payload = elidex_plugin::EventPayload::Storage {
+        key,
+        old_value,
+        new_value,
+        url,
+    };
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
+}
+
 /// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
 fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     let mut event =
@@ -681,6 +789,110 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
         &mut state.pipeline.dom,
         state.pipeline.document,
     );
+}
+
+/// Drain pending script-initiated animations from the bridge and apply them
+/// to the `AnimationEngine`. Converts `ScriptAnimation` options into
+/// `SingleAnimationSpec` + `KeyframesRule` and registers them.
+fn apply_script_animations(state: &mut ContentState) {
+    let bridge = state.pipeline.runtime.bridge();
+    let pending = bridge.drain_script_animations();
+    if pending.is_empty() {
+        return;
+    }
+
+    let current_time = state.pipeline.animation_engine.timeline().current_time();
+
+    for anim in pending {
+        // Convert parsed keyframes to KeyframesRule.
+        let mut keyframes = Vec::new();
+        let num_kf = anim.keyframes.len();
+        for (i, kf) in anim.keyframes.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let offset = kf.offset.unwrap_or_else(|| {
+                if num_kf <= 1 {
+                    1.0
+                } else {
+                    i as f64 / (num_kf - 1) as f64
+                }
+            });
+            #[allow(clippy::cast_possible_truncation)]
+            let declarations: Vec<elidex_plugin::PropertyDeclaration> = kf
+                .declarations
+                .iter()
+                .map(|(prop, val)| elidex_plugin::PropertyDeclaration {
+                    property: prop.clone(),
+                    value: elidex_plugin::CssValue::Keyword(val.clone()),
+                })
+                .collect();
+            keyframes.push(elidex_css_anim::parse::Keyframe {
+                #[allow(clippy::cast_possible_truncation)]
+                offset: offset as f32,
+                declarations,
+                timing_function: None,
+            });
+        }
+
+        // Generate a unique name for this script animation.
+        // Use a monotonic counter to avoid name collisions when multiple
+        // animations are created on the same element without explicit ids.
+        let name = if anim.options.id.is_empty() {
+            let seq = SCRIPT_ANIM_COUNTER.fetch_add(1, Ordering::Relaxed);
+            format!("__script_anim_{}_{seq}", anim.entity_id)
+        } else {
+            anim.options.id.clone()
+        };
+
+        let rule = elidex_css_anim::parse::KeyframesRule {
+            name: name.clone(),
+            keyframes,
+        };
+        state.pipeline.animation_engine.register_keyframes(rule);
+
+        // Convert options to SingleAnimationSpec.
+        #[allow(clippy::cast_possible_truncation)]
+        let duration = (anim.options.duration / 1000.0) as f32; // ms → seconds
+        #[allow(clippy::cast_possible_truncation)]
+        let delay = (anim.options.delay / 1000.0) as f32;
+
+        let iteration_count = if anim.options.iterations.is_infinite() {
+            elidex_css_anim::style::IterationCount::Infinite
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            elidex_css_anim::style::IterationCount::Number(anim.options.iterations as f32)
+        };
+
+        let direction = match anim.options.direction.as_str() {
+            "reverse" => elidex_css_anim::style::AnimationDirection::Reverse,
+            "alternate" => elidex_css_anim::style::AnimationDirection::Alternate,
+            "alternate-reverse" => elidex_css_anim::style::AnimationDirection::AlternateReverse,
+            _ => elidex_css_anim::style::AnimationDirection::Normal,
+        };
+
+        let fill_mode = match anim.options.fill.as_str() {
+            "forwards" => elidex_css_anim::style::AnimationFillMode::Forwards,
+            "backwards" => elidex_css_anim::style::AnimationFillMode::Backwards,
+            "both" => elidex_css_anim::style::AnimationFillMode::Both,
+            _ => elidex_css_anim::style::AnimationFillMode::None,
+        };
+
+        let spec = elidex_css_anim::SingleAnimationSpec {
+            name,
+            duration,
+            timing_function: elidex_css_anim::timing::TimingFunction::Linear,
+            delay,
+            iteration_count,
+            direction,
+            fill_mode,
+            play_state: elidex_css_anim::style::PlayState::Running,
+        };
+
+        let instance = elidex_css_anim::instance::AnimationInstance::new(&spec, current_time);
+        state
+            .pipeline
+            .animation_engine
+            .add_animation(anim.entity_id, instance);
+    }
 }
 
 #[cfg(test)]

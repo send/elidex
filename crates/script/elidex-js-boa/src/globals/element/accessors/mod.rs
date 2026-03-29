@@ -1,6 +1,7 @@
 //! Element accessor registration — Node methods, Element methods, property accessors,
 //! layout queries, dataset, and classList.
 
+pub(crate) mod animate;
 mod collections;
 mod element_methods;
 mod layout_queries;
@@ -25,4 +26,5 @@ pub(crate) fn register_element_accessors(
     properties::register_element_extra_accessors(init, bridge, realm);
     layout_queries::register_layout_query_accessors(init, bridge, realm);
     collections::register_dataset_accessor(init, bridge, realm);
+    animate::register_animate_methods(init, bridge);
 }

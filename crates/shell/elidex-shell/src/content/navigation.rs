@@ -88,6 +88,8 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         return true;
     }
 
+    // window.focus() is handled in content/mod.rs drain loop — do not duplicate here.
+
     // window.open with named target → navigate matching iframe or open new tab.
     let navigate_iframes = state
         .pipeline

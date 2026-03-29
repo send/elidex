@@ -14,6 +14,7 @@ use crate::bridge::HostBridge;
 use crate::globals::{invoke_dom_handler, invoke_dom_handler_void};
 
 /// Register textContent (getter/setter) and innerHTML (getter) accessors.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub(crate) fn register_content_accessors(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,
@@ -96,6 +97,124 @@ pub(crate) fn register_content_accessors(
         Some(setter),
         Attribute::CONFIGURABLE,
     );
+
+    // outerHTML getter + setter
+    let b = bridge.clone();
+    let outer_html_getter = NativeFunction::from_copy_closure_with_captures(
+        |this, _args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            // outerHTML = opening tag + innerHTML + closing tag.
+            let (tag, attrs_str, inner) = bridge.with(|session, dom| {
+                let tag_name = dom
+                    .world()
+                    .get::<&elidex_ecs::TagType>(entity)
+                    .map_or("div".to_string(), |t| t.0.clone());
+                let attrs = dom
+                    .world()
+                    .get::<&elidex_ecs::Attributes>(entity)
+                    .ok()
+                    .map(|a| {
+                        use std::fmt::Write;
+                        a.iter().fold(String::new(), |mut acc, (k, v)| {
+                            let escaped = v
+                                .replace('&', "&amp;")
+                                .replace('"', "&quot;")
+                                .replace('<', "&lt;")
+                                .replace('>', "&gt;");
+                            let _ = write!(acc, " {k}=\"{escaped}\"");
+                            acc
+                        })
+                    })
+                    .unwrap_or_default();
+                let handler = bridge.dom_registry().resolve("innerHTML.get");
+                let inner_html = handler
+                    .and_then(|h| h.invoke(entity, &[], session, dom).ok())
+                    .and_then(|v| {
+                        if let elidex_plugin::JsValue::String(s) = v {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                (tag_name, attrs, inner_html)
+            });
+            let html = format!("<{tag}{attrs_str}>{inner}</{tag}>");
+            Ok(boa_engine::JsValue::from(js_string!(html.as_str())))
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    let b = bridge.clone();
+    let outer_html_setter = NativeFunction::from_copy_closure_with_captures(
+        |this, args, bridge, ctx| {
+            let entity = extract_entity(this, ctx)?;
+            let html = args
+                .first()
+                .map(|v| v.to_string(ctx))
+                .transpose()?
+                .map_or(String::new(), |s| s.to_std_string_escaped());
+            // WHATWG HTML §3.1.5: throw NoModificationAllowedError if no parent
+            // or parent is a Document node.
+            let doc_entity = bridge.document_entity();
+            let has_valid_parent = bridge.with(|_session, dom| {
+                match dom.get_parent(entity) {
+                    None => false,
+                    Some(p) => p != doc_entity,
+                }
+            });
+            if !has_valid_parent {
+                return Err(boa_engine::JsNativeError::typ()
+                    .with_message(
+                        "NoModificationAllowedError: outerHTML setter requires a non-Document parent",
+                    )
+                    .into());
+            }
+            bridge.with(|session, dom| {
+                let parent = dom.get_parent(entity).unwrap();
+                // Parse HTML fragment and replace this element.
+                let handler = bridge.dom_registry().resolve("innerHTML.set");
+                if let Some(h) = handler {
+                    // Create a temp container, set innerHTML, then replace.
+                    let temp = dom.create_element("div", elidex_ecs::Attributes::default());
+                    let _ = h.invoke(
+                        temp,
+                        &[ElidexJsValue::String(html)],
+                        session,
+                        dom,
+                    );
+                    // Flush mutations so innerHTML changes are applied to the DOM
+                    // before we read temp's children.
+                    session.flush(dom);
+                    // Move children from temp to before entity, then remove entity.
+                    // Direct DOM mutations (same pattern as innerHTML setter's
+                    // underlying SetInnerHtml mutation) — MutationObserver
+                    // integration is tracked separately through the session layer.
+                    let mut child = dom.get_first_child(temp);
+                    while let Some(c) = child {
+                        let next = dom.get_next_sibling(c);
+                        let _ = dom.insert_before(parent, c, entity);
+                        child = next;
+                    }
+                    let _ = dom.destroy_entity(temp);
+                }
+                // Detach from parent before destroying to ensure clean removal.
+                let _ = dom.remove_child(parent, entity);
+                let _ = dom.destroy_entity(entity);
+            });
+            Ok(boa_engine::JsValue::undefined())
+        },
+        b,
+    )
+    .to_js_function(realm);
+
+    init.accessor(
+        js_string!("outerHTML"),
+        Some(outer_html_getter),
+        Some(outer_html_setter),
+        Attribute::CONFIGURABLE,
+    );
 }
 
 /// Register the `style` cached accessor.
@@ -159,5 +278,18 @@ pub(crate) fn register_event_listener_methods(
         ),
         js_string!("removeEventListener"),
         2,
+    );
+
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                crate::globals::dispatch_event_for(entity, args, bridge, ctx)
+            },
+            b,
+        ),
+        js_string!("dispatchEvent"),
+        1,
     );
 }

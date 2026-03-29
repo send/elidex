@@ -367,6 +367,7 @@ impl PipelineResult {
         self.animation_engine.prune_dead_entities(&|entity_id| {
             Entity::from_bits(entity_id).is_some_and(|entity| self.dom.world().contains(entity))
         });
+        self.animation_engine.prune_unused_keyframes();
     }
 }
 

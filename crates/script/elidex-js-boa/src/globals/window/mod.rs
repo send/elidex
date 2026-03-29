@@ -1,7 +1,12 @@
 //! `window` global and related registrations.
 
 mod computed_style;
+mod dom_parser;
+mod encoding;
+mod geometry;
 mod media_query;
+mod performance;
+mod screen;
 mod selection;
 
 use boa_engine::object::ObjectInitializer;
@@ -20,7 +25,7 @@ use crate::globals::{invoke_dom_handler, invoke_dom_handler_void, require_js_str
 /// `window.scrollX/Y`, `window.scrollTo()`, `window.scrollBy()`, and
 /// `window.matchMedia()`.
 pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
-    // getComputedStyle(element) → returns object with property getters
+    // getComputedStyle(element) -> returns object with property getters
     let b_gcs = bridge.clone();
     let get_computed_style = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
@@ -46,6 +51,122 @@ pub fn register_window(ctx: &mut Context, bridge: &HostBridge) {
     register_window_open(ctx, bridge);
     register_messaging(ctx, bridge);
     register_modals(ctx, bridge);
+    register_window_event_target(ctx, bridge);
+    screen::register_screen_and_window_props(ctx, bridge);
+    performance::register_performance(ctx, bridge);
+    encoding::register_atob_btoa(ctx);
+    encoding::register_crypto(ctx);
+    encoding::register_queue_microtask(ctx);
+    register_image_constructor(ctx, bridge);
+    geometry::register_dom_geometry(ctx);
+    geometry::register_visual_viewport(ctx, bridge);
+    dom_parser::register_dom_parser(ctx, bridge);
+    dom_parser::register_xml_serializer(ctx, bridge);
+    dom_parser::register_idle_callbacks(ctx);
+    dom_parser::register_structured_clone(ctx);
+}
+
+/// Register `Image()` named constructor (WHATWG HTML §4.8.3).
+fn register_image_constructor(ctx: &mut Context, bridge: &HostBridge) {
+    let b = bridge.clone();
+    ctx.register_global_callable(
+        js_string!("Image"),
+        0,
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, bridge, ctx| {
+                // Create <img> element via createElement.
+                let doc = bridge.document_entity();
+                let handler = bridge
+                    .dom_registry()
+                    .resolve("createElement")
+                    .ok_or_else(|| {
+                        boa_engine::JsNativeError::typ()
+                            .with_message("createElement handler not found")
+                    })?;
+                let result = bridge.with(|session, dom| {
+                    handler
+                        .invoke(
+                            doc,
+                            &[elidex_plugin::JsValue::String("img".to_string())],
+                            session,
+                            dom,
+                        )
+                        .map_err(crate::error_conv::dom_error_to_js_error)
+                })?;
+                let wrapper = crate::globals::element::resolve_object_ref(&result, bridge, ctx);
+
+                // Set width/height content attributes if provided.
+                if let Some(entity) = wrapper
+                    .as_object()
+                    .and_then(|_| crate::globals::element::extract_entity(&wrapper, ctx).ok())
+                {
+                    if let Some(w) = args.first().and_then(JsValue::as_number) {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                #[allow(clippy::cast_possible_truncation)]
+                                attrs.set("width", (w as i64).to_string());
+                            }
+                        });
+                    }
+                    if let Some(h) = args.get(1).and_then(JsValue::as_number) {
+                        bridge.with(|_session, dom| {
+                            if let Ok(mut attrs) =
+                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
+                            {
+                                #[allow(clippy::cast_possible_truncation)]
+                                attrs.set("height", (h as i64).to_string());
+                            }
+                        });
+                    }
+                }
+
+                Ok(wrapper)
+            },
+            b,
+        ),
+    )
+    .expect("failed to register Image");
+}
+
+/// Register `addEventListener`, `removeEventListener`, `dispatchEvent` on window.
+///
+/// Window events target the document entity (matching browser behavior where
+/// window-level listeners participate in the DOM propagation path).
+fn register_window_event_target(ctx: &mut Context, bridge: &HostBridge) {
+    let b = bridge.clone();
+    let add_listener = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::add_event_listener_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("addEventListener"), 2, add_listener)
+        .expect("failed to register window.addEventListener");
+
+    let b = bridge.clone();
+    let rm_listener = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::remove_event_listener_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("removeEventListener"), 2, rm_listener)
+        .expect("failed to register window.removeEventListener");
+
+    let b = bridge.clone();
+    let dispatch = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, bridge, ctx| {
+            let doc = bridge.document_entity();
+            crate::globals::dispatch_event_for(doc, args, bridge, ctx)
+        },
+        b,
+    );
+    ctx.register_global_builtin_callable(js_string!("dispatchEvent"), 1, dispatch)
+        .expect("failed to register window.dispatchEvent");
 }
 
 /// Register `innerWidth`, `innerHeight`, `scrollX`, `scrollY` (and `pageXOffset`/`pageYOffset`
@@ -148,13 +269,9 @@ fn register_scroll_methods(ctx: &mut Context, bridge: &HostBridge) {
     let scroll_to = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let (opt_x, opt_y) = parse_scroll_args(args, ctx)?;
-            // When an axis is not specified, keep the current scroll position.
             let x = opt_x.unwrap_or_else(|| f64::from(bridge.scroll_x()));
             let y = opt_y.unwrap_or_else(|| f64::from(bridge.scroll_y()));
-            // CSSOM View §4.2: NaN/Infinity values must be ignored.
             if x.is_finite() && y.is_finite() {
-                // Store as pending scroll; the content thread picks it up on the
-                // next frame, updates viewport_scroll, and syncs back to bridge.
                 #[allow(clippy::cast_possible_truncation)]
                 bridge.set_pending_scroll(x as f32, y as f32);
             }
@@ -176,7 +293,6 @@ fn register_scroll_methods(ctx: &mut Context, bridge: &HostBridge) {
             let cur_y = f64::from(bridge.scroll_y());
             let new_x = cur_x + x;
             let new_y = cur_y + y;
-            // CSSOM View §4.2: NaN/Infinity values must be ignored.
             if new_x.is_finite() && new_y.is_finite() {
                 #[allow(clippy::cast_possible_truncation)]
                 bridge.set_pending_scroll(new_x as f32, new_y as f32);
@@ -192,11 +308,6 @@ fn register_scroll_methods(ctx: &mut Context, bridge: &HostBridge) {
 /// Register iframe-related window properties: `parent`, `top`, `frames`,
 /// `frameElement`, `length`, `opener` (WHATWG HTML §7.1.3).
 fn register_iframe_window_props(ctx: &mut Context) {
-    // window.parent — returns `self` for top-level, parent window for iframes.
-    // Boa limitation: each iframe has its own JsRuntime/Context, so we can't
-    // return the actual parent's global object. Returns `self` as a proxy
-    // (correct for top-level, degraded-but-safe for iframes).
-    // Self-hosted engine (M4-9+) will implement cross-context window proxies.
     ctx.register_global_property(
         js_string!("parent"),
         JsValue::from(ctx.global_object()),
@@ -204,7 +315,6 @@ fn register_iframe_window_props(ctx: &mut Context) {
     )
     .expect("failed to register window.parent");
 
-    // window.top — same limitation as window.parent.
     ctx.register_global_property(
         js_string!("top"),
         JsValue::from(ctx.global_object()),
@@ -212,11 +322,6 @@ fn register_iframe_window_props(ctx: &mut Context) {
     )
     .expect("failed to register window.top");
 
-    // window.frameElement — null for top-level, iframe element for embedded docs.
-    // Cross-origin: always null (WHATWG HTML §7.1.3).
-    // For same-origin iframes, should return the <iframe> element from parent DOM.
-    // Boa limitation: can't return an object from parent's Context.
-    // Returns null for now; self-hosted engine will implement cross-context proxies.
     ctx.register_global_property(
         js_string!("frameElement"),
         JsValue::null(),
@@ -224,8 +329,6 @@ fn register_iframe_window_props(ctx: &mut Context) {
     )
     .expect("failed to register window.frameElement");
 
-    // window.length — number of child iframes.
-    // MVP: always 0 (iframe counting will be added when iframe loading is implemented).
     ctx.register_global_property(
         js_string!("length"),
         JsValue::from(0),
@@ -233,7 +336,6 @@ fn register_iframe_window_props(ctx: &mut Context) {
     )
     .expect("failed to register window.length");
 
-    // window.opener — null for iframes (only set by window.open).
     ctx.register_global_property(
         js_string!("opener"),
         JsValue::null(),
@@ -241,8 +343,6 @@ fn register_iframe_window_props(ctx: &mut Context) {
     )
     .expect("failed to register window.opener");
 
-    // window.frames — alias for window (WHATWG HTML §7.1.3).
-    // Returns the window itself; window[0], window[1] etc. access child iframes.
     ctx.register_global_property(
         js_string!("frames"),
         JsValue::from(ctx.global_object()),
@@ -252,13 +352,10 @@ fn register_iframe_window_props(ctx: &mut Context) {
 }
 
 /// Register `window.open(url, target, features)` (WHATWG HTML §7.5.2).
-///
-/// MVP limitations: `features` string is ignored, returns `null` (no `WindowProxy`).
 fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
     let b_open = bridge.clone();
     let open_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
-            // Sandbox allow-popups check.
             if !bridge.popups_allowed() {
                 return Ok(JsValue::null());
             }
@@ -273,13 +370,10 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                 .map(|v| v.to_string(ctx))
                 .transpose()?
                 .map_or_else(|| String::from("_blank"), |s| s.to_std_string_escaped());
-            // _features arg is intentionally ignored (MVP).
 
-            // Empty/whitespace-only URL means "about:blank" per WHATWG HTML §7.5.2.
             let resolved = if url_str.trim().is_empty() {
                 Ok(url::Url::parse("about:blank").expect("about:blank is valid"))
             } else {
-                // Resolve relative URLs against the document's URL.
                 url::Url::parse(&url_str).or_else(|_| {
                     bridge
                         .current_url()
@@ -293,7 +387,6 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
             if let Ok(url) = resolved {
                 match target.as_str() {
                     "_blank" | "" => {
-                        // Open in new tab via ContentToBrowser::OpenNewTab.
                         bridge.queue_open_tab(url);
                     }
                     "_self" => {
@@ -303,31 +396,22 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                         });
                     }
                     "_parent" | "_top" => {
-                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
-                        // if sandboxed without allow-top-navigation, block navigation.
                         if bridge.sandbox_flags().is_some_and(|f| {
                             !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
                         }) {
                             return Ok(JsValue::null());
                         }
-                        // For top-level documents, _parent and _top are same as _self.
-                        // For iframes, boa cross-context limitation means we navigate
-                        // the current document (same as _self).
                         bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
                             url: url.to_string(),
                             replace: false,
                         });
                     }
                     named => {
-                        // Named target: queue iframe navigation by name.
-                        // Content thread will search iframes registry; if not
-                        // found, falls back to opening a new tab.
                         bridge.set_pending_navigate_iframe(named.to_string(), url);
                     }
                 }
             }
 
-            // Return null (no WindowProxy for the opened window).
             Ok(JsValue::null())
         },
         b_open,
@@ -341,7 +425,6 @@ fn register_messaging(ctx: &mut Context, bridge: &HostBridge) {
     let b_pm = bridge.clone();
     let post_message_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| -> JsResult<JsValue> {
-            // WHATWG HTML §9.4.3: targetOrigin is required.
             if args.len() < 2 {
                 return Err(boa_engine::JsNativeError::typ()
                     .with_message("Failed to execute 'postMessage': 2 arguments required")
@@ -359,16 +442,12 @@ fn register_messaging(ctx: &mut Context, bridge: &HostBridge) {
                 .transpose()?
                 .map_or_else(|| String::from("/"), |s| s.to_std_string_escaped());
 
-            // targetOrigin check per WHATWG HTML §9.4.3:
-            // "*" matches all origins, "/" is shorthand for own origin.
             let own_origin = bridge.origin();
             let own_serialized = own_origin.serialize();
             let origin_matches =
                 target_origin == "*" || target_origin == "/" || own_serialized == target_origin;
 
             if origin_matches {
-                // Buffer the message for delivery in the next event loop tick.
-                // Delivery is asynchronous per WHATWG HTML §9.4.3.
                 bridge.queue_post_message(message, own_origin.serialize());
             }
 
@@ -388,7 +467,6 @@ fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
             if !bridge.modals_allowed() {
                 return Ok(JsValue::undefined());
             }
-            // MVP: alert is a no-op (no modal UI).
             Ok(JsValue::undefined())
         },
         b_alert,
@@ -402,7 +480,6 @@ fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
             if !bridge.modals_allowed() {
                 return Ok(JsValue::from(false));
             }
-            // MVP: confirm always returns false (no modal UI).
             Ok(JsValue::from(false))
         },
         b_confirm,
@@ -416,7 +493,6 @@ fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
             if !bridge.modals_allowed() {
                 return Ok(JsValue::null());
             }
-            // MVP: prompt always returns null (no modal UI).
             Ok(JsValue::null())
         },
         b_prompt,
@@ -426,13 +502,9 @@ fn register_modals(ctx: &mut Context, bridge: &HostBridge) {
 }
 
 /// Parse scroll arguments: either `(x, y)` numbers or `{top, left}` options object.
-///
-/// Returns `(Option<x>, Option<y>)` — `None` means the axis was not specified,
-/// so the caller should preserve the current scroll position for that axis.
 fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(Option<f64>, Option<f64>)> {
     if let Some(first) = args.first() {
         if let Some(obj) = first.as_object() {
-            // Options object: { top, left, behavior }
             let top_val = obj.get(js_string!("top"), ctx)?;
             let top = if top_val.is_undefined() {
                 None
@@ -447,7 +519,6 @@ fn parse_scroll_args(args: &[JsValue], ctx: &mut Context) -> JsResult<(Option<f6
             };
             return Ok((left, top));
         }
-        // Numeric arguments: scrollTo(x, y)
         let x = Some(first.to_number(ctx)?);
         let y = if let Some(v) = args.get(1) {
             Some(v.to_number(ctx)?)
@@ -549,9 +620,6 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
         b_css_get,
     )
     .to_js_function(&realm);
-    // cssText — setter that parses and replaces all inline style properties.
-    // Routes through the mutation system (style.removeProperty / style.setProperty)
-    // so that MutationObservers see the changes.
     let b_css_set = bridge.clone();
     let css_text_setter = NativeFunction::from_copy_closure_with_captures(
         |this, args, bridge, ctx| {
@@ -562,7 +630,6 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 .transpose()?
                 .map_or(String::new(), |s| s.to_std_string_escaped());
 
-            // Collect existing property names to remove.
             let existing_props: Vec<String> = bridge.with(|_session, dom| {
                 dom.world()
                     .get::<&elidex_ecs::InlineStyle>(entity)
@@ -572,7 +639,6 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                     })
             });
 
-            // Remove each existing property through the mutation system.
             for prop in &existing_props {
                 let _ = invoke_dom_handler_void(
                     "style.removeProperty",
@@ -582,7 +648,6 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 );
             }
 
-            // Parse new declarations and set each through the mutation system.
             for decl in text.split(';') {
                 let decl = decl.trim();
                 if let Some((prop, val)) = decl.split_once(':') {
@@ -662,4 +727,19 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
     );
 
     init.build().into()
+}
+
+/// Check if a URL is potentially trustworthy (WHATWG Secure Contexts §3.1).
+fn is_potentially_trustworthy_url(url: &url::Url) -> bool {
+    let scheme = url.scheme();
+    if scheme == "https" || scheme == "file" {
+        return true;
+    }
+    url.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host.ends_with(".localhost")
+            || host == "127.0.0.1"
+            || host.starts_with("127.")
+            || host == "[::1]"
+    })
 }

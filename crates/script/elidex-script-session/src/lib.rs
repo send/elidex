@@ -25,7 +25,8 @@ pub use cssom_api::CssomApiHandler;
 pub use dom_api::DomApiHandler;
 pub use engine::{EvalResult, ScriptEngine};
 pub use event_dispatch::{
-    build_propagation_path, composed_path_for_js, dispatch_event, DispatchEvent, DispatchFlags,
+    apply_retarget, build_dispatch_plan, build_propagation_path, composed_path_for_js,
+    dispatch_event, retarget, DispatchEvent, DispatchFlags, DispatchPlan,
 };
 pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
 pub use event_queue::{EventQueue, QueuedEvent};

@@ -6,8 +6,14 @@ use super::HostBridge;
 
 impl HostBridge {
     /// Set the current page URL.
+    ///
+    /// Also updates the cached origin string for localStorage keying.
     pub fn set_current_url(&self, url: Option<url::Url>) {
-        self.inner.borrow_mut().current_url = url;
+        let mut inner = self.inner.borrow_mut();
+        inner.cached_origin = url
+            .as_ref()
+            .map_or("null".to_string(), |u| u.origin().ascii_serialization());
+        inner.current_url = url;
     }
 
     /// Get the current page URL.
@@ -67,5 +73,15 @@ impl HostBridge {
     /// Drain pending named-target iframe navigations.
     pub fn drain_pending_navigate_iframe(&self) -> Vec<(String, url::Url)> {
         std::mem::take(&mut self.inner.borrow_mut().iframe.pending_navigate_iframe)
+    }
+
+    /// Set a pending script dispatch event (from `dispatchEvent()`).
+    pub fn set_pending_script_dispatch(&self, event: elidex_script_session::DispatchEvent) {
+        self.inner.borrow_mut().pending_script_dispatch = Some(event);
+    }
+
+    /// Take (remove) the pending script dispatch event.
+    pub fn take_pending_script_dispatch(&self) -> Option<elidex_script_session::DispatchEvent> {
+        self.inner.borrow_mut().pending_script_dispatch.take()
     }
 }
