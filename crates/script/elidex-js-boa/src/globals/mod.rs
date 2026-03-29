@@ -29,7 +29,7 @@ pub mod window;
 
 use std::rc::Rc;
 
-use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue};
+use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 use elidex_net::FetchHandle;
 use elidex_plugin::JsValue as ElidexJsValue;
@@ -387,10 +387,73 @@ pub(crate) fn dispatch_event_for(
     dispatch_event.cancelable = cancelable;
     dispatch_event.composed = composed;
 
-    // Synchronous dispatch: invoke listeners directly.
-    // dispatch_event takes &EcsDom (immutable), so we use bridge.with
-    // to access dom, then dispatch. Listener callbacks invoke JS functions
-    // via the bridge's listener_store (no dom borrow needed).
+    // WHATWG DOM §2.6: pass the SAME JS event object to all listeners.
+    // Before dispatch, we install new stopPropagation/stopImmediatePropagation
+    // methods and a preventDefault method on the user's event object that write
+    // to Rc<Cell> flags we own. This allows us to read back flag state between
+    // listener invocations while reusing the same JS object identity.
+    let user_event_obj = obj.clone();
+
+    let pd_flag = Rc::new(std::cell::Cell::new(false));
+    let sp_flag = Rc::new(std::cell::Cell::new(false));
+    let si_flag = Rc::new(std::cell::Cell::new(false));
+
+    // Install dispatch-owned flag methods on the user's event object.
+    // These override the constructor-created methods for the duration of dispatch.
+    {
+        use crate::globals::events::SharedFlag;
+
+        let pd_shared = SharedFlag(Rc::clone(&pd_flag));
+        let _ = user_event_obj.set(
+            js_string!("preventDefault"),
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, (f, cancel), _ctx| {
+                    if *cancel {
+                        f.0.set(true);
+                    }
+                    Ok(JsValue::undefined())
+                },
+                (pd_shared, cancelable),
+            )
+            .to_js_function(ctx.realm()),
+            false,
+            ctx,
+        );
+
+        let sp_shared = SharedFlag(Rc::clone(&sp_flag));
+        let _ = user_event_obj.set(
+            js_string!("stopPropagation"),
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, f, _ctx| {
+                    f.0.set(true);
+                    Ok(JsValue::undefined())
+                },
+                sp_shared,
+            )
+            .to_js_function(ctx.realm()),
+            false,
+            ctx,
+        );
+
+        let si_shared_sp = SharedFlag(Rc::clone(&sp_flag));
+        let si_shared_si = SharedFlag(Rc::clone(&si_flag));
+        let _ = user_event_obj.set(
+            js_string!("stopImmediatePropagation"),
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, (sp, si), _ctx| {
+                    sp.0.set(true);
+                    si.0.set(true);
+                    Ok(JsValue::undefined())
+                },
+                (si_shared_sp, si_shared_si),
+            )
+            .to_js_function(ctx.realm()),
+            false,
+            ctx,
+        );
+    }
+
+    // Synchronous dispatch: invoke listeners directly with the same event object.
     bridge.with(|_session, dom| {
         elidex_script_session::dispatch_event(
             dom,
@@ -400,32 +463,28 @@ pub(crate) fn dispatch_event_for(
                     return;
                 };
 
-                let pd_flag = std::rc::Rc::new(std::cell::Cell::new(ev.flags.default_prevented));
-                let sp_flag = std::rc::Rc::new(std::cell::Cell::new(ev.flags.propagation_stopped));
-                let si_flag =
-                    std::rc::Rc::new(std::cell::Cell::new(ev.flags.immediate_propagation_stopped));
-
-                let flags = crate::globals::events::EventFlags {
-                    prevent_default: std::rc::Rc::clone(&pd_flag),
-                    stop_propagation: std::rc::Rc::clone(&sp_flag),
-                    stop_immediate: std::rc::Rc::clone(&si_flag),
-                };
-                let event_obj = crate::globals::events::create_event_object(
-                    ev,
-                    &JsValue::null(),
-                    &JsValue::null(),
-                    &flags,
-                    None,
+                // Update eventPhase on the user's event object.
+                let _ = user_event_obj.set(
+                    js_string!("eventPhase"),
+                    JsValue::from(i32::from(ev.phase as u8)),
+                    false,
                     ctx,
                 );
 
-                if let Err(err) = js_func.call(&JsValue::undefined(), &[event_obj], ctx) {
+                // Sync dispatch flags into our Rc<Cell>s before each listener.
+                pd_flag.set(ev.flags.default_prevented);
+                sp_flag.set(ev.flags.propagation_stopped);
+                si_flag.set(ev.flags.immediate_propagation_stopped);
+
+                let event_val: JsValue = user_event_obj.clone().into();
+                if let Err(err) = js_func.call(&JsValue::undefined(), &[event_val], ctx) {
                     eprintln!("[JS dispatchEvent Error] {err}");
                 }
 
                 // Microtask checkpoint (HTML §8.1.7.3).
                 let _ = ctx.run_jobs();
 
+                // Read back flag state from our owned Rc<Cell>s.
                 ev.flags.default_prevented = pd_flag.get();
                 ev.flags.propagation_stopped = sp_flag.get();
                 ev.flags.immediate_propagation_stopped = si_flag.get();

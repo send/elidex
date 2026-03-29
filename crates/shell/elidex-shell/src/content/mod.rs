@@ -440,6 +440,19 @@ fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // Drain pending localStorage changes and send to browser for cross-tab broadcast.
+        for change in state.pipeline.runtime.bridge().drain_storage_changes() {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::StorageChanged {
+                    origin: change.origin,
+                    key: change.key,
+                    old_value: change.old_value,
+                    new_value: change.new_value,
+                    url: change.url,
+                });
+        }
+
         // Drain pending window.open(_blank) requests from timers/animations.
         for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
             let _ = state
@@ -568,9 +581,47 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                     dispatch_media_query_changes(&changed, state);
                 }
 
+                // Dispatch "resize" event on the document (CSSOM View §4.2).
+                let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
+                    "resize",
+                    state.pipeline.document,
+                );
+                resize_event.bubbles = false;
+                resize_event.cancelable = false;
+                state.pipeline.runtime.dispatch_event(
+                    &mut resize_event,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+
                 state.re_render();
                 state.send_display_list();
             }
+        }
+
+        BrowserToContent::VisibilityChanged { visible } => {
+            // Dispatch "visibilitychange" event on the document (Page Visibility §4.1).
+            let mut event = elidex_script_session::DispatchEvent::new_composed(
+                "visibilitychange",
+                state.pipeline.document,
+            );
+            event.bubbles = true;
+            event.cancelable = false;
+            // Store visibility state in the bridge for document.visibilityState.
+            state
+                .pipeline
+                .runtime
+                .bridge()
+                .set_visibility(visible);
+            state.pipeline.runtime.dispatch_event(
+                &mut event,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            state.re_render();
+            state.send_display_list();
         }
 
         BrowserToContent::GoBack => {
@@ -627,6 +678,15 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         BrowserToContent::Ime { kind } => {
             ime::handle_ime(state, kind);
         }
+
+        BrowserToContent::StorageEvent {
+            key,
+            old_value,
+            new_value,
+            url,
+        } => {
+            dispatch_storage_event(state, key, old_value, new_value, url);
+        }
     }
     true
 }
@@ -665,6 +725,34 @@ fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationR
             .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
         _ => false,
     })
+}
+
+/// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
+///
+/// Fired when another tab changes `localStorage` for the same origin.
+fn dispatch_storage_event(
+    state: &mut ContentState,
+    key: Option<String>,
+    old_value: Option<String>,
+    new_value: Option<String>,
+    url: String,
+) {
+    let mut event =
+        elidex_script_session::DispatchEvent::new_composed("storage", state.pipeline.document);
+    event.bubbles = false;
+    event.cancelable = false;
+    event.payload = elidex_plugin::EventPayload::Storage {
+        key,
+        old_value,
+        new_value,
+        url,
+    };
+    state.pipeline.runtime.dispatch_event(
+        &mut event,
+        &mut state.pipeline.session,
+        &mut state.pipeline.dom,
+        state.pipeline.document,
+    );
 }
 
 /// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).

@@ -112,6 +112,27 @@ pub enum BrowserToContent {
         /// The IME event kind.
         kind: ImeKind,
     },
+    /// A `localStorage` storage event from another tab (WHATWG HTML §11.2.1).
+    ///
+    /// The browser thread broadcasts this to all same-origin tabs except
+    /// the one that originated the change.
+    StorageEvent {
+        /// The key that changed (`None` for `clear()`).
+        key: Option<String>,
+        /// The old value (`None` if the key was newly set or cleared).
+        old_value: Option<String>,
+        /// The new value (`None` if the key was removed or cleared).
+        new_value: Option<String>,
+        /// The URL of the document that triggered the change.
+        url: String,
+    },
+    /// Tab visibility changed (WHATWG Page Visibility §4.1).
+    ///
+    /// Sent when the window is occluded/unoccluded or the tab switches.
+    VisibilityChanged {
+        /// `true` when the tab becomes visible, `false` when hidden.
+        visible: bool,
+    },
     /// Shut down the content thread.
     Shutdown,
 }
@@ -154,6 +175,39 @@ pub enum ContentToBrowser {
     },
     /// Request to open a URL in a new tab (`window.open` with `_blank` target).
     OpenNewTab(url::Url),
+    /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
+    ///
+    /// Sent to the browser thread so it can broadcast `StorageEvent` to other
+    /// same-origin tabs.
+    StorageChanged {
+        /// The origin that owns the storage area.
+        origin: String,
+        /// The key that changed (`None` for `clear()`).
+        key: Option<String>,
+        /// The old value (`None` if the key was newly set or cleared).
+        old_value: Option<String>,
+        /// The new value (`None` if the key was removed or cleared).
+        new_value: Option<String>,
+        /// The URL of the document that triggered the change.
+        url: String,
+    },
+}
+
+/// Storage change data for cross-tab broadcast.
+///
+/// Extracted from `ContentToBrowser::StorageChanged` for buffering during drain.
+#[derive(Clone, Debug)]
+pub struct StorageChangedMsg {
+    /// The origin that owns the storage area.
+    pub origin: String,
+    /// The key that changed.
+    pub key: Option<String>,
+    /// The old value.
+    pub old_value: Option<String>,
+    /// The new value.
+    pub new_value: Option<String>,
+    /// The URL of the document that triggered the change.
+    pub url: String,
 }
 
 /// A bidirectional channel endpoint.

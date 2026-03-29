@@ -70,6 +70,9 @@ impl JsRuntime {
             fetch_handle,
         );
 
+        // Store timer queue handle in bridge for window.stop() support.
+        bridge.set_timer_queue(timer_queue.clone());
+
         Self {
             ctx,
             bridge,

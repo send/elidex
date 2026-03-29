@@ -194,6 +194,12 @@ impl TimerQueue {
         self.pending.is_empty()
     }
 
+    /// Clear all pending timers (`window.stop()` support).
+    pub fn clear_all(&mut self) {
+        self.pending.clear();
+        self.cancelled.clear();
+    }
+
     fn alloc_id(&mut self) -> TimerId {
         let id = TimerId(self.next_id);
         self.next_id += 1;

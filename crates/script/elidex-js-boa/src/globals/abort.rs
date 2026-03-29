@@ -270,11 +270,52 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
                     signal.set(js_string!(REASON_KEY), reason.clone(), false, ctx)?;
                     signal.set(js_string!("aborted"), JsValue::from(true), false, ctx)?;
                     signal.set(js_string!("reason"), reason, false, ctx)?;
+                } else {
+                    // For positive ms: schedule a setTimeout to abort the signal.
+                    // Store the signal on a temporary global, set up the timer, then clean up.
+                    let global = ctx.global_object();
+                    let _ = global.set(
+                        js_string!("__elidex_timeout_signal__"),
+                        JsValue::from(signal.clone()),
+                        false,
+                        ctx,
+                    );
+                    // Build the timer callback that aborts the signal.
+                    let abort_callback = NativeFunction::from_copy_closure(
+                        |_this, _args, ctx| {
+                            let global = ctx.global_object();
+                            let sig_val =
+                                global.get(js_string!("__elidex_timeout_signal__"), ctx)?;
+                            if let Some(sig_obj) = sig_val.as_object() {
+                                let already =
+                                    sig_obj.get(js_string!(ABORTED_KEY), ctx)?.to_boolean();
+                                if !already {
+                                    let reason = JsValue::from(js_string!(
+                                        "TimeoutError: The operation timed out"
+                                    ));
+                                    fire_abort_on_signal(&sig_obj, &reason, ctx)?;
+                                }
+                            }
+                            Ok(JsValue::undefined())
+                        },
+                    );
+                    // Call setTimeout(callback, ms).
+                    let set_timeout_fn = global.get(js_string!("setTimeout"), ctx)?;
+                    if let Some(callable) = set_timeout_fn.as_callable() {
+                        let _ = callable.call(
+                            &JsValue::undefined(),
+                            &[
+                                JsValue::from(
+                                    abort_callback.to_js_function(ctx.realm()),
+                                ),
+                                JsValue::from(ms),
+                            ],
+                            ctx,
+                        );
+                    }
+                    // Note: __elidex_timeout_signal__ is intentionally NOT cleaned up
+                    // because the timer callback needs it when it fires later.
                 }
-                // For positive ms: the signal will not auto-abort in this implementation
-                // since we don't have timer integration here. The signal is returned
-                // un-aborted and callers can check/use it with fetch or manually.
-                // TODO: integrate with TimerQueue for deferred abort.
 
                 Ok(JsValue::from(signal))
             },
@@ -290,7 +331,6 @@ fn register_abort_signal_statics(ctx: &mut Context, bridge: &HostBridge) {
 }
 
 /// Check if a JS value is an AbortSignal object.
-#[allow(dead_code)]
 pub(crate) fn is_abort_signal(val: &JsValue, ctx: &mut Context) -> bool {
     val.as_object().is_some_and(|obj| {
         obj.get(js_string!(SIGNAL_KEY), ctx)
@@ -300,7 +340,6 @@ pub(crate) fn is_abort_signal(val: &JsValue, ctx: &mut Context) -> bool {
 }
 
 /// Check if an AbortSignal is aborted.
-#[allow(dead_code)]
 pub(crate) fn is_signal_aborted(signal: &JsObject, ctx: &mut Context) -> bool {
     signal
         .get(js_string!(ABORTED_KEY), ctx)

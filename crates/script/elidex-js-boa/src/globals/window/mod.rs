@@ -783,13 +783,13 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     // --- screen object ---
     let mut screen_init = ObjectInitializer::new(ctx);
 
-    // screen.width / screen.height — viewport size (monitor resolution via bridge).
+    // screen.width / screen.height — monitor resolution from bridge.
     let b = bridge.clone();
     let realm = screen_init.context().realm().clone();
     let sw_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_width() as f64))
+            Ok(JsValue::from(bridge.monitor_width() as f64))
         },
         b,
     )
@@ -799,7 +799,7 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let sh_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_height() as f64))
+            Ok(JsValue::from(bridge.monitor_height() as f64))
         },
         b,
     )
@@ -822,9 +822,21 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         );
     }
 
-    // colorDepth / pixelDepth — 24 (default for 8-bit-per-channel).
-    screen_init.property(js_string!("colorDepth"), JsValue::from(24), Attribute::READONLY);
-    screen_init.property(js_string!("pixelDepth"), JsValue::from(24), Attribute::READONLY);
+    // colorDepth / pixelDepth — from bridge (default 24 for 8-bit-per-channel).
+    let b = bridge.clone();
+    let cd_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.color_depth())),
+        b,
+    )
+    .to_js_function(&realm);
+    for name in ["colorDepth", "pixelDepth"] {
+        screen_init.accessor(
+            js_string!(name),
+            Some(cd_getter.clone()),
+            None,
+            Attribute::CONFIGURABLE,
+        );
+    }
 
     let screen_obj = screen_init.build();
     global
@@ -875,12 +887,12 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         .set(js_string!("closed"), JsValue::from(false), false, ctx)
         .expect("failed to register window.closed");
 
-    // window.devicePixelRatio — dynamic getter.
+    // window.devicePixelRatio — dynamic getter from bridge.
     let b = bridge.clone();
     let dpr_getter = NativeFunction::from_copy_closure_with_captures(
-        |_this, _args, _bridge, _ctx| {
-            // TODO: get actual DPR from winit via bridge.
-            Ok(JsValue::from(1.0_f64))
+        |_this, _args, bridge, _ctx| {
+            #[allow(clippy::cast_precision_loss)]
+            Ok(JsValue::from(bridge.device_pixel_ratio() as f64))
         },
         b,
     );
@@ -894,7 +906,9 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         .define_property_or_throw(js_string!("devicePixelRatio"), desc, ctx)
         .expect("failed to register window.devicePixelRatio");
 
-    // window.outerWidth / outerHeight — inner + chrome height.
+    // window.outerWidth / outerHeight — viewport + chrome bar heights.
+    // CHROME_HEIGHT (36.0) + TAB_BAR_HEIGHT (28.0) = 64.0 total chrome.
+    const CHROME_OVERHEAD: f64 = 64.0;
     let b = bridge.clone();
     let ow_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
@@ -917,7 +931,7 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     let oh_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
             #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(bridge.viewport_height() as f64))
+            Ok(JsValue::from(bridge.viewport_height() as f64 + CHROME_OVERHEAD))
         },
         b,
     );
@@ -931,12 +945,42 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
         .define_property_or_throw(js_string!("outerHeight"), desc, ctx)
         .expect("failed to register window.outerHeight");
 
-    // window.screenX/Y, screenLeft/Top — 0 (TODO: winit window position).
-    for name in ["screenX", "screenY", "screenLeft", "screenTop"] {
-        global
-            .set(js_string!(name), JsValue::from(0), false, ctx)
-            .expect("failed to register window screen position");
-    }
+    // window.screenX/Y, screenLeft/Top — dynamic getters from bridge.
+    let b = bridge.clone();
+    let sx_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.screen_x())),
+        b,
+    );
+    let realm = ctx.realm().clone();
+    let desc = PropertyDescriptorBuilder::new()
+        .get(sx_getter.to_js_function(&realm))
+        .configurable(true)
+        .enumerable(true)
+        .build();
+    global
+        .define_property_or_throw(js_string!("screenX"), desc.clone(), ctx)
+        .expect("failed to register window.screenX");
+    global
+        .define_property_or_throw(js_string!("screenLeft"), desc, ctx)
+        .expect("failed to register window.screenLeft");
+
+    let b = bridge.clone();
+    let sy_getter = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| Ok(JsValue::from(bridge.screen_y())),
+        b,
+    );
+    let realm = ctx.realm().clone();
+    let desc = PropertyDescriptorBuilder::new()
+        .get(sy_getter.to_js_function(&realm))
+        .configurable(true)
+        .enumerable(true)
+        .build();
+    global
+        .define_property_or_throw(js_string!("screenY"), desc.clone(), ctx)
+        .expect("failed to register window.screenY");
+    global
+        .define_property_or_throw(js_string!("screenTop"), desc, ctx)
+        .expect("failed to register window.screenTop");
 
     // window.isSecureContext
     let b = bridge.clone();
@@ -1007,11 +1051,18 @@ fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostBridge) {
     )
     .expect("failed to register window.blur");
 
-    // window.stop() — TODO: abort pending fetches + cancel timers.
+    // window.stop() — abort pending fetches + cancel timers (WHATWG HTML §7.1.5).
+    let b = bridge.clone();
     ctx.register_global_builtin_callable(
         js_string!("stop"),
         0,
-        NativeFunction::from_fn_ptr(|_this, _args, _ctx| Ok(JsValue::undefined())),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, _args, bridge, _ctx| {
+                bridge.clear_all_timers();
+                Ok(JsValue::undefined())
+            },
+            b,
+        ),
     )
     .expect("failed to register window.stop");
 }
@@ -1665,25 +1716,30 @@ fn extract_point_args(args: &[JsValue]) -> (f64, f64, f64, f64) {
 /// Extract point from an object dict (for `fromPoint` static methods).
 fn extract_point_dict(val: &JsValue, ctx: &mut Context) -> JsResult<(f64, f64, f64, f64)> {
     if let Some(obj) = val.as_object() {
-        let x = obj
-            .get(js_string!("x"), ctx)?
-            .to_number(ctx)
-            .unwrap_or(0.0);
-        let y = obj
-            .get(js_string!("y"), ctx)?
-            .to_number(ctx)
-            .unwrap_or(0.0);
-        let z = obj
-            .get(js_string!("z"), ctx)?
-            .to_number(ctx)
-            .unwrap_or(0.0);
-        let w = obj
-            .get(js_string!("w"), ctx)?
-            .to_number(ctx)
-            .unwrap_or(1.0);
+        let x = dict_number(&obj, "x", 0.0, ctx)?;
+        let y = dict_number(&obj, "y", 0.0, ctx)?;
+        let z = dict_number(&obj, "z", 0.0, ctx)?;
+        let w = dict_number(&obj, "w", 1.0, ctx)?;
         Ok((x, y, z, w))
     } else {
         Ok((0.0, 0.0, 0.0, 1.0))
+    }
+}
+
+/// Read a numeric property from a JS object, returning `default` when the
+/// property is `undefined` or `null` (boa's `to_number` converts `undefined`
+/// to `NaN`, so we must check explicitly).
+fn dict_number(
+    obj: &boa_engine::JsObject,
+    key: &str,
+    default: f64,
+    ctx: &mut Context,
+) -> JsResult<f64> {
+    let v = obj.get(js_string!(key), ctx)?;
+    if v.is_undefined() || v.is_null() {
+        Ok(default)
+    } else {
+        Ok(v.to_number(ctx).unwrap_or(default))
     }
 }
 
@@ -1700,6 +1756,30 @@ fn register_dom_geometry(ctx: &mut Context) {
     )
     .expect("failed to register DOMPointReadOnly");
 
+    // DOMPointReadOnly.fromPoint static method.
+    {
+        let global = ctx.global_object();
+        let ctor = global
+            .get(js_string!("DOMPointReadOnly"), ctx)
+            .expect("DOMPointReadOnly must exist");
+        if let Some(ctor_obj) = ctor.as_object() {
+            let from_point = NativeFunction::from_copy_closure(|_this, args, ctx| {
+                let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+                let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
+                Ok(JsValue::from(build_dom_point(x, y, z, w, false, ctx)?))
+            });
+            let desc = boa_engine::property::PropertyDescriptorBuilder::new()
+                .value(from_point.to_js_function(ctx.realm()))
+                .writable(true)
+                .enumerable(false)
+                .configurable(true)
+                .build();
+            ctor_obj
+                .define_property_or_throw(js_string!("fromPoint"), desc, ctx)
+                .expect("failed to set DOMPointReadOnly.fromPoint");
+        }
+    }
+
     // DOMPoint constructor.
     ctx.register_global_callable(
         js_string!("DOMPoint"),
@@ -1710,6 +1790,30 @@ fn register_dom_geometry(ctx: &mut Context) {
         }),
     )
     .expect("failed to register DOMPoint");
+
+    // DOMPoint.fromPoint static method.
+    {
+        let global = ctx.global_object();
+        let ctor = global
+            .get(js_string!("DOMPoint"), ctx)
+            .expect("DOMPoint must exist");
+        if let Some(ctor_obj) = ctor.as_object() {
+            let from_point = NativeFunction::from_copy_closure(|_this, args, ctx| {
+                let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+                let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
+                Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
+            });
+            let desc = boa_engine::property::PropertyDescriptorBuilder::new()
+                .value(from_point.to_js_function(ctx.realm()))
+                .writable(true)
+                .enumerable(false)
+                .configurable(true)
+                .build();
+            ctor_obj
+                .define_property_or_throw(js_string!("fromPoint"), desc, ctx)
+                .expect("failed to set DOMPoint.fromPoint");
+        }
+    }
 
     // DOMRect constructor.
     ctx.register_global_callable(
@@ -1837,16 +1941,257 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
             Attribute::READONLY | Attribute::CONFIGURABLE,
         );
 
-        // transformPoint(point) — returns a new DOMPoint with identity transform.
+        // transformPoint(point) — applies matrix transform to a point.
         init.function(
-            NativeFunction::from_copy_closure(|_this, args, ctx| {
+            NativeFunction::from_copy_closure(|this, args, ctx| {
                 let dict = args.first().cloned().unwrap_or(JsValue::undefined());
-                let (x, y, z, w) = extract_point_dict(&dict, ctx)?;
-                // Identity transform — return point unchanged.
-                Ok(JsValue::from(build_dom_point(x, y, z, w, true, ctx)?))
+                let (px, py, pz, pw) = extract_point_dict(&dict, ctx)?;
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                // 2D affine: x' = a*px + c*py + e, y' = b*px + d*py + f
+                let rx = a * px + c * py + e * pw;
+                let ry = b * px + d * py + f * pw;
+                Ok(JsValue::from(build_dom_point(rx, ry, pz, pw, true, ctx)?))
             }),
             js_string!("transformPoint"),
             0,
+        );
+
+        if mutable {
+            // --- Mutation methods (return `this` for chaining) ---
+
+            // translateSelf(tx, ty, tz?)
+            init.function(
+                NativeFunction::from_copy_closure(|this, args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    let tx = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+                    let ty = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
+                    let tz = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
+                    let e_val = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let f_val = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let m43 = obj.get(js_string!("m43"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    obj.set(js_string!("e"), JsValue::from(e_val + tx), false, ctx)?;
+                    obj.set(js_string!("m41"), JsValue::from(e_val + tx), false, ctx)?;
+                    obj.set(js_string!("f"), JsValue::from(f_val + ty), false, ctx)?;
+                    obj.set(js_string!("m42"), JsValue::from(f_val + ty), false, ctx)?;
+                    obj.set(js_string!("m43"), JsValue::from(m43 + tz), false, ctx)?;
+                    Ok(this.clone())
+                }),
+                js_string!("translateSelf"),
+                2,
+            );
+
+            // scaleSelf(scaleX, scaleY?, scaleZ?)
+            init.function(
+                NativeFunction::from_copy_closure(|this, args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    let sx = args.first().and_then(JsValue::as_number).unwrap_or(1.0);
+                    let sy = args.get(1).and_then(JsValue::as_number).unwrap_or(sx);
+                    let sz = args.get(2).and_then(JsValue::as_number).unwrap_or(1.0);
+                    let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let m33 = obj.get(js_string!("m33"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    obj.set(js_string!("a"), JsValue::from(a * sx), false, ctx)?;
+                    obj.set(js_string!("m11"), JsValue::from(a * sx), false, ctx)?;
+                    obj.set(js_string!("d"), JsValue::from(d * sy), false, ctx)?;
+                    obj.set(js_string!("m22"), JsValue::from(d * sy), false, ctx)?;
+                    obj.set(js_string!("m33"), JsValue::from(m33 * sz), false, ctx)?;
+                    Ok(this.clone())
+                }),
+                js_string!("scaleSelf"),
+                1,
+            );
+
+            // rotateSelf(rotX, rotY?, rotZ?)
+            // For 2D: when only one arg is given, it's the Z rotation angle in degrees.
+            init.function(
+                NativeFunction::from_copy_closure(|this, args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    // Per spec: if only one arg, it's rotZ; rotX and rotY are 0.
+                    let angle_deg = if args.len() <= 1 {
+                        args.first().and_then(JsValue::as_number).unwrap_or(0.0)
+                    } else {
+                        args.get(2).and_then(JsValue::as_number).unwrap_or(0.0)
+                    };
+                    let angle = angle_deg * std::f64::consts::PI / 180.0;
+                    let cos = angle.cos();
+                    let sin = angle.sin();
+                    let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    // Multiply: [a b; c d] * [cos sin; -sin cos]
+                    let new_a = a * cos + c * sin;
+                    let new_b = b * cos + d * sin;
+                    let new_c = a * -sin + c * cos;
+                    let new_d = b * -sin + d * cos;
+                    obj.set(js_string!("a"), JsValue::from(new_a), false, ctx)?;
+                    obj.set(js_string!("m11"), JsValue::from(new_a), false, ctx)?;
+                    obj.set(js_string!("b"), JsValue::from(new_b), false, ctx)?;
+                    obj.set(js_string!("m12"), JsValue::from(new_b), false, ctx)?;
+                    obj.set(js_string!("c"), JsValue::from(new_c), false, ctx)?;
+                    obj.set(js_string!("m21"), JsValue::from(new_c), false, ctx)?;
+                    obj.set(js_string!("d"), JsValue::from(new_d), false, ctx)?;
+                    obj.set(js_string!("m22"), JsValue::from(new_d), false, ctx)?;
+                    Ok(this.clone())
+                }),
+                js_string!("rotateSelf"),
+                1,
+            );
+
+            // multiplySelf(other) — post-multiply this by other (2D).
+            init.function(
+                NativeFunction::from_copy_closure(|this, args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    let other = args.first().and_then(JsValue::as_object).ok_or_else(|| {
+                        JsNativeError::typ().with_message("multiplySelf: argument must be a DOMMatrix")
+                    })?;
+                    let a1 = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let b1 = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let c1 = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let d1 = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let e1 = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let f1 = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let a2 = other.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let b2 = other.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let c2 = other.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let d2 = other.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let e2 = other.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let f2 = other.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    // 2D matrix multiply: [a1 c1 e1] * [a2 c2 e2]
+                    //                     [b1 d1 f1]   [b2 d2 f2]
+                    //                     [0  0  1 ]   [0  0  1 ]
+                    let na = a1 * a2 + c1 * b2;
+                    let nb = b1 * a2 + d1 * b2;
+                    let nc = a1 * c2 + c1 * d2;
+                    let nd = b1 * c2 + d1 * d2;
+                    let ne = a1 * e2 + c1 * f2 + e1;
+                    let nf = b1 * e2 + d1 * f2 + f1;
+                    obj.set(js_string!("a"), JsValue::from(na), false, ctx)?;
+                    obj.set(js_string!("m11"), JsValue::from(na), false, ctx)?;
+                    obj.set(js_string!("b"), JsValue::from(nb), false, ctx)?;
+                    obj.set(js_string!("m12"), JsValue::from(nb), false, ctx)?;
+                    obj.set(js_string!("c"), JsValue::from(nc), false, ctx)?;
+                    obj.set(js_string!("m21"), JsValue::from(nc), false, ctx)?;
+                    obj.set(js_string!("d"), JsValue::from(nd), false, ctx)?;
+                    obj.set(js_string!("m22"), JsValue::from(nd), false, ctx)?;
+                    obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
+                    obj.set(js_string!("m41"), JsValue::from(ne), false, ctx)?;
+                    obj.set(js_string!("f"), JsValue::from(nf), false, ctx)?;
+                    obj.set(js_string!("m42"), JsValue::from(nf), false, ctx)?;
+                    Ok(this.clone())
+                }),
+                js_string!("multiplySelf"),
+                1,
+            );
+
+            // invertSelf() — invert the 2D matrix in-place.
+            init.function(
+                NativeFunction::from_copy_closure(|this, _args, ctx| {
+                    let obj = this.as_object().ok_or_else(|| {
+                        JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                    })?;
+                    let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                    let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                    let det = a * d - b * c;
+                    if det.abs() < f64::EPSILON {
+                        // Singular matrix — set all to NaN per spec.
+                        let nan = JsValue::from(f64::NAN);
+                        for key in ["a", "b", "c", "d", "e", "f", "m11", "m12", "m21", "m22", "m41", "m42"] {
+                            obj.set(js_string!(key), nan.clone(), false, ctx)?;
+                        }
+                    } else {
+                        let inv_det = 1.0 / det;
+                        let na = d * inv_det;
+                        let nb = -b * inv_det;
+                        let nc = -c * inv_det;
+                        let nd = a * inv_det;
+                        let ne = (c * f - d * e) * inv_det;
+                        let nf = (b * e - a * f) * inv_det;
+                        obj.set(js_string!("a"), JsValue::from(na), false, ctx)?;
+                        obj.set(js_string!("m11"), JsValue::from(na), false, ctx)?;
+                        obj.set(js_string!("b"), JsValue::from(nb), false, ctx)?;
+                        obj.set(js_string!("m12"), JsValue::from(nb), false, ctx)?;
+                        obj.set(js_string!("c"), JsValue::from(nc), false, ctx)?;
+                        obj.set(js_string!("m21"), JsValue::from(nc), false, ctx)?;
+                        obj.set(js_string!("d"), JsValue::from(nd), false, ctx)?;
+                        obj.set(js_string!("m22"), JsValue::from(nd), false, ctx)?;
+                        obj.set(js_string!("e"), JsValue::from(ne), false, ctx)?;
+                        obj.set(js_string!("m41"), JsValue::from(ne), false, ctx)?;
+                        obj.set(js_string!("f"), JsValue::from(nf), false, ctx)?;
+                        obj.set(js_string!("m42"), JsValue::from(nf), false, ctx)?;
+                    }
+                    Ok(this.clone())
+                }),
+                js_string!("invertSelf"),
+                0,
+            );
+        }
+
+        // --- Immutable methods (return new DOMMatrix) ---
+
+        // translate(tx, ty, tz?) — returns a new DOMMatrix with translation applied.
+        init.function(
+            NativeFunction::from_copy_closure(|this, args, ctx| {
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                let tx = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+                let ty = args.get(1).and_then(JsValue::as_number).unwrap_or(0.0);
+                let _tz = args.get(2).and_then(JsValue::as_number).unwrap_or(0.0);
+                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let ne = e + tx;
+                let nf = f + ty;
+                let result = build_dom_matrix_obj(a, b, c, d, ne, nf, ctx)?;
+                Ok(JsValue::from(result))
+            }),
+            js_string!("translate"),
+            2,
+        );
+
+        // scale(scaleX, scaleY?, scaleZ?) — returns a new scaled DOMMatrix.
+        init.function(
+            NativeFunction::from_copy_closure(|this, args, ctx| {
+                let obj = this.as_object().ok_or_else(|| {
+                    JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+                })?;
+                let sx = args.first().and_then(JsValue::as_number).unwrap_or(1.0);
+                let sy = args.get(1).and_then(JsValue::as_number).unwrap_or(sx);
+                let a = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let b = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let c = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let d = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+                let e = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let f = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+                let result = build_dom_matrix_obj(a * sx, b, c, d * sy, e, f, ctx)?;
+                Ok(JsValue::from(result))
+            }),
+            js_string!("scale"),
+            1,
         );
 
         Ok(JsValue::from(init.build()))
@@ -1854,6 +2199,80 @@ fn register_dom_matrix(ctx: &mut Context, name: &str, mutable: bool) {
 
     ctx.register_global_callable(js_string!(name), 0, constructor)
         .expect("failed to register DOMMatrix");
+}
+
+/// Build a new DOMMatrix JS object with the given 2D affine values.
+fn build_dom_matrix_obj(
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+    e: f64,
+    f: f64,
+    ctx: &mut Context,
+) -> JsResult<boa_engine::JsObject> {
+    let attr = Attribute::WRITABLE | Attribute::CONFIGURABLE;
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(js_string!("a"), JsValue::from(a), attr);
+    init.property(js_string!("b"), JsValue::from(b), attr);
+    init.property(js_string!("c"), JsValue::from(c), attr);
+    init.property(js_string!("d"), JsValue::from(d), attr);
+    init.property(js_string!("e"), JsValue::from(e), attr);
+    init.property(js_string!("f"), JsValue::from(f), attr);
+    init.property(js_string!("m11"), JsValue::from(a), attr);
+    init.property(js_string!("m12"), JsValue::from(b), attr);
+    init.property(js_string!("m13"), JsValue::from(0.0), attr);
+    init.property(js_string!("m14"), JsValue::from(0.0), attr);
+    init.property(js_string!("m21"), JsValue::from(c), attr);
+    init.property(js_string!("m22"), JsValue::from(d), attr);
+    init.property(js_string!("m23"), JsValue::from(0.0), attr);
+    init.property(js_string!("m24"), JsValue::from(0.0), attr);
+    init.property(js_string!("m31"), JsValue::from(0.0), attr);
+    init.property(js_string!("m32"), JsValue::from(0.0), attr);
+    init.property(js_string!("m33"), JsValue::from(1.0), attr);
+    init.property(js_string!("m34"), JsValue::from(0.0), attr);
+    init.property(js_string!("m41"), JsValue::from(e), attr);
+    init.property(js_string!("m42"), JsValue::from(f), attr);
+    init.property(js_string!("m43"), JsValue::from(0.0), attr);
+    init.property(js_string!("m44"), JsValue::from(1.0), attr);
+    let is_identity = (a - 1.0).abs() < f64::EPSILON
+        && b.abs() < f64::EPSILON
+        && c.abs() < f64::EPSILON
+        && (d - 1.0).abs() < f64::EPSILON
+        && e.abs() < f64::EPSILON
+        && f.abs() < f64::EPSILON;
+    init.property(
+        js_string!("is2D"),
+        JsValue::from(true),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    init.property(
+        js_string!("isIdentity"),
+        JsValue::from(is_identity),
+        Attribute::READONLY | Attribute::CONFIGURABLE,
+    );
+    // transformPoint on the result matrix.
+    init.function(
+        NativeFunction::from_copy_closure(|this, args, ctx| {
+            let dict = args.first().cloned().unwrap_or(JsValue::undefined());
+            let (px, py, pz, pw) = extract_point_dict(&dict, ctx)?;
+            let obj = this.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("DOMMatrix: this is not an object")
+            })?;
+            let ma = obj.get(js_string!("a"), ctx)?.to_number(ctx).unwrap_or(1.0);
+            let mb = obj.get(js_string!("b"), ctx)?.to_number(ctx).unwrap_or(0.0);
+            let mc = obj.get(js_string!("c"), ctx)?.to_number(ctx).unwrap_or(0.0);
+            let md = obj.get(js_string!("d"), ctx)?.to_number(ctx).unwrap_or(1.0);
+            let me = obj.get(js_string!("e"), ctx)?.to_number(ctx).unwrap_or(0.0);
+            let mf = obj.get(js_string!("f"), ctx)?.to_number(ctx).unwrap_or(0.0);
+            let rx = ma * px + mc * py + me * pw;
+            let ry = mb * px + md * py + mf * pw;
+            Ok(JsValue::from(build_dom_point(rx, ry, pz, pw, true, ctx)?))
+        }),
+        js_string!("transformPoint"),
+        0,
+    );
+    Ok(init.build())
 }
 
 // ---------------------------------------------------------------------------

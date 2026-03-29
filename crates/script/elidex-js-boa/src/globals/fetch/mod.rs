@@ -70,12 +70,40 @@ fn fetch_impl(args: &[JsValue], captures: &FetchCaptures, ctx: &mut Context) -> 
     let url = url::Url::parse(&url_str)
         .map_err(|e| JsNativeError::typ().with_message(format!("fetch: invalid URL: {e}")))?;
 
-    // 2. Parse options (method, headers, body).
+    // 2. Parse options (method, headers, body, signal).
     let mut method = "GET".to_string();
     let mut headers: Vec<(String, String)> = Vec::new();
     let mut body = bytes::Bytes::new();
 
     if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
+        // signal — check for AbortSignal.
+        let signal_val = opts.get(js_string!("signal"), ctx)?;
+        if crate::globals::abort::is_abort_signal(&signal_val, ctx) {
+            let signal_obj = signal_val.as_object().expect("is_abort_signal verified");
+            if crate::globals::abort::is_signal_aborted(&signal_obj, ctx) {
+                // Signal already aborted: reject immediately with AbortError.
+                let reason = signal_obj
+                    .get(js_string!("reason"), ctx)
+                    .unwrap_or_else(|_| {
+                        JsValue::from(js_string!("AbortError: The operation was aborted"))
+                    });
+                let promise = JsPromise::reject(
+                    JsNativeError::typ().with_message(
+                        reason
+                            .to_string(ctx)
+                            .map_or("The operation was aborted".into(), |s| {
+                                s.to_std_string_escaped()
+                            }),
+                    ),
+                    ctx,
+                );
+                return Ok(promise.into());
+            }
+            // Signal not yet aborted: proceed with fetch. The blocking fetch
+            // cannot be cancelled mid-flight in Phase 2 (single-threaded),
+            // but the pre-check covers the common case.
+        }
+
         // method
         let m = opts.get(js_string!("method"), ctx)?;
         if !m.is_undefined() {

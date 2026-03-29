@@ -448,6 +448,14 @@ fn set_payload_properties(
         EventPayload::CloseEvent(c) => set_close_event_payload(init, c),
         EventPayload::HashChange(h) => set_hashchange_payload(init, h),
         EventPayload::PageTransition(p) => set_page_transition_payload(init, p),
+        EventPayload::Storage {
+            key,
+            old_value,
+            new_value,
+            url,
+        } => {
+            set_storage_payload(init, key, old_value, new_value, url);
+        }
         EventPayload::None | _ => {}
     }
 }
@@ -583,6 +591,42 @@ fn set_page_transition_payload(
     p: &elidex_plugin::PageTransitionEventInit,
 ) {
     init.property(js_string!("persisted"), JsValue::from(p.persisted), RO);
+}
+
+fn set_storage_payload(
+    init: &mut ObjectInitializer<'_>,
+    key: &Option<String>,
+    old_value: &Option<String>,
+    new_value: &Option<String>,
+    url: &str,
+) {
+    // WHATWG HTML §11.2.1 StorageEvent properties.
+    init.property(
+        js_string!("key"),
+        key.as_deref()
+            .map_or(JsValue::null(), |k| JsValue::from(js_string!(k))),
+        RO,
+    );
+    init.property(
+        js_string!("oldValue"),
+        old_value
+            .as_deref()
+            .map_or(JsValue::null(), |v| JsValue::from(js_string!(v))),
+        RO,
+    );
+    init.property(
+        js_string!("newValue"),
+        new_value
+            .as_deref()
+            .map_or(JsValue::null(), |v| JsValue::from(js_string!(v))),
+        RO,
+    );
+    init.property(
+        js_string!("url"),
+        JsValue::from(js_string!(url)),
+        RO,
+    );
+    init.property(js_string!("storageArea"), JsValue::null(), RO);
 }
 
 fn set_focus_payload(init: &mut ObjectInitializer<'_>) {

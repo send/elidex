@@ -85,6 +85,18 @@ pub(crate) struct HostBridgeInner {
     /// Cached viewport dimensions (set by content thread on `SetViewport`).
     viewport_width: f32,
     viewport_height: f32,
+    /// Device pixel ratio (set by content thread from winit scale_factor).
+    device_pixel_ratio: f32,
+    /// Window screen position X (set by content thread from winit).
+    screen_x: i32,
+    /// Window screen position Y (set by content thread from winit).
+    screen_y: i32,
+    /// Monitor width in CSS pixels (set by content thread from winit).
+    monitor_width: f32,
+    /// Monitor height in CSS pixels (set by content thread from winit).
+    monitor_height: f32,
+    /// Screen color depth in bits (set by content thread from GPU surface format).
+    color_depth: u32,
     /// Cached viewport scroll offset.
     scroll_x: f32,
     scroll_y: f32,
@@ -129,6 +141,9 @@ pub(crate) struct HostBridgeInner {
     iframe: IframeBridgeState,
     // --- WebSocket / SSE ---
     realtime: realtime::RealtimeState,
+    // --- Timer queue ---
+    /// Reference to the timer queue for `window.stop()`.
+    timer_queue: Option<crate::globals::timers::TimerQueueHandle>,
     // --- Script dispatch ---
     /// Pending script-dispatched event (from `dispatchEvent()`).
     /// Set by `dispatch_event_for()`, consumed by runtime after eval.
@@ -143,6 +158,8 @@ pub(crate) struct HostBridgeInner {
     // --- Storage ---
     /// Session storage (tab-scoped).
     session_storage: HashMap<String, String>,
+    /// Pending localStorage change notifications for cross-tab broadcast.
+    pending_storage_changes: Vec<StorageChange>,
     // --- Animations (Web Animations API) ---
     /// Pending script-initiated animations, consumed by content thread.
     pending_script_animations: Vec<crate::globals::element::accessors::animate::ScriptAnimation>,
@@ -194,6 +211,21 @@ impl Default for IframeBridgeState {
             pending_navigate_iframe: Vec::new(),
         }
     }
+}
+
+/// A pending `localStorage` change notification for cross-tab broadcast.
+#[derive(Clone, Debug)]
+pub struct StorageChange {
+    /// The origin that owns the storage area.
+    pub origin: String,
+    /// The key that changed (`None` for `clear()`).
+    pub key: Option<String>,
+    /// The old value (`None` if the key was newly set or cleared).
+    pub old_value: Option<String>,
+    /// The new value (`None` if the key was removed or cleared).
+    pub new_value: Option<String>,
+    /// The URL of the document that triggered the change.
+    pub url: String,
 }
 
 /// A tracked `MediaQueryList` entry with its query, cached result, and listeners.
@@ -284,6 +316,12 @@ impl HostBridge {
                 observer_objects: HashMap::new(),
                 viewport_width: 800.0,
                 viewport_height: 600.0,
+                device_pixel_ratio: 1.0,
+                screen_x: 0,
+                screen_y: 0,
+                monitor_width: 800.0,
+                monitor_height: 600.0,
+                color_depth: 24,
                 scroll_x: 0.0,
                 scroll_y: 0.0,
                 pending_scroll: None,
@@ -304,11 +342,13 @@ impl HostBridge {
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
                 realtime: realtime::RealtimeState::default(),
+                timer_queue: None,
                 pending_script_dispatch: None,
                 focus_target: None,
                 tab_hidden: false,
                 window_name: String::new(),
                 session_storage: HashMap::new(),
+                pending_storage_changes: Vec::new(),
                 pending_script_animations: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
@@ -441,6 +481,20 @@ impl HostBridge {
 
     // Navigation state methods are in navigation.rs
     // Iframe bridge methods are in iframe_bridge.rs
+
+    // --- Timer queue ---
+
+    /// Store the timer queue handle for `window.stop()`.
+    pub fn set_timer_queue(&self, tq: crate::globals::timers::TimerQueueHandle) {
+        self.inner.borrow_mut().timer_queue = Some(tq);
+    }
+
+    /// Clear all pending timers (`window.stop()` support).
+    pub fn clear_all_timers(&self) {
+        if let Some(ref tq) = self.inner.borrow().timer_queue {
+            tq.borrow_mut().clear_all();
+        }
+    }
 
     // --- Web Animations API ---
 

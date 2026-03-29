@@ -411,3 +411,379 @@ fn local_storage_crud() {
         console.log(localStorage.length === 0);
     ");
 }
+
+// ---------------------------------------------------------------------------
+// Event API tests (WHATWG DOM §2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn event_constructor_with_options() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var e = Event('test', { bubbles: true, cancelable: true });
+        console.log(e.type === 'test' && e.bubbles === true && e.cancelable === true);
+    ");
+}
+
+#[test]
+fn custom_event_with_detail() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var ce = CustomEvent('myevent', { detail: 42 });
+        console.log(ce.type === 'myevent' && ce.detail === 42);
+    ");
+}
+
+#[test]
+fn dispatch_event_returns_not_prevented() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        var result = div.dispatchEvent(Event('test'));
+        console.log(result === true);
+    ");
+}
+
+#[test]
+fn dispatch_event_with_prevent_default_returns_false() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let div = d.create_element("div", Attributes::default());
+    let _ = d.append_child(doc, div);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var el = document.querySelector('div');
+        el.addEventListener('test', function(e) { e.preventDefault(); });
+        var result = el.dispatchEvent(Event('test', { cancelable: true }));
+        console.log(result === false);
+    ");
+}
+
+#[test]
+fn dispatched_event_is_not_trusted() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let div = d.create_element("div", Attributes::default());
+    let _ = d.append_child(doc, div);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var el = document.querySelector('div');
+        var trusted = null;
+        el.addEventListener('test', function(e) { trusted = e.isTrusted; });
+        el.dispatchEvent(Event('test'));
+        console.log(trusted === false);
+    ");
+}
+
+#[test]
+fn once_listener_option_accepted() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let div = d.create_element("div", Attributes::default());
+    let _ = d.append_child(doc, div);
+    // Verify that the { once: true } option is accepted and the listener fires.
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var el = document.querySelector('div');
+        var fired = false;
+        el.addEventListener('test', function() { fired = true; }, { once: true });
+        el.dispatchEvent(Event('test'));
+        console.log(fired === true);
+    ");
+}
+
+#[test]
+fn stop_propagation_stops_bubbling() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let outer = d.create_element("div", Attributes::default());
+    let inner = d.create_element("span", Attributes::default());
+    let _ = d.append_child(doc, outer);
+    let _ = d.append_child(outer, inner);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var outerFired = false;
+        document.querySelector('div').addEventListener('test', function() { outerFired = true; });
+        document.querySelector('span').addEventListener('test', function(e) { e.stopPropagation(); });
+        document.querySelector('span').dispatchEvent(Event('test', { bubbles: true }));
+        console.log(outerFired === false);
+    ");
+}
+
+#[test]
+fn stop_immediate_propagation_stops_same_element() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let div = d.create_element("div", Attributes::default());
+    let _ = d.append_child(doc, div);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var el = document.querySelector('div');
+        var first = false;
+        var second = false;
+        el.addEventListener('test', function(e) { first = true; e.stopImmediatePropagation(); });
+        el.addEventListener('test', function() { second = true; });
+        el.dispatchEvent(Event('test'));
+        console.log(first === true && second === false);
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// Document API tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn document_hidden_returns_boolean() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc,
+        "console.log(typeof document.hidden === 'boolean')");
+}
+
+#[test]
+fn document_visibility_state() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var vs = document.visibilityState;
+        console.log(vs === 'visible' || vs === 'hidden');
+    ");
+}
+
+#[test]
+fn document_has_focus_returns_boolean() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc,
+        "console.log(typeof document.hasFocus() === 'boolean')");
+}
+
+#[test]
+fn document_get_elements_by_class_name() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let mut attrs = Attributes::default();
+    attrs.set("class", "foo");
+    let div = d.create_element("div", attrs);
+    let _ = d.append_child(doc, div);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var elems = document.getElementsByClassName('foo');
+        console.log(elems.length === 1);
+    ");
+}
+
+#[test]
+fn document_get_elements_by_tag_name() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    let div = d.create_element("div", Attributes::default());
+    let _ = d.append_child(doc, div);
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var divs = document.getElementsByTagName('div');
+        console.log(divs.length >= 1);
+    ");
+}
+
+#[test]
+fn document_create_event() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var e = document.createEvent('Event');
+        console.log(e.type === '' && typeof e.initEvent === 'function');
+    ");
+}
+
+#[test]
+fn document_import_node_clones() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        div.setAttribute('id', 'orig');
+        var clone = document.importNode(div, false);
+        console.log(clone.getAttribute('id') === 'orig');
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// Element API tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_children_returns_elements_only() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        div.appendChild(document.createElement('span'));
+        div.appendChild(document.createTextNode('text'));
+        div.appendChild(document.createElement('p'));
+        console.log(div.children.length === 2);
+    ");
+}
+
+#[test]
+fn element_outer_html() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        div.setAttribute('class', 'test');
+        var html = div.outerHTML;
+        console.log(html.indexOf('<div') === 0 && html.indexOf('class') > 0);
+    ");
+}
+
+#[test]
+fn classlist_length() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        div.classList.add('a');
+        div.classList.add('b');
+        div.classList.add('c');
+        console.log(div.classList.length === 3);
+    ");
+}
+
+#[test]
+fn classlist_item() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        div.classList.add('first');
+        div.classList.add('second');
+        console.log(div.classList.item(0) === 'first');
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// Window API tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn window_is_secure_context() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc,
+        "console.log(typeof window.isSecureContext === 'boolean')");
+}
+
+#[test]
+fn image_constructor_creates_img() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var img = new Image();
+        console.log(typeof img === 'object' && typeof img.setAttribute === 'function');
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// DOMPoint.fromPoint / DOMPointReadOnly.fromPoint
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dom_point_from_point() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var p = DOMPoint.fromPoint({ x: 10, y: 20, z: 30, w: 2 });
+        console.log(p.x === 10 && p.y === 20 && p.z === 30 && p.w === 2);
+    ");
+}
+
+#[test]
+fn dom_point_readonly_from_point() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var p = DOMPointReadOnly.fromPoint({ x: 5, y: 15 });
+        console.log(p.x === 5 && p.y === 15 && p.z === 0 && p.w === 1);
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// DOMMatrix transformation methods
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dom_matrix_translate_self() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        var r = m.translateSelf(10, 20);
+        console.log(r === m && m.e === 10 && m.f === 20);
+    ");
+}
+
+#[test]
+fn dom_matrix_scale_self() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        m.scaleSelf(2, 3);
+        console.log(m.a === 2 && m.d === 3);
+    ");
+}
+
+#[test]
+fn dom_matrix_rotate_self() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        m.rotateSelf(90);
+        // After 90 degree rotation: a ~= 0, b ~= 1, c ~= -1, d ~= 0
+        console.log(Math.abs(m.a) < 0.001 && Math.abs(m.b - 1) < 0.001 &&
+                    Math.abs(m.c + 1) < 0.001 && Math.abs(m.d) < 0.001);
+    ");
+}
+
+#[test]
+fn dom_matrix_multiply_self() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m1 = new DOMMatrix();
+        m1.scaleSelf(2, 2);
+        var m2 = new DOMMatrix();
+        m2.translateSelf(5, 10);
+        m1.multiplySelf(m2);
+        // scale(2,2) * translate(5,10) = a=2, d=2, e=10, f=20
+        console.log(m1.a === 2 && m1.d === 2 && m1.e === 10 && m1.f === 20);
+    ");
+}
+
+#[test]
+fn dom_matrix_invert_self() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        m.scaleSelf(2, 4);
+        m.invertSelf();
+        console.log(Math.abs(m.a - 0.5) < 0.001 && Math.abs(m.d - 0.25) < 0.001);
+    ");
+}
+
+#[test]
+fn dom_matrix_translate_immutable() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        var m2 = m.translate(10, 20);
+        console.log(m.e === 0 && m2.e === 10 && m2.f === 20);
+    ");
+}
+
+#[test]
+fn dom_matrix_scale_immutable() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrix();
+        var m2 = m.scale(3, 5);
+        console.log(m.a === 1 && m2.a === 3 && m2.d === 5);
+    ");
+}
+
+#[test]
+fn dom_matrix_readonly_no_mutation_methods() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var m = new DOMMatrixReadOnly();
+        console.log(typeof m.translateSelf === 'undefined' && typeof m.scaleSelf === 'undefined');
+    ");
+}
+
+// ---------------------------------------------------------------------------
+// Element.animate composite option
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_animate_composite_option() {
+    let (mut rt, mut s, mut d, doc) = setup();
+    eval_true(&mut rt, &mut s, &mut d, doc, r"
+        var div = document.createElement('div');
+        var anim = div.animate(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { duration: 1000, composite: 'add' }
+        );
+        console.log(anim.playState === 'running');
+    ");
+}

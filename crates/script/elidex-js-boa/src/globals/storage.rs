@@ -5,7 +5,7 @@
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
+use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction, Source};
 
 use crate::bridge::HostBridge;
 
@@ -16,13 +16,62 @@ const STORAGE_QUOTA_BYTES: usize = 5 * 1024 * 1024;
 pub fn register_storage(ctx: &mut Context, bridge: &HostBridge) {
     let b = bridge.clone();
     let local = build_storage_object(ctx, &b, true);
-    ctx.register_global_property(js_string!("localStorage"), local, Attribute::all())
+    let local_proxy = wrap_storage_with_proxy(ctx, local);
+    ctx.register_global_property(js_string!("localStorage"), local_proxy, Attribute::all())
         .expect("failed to register localStorage");
 
     let b = bridge.clone();
     let session = build_storage_object(ctx, &b, false);
-    ctx.register_global_property(js_string!("sessionStorage"), session, Attribute::all())
+    let session_proxy = wrap_storage_with_proxy(ctx, session);
+    ctx.register_global_property(js_string!("sessionStorage"), session_proxy, Attribute::all())
         .expect("failed to register sessionStorage");
+}
+
+/// Wrap a Storage object in a JS `Proxy` with get/set traps.
+///
+/// The get trap delegates unknown property access to `getItem(prop)`.
+/// The set trap delegates unknown property access to `setItem(prop, value)`.
+/// Method names (`getItem`, `setItem`, `removeItem`, `clear`, `key`, `length`)
+/// pass through to the target object directly (WHATWG HTML §11.2).
+fn wrap_storage_with_proxy(ctx: &mut Context, storage: JsValue) -> JsValue {
+    // Store the storage target on a temporary global so the eval can reference it.
+    let global = ctx.global_object();
+    let _ = global.set(js_string!("__elidex_tmp_storage__"), storage, false, ctx);
+
+    let proxy_code = r#"(function() {
+        var target = __elidex_tmp_storage__;
+        var methodNames = {
+            getItem: true, setItem: true, removeItem: true, clear: true,
+            key: true, length: true, constructor: true, toString: true,
+            valueOf: true, hasOwnProperty: true, isPrototypeOf: true,
+            propertyIsEnumerable: true, toLocaleString: true
+        };
+        return new Proxy(target, {
+            get: function(t, prop, receiver) {
+                if (typeof prop === 'symbol' || prop in methodNames || prop in t) {
+                    return t[prop];
+                }
+                return t.getItem(prop);
+            },
+            set: function(t, prop, value, receiver) {
+                if (typeof prop === 'symbol' || prop in methodNames) {
+                    t[prop] = value;
+                } else {
+                    t.setItem(prop, String(value));
+                }
+                return true;
+            }
+        });
+    })()"#;
+
+    let result = ctx
+        .eval(Source::from_bytes(proxy_code))
+        .unwrap_or(JsValue::undefined());
+
+    // Clean up the temporary global.
+    let _ = global.delete_property_or_throw(js_string!("__elidex_tmp_storage__"), ctx);
+
+    result
 }
 
 /// Build a Storage object (shared implementation for local/session).

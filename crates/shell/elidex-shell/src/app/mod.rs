@@ -35,7 +35,7 @@ use crate::chrome::{self, TabBarInfo};
 use crate::ipc::{BrowserToContent, ContentToBrowser, ModifierState};
 
 use render::try_init_render_state;
-use tab::TabManager;
+use tab::{TabId, TabManager};
 
 /// Convert a winit mouse button to the DOM spec button number.
 ///
@@ -205,6 +205,8 @@ impl App {
             return;
         };
         let mut new_tab_urls: Vec<url::Url> = Vec::new();
+        // Collect (source_tab_id, storage_change) for cross-tab broadcast.
+        let mut storage_changes: Vec<(TabId, crate::ipc::StorageChangedMsg)> = Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
             while drained < Self::MAX_DRAIN_PER_TAB {
@@ -235,7 +237,40 @@ impl App {
                     ContentToBrowser::OpenNewTab(url) => {
                         new_tab_urls.push(url);
                     }
+                    ContentToBrowser::StorageChanged {
+                        origin,
+                        key,
+                        old_value,
+                        new_value,
+                        url,
+                    } => {
+                        storage_changes.push((
+                            tab.id,
+                            crate::ipc::StorageChangedMsg {
+                                origin,
+                                key,
+                                old_value,
+                                new_value,
+                                url,
+                            },
+                        ));
+                    }
                 }
+            }
+        }
+
+        // Broadcast storage changes to all other tabs.
+        for (source_tab_id, change) in &storage_changes {
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    continue;
+                }
+                let _ = tab.channel.send(BrowserToContent::StorageEvent {
+                    key: change.key.clone(),
+                    old_value: change.old_value.clone(),
+                    new_value: change.new_value.clone(),
+                    url: change.url.clone(),
+                });
             }
         }
 

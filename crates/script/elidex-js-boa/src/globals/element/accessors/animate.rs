@@ -108,6 +108,8 @@ pub struct AnimationOptions {
     pub delay: f64,
     /// Animation ID (optional).
     pub id: String,
+    /// Composite operation: "replace", "add", or "accumulate".
+    pub composite: String,
 }
 
 impl Default for AnimationOptions {
@@ -120,6 +122,7 @@ impl Default for AnimationOptions {
             direction: "normal".into(),
             delay: 0.0,
             id: String::new(),
+            composite: "replace".into(),
         }
     }
 }
@@ -370,6 +373,18 @@ fn parse_animation_options(
         })
         .unwrap_or_default();
 
+    let composite = obj
+        .get(js_string!("composite"), ctx)
+        .ok()
+        .and_then(|v| {
+            if v.is_undefined() {
+                None
+            } else {
+                Some(v.to_string(ctx).ok()?.to_std_string_escaped())
+            }
+        })
+        .unwrap_or_else(|| "replace".into());
+
     Ok(AnimationOptions {
         duration,
         iterations,
@@ -378,6 +393,7 @@ fn parse_animation_options(
         direction,
         delay,
         id,
+        composite,
     })
 }
 

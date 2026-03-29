@@ -37,15 +37,7 @@ impl HostBridge {
         self.inner.borrow_mut().focus_target = entity;
     }
 
-    /// Whether the tab is hidden (not the active tab).
-    pub fn is_tab_hidden(&self) -> bool {
-        self.inner.borrow().tab_hidden
-    }
-
-    /// Set the tab hidden state (synced from browser thread on tab switch).
-    pub fn set_tab_hidden(&self, hidden: bool) {
-        self.inner.borrow_mut().tab_hidden = hidden;
-    }
+    // is_tab_hidden / set_visibility are in viewport.rs
 
     /// Get the window name.
     pub fn window_name(&self) -> String {
@@ -113,15 +105,53 @@ impl HostBridge {
     }
 
     pub fn local_storage_set(&self, key: &str, value: &str) {
-        super::local_storage::local_storage_set(&self.local_storage_origin(), key, value);
+        let origin = self.local_storage_origin();
+        let old_value = super::local_storage::local_storage_get(&origin, key);
+        super::local_storage::local_storage_set(&origin, key, value);
+        let url = self.current_url().map_or(String::new(), |u| u.to_string());
+        self.inner
+            .borrow_mut()
+            .pending_storage_changes
+            .push(super::StorageChange {
+                origin,
+                key: Some(key.to_string()),
+                old_value,
+                new_value: Some(value.to_string()),
+                url,
+            });
     }
 
     pub fn local_storage_remove(&self, key: &str) {
-        super::local_storage::local_storage_remove(&self.local_storage_origin(), key);
+        let origin = self.local_storage_origin();
+        let old_value = super::local_storage::local_storage_get(&origin, key);
+        super::local_storage::local_storage_remove(&origin, key);
+        let url = self.current_url().map_or(String::new(), |u| u.to_string());
+        self.inner
+            .borrow_mut()
+            .pending_storage_changes
+            .push(super::StorageChange {
+                origin,
+                key: Some(key.to_string()),
+                old_value,
+                new_value: None,
+                url,
+            });
     }
 
     pub fn local_storage_clear(&self) {
-        super::local_storage::local_storage_clear(&self.local_storage_origin());
+        let origin = self.local_storage_origin();
+        super::local_storage::local_storage_clear(&origin);
+        let url = self.current_url().map_or(String::new(), |u| u.to_string());
+        self.inner
+            .borrow_mut()
+            .pending_storage_changes
+            .push(super::StorageChange {
+                origin,
+                key: None,
+                old_value: None,
+                new_value: None,
+                url,
+            });
     }
 
     pub fn local_storage_len(&self) -> usize {
@@ -134,5 +164,10 @@ impl HostBridge {
 
     pub fn local_storage_byte_size(&self) -> usize {
         super::local_storage::local_storage_byte_size(&self.local_storage_origin())
+    }
+
+    /// Drain pending localStorage change notifications.
+    pub fn drain_storage_changes(&self) -> Vec<super::StorageChange> {
+        std::mem::take(&mut self.inner.borrow_mut().pending_storage_changes)
     }
 }

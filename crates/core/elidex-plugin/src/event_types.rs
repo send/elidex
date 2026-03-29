@@ -171,6 +171,17 @@ pub enum EventPayload {
     HashChange(HashChangeEventInit),
     /// Page transition event data (WHATWG HTML §7.8.2.4).
     PageTransition(PageTransitionEventInit),
+    /// Storage event data (WHATWG HTML §11.2.1).
+    Storage {
+        /// The key that changed (`None` for `clear()`).
+        key: Option<String>,
+        /// The old value (`None` if the key was newly set or cleared).
+        old_value: Option<String>,
+        /// The new value (`None` if the key was removed or cleared).
+        new_value: Option<String>,
+        /// The URL of the document that triggered the change.
+        url: String,
+    },
     /// No additional data (e.g. generic events).
     #[default]
     None,
