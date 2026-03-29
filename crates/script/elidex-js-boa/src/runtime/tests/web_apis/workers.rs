@@ -288,11 +288,11 @@ fn worker_close_sets_flag() {
 fn worker_onmessage_setter_getter() {
     let (mut rt, mut session, mut dom, doc) = setup_worker("", "https://example.com/worker.js");
     let result = rt.eval(
-        r#"
+        r"
         console.log(self.onmessage === null);
         self.onmessage = function(e) { console.log(e.data); };
         console.log(typeof self.onmessage === 'function');
-        "#,
+        ",
         &mut session,
         &mut dom,
         doc,
@@ -394,7 +394,7 @@ fn worker_url_constructor_available() {
 fn worker_structured_clone_available() {
     let (mut rt, mut session, mut dom, doc) = setup_worker("", "https://example.com/worker.js");
     let result = rt.eval(
-        r#"var obj = {a: 1, b: [2, 3]}; var c = structuredClone(obj); console.log(c.a === 1 && c.b.length === 2)"#,
+        r"var obj = {a: 1, b: [2, 3]}; var c = structuredClone(obj); console.log(c.a === 1 && c.b.length === 2)",
         &mut session,
         &mut dom,
         doc,
@@ -444,7 +444,7 @@ fn worker_terminate() {
 fn worker_close_thread_exit() {
     use elidex_api_workers::WorkerToParent;
 
-    let (_parent_ch, worker_ch) = elidex_plugin::channel_pair();
+    let (parent_ch, worker_ch) = elidex_plugin::channel_pair();
 
     let handle = std::thread::spawn(move || {
         crate::worker_thread::worker_thread_main_with_source(
@@ -459,7 +459,7 @@ fn worker_close_thread_exit() {
     let mut got_closed = false;
     for _ in 0..20 {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        while let Ok(msg) = _parent_ch.try_recv() {
+        while let Ok(msg) = parent_ch.try_recv() {
             if matches!(msg, WorkerToParent::Closed) {
                 got_closed = true;
             }
@@ -532,7 +532,7 @@ fn worker_multiple_concurrent() {
     for i in 0..3 {
         let (parent_ch, worker_ch) = elidex_plugin::channel_pair();
         let name = format!("worker-{i}");
-        let script = format!(r#"postMessage(self.name);"#);
+        let script = "postMessage(self.name);".to_string();
 
         let handle = std::thread::spawn(move || {
             crate::worker_thread::worker_thread_main_with_source(
@@ -591,7 +591,7 @@ fn worker_postmessage_roundtrip() {
     // Worker echoes received messages back.
     let handle = std::thread::spawn(move || {
         crate::worker_thread::worker_thread_main_with_source(
-            r#"self.onmessage = function(e) { postMessage(e.data); };"#.to_string(),
+            r"self.onmessage = function(e) { postMessage(e.data); };".to_string(),
             ::url::Url::parse("https://example.com/worker.js").unwrap(),
             String::new(),
             worker_ch,
@@ -659,10 +659,10 @@ fn worker_message_event_properties() {
     // Verify MessageEvent object shape when dispatched to worker.
     let (mut rt, mut session, mut dom, doc) = setup_worker("", "https://example.com/worker.js");
     let result = rt.eval(
-        r#"
+        r"
         var received = null;
         self.onmessage = function(e) { received = e; };
-        "#,
+        ",
         &mut session,
         &mut dom,
         doc,
@@ -680,7 +680,7 @@ fn worker_message_event_properties() {
 
     // Check the received event properties.
     let result = rt.eval(
-        r#"
+        r"
         console.log(received !== null);
         console.log(received.data.key === 'value');
         console.log(received.origin === 'https://example.com');
@@ -689,7 +689,7 @@ fn worker_message_event_properties() {
         console.log(Array.isArray(received.ports) && received.ports.length === 0);
         console.log(received.type === 'message');
         console.log(received.isTrusted === true);
-        "#,
+        ",
         &mut session,
         &mut dom,
         doc,
