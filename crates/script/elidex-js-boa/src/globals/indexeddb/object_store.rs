@@ -669,12 +669,9 @@ pub(super) fn extract_range(
         }
     }
 
-    // Otherwise treat as a key → IdbKeyRange::only
-    if let Ok(key) = js_value_to_idb_key(v, ctx) {
-        return Ok(Some(IdbKeyRange::only(key)));
-    }
-
-    Ok(None)
+    // Otherwise treat as a key → IdbKeyRange::only (propagate error for invalid keys)
+    let key = js_value_to_idb_key(v, ctx)?;
+    Ok(Some(IdbKeyRange::only(key)))
 }
 
 fn extract_range_from_obj(obj: &JsObject, ctx: &mut Context) -> JsResult<Option<IdbKeyRange>> {

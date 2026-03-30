@@ -235,6 +235,12 @@ fn register_transaction(obj: &JsObject, ctx: &mut Context, bridge: &HostBridge, 
             let store_names =
                 extract_store_names(args.first().unwrap_or(&JsValue::undefined()), ctx)?;
 
+            if store_names.is_empty() {
+                return Err(JsNativeError::typ()
+                    .with_message("InvalidAccessError: transaction scope must not be empty")
+                    .into());
+            }
+
             let mode_str = args
                 .get(1)
                 .and_then(JsValue::as_string)

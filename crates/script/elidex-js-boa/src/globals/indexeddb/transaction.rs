@@ -78,20 +78,27 @@ fn register_object_store_accessor(
                 .ok_or_else(|| JsNativeError::typ().with_message("objectStore() requires a name"))?
                 .to_std_string_escaped();
 
-            // Verify store exists
-            let exists = bridge
-                .with_idb(|backend| {
-                    backend
-                        .list_store_names(db_name)
-                        .unwrap_or_default()
-                        .contains(&store_name)
-                })
-                .unwrap_or(false);
+            // Verify store is in this transaction's scope (not all DB stores)
+            let scope = tx.get(js_string!("objectStoreNames"), ctx)?;
+            let mut in_scope = false;
+            if let Some(arr) = scope.as_object() {
+                let len = arr.get(js_string!("length"), ctx)?.to_u32(ctx).unwrap_or(0);
+                for i in 0..len {
+                    if let Ok(elem) = arr.get(i, ctx) {
+                        if let Some(s) = elem.as_string() {
+                            if s.to_std_string_escaped() == store_name {
+                                in_scope = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
 
-            if !exists {
+            if !in_scope {
                 return Err(JsNativeError::typ()
                     .with_message(format!(
-                        "NotFoundError: object store '{store_name}' not found"
+                        "NotFoundError: object store '{store_name}' not in transaction scope"
                     ))
                     .into());
             }
@@ -149,7 +156,9 @@ fn register_finalize(
                     request::fire_handler(tx, handler_name, ctx);
                     Ok(JsValue::undefined())
                 }
-                Some(Err(e)) => Err(JsNativeError::typ().with_message(format!("{e}")).into()),
+                Some(Err(_)) => Err(JsNativeError::typ()
+                    .with_message("IndexedDB transaction failed")
+                    .into()),
                 None => Err(JsNativeError::typ()
                     .with_message("IndexedDB backend not available")
                     .into()),
