@@ -76,13 +76,15 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
 
             let open_request = request::build_open_request(ctx);
 
-            // Fire versionchange on existing connections if upgrading (A7/A8)
+            // Fire versionchange on existing connections only for upgrades (not downgrades)
             if let Some(ver) = version {
                 let current = bridge
                     .with_idb(|backend| backend.get_version(&name).ok().flatten())
                     .flatten();
-                if current.is_some() && current != Some(ver) {
-                    bridge.fire_idb_versionchange(&name, current.unwrap_or(0), Some(ver), ctx);
+                if let Some(cur) = current {
+                    if ver > cur {
+                        bridge.fire_idb_versionchange(&name, cur, Some(ver), ctx);
+                    }
                 }
             }
 
