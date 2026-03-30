@@ -17,6 +17,7 @@ pub mod fetch;
 pub mod form_data;
 pub mod history;
 pub(crate) mod iframe;
+pub mod indexeddb;
 pub mod location;
 pub mod navigator;
 pub mod observers;
@@ -912,6 +913,7 @@ pub fn register_all_globals(
     blob::register_blob_file(ctx);
     form_data::register_form_data(ctx, bridge);
     worker_constructor::register_worker_constructor(ctx, bridge);
+    indexeddb::register_indexeddb(ctx, bridge);
     // Register location and history as global properties.
     let location_obj = location::register_location(ctx, bridge);
     let history_obj = history::register_history(ctx, bridge);

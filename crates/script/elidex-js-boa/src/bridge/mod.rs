@@ -17,6 +17,7 @@ mod cssom;
 mod document_state;
 mod form;
 mod iframe_bridge;
+mod indexeddb;
 pub mod local_storage;
 mod media;
 mod navigation;
@@ -196,6 +197,17 @@ pub(crate) struct HostBridgeInner {
     /// Worker-side state (outgoing messages, close flag, name, script URL).
     /// `Some` only when this bridge belongs to a dedicated worker thread.
     worker_state: Option<worker_state::WorkerBridgeState>,
+    // --- IndexedDB ---
+    /// Per-origin `IndexedDB` backend (lazily initialized).
+    idb_backend: Option<elidex_indexeddb::IdbBackend>,
+    /// Active `IdbCursorState` instances, keyed by unique ID.
+    idb_cursors: HashMap<u64, elidex_indexeddb::cursor::IdbCursorState>,
+    /// Next ID for cursor allocation.
+    idb_cursor_next_id: u64,
+    /// Open `IDBDatabase` JS objects, keyed by db name. For versionchange dispatch.
+    idb_open_connections: HashMap<String, Vec<JsObject>>,
+    /// Database name currently in upgrade mode (versionchange), if any.
+    idb_upgrading_db: Option<String>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -390,6 +402,11 @@ impl HostBridge {
                 current_script_entity: None,
                 worker_registry: worker_registry::WorkerRegistry::default(),
                 worker_state: None,
+                idb_backend: None,
+                idb_cursors: HashMap::new(),
+                idb_cursor_next_id: 1,
+                idb_open_connections: HashMap::new(),
+                idb_upgrading_db: None,
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
