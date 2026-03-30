@@ -129,6 +129,10 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                     // Mark db as in upgrade mode via bridge (tamper-proof)
                     bridge.set_idb_upgrading(Some(&name));
 
+                    // Begin savepoint so schema changes can be rolled back on abort
+                    let _ = bridge
+                        .with_idb(|backend| backend.conn().execute_batch("SAVEPOINT idb_upgrade"));
+
                     // Fire onupgradeneeded with IDBVersionChangeEvent
                     let event = events::build_version_change_event(
                         "upgradeneeded",
@@ -153,9 +157,11 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                     };
 
                     if !upgrade_ok {
-                        // onupgradeneeded threw — abort the upgrade
+                        // onupgradeneeded threw — rollback schema changes + abort
                         bridge.set_idb_upgrading(None);
                         let _ = bridge.with_idb(|backend| {
+                            let _ = backend.conn().execute_batch("ROLLBACK TO idb_upgrade");
+                            let _ = backend.conn().execute_batch("RELEASE idb_upgrade");
                             elidex_indexeddb::database::abort_upgrade(backend, &handle, old_version)
                         });
                         request::reject_request(
@@ -165,6 +171,10 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                         );
                         return Ok(JsValue::from(open_request));
                     }
+
+                    // Upgrade succeeded — release savepoint
+                    let _ = bridge
+                        .with_idb(|backend| backend.conn().execute_batch("RELEASE idb_upgrade"));
 
                     // After upgradeneeded callback, fire onsuccess
                     let _ = open_request.set(

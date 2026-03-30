@@ -217,7 +217,7 @@ fn op_get(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsResult
             request::resolve_request(&req, parsed, ctx);
         }
         Some(Ok(None)) => request::resolve_request(&req, JsValue::undefined(), ctx),
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -234,7 +234,7 @@ fn op_get_key(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsRe
     match result {
         Some(Ok(Some(k))) => request::resolve_request(&req, idb_key_to_js_value(&k, ctx), ctx),
         Some(Ok(None)) => request::resolve_request(&req, JsValue::undefined(), ctx),
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -258,7 +258,7 @@ fn op_get_all(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsRe
             }
             request::resolve_request(&req, JsValue::from(arr), ctx);
         }
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -282,7 +282,7 @@ fn op_get_all_keys(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) ->
             }
             request::resolve_request(&req, JsValue::from(arr), ctx);
         }
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -320,7 +320,7 @@ fn op_delete(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsRes
 
     match result {
         Some(Ok(())) => request::resolve_request(&req, JsValue::undefined(), ctx),
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -339,7 +339,7 @@ fn op_clear(_args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsRes
 
     match result {
         Some(Ok(())) => request::resolve_request(&req, JsValue::undefined(), ctx),
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -357,7 +357,7 @@ fn op_count(args: &[JsValue], caps: &StoreCaptures, ctx: &mut Context) -> JsResu
     match result {
         #[allow(clippy::cast_precision_loss)]
         Some(Ok(n)) => request::resolve_request(&req, JsValue::from(n as f64), ctx),
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -406,7 +406,7 @@ fn op_get_all_records(
             }
             request::resolve_request(&req, JsValue::from(arr), ctx);
         }
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
@@ -460,7 +460,7 @@ fn open_cursor_impl(
                 request::resolve_request(&req, JsValue::from(cursor_obj), ctx);
             }
         }
-        Some(Err(e)) => request::reject_request(&req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(&req, e, ctx),
         None => request::reject_request(&req, "IndexedDB backend not available", ctx),
     }
     Ok(JsValue::from(req))
