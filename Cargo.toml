@@ -24,6 +24,7 @@ members = [
     "crates/dom/elidex-form",
     "crates/dom/elidex-api-observers",
     "crates/dom/elidex-custom-elements",
+    "crates/dom/elidex-indexeddb",
     "crates/layout/elidex-layout",
     "crates/layout/elidex-layout-block",
     "crates/layout/elidex-layout-flex",
@@ -133,6 +134,8 @@ elidex-a11y = { path = "crates/dom/elidex-a11y" }
 elidex-form = { path = "crates/dom/elidex-form" }
 elidex-api-observers = { path = "crates/dom/elidex-api-observers" }
 elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
+elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
+rusqlite = { version = "0.32", features = ["bundled"] }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
 egui = "0.33"
