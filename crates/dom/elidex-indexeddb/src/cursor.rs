@@ -188,6 +188,7 @@ pub fn open_index_cursor(
         direction,
         1,
         None,
+        None,
     )?;
     let current = first.into_iter().next();
 
@@ -410,11 +411,12 @@ fn advance_one(
 ) -> Result<(), BackendError> {
     state.got_deleted = false;
 
-    let after = if let Some(target) = target_key {
-        // Jump to target — use a boundary just before target for forward, just after for reverse
-        Some(target.clone())
+    let (after, after_pk) = if let Some(target) = target_key {
+        (Some(target.clone()), None)
     } else {
-        state.current.as_ref().map(|e| e.key.clone())
+        let key = state.current.as_ref().map(|e| e.key.clone());
+        let pk = state.current.as_ref().map(|e| e.primary_key.clone());
+        (key, pk)
     };
 
     let rows = match &state.source {
@@ -423,7 +425,6 @@ fn advance_one(
             store_name,
         } => {
             if target_key.is_some() {
-                // For targeted continue, we want >= target (forward) or <= target (reverse)
                 fetch_store_rows_from(
                     backend,
                     db_name,
@@ -461,6 +462,7 @@ fn advance_one(
                     state.direction,
                     1,
                     after.as_ref(),
+                    None, // targeted continue uses key-only boundary
                     true,
                 )?
             } else {
@@ -473,6 +475,7 @@ fn advance_one(
                     state.direction,
                     1,
                     after.as_ref(),
+                    after_pk.as_ref(),
                 )?
             }
         }
@@ -588,9 +591,10 @@ fn fetch_index_rows(
     direction: CursorDirection,
     limit: u32,
     after: Option<&IdbKey>,
+    after_pk: Option<&IdbKey>,
 ) -> Result<Vec<CursorEntry>, BackendError> {
     fetch_index_rows_from(
-        backend, db_name, store_name, index_name, range, direction, limit, after, false,
+        backend, db_name, store_name, index_name, range, direction, limit, after, after_pk, false,
     )
 }
 
@@ -604,6 +608,7 @@ fn fetch_index_rows_from(
     direction: CursorDirection,
     limit: u32,
     after: Option<&IdbKey>,
+    after_pk: Option<&IdbKey>,
     inclusive: bool,
 ) -> Result<Vec<CursorEntry>, BackendError> {
     let idx_table = crate::index::index_table_name_for(db_name, store_name, index_name);
@@ -622,19 +627,38 @@ fn fetch_index_rows_from(
     }
 
     if let Some(after_key) = after {
-        let op = if inclusive {
-            if direction.is_forward() {
-                ">="
+        let key_bytes = after_key.serialize();
+        if let Some(pk) = after_pk {
+            // Composite (index_key, primary_key) boundary for non-unique cursors.
+            // (key > ?) OR (key = ? AND pk > ?)  [forward, exclusive]
+            // (key > ?) OR (key = ? AND pk >= ?) [forward, inclusive]
+            let (strict_op, pk_op) = if direction.is_forward() {
+                (">", if inclusive { ">=" } else { ">" })
             } else {
-                "<="
-            }
-        } else if direction.is_forward() {
-            ">"
+                ("<", if inclusive { "<=" } else { "<" })
+            };
+            conditions.push(format!(
+                "(i.index_key {strict_op} ? OR (i.index_key = ? AND i.primary_key {pk_op} ?))"
+            ));
+            params.push(key_bytes.clone());
+            params.push(key_bytes);
+            params.push(pk.serialize());
         } else {
-            "<"
-        };
-        conditions.push(format!("i.index_key {op} ?"));
-        params.push(after_key.serialize());
+            // Key-only boundary (unique cursors or targeted continue)
+            let op = if inclusive {
+                if direction.is_forward() {
+                    ">="
+                } else {
+                    "<="
+                }
+            } else if direction.is_forward() {
+                ">"
+            } else {
+                "<"
+            };
+            conditions.push(format!("i.index_key {op} ?"));
+            params.push(key_bytes);
+        }
     }
 
     let where_clause = if conditions.is_empty() {
