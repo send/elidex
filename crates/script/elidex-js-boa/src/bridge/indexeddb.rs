@@ -18,8 +18,6 @@ impl HostBridge {
     }
 
     /// Fire `versionchange` event on all open connections for a database.
-    ///
-    /// Returns the list of connections (caller can check if any remain open).
     pub fn fire_idb_versionchange(
         &self,
         db_name: &str,

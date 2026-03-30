@@ -90,7 +90,6 @@ pub fn reject_request(request: &JsObject, error_msg: &str, ctx: &mut Context) {
 }
 
 /// Reject with a `BackendError`, using its `DOMException` name.
-#[allow(dead_code)] // Foundation for B-gap: callers will be updated to use this
 pub fn reject_request_backend(
     request: &JsObject,
     err: &elidex_indexeddb::BackendError,

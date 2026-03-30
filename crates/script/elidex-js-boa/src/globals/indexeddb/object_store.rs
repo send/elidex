@@ -729,7 +729,7 @@ fn resolve_op_result(
 ) {
     match result {
         Some(Ok(key)) => request::resolve_request(req, idb_key_to_js_value(&key, ctx), ctx),
-        Some(Err(e)) => request::reject_request(req, &e.to_string(), ctx),
+        Some(Err(ref e)) => request::reject_request_backend(req, e, ctx),
         None => request::reject_request(req, "IndexedDB backend not available", ctx),
     }
 }

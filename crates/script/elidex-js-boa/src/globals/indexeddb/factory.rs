@@ -100,6 +100,7 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                     );
                     bridge.register_idb_connection(&name, db_obj.clone());
                     request::resolve_request(&open_request, JsValue::from(db_obj), ctx);
+                    // open() fires onsuccess inline (special case — CRUD ops don't)
                     request::fire_handler(&open_request, "onsuccess", ctx);
                 }
                 Some(Ok(elidex_indexeddb::IdbOpenResult::UpgradeNeeded {
