@@ -279,7 +279,7 @@ fn idx_open_cursor_impl(
         .and_then(JsValue::as_string)
         .map_or_else(|| "next".to_owned(), |s| s.to_std_string_escaped());
     let dir = elidex_indexeddb::cursor::CursorDirection::parse(&direction).ok_or_else(|| {
-        JsNativeError::typ().with_message(format!("TypeError: invalid direction '{direction}'"))
+        JsNativeError::typ().with_message(format!("invalid cursor direction '{direction}'"))
     })?;
 
     let req = request::build_request(ctx);
