@@ -701,7 +701,7 @@ mod tests {
                 &b,
                 "db",
                 "items",
-                Some(IdbKey::Number(i as f64)),
+                Some(IdbKey::Number(f64::from(i))),
                 &format!(r#"{{"val":{i}}}"#),
             )
             .unwrap();
@@ -856,8 +856,7 @@ mod tests {
     #[test]
     fn cursor_update_current() {
         let b = setup();
-        let mut cur =
-            open_store_cursor(&b, "db", "items", None, CursorDirection::Next, false).unwrap();
+        let cur = open_store_cursor(&b, "db", "items", None, CursorDirection::Next, false).unwrap();
 
         assert_eq!(cur.current().unwrap().key, IdbKey::Number(1.0));
         update_current(&b, &cur, r#"{"val":999}"#).unwrap();

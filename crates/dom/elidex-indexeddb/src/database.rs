@@ -279,7 +279,7 @@ mod tests {
                 abort_upgrade(&b, &handle, 0).unwrap();
                 assert_eq!(b.get_version("mydb").unwrap(), None);
             }
-            _ => panic!("expected UpgradeNeeded"),
+            IdbOpenResult::Success(_) => panic!("expected UpgradeNeeded"),
         }
     }
 
@@ -293,7 +293,7 @@ mod tests {
                 abort_upgrade(&b, &handle, 2).unwrap();
                 assert_eq!(b.get_version("mydb").unwrap(), Some(2));
             }
-            _ => panic!("expected UpgradeNeeded"),
+            IdbOpenResult::Success(_) => panic!("expected UpgradeNeeded"),
         }
     }
 

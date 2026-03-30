@@ -465,7 +465,7 @@ mod tests {
                 &b,
                 "db",
                 "s",
-                Some(IdbKey::Number(i as f64)),
+                Some(IdbKey::Number(f64::from(i))),
                 &format!(r#""{i}""#),
             )
             .unwrap();
@@ -530,7 +530,7 @@ mod tests {
                 &b,
                 "db",
                 "s",
-                Some(IdbKey::Number(i as f64)),
+                Some(IdbKey::Number(f64::from(i))),
                 &format!(r#""{i}""#),
             )
             .unwrap();
@@ -567,7 +567,7 @@ mod tests {
                 &b,
                 "db",
                 "s",
-                Some(IdbKey::Number(i as f64)),
+                Some(IdbKey::Number(f64::from(i))),
                 &format!(r#""{i}""#),
             )
             .unwrap();

@@ -364,7 +364,7 @@ mod tests {
             IdbKey::Number(1e10),
             IdbKey::Date(0.0),
             IdbKey::Date(1e15),
-            IdbKey::String("".into()),
+            IdbKey::String(String::new()),
             IdbKey::String("a".into()),
             IdbKey::String("b".into()),
             IdbKey::Array(vec![]),

@@ -88,32 +88,26 @@ mod tests {
         let (mut ctx, _) = setup();
         assert_eq!(eval_f64(&mut ctx, "IDBKeyRange.only(5).lower"), 5.0);
         assert_eq!(eval_f64(&mut ctx, "IDBKeyRange.only(5).upper"), 5.0);
-        assert_eq!(eval_bool(&mut ctx, "IDBKeyRange.only(5).lowerOpen"), false);
-        assert_eq!(eval_bool(&mut ctx, "IDBKeyRange.only(5).upperOpen"), false);
+        assert!(!eval_bool(&mut ctx, "IDBKeyRange.only(5).lowerOpen"));
+        assert!(!eval_bool(&mut ctx, "IDBKeyRange.only(5).upperOpen"));
     }
 
     #[test]
     fn key_range_lower_bound() {
         let (mut ctx, _) = setup();
         assert_eq!(eval_f64(&mut ctx, "IDBKeyRange.lowerBound(3).lower"), 3.0);
-        assert_eq!(
-            eval_bool(&mut ctx, "IDBKeyRange.lowerBound(3).lowerOpen"),
-            false
-        );
-        assert_eq!(
-            eval_bool(&mut ctx, "IDBKeyRange.lowerBound(3, true).lowerOpen"),
-            true
-        );
+        assert!(!eval_bool(&mut ctx, "IDBKeyRange.lowerBound(3).lowerOpen"));
+        assert!(eval_bool(
+            &mut ctx,
+            "IDBKeyRange.lowerBound(3, true).lowerOpen"
+        ));
     }
 
     #[test]
     fn key_range_includes() {
         let (mut ctx, _) = setup();
-        assert_eq!(eval_bool(&mut ctx, "IDBKeyRange.only(5).includes(5)"), true);
-        assert_eq!(
-            eval_bool(&mut ctx, "IDBKeyRange.only(5).includes(4)"),
-            false
-        );
+        assert!(eval_bool(&mut ctx, "IDBKeyRange.only(5).includes(5)"));
+        assert!(!eval_bool(&mut ctx, "IDBKeyRange.only(5).includes(4)"));
     }
 
     // --- open / createObjectStore / put / get ---
@@ -127,10 +121,10 @@ mod tests {
         // For a new DB, result is set during open (upgradeneeded fires inline)
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('testdb', 1);
             var db = req.result;
-        "#,
+        ",
         );
         assert_eq!(eval_str(&mut ctx, "db.name"), "testdb");
         assert_eq!(eval_f64(&mut ctx, "db.version"), 1.0);
@@ -141,20 +135,20 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('storedb', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
-        "#,
+        ",
         );
         // Verify store was created by opening again
         eval(
             &mut ctx,
-            r#"
+            r"
             var req2 = indexedDB.open('storedb', 1);
             var db2 = req2.result;
             var storeNames = db2.objectStoreNames;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "storeNames.length"), 1.0);
     }
@@ -164,7 +158,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('putget', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -176,7 +170,7 @@ mod tests {
 
             var getReq = store.get(1);
             var result = getReq.result;
-        "#,
+        ",
         );
         assert_eq!(eval_str(&mut ctx, "result.name"), "alice");
         assert_eq!(eval_f64(&mut ctx, "result.id"), 1.0);
@@ -187,7 +181,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('adddup', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -197,9 +191,9 @@ mod tests {
             store.add({ id: 1, name: 'alice' });
             var addReq = store.add({ id: 1, name: 'duplicate' });
             var hasError = addReq.error !== null;
-        "#,
+        ",
         );
-        assert_eq!(eval_bool(&mut ctx, "hasError"), true);
+        assert!(eval_bool(&mut ctx, "hasError"));
     }
 
     #[test]
@@ -207,7 +201,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('autoinc', 1);
             var db = req.result;
             db.createObjectStore('items', { autoIncrement: true });
@@ -216,7 +210,7 @@ mod tests {
             var store = tx.objectStore('items');
             var k1 = store.put('first').result;
             var k2 = store.put('second').result;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "k1"), 1.0);
         assert_eq!(eval_f64(&mut ctx, "k2"), 2.0);
@@ -227,7 +221,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('countclear', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -240,7 +234,7 @@ mod tests {
             var countBefore = store.count().result;
             store.clear();
             var countAfter = store.count().result;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "countBefore"), 3.0);
         assert_eq!(eval_f64(&mut ctx, "countAfter"), 0.0);
@@ -251,7 +245,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('getall', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -263,7 +257,7 @@ mod tests {
             store.put({ id: 3, v: 'c' });
             var all = store.getAll().result;
             var limited = store.getAll(null, 2).result;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "all.length"), 3.0);
         assert_eq!(eval_f64(&mut ctx, "limited.length"), 2.0);
@@ -274,7 +268,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req1 = indexedDB.open('deldb', 1);
             var db1 = req1.result;
             db1.createObjectStore('items');
@@ -284,7 +278,7 @@ mod tests {
             var req2 = indexedDB.open('deldb', 1);
             var db2 = req2.result;
             var storeCount = db2.objectStoreNames.length;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "storeCount"), 0.0);
     }
@@ -296,7 +290,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('cursordb', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -314,7 +308,7 @@ mod tests {
                 keys.push(cursor.key);
                 cursor.continue();
             }
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "keys.length"), 3.0);
         assert_eq!(eval_f64(&mut ctx, "keys[0]"), 1.0);
@@ -328,7 +322,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('indexdb', 1);
             var db = req.result;
             var store = db.createObjectStore('users', { keyPath: 'id' });
@@ -341,7 +335,7 @@ mod tests {
 
             var idx = store2.index('by_name');
             var found = idx.get('bob').result;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "found.id"), 2.0);
         assert_eq!(eval_str(&mut ctx, "found.name"), "bob");
@@ -354,7 +348,7 @@ mod tests {
         let (mut ctx, _) = setup();
         eval(
             &mut ctx,
-            r#"
+            r"
             var req = indexedDB.open('txevents', 1);
             var db = req.result;
             db.createObjectStore('items', { keyPath: 'id' });
@@ -365,9 +359,9 @@ mod tests {
             var store = tx.objectStore('items');
             store.put({ id: 1 });
             tx.commit();
-        "#,
+        ",
         );
-        assert_eq!(eval_bool(&mut ctx, "completed"), true);
+        assert!(eval_bool(&mut ctx, "completed"));
     }
 
     #[test]
@@ -377,7 +371,7 @@ mod tests {
         // read the event from req.result instead
         eval(
             &mut ctx,
-            r#"
+            r"
             var oldVer = -1;
             var newVer = -1;
             var req = indexedDB.open('verdb', 3);
@@ -387,7 +381,7 @@ mod tests {
             newVer = db.version;
             // old version was 0 (new database)
             oldVer = 0;
-        "#,
+        ",
         );
         assert_eq!(eval_f64(&mut ctx, "oldVer"), 0.0);
         assert_eq!(eval_f64(&mut ctx, "newVer"), 3.0);
