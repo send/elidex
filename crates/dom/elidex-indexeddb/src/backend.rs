@@ -403,7 +403,8 @@ impl IdbBackend {
         key: &IdbKey,
     ) -> Result<(), BackendError> {
         if let IdbKey::Number(v) = key {
-            let int_val = v.floor() as i64 + 1;
+            let floored = v.floor() as i64;
+            let int_val = floored.saturating_add(1);
             self.conn.execute(
                 "UPDATE _idb_stores SET next_key = MAX(next_key, ?3) WHERE db_name = ?1 AND store_name = ?2",
                 params![db_name, store_name, int_val],

@@ -228,7 +228,7 @@ fn register_transaction(obj: &JsObject, ctx: &mut Context, bridge: &HostBridge, 
     let name = db_name.to_owned();
     let db_ref = obj.clone();
     let fn_obj = NativeFunction::from_copy_closure_with_captures(
-        |_, args, (bridge, db_name, _db_obj), ctx| {
+        |_, args, (bridge, db_name, db_obj), ctx| {
             // Clear upgrade mode via bridge (tamper-proof)
             bridge.set_idb_upgrading(None);
 
@@ -286,6 +286,7 @@ fn register_transaction(obj: &JsObject, ctx: &mut Context, bridge: &HostBridge, 
                     // and enforce mode/scope checks through it.
                     let tx_obj =
                         build_transaction_object(ctx, bridge, db_name, &store_names, &mode_str);
+                    let _ = tx_obj.set(js_string!("db"), JsValue::from(db_obj.clone()), false, ctx);
                     Ok(JsValue::from(tx_obj))
                 }
                 Some(Err(e)) => Err(JsNativeError::typ().with_message(format!("{e}")).into()),

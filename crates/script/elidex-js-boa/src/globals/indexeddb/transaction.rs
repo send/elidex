@@ -30,7 +30,7 @@ pub(crate) fn build_transaction_object(
         .property(
             js_string!("objectStoreNames"),
             JsValue::from(names_array),
-            Attribute::all(),
+            Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
         )
         .property(js_string!("error"), JsValue::null(), Attribute::all())
         .property(js_string!("oncomplete"), JsValue::null(), Attribute::all())

@@ -205,6 +205,7 @@ fn build_delete_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
             match result {
                 Some(Ok(_old_version)) => {
                     request::resolve_request(&open_request, JsValue::undefined(), ctx);
+                    request::fire_handler(&open_request, "onsuccess", ctx);
                 }
                 Some(Err(e)) => {
                     request::reject_request(&open_request, &e.to_string(), ctx);

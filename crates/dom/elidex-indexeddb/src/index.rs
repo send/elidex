@@ -169,7 +169,7 @@ pub fn index_get(
         .conn()
         .query_row(
             &format!(
-                "SELECT d.value FROM [{idx_table}] i JOIN [{data_table}] d ON i.primary_key = d.key_data WHERE i.index_key = ?1 LIMIT 1"
+                "SELECT d.value FROM [{idx_table}] i JOIN [{data_table}] d ON i.primary_key = d.key_data WHERE i.index_key = ?1 ORDER BY i.primary_key ASC LIMIT 1"
             ),
             params![index_key_bytes],
             |row| row.get(0),
@@ -192,7 +192,7 @@ pub fn index_get_key(
     let result: Option<Vec<u8>> = backend
         .conn()
         .query_row(
-            &format!("SELECT primary_key FROM [{idx_table}] WHERE index_key = ?1 LIMIT 1"),
+            &format!("SELECT primary_key FROM [{idx_table}] WHERE index_key = ?1 ORDER BY primary_key ASC LIMIT 1"),
             params![index_key_bytes],
             |row| row.get(0),
         )
@@ -215,7 +215,7 @@ pub fn index_get_all(
     let limit_clause = count.map_or_else(String::new, |c| format!(" LIMIT {c}"));
 
     let sql = format!(
-        "SELECT i.primary_key, d.value FROM [{idx_table}] i JOIN [{data_table}] d ON i.primary_key = d.key_data WHERE {where_clause} ORDER BY i.index_key ASC{limit_clause}"
+        "SELECT i.primary_key, d.value FROM [{idx_table}] i JOIN [{data_table}] d ON i.primary_key = d.key_data WHERE {where_clause} ORDER BY i.index_key ASC, i.primary_key ASC{limit_clause}"
     );
 
     let mut stmt = backend.conn().prepare(&sql)?;

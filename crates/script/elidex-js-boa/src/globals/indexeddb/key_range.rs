@@ -1,4 +1,4 @@
-//! `IDBKeyRange` JS constructor and static methods.
+//! `IDBKeyRange` global object with static factory methods.
 
 use std::cmp::Ordering;
 
