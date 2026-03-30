@@ -97,7 +97,12 @@ impl OriginIdbManager {
     pub fn check_quota(&self, origin_key: &str) -> Result<(), BackendError> {
         let path = origin_db_path(&self.data_dir, origin_key);
         if path.exists() {
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            // Include WAL + SHM files in size calculation (WAL mode)
+            let main_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let wal_size = std::fs::metadata(format!("{}-wal", path.display()))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            let size = main_size + wal_size;
             if size > self.quota_bytes {
                 return Err(BackendError::QuotaExceededError(format!(
                     "origin '{origin_key}' storage {size} bytes exceeds quota {} bytes",

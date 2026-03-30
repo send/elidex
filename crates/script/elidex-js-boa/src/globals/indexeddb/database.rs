@@ -229,7 +229,9 @@ fn register_transaction(obj: &JsObject, ctx: &mut Context, bridge: &HostBridge, 
     let db_ref = obj.clone();
     let fn_obj = NativeFunction::from_copy_closure_with_captures(
         |_, args, (bridge, db_name, db_obj), ctx| {
-            // Clear upgrade mode via bridge (tamper-proof)
+            // In our sync model, transaction() ends the upgrade window.
+            // (Spec would throw InvalidStateError during versionchange, but
+            // our model has no async boundary between upgrade and first tx.)
             bridge.set_idb_upgrading(None);
 
             let store_names =

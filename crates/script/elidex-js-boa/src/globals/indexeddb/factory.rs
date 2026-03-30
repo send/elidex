@@ -139,17 +139,30 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                     let handler = open_request
                         .get(js_string!("onupgradeneeded"), ctx)
                         .unwrap_or(JsValue::null());
-                    if let Some(func) = handler.as_callable() {
-                        let _ = func.call(
+                    let upgrade_ok = if let Some(func) = handler.as_callable() {
+                        func.call(
                             &JsValue::from(open_request.clone()),
                             &[JsValue::from(event)],
                             ctx,
-                        );
-                    }
+                        )
+                        .is_ok()
+                    } else {
+                        true
+                    };
 
-                    // Note: __elidex_idb_upgrading__ stays true until the
-                    // transaction is committed. In our sync model, the caller
-                    // can continue schema changes after open() returns.
+                    if !upgrade_ok {
+                        // onupgradeneeded threw — abort the upgrade
+                        bridge.set_idb_upgrading(None);
+                        let _ = bridge.with_idb(|backend| {
+                            elidex_indexeddb::database::abort_upgrade(backend, &handle, old_version)
+                        });
+                        request::reject_request(
+                            &open_request,
+                            "AbortError: upgrade callback threw",
+                            ctx,
+                        );
+                        return Ok(JsValue::from(open_request));
+                    }
 
                     // After upgradeneeded callback, fire onsuccess
                     let _ = open_request.set(
@@ -159,8 +172,10 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                         ctx,
                     );
                     request::fire_handler(&open_request, "onsuccess", ctx);
+                    // Upgrade flag stays active — cleared by first transaction() call
                 }
                 Some(Err(e)) => {
+                    bridge.set_idb_upgrading(None);
                     request::reject_request(&open_request, &e.to_string(), ctx);
                 }
                 None => {
