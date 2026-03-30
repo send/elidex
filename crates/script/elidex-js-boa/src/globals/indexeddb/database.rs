@@ -274,7 +274,10 @@ fn register_transaction(obj: &JsObject, ctx: &mut Context, bridge: &HostBridge, 
 
             match tx_result {
                 Some(Ok(_tx)) => {
-                    // Build JS transaction object
+                    // NOTE: IdbTransaction handle is dropped here — commit/abort
+                    // operate via raw SQL on the connection. The Rust state machine
+                    // is not consulted. M4-10 will store the handle in the bridge
+                    // and enforce mode/scope checks through it.
                     let tx_obj =
                         build_transaction_object(ctx, bridge, db_name, &store_names, &mode_str);
                     Ok(JsValue::from(tx_obj))

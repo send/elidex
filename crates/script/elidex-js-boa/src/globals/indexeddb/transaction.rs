@@ -138,15 +138,14 @@ fn register_finalize(
 
             let result = bridge.with_idb(|backend| backend.conn().execute_batch(sql_cmd));
 
-            let _ = tx.set(
-                js_string!("__elidex_idb_active__"),
-                JsValue::from(false),
-                false,
-                ctx,
-            );
-
             match result {
                 Some(Ok(())) => {
+                    let _ = tx.set(
+                        js_string!("__elidex_idb_active__"),
+                        JsValue::from(false),
+                        false,
+                        ctx,
+                    );
                     request::fire_handler(tx, handler_name, ctx);
                     Ok(JsValue::undefined())
                 }

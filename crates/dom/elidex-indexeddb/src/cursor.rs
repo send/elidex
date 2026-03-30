@@ -302,22 +302,20 @@ pub fn continue_primary_key(
         }
     }
 
-    // Advance to the target key, then filter by primary key
-    // For simplicity, advance to key then scan for matching primary key
-    advance_one(backend, state, Some(key))?;
-
-    // Skip entries until we find one with the right primary key
+    // Stepwise advance using full (key, primaryKey) ordering to avoid
+    // skipping entries when multiple rows share the same index key.
     let forward = state.direction.is_forward();
-    while let Some(entry) = &state.current {
-        let dominated = if forward {
+    loop {
+        advance_one(backend, state, None)?;
+        let Some(entry) = &state.current else { break };
+        let at_or_past = if forward {
             entry.key > *key || (entry.key == *key && entry.primary_key >= *primary_key)
         } else {
             entry.key < *key || (entry.key == *key && entry.primary_key <= *primary_key)
         };
-        if dominated {
+        if at_or_past {
             break;
         }
-        advance_one(backend, state, None)?;
     }
 
     Ok(())
@@ -667,7 +665,7 @@ fn fetch_index_rows_from(
              FROM [{idx_table}] i \
              JOIN [{data_table}] d ON i.primary_key = d.key_data \
              WHERE {where_clause} \
-             ORDER BY i.index_key {order} \
+             ORDER BY i.index_key {order}, i.primary_key {order} \
              LIMIT {limit}"
         )
     };

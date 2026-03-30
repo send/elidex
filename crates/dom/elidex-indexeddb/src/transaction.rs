@@ -32,7 +32,7 @@ pub enum TransactionState {
 /// An `IndexedDB` transaction backed by a `SQLite` transaction.
 ///
 /// The transaction is started on creation and must be explicitly
-/// committed or aborted. Dropping without commit/abort will abort.
+/// committed or aborted by the caller.
 pub struct IdbTransaction {
     mode: IdbTransactionMode,
     state: TransactionState,
