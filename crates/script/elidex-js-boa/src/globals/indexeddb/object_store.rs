@@ -613,7 +613,11 @@ pub(super) fn serialize_value(val: &JsValue, ctx: &mut Context) -> JsResult<Stri
     if let Some(json) = json_obj.as_object() {
         let stringify = json.get(js_string!("stringify"), ctx)?;
         if let Some(func) = stringify.as_callable() {
-            let result = func.call(&json_obj, std::slice::from_ref(val), ctx)?;
+            let result = func
+                .call(&json_obj, std::slice::from_ref(val), ctx)
+                .map_err(|_| {
+                    JsNativeError::typ().with_message("DataCloneError: value is not serializable")
+                })?;
             if let Some(s) = result.as_string() {
                 return Ok(s.to_std_string_escaped());
             }

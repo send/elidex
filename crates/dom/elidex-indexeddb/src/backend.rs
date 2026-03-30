@@ -62,6 +62,8 @@ pub enum BackendError {
     InvalidAccessError(String),
     /// Transaction state does not allow the operation.
     InvalidStateError(String),
+    /// Storage quota exceeded for the origin.
+    QuotaExceededError(String),
     /// `SQLite` or other internal error.
     Internal(String),
 }
@@ -78,6 +80,7 @@ impl BackendError {
             Self::VersionError(_) => "VersionError",
             Self::InvalidAccessError(_) => "InvalidAccessError",
             Self::InvalidStateError(_) => "InvalidStateError",
+            Self::QuotaExceededError(_) => "QuotaExceededError",
             Self::Internal(_) => "UnknownError",
         }
     }
@@ -94,6 +97,7 @@ impl std::fmt::Display for BackendError {
             | Self::VersionError(msg)
             | Self::InvalidAccessError(msg)
             | Self::InvalidStateError(msg)
+            | Self::QuotaExceededError(msg)
             | Self::Internal(msg) => write!(f, "{msg}"),
         }
     }

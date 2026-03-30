@@ -116,12 +116,13 @@ impl HostBridge {
     ) -> Option<R> {
         // Remove cursor temporarily to avoid holding mutable borrow
         let mut cursor_state = self.inner.borrow_mut().idb_cursors.remove(&cursor_id)?;
-        let result = self.with_idb(|backend| f(backend, &mut cursor_state))?;
+        let result = self.with_idb(|backend| f(backend, &mut cursor_state));
+        // Always reinsert cursor even if backend is None to avoid state loss
         self.inner
             .borrow_mut()
             .idb_cursors
             .insert(cursor_id, cursor_state);
-        Some(result)
+        result
     }
 
     /// Remove a cursor state.

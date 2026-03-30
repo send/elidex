@@ -645,15 +645,32 @@ fn fetch_index_rows_from(
         conditions.join(" AND ")
     };
 
-    let distinct = if direction.is_unique() {
-        "DISTINCT"
+    let sql = if direction.is_unique() {
+        // For unique directions, GROUP BY index_key to skip duplicate index keys.
+        // Use MIN(primary_key) for forward, MAX(primary_key) for reverse.
+        let agg = if direction.is_forward() { "MIN" } else { "MAX" };
+        format!(
+            "SELECT u.index_key, u.primary_key, d.value \
+             FROM ( \
+               SELECT i.index_key, {agg}(i.primary_key) AS primary_key \
+               FROM [{idx_table}] i \
+               WHERE {where_clause} \
+               GROUP BY i.index_key \
+               ORDER BY i.index_key {order} \
+               LIMIT {limit} \
+             ) u \
+             JOIN [{data_table}] d ON u.primary_key = d.key_data"
+        )
     } else {
-        ""
+        format!(
+            "SELECT i.index_key, i.primary_key, d.value \
+             FROM [{idx_table}] i \
+             JOIN [{data_table}] d ON i.primary_key = d.key_data \
+             WHERE {where_clause} \
+             ORDER BY i.index_key {order} \
+             LIMIT {limit}"
+        )
     };
-
-    let sql = format!(
-        "SELECT {distinct} i.index_key, i.primary_key, d.value FROM [{idx_table}] i JOIN [{data_table}] d ON i.primary_key = d.key_data WHERE {where_clause} ORDER BY i.index_key {order} LIMIT {limit}"
-    );
 
     let mut stmt = backend.conn().prepare(&sql)?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params

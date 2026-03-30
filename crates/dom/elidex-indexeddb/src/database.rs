@@ -49,7 +49,7 @@ impl IdbDatabaseHandle {
 /// Open a database with the W3C `IndexedDB` open algorithm.
 ///
 /// - If `version` is `None`, opens at the current version (or 1 if new).
-/// - If `version` is `Some(0)`, returns `TypeError`.
+/// - If `version` is `Some(0)`, returns `DataError`.
 /// - If `version` is `Some(v)` where `v < current`, returns `VersionError`.
 pub fn open_database(
     backend: &IdbBackend,

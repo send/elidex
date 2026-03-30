@@ -156,6 +156,8 @@ impl IdbKey {
 /// IEEE 754 sign-flip encoding: flip all bits if negative, else flip sign bit only.
 /// This makes lexicographic byte comparison match numeric order.
 fn encode_f64(v: f64, buf: &mut Vec<u8>) {
+    // Normalize -0.0 to 0.0 so serialized form matches IDB key equality
+    let v = if v == 0.0 { 0.0 } else { v };
     let bits = v.to_bits();
     let encoded = if v.is_sign_negative() {
         !bits // flip all bits for negative numbers

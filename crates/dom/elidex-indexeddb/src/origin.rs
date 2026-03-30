@@ -99,8 +99,8 @@ impl OriginIdbManager {
         if path.exists() {
             let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             if size > self.quota_bytes {
-                return Err(BackendError::Internal(format!(
-                    "QuotaExceededError: origin '{origin_key}' storage {size} bytes exceeds quota {} bytes",
+                return Err(BackendError::QuotaExceededError(format!(
+                    "origin '{origin_key}' storage {size} bytes exceeds quota {} bytes",
                     self.quota_bytes
                 )));
             }
