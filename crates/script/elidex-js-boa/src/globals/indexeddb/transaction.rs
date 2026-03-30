@@ -44,7 +44,7 @@ pub(crate) fn build_transaction_object(
         .property(
             js_string!("__elidex_idb_active__"),
             JsValue::from(true),
-            Attribute::empty(),
+            Attribute::WRITABLE,
         )
         .build();
 

@@ -44,7 +44,8 @@ fn build_factory(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
 /// `indexedDB.open(name, version?)`
 ///
 /// Returns an `IDBOpenDBRequest`. Synchronously executes the open protocol
-/// and fires `onsuccess` or `onupgradeneeded` via microtask (`run_jobs`).
+/// and fires `onsuccess` or `onupgradeneeded` handlers synchronously (inline
+/// in the current call stack).
 #[allow(clippy::too_many_lines)]
 fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
     let b = bridge.clone();

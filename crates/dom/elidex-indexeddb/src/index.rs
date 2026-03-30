@@ -59,55 +59,54 @@ pub fn create_index(
         )));
     }
 
-    backend.conn().execute(
-        "INSERT INTO _idb_indexes (db_name, store_name, index_name, key_path, is_unique, multi_entry) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![db_name, store_name, index_name, key_path, i32::from(unique), i32::from(multi_entry)],
-    )?;
-
-    let idx_table = util::index_table_name(db_name, store_name, index_name);
-    let unique_clause = if unique { "UNIQUE" } else { "" };
     backend
         .conn()
-        .execute_batch(&format!(
-            "CREATE TABLE [{idx_table}] (
-            index_key  BLOB NOT NULL,
-            primary_key BLOB NOT NULL,
-            {unique_clause} -- unique constraint on index_key if requested
-        )"
-        ))
-        .or_else(|_| {
-            // Retry without UNIQUE in column def — use a proper constraint instead
+        .execute_batch("SAVEPOINT create_idx")
+        .map_err(BackendError::from)?;
+
+    let result = (|| -> Result<(), BackendError> {
+        backend.conn().execute(
+            "INSERT INTO _idb_indexes (db_name, store_name, index_name, key_path, is_unique, multi_entry) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![db_name, store_name, index_name, key_path, i32::from(unique), i32::from(multi_entry)],
+        )?;
+
+        let idx_table = util::index_table_name(db_name, store_name, index_name);
+        let create_sql = if unique {
+            format!("CREATE TABLE [{idx_table}] (index_key BLOB NOT NULL UNIQUE, primary_key BLOB NOT NULL)")
+        } else {
+            format!(
+                "CREATE TABLE [{idx_table}] (index_key BLOB NOT NULL, primary_key BLOB NOT NULL)"
+            )
+        };
+        backend.conn().execute_batch(&create_sql)?;
+
+        // Populate from existing records
+        populate_index(
+            backend,
+            db_name,
+            store_name,
+            index_name,
+            key_path,
+            multi_entry,
+        )?;
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
             backend
                 .conn()
-                .execute_batch(&format!("DROP TABLE IF EXISTS [{idx_table}]"))?;
-            if unique {
-                backend.conn().execute_batch(&format!(
-                    "CREATE TABLE [{idx_table}] (
-                    index_key  BLOB NOT NULL UNIQUE,
-                    primary_key BLOB NOT NULL
-                )"
-                ))
-            } else {
-                backend.conn().execute_batch(&format!(
-                    "CREATE TABLE [{idx_table}] (
-                    index_key  BLOB NOT NULL,
-                    primary_key BLOB NOT NULL
-                )"
-                ))
-            }
-        })?;
-
-    // Populate from existing records
-    populate_index(
-        backend,
-        db_name,
-        store_name,
-        index_name,
-        key_path,
-        multi_entry,
-    )?;
-
-    Ok(())
+                .execute_batch("RELEASE create_idx")
+                .map_err(BackendError::from)?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = backend.conn().execute_batch("ROLLBACK TO create_idx");
+            let _ = backend.conn().execute_batch("RELEASE create_idx");
+            Err(e)
+        }
+    }
 }
 
 /// Delete an index.
@@ -531,14 +530,31 @@ fn populate_index(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Look up whether this index is unique (needed for error mapping).
+    let is_unique = get_index_meta(backend, db_name, store_name, index_name)
+        .map(|m| m.unique)
+        .unwrap_or(false);
+
     for (pk_bytes, value) in &rows {
         let index_keys = extract_index_keys(value, key_path, multi_entry);
         for ik in &index_keys {
             let ik_bytes = ik.serialize();
-            backend.conn().execute(
-                &format!("INSERT INTO [{idx_table}] (index_key, primary_key) VALUES (?1, ?2)"),
-                params![ik_bytes, pk_bytes],
-            )?;
+            backend
+                .conn()
+                .execute(
+                    &format!("INSERT INTO [{idx_table}] (index_key, primary_key) VALUES (?1, ?2)"),
+                    params![ik_bytes, pk_bytes],
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::SqliteFailure(err, _)
+                        if err.code == rusqlite::ErrorCode::ConstraintViolation && is_unique =>
+                    {
+                        BackendError::ConstraintError(format!(
+                            "Unique index '{index_name}' constraint violation during population"
+                        ))
+                    }
+                    other => BackendError::from(other),
+                })?;
         }
     }
     Ok(())

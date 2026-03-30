@@ -137,6 +137,7 @@ fn insert_with_indexes(
         Ok(k) => k,
         Err(e) => {
             let _ = backend.conn().execute_batch("ROLLBACK TO idb_insert");
+            let _ = backend.conn().execute_batch("RELEASE idb_insert");
             return Err(e);
         }
     };
@@ -144,6 +145,7 @@ fn insert_with_indexes(
         backend, db_name, store_name, &inserted, value,
     ) {
         let _ = backend.conn().execute_batch("ROLLBACK TO idb_insert");
+        let _ = backend.conn().execute_batch("RELEASE idb_insert");
         return Err(e);
     }
     backend

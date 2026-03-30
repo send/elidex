@@ -27,18 +27,15 @@ pub fn origin_db_path(data_dir: &Path, origin_key: &str) -> PathBuf {
 
 /// Sanitize an origin string for use as a directory name.
 ///
-/// Replaces `://` with `_`, `/` and `:` with `_`, keeps alphanumeric, `.`, `-`, `_`.
+/// Uses hex encoding to avoid collisions (e.g. `a_b` vs `a:b` vs `a/b`).
 fn sanitize_origin_key(origin: &str) -> String {
     origin
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
+        .bytes()
+        .fold(String::with_capacity(origin.len() * 2), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
         })
-        .collect()
 }
 
 /// Per-origin `IndexedDB` manager with connection caching.
@@ -129,24 +126,30 @@ mod tests {
     #[test]
     fn origin_db_path_layout() {
         let path = origin_db_path(Path::new("/data"), "https://example.com");
+        // Hex-encoded: "https://example.com"
+        let expected_key = sanitize_origin_key("https://example.com");
         assert_eq!(
             path,
-            PathBuf::from("/data/elidex/origins/https___example.com/idb.sqlite")
+            PathBuf::from(format!("/data/elidex/origins/{expected_key}/idb.sqlite"))
         );
     }
 
     #[test]
-    fn sanitize_preserves_safe_chars() {
-        assert_eq!(sanitize_origin_key("example.com"), "example.com");
-        assert_eq!(sanitize_origin_key("a-b_c.d"), "a-b_c.d");
+    fn sanitize_uses_hex_encoding() {
+        // Every byte becomes two hex chars
+        assert_eq!(sanitize_origin_key("a"), "61");
+        assert_eq!(sanitize_origin_key("ab"), "6162");
     }
 
     #[test]
-    fn sanitize_replaces_unsafe_chars() {
-        assert_eq!(
-            sanitize_origin_key("https://example.com:8080"),
-            "https___example.com_8080"
-        );
+    fn sanitize_avoids_collisions() {
+        // These previously all mapped to the same string; hex encoding distinguishes them
+        let a = sanitize_origin_key("a_b");
+        let b = sanitize_origin_key("a:b");
+        let c = sanitize_origin_key("a/b");
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert_ne!(a, c);
     }
 
     #[test]

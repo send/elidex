@@ -106,19 +106,22 @@ impl HostBridge {
     }
 
     /// Access a cursor state by ID through a closure.
+    ///
+    /// Temporarily removes the cursor from the map to avoid holding a mutable
+    /// borrow on `inner` while also accessing the backend immutably.
     pub fn with_idb_cursor<R>(
         &self,
         cursor_id: u64,
         f: impl FnOnce(&IdbBackend, &mut IdbCursorState) -> R,
     ) -> Option<R> {
-        let mut inner = self.inner.borrow_mut();
-        let backend_ptr = std::ptr::from_ref(inner.idb_backend.as_ref()?);
-        let cursor = inner.idb_cursors.get_mut(&cursor_id)?;
-        // Safety: backend is borrowed immutably, cursor is borrowed mutably.
-        // Both are from the same inner, but they don't alias.
-        #[allow(unsafe_code)]
-        let backend = unsafe { &*backend_ptr };
-        Some(f(backend, cursor))
+        // Remove cursor temporarily to avoid holding mutable borrow
+        let mut cursor_state = self.inner.borrow_mut().idb_cursors.remove(&cursor_id)?;
+        let result = self.with_idb(|backend| f(backend, &mut cursor_state))?;
+        self.inner
+            .borrow_mut()
+            .idb_cursors
+            .insert(cursor_id, cursor_state);
+        Some(result)
     }
 
     /// Remove a cursor state.

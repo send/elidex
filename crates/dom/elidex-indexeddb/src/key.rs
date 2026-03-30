@@ -14,9 +14,11 @@ const TAG_DATE: u8 = 0x02;
 const TAG_STRING: u8 = 0x03;
 // TAG_BINARY = 0x04 reserved for M4-9 (ArrayBuffer keys)
 const TAG_ARRAY: u8 = 0x05;
-
-/// Length prefix size for variable-length fields (4 bytes, big-endian u32).
-const LEN_PREFIX_SIZE: usize = 4;
+/// Sentinel byte marking the end of an array (must be < `TAG_NUMBER` so
+/// a shorter array compares less than a longer one with the same prefix).
+const TAG_ARRAY_END: u8 = 0x00;
+/// Sentinel for end-of-string (0x0000 in UTF-16, encoded as 2 zero bytes).
+const STRING_TERMINATOR: [u8; 2] = [0x00, 0x00];
 
 /// Maximum nesting depth for array keys (prevents stack overflow from malicious input).
 const MAX_KEY_DEPTH: usize = 64;
@@ -64,23 +66,26 @@ impl IdbKey {
                 encode_f64(*v, buf);
             }
             Self::String(s) => {
-                let units: Vec<u16> = s.encode_utf16().collect();
-                #[allow(clippy::cast_possible_truncation)]
-                buf.extend_from_slice(&(units.len() as u32).to_be_bytes());
-                for u in &units {
+                // Encode as UTF-16 big-endian code units + 0x0000 terminator.
+                // No length prefix: memcmp compares code units first,
+                // and the terminator ensures shorter prefixes sort less.
+                for u in s.encode_utf16() {
                     buf.extend_from_slice(&u.to_be_bytes());
                 }
+                buf.extend_from_slice(&STRING_TERMINATOR);
             }
             Self::Array(items) if depth < MAX_KEY_DEPTH => {
-                #[allow(clippy::cast_possible_truncation)]
-                buf.extend_from_slice(&(items.len() as u32).to_be_bytes());
+                // No count prefix: elements are serialized inline,
+                // followed by TAG_ARRAY_END (0x00). Since TAG_ARRAY_END < TAG_NUMBER,
+                // a shorter prefix array sorts less than a longer one.
                 for item in items {
                     item.serialize_into(buf, depth + 1);
                 }
+                buf.push(TAG_ARRAY_END);
             }
             Self::Array(_) => {
                 // Depth exceeded — serialize as empty array
-                buf.extend_from_slice(&0u32.to_be_bytes());
+                buf.push(TAG_ARRAY_END);
             }
         }
     }
@@ -112,28 +117,31 @@ impl IdbKey {
                 Some((Self::Date(v), pos + 8))
             }
             TAG_STRING => {
-                let unit_count = read_u32(data, pos)? as usize;
-                let start = pos + LEN_PREFIX_SIZE;
-                let byte_len = unit_count.checked_mul(2)?;
-                let end = start.checked_add(byte_len)?;
-                // #14: Validate length against actual data before allocating
-                let bytes = data.get(start..end)?;
-                let mut units = Vec::with_capacity(unit_count.min(bytes.len()));
-                for i in 0..unit_count {
-                    let hi = bytes[i * 2];
-                    let lo = bytes[i * 2 + 1];
+                // Terminator-based: read UTF-16 BE code units until 0x0000
+                let mut units = Vec::new();
+                let mut cursor = pos;
+                loop {
+                    let hi = *data.get(cursor)?;
+                    let lo = *data.get(cursor + 1)?;
+                    cursor += 2;
+                    if hi == 0 && lo == 0 {
+                        break; // terminator
+                    }
                     units.push(u16::from_be_bytes([hi, lo]));
                 }
                 let s = String::from_utf16(&units).ok()?;
-                Some((Self::String(s), end))
+                Some((Self::String(s), cursor))
             }
             TAG_ARRAY => {
-                let count = read_u32(data, pos)? as usize;
-                let mut cursor = pos + LEN_PREFIX_SIZE;
-                // Cap allocation to remaining data size to prevent memory amplification (#14)
-                let remaining = data.len().saturating_sub(cursor);
-                let mut items = Vec::with_capacity(count.min(remaining));
-                for _ in 0..count {
+                // Terminator-based: read elements until TAG_ARRAY_END (0x00)
+                let mut cursor = pos;
+                let mut items = Vec::new();
+                loop {
+                    let next_tag = *data.get(cursor)?;
+                    if next_tag == TAG_ARRAY_END {
+                        cursor += 1;
+                        break;
+                    }
                     let (item, next) = Self::deserialize_at(data, cursor, depth + 1)?;
                     items.push(item);
                     cursor = next;
@@ -166,11 +174,6 @@ fn decode_f64(data: &[u8], offset: usize) -> Option<f64> {
         encoded ^ (1u64 << 63) // was positive — flip sign bit back
     };
     Some(f64::from_bits(bits))
-}
-
-fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
-    let bytes: [u8; 4] = data.get(offset..offset + 4)?.try_into().ok()?;
-    Some(u32::from_be_bytes(bytes))
 }
 
 // -- Ordering --
