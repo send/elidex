@@ -71,16 +71,14 @@ extern "C" {
 
 /// Build a Scheme-Based Profile Language (SBPL) string from the policy.
 fn build_profile(policy: &SandboxPolicy) -> String {
-    let mut rules = Vec::new();
-
-    // Start with deny-all default.
-    rules.push("(version 1)".to_string());
-    rules.push("(deny default)".to_string());
-
-    // Always allow: signals, sysctl reads, mach IPC (for IPC channels).
-    rules.push("(allow signal (target self))".to_string());
-    rules.push("(allow sysctl-read)".to_string());
-    rules.push("(allow process-info-pidinfo)".to_string());
+    let mut rules = vec![
+        "(version 1)".to_string(),
+        "(deny default)".to_string(),
+        // Always allow: signals, sysctl reads.
+        "(allow signal (target self))".to_string(),
+        "(allow sysctl-read)".to_string(),
+        "(allow process-info-pidinfo)".to_string(),
+    ];
 
     // IPC: mach-lookup is required for cross-process communication.
     if policy.ipc {

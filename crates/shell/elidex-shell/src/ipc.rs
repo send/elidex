@@ -131,7 +131,7 @@ pub enum BrowserToContent {
         /// `true` when the tab becomes visible, `false` when hidden.
         visible: bool,
     },
-    /// Another tab is requesting an IndexedDB version change (W3C IndexedDB §2.4).
+    /// Another tab is requesting an `IndexedDB` version change (W3C `IndexedDB` §2.4).
     ///
     /// This tab should fire `versionchange` events on all open connections
     /// to the named database and close them.
@@ -224,7 +224,7 @@ pub enum ContentToBrowser {
     OpenNewTab(url::Url),
     /// Request the browser thread to focus the window (from `window.focus()`).
     FocusWindow,
-    /// IndexedDB open/delete is requesting a version change (W3C IndexedDB §2.4).
+    /// `IndexedDB` open/delete is requesting a version change (W3C `IndexedDB` §2.4).
     ///
     /// Browser thread must broadcast `IdbVersionChange` to all other same-origin
     /// tabs, wait for responses, then send `IdbUpgradeReady` or `IdbBlocked`.
@@ -240,7 +240,7 @@ pub enum ContentToBrowser {
         /// Requested new version (`None` for `deleteDatabase`).
         new_version: Option<u64>,
     },
-    /// This tab has closed all IndexedDB connections to the named database
+    /// This tab has closed all `IndexedDB` connections to the named database
     /// (response to `BrowserToContent::IdbVersionChange`).
     IdbConnectionsClosed {
         /// Correlation ID matching the versionchange request.

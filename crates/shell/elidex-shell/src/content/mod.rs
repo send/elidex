@@ -764,27 +764,10 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             });
         }
 
-        BrowserToContent::IdbUpgradeReady {
-            request_id: _,
-            db_name: _,
-        } => {
-            // TODO(M4-10): Resume pending IDB open/delete upgrade.
-        }
-
-        BrowserToContent::IdbBlocked {
-            request_id: _,
-            db_name: _,
-            old_version: _,
-            new_version: _,
-        } => {
-            // TODO(M4-10): Fire blocked event on the pending IDB open request.
-        }
-
-        // --- Storage API responses ---
-        // These are handled synchronously in the JS bridge via channel polling,
-        // not in the content thread event loop. Drop any that arrive here
-        // (shouldn't happen in normal operation).
-        BrowserToContent::StorageEstimateResult { .. }
+        // IDB upgrade/blocked: TODO(M4-10). Storage API responses: no-op here.
+        BrowserToContent::IdbUpgradeReady { .. }
+        | BrowserToContent::IdbBlocked { .. }
+        | BrowserToContent::StorageEstimateResult { .. }
         | BrowserToContent::StoragePersistResult { .. }
         | BrowserToContent::StoragePersistedResult { .. } => {}
     }

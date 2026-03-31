@@ -416,7 +416,7 @@ pub fn parse_iframe_allow_attribute(value: &str) -> PermissionsPolicy {
 /// characters like `/`, `..`, `:` in origin strings.
 ///
 /// Used by `elidex-indexeddb` for per-origin DB paths and by
-/// `elidex-shell` QuotaManager for eviction paths.
+/// `elidex-shell` `QuotaManager` for eviction paths.
 pub fn hex_encode_for_path(value: &str) -> String {
     value
         .bytes()

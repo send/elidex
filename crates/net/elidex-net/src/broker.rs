@@ -322,6 +322,7 @@ pub fn spawn_network_process(client: NetClient) -> NetworkProcessHandle {
 }
 
 /// Main loop of the Network Process thread.
+#[allow(clippy::needless_pass_by_value)] // Owned channels consumed by the thread.
 fn network_process_main(
     client: Arc<NetClient>,
     request_rx: crossbeam_channel::Receiver<(u64, RendererToNetwork)>,
@@ -398,11 +399,11 @@ impl Drop for FetchInflightGuard {
 
 /// Internal state of the Network Process.
 struct NetworkProcessState {
-    /// Registered renderer clients: client_id → response sender.
+    /// Registered renderer clients: `client_id` → response sender.
     clients: HashMap<u64, crossbeam_channel::Sender<NetworkToRenderer>>,
-    /// Active WebSocket connections: (client_id, conn_id) → WsHandle.
+    /// Active WebSocket connections: `(client_id, conn_id)` → `WsHandle`.
     ws_handles: HashMap<(u64, u64), WsHandle>,
-    /// Active SSE connections: (client_id, conn_id) → SseHandle.
+    /// Active SSE connections: `(client_id, conn_id)` → `SseHandle`.
     sse_handles: HashMap<(u64, u64), SseHandle>,
     /// Counter of in-flight fetch threads (for limiting concurrency).
     inflight_fetches: Arc<std::sync::atomic::AtomicUsize>,
@@ -602,9 +603,9 @@ impl NetworkProcessState {
 
     fn cleanup_finished(&mut self) {
         self.ws_handles
-            .retain(|_, handle| handle.thread.as_ref().map_or(true, |t| !t.is_finished()));
+            .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
         self.sse_handles
-            .retain(|_, handle| handle.thread.as_ref().map_or(true, |t| !t.is_finished()));
+            .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
     }
 
     fn close_all_for_client(&mut self, client_id: u64) {

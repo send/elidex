@@ -98,8 +98,9 @@ pub struct App {
     pub(super) interactive: Option<InteractiveState>,
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
-    /// Network Process broker handle (singleton, owns NetClient + CookieJar).
+    /// Network Process broker handle (singleton, owns `NetClient` + `CookieJar`).
     /// Creates `NetworkHandle`s for each content thread tab.
+    #[allow(dead_code)] // Used when content threads are spawned with renderer handles.
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
 }
 
@@ -219,6 +220,7 @@ impl App {
     const MAX_DRAIN_PER_TAB: usize = 1000;
 
     /// Drain all pending messages from all tabs.
+    #[allow(clippy::too_many_lines)]
     fn drain_content_messages(&mut self) {
         let Some(mgr) = &mut self.tab_manager else {
             return;
@@ -299,15 +301,11 @@ impl App {
                             new_version,
                         ));
                     }
-                    ContentToBrowser::IdbConnectionsClosed {
-                        request_id: _,
-                        db_name: _,
-                    } => {
-                        // A tab closed its IDB connections in response to versionchange.
-                    }
-                    ContentToBrowser::StorageEstimate { origin: _ }
-                    | ContentToBrowser::StoragePersist { origin: _ }
-                    | ContentToBrowser::StoragePersisted { origin: _ } => {
+                    // No-op at browser level — tracked for future use.
+                    ContentToBrowser::IdbConnectionsClosed { .. }
+                    | ContentToBrowser::StorageEstimate { .. }
+                    | ContentToBrowser::StoragePersist { .. }
+                    | ContentToBrowser::StoragePersisted { .. } => {
                         // TODO: Handle storage API requests via QuotaManager.
                         // For now these are stub messages — the JS API implementation
                         // will send these and wait for responses.

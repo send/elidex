@@ -601,7 +601,7 @@ impl HostBridge {
     // Web Animations API methods are in animation.rs
     // Form data collection is in form.rs
 
-    /// Set the `NetworkHandle` for this bridge (called during JsRuntime init).
+    /// Set the `NetworkHandle` for this bridge (called during `JsRuntime` init).
     pub fn set_network_handle(&self, handle: Rc<elidex_net::broker::NetworkHandle>) {
         let mut inner = self.inner.borrow_mut();
         inner.network_handle = Some(handle);
@@ -658,9 +658,7 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
-        let conn_id = inner
-            .realtime
-            .register_ws_callbacks(url.clone(), js_object)?;
+        let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
             handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
                 conn_id,
@@ -731,9 +729,7 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
-        let conn_id = inner
-            .realtime
-            .register_sse_callbacks(url.clone(), js_object)?;
+        let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
             handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {
                 conn_id,

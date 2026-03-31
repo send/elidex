@@ -101,11 +101,11 @@ pub fn worker_thread_main_with_source(
     // 1. Create a standalone Network Process broker for this worker so fetch() works.
     // Each worker gets its own broker + NetClient (independent cookies/connections).
     // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
-    let worker_np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
-    let worker_nh = std::rc::Rc::new(worker_np.create_renderer_handle());
-    // `worker_np` stays alive until function return, keeping the broker thread running.
+    let worker_broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let worker_net = std::rc::Rc::new(worker_broker.create_renderer_handle());
+    // `worker_broker` stays alive until function return, keeping the broker thread running.
 
-    let mut runtime = JsRuntime::for_worker(Some(worker_nh), name, script_url.clone());
+    let mut runtime = JsRuntime::for_worker(Some(worker_net), name, script_url.clone());
 
     // 3. Create empty EcsDom + SessionCore (required for bridge bind).
     let mut dom = EcsDom::new();

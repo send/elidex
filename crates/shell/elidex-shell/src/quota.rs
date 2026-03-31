@@ -1,6 +1,6 @@
 //! Quota management for per-origin storage (W3C Storage Standard §4).
 //!
-//! Tracks storage usage per origin across all storage types (IndexedDB,
+//! Tracks storage usage per origin across all storage types (`IndexedDB`,
 //! Cache API, localStorage) and enforces quota limits with LRU eviction.
 //!
 //! The `QuotaManager` lives in the browser thread and is the single
@@ -26,10 +26,10 @@ pub struct QuotaManager {
     /// Per-origin usage tracking.
     usage: HashMap<String, OriginUsage>,
     /// Global storage limit in bytes.
-    /// Default: min(available_disk / 2, 2 GiB).
+    /// Default: `min(available_disk / 2, 2 GiB)`.
     global_limit: u64,
     /// Per-origin storage limit in bytes.
-    /// Default: min(global_limit / 5, 500 MiB).
+    /// Default: `min(global_limit / 5, 500 MiB)`.
     per_origin_limit: u64,
     /// Origins that have been granted persistent storage
     /// (exempt from LRU eviction).
@@ -73,7 +73,7 @@ impl QuotaManager {
 
     /// Report storage usage for an origin.
     ///
-    /// Called after write operations (IndexedDB put, Cache API store, etc.).
+    /// Called after write operations (`IndexedDB` put, Cache API store, etc.).
     pub fn report_usage(&mut self, origin: &str, total_bytes: u64) {
         let entry = self
             .usage
@@ -140,6 +140,12 @@ impl QuotaManager {
             return Vec::new();
         }
 
+        // 80% of global limit. Precision loss from u64→f64 is negligible for storage sizes.
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let target = (self.global_limit as f64 * EVICTION_TARGET_RATIO) as u64;
         let mut current = total;
         let mut evicted = Vec::new();

@@ -97,7 +97,7 @@ impl RealtimeState {
     /// via `NetworkHandle` after this call succeeds.
     pub fn register_ws_callbacks(
         &mut self,
-        url: url::Url,
+        url: &url::Url,
         js_object: JsObject,
     ) -> Result<u64, String> {
         let total = self.ws_callbacks.len() + self.sse_callbacks.len();
@@ -137,7 +137,7 @@ impl RealtimeState {
     /// via `NetworkHandle` after this call succeeds.
     pub fn register_sse_callbacks(
         &mut self,
-        url: url::Url,
+        url: &url::Url,
         js_object: JsObject,
     ) -> Result<u64, String> {
         let total = self.ws_callbacks.len() + self.sse_callbacks.len();
