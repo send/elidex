@@ -157,6 +157,23 @@ pub enum BrowserToContent {
         /// Requested new version (`None` for `deleteDatabase`).
         new_version: Option<u64>,
     },
+    /// Response to `StorageEstimate` request.
+    StorageEstimateResult {
+        /// Bytes used by this origin.
+        usage: u64,
+        /// Quota available for this origin.
+        quota: u64,
+    },
+    /// Response to `StoragePersist` request.
+    StoragePersistResult {
+        /// Whether persistent storage was granted.
+        granted: bool,
+    },
+    /// Response to `StoragePersisted` request.
+    StoragePersistedResult {
+        /// Whether this origin has persistent storage.
+        persisted: bool,
+    },
     /// Shut down the content thread.
     Shutdown,
 }
@@ -220,6 +237,21 @@ pub enum ContentToBrowser {
     IdbConnectionsClosed {
         /// Database name.
         db_name: String,
+    },
+    /// Request storage usage estimate for this origin (W3C Storage Standard §4).
+    StorageEstimate {
+        /// The origin to estimate.
+        origin: String,
+    },
+    /// Request persistent storage for this origin (W3C Storage Standard §4).
+    StoragePersist {
+        /// The origin requesting persistence.
+        origin: String,
+    },
+    /// Query whether this origin has persistent storage.
+    StoragePersisted {
+        /// The origin to query.
+        origin: String,
     },
     /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
     ///

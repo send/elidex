@@ -20,6 +20,7 @@ mod gpu;
 pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
+pub mod quota;
 
 #[cfg(test)]
 mod tests;

@@ -284,10 +284,13 @@ impl App {
                     }
                     ContentToBrowser::IdbConnectionsClosed { db_name: _ } => {
                         // A tab closed its IDB connections in response to versionchange.
-                        // In a full implementation, we'd track pending responses and
-                        // send IdbUpgradeReady when all tabs respond or timeout.
-                        // For now, the versionchange fires synchronously and the
-                        // upgrade proceeds immediately (single-threaded content).
+                    }
+                    ContentToBrowser::StorageEstimate { origin: _ }
+                    | ContentToBrowser::StoragePersist { origin: _ }
+                    | ContentToBrowser::StoragePersisted { origin: _ } => {
+                        // TODO: Handle storage API requests via QuotaManager.
+                        // For now these are stub messages — the JS API implementation
+                        // will send these and wait for responses.
                     }
                 }
             }

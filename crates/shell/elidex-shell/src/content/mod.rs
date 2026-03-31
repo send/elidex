@@ -747,6 +747,14 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // TODO: Fire blocked event on the pending IDB open request.
             // Requires pending request tracking. Deferred to M4-10.
         }
+
+        // --- Storage API responses ---
+        // These are handled synchronously in the JS bridge via channel polling,
+        // not in the content thread event loop. Drop any that arrive here
+        // (shouldn't happen in normal operation).
+        BrowserToContent::StorageEstimateResult { .. }
+        | BrowserToContent::StoragePersistResult { .. }
+        | BrowserToContent::StoragePersistedResult { .. } => {}
     }
     true
 }
