@@ -267,11 +267,13 @@ impl ContentState {
 /// receives `Shutdown` or the channel disconnects.
 pub(crate) fn spawn_content_thread(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: String,
     css: String,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, &html, &css);
+        content_thread_main(channel, network_handle, cookie_jar, &html, &css);
     })
 }
 
@@ -280,10 +282,12 @@ pub(crate) fn spawn_content_thread(
 /// Returns a `JoinHandle` for the thread.
 pub(crate) fn spawn_content_thread_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: url::Url,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main_url(channel, &url);
+        content_thread_main_url(channel, network_handle, cookie_jar, &url);
     })
 }
 
@@ -292,25 +296,38 @@ pub(crate) fn spawn_content_thread_url(
 /// Renders a minimal "New Tab" page.
 pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, crate::BLANK_TAB_HTML, crate::BLANK_TAB_CSS);
+        content_thread_main(
+            channel,
+            network_handle,
+            cookie_jar,
+            crate::BLANK_TAB_HTML,
+            crate::BLANK_TAB_CSS,
+        );
     })
 }
 
 fn content_thread_main(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: &str,
     css: &str,
 ) {
-    // Apply sandbox before processing any content (design doc §8.1).
-    // In SingleProcess mode this is a no-op (Unsandboxed).
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
         eprintln!("Sandbox enforcement failed (fatal): {e}");
         return;
     }
 
-    let pipeline = crate::build_pipeline_interactive(html, css);
+    let nh = std::rc::Rc::new(network_handle);
+    let pipeline = {
+        let p = crate::build_pipeline_interactive_with_network(html, css, nh);
+        p.runtime.bridge().set_cookie_jar(cookie_jar);
+        p
+    };
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -326,16 +343,18 @@ fn content_thread_main(
 
 fn content_thread_main_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: &url::Url,
 ) {
-    // Apply sandbox before processing any content (design doc §8.1).
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
         eprintln!("Sandbox enforcement failed (fatal): {e}");
         return;
     }
 
-    let pipeline = match crate::build_pipeline_from_url(url) {
-        Ok(p) => p,
+    let nh = std::rc::Rc::new(network_handle);
+    let loaded = match elidex_navigation::load_document(url, &nh, None) {
+        Ok(l) => l,
         Err(e) => {
             eprintln!("Content thread: failed to load {url}: {e}");
             let _ = channel.send(ContentToBrowser::NavigationFailed {
@@ -344,6 +363,12 @@ fn content_thread_main_url(
             });
             return;
         }
+    };
+    let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
+    let pipeline = {
+        let p = crate::build_pipeline_from_loaded(loaded, nh, font_db);
+        p.runtime.bridge().set_cookie_jar(cookie_jar);
+        p
     };
 
     let mut nav_controller = NavigationController::new();

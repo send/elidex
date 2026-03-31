@@ -3,11 +3,27 @@ use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
 use std::time::Duration;
 
+/// Create a `NetworkHandle` + `CookieJar` backed by a test broker.
+fn test_network() -> (
+    elidex_net::broker::NetworkHandle,
+    std::sync::Arc<elidex_net::CookieJar>,
+) {
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let nh = np.create_renderer_handle();
+    let jar = std::sync::Arc::clone(np.cookie_jar());
+    // Keep broker alive by leaking handle (tests are short-lived).
+    std::mem::forget(np);
+    (nh, jar)
+}
+
 #[test]
 fn content_thread_startup_and_shutdown() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div>Hello</div>".to_string(),
         "div { display: block; }".to_string(),
     );
@@ -24,8 +40,11 @@ fn content_thread_startup_and_shutdown() {
 #[test]
 fn content_thread_mouse_move() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"background-color: red; width: 200px; height: 100px;\">Test</div>".to_string(),
         "div { display: block; }".to_string(),
     );
@@ -52,8 +71,11 @@ fn content_thread_mouse_move() {
 #[test]
 fn content_thread_click() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>"
             .to_string(),
         "div { display: block; }".to_string(),
@@ -83,8 +105,11 @@ fn content_thread_click() {
 #[test]
 fn content_thread_mouse_release_clears_active() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"background-color: blue; width: 200px; height: 100px;\">Active</div>"
             .to_string(),
         "div { display: block; }".to_string(),
@@ -127,7 +152,14 @@ fn content_thread_mouse_release_clears_active() {
 #[test]
 fn content_thread_disconnect() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let handle = spawn_content_thread(content, "<div>Hello</div>".to_string(), String::new());
+    let (nh, jar) = test_network();
+    let handle = spawn_content_thread(
+        content,
+        nh,
+        jar,
+        "<div>Hello</div>".to_string(),
+        String::new(),
+    );
 
     // Drain initial display list.
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -140,8 +172,11 @@ fn content_thread_disconnect() {
 #[test]
 fn content_thread_with_script() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div id=\"btn\" style=\"background-color: blue; width: 200px; height: 100px;\">Click</div>\
          <script>\
            document.getElementById('btn').addEventListener('click', function(e) {\
@@ -175,8 +210,11 @@ fn content_thread_with_script() {
 #[test]
 fn content_thread_keyboard() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div id=\"box\" tabindex=\"0\" style=\"width: 100px; height: 100px;\">Key</div>\
          <script>\
            document.getElementById('box').addEventListener('keydown', function(e) {\
@@ -224,8 +262,11 @@ fn content_thread_keyboard() {
 fn content_thread_mouse_wheel_scrolls_viewport() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     // Tall content that exceeds default viewport height (768px).
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"width: 200px; height: 2000px; background-color: red;\">Tall</div>"
             .to_string(),
         "div { display: block; }".to_string(),
@@ -253,8 +294,11 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
 #[test]
 fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"width: 200px; height: 2000px;\">Tall</div>".to_string(),
         "html { overflow: hidden; } div { display: block; }".to_string(),
     );
@@ -282,8 +326,11 @@ fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
 fn content_thread_mouse_wheel_small_content() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     // Content smaller than viewport — no scroll needed.
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"width: 200px; height: 100px;\">Small</div>".to_string(),
         "div { display: block; }".to_string(),
     );
@@ -309,8 +356,11 @@ fn content_thread_mouse_wheel_small_content() {
 #[test]
 fn content_thread_viewport_resize_updates_scroll() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar) = test_network();
     let handle = spawn_content_thread(
         content,
+        nh,
+        jar,
         "<div style=\"width: 200px; height: 2000px;\">Tall</div>".to_string(),
         "div { display: block; }".to_string(),
     );

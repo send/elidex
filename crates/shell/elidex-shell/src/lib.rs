@@ -405,7 +405,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         document,
         &stylesheets,
         &script_sources,
-        None, // Standalone mode: no broker. fetch()/WS/SSE unavailable. See TODO(M4-12).
+        None,
         &font_db,
         None,
         &registry,
@@ -438,6 +438,70 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     sync_css_animations(&mut result, &[]);
 
     // Sync stylesheet data to the JS bridge for CSSOM access.
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Like [`build_pipeline_interactive`] but with a `NetworkHandle` for network access.
+pub(crate) fn build_pipeline_interactive_with_network(
+    html: &str,
+    css: &str,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+) -> PipelineResult {
+    let parse_result = parse_html(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let registry = Arc::new(create_css_property_registry());
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+    let font_db = Arc::new(FontDatabase::new());
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Some(Rc::clone(&network_handle)),
+        &font_db,
+        None,
+        &registry,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: None,
+        network_handle,
+        registry,
+        animation_engine,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+    };
+
+    sync_css_animations(&mut result, &[]);
     sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result

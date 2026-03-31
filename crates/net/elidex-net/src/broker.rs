@@ -142,6 +142,8 @@ pub struct NetworkProcessHandle {
     control_tx: crossbeam_channel::Sender<NetworkProcessControl>,
     request_tx: crossbeam_channel::Sender<(u64, RendererToNetwork)>,
     thread: Option<JoinHandle<()>>,
+    /// Shared cookie jar from the `NetClient` (for `document.cookie` access).
+    cookie_jar: Arc<crate::CookieJar>,
 }
 
 impl NetworkProcessHandle {
@@ -166,6 +168,12 @@ impl NetworkProcessHandle {
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// Get a reference to the shared cookie jar (for `document.cookie`).
+    #[must_use]
+    pub fn cookie_jar(&self) -> &Arc<crate::CookieJar> {
+        &self.cookie_jar
     }
 
     /// Unregister a renderer. All its connections will be closed.
@@ -314,6 +322,7 @@ pub fn spawn_network_process(client: NetClient) -> NetworkProcessHandle {
     let (control_tx, control_rx) = crossbeam_channel::unbounded();
     let (request_tx, request_rx) = crossbeam_channel::unbounded();
 
+    let cookie_jar = client.cookie_jar_arc();
     let client = Arc::new(client);
     let thread = std::thread::Builder::new()
         .name("elidex-network".into())
@@ -326,6 +335,7 @@ pub fn spawn_network_process(client: NetClient) -> NetworkProcessHandle {
         control_tx,
         request_tx,
         thread: Some(thread),
+        cookie_jar,
     }
 }
 

@@ -129,9 +129,11 @@ impl App {
     /// Create a new threaded application from HTML/CSS.
     pub fn new_threaded(html: String, css: String) -> Self {
         let np = Self::create_network_process();
+        let nh = np.create_renderer_handle();
+        let cookie_jar = Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let thread = crate::content::spawn_content_thread(content_ch, html, css);
+        let thread = crate::content::spawn_content_thread(content_ch, nh, cookie_jar, html, css);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(
@@ -147,11 +149,13 @@ impl App {
     /// Create a new threaded application from a URL.
     pub fn new_threaded_url(url: url::Url) -> Self {
         let np = Self::create_network_process();
+        let nh = np.create_renderer_handle();
+        let cookie_jar = Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let title = format!("elidex \u{2014} {url}");
         let chrome = crate::chrome::ChromeState::new(Some(&url));
-        let thread = crate::content::spawn_content_thread_url(content_ch, url);
+        let thread = crate::content::spawn_content_thread_url(content_ch, nh, cookie_jar, url);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(browser_ch, thread, chrome, title);
@@ -387,8 +391,12 @@ impl App {
             let (browser_chan, content_chan) = crate::ipc::channel_pair();
             let title = format!("elidex \u{2014} {url}");
             let chrome = crate::chrome::ChromeState::new(Some(&url));
-            let thread = crate::content::spawn_content_thread_url(content_chan, url);
-            mgr.create_tab(browser_chan, thread, chrome, title);
+            if let Some(np) = &self.network_process {
+                let nh = np.create_renderer_handle();
+                let jar = Arc::clone(np.cookie_jar());
+                let thread = crate::content::spawn_content_thread_url(content_chan, nh, jar, url);
+                mgr.create_tab(browser_chan, thread, chrome, title);
+            }
         }
     }
 

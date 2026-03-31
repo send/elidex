@@ -454,9 +454,14 @@ impl App {
         let Some(mgr) = &mut self.tab_manager else {
             return;
         };
+        let Some(np) = &self.network_process else {
+            return;
+        };
+        let nh = np.create_renderer_handle();
+        let jar = std::sync::Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let thread = crate::content::spawn_content_thread_blank(content_ch);
+        let thread = crate::content::spawn_content_thread_blank(content_ch, nh, jar);
         mgr.create_tab(
             browser_ch,
             thread,
