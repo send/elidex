@@ -526,6 +526,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     font_db: Arc<FontDatabase>,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
 ) -> PipelineResult {
     let parse_result = parse_html(html);
     for err in &parse_result.errors {
@@ -551,7 +552,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
-        None,
+        cookie_jar,
         &font_db,
         url.as_ref(),
         &registry,
@@ -772,7 +773,7 @@ pub fn build_pipeline_from_loaded(
 
 /// Build a pipeline from a URL.
 ///
-/// Uses a temporary `FetchHandle` to load the document (standalone mode).
+/// Spawns a temporary Network Process broker to load the document (standalone mode).
 /// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 pub fn build_pipeline_from_url(
     url: &url::Url,

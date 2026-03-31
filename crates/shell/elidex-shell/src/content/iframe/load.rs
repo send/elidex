@@ -313,6 +313,7 @@ fn build_iframe_pipeline(
         ctx.font_db.clone(),
         ctx.network_handle.clone(),
         ctx.registry.clone(),
+        ctx.cookie_jar.clone(),
     )
 }
 

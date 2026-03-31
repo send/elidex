@@ -396,8 +396,8 @@ fn network_process_main(
     loop {
         // Event-driven wait: block until ANY channel has data.
         // Uses crossbeam's dynamic `Select` to multiplex control, request,
-        // and all WS/SSE event channels with zero CPU when idle and
-        // zero-latency wakeup on any event.
+        // and all WS/SSE event channels. Wakes on any event with near-zero
+        // latency; 1-second timeout ensures periodic cleanup when idle.
         {
             let mut sel = crossbeam_channel::Select::new();
             sel.recv(&control_rx);

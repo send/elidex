@@ -98,18 +98,19 @@ pub trait IpcChannel<S, R>: Send + Sync {
 
 impl<S: Send, R: Send> IpcChannel<S, R> for crate::LocalChannel<S, R> {
     fn send(&self, message: S) -> Result<(), IpcSendError> {
-        self.send(message).map_err(|_| IpcSendError)
+        // Use fully-qualified call to avoid infinite recursion with the trait method.
+        crate::LocalChannel::send(self, message).map_err(|_| IpcSendError)
     }
 
     fn try_recv(&self) -> Result<R, IpcTryRecvError> {
-        self.try_recv().map_err(|e| match e {
+        crate::LocalChannel::try_recv(self).map_err(|e| match e {
             crossbeam_channel::TryRecvError::Empty => IpcTryRecvError::Empty,
             crossbeam_channel::TryRecvError::Disconnected => IpcTryRecvError::Disconnected,
         })
     }
 
     fn recv_timeout(&self, timeout: Duration) -> Result<R, IpcRecvTimeoutError> {
-        self.recv_timeout(timeout).map_err(|e| match e {
+        crate::LocalChannel::recv_timeout(self, timeout).map_err(|e| match e {
             crossbeam_channel::RecvTimeoutError::Timeout => IpcRecvTimeoutError::Timeout,
             crossbeam_channel::RecvTimeoutError::Disconnected => IpcRecvTimeoutError::Disconnected,
         })
