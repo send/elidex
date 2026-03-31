@@ -434,15 +434,14 @@ impl NetworkProcessState {
             } => {
                 // SSRF validation at the broker boundary — the renderer is
                 // sandboxed and cannot be trusted to validate URLs.
-                // Convert ws:// → http:// for validate_url (which checks http/https).
-                let http_url = url
-                    .to_string()
-                    .replacen("ws://", "http://", 1)
-                    .replacen("wss://", "https://", 1);
-                let ssrf_ok = url::Url::parse(&http_url)
-                    .map(|u| elidex_plugin::url_security::validate_url(&u).is_ok())
-                    .unwrap_or(false); // Fail-closed: parse error = reject.
-                if !ssrf_ok {
+                // Convert ws→http / wss→https for validate_url (same as websocket.rs).
+                let mut check_url = url.clone();
+                let scheme_ok = match check_url.scheme() {
+                    "ws" => check_url.set_scheme("http").is_ok(),
+                    "wss" => check_url.set_scheme("https").is_ok(),
+                    _ => false, // Reject non-WS schemes.
+                };
+                if !scheme_ok || elidex_plugin::url_security::validate_url(&check_url).is_err() {
                     return;
                 }
                 let handle = crate::ws::spawn_ws_thread(url, protocols, origin);
