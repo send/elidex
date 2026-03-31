@@ -131,7 +131,7 @@ impl QuotaManager {
     /// Perform LRU eviction if global usage exceeds the limit.
     ///
     /// Evicts non-persistent origins ordered by `last_access` (oldest first)
-    /// until usage drops below [`EVICTION_TARGET_RATIO`] of `global_limit`.
+    /// until usage drops below 80% of `global_limit`.
     ///
     /// Returns the list of evicted origin keys.
     pub fn evict_if_needed(&mut self) -> Vec<String> {

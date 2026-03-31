@@ -157,9 +157,11 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, BackendError> {
 
     SeccompFilter::new(
         rules,
-        // Default action: blocked syscalls return EPERM (graceful error handling).
-        SeccompAction::Errno(libc::EPERM as u32),
-        // Mismatch action: fail-closed if architecture doesn't match the filter.
+        // Mismatch action (2nd param): applied when architecture doesn't match.
+        // KillProcess = fail-closed (most restrictive).
+        SeccompAction::KillProcess,
+        // Match action (3rd param): applied to syscalls NOT in the rules map.
+        // Errno(EPERM) = graceful denial (let the process handle the error).
         SeccompAction::Errno(libc::EPERM as u32),
         arch,
     )
