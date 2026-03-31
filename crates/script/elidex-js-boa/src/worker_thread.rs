@@ -103,8 +103,7 @@ pub fn worker_thread_main_with_source(
     // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
     let worker_np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
     let worker_nh = std::rc::Rc::new(worker_np.create_renderer_handle());
-    // Keep the broker alive for the worker's lifetime (dropped on function return).
-    let _worker_np = worker_np;
+    // `worker_np` stays alive until function return, keeping the broker thread running.
 
     let mut runtime = JsRuntime::for_worker(Some(worker_nh), name, script_url.clone());
 

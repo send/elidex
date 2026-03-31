@@ -434,16 +434,16 @@ impl NetworkProcessState {
             } => {
                 // SSRF validation at the broker boundary — the renderer is
                 // sandboxed and cannot be trusted to validate URLs.
+                // Convert ws:// → http:// for validate_url (which checks http/https).
                 let http_url = url
                     .to_string()
                     .replacen("ws://", "http://", 1)
                     .replacen("wss://", "https://", 1);
-                if let Ok(check_url) = url::Url::parse(&http_url) {
-                    if elidex_plugin::url_security::validate_url(&check_url).is_err() {
-                        // Silently reject — renderer gets no Connected event,
-                        // triggering an error/close on the JS side.
-                        return;
-                    }
+                let ssrf_ok = url::Url::parse(&http_url)
+                    .map(|u| elidex_plugin::url_security::validate_url(&u).is_ok())
+                    .unwrap_or(false); // Fail-closed: parse error = reject.
+                if !ssrf_ok {
+                    return;
                 }
                 let handle = crate::ws::spawn_ws_thread(url, protocols, origin);
                 self.ws_handles.insert((cid, conn_id), handle);
@@ -499,6 +499,9 @@ impl NetworkProcessState {
     }
 
     fn handle_fetch(&self, cid: u64, fetch_id: FetchId, request: Request, client: &Arc<NetClient>) {
+        // Note: SSRF validation for fetch is handled by NetClient::send() which
+        // checks validate_url() internally (respecting allow_private_ips config).
+        // WS/SSE need broker-level SSRF because their I/O threads bypass NetClient.
         let client = Arc::clone(client);
         let tx = self.clients.get(&cid).cloned();
         let inflight = Arc::clone(&self.inflight_fetches);
