@@ -451,6 +451,21 @@ impl NetworkProcessState {
                     _ => false, // Reject non-WS schemes.
                 };
                 if !scheme_ok || elidex_plugin::url_security::validate_url(&check_url).is_err() {
+                    // Send error + close so JS transitions to CLOSED state.
+                    if let Some(tx) = self.clients.get(&cid) {
+                        let _ = tx.send(NetworkToRenderer::WebSocketEvent(
+                            conn_id,
+                            WsEvent::Error("SSRF: URL blocked by security policy".into()),
+                        ));
+                        let _ = tx.send(NetworkToRenderer::WebSocketEvent(
+                            conn_id,
+                            WsEvent::Closed {
+                                code: 1006,
+                                reason: String::new(),
+                                was_clean: false,
+                            },
+                        ));
+                    }
                     return;
                 }
                 let handle = crate::ws::spawn_ws_thread(url, protocols, origin);
@@ -479,6 +494,12 @@ impl NetworkProcessState {
             } => {
                 // SSRF validation at the broker boundary.
                 if elidex_plugin::url_security::validate_url(&url).is_err() {
+                    if let Some(tx) = self.clients.get(&cid) {
+                        let _ = tx.send(NetworkToRenderer::EventSourceEvent(
+                            conn_id,
+                            SseEvent::FatalError("SSRF: URL blocked by security policy".into()),
+                        ));
+                    }
                     return;
                 }
                 let cookie_jar = if with_credentials {

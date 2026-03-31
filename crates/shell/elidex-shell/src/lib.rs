@@ -405,7 +405,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         document,
         &stylesheets,
         &script_sources,
-        None, // No NetworkHandle in standalone interactive mode.
+        None, // Standalone mode: no broker. fetch()/WS/SSE unavailable. See TODO(M4-12).
         &font_db,
         None,
         &registry,
@@ -702,6 +702,9 @@ pub fn build_pipeline_from_url(
     let fetch_handle = elidex_net::FetchHandle::new(elidex_net::NetClient::new());
     let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
+    // Standalone mode: disconnected handle (no broker). fetch()/WS/SSE unavailable.
+    // In production, content threads receive a real NetworkHandle from the App's
+    // NetworkProcessHandle via create_renderer_handle(). See TODO(M4-12).
     let network_handle = Rc::new(elidex_net::broker::NetworkHandle::disconnected());
     Ok(build_pipeline_from_loaded(loaded, network_handle, font_db))
 }

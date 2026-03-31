@@ -293,6 +293,8 @@ impl App {
                         new_version,
                     } => {
                         // Broadcast versionchange to all other same-origin tabs.
+                        // Note: origin is trusted here because it's computed by the
+                        // bridge from SecurityOrigin::from_url (not user-supplied).
                         idb_version_change_requests.push((
                             tab.id,
                             request_id,
