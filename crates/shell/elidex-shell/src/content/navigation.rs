@@ -28,7 +28,10 @@ pub(super) fn handle_navigate(
         Ok(loaded) => {
             // Shut down WebSocket/SSE connections before replacing the pipeline.
             state.pipeline.runtime.bridge().shutdown_all_realtime();
-            let new_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
+            // Preserve cookie jar across navigations.
+            let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
+            let new_pipeline =
+                crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
             state.pipeline = new_pipeline;
             state.focus_target = None;
             state.hover_chain.clear();

@@ -361,8 +361,7 @@ fn content_thread_main_url(
         }
     };
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-    let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db);
-    pipeline.runtime.bridge().set_cookie_jar(cookie_jar);
+    let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar));
 
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());

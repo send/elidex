@@ -149,8 +149,12 @@ fn load_iframe_from_url(
                 } else {
                     ctx.network_handle.clone()
                 };
-            let pipeline =
-                crate::build_pipeline_from_loaded(loaded, pipeline_handle, ctx.font_db.clone());
+            let pipeline = crate::build_pipeline_from_loaded(
+                loaded,
+                pipeline_handle,
+                ctx.font_db.clone(),
+                None,
+            );
             let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
             set_referrer(&entry, ctx);
             entry
@@ -230,7 +234,7 @@ fn make_out_of_process_entry(
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
         let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
+        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db, None);
 
         oop_pipeline
             .runtime

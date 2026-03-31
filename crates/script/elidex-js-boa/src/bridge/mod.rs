@@ -620,6 +620,11 @@ impl HostBridge {
             .map(|nh| nh.create_sibling_handle())
     }
 
+    /// Clone the cookie jar reference (for passing to new pipelines on navigation).
+    pub fn cookie_jar_clone(&self) -> Option<std::sync::Arc<elidex_net::CookieJar>> {
+        self.inner.borrow().cookie_jar.clone()
+    }
+
     pub fn set_cookie_jar(&self, jar: std::sync::Arc<elidex_net::CookieJar>) {
         self.inner.borrow_mut().cookie_jar = Some(jar);
     }

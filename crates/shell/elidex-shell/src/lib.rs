@@ -708,15 +708,7 @@ pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
-) -> PipelineResult {
-    build_pipeline_from_loaded_inner(loaded, network_handle, None, font_db)
-}
-
-fn build_pipeline_from_loaded_inner(
-    loaded: elidex_navigation::LoadedDocument,
-    network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
-    font_db: Arc<FontDatabase>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -794,8 +786,7 @@ pub fn build_pipeline_from_url(
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
-    let mut result =
-        build_pipeline_from_loaded_inner(loaded, network_handle, Some(cookie_jar), font_db);
+    let mut result = build_pipeline_from_loaded(loaded, network_handle, font_db, Some(cookie_jar));
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }

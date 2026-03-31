@@ -90,8 +90,9 @@ impl App {
         let font_db = std::sync::Arc::clone(&interactive.pipeline.font_db);
         match elidex_navigation::load_document(url, &network_handle, None) {
             Ok(loaded) => {
+                let cookie_jar = interactive.pipeline.runtime.bridge().cookie_jar_clone();
                 let new_pipeline =
-                    crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
+                    crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
                 interactive.pipeline = new_pipeline;
                 interactive
                     .pipeline
