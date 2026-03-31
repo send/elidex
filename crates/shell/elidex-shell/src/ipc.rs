@@ -136,6 +136,8 @@ pub enum BrowserToContent {
     /// This tab should fire `versionchange` events on all open connections
     /// to the named database and close them.
     IdbVersionChange {
+        /// Correlation ID for matching responses to requests.
+        request_id: u64,
         /// Database name.
         db_name: String,
         /// Current version of the database.
@@ -145,11 +147,15 @@ pub enum BrowserToContent {
     },
     /// All other tabs have closed their connections — the upgrade may proceed.
     IdbUpgradeReady {
+        /// Correlation ID matching the original request.
+        request_id: u64,
         /// Database name.
         db_name: String,
     },
     /// Some tabs still have open connections after `versionchange` — fire `blocked`.
     IdbBlocked {
+        /// Correlation ID matching the original request.
+        request_id: u64,
         /// Database name.
         db_name: String,
         /// Current version of the database.
@@ -223,6 +229,8 @@ pub enum ContentToBrowser {
     /// Browser thread must broadcast `IdbVersionChange` to all other same-origin
     /// tabs, wait for responses, then send `IdbUpgradeReady` or `IdbBlocked`.
     IdbVersionChangeRequest {
+        /// Unique request ID for correlating responses across tabs.
+        request_id: u64,
         /// The origin that owns the database.
         origin: String,
         /// Database name.
@@ -235,6 +243,8 @@ pub enum ContentToBrowser {
     /// This tab has closed all IndexedDB connections to the named database
     /// (response to `BrowserToContent::IdbVersionChange`).
     IdbConnectionsClosed {
+        /// Correlation ID matching the versionchange request.
+        request_id: u64,
         /// Database name.
         db_name: String,
     },

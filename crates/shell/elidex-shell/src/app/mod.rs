@@ -227,7 +227,8 @@ impl App {
         // Collect (source_tab_id, storage_change) for cross-tab broadcast.
         let mut storage_changes: Vec<(TabId, crate::ipc::StorageChangedMsg)> = Vec::new();
         // Collect IDB versionchange requests for cross-tab broadcast.
-        let mut idb_version_change_requests: Vec<(TabId, String, String, u64, Option<u64>)> =
+        // (source_tab, request_id, origin, db_name, old_version, new_version)
+        let mut idb_version_change_requests: Vec<(TabId, u64, String, String, u64, Option<u64>)> =
             Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
@@ -282,6 +283,7 @@ impl App {
                         ));
                     }
                     ContentToBrowser::IdbVersionChangeRequest {
+                        request_id,
                         origin,
                         db_name,
                         old_version,
@@ -290,13 +292,17 @@ impl App {
                         // Broadcast versionchange to all other same-origin tabs.
                         idb_version_change_requests.push((
                             tab.id,
+                            request_id,
                             origin,
                             db_name,
                             old_version,
                             new_version,
                         ));
                     }
-                    ContentToBrowser::IdbConnectionsClosed { db_name: _ } => {
+                    ContentToBrowser::IdbConnectionsClosed {
+                        request_id: _,
+                        db_name: _,
+                    } => {
                         // A tab closed its IDB connections in response to versionchange.
                     }
                     ContentToBrowser::StorageEstimate { origin: _ }
@@ -334,7 +340,7 @@ impl App {
         }
 
         // Broadcast IDB versionchange to other same-origin tabs (W3C IndexedDB §2.4).
-        for (source_tab_id, origin, db_name, old_version, new_version) in
+        for (source_tab_id, request_id, origin, db_name, old_version, new_version) in
             &idb_version_change_requests
         {
             for tab in mgr.tabs_mut() {
@@ -346,18 +352,19 @@ impl App {
                     continue;
                 }
                 let _ = tab.channel.send(BrowserToContent::IdbVersionChange {
+                    request_id: *request_id,
                     db_name: db_name.clone(),
                     old_version: *old_version,
                     new_version: *new_version,
                 });
             }
             // After broadcasting, immediately send IdbUpgradeReady to the requester.
-            // In a full implementation, we'd wait for IdbConnectionsClosed from all tabs
-            // or timeout. For now, the versionchange fires synchronously so connections
-            // are already closed by the time we process the next message.
+            // TODO(M4-10): Wait for IdbConnectionsClosed from all tabs or timeout,
+            // then send IdbUpgradeReady or IdbBlocked (W3C IndexedDB §2.4).
             for tab in mgr.tabs_mut() {
                 if tab.id == *source_tab_id {
                     let _ = tab.channel.send(BrowserToContent::IdbUpgradeReady {
+                        request_id: *request_id,
                         db_name: db_name.clone(),
                     });
                     break;

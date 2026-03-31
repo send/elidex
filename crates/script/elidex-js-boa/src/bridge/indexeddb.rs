@@ -89,6 +89,8 @@ impl HostBridge {
             .borrow_mut()
             .pending_idb_versionchange
             .push(super::IdbVersionChangeMsg {
+                request_id: super::IDB_REQUEST_ID_COUNTER
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 origin,
                 db_name: db_name.to_string(),
                 old_version,

@@ -220,9 +220,14 @@ pub(crate) struct HostBridgeInner {
     pending_idb_versionchange: Vec<IdbVersionChangeMsg>,
 }
 
+/// Monotonic counter for IDB versionchange request IDs.
+static IDB_REQUEST_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Queued IDB versionchange request for cross-tab broadcast.
 #[derive(Clone, Debug)]
 pub struct IdbVersionChangeMsg {
+    /// Unique request ID for correlating responses across tabs.
+    pub request_id: u64,
     /// The origin that owns the database.
     pub origin: String,
     /// Database name.

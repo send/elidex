@@ -480,6 +480,7 @@ fn run_event_loop(state: &mut ContentState) {
             let _ = state
                 .channel
                 .send(crate::ipc::ContentToBrowser::IdbVersionChangeRequest {
+                    request_id: req.request_id,
                     origin: req.origin,
                     db_name: req.db_name,
                     old_version: req.old_version,
@@ -742,6 +743,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
 
         // --- IndexedDB cross-tab versionchange (W3C IndexedDB §2.4) ---
         BrowserToContent::IdbVersionChange {
+            request_id,
             db_name,
             old_version,
             new_version,
@@ -756,24 +758,26 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 state.pipeline.document,
             );
             // Notify browser that connections are closed.
-            let _ = state
-                .channel
-                .send(ContentToBrowser::IdbConnectionsClosed { db_name });
+            let _ = state.channel.send(ContentToBrowser::IdbConnectionsClosed {
+                request_id,
+                db_name,
+            });
         }
 
-        BrowserToContent::IdbUpgradeReady { db_name: _ } => {
-            // TODO: Resume pending IDB open/delete upgrade.
-            // This requires storing the pending open request in the bridge
-            // and resuming it here. Deferred to M4-10 (full IDB lifecycle).
+        BrowserToContent::IdbUpgradeReady {
+            request_id: _,
+            db_name: _,
+        } => {
+            // TODO(M4-10): Resume pending IDB open/delete upgrade.
         }
 
         BrowserToContent::IdbBlocked {
+            request_id: _,
             db_name: _,
             old_version: _,
             new_version: _,
         } => {
-            // TODO: Fire blocked event on the pending IDB open request.
-            // Requires pending request tracking. Deferred to M4-10.
+            // TODO(M4-10): Fire blocked event on the pending IDB open request.
         }
 
         // --- Storage API responses ---
