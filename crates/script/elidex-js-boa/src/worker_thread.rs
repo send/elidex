@@ -45,13 +45,12 @@ pub fn worker_thread_main(
     script_url: url::Url,
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
+    network_handle: elidex_net::broker::NetworkHandle,
 ) {
-    // 1. Create a standalone Network Process broker for this worker.
-    // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
-    let worker_broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
-    let worker_net = worker_broker.create_renderer_handle();
+    // Fetch the worker script via the parent's shared broker.
+    let worker_net = network_handle;
 
-    // 2. Fetch the worker script via the broker.
+    // 1. Fetch the worker script.
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
@@ -85,14 +84,9 @@ pub fn worker_thread_main(
         }
     };
 
-    // 4. Run the worker with the fetched script (reuse the same broker).
-    worker_thread_main_with_source_and_broker(
-        script_source,
-        script_url,
-        name,
-        channel,
-        worker_broker,
-    );
+    // 3. Run the worker with the fetched script (reuse the same handle).
+    let worker_nh = std::rc::Rc::new(worker_net);
+    worker_thread_main_with_handle(script_source, script_url, name, channel, worker_nh);
 }
 
 /// Entry point for the worker thread with pre-fetched script source.
@@ -106,30 +100,22 @@ pub fn worker_thread_main_with_source(
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
 ) {
-    // Create a standalone broker for this worker.
-    // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
-    let worker_broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
-    worker_thread_main_with_source_and_broker(
-        script_source,
-        script_url,
-        name,
-        channel,
-        worker_broker,
-    );
+    // Standalone: create a broker for this worker (no parent to share with).
+    let broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let nh = std::rc::Rc::new(broker.create_renderer_handle());
+    // `broker` stays alive until function return.
+    worker_thread_main_with_handle(script_source, script_url, name, channel, nh);
 }
 
-/// Internal entry point with a pre-existing broker.
+/// Internal entry point with a pre-existing `NetworkHandle`.
 #[allow(clippy::needless_pass_by_value)]
-fn worker_thread_main_with_source_and_broker(
+fn worker_thread_main_with_handle(
     script_source: String,
     script_url: url::Url,
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
-    worker_broker: elidex_net::broker::NetworkProcessHandle,
+    worker_net: std::rc::Rc<elidex_net::broker::NetworkHandle>,
 ) {
-    let worker_net = std::rc::Rc::new(worker_broker.create_renderer_handle());
-    // `worker_broker` stays alive until function return, keeping the broker thread running.
-
     let mut runtime = JsRuntime::for_worker(Some(worker_net), name, script_url.clone());
 
     // 3. Create empty EcsDom + SessionCore (required for bridge bind).

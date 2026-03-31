@@ -165,6 +165,7 @@ impl NetworkProcessHandle {
         NetworkHandle {
             client_id,
             request_tx: self.request_tx.clone(),
+            control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
         }
@@ -220,6 +221,8 @@ pub struct NetworkHandle {
     client_id: u64,
     /// Shared request channel (all renderers → Network Process).
     request_tx: crossbeam_channel::Sender<(u64, RendererToNetwork)>,
+    /// Control channel for registering sibling handles (e.g., for workers).
+    control_tx: crossbeam_channel::Sender<NetworkProcessControl>,
     /// Dedicated response channel (Network Process → this renderer).
     response_rx: crossbeam_channel::Receiver<NetworkToRenderer>,
     /// Events buffered during blocking fetch (drained by `drain_events()`).
@@ -238,10 +241,38 @@ impl NetworkHandle {
         // Create a channel pair and immediately drop the receiver,
         // making all sends on request_tx fail silently.
         let (request_tx, _request_rx) = crossbeam_channel::unbounded();
+        let (control_tx, _control_rx) = crossbeam_channel::unbounded();
         let (_response_tx, response_rx) = crossbeam_channel::unbounded();
         Self {
             client_id: 0,
             request_tx,
+            control_tx,
+            response_rx,
+            buffered: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Create a sibling handle sharing the same Network Process broker.
+    ///
+    /// Used to create handles for Web Workers spawned by this content thread.
+    /// The sibling gets its own client ID and response channel but shares
+    /// the request and control channels (same broker, same cookie jar).
+    #[must_use]
+    pub fn create_sibling_handle(&self) -> Self {
+        let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let (response_tx, response_rx) = crossbeam_channel::unbounded();
+
+        let _ = self
+            .control_tx
+            .send(NetworkProcessControl::RegisterRenderer {
+                client_id,
+                response_tx,
+            });
+
+        Self {
+            client_id,
+            request_tx: self.request_tx.clone(),
+            control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
         }
@@ -443,7 +474,9 @@ impl NetworkProcessState {
                 self.handle_fetch(cid, fetch_id, request, client);
             }
             RendererToNetwork::CancelFetch(_fetch_id) => {
-                // TODO: cancel in-flight fetch (requires task handle tracking).
+                // No-op (M4-10): fetch_blocking blocks the content thread,
+                // so abort signals cannot be delivered mid-flight. Requires
+                // async fetch with the elidex-js event loop.
             }
             RendererToNetwork::WebSocketOpen {
                 conn_id,

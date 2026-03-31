@@ -164,8 +164,19 @@ fn construct_worker(
 
     let script_url_clone = resolved.clone();
     let name_clone = name.clone();
+    // Create a sibling NetworkHandle for the worker, sharing the parent's broker.
+    let Some(worker_nh) = bridge.create_sibling_network_handle() else {
+        return Err(JsNativeError::typ()
+            .with_message("network unavailable for worker")
+            .into());
+    };
     let thread_handle = std::thread::spawn(move || {
-        crate::worker_thread::worker_thread_main(script_url_clone, name_clone, worker_channel);
+        crate::worker_thread::worker_thread_main(
+            script_url_clone,
+            name_clone,
+            worker_channel,
+            worker_nh,
+        );
     });
 
     // 7. Create WorkerHandle and register in bridge.

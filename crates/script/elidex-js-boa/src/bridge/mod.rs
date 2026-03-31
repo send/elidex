@@ -609,6 +609,17 @@ impl HostBridge {
     }
 
     /// Set the cookie jar reference for `document.cookie` script access.
+    /// Create a sibling `NetworkHandle` sharing the same broker (for workers).
+    ///
+    /// Returns `None` if no `NetworkHandle` is configured.
+    pub fn create_sibling_network_handle(&self) -> Option<elidex_net::broker::NetworkHandle> {
+        self.inner
+            .borrow()
+            .network_handle
+            .as_ref()
+            .map(|nh| nh.create_sibling_handle())
+    }
+
     pub fn set_cookie_jar(&self, jar: std::sync::Arc<elidex_net::CookieJar>) {
         self.inner.borrow_mut().cookie_jar = Some(jar);
     }
