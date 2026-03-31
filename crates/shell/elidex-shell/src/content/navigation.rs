@@ -21,14 +21,18 @@ pub(super) fn handle_navigate(
     is_history_nav: bool,
     request: Option<elidex_net::Request>,
 ) {
-    let fetch_handle = Rc::clone(&state.pipeline.fetch_handle);
+    let network_handle = Rc::clone(&state.pipeline.network_handle);
     let font_db = Arc::clone(&state.pipeline.font_db);
 
-    match elidex_navigation::load_document(url, &fetch_handle, request) {
+    // Navigation fetch uses a temporary FetchHandle (not routed through broker).
+    // TODO: Route navigation fetch through NetworkHandle once elidex-navigation
+    // accepts NetworkHandle instead of FetchHandle.
+    let nav_fetch = elidex_net::FetchHandle::with_default_client();
+    match elidex_navigation::load_document(url, &nav_fetch, request) {
         Ok(loaded) => {
             // Shut down WebSocket/SSE connections before replacing the pipeline.
             state.pipeline.runtime.bridge().shutdown_all_realtime();
-            let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
+            let new_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
             state.pipeline = new_pipeline;
             state.focus_target = None;
             state.hover_chain.clear();

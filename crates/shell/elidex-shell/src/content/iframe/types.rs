@@ -142,8 +142,8 @@ pub struct IframeLoadContext<'a> {
     pub parent_url: Option<&'a url::Url>,
     /// Shared font database.
     pub font_db: &'a std::sync::Arc<elidex_text::FontDatabase>,
-    /// Shared fetch handle (for network requests).
-    pub fetch_handle: &'a std::rc::Rc<elidex_net::FetchHandle>,
+    /// Network handle for communicating with the Network Process broker.
+    pub network_handle: &'a std::rc::Rc<elidex_net::broker::NetworkHandle>,
     /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
     pub depth: usize,
     /// Shared CSS property registry.

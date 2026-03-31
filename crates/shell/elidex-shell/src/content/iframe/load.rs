@@ -102,15 +102,15 @@ fn load_iframe_from_url(
         );
     };
 
-    let effective_handle: std::rc::Rc<elidex_net::FetchHandle> = if iframe_data.credentialless {
-        std::rc::Rc::new(elidex_net::FetchHandle::new(
-            elidex_net::NetClient::new_credentialless(),
-        ))
+    // Navigation fetch uses a temporary FetchHandle.
+    // TODO: Route iframe navigation through NetworkHandle.
+    let nav_fetch = if iframe_data.credentialless {
+        elidex_net::FetchHandle::new(elidex_net::NetClient::new_credentialless())
     } else {
-        ctx.fetch_handle.clone()
+        elidex_net::FetchHandle::with_default_client()
     };
 
-    match elidex_navigation::load_document(&resolved, &effective_handle, None) {
+    match elidex_navigation::load_document(&resolved, &nav_fetch, None) {
         Ok(loaded) => {
             let doc_origin = SecurityOrigin::from_url(&loaded.url);
             if !check_framing_allowed(&loaded.response_headers, ctx.parent_origin, &doc_origin) {
@@ -131,8 +131,11 @@ fn load_iframe_from_url(
                 return make_out_of_process_entry(loaded, sandbox_flags);
             }
 
-            let pipeline =
-                crate::build_pipeline_from_loaded(loaded, effective_handle, ctx.font_db.clone());
+            let pipeline = crate::build_pipeline_from_loaded(
+                loaded,
+                ctx.network_handle.clone(),
+                ctx.font_db.clone(),
+            );
             let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
             set_referrer(&entry, ctx);
             entry
@@ -210,10 +213,9 @@ fn make_out_of_process_entry(
     let thread = std::thread::spawn(move || {
         // Build pipeline on this thread (PipelineResult is !Send).
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
-        let fetch_handle =
-            std::rc::Rc::new(elidex_net::FetchHandle::new(elidex_net::NetClient::new()));
+        let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
+        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
 
         oop_pipeline
             .runtime
@@ -279,7 +281,7 @@ fn build_iframe_pipeline(
         html,
         url,
         ctx.font_db.clone(),
-        ctx.fetch_handle.clone(),
+        ctx.network_handle.clone(),
         ctx.registry.clone(),
     )
 }

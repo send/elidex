@@ -37,7 +37,6 @@ use elidex_ecs::Entity;
 use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
-use elidex_net::FetchHandle;
 use elidex_plugin::{Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
 use elidex_script_session::SessionCore;
@@ -340,8 +339,9 @@ pub struct PipelineResult {
     pub font_db: Arc<FontDatabase>,
     /// The URL of the current page, if loaded from a URL.
     pub url: Option<url::Url>,
-    /// Shared fetch handle (for cookie sharing across navigation).
-    pub fetch_handle: Rc<FetchHandle>,
+    /// Network handle for communicating with the Network Process broker.
+    /// `disconnected()` when no broker is available (standalone tests).
+    pub network_handle: Rc<elidex_net::broker::NetworkHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
     /// `Arc`-wrapped so it can be shared with child iframe pipelines.
     pub registry: Arc<elidex_plugin::CssPropertyRegistry>,
@@ -425,7 +425,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         stylesheets,
         font_db,
         url: None,
-        fetch_handle,
+        network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -447,14 +447,12 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 /// Build a pipeline from HTML, sharing the parent's resources.
 ///
 /// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
-/// `fetch_handle`, and `registry` instead of creating fresh instances.
-/// This ensures the JS `fetch()` closure captures the correct `FetchHandle`
-/// (important for `credentialless` iframes and cookie sharing).
+/// `network_handle`, and `registry` instead of creating fresh instances.
 pub(crate) fn build_pipeline_interactive_shared(
     html: &str,
     url: Option<url::Url>,
     font_db: Arc<FontDatabase>,
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
 ) -> PipelineResult {
     let parse_result = parse_html(html);
@@ -498,7 +496,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         stylesheets,
         font_db,
         url,
-        fetch_handle,
+        network_handle,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -634,7 +632,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 /// resolves styles, computes layout, and builds the display list.
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
@@ -657,7 +655,7 @@ pub fn build_pipeline_from_loaded(
         document,
         &stylesheets,
         &script_sources,
-        None, // NetworkHandle — wired when content thread receives it from browser
+        Some(Rc::clone(&network_handle)),
         &font_db,
         Some(&url),
         &registry,
@@ -676,7 +674,7 @@ pub fn build_pipeline_from_loaded(
         stylesheets,
         font_db,
         url: Some(url),
-        fetch_handle,
+        network_handle,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -697,14 +695,16 @@ pub fn build_pipeline_from_loaded(
 
 /// Build a pipeline from a URL.
 ///
-/// Creates a `FetchHandle`, loads the document, and runs the full pipeline.
+/// Uses a temporary `FetchHandle` to load the document (standalone mode).
+/// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 pub fn build_pipeline_from_url(
     url: &url::Url,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
-    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
+    let fetch_handle = elidex_net::FetchHandle::new(elidex_net::NetClient::new());
     let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
-    Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
+    let network_handle = Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    Ok(build_pipeline_from_loaded(loaded, network_handle, font_db))
 }
 
 /// Run the browser from a URL string, opening a window.

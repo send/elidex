@@ -86,11 +86,14 @@ impl App {
         let Some(interactive) = &mut self.interactive else {
             return false;
         };
-        let fetch_handle = std::rc::Rc::clone(&interactive.pipeline.fetch_handle);
+        let network_handle = std::rc::Rc::clone(&interactive.pipeline.network_handle);
         let font_db = std::sync::Arc::clone(&interactive.pipeline.font_db);
-        match elidex_navigation::load_document(url, &fetch_handle, None) {
+        // Navigation fetch uses a temporary FetchHandle (not routed through broker).
+        let nav_fetch = elidex_net::FetchHandle::with_default_client();
+        match elidex_navigation::load_document(url, &nav_fetch, None) {
             Ok(loaded) => {
-                let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
+                let new_pipeline =
+                    crate::build_pipeline_from_loaded(loaded, network_handle, font_db);
                 interactive.pipeline = new_pipeline;
                 interactive
                     .pipeline

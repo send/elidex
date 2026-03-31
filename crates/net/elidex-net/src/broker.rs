@@ -212,6 +212,25 @@ pub struct NetworkHandle {
 }
 
 impl NetworkHandle {
+    /// Create a disconnected `NetworkHandle` for tests and contexts where
+    /// no Network Process is available (standalone pipelines, OOP iframes
+    /// before proper handle wiring).
+    ///
+    /// `fetch_blocking()` will return an error; WS/SSE opens are silently dropped.
+    #[must_use]
+    pub fn disconnected() -> Self {
+        // Create a channel pair and immediately drop the receiver,
+        // making all sends on request_tx fail silently.
+        let (request_tx, _request_rx) = crossbeam_channel::unbounded();
+        let (_response_tx, response_rx) = crossbeam_channel::unbounded();
+        Self {
+            client_id: 0,
+            request_tx,
+            response_rx,
+            buffered: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
     /// Get this renderer's client ID.
     #[must_use]
     pub fn client_id(&self) -> u64 {
