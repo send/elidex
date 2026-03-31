@@ -682,12 +682,15 @@ impl HostBridge {
         }
         let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
-            handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
+            if !handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
                 conn_id,
                 url,
                 protocols,
                 origin,
-            });
+            }) {
+                inner.realtime.remove_ws(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
         }
         Ok(conn_id)
     }
@@ -761,13 +764,16 @@ impl HostBridge {
         }
         let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
-            handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {
+            if !handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {
                 conn_id,
                 url,
                 last_event_id: None,
                 origin,
                 with_credentials,
-            });
+            }) {
+                inner.realtime.remove_sse(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
         }
         Ok(conn_id)
     }
