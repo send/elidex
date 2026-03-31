@@ -192,8 +192,8 @@ fn build_storage_object(ctx: &mut Context) -> JsValue {
     // storage.persist() → Promise<boolean>
     init.function(
         NativeFunction::from_copy_closure(|_this, _args, ctx| {
-            // Stub: always grant persistence.
-            let promise = JsPromise::resolve(JsValue::from(true), ctx);
+            // Stub: persistence not granted (consistent with persisted() = false).
+            let promise = JsPromise::resolve(JsValue::from(false), ctx);
             Ok(promise.into())
         }),
         js_string!("persist"),

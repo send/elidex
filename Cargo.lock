@@ -2206,6 +2206,7 @@ dependencies = [
  "elidex-net",
  "elidex-plugin",
  "elidex-render",
+ "elidex-sandbox",
  "elidex-script-session",
  "elidex-style",
  "elidex-text",

@@ -18,9 +18,7 @@ mod render;
 pub(crate) mod tab;
 mod threaded;
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::{Modifiers, WindowEvent};
@@ -103,36 +101,7 @@ pub struct App {
     /// Network Process broker handle (singleton, owns NetClient + CookieJar).
     /// Creates `NetworkHandle`s for each content thread tab.
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
-    /// Tracker for pending IndexedDB versionchange requests (cross-tab coordination).
-    idb_upgrade_tracker: IdbUpgradeTracker,
 }
-
-/// Tracks pending IndexedDB versionchange requests for cross-tab coordination.
-///
-/// When a tab requests a version upgrade, the browser thread broadcasts
-/// `IdbVersionChange` to other tabs and tracks responses. After all tabs
-/// respond (or a timeout elapses), the requester receives `IdbUpgradeReady`
-/// or `IdbBlocked`.
-#[derive(Default)]
-struct IdbUpgradeTracker {
-    /// Pending upgrade requests: (origin, db_name) → state.
-    pending: HashMap<(String, String), PendingUpgrade>,
-}
-
-struct PendingUpgrade {
-    /// Tab that requested the upgrade.
-    requester: tab::TabId,
-    /// Tabs that haven't responded yet.
-    waiting_tabs: std::collections::HashSet<tab::TabId>,
-    /// Deadline for responses (2 seconds).
-    deadline: Instant,
-    /// Version info for the blocked event.
-    old_version: u64,
-    new_version: Option<u64>,
-}
-
-/// Timeout for cross-tab versionchange responses.
-const IDB_VERSIONCHANGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl App {
     /// Create a threaded-mode `App` from a pre-initialized `TabManager`
@@ -147,7 +116,6 @@ impl App {
             interactive: None,
             pending_focus: false,
             network_process: Some(np),
-            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
     }
 
@@ -211,7 +179,6 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
-            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
     }
 
@@ -242,7 +209,6 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
-            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
     }
 

@@ -368,6 +368,9 @@ fn network_process_main(
 // Internal state
 // ---------------------------------------------------------------------------
 
+/// Maximum concurrent fetch threads across all renderers.
+const MAX_CONCURRENT_FETCHES: usize = 64;
+
 /// Internal state of the Network Process.
 struct NetworkProcessState {
     /// Registered renderer clients: client_id → response sender.
@@ -376,6 +379,8 @@ struct NetworkProcessState {
     ws_handles: HashMap<(u64, u64), WsHandle>,
     /// Active SSE connections: (client_id, conn_id) → SseHandle.
     sse_handles: HashMap<(u64, u64), SseHandle>,
+    /// Counter of in-flight fetch threads (for limiting concurrency).
+    inflight_fetches: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl NetworkProcessState {
@@ -384,6 +389,7 @@ impl NetworkProcessState {
             clients: HashMap::new(),
             ws_handles: HashMap::new(),
             sse_handles: HashMap::new(),
+            inflight_fetches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -451,12 +457,20 @@ impl NetworkProcessState {
     fn handle_fetch(&self, cid: u64, fetch_id: FetchId, request: Request, client: &Arc<NetClient>) {
         let client = Arc::clone(client);
         let tx = self.clients.get(&cid).cloned();
-        // Spawn a dedicated thread with its own current-thread runtime for
-        // each fetch. This mirrors the proven `FetchHandle::send_blocking()`
-        // pattern and avoids issues with `tokio::spawn` from non-worker threads.
-        //
-        // Multiple concurrent fetches run on separate threads, giving us
-        // parallelism without requiring the broker's main loop to be async.
+        let inflight = Arc::clone(&self.inflight_fetches);
+        // Check concurrent fetch limit before spawning a new thread.
+        let current = inflight.load(std::sync::atomic::Ordering::Relaxed);
+        if current >= MAX_CONCURRENT_FETCHES {
+            // Too many in-flight fetches — reject immediately.
+            if let Some(tx) = tx {
+                let _ = tx.send(NetworkToRenderer::FetchResponse(
+                    fetch_id,
+                    Err("too many concurrent fetches".into()),
+                ));
+            }
+            return;
+        }
+        inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -468,6 +482,7 @@ impl NetworkProcessState {
             if let Some(tx) = tx {
                 let _ = tx.send(NetworkToRenderer::FetchResponse(fetch_id, result));
             }
+            inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });
     }
 

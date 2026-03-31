@@ -48,6 +48,7 @@ pub trait SandboxEnforcer: Send {
 /// Called at the top of `content_thread_main()` before entering the event
 /// loop. In `SingleProcess` mode, pass [`PlatformSandbox::Unsandboxed`]
 /// for a no-op.
+#[must_use]
 pub fn apply_sandbox(platform: &PlatformSandbox) -> Result<(), SandboxError> {
     match platform {
         #[cfg(target_os = "linux")]

@@ -635,16 +635,18 @@ fn worker_postmessage_roundtrip() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn worker_fetch_unavailable_without_network_handle() {
-    // Without NetworkHandle, fetch is not registered in worker scope.
+fn worker_fetch_available() {
+    // Workers get a standalone broker so fetch() is available.
     let url = ::url::Url::parse("https://example.com/worker.js").unwrap();
-    let mut rt = JsRuntime::for_worker(None, String::new(), url);
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let nh = std::rc::Rc::new(np.create_renderer_handle());
+    let mut rt = JsRuntime::for_worker(Some(nh), String::new(), url);
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
     let result = rt.eval(
-        "console.log(typeof fetch === 'undefined')",
+        "console.log(typeof fetch === 'function')",
         &mut session,
         &mut dom,
         doc,
@@ -652,6 +654,7 @@ fn worker_fetch_unavailable_without_network_handle() {
     assert!(result.success, "JS error: {:?}", result.error);
     let msgs = rt.console_output().messages();
     assert!(msgs.last().is_some_and(|(_, text)| text == "true"));
+    np.shutdown();
 }
 
 #[test]
