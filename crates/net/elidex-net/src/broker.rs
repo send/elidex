@@ -458,10 +458,12 @@ impl NetworkProcessState {
         let client = Arc::clone(client);
         let tx = self.clients.get(&cid).cloned();
         let inflight = Arc::clone(&self.inflight_fetches);
-        // Check concurrent fetch limit before spawning a new thread.
-        let current = inflight.load(std::sync::atomic::Ordering::Relaxed);
-        if current >= MAX_CONCURRENT_FETCHES {
-            // Too many in-flight fetches — reject immediately.
+        // Atomically increment and check — avoids TOCTOU between load and add.
+        // Note: the broker is single-threaded so the race is theoretical, but
+        // this pattern is correct regardless of future threading changes.
+        let prev = inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if prev >= MAX_CONCURRENT_FETCHES {
+            inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             if let Some(tx) = tx {
                 let _ = tx.send(NetworkToRenderer::FetchResponse(
                     fetch_id,
@@ -470,7 +472,6 @@ impl NetworkProcessState {
             }
             return;
         }
-        inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -537,8 +538,8 @@ impl NetworkProcessState {
                             let _ = tx.send(NetworkToRenderer::EventSourceEvent(conn_id, event));
                         }
                     }
-                    Err(crossbeam_channel::TryRecvError::Empty) => break,
-                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
                         remove.push((cid, conn_id));
                         break;
                     }

@@ -87,9 +87,6 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, seccompiler::Er
         libc::SYS_ioctl,
         libc::SYS_lseek,
         libc::SYS_fstat,
-        #[cfg(target_arch = "x86_64")]
-        libc::SYS_newfstatat,
-        #[cfg(target_arch = "aarch64")]
         libc::SYS_newfstatat,
         libc::SYS_pread64,
         libc::SYS_pwrite64,
@@ -109,16 +106,19 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, seccompiler::Er
         rules.insert(libc::SYS_socketpair, vec![]);
         rules.insert(libc::SYS_sendmsg, vec![]);
         rules.insert(libc::SYS_recvmsg, vec![]);
+        // sendto/recvfrom are shared by IPC and network — inserted below.
+    }
+
+    // Data transfer (needed by both IPC sockets and network sockets).
+    if policy.ipc || policy.network != NetworkAccess::None {
         rules.insert(libc::SYS_sendto, vec![]);
         rules.insert(libc::SYS_recvfrom, vec![]);
     }
 
-    // Network: connect/bind/listen only if network access is not None.
+    // Network: connect/socket only if network access is not None.
     if policy.network != NetworkAccess::None {
         rules.insert(libc::SYS_socket, vec![]);
         rules.insert(libc::SYS_connect, vec![]);
-        rules.insert(libc::SYS_sendto, vec![]);
-        rules.insert(libc::SYS_recvfrom, vec![]);
         rules.insert(libc::SYS_getsockopt, vec![]);
         rules.insert(libc::SYS_setsockopt, vec![]);
         rules.insert(libc::SYS_getpeername, vec![]);
@@ -155,8 +155,10 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, seccompiler::Er
 
     SeccompFilter::new(
         rules,
+        // Default action: blocked syscalls return EPERM (graceful error handling).
         SeccompAction::Errno(libc::EPERM as u32),
-        SeccompAction::Allow,
+        // Mismatch action: fail-closed if architecture doesn't match the filter.
+        SeccompAction::Errno(libc::EPERM as u32),
         arch,
     )
 }

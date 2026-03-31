@@ -163,7 +163,7 @@ impl QuotaManager {
                 .data_dir
                 .join("elidex")
                 .join("origins")
-                .join(hex_encode_origin(&origin));
+                .join(elidex_plugin::hex_encode_for_path(&origin));
             if origin_dir.exists() {
                 let _ = std::fs::remove_dir_all(&origin_dir);
             }
@@ -175,20 +175,6 @@ impl QuotaManager {
 
         evicted
     }
-}
-
-/// Hex-encode an origin string for use as a filesystem-safe directory name.
-///
-/// Same encoding as `elidex_indexeddb::origin::sanitize_origin_key()`.
-/// Prevents path traversal via crafted origin strings (e.g., containing `/` or `..`).
-fn hex_encode_origin(origin: &str) -> String {
-    origin
-        .bytes()
-        .fold(String::with_capacity(origin.len() * 2), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
 }
 
 impl QuotaManager {

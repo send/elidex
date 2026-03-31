@@ -410,6 +410,23 @@ pub fn parse_iframe_allow_attribute(value: &str) -> PermissionsPolicy {
 
 // ---------------------------------------------------------------------------
 // Tests
+/// Hex-encode a string for use as a filesystem-safe directory name.
+///
+/// Encodes each byte as two hex digits, preventing path traversal via
+/// characters like `/`, `..`, `:` in origin strings.
+///
+/// Used by `elidex-indexeddb` for per-origin DB paths and by
+/// `elidex-shell` QuotaManager for eviction paths.
+pub fn hex_encode_for_path(value: &str) -> String {
+    value
+        .bytes()
+        .fold(String::with_capacity(value.len() * 2), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+}
+
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]

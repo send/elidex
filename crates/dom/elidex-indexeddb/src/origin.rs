@@ -28,6 +28,7 @@ pub fn origin_db_path(data_dir: &Path, origin_key: &str) -> PathBuf {
 /// Sanitize an origin string for use as a directory name.
 ///
 /// Uses hex encoding to avoid collisions (e.g. `a_b` vs `a:b` vs `a/b`).
+/// Same algorithm as `elidex_plugin::hex_encode_for_path`.
 fn sanitize_origin_key(origin: &str) -> String {
     origin
         .bytes()

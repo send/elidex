@@ -630,8 +630,8 @@ impl HostBridge {
                     sse_events.push((conn_id, sse_event));
                 }
                 elidex_net::broker::NetworkToRenderer::FetchResponse(..) => {
-                    // Fetch responses during drain — shouldn't happen normally,
-                    // but drop them since no one is waiting.
+                    // Late-arriving fetch response after content-thread timeout
+                    // (30s in fetch_blocking). Safe to drop — no JS promise waiting.
                 }
             }
         }
