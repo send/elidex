@@ -17,6 +17,7 @@ bytes.workspace = true
 elidex-ecs.workspace = true
 elidex-plugin.workspace = true
 elidex-render.workspace = true
+elidex-sandbox.workspace = true
 elidex-html-parser.workspace = true
 elidex-css.workspace = true
 elidex-css-anim.workspace = true

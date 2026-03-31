@@ -18,7 +18,9 @@ mod render;
 pub(crate) mod tab;
 mod threaded;
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::{Modifiers, WindowEvent};
@@ -98,11 +100,44 @@ pub struct App {
     pub(super) interactive: Option<InteractiveState>,
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
+    /// Network Process broker handle (singleton, owns NetClient + CookieJar).
+    /// Creates `NetworkHandle`s for each content thread tab.
+    network_process: Option<elidex_net::broker::NetworkProcessHandle>,
+    /// Tracker for pending IndexedDB versionchange requests (cross-tab coordination).
+    idb_upgrade_tracker: IdbUpgradeTracker,
 }
 
+/// Tracks pending IndexedDB versionchange requests for cross-tab coordination.
+///
+/// When a tab requests a version upgrade, the browser thread broadcasts
+/// `IdbVersionChange` to other tabs and tracks responses. After all tabs
+/// respond (or a timeout elapses), the requester receives `IdbUpgradeReady`
+/// or `IdbBlocked`.
+#[derive(Default)]
+struct IdbUpgradeTracker {
+    /// Pending upgrade requests: (origin, db_name) → state.
+    pending: HashMap<(String, String), PendingUpgrade>,
+}
+
+struct PendingUpgrade {
+    /// Tab that requested the upgrade.
+    requester: tab::TabId,
+    /// Tabs that haven't responded yet.
+    waiting_tabs: std::collections::HashSet<tab::TabId>,
+    /// Deadline for responses (2 seconds).
+    deadline: Instant,
+    /// Version info for the blocked event.
+    old_version: u64,
+    new_version: Option<u64>,
+}
+
+/// Timeout for cross-tab versionchange responses.
+const IDB_VERSIONCHANGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl App {
-    /// Create a threaded-mode `App` from a pre-initialized `TabManager`.
-    fn from_tab_manager(mgr: TabManager) -> Self {
+    /// Create a threaded-mode `App` from a pre-initialized `TabManager`
+    /// and `NetworkProcessHandle`.
+    fn from_tab_manager(mgr: TabManager, np: elidex_net::broker::NetworkProcessHandle) -> Self {
         Self {
             render_state: None,
             tab_manager: Some(mgr),
@@ -111,11 +146,19 @@ impl App {
             cursor_in_content: false,
             interactive: None,
             pending_focus: false,
+            network_process: Some(np),
+            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
+    }
+
+    /// Spawn the singleton Network Process broker.
+    fn create_network_process() -> elidex_net::broker::NetworkProcessHandle {
+        elidex_net::broker::spawn_network_process(elidex_net::NetClient::new())
     }
 
     /// Create a new threaded application from HTML/CSS.
     pub fn new_threaded(html: String, css: String) -> Self {
+        let np = Self::create_network_process();
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let thread = crate::content::spawn_content_thread(content_ch, html, css);
@@ -128,11 +171,12 @@ impl App {
             "elidex".to_string(),
         );
 
-        Self::from_tab_manager(mgr)
+        Self::from_tab_manager(mgr, np)
     }
 
     /// Create a new threaded application from a URL.
     pub fn new_threaded_url(url: url::Url) -> Self {
+        let np = Self::create_network_process();
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let title = format!("elidex \u{2014} {url}");
@@ -142,7 +186,7 @@ impl App {
         let mut mgr = TabManager::new();
         mgr.create_tab(browser_ch, thread, chrome, title);
 
-        Self::from_tab_manager(mgr)
+        Self::from_tab_manager(mgr, np)
     }
 
     /// Create a new legacy (inline) interactive application from a pipeline result.
@@ -166,6 +210,8 @@ impl App {
                 window_title: "elidex".to_string(),
             }),
             pending_focus: false,
+            network_process: None, // Legacy mode — no broker.
+            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
     }
 
@@ -195,6 +241,8 @@ impl App {
                 window_title: title,
             }),
             pending_focus: false,
+            network_process: None, // Legacy mode — no broker.
+            idb_upgrade_tracker: IdbUpgradeTracker::default(),
         }
     }
 
