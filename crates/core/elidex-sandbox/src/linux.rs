@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use elidex_plugin::sandbox::NetworkAccess;
 use elidex_plugin::{SandboxError, SandboxPolicy};
-use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch};
+use seccompiler::{
+    BackendError, BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch,
+};
 
 use crate::SandboxEnforcer;
 
@@ -21,7 +23,7 @@ impl SandboxEnforcer for LinuxSeccompEnforcer {
         let filter = build_filter(policy).map_err(|e| SandboxError::new(format!("{e:#}")))?;
         let bpf: BpfProgram = filter
             .try_into()
-            .map_err(|e: seccompiler::Error| SandboxError::new(format!("{e}")))?;
+            .map_err(|e: BackendError| SandboxError::new(format!("{e}")))?;
 
         seccompiler::apply_filter(&bpf)
             .map_err(|e| SandboxError::new(format!("seccomp install failed: {e}")))?;
@@ -38,7 +40,7 @@ impl SandboxEnforcer for LinuxSeccompEnforcer {
 ///
 /// The default action is `Errno(EPERM)` — blocked syscalls return permission
 /// denied rather than killing the process, allowing graceful error handling.
-fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, seccompiler::Error> {
+fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, BackendError> {
     let arch = target_arch();
 
     // Map of syscall number → rules (empty Vec = unconditionally allow).
