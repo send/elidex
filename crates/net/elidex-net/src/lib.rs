@@ -19,6 +19,7 @@
 //! └── redirect tracker (SSRF re-validation)
 //! ```
 
+pub mod broker;
 pub(crate) mod connector;
 pub mod cookie_jar;
 pub mod cors;

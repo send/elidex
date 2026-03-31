@@ -6,6 +6,7 @@
 pub mod background;
 mod channel;
 mod computed_style;
+pub mod ipc_channel;
 pub mod css_resolve;
 mod error;
 mod event_types;
@@ -23,6 +24,7 @@ pub mod url_security;
 mod values;
 
 pub use channel::{channel_pair, LocalChannel};
+pub use ipc_channel::{IpcChannel, IpcRecvTimeoutError, IpcSendError, IpcTryRecvError};
 pub use computed_style::{
     is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
     AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
@@ -54,6 +56,7 @@ pub use origin::{
     IframeSandboxFlags, PermissionsPolicy, SecurityOrigin, MAX_IFRAME_DEPTH,
 };
 pub use registry::PluginRegistry;
+pub use sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{
     AccessibilityRole, Attributes, Constraints, CssPropertyHandler, CssPropertyRegistry, CssRule,
