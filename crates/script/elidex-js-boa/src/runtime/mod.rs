@@ -572,6 +572,26 @@ impl JsRuntime {
         realtime::dispatch_realtime_events(ws_events, sse_events, &self.bridge, &mut self.ctx);
     }
 
+    /// Fire `versionchange` event on all open IDB connections for a database.
+    ///
+    /// Called from the content thread when the browser thread broadcasts
+    /// `BrowserToContent::IdbVersionChange` (cross-tab coordination).
+    pub fn dispatch_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+        session: &mut elidex_script_session::SessionCore,
+        dom: &mut elidex_ecs::EcsDom,
+        document: elidex_ecs::Entity,
+    ) {
+        self.bridge.bind(session, dom, document);
+        let _guard = UnbindGuard(&self.bridge);
+
+        self.bridge
+            .fire_idb_versionchange(db_name, old_version, new_version, &mut self.ctx);
+    }
+
     /// Build a JS source string that evaluates to a MessageEvent-like object.
     fn build_message_event_script(data_json: &str, origin: &str) -> String {
         format!(

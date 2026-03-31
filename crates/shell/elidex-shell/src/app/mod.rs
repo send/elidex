@@ -212,6 +212,9 @@ impl App {
         let mut new_tab_urls: Vec<url::Url> = Vec::new();
         // Collect (source_tab_id, storage_change) for cross-tab broadcast.
         let mut storage_changes: Vec<(TabId, crate::ipc::StorageChangedMsg)> = Vec::new();
+        // Collect IDB versionchange requests for cross-tab broadcast.
+        let mut idb_version_change_requests: Vec<(TabId, String, String, u64, Option<u64>)> =
+            Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
             while drained < Self::MAX_DRAIN_PER_TAB {
@@ -264,6 +267,28 @@ impl App {
                             },
                         ));
                     }
+                    ContentToBrowser::IdbVersionChangeRequest {
+                        origin,
+                        db_name,
+                        old_version,
+                        new_version,
+                    } => {
+                        // Broadcast versionchange to all other same-origin tabs.
+                        idb_version_change_requests.push((
+                            tab.id,
+                            origin,
+                            db_name,
+                            old_version,
+                            new_version,
+                        ));
+                    }
+                    ContentToBrowser::IdbConnectionsClosed { db_name: _ } => {
+                        // A tab closed its IDB connections in response to versionchange.
+                        // In a full implementation, we'd track pending responses and
+                        // send IdbUpgradeReady when all tabs respond or timeout.
+                        // For now, the versionchange fires synchronously and the
+                        // upgrade proceeds immediately (single-threaded content).
+                    }
                 }
             }
         }
@@ -288,6 +313,38 @@ impl App {
                     new_value: change.new_value.clone(),
                     url: change.url.clone(),
                 });
+            }
+        }
+
+        // Broadcast IDB versionchange to other same-origin tabs (W3C IndexedDB §2.4).
+        for (source_tab_id, origin, db_name, old_version, new_version) in
+            &idb_version_change_requests
+        {
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    continue;
+                }
+                let tab_matches = tab.current_origin.as_ref().is_some_and(|o| o == origin);
+                if !tab_matches {
+                    continue;
+                }
+                let _ = tab.channel.send(BrowserToContent::IdbVersionChange {
+                    db_name: db_name.clone(),
+                    old_version: *old_version,
+                    new_version: *new_version,
+                });
+            }
+            // After broadcasting, immediately send IdbUpgradeReady to the requester.
+            // In a full implementation, we'd wait for IdbConnectionsClosed from all tabs
+            // or timeout. For now, the versionchange fires synchronously so connections
+            // are already closed by the time we process the next message.
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    let _ = tab.channel.send(BrowserToContent::IdbUpgradeReady {
+                        db_name: db_name.clone(),
+                    });
+                    break;
+                }
             }
         }
 

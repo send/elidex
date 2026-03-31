@@ -131,6 +131,32 @@ pub enum BrowserToContent {
         /// `true` when the tab becomes visible, `false` when hidden.
         visible: bool,
     },
+    /// Another tab is requesting an IndexedDB version change (W3C IndexedDB §2.4).
+    ///
+    /// This tab should fire `versionchange` events on all open connections
+    /// to the named database and close them.
+    IdbVersionChange {
+        /// Database name.
+        db_name: String,
+        /// Current version of the database.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
+    /// All other tabs have closed their connections — the upgrade may proceed.
+    IdbUpgradeReady {
+        /// Database name.
+        db_name: String,
+    },
+    /// Some tabs still have open connections after `versionchange` — fire `blocked`.
+    IdbBlocked {
+        /// Database name.
+        db_name: String,
+        /// Current version of the database.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
     /// Shut down the content thread.
     Shutdown,
 }
@@ -175,6 +201,26 @@ pub enum ContentToBrowser {
     OpenNewTab(url::Url),
     /// Request the browser thread to focus the window (from `window.focus()`).
     FocusWindow,
+    /// IndexedDB open/delete is requesting a version change (W3C IndexedDB §2.4).
+    ///
+    /// Browser thread must broadcast `IdbVersionChange` to all other same-origin
+    /// tabs, wait for responses, then send `IdbUpgradeReady` or `IdbBlocked`.
+    IdbVersionChangeRequest {
+        /// The origin that owns the database.
+        origin: String,
+        /// Database name.
+        db_name: String,
+        /// Current version.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
+    /// This tab has closed all IndexedDB connections to the named database
+    /// (response to `BrowserToContent::IdbVersionChange`).
+    IdbConnectionsClosed {
+        /// Database name.
+        db_name: String,
+    },
     /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
     ///
     /// Sent to the browser thread so it can broadcast `StorageEvent` to other

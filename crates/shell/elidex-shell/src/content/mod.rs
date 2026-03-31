@@ -711,6 +711,42 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         } => {
             dispatch_storage_event(state, key, old_value, new_value, url);
         }
+
+        // --- IndexedDB cross-tab versionchange (W3C IndexedDB §2.4) ---
+        BrowserToContent::IdbVersionChange {
+            db_name,
+            old_version,
+            new_version,
+        } => {
+            // Fire versionchange event on open connections and close them.
+            state.pipeline.runtime.dispatch_idb_versionchange(
+                &db_name,
+                old_version,
+                new_version,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            // Notify browser that connections are closed.
+            let _ = state
+                .channel
+                .send(ContentToBrowser::IdbConnectionsClosed { db_name });
+        }
+
+        BrowserToContent::IdbUpgradeReady { db_name: _ } => {
+            // TODO: Resume pending IDB open/delete upgrade.
+            // This requires storing the pending open request in the bridge
+            // and resuming it here. Deferred to M4-10 (full IDB lifecycle).
+        }
+
+        BrowserToContent::IdbBlocked {
+            db_name: _,
+            old_version: _,
+            new_version: _,
+        } => {
+            // TODO: Fire blocked event on the pending IDB open request.
+            // Requires pending request tracking. Deferred to M4-10.
+        }
     }
     true
 }
