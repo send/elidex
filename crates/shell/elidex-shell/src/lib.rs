@@ -409,7 +409,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         document,
         &stylesheets,
         &script_sources,
-        None,
+        None, // No NetworkHandle in standalone mode.
+        None, // No CookieJar.
         &font_db,
         None,
         &registry,
@@ -453,6 +454,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     html: &str,
     css: &str,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    cookie_jar: Arc<elidex_net::CookieJar>,
 ) -> PipelineResult {
     let parse_result = parse_html(html);
     for err in &parse_result.errors {
@@ -479,6 +481,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
+        Some(cookie_jar),
         &font_db,
         None,
         &registry,
@@ -548,6 +551,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
+        None,
         &font_db,
         url.as_ref(),
         &registry,
@@ -705,6 +709,15 @@ pub fn build_pipeline_from_loaded(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
 ) -> PipelineResult {
+    build_pipeline_from_loaded_inner(loaded, network_handle, None, font_db)
+}
+
+fn build_pipeline_from_loaded_inner(
+    loaded: elidex_navigation::LoadedDocument,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    font_db: Arc<FontDatabase>,
+) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
         document,
@@ -726,6 +739,7 @@ pub fn build_pipeline_from_loaded(
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
+        cookie_jar,
         &font_db,
         Some(&url),
         &registry,
@@ -779,11 +793,9 @@ pub fn build_pipeline_from_url(
     let network_handle = Rc::new(np.create_renderer_handle());
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
-    let mut result = build_pipeline_from_loaded(loaded, network_handle, font_db);
-    result
-        .runtime
-        .bridge()
-        .set_cookie_jar(Arc::clone(np.cookie_jar()));
+    let cookie_jar = Arc::clone(np.cookie_jar());
+    let mut result =
+        build_pipeline_from_loaded_inner(loaded, network_handle, Some(cookie_jar), font_db);
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }

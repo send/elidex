@@ -323,11 +323,7 @@ fn content_thread_main(
     }
 
     let nh = std::rc::Rc::new(network_handle);
-    let pipeline = {
-        let p = crate::build_pipeline_interactive_with_network(html, css, nh);
-        p.runtime.bridge().set_cookie_jar(cookie_jar);
-        p
-    };
+    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -365,11 +361,8 @@ fn content_thread_main_url(
         }
     };
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-    let pipeline = {
-        let p = crate::build_pipeline_from_loaded(loaded, nh, font_db);
-        p.runtime.bridge().set_cookie_jar(cookie_jar);
-        p
-    };
+    let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db);
+    pipeline.runtime.bridge().set_cookie_jar(cookie_jar);
 
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());

@@ -201,23 +201,23 @@ mod tests {
     use std::sync::atomic::AtomicU64;
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    fn test_manager() -> QuotaManager {
+    fn test_manager() -> (QuotaManager, std::path::PathBuf) {
         let id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("elidex-quota-test-{}-{id}", std::process::id()));
-        QuotaManager::with_limits(dir, 1000, 500)
+        (QuotaManager::with_limits(dir.clone(), 1000, 500), dir)
     }
 
     #[test]
     fn new_manager_empty() {
-        let mgr = test_manager();
+        let (mgr, _dir) = test_manager();
         assert_eq!(mgr.total_usage(), 0);
         assert!(!mgr.check_origin_quota("https://example.com"));
     }
 
     #[test]
     fn report_usage() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://example.com", 100);
         assert_eq!(mgr.total_usage(), 100);
         let (usage, quota) = mgr.estimate("https://example.com");
@@ -227,21 +227,21 @@ mod tests {
 
     #[test]
     fn origin_quota_exceeded() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://example.com", 501);
         assert!(mgr.check_origin_quota("https://example.com"));
     }
 
     #[test]
     fn origin_quota_within_limit() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://example.com", 500);
         assert!(!mgr.check_origin_quota("https://example.com"));
     }
 
     #[test]
     fn persistent_storage_grant() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         assert!(!mgr.is_persistent("https://example.com"));
         assert!(mgr.grant_persistent("https://example.com"));
         assert!(mgr.is_persistent("https://example.com"));
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn eviction_not_needed() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://a.com", 400);
         mgr.report_usage("https://b.com", 400);
         let evicted = mgr.evict_if_needed();
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn eviction_lru_order() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         let now = Instant::now();
         // Set up origins with controlled last_access (no sleep needed).
         mgr.report_usage("https://old.com", 400);
@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn eviction_skips_persistent() {
         let now = Instant::now();
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://persistent.com", 600);
         mgr.grant_persistent("https://persistent.com");
         mgr.report_usage("https://evictable.com", 500);
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn clear_origin() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://example.com", 100);
         mgr.grant_persistent("https://example.com");
         mgr.clear_origin("https://example.com");
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn estimate_unknown_origin() {
-        let mgr = test_manager();
+        let (mgr, _dir) = test_manager();
         let (usage, quota) = mgr.estimate("https://unknown.com");
         assert_eq!(usage, 0);
         assert_eq!(quota, 500);
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn touch_updates_access_time() {
-        let mut mgr = test_manager();
+        let (mut mgr, _dir) = test_manager();
         mgr.report_usage("https://example.com", 100);
         // Set last_access to the past so touch() will produce a later Instant.
         let past = Instant::now()

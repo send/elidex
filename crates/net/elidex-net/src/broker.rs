@@ -326,9 +326,9 @@ impl NetworkHandle {
 
     /// Send a message to the Network Process without waiting for a response.
     ///
-    /// Used for fire-and-forget operations: WS/SSE open, send, close.
-    pub fn send(&self, msg: RendererToNetwork) {
-        let _ = self.request_tx.send((self.client_id, msg));
+    /// Returns `true` if the message was queued, `false` if the broker is disconnected.
+    pub fn send(&self, msg: RendererToNetwork) -> bool {
+        self.request_tx.send((self.client_id, msg)).is_ok()
     }
 }
 
