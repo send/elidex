@@ -131,6 +131,55 @@ pub enum BrowserToContent {
         /// `true` when the tab becomes visible, `false` when hidden.
         visible: bool,
     },
+    /// Another tab is requesting an `IndexedDB` version change (W3C `IndexedDB` §2.4).
+    ///
+    /// This tab should fire `versionchange` events on all open connections
+    /// to the named database and close them.
+    IdbVersionChange {
+        /// Correlation ID for matching responses to requests.
+        request_id: u64,
+        /// Database name.
+        db_name: String,
+        /// Current version of the database.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
+    /// All other tabs have closed their connections — the upgrade may proceed.
+    IdbUpgradeReady {
+        /// Correlation ID matching the original request.
+        request_id: u64,
+        /// Database name.
+        db_name: String,
+    },
+    /// Some tabs still have open connections after `versionchange` — fire `blocked`.
+    IdbBlocked {
+        /// Correlation ID matching the original request.
+        request_id: u64,
+        /// Database name.
+        db_name: String,
+        /// Current version of the database.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
+    /// Response to `StorageEstimate` request.
+    StorageEstimateResult {
+        /// Bytes used by this origin.
+        usage: u64,
+        /// Quota available for this origin.
+        quota: u64,
+    },
+    /// Response to `StoragePersist` request.
+    StoragePersistResult {
+        /// Whether persistent storage was granted.
+        granted: bool,
+    },
+    /// Response to `StoragePersisted` request.
+    StoragePersistedResult {
+        /// Whether this origin has persistent storage.
+        persisted: bool,
+    },
     /// Shut down the content thread.
     Shutdown,
 }
@@ -175,6 +224,46 @@ pub enum ContentToBrowser {
     OpenNewTab(url::Url),
     /// Request the browser thread to focus the window (from `window.focus()`).
     FocusWindow,
+    /// `IndexedDB` open/delete is requesting a version change (W3C `IndexedDB` §2.4).
+    ///
+    /// Browser thread broadcasts `IdbVersionChange` to other same-origin tabs
+    /// and currently sends `IdbUpgradeReady` immediately (TODO(M4-10): wait for
+    /// `IdbConnectionsClosed` responses or timeout before sending).
+    IdbVersionChangeRequest {
+        /// Unique request ID for correlating responses across tabs.
+        request_id: u64,
+        /// The origin that owns the database.
+        origin: String,
+        /// Database name.
+        db_name: String,
+        /// Current version.
+        old_version: u64,
+        /// Requested new version (`None` for `deleteDatabase`).
+        new_version: Option<u64>,
+    },
+    /// This tab has closed all `IndexedDB` connections to the named database
+    /// (response to `BrowserToContent::IdbVersionChange`).
+    IdbConnectionsClosed {
+        /// Correlation ID matching the versionchange request.
+        request_id: u64,
+        /// Database name.
+        db_name: String,
+    },
+    /// Request storage usage estimate for this origin (W3C Storage Standard §4).
+    StorageEstimate {
+        /// The origin to estimate.
+        origin: String,
+    },
+    /// Request persistent storage for this origin (W3C Storage Standard §4).
+    StoragePersist {
+        /// The origin requesting persistence.
+        origin: String,
+    },
+    /// Query whether this origin has persistent storage.
+    StoragePersisted {
+        /// The origin to query.
+        origin: String,
+    },
     /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
     ///
     /// Sent to the browser thread so it can broadcast `StorageEvent` to other

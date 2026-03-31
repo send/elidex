@@ -2,13 +2,9 @@
 //!
 //! Implements the WHATWG `EventSource` API (HTML §9.2) as a global constructor.
 
-use std::rc::Rc;
-
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
-
-use elidex_net::FetchHandle;
 
 use crate::bridge::HostBridge;
 
@@ -48,25 +44,17 @@ impl_empty_trace!(SseHandlerCaptures);
 #[derive(Clone)]
 struct SseConstructorCaptures {
     bridge: HostBridge,
-    fetch_handle: Option<Rc<FetchHandle>>,
 }
 
 impl_empty_trace!(SseConstructorCaptures);
 
 /// Register the `EventSource` constructor as a global.
-pub fn register_event_source(
-    ctx: &mut Context,
-    bridge: &HostBridge,
-    fetch_handle: Option<Rc<FetchHandle>>,
-) {
+pub fn register_event_source(ctx: &mut Context, bridge: &HostBridge) {
     let cap = SseConstructorCaptures {
         bridge: bridge.clone(),
-        fetch_handle,
     };
     let constructor = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, cap, ctx| -> JsResult<JsValue> {
-            sse_constructor(args, &cap.bridge, cap.fetch_handle.as_ref(), ctx)
-        },
+        |_this, args, cap, ctx| -> JsResult<JsValue> { sse_constructor(args, &cap.bridge, ctx) },
         cap,
     );
 
@@ -85,12 +73,7 @@ pub fn register_event_source(
 
 /// `new EventSource(url, options?)` implementation.
 #[allow(clippy::too_many_lines)]
-fn sse_constructor(
-    args: &[JsValue],
-    bridge: &HostBridge,
-    fetch_handle: Option<&Rc<FetchHandle>>,
-    ctx: &mut Context,
-) -> JsResult<JsValue> {
+fn sse_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> JsResult<JsValue> {
     // 1. Parse URL.
     let url_str = args
         .first()
@@ -261,14 +244,8 @@ fn sse_constructor(
     // Static constants on instance.
     set_readystate_constants(&es_obj, &SSE_READYSTATE_CONSTANTS, ctx);
 
-    // 5. Ensure the shared cookie jar is set for withCredentials support.
-    if with_credentials {
-        if let Some(fh) = fetch_handle {
-            bridge.set_realtime_cookie_jar(Some(fh.cookie_jar_arc()));
-        }
-    }
-
-    // 6. Open the SSE connection via the bridge.
+    // 5. Open the SSE connection via the bridge.
+    // Cookie jar for withCredentials is managed by the Network Process broker.
     // Same-origin requests skip CORS; cross-origin requests send Origin header.
     let doc_origin = bridge.origin();
     let sse_origin = elidex_plugin::SecurityOrigin::from_url(&url);

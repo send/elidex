@@ -17,7 +17,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
-use elidex_net::FetchHandle;
+use elidex_net::broker::NetworkHandle;
 
 /// Hidden property key storing the response body bytes on a Response object.
 const BODY_KEY: &str = "__elidex_fetch_body__";
@@ -26,21 +26,21 @@ const HEADERS_KEY: &str = "__elidex_fetch_headers__";
 
 /// Captures type for `fetch()` closure.
 ///
-/// Contains an `Rc<FetchHandle>` which is `!Send` (due to tokio current-thread
-/// runtime). This is fine since boa is also `!Send`.
+/// Contains an `Rc<NetworkHandle>` for sending fetch requests to the
+/// Network Process broker. `Rc` is `!Send` but boa is also `!Send`.
 #[derive(Clone)]
 struct FetchCaptures {
-    handle: Rc<FetchHandle>,
+    handle: Rc<NetworkHandle>,
 }
 
-// Trace/Finalize: FetchHandle contains only Rust types, no GC objects.
+// Trace/Finalize: NetworkHandle contains only Rust types, no GC objects.
 impl_empty_trace!(FetchCaptures);
 
 /// Register the `fetch()` global function on the boa context.
 ///
-/// If `fetch_handle` is `None`, `fetch()` is not registered (test mode).
-pub fn register_fetch(ctx: &mut Context, fetch_handle: Option<Rc<FetchHandle>>) {
-    let Some(handle) = fetch_handle else {
+/// If `network_handle` is `None`, `fetch()` is not registered (test mode).
+pub fn register_fetch(ctx: &mut Context, network_handle: Option<Rc<NetworkHandle>>) {
+    let Some(handle) = network_handle else {
         return;
     };
 
@@ -144,8 +144,8 @@ fn fetch_impl(args: &[JsValue], captures: &FetchCaptures, ctx: &mut Context) -> 
         body,
     };
 
-    // 3. Execute the request synchronously.
-    match captures.handle.send_blocking(request) {
+    // 3. Execute the request via the Network Process broker (blocking).
+    match captures.handle.fetch_blocking(request) {
         Ok(response) => {
             let response_obj = create_response_object(&response, &request_url, ctx);
             let promise = JsPromise::resolve(response_obj, ctx);

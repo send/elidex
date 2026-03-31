@@ -5,6 +5,7 @@ members = [
     "crates/core/elidex-plugin-macros",
     "crates/core/elidex-ecs",
     "crates/core/elidex-render",
+    "crates/core/elidex-sandbox",
     "crates/css/elidex-css",
     "crates/css/elidex-css-box",
     "crates/css/elidex-css-text",
@@ -98,6 +99,7 @@ webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }
 elidex-render = { path = "crates/core/elidex-render" }
+elidex-sandbox = { path = "crates/core/elidex-sandbox" }
 elidex-html-parser = { path = "crates/dom/elidex-html-parser" }
 elidex-css = { path = "crates/css/elidex-css" }
 elidex-css-box = { path = "crates/css/elidex-css-box" }

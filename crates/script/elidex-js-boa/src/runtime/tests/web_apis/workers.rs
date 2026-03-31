@@ -636,10 +636,11 @@ fn worker_postmessage_roundtrip() {
 
 #[test]
 fn worker_fetch_available() {
-    // Create worker with FetchHandle to verify fetch registration.
+    // Workers get a standalone broker so fetch() is available.
     let url = ::url::Url::parse("https://example.com/worker.js").unwrap();
-    let fetch_handle = std::rc::Rc::new(elidex_net::FetchHandle::with_default_client());
-    let mut rt = JsRuntime::for_worker(Some(fetch_handle), String::new(), url);
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let nh = std::rc::Rc::new(np.create_renderer_handle());
+    let mut rt = JsRuntime::for_worker(Some(nh), String::new(), url);
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -653,6 +654,7 @@ fn worker_fetch_available() {
     assert!(result.success, "JS error: {:?}", result.error);
     let msgs = rt.console_output().messages();
     assert!(msgs.last().is_some_and(|(_, text)| text == "true"));
+    np.shutdown();
 }
 
 #[test]

@@ -102,15 +102,21 @@ fn load_iframe_from_url(
         );
     };
 
-    let effective_handle: std::rc::Rc<elidex_net::FetchHandle> = if iframe_data.credentialless {
-        std::rc::Rc::new(elidex_net::FetchHandle::new(
+    // Credentialless iframes use an isolated broker (no shared cookies).
+    // Non-credentialless iframes share the parent's NetworkHandle.
+    let credentialless_broker = if iframe_data.credentialless {
+        Some(elidex_net::broker::spawn_network_process(
             elidex_net::NetClient::new_credentialless(),
         ))
     } else {
-        ctx.fetch_handle.clone()
+        None
     };
-
-    match elidex_navigation::load_document(&resolved, &effective_handle, None) {
+    let credentialless_handle = credentialless_broker
+        .as_ref()
+        .map(elidex_net::broker::NetworkProcessHandle::create_renderer_handle);
+    let effective_handle: &elidex_net::broker::NetworkHandle =
+        credentialless_handle.as_ref().unwrap_or(ctx.network_handle);
+    match elidex_navigation::load_document(&resolved, effective_handle, None) {
         Ok(loaded) => {
             let doc_origin = SecurityOrigin::from_url(&loaded.url);
             if !check_framing_allowed(&loaded.response_headers, ctx.parent_origin, &doc_origin) {
@@ -131,8 +137,35 @@ fn load_iframe_from_url(
                 return make_out_of_process_entry(loaded, sandbox_flags);
             }
 
-            let pipeline =
-                crate::build_pipeline_from_loaded(loaded, effective_handle, ctx.font_db.clone());
+            // Use credentialless handle if applicable, otherwise parent's.
+            let pipeline_handle: std::rc::Rc<elidex_net::broker::NetworkHandle> =
+                if iframe_data.credentialless {
+                    std::rc::Rc::new(
+                        credentialless_broker
+                            .as_ref()
+                            .unwrap()
+                            .create_renderer_handle(),
+                    )
+                } else {
+                    ctx.network_handle.clone()
+                };
+            // Same-origin iframes inherit the parent's cookie jar.
+            // Credentialless iframes get None (isolated cookies).
+            let iframe_cookies = if iframe_data.credentialless {
+                None
+            } else {
+                ctx.cookie_jar.clone()
+            };
+            let mut pipeline = crate::build_pipeline_from_loaded(
+                loaded,
+                pipeline_handle,
+                ctx.font_db.clone(),
+                iframe_cookies,
+            );
+            // Keep credentialless broker alive for the iframe pipeline's lifetime.
+            if let Some(cb) = credentialless_broker {
+                pipeline.broker_keepalive = Some(cb);
+            }
             let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
             set_referrer(&entry, ctx);
             entry
@@ -210,10 +243,9 @@ fn make_out_of_process_entry(
     let thread = std::thread::spawn(move || {
         // Build pipeline on this thread (PipelineResult is !Send).
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
-        let fetch_handle =
-            std::rc::Rc::new(elidex_net::FetchHandle::new(elidex_net::NetClient::new()));
+        let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
+        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db, None);
 
         oop_pipeline
             .runtime
@@ -279,8 +311,9 @@ fn build_iframe_pipeline(
         html,
         url,
         ctx.font_db.clone(),
-        ctx.fetch_handle.clone(),
+        ctx.network_handle.clone(),
         ctx.registry.clone(),
+        ctx.cookie_jar.clone(),
     )
 }
 

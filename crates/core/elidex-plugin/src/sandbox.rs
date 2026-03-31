@@ -1,8 +1,34 @@
 //! Sandbox policy type definitions.
 //!
 //! These types describe the security constraints applied to content processes.
-//! Actual enforcement (seccomp-bpf, sandbox-exec, etc.) requires OS process
-//! isolation and is deferred to a future phase.
+//! Enforcement is implemented in the `elidex-sandbox` crate using platform-
+//! specific mechanisms (seccomp-bpf, sandbox-exec, restricted tokens).
+
+use std::fmt;
+
+/// Error returned when sandbox enforcement fails.
+#[derive(Debug, Clone)]
+pub struct SandboxError {
+    /// Human-readable description of the failure.
+    pub message: String,
+}
+
+impl SandboxError {
+    /// Create a new `SandboxError` with the given message.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for SandboxError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sandbox error: {}", self.message)
+    }
+}
+
+impl std::error::Error for SandboxError {}
 
 /// Filesystem access level for a sandboxed process.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

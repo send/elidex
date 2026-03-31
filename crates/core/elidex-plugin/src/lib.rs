@@ -10,6 +10,7 @@ pub mod css_resolve;
 mod error;
 mod event_types;
 pub mod handlers;
+pub mod ipc_channel;
 mod js_value;
 mod layout_types;
 mod logical;
@@ -42,6 +43,7 @@ pub use event_types::{
     EventPhase, FocusEventInit, HashChangeEventInit, InputEventInit, KeyboardEventInit,
     MouseEventInit, PageTransitionEventInit, TransitionEventInit, WheelEventInit,
 };
+pub use ipc_channel::{IpcChannel, IpcRecvTimeoutError, IpcSendError, IpcTryRecvError};
 pub use js_value::JsValue;
 pub use layout_types::{
     CssSize, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult, Point, Rect,
@@ -49,11 +51,12 @@ pub use layout_types::{
 };
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use origin::{
-    check_x_frame_options, is_framing_allowed, parse_frame_ancestors, parse_iframe_allow_attribute,
-    parse_sandbox_attribute, AllowList, FrameAncestorSource, FrameAncestorsPolicy,
-    IframeSandboxFlags, PermissionsPolicy, SecurityOrigin, MAX_IFRAME_DEPTH,
+    check_x_frame_options, hex_encode_for_path, is_framing_allowed, parse_frame_ancestors,
+    parse_iframe_allow_attribute, parse_sandbox_attribute, AllowList, FrameAncestorSource,
+    FrameAncestorsPolicy, IframeSandboxFlags, PermissionsPolicy, SecurityOrigin, MAX_IFRAME_DEPTH,
 };
 pub use registry::PluginRegistry;
+pub use sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use spec_level::{CssSpecLevel, DomSpecLevel, EsSpecLevel, HtmlSpecLevel, WebApiSpecLevel};
 pub use traits::{
     AccessibilityRole, Attributes, Constraints, CssPropertyHandler, CssPropertyRegistry, CssRule,

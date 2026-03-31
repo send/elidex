@@ -15,6 +15,7 @@ pub fn register_navigator(ctx: &mut Context, _bridge: &HostBridge) {
     let _ = languages_arr.push(JsValue::from(js_string!(language.as_str())), ctx);
     let languages_val: JsValue = languages_arr.into();
     let permissions_val = build_permissions_object(ctx);
+    let storage_val = build_storage_object(ctx);
 
     let mut init = ObjectInitializer::new(ctx);
 
@@ -96,6 +97,9 @@ pub fn register_navigator(ctx: &mut Context, _bridge: &HostBridge) {
         Attribute::CONFIGURABLE,
     );
 
+    // storage (W3C Storage Standard §4)
+    init.property(js_string!("storage"), storage_val, Attribute::CONFIGURABLE);
+
     let navigator = init.build();
     ctx.register_global_property(js_string!("navigator"), navigator, Attribute::all())
         .expect("failed to register navigator");
@@ -150,6 +154,61 @@ fn build_permissions_object(ctx: &mut Context) -> JsValue {
         }),
         js_string!("query"),
         1,
+    );
+
+    init.build().into()
+}
+
+/// Build the `navigator.storage` object (W3C Storage Standard §4).
+///
+/// Provides `estimate()`, `persist()`, and `persisted()` methods.
+/// Currently returns stub values — full integration requires IPC to
+/// the browser thread's `QuotaManager`.
+fn build_storage_object(ctx: &mut Context) -> JsValue {
+    use boa_engine::object::builtins::JsPromise;
+
+    let mut init = ObjectInitializer::new(ctx);
+
+    // storage.estimate() → Promise<{usage, quota}>
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, ctx| {
+            // Stub: return zero usage with 500 MiB quota.
+            // Full implementation sends ContentToBrowser::StorageEstimate IPC.
+            let mut result = ObjectInitializer::new(ctx);
+            result.property(js_string!("usage"), JsValue::from(0), Attribute::all());
+            result.property(
+                js_string!("quota"),
+                JsValue::from(500 * 1024 * 1024),
+                Attribute::all(),
+            );
+            let obj = result.build();
+            let promise = JsPromise::resolve(JsValue::from(obj), ctx);
+            Ok(promise.into())
+        }),
+        js_string!("estimate"),
+        0,
+    );
+
+    // storage.persist() → Promise<boolean>
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, ctx| {
+            // Stub: persistence not granted (consistent with persisted() = false).
+            let promise = JsPromise::resolve(JsValue::from(false), ctx);
+            Ok(promise.into())
+        }),
+        js_string!("persist"),
+        0,
+    );
+
+    // storage.persisted() → Promise<boolean>
+    init.function(
+        NativeFunction::from_copy_closure(|_this, _args, ctx| {
+            // Stub: report as not persisted.
+            let promise = JsPromise::resolve(JsValue::from(false), ctx);
+            Ok(promise.into())
+        }),
+        js_string!("persisted"),
+        0,
     );
 
     init.build().into()

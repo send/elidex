@@ -436,9 +436,9 @@ fn dispatch_event_runs_promise_microtasks() {
 }
 
 #[test]
-fn with_fetch_none_is_same_as_new() {
-    // JsRuntime::new() and JsRuntime::with_fetch(None) should behave identically.
-    let mut runtime = JsRuntime::with_fetch(None);
+fn with_network_none_is_same_as_new() {
+    // JsRuntime::new() and JsRuntime::with_network(None) should behave identically.
+    let mut runtime = JsRuntime::with_network(None);
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

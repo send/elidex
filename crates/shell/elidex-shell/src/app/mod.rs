@@ -98,11 +98,14 @@ pub struct App {
     pub(super) interactive: Option<InteractiveState>,
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
+    /// Network Process broker handle (singleton, owns `NetClient` + `CookieJar`).
+    network_process: Option<elidex_net::broker::NetworkProcessHandle>,
 }
 
 impl App {
-    /// Create a threaded-mode `App` from a pre-initialized `TabManager`.
-    fn from_tab_manager(mgr: TabManager) -> Self {
+    /// Create a threaded-mode `App` from a pre-initialized `TabManager`
+    /// and `NetworkProcessHandle`.
+    fn from_tab_manager(mgr: TabManager, np: elidex_net::broker::NetworkProcessHandle) -> Self {
         Self {
             render_state: None,
             tab_manager: Some(mgr),
@@ -111,14 +114,23 @@ impl App {
             cursor_in_content: false,
             interactive: None,
             pending_focus: false,
+            network_process: Some(np),
         }
+    }
+
+    /// Spawn the singleton Network Process broker.
+    fn create_network_process() -> elidex_net::broker::NetworkProcessHandle {
+        elidex_net::broker::spawn_network_process(elidex_net::NetClient::new())
     }
 
     /// Create a new threaded application from HTML/CSS.
     pub fn new_threaded(html: String, css: String) -> Self {
+        let np = Self::create_network_process();
+        let nh = np.create_renderer_handle();
+        let cookie_jar = Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let thread = crate::content::spawn_content_thread(content_ch, html, css);
+        let thread = crate::content::spawn_content_thread(content_ch, nh, cookie_jar, html, css);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(
@@ -128,21 +140,24 @@ impl App {
             "elidex".to_string(),
         );
 
-        Self::from_tab_manager(mgr)
+        Self::from_tab_manager(mgr, np)
     }
 
     /// Create a new threaded application from a URL.
     pub fn new_threaded_url(url: url::Url) -> Self {
+        let np = Self::create_network_process();
+        let nh = np.create_renderer_handle();
+        let cookie_jar = Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let title = format!("elidex \u{2014} {url}");
         let chrome = crate::chrome::ChromeState::new(Some(&url));
-        let thread = crate::content::spawn_content_thread_url(content_ch, url);
+        let thread = crate::content::spawn_content_thread_url(content_ch, nh, cookie_jar, url);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(browser_ch, thread, chrome, title);
 
-        Self::from_tab_manager(mgr)
+        Self::from_tab_manager(mgr, np)
     }
 
     /// Create a new legacy (inline) interactive application from a pipeline result.
@@ -166,6 +181,7 @@ impl App {
                 window_title: "elidex".to_string(),
             }),
             pending_focus: false,
+            network_process: None, // Legacy mode — no broker.
         }
     }
 
@@ -195,6 +211,7 @@ impl App {
                 window_title: title,
             }),
             pending_focus: false,
+            network_process: None, // Legacy mode — no broker.
         }
     }
 
@@ -205,6 +222,7 @@ impl App {
     const MAX_DRAIN_PER_TAB: usize = 1000;
 
     /// Drain all pending messages from all tabs.
+    #[allow(clippy::too_many_lines)]
     fn drain_content_messages(&mut self) {
         let Some(mgr) = &mut self.tab_manager else {
             return;
@@ -212,6 +230,10 @@ impl App {
         let mut new_tab_urls: Vec<url::Url> = Vec::new();
         // Collect (source_tab_id, storage_change) for cross-tab broadcast.
         let mut storage_changes: Vec<(TabId, crate::ipc::StorageChangedMsg)> = Vec::new();
+        // Collect IDB versionchange requests for cross-tab broadcast.
+        // (source_tab, request_id, origin, db_name, old_version, new_version)
+        let mut idb_version_change_requests: Vec<(TabId, u64, String, String, u64, Option<u64>)> =
+            Vec::new();
         for tab in mgr.tabs_mut() {
             let mut drained = 0;
             while drained < Self::MAX_DRAIN_PER_TAB {
@@ -264,6 +286,34 @@ impl App {
                             },
                         ));
                     }
+                    ContentToBrowser::IdbVersionChangeRequest {
+                        request_id,
+                        origin,
+                        db_name,
+                        old_version,
+                        new_version,
+                    } => {
+                        // Broadcast versionchange to all other same-origin tabs.
+                        // Note: origin is trusted here because it's computed by the
+                        // bridge from SecurityOrigin::from_url (not user-supplied).
+                        idb_version_change_requests.push((
+                            tab.id,
+                            request_id,
+                            origin,
+                            db_name,
+                            old_version,
+                            new_version,
+                        ));
+                    }
+                    // No-op at browser level — tracked for future use.
+                    ContentToBrowser::IdbConnectionsClosed { .. }
+                    | ContentToBrowser::StorageEstimate { .. }
+                    | ContentToBrowser::StoragePersist { .. }
+                    | ContentToBrowser::StoragePersisted { .. } => {
+                        // TODO: Handle storage API requests via QuotaManager.
+                        // For now these are stub messages — the JS API implementation
+                        // will send these and wait for responses.
+                    }
                 }
             }
         }
@@ -291,6 +341,39 @@ impl App {
             }
         }
 
+        // Broadcast IDB versionchange to other same-origin tabs (W3C IndexedDB §2.4).
+        for (source_tab_id, request_id, origin, db_name, old_version, new_version) in
+            &idb_version_change_requests
+        {
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    continue;
+                }
+                let tab_matches = tab.current_origin.as_ref().is_some_and(|o| o == origin);
+                if !tab_matches {
+                    continue;
+                }
+                let _ = tab.channel.send(BrowserToContent::IdbVersionChange {
+                    request_id: *request_id,
+                    db_name: db_name.clone(),
+                    old_version: *old_version,
+                    new_version: *new_version,
+                });
+            }
+            // After broadcasting, immediately send IdbUpgradeReady to the requester.
+            // TODO(M4-10): Wait for IdbConnectionsClosed from all tabs or timeout,
+            // then send IdbUpgradeReady or IdbBlocked (W3C IndexedDB §2.4).
+            for tab in mgr.tabs_mut() {
+                if tab.id == *source_tab_id {
+                    let _ = tab.channel.send(BrowserToContent::IdbUpgradeReady {
+                        request_id: *request_id,
+                        db_name: db_name.clone(),
+                    });
+                    break;
+                }
+            }
+        }
+
         // Update window title only when the active tab's title changed.
         if let Some(tab) = mgr.active_tab() {
             if let Some(state) = &self.render_state {
@@ -305,8 +388,12 @@ impl App {
             let (browser_chan, content_chan) = crate::ipc::channel_pair();
             let title = format!("elidex \u{2014} {url}");
             let chrome = crate::chrome::ChromeState::new(Some(&url));
-            let thread = crate::content::spawn_content_thread_url(content_chan, url);
-            mgr.create_tab(browser_chan, thread, chrome, title);
+            if let Some(np) = &self.network_process {
+                let nh = np.create_renderer_handle();
+                let jar = Arc::clone(np.cookie_jar());
+                let thread = crate::content::spawn_content_thread_url(content_chan, nh, jar, url);
+                mgr.create_tab(browser_chan, thread, chrome, title);
+            }
         }
     }
 

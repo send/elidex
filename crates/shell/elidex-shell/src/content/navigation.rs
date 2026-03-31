@@ -21,14 +21,17 @@ pub(super) fn handle_navigate(
     is_history_nav: bool,
     request: Option<elidex_net::Request>,
 ) {
-    let fetch_handle = Rc::clone(&state.pipeline.fetch_handle);
+    let network_handle = Rc::clone(&state.pipeline.network_handle);
     let font_db = Arc::clone(&state.pipeline.font_db);
 
-    match elidex_navigation::load_document(url, &fetch_handle, request) {
+    match elidex_navigation::load_document(url, &network_handle, request) {
         Ok(loaded) => {
             // Shut down WebSocket/SSE connections before replacing the pipeline.
             state.pipeline.runtime.bridge().shutdown_all_realtime();
-            let new_pipeline = crate::build_pipeline_from_loaded(loaded, fetch_handle, font_db);
+            // Preserve cookie jar across navigations.
+            let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
+            let new_pipeline =
+                crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
             state.pipeline = new_pipeline;
             state.focus_target = None;
             state.hover_chain.clear();

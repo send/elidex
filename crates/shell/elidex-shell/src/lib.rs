@@ -20,6 +20,7 @@ mod gpu;
 pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
+pub mod quota;
 
 #[cfg(test)]
 mod tests;
@@ -37,7 +38,6 @@ use elidex_ecs::Entity;
 use elidex_html_parser::parse_html;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
-use elidex_net::FetchHandle;
 use elidex_plugin::{Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
 use elidex_script_session::SessionCore;
@@ -340,8 +340,13 @@ pub struct PipelineResult {
     pub font_db: Arc<FontDatabase>,
     /// The URL of the current page, if loaded from a URL.
     pub url: Option<url::Url>,
-    /// Shared fetch handle (for cookie sharing across navigation).
-    pub fetch_handle: Rc<FetchHandle>,
+    /// Network handle for communicating with the Network Process broker.
+    /// `disconnected()` when no broker is available (standalone tests).
+    pub network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    /// Keeps the broker thread alive for standalone pipelines.
+    /// `None` when the App owns the broker (normal tab mode).
+    #[allow(dead_code)]
+    pub(crate) broker_keepalive: Option<elidex_net::broker::NetworkProcessHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
     /// `Arc`-wrapped so it can be shared with child iframe pipelines.
     pub registry: Arc<elidex_plugin::CssPropertyRegistry>,
@@ -394,7 +399,6 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         elidex_css::Origin::Author,
         Some(&registry),
     )];
-    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let font_db = Arc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
@@ -405,7 +409,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        None, // No NetworkHandle in standalone mode.
+        None, // No CookieJar.
         &font_db,
         None,
         &registry,
@@ -424,7 +429,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         stylesheets,
         font_db,
         url: None,
-        fetch_handle,
+        network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -432,6 +437,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     // Start CSS animations declared in initial styles.
@@ -443,18 +449,84 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     result
 }
 
+/// Like [`build_pipeline_interactive`] but with a `NetworkHandle` for network access.
+pub(crate) fn build_pipeline_interactive_with_network(
+    html: &str,
+    css: &str,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    cookie_jar: Arc<elidex_net::CookieJar>,
+) -> PipelineResult {
+    let parse_result = parse_html(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let registry = Arc::new(create_css_property_registry());
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+    let font_db = Arc::new(FontDatabase::new());
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Some(Rc::clone(&network_handle)),
+        Some(cookie_jar),
+        &font_db,
+        None,
+        &registry,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: None,
+        network_handle,
+        registry,
+        animation_engine,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
+    };
+
+    sync_css_animations(&mut result, &[]);
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
 /// Build a pipeline from HTML, sharing the parent's resources.
 ///
 /// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
-/// `fetch_handle`, and `registry` instead of creating fresh instances.
-/// This ensures the JS `fetch()` closure captures the correct `FetchHandle`
-/// (important for `credentialless` iframes and cookie sharing).
+/// `network_handle`, and `registry` instead of creating fresh instances.
 pub(crate) fn build_pipeline_interactive_shared(
     html: &str,
     url: Option<url::Url>,
     font_db: Arc<FontDatabase>,
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
 ) -> PipelineResult {
     let parse_result = parse_html(html);
     for err in &parse_result.errors {
@@ -479,7 +551,8 @@ pub(crate) fn build_pipeline_interactive_shared(
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        Some(Rc::clone(&network_handle)),
+        cookie_jar,
         &font_db,
         url.as_ref(),
         &registry,
@@ -497,7 +570,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         stylesheets,
         font_db,
         url,
-        fetch_handle,
+        network_handle,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -505,6 +578,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     sync_css_animations(&mut result, &[]);
@@ -633,8 +707,9 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 /// resolves styles, computes layout, and builds the display list.
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -656,7 +731,8 @@ pub fn build_pipeline_from_loaded(
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        Some(Rc::clone(&network_handle)),
+        cookie_jar,
         &font_db,
         Some(&url),
         &registry,
@@ -675,7 +751,7 @@ pub fn build_pipeline_from_loaded(
         stylesheets,
         font_db,
         url: Some(url),
-        fetch_handle,
+        network_handle,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -683,6 +759,7 @@ pub fn build_pipeline_from_loaded(
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     // Start CSS animations declared in initial styles.
@@ -696,14 +773,23 @@ pub fn build_pipeline_from_loaded(
 
 /// Build a pipeline from a URL.
 ///
-/// Creates a `FetchHandle`, loads the document, and runs the full pipeline.
+/// Spawns a temporary Network Process broker to load the document (standalone mode).
+/// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 pub fn build_pipeline_from_url(
     url: &url::Url,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
-    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
-    let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
+    // Standalone mode: use a disconnected handle for pipeline (no broker).
+    // load_document still routes through NetworkHandle::fetch_blocking which
+    // returns "network process disconnected" for disconnected handles, so
+    // we create a temporary broker for standalone URL loading.
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let network_handle = Rc::new(np.create_renderer_handle());
+    let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
-    Ok(build_pipeline_from_loaded(loaded, fetch_handle, font_db))
+    let cookie_jar = Arc::clone(np.cookie_jar());
+    let mut result = build_pipeline_from_loaded(loaded, network_handle, font_db, Some(cookie_jar));
+    result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
+    Ok(result)
 }
 
 /// Run the browser from a URL string, opening a window.

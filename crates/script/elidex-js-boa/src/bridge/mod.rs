@@ -159,6 +159,14 @@ pub(crate) struct HostBridgeInner {
     iframe: IframeBridgeState,
     // --- WebSocket / SSE ---
     realtime: realtime::RealtimeState,
+    // --- Network Process ---
+    /// Handle to the Network Process broker for fetch/WS/SSE operations.
+    /// May be `None` during initialization or in certain test harnesses.
+    network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
+    /// Shared cookie jar reference for `document.cookie` script access.
+    /// Cloned from the Network Process's `NetClient` cookie jar.
+    /// Set via `bridge.set_cookie_jar()` during content thread init.
+    cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     // --- Timer queue ---
     /// Reference to the timer queue for `window.stop()`.
     timer_queue: Option<crate::globals::timers::TimerQueueHandle>,
@@ -208,6 +216,27 @@ pub(crate) struct HostBridgeInner {
     idb_open_connections: HashMap<String, Vec<JsObject>>,
     /// Database name currently in upgrade mode (versionchange), if any.
     idb_upgrading_db: Option<String>,
+    /// Pending cross-tab IDB versionchange requests.
+    /// Drained by the content thread and sent as `ContentToBrowser::IdbVersionChangeRequest`.
+    pending_idb_versionchange: Vec<IdbVersionChangeMsg>,
+}
+
+/// Monotonic counter for IDB versionchange request IDs.
+static IDB_REQUEST_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Queued IDB versionchange request for cross-tab broadcast.
+#[derive(Clone, Debug)]
+pub struct IdbVersionChangeMsg {
+    /// Unique request ID for correlating responses across tabs.
+    pub request_id: u64,
+    /// The origin that owns the database.
+    pub origin: String,
+    /// Database name.
+    pub db_name: String,
+    /// Current version.
+    pub old_version: u64,
+    /// Requested new version (`None` for `deleteDatabase`).
+    pub new_version: Option<u64>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -389,6 +418,8 @@ impl HostBridge {
                 when_defined_promises: HashMap::new(),
                 iframe: IframeBridgeState::default(),
                 realtime: realtime::RealtimeState::default(),
+                network_handle: None,
+                cookie_jar: None,
                 timer_queue: None,
                 pending_script_dispatch: None,
                 focus_target: None,
@@ -407,6 +438,7 @@ impl HostBridge {
                 idb_cursor_next_id: 1,
                 idb_open_connections: HashMap::new(),
                 idb_upgrading_db: None,
+                pending_idb_versionchange: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),
@@ -570,14 +602,66 @@ impl HostBridge {
     // Web Animations API methods are in animation.rs
     // Form data collection is in form.rs
 
-    /// Drain all pending WebSocket and SSE events.
-    pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
-        self.inner.borrow_mut().realtime.drain_realtime_events()
+    /// Set the `NetworkHandle` for this bridge (called during `JsRuntime` init).
+    pub fn set_network_handle(&self, handle: Rc<elidex_net::broker::NetworkHandle>) {
+        let mut inner = self.inner.borrow_mut();
+        inner.network_handle = Some(handle);
     }
 
-    /// Shut down all WebSocket and SSE connections.
+    /// Set the cookie jar reference for `document.cookie` script access.
+    /// Create a sibling `NetworkHandle` sharing the same broker (for workers).
+    ///
+    /// Returns `None` if no `NetworkHandle` is configured.
+    pub fn create_sibling_network_handle(&self) -> Option<elidex_net::broker::NetworkHandle> {
+        self.inner
+            .borrow()
+            .network_handle
+            .as_ref()
+            .map(|nh| nh.create_sibling_handle())
+    }
+
+    /// Clone the cookie jar reference (for passing to new pipelines on navigation).
+    pub fn cookie_jar_clone(&self) -> Option<std::sync::Arc<elidex_net::CookieJar>> {
+        self.inner.borrow().cookie_jar.clone()
+    }
+
+    pub fn set_cookie_jar(&self, jar: std::sync::Arc<elidex_net::CookieJar>) {
+        self.inner.borrow_mut().cookie_jar = Some(jar);
+    }
+
+    /// Drain all pending WebSocket and SSE events from the Network Process.
+    pub fn drain_realtime_events(&self) -> realtime::RealtimeEvents {
+        let inner = self.inner.borrow();
+        let Some(handle) = &inner.network_handle else {
+            return (Vec::new(), Vec::new());
+        };
+        let events = handle.drain_events();
+        let mut ws_events = Vec::new();
+        let mut sse_events = Vec::new();
+        for event in events {
+            match event {
+                elidex_net::broker::NetworkToRenderer::WebSocketEvent(conn_id, ws_event) => {
+                    ws_events.push((conn_id, ws_event));
+                }
+                elidex_net::broker::NetworkToRenderer::EventSourceEvent(conn_id, sse_event) => {
+                    sse_events.push((conn_id, sse_event));
+                }
+                elidex_net::broker::NetworkToRenderer::FetchResponse(..) => {
+                    // Late-arriving fetch response after content-thread timeout
+                    // (30s in fetch_blocking). Safe to drop — no JS promise waiting.
+                }
+            }
+        }
+        (ws_events, sse_events)
+    }
+
+    /// Shut down all WebSocket and SSE connections via the Network Process.
     pub fn shutdown_all_realtime(&self) {
-        self.inner.borrow_mut().realtime.shutdown_all();
+        let mut inner = self.inner.borrow_mut();
+        inner.realtime.clear_all();
+        if let Some(handle) = &inner.network_handle {
+            handle.send(elidex_net::broker::RendererToNetwork::Shutdown);
+        }
     }
 
     // --- WebSocket API ---
@@ -590,10 +674,25 @@ impl HostBridge {
         origin: String,
         js_object: JsObject,
     ) -> Result<u64, String> {
-        self.inner
-            .borrow_mut()
-            .realtime
-            .open_websocket(url, protocols, origin, js_object)
+        let mut inner = self.inner.borrow_mut();
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
+        }
+        let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
+        if let Some(handle) = &inner.network_handle {
+            if !handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
+                conn_id,
+                url,
+                protocols,
+                origin,
+            }) {
+                inner.realtime.remove_ws(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
+        }
+        Ok(conn_id)
     }
 
     /// Read a WebSocket callback field via a closure.
@@ -613,15 +712,33 @@ impl HostBridge {
         self.inner.borrow_mut().realtime.ws_callbacks_mut(id).map(f)
     }
 
-    /// Send text on a WebSocket.
+    /// Send text on a WebSocket via the Network Process.
     #[must_use]
     pub fn ws_send_text(&self, id: u64, data: String) -> bool {
-        self.inner.borrow().realtime.ws_send_text(id, data)
+        let inner = self.inner.borrow();
+        if inner.realtime.ws_callbacks(id).is_none() {
+            return false; // Unknown connection ID.
+        }
+        if let Some(handle) = &inner.network_handle {
+            handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
+                id,
+                elidex_net::ws::WsCommand::SendText(data),
+            ))
+        } else {
+            false
+        }
     }
 
-    /// Close a WebSocket.
+    /// Close a WebSocket via the Network Process.
     pub fn ws_close(&self, id: u64, code: u16, reason: String) {
-        self.inner.borrow().realtime.ws_close(id, code, reason);
+        let inner = self.inner.borrow();
+        if let Some(handle) = &inner.network_handle {
+            // Best-effort: if broker is disconnected, close is dropped.
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
+                id,
+                elidex_net::ws::WsCommand::Close(code, reason),
+            ));
+        }
     }
 
     /// Remove a WebSocket from the registry.
@@ -631,7 +748,7 @@ impl HostBridge {
 
     // --- EventSource API ---
 
-    /// Open an `EventSource` connection.
+    /// Open an `EventSource` connection via the Network Process.
     pub fn open_event_source(
         &self,
         url: url::Url,
@@ -639,10 +756,26 @@ impl HostBridge {
         origin: Option<String>,
         js_object: JsObject,
     ) -> Result<u64, String> {
-        self.inner
-            .borrow_mut()
-            .realtime
-            .open_event_source(url, with_credentials, origin, js_object)
+        let mut inner = self.inner.borrow_mut();
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
+        }
+        let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
+        if let Some(handle) = &inner.network_handle {
+            if !handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {
+                conn_id,
+                url,
+                last_event_id: None,
+                origin,
+                with_credentials,
+            }) {
+                inner.realtime.remove_sse(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
+        }
+        Ok(conn_id)
     }
 
     /// Read an SSE callback field via a closure.
@@ -665,17 +798,18 @@ impl HostBridge {
             .map(f)
     }
 
-    /// Close and remove an SSE connection.
+    /// Close and remove an SSE connection via the Network Process.
     ///
     /// SSE has no close handshake (unlike WebSocket), so the connection
     /// is removed immediately to prevent resource leaks.
     pub fn sse_close(&self, id: u64) {
-        self.inner.borrow_mut().realtime.sse_close(id);
-    }
-
-    /// Set the cookie jar for SSE `withCredentials` support.
-    pub fn set_realtime_cookie_jar(&self, jar: Option<std::sync::Arc<elidex_net::CookieJar>>) {
-        self.inner.borrow_mut().realtime.set_cookie_jar(jar);
+        let mut inner = self.inner.borrow_mut();
+        inner.realtime.remove_sse(id);
+        if let Some(handle) = &inner.network_handle {
+            // Best-effort: if broker is disconnected, the I/O thread will
+            // exit on its own when the event channel disconnects.
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(id));
+        }
     }
 
     // Viewport/scroll methods are in viewport.rs

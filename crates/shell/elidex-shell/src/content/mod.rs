@@ -267,11 +267,13 @@ impl ContentState {
 /// receives `Shutdown` or the channel disconnects.
 pub(crate) fn spawn_content_thread(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: String,
     css: String,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, &html, &css);
+        content_thread_main(channel, network_handle, cookie_jar, &html, &css);
     })
 }
 
@@ -280,10 +282,12 @@ pub(crate) fn spawn_content_thread(
 /// Returns a `JoinHandle` for the thread.
 pub(crate) fn spawn_content_thread_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: url::Url,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main_url(channel, &url);
+        content_thread_main_url(channel, network_handle, cookie_jar, &url);
     })
 }
 
@@ -292,18 +296,34 @@ pub(crate) fn spawn_content_thread_url(
 /// Renders a minimal "New Tab" page.
 pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, crate::BLANK_TAB_HTML, crate::BLANK_TAB_CSS);
+        content_thread_main(
+            channel,
+            network_handle,
+            cookie_jar,
+            crate::BLANK_TAB_HTML,
+            crate::BLANK_TAB_CSS,
+        );
     })
 }
 
 fn content_thread_main(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: &str,
     css: &str,
 ) {
-    let pipeline = crate::build_pipeline_interactive(html, css);
+    if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
+        eprintln!("Sandbox enforcement failed (fatal): {e}");
+        return;
+    }
+
+    let nh = std::rc::Rc::new(network_handle);
+    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -319,10 +339,18 @@ fn content_thread_main(
 
 fn content_thread_main_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
+    network_handle: elidex_net::broker::NetworkHandle,
+    cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: &url::Url,
 ) {
-    let pipeline = match crate::build_pipeline_from_url(url) {
-        Ok(p) => p,
+    if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
+        eprintln!("Sandbox enforcement failed (fatal): {e}");
+        return;
+    }
+
+    let nh = std::rc::Rc::new(network_handle);
+    let loaded = match elidex_navigation::load_document(url, &nh, None) {
+        Ok(l) => l,
         Err(e) => {
             eprintln!("Content thread: failed to load {url}: {e}");
             let _ = channel.send(ContentToBrowser::NavigationFailed {
@@ -332,6 +360,8 @@ fn content_thread_main_url(
             return;
         }
     };
+    let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
+    let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar));
 
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());
@@ -456,6 +486,24 @@ fn run_event_loop(state: &mut ContentState) {
                     old_value: change.old_value,
                     new_value: change.new_value,
                     url: change.url,
+                });
+        }
+
+        // Drain pending IDB versionchange requests for cross-tab broadcast.
+        for req in state
+            .pipeline
+            .runtime
+            .bridge()
+            .drain_idb_versionchange_requests()
+        {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::IdbVersionChangeRequest {
+                    request_id: req.request_id,
+                    origin: req.origin,
+                    db_name: req.db_name,
+                    old_version: req.old_version,
+                    new_version: req.new_version,
                 });
         }
 
@@ -711,6 +759,36 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         } => {
             dispatch_storage_event(state, key, old_value, new_value, url);
         }
+
+        // --- IndexedDB cross-tab versionchange (W3C IndexedDB §2.4) ---
+        BrowserToContent::IdbVersionChange {
+            request_id,
+            db_name,
+            old_version,
+            new_version,
+        } => {
+            // Fire versionchange event on open connections and close them.
+            state.pipeline.runtime.dispatch_idb_versionchange(
+                &db_name,
+                old_version,
+                new_version,
+                &mut state.pipeline.session,
+                &mut state.pipeline.dom,
+                state.pipeline.document,
+            );
+            // Notify browser that connections are closed.
+            let _ = state.channel.send(ContentToBrowser::IdbConnectionsClosed {
+                request_id,
+                db_name,
+            });
+        }
+
+        // IDB upgrade/blocked: TODO(M4-10). Storage API responses: no-op here.
+        BrowserToContent::IdbUpgradeReady { .. }
+        | BrowserToContent::IdbBlocked { .. }
+        | BrowserToContent::StorageEstimateResult { .. }
+        | BrowserToContent::StoragePersistResult { .. }
+        | BrowserToContent::StoragePersistedResult { .. } => {}
     }
     true
 }
