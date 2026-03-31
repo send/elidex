@@ -149,12 +149,23 @@ fn load_iframe_from_url(
                 } else {
                     ctx.network_handle.clone()
                 };
-            let pipeline = crate::build_pipeline_from_loaded(
+            // Same-origin iframes inherit the parent's cookie jar.
+            // Credentialless iframes get None (isolated cookies).
+            let iframe_cookies = if iframe_data.credentialless {
+                None
+            } else {
+                ctx.cookie_jar.clone()
+            };
+            let mut pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 pipeline_handle,
                 ctx.font_db.clone(),
-                None,
+                iframe_cookies,
             );
+            // Keep credentialless broker alive for the iframe pipeline's lifetime.
+            if let Some(cb) = credentialless_broker {
+                pipeline.broker_keepalive = Some(cb);
+            }
             let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
             set_referrer(&entry, ctx);
             entry

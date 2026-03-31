@@ -332,6 +332,20 @@ impl NetworkHandle {
     }
 }
 
+impl Drop for NetworkHandle {
+    fn drop(&mut self) {
+        // Unregister from the broker so per-client resources are cleaned up.
+        // Disconnected handles (client_id == 0) skip this.
+        if self.client_id != 0 {
+            let _ = self
+                .control_tx
+                .send(NetworkProcessControl::UnregisterRenderer {
+                    client_id: self.client_id,
+                });
+        }
+    }
+}
+
 impl std::fmt::Debug for NetworkHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NetworkHandle")

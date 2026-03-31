@@ -346,6 +346,7 @@ fn build_load_context<'a>(
         parent_url: state.pipeline.url.as_ref(),
         font_db: &state.pipeline.font_db,
         network_handle: &state.pipeline.network_handle,
+        cookie_jar: state.pipeline.runtime.bridge().cookie_jar_clone(),
         depth: parent_depth + 1,
         registry: &state.pipeline.registry,
     }

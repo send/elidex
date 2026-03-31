@@ -144,6 +144,8 @@ pub struct IframeLoadContext<'a> {
     pub font_db: &'a std::sync::Arc<elidex_text::FontDatabase>,
     /// Network handle for communicating with the Network Process broker.
     pub network_handle: &'a std::rc::Rc<elidex_net::broker::NetworkHandle>,
+    /// Parent's cookie jar (for same-origin iframe `document.cookie`).
+    pub cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
     pub depth: usize,
     /// Shared CSS property registry.
