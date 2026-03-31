@@ -46,10 +46,12 @@ pub fn worker_thread_main(
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
 ) {
-    // 1. Fetch the worker script using a temporary FetchHandle.
-    // Workers use their own FetchHandle for initial script fetch (one-time operation).
-    // In-worker fetch() goes through the NetworkHandle passed to the event loop.
-    let fetch_handle = elidex_net::FetchHandle::with_default_client();
+    // 1. Create a standalone Network Process broker for this worker.
+    // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
+    let worker_broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let worker_net = worker_broker.create_renderer_handle();
+
+    // 2. Fetch the worker script via the broker.
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
@@ -57,7 +59,7 @@ pub fn worker_thread_main(
         body: bytes::Bytes::new(),
     };
 
-    let response = match fetch_handle.send_blocking(request) {
+    let response = match worker_net.fetch_blocking(request) {
         Ok(resp) => resp,
         Err(e) => {
             send_worker_error(
@@ -70,7 +72,7 @@ pub fn worker_thread_main(
         }
     };
 
-    // 2. Validate MIME type and HTTP status (WHATWG HTML §10.1.3).
+    // 3. Validate MIME type and HTTP status (WHATWG HTML §10.1.3).
     let script_source = match crate::globals::worker_constructor::validate_worker_script_response(
         &response,
         &script_url,
@@ -83,8 +85,14 @@ pub fn worker_thread_main(
         }
     };
 
-    // 5. Run the worker with the fetched script.
-    worker_thread_main_with_source(script_source, script_url, name, channel);
+    // 4. Run the worker with the fetched script (reuse the same broker).
+    worker_thread_main_with_source_and_broker(
+        script_source,
+        script_url,
+        name,
+        channel,
+        worker_broker,
+    );
 }
 
 /// Entry point for the worker thread with pre-fetched script source.
@@ -98,10 +106,27 @@ pub fn worker_thread_main_with_source(
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
 ) {
-    // 1. Create a standalone Network Process broker for this worker so fetch() works.
-    // Each worker gets its own broker + NetClient (independent cookies/connections).
+    // Create a standalone broker for this worker.
     // TODO(M4-5.5): Share the parent's NetworkProcessHandle to unify cookies.
     let worker_broker = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    worker_thread_main_with_source_and_broker(
+        script_source,
+        script_url,
+        name,
+        channel,
+        worker_broker,
+    );
+}
+
+/// Internal entry point with a pre-existing broker.
+#[allow(clippy::needless_pass_by_value)]
+fn worker_thread_main_with_source_and_broker(
+    script_source: String,
+    script_url: url::Url,
+    name: String,
+    channel: LocalChannel<WorkerToParent, ParentToWorker>,
+    worker_broker: elidex_net::broker::NetworkProcessHandle,
+) {
     let worker_net = std::rc::Rc::new(worker_broker.create_renderer_handle());
     // `worker_broker` stays alive until function return, keeping the broker thread running.
 
