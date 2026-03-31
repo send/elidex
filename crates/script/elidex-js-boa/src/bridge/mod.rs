@@ -723,8 +723,7 @@ impl HostBridge {
             handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
                 id,
                 elidex_net::ws::WsCommand::SendText(data),
-            ));
-            true
+            ))
         } else {
             false
         }
@@ -734,7 +733,8 @@ impl HostBridge {
     pub fn ws_close(&self, id: u64, code: u16, reason: String) {
         let inner = self.inner.borrow();
         if let Some(handle) = &inner.network_handle {
-            handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
+            // Best-effort: if broker is disconnected, close is dropped.
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
                 id,
                 elidex_net::ws::WsCommand::Close(code, reason),
             ));
@@ -806,7 +806,9 @@ impl HostBridge {
         let mut inner = self.inner.borrow_mut();
         inner.realtime.remove_sse(id);
         if let Some(handle) = &inner.network_handle {
-            handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(id));
+            // Best-effort: if broker is disconnected, the I/O thread will
+            // exit on its own when the event channel disconnects.
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(id));
         }
     }
 

@@ -47,10 +47,7 @@ pub fn worker_thread_main(
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
     network_handle: elidex_net::broker::NetworkHandle,
 ) {
-    // Fetch the worker script via the parent's shared broker.
-    let worker_net = network_handle;
-
-    // 1. Fetch the worker script.
+    // 1. Fetch the worker script via the parent's shared broker.
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
@@ -58,7 +55,7 @@ pub fn worker_thread_main(
         body: bytes::Bytes::new(),
     };
 
-    let response = match worker_net.fetch_blocking(request) {
+    let response = match network_handle.fetch_blocking(request) {
         Ok(resp) => resp,
         Err(e) => {
             send_worker_error(
@@ -71,7 +68,7 @@ pub fn worker_thread_main(
         }
     };
 
-    // 3. Validate MIME type and HTTP status (WHATWG HTML §10.1.3).
+    // 2. Validate MIME type and HTTP status (WHATWG HTML §10.1.3).
     let script_source = match crate::globals::worker_constructor::validate_worker_script_response(
         &response,
         &script_url,
@@ -85,7 +82,7 @@ pub fn worker_thread_main(
     };
 
     // 3. Run the worker with the fetched script (reuse the same handle).
-    let worker_nh = std::rc::Rc::new(worker_net);
+    let worker_nh = std::rc::Rc::new(network_handle);
     worker_thread_main_with_handle(script_source, script_url, name, channel, worker_nh);
 }
 
