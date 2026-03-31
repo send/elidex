@@ -215,6 +215,22 @@ pub(crate) struct HostBridgeInner {
     idb_open_connections: HashMap<String, Vec<JsObject>>,
     /// Database name currently in upgrade mode (versionchange), if any.
     idb_upgrading_db: Option<String>,
+    /// Pending cross-tab IDB versionchange requests.
+    /// Drained by the content thread and sent as `ContentToBrowser::IdbVersionChangeRequest`.
+    pending_idb_versionchange: Vec<IdbVersionChangeMsg>,
+}
+
+/// Queued IDB versionchange request for cross-tab broadcast.
+#[derive(Clone, Debug)]
+pub struct IdbVersionChangeMsg {
+    /// The origin that owns the database.
+    pub origin: String,
+    /// Database name.
+    pub db_name: String,
+    /// Current version.
+    pub old_version: u64,
+    /// Requested new version (`None` for `deleteDatabase`).
+    pub new_version: Option<u64>,
 }
 
 /// Iframe-related state for the JS bridge.
@@ -416,6 +432,7 @@ impl HostBridge {
                 idb_cursor_next_id: 1,
                 idb_open_connections: HashMap::new(),
                 idb_upgrading_db: None,
+                pending_idb_versionchange: Vec::new(),
             })),
             dom_registry: Rc::new(elidex_dom_api::registry::create_dom_registry()),
             cssom_registry: Rc::new(elidex_dom_api::registry::create_cssom_registry()),

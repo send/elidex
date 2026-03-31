@@ -74,6 +74,33 @@ impl HostBridge {
         self.inner.borrow_mut().idb_upgrading_db = db_name.map(str::to_owned);
     }
 
+    /// Queue a cross-tab versionchange request for the browser thread.
+    ///
+    /// Called by `IDBFactory.open()` when a version upgrade is needed.
+    /// The content thread drains this queue and sends IPC messages.
+    pub fn queue_idb_versionchange_request(
+        &self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    ) {
+        let origin = self.origin().serialize();
+        self.inner
+            .borrow_mut()
+            .pending_idb_versionchange
+            .push(super::IdbVersionChangeMsg {
+                origin,
+                db_name: db_name.to_string(),
+                old_version,
+                new_version,
+            });
+    }
+
+    /// Drain pending cross-tab versionchange requests.
+    pub fn drain_idb_versionchange_requests(&self) -> Vec<super::IdbVersionChangeMsg> {
+        std::mem::take(&mut self.inner.borrow_mut().pending_idb_versionchange)
+    }
+
     /// Get or lazily initialize the `IndexedDB` backend for this origin.
     ///
     /// Uses an in-memory `SQLite` database. Persistent file-backed storage

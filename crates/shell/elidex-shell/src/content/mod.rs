@@ -470,6 +470,23 @@ fn run_event_loop(state: &mut ContentState) {
                 });
         }
 
+        // Drain pending IDB versionchange requests for cross-tab broadcast.
+        for req in state
+            .pipeline
+            .runtime
+            .bridge()
+            .drain_idb_versionchange_requests()
+        {
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::IdbVersionChangeRequest {
+                    origin: req.origin,
+                    db_name: req.db_name,
+                    old_version: req.old_version,
+                    new_version: req.new_version,
+                });
+        }
+
         // Batch-persist all dirty localStorage stores to disk (once per frame).
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 

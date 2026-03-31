@@ -76,7 +76,8 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
 
             let open_request = request::build_open_request(ctx);
 
-            // Fire versionchange on existing connections only for upgrades (not downgrades)
+            // Fire versionchange on existing connections (same-tab) and queue
+            // cross-tab notification for the browser thread.
             if let Some(ver) = version {
                 let current = bridge
                     .with_idb(|backend| backend.get_version(&name).ok().flatten())
@@ -84,6 +85,8 @@ fn build_open_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                 if let Some(cur) = current {
                     if ver > cur {
                         bridge.fire_idb_versionchange(&name, cur, Some(ver), ctx);
+                        // Queue cross-tab versionchange for browser thread broadcast.
+                        bridge.queue_idb_versionchange_request(&name, cur, Some(ver));
                     }
                 }
             }
@@ -226,6 +229,8 @@ fn build_delete_fn(_ctx: &mut Context, bridge: &HostBridge) -> NativeFunction {
                 .flatten()
                 .unwrap_or(0);
             bridge.fire_idb_versionchange(&name, old_ver, None, ctx);
+            // Queue cross-tab versionchange for browser thread broadcast.
+            bridge.queue_idb_versionchange_request(&name, old_ver, None);
 
             let result = bridge
                 .with_idb(|backend| elidex_indexeddb::database::delete_database(backend, &name));
