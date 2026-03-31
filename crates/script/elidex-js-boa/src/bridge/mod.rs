@@ -658,6 +658,9 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
+        if inner.network_handle.is_none() {
+            return Err("network unavailable".to_string());
+        }
         let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
             handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
@@ -729,6 +732,9 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
+        if inner.network_handle.is_none() {
+            return Err("network unavailable".to_string());
+        }
         let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
             handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {

@@ -172,6 +172,10 @@ fn target_arch() -> TargetArch {
     {
         TargetArch::aarch64
     }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        compile_error!("elidex-sandbox: unsupported target_arch; supported: x86_64, aarch64");
+    }
 }
 
 #[cfg(test)]

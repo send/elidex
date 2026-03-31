@@ -400,14 +400,12 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
-    // No NetworkHandle in standalone pipeline mode.
-    // Content threads receive a NetworkHandle from the browser thread.
     let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
         &script_sources,
-        None,
+        None, // No NetworkHandle in standalone interactive mode.
         &font_db,
         None,
         &registry,
@@ -479,7 +477,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         document,
         &stylesheets,
         &script_sources,
-        None, // NetworkHandle — wired when content thread receives it from browser
+        Some(Rc::clone(&network_handle)),
         &font_db,
         url.as_ref(),
         &registry,

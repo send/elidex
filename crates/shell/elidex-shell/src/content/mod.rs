@@ -306,7 +306,8 @@ fn content_thread_main(
     // Apply sandbox before processing any content (design doc §8.1).
     // In SingleProcess mode this is a no-op (Unsandboxed).
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
-        eprintln!("Sandbox enforcement failed: {e}");
+        eprintln!("Sandbox enforcement failed (fatal): {e}");
+        return;
     }
 
     let pipeline = crate::build_pipeline_interactive(html, css);
@@ -329,7 +330,8 @@ fn content_thread_main_url(
 ) {
     // Apply sandbox before processing any content (design doc §8.1).
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
-        eprintln!("Sandbox enforcement failed: {e}");
+        eprintln!("Sandbox enforcement failed (fatal): {e}");
+        return;
     }
 
     let pipeline = match crate::build_pipeline_from_url(url) {

@@ -185,6 +185,12 @@ impl NetworkProcessHandle {
 impl Drop for NetworkProcessHandle {
     fn drop(&mut self) {
         let _ = self.control_tx.send(NetworkProcessControl::Shutdown);
+        // Join the broker thread for deterministic cleanup (skip during panics).
+        if !std::thread::panicking() {
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
     }
 }
 

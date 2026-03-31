@@ -171,7 +171,9 @@ impl QuotaManager {
                 .join("origins")
                 .join(elidex_plugin::hex_encode_for_path(&origin));
             if origin_dir.exists() {
-                let _ = std::fs::remove_dir_all(&origin_dir);
+                if let Err(e) = std::fs::remove_dir_all(&origin_dir) {
+                    eprintln!("QuotaManager: failed to evict {origin}: {e}");
+                }
             }
 
             current -= bytes;
@@ -194,10 +196,11 @@ impl QuotaManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn test_manager() -> QuotaManager {
-        QuotaManager::with_limits(PathBuf::from("/tmp/test-quota"), 1000, 500)
+        // Use unique temp dir per test to avoid parallel test collisions.
+        let dir = std::env::temp_dir().join(format!("elidex-quota-test-{}", std::process::id()));
+        QuotaManager::with_limits(dir, 1000, 500)
     }
 
     #[test]
@@ -253,11 +256,14 @@ mod tests {
     #[test]
     fn eviction_lru_order() {
         let mut mgr = test_manager();
-        // Add origins with different access times.
+        let now = Instant::now();
+        // Set up origins with controlled last_access (no sleep needed).
         mgr.report_usage("https://old.com", 400);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        mgr.usage.get_mut("https://old.com").unwrap().last_access =
+            now.checked_sub(std::time::Duration::from_secs(30)).unwrap();
         mgr.report_usage("https://new.com", 400);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        mgr.usage.get_mut("https://new.com").unwrap().last_access =
+            now.checked_sub(std::time::Duration::from_secs(10)).unwrap();
         mgr.report_usage("https://newest.com", 400);
         // Total = 1200 > limit 1000. Evict oldest first.
         let evicted = mgr.evict_if_needed();
@@ -267,11 +273,15 @@ mod tests {
 
     #[test]
     fn eviction_skips_persistent() {
+        let now = Instant::now();
         let mut mgr = test_manager();
         mgr.report_usage("https://persistent.com", 600);
         mgr.grant_persistent("https://persistent.com");
-        std::thread::sleep(std::time::Duration::from_millis(2));
         mgr.report_usage("https://evictable.com", 500);
+        mgr.usage
+            .get_mut("https://evictable.com")
+            .unwrap()
+            .last_access = now.checked_sub(std::time::Duration::from_secs(10)).unwrap();
         // Total = 1100 > limit 1000. Only evictable.com can be evicted.
         let evicted = mgr.evict_if_needed();
         assert!(evicted.contains(&"https://evictable.com".to_string()));
@@ -300,10 +310,16 @@ mod tests {
     fn touch_updates_access_time() {
         let mut mgr = test_manager();
         mgr.report_usage("https://example.com", 100);
-        let before = mgr.usage["https://example.com"].last_access;
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        // Set last_access to the past so touch() will produce a later Instant.
+        let past = Instant::now()
+            .checked_sub(std::time::Duration::from_secs(10))
+            .unwrap();
+        mgr.usage
+            .get_mut("https://example.com")
+            .unwrap()
+            .last_access = past;
         mgr.touch("https://example.com");
         let after = mgr.usage["https://example.com"].last_access;
-        assert!(after > before);
+        assert!(after > past);
     }
 }
