@@ -161,7 +161,7 @@ pub(crate) struct HostBridgeInner {
     realtime: realtime::RealtimeState,
     // --- Network Process ---
     /// Handle to the Network Process broker for fetch/WS/SSE operations.
-    /// `None` in worker contexts (workers use their own fetch handle).
+    /// May be `None` during initialization or in certain test harnesses.
     network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
     /// Shared cookie jar reference for `document.cookie` script access.
     /// Cloned from the Network Process's `NetClient` cookie jar.
@@ -694,6 +694,9 @@ impl HostBridge {
     #[must_use]
     pub fn ws_send_text(&self, id: u64, data: String) -> bool {
         let inner = self.inner.borrow();
+        if inner.realtime.ws_callbacks(id).is_none() {
+            return false; // Unknown connection ID.
+        }
         if let Some(handle) = &inner.network_handle {
             handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
                 id,

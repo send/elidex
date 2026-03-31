@@ -1,7 +1,9 @@
 //! Network Process broker (design doc §5.2, §5.3.3).
 //!
-//! Implements the Network Process as a singleton thread that owns the tokio
-//! runtime, [`NetClient`], cookie jar, and all WebSocket/SSE I/O loops.
+//! Implements the Network Process as a singleton coordination thread that owns
+//! the shared [`NetClient`], cookie jar, and all WebSocket/SSE I/O loops.
+//! Each HTTP fetch is executed on its own OS thread with a per-request tokio
+//! runtime (see `handle_fetch`).
 //!
 //! Content threads (Renderers) communicate exclusively through typed channels:
 //! - [`RendererToNetwork`]: requests from content thread → Network Process
@@ -35,7 +37,7 @@ use crate::{NetClient, Request, Response};
 // ID types
 // ---------------------------------------------------------------------------
 
-/// Unique fetch request identifier (monotonic per-renderer).
+/// Unique fetch request identifier (globally monotonic).
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FetchId(pub u64);
 

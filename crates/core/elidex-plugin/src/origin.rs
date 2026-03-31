@@ -408,8 +408,6 @@ pub fn parse_iframe_allow_attribute(value: &str) -> PermissionsPolicy {
     policy
 }
 
-// ---------------------------------------------------------------------------
-// Tests
 /// Hex-encode a string for use as a filesystem-safe directory name.
 ///
 /// Encodes each byte as two hex digits, preventing path traversal via
@@ -427,6 +425,8 @@ pub fn hex_encode_for_path(value: &str) -> String {
         })
 }
 
+// ---------------------------------------------------------------------------
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]

@@ -173,6 +173,7 @@ impl QuotaManager {
             if origin_dir.exists() {
                 if let Err(e) = std::fs::remove_dir_all(&origin_dir) {
                     eprintln!("QuotaManager: failed to evict {origin}: {e}");
+                    continue; // Skip bookkeeping — data still on disk.
                 }
             }
 
@@ -197,9 +198,13 @@ impl QuotaManager {
 mod tests {
     use super::*;
 
+    use std::sync::atomic::AtomicU64;
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     fn test_manager() -> QuotaManager {
-        // Use unique temp dir per test to avoid parallel test collisions.
-        let dir = std::env::temp_dir().join(format!("elidex-quota-test-{}", std::process::id()));
+        let id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("elidex-quota-test-{}-{id}", std::process::id()));
         QuotaManager::with_limits(dir, 1000, 500)
     }
 
