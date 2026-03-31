@@ -330,16 +330,38 @@ fn network_process_main(
     let mut state = NetworkProcessState::new();
 
     loop {
-        // 1. Process control messages first (register/unregister/shutdown).
-        //    Must run before requests so that a newly registered renderer's
-        //    first request is processed with its response channel available.
+        // Event-driven wait: block until ANY channel has data.
+        // Uses crossbeam's dynamic `Select` to multiplex control, request,
+        // and all WS/SSE event channels with zero CPU when idle and
+        // zero-latency wakeup on any event.
+        {
+            let mut sel = crossbeam_channel::Select::new();
+            sel.recv(&control_rx);
+            sel.recv(&request_rx);
+            for handle in state.ws_handles.values() {
+                sel.recv(&handle.event_rx);
+            }
+            for handle in state.sse_handles.values() {
+                sel.recv(&handle.event_rx);
+            }
+            // Block until at least one channel is ready, or timeout for
+            // periodic cleanup of finished I/O threads.
+            // `ready_timeout` returns the index of a ready channel without
+            // consuming the operation (unlike `select_timeout`).
+            let _ = sel.ready_timeout(Duration::from_secs(1));
+        }
+
+        // Drain all channels (non-blocking). We don't care which channel
+        // woke us — process everything that's available.
+
+        // 1. Control messages first (register/unregister/shutdown).
         while let Ok(ctrl) = control_rx.try_recv() {
             if !state.handle_control(ctrl) {
                 return;
             }
         }
 
-        // 2. Batch-process renderer requests (non-blocking, up to 64 per iteration).
+        // 2. Renderer requests (up to 64 per iteration).
         for _ in 0..64 {
             match request_rx.try_recv() {
                 Ok((cid, msg)) => state.handle_request(cid, msg, &client),
@@ -348,19 +370,12 @@ fn network_process_main(
             }
         }
 
-        // 3. Forward WebSocket events from I/O threads to renderers.
+        // 3. Forward WS/SSE events from I/O threads to renderers.
         state.forward_ws_events();
-
-        // 4. Forward SSE events from I/O threads to renderers.
         state.forward_sse_events();
 
-        // 5. Clean up finished I/O threads.
+        // 4. Clean up finished I/O threads.
         state.cleanup_finished();
-
-        // 6. Brief yield to avoid busy-spinning.
-        //    1ms is sufficient — WS/SSE events are polled at ~1kHz,
-        //    which is well within the content thread's 16ms frame budget.
-        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
