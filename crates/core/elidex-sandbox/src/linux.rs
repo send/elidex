@@ -10,9 +10,7 @@ use std::collections::BTreeMap;
 
 use elidex_plugin::sandbox::NetworkAccess;
 use elidex_plugin::{SandboxError, SandboxPolicy};
-use seccompiler::{
-    BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch,
-};
+use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch};
 
 use crate::SandboxEnforcer;
 
@@ -21,8 +19,9 @@ pub struct LinuxSeccompEnforcer;
 impl SandboxEnforcer for LinuxSeccompEnforcer {
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
         let filter = build_filter(policy).map_err(|e| SandboxError::new(format!("{e:#}")))?;
-        let bpf: BpfProgram =
-            filter.try_into().map_err(|e: seccompiler::Error| SandboxError::new(format!("{e}")))?;
+        let bpf: BpfProgram = filter
+            .try_into()
+            .map_err(|e: seccompiler::Error| SandboxError::new(format!("{e}")))?;
 
         seccompiler::apply_filter(&bpf)
             .map_err(|e| SandboxError::new(format!("seccomp install failed: {e}")))?;

@@ -7,10 +7,10 @@ use super::HostBridge;
 impl HostBridge {
     /// Get cookies for script access (filters out `HttpOnly` cookies).
     ///
-    /// Uses the shared `CookieJar` from the realtime state.
+    /// Uses the shared `CookieJar` reference from the Network Process.
     pub fn cookies_for_script(&self, url: &url::Url) -> String {
         let inner = self.inner.borrow();
-        if let Some(jar) = inner.realtime.cookie_jar_ref() {
+        if let Some(jar) = &inner.cookie_jar {
             jar.cookies_for_script(url)
         } else {
             String::new()
@@ -22,7 +22,7 @@ impl HostBridge {
     /// Rejects `HttpOnly` and Secure-over-non-HTTPS cookies.
     pub fn set_cookie_from_script(&self, url: &url::Url, value: &str) {
         let inner = self.inner.borrow();
-        if let Some(jar) = inner.realtime.cookie_jar_ref() {
+        if let Some(jar) = &inner.cookie_jar {
             jar.set_cookie_from_script(url, value);
         }
     }

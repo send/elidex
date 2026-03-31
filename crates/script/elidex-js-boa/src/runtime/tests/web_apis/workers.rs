@@ -635,17 +635,16 @@ fn worker_postmessage_roundtrip() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn worker_fetch_available() {
-    // Create worker with FetchHandle to verify fetch registration.
+fn worker_fetch_unavailable_without_network_handle() {
+    // Without NetworkHandle, fetch is not registered in worker scope.
     let url = ::url::Url::parse("https://example.com/worker.js").unwrap();
-    let fetch_handle = std::rc::Rc::new(elidex_net::FetchHandle::with_default_client());
-    let mut rt = JsRuntime::for_worker(Some(fetch_handle), String::new(), url);
+    let mut rt = JsRuntime::for_worker(None, String::new(), url);
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
     let result = rt.eval(
-        "console.log(typeof fetch === 'function')",
+        "console.log(typeof fetch === 'undefined')",
         &mut session,
         &mut dom,
         doc,

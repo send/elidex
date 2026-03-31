@@ -34,7 +34,6 @@ use std::rc::Rc;
 
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction};
 use elidex_ecs::Entity;
-use elidex_net::FetchHandle;
 use elidex_plugin::JsValue as ElidexJsValue;
 use elidex_script_session::EventListeners;
 
@@ -891,19 +890,19 @@ pub fn register_all_globals(
     bridge: &HostBridge,
     console_output: &ConsoleOutput,
     timer_queue: &TimerQueueHandle,
-    fetch_handle: Option<Rc<FetchHandle>>,
+    network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
 ) {
     console::register_console(ctx, console_output);
     document::register_document(ctx, bridge);
     window::register_window(ctx, bridge);
     timers::register_timers(ctx, timer_queue);
-    fetch::register_fetch(ctx, fetch_handle.clone());
+    fetch::register_fetch(ctx, network_handle);
     fetch::constructors::register_fetch_constructors(ctx);
     wasm::register_wasm(ctx, bridge);
     observers::register_observers(ctx, bridge);
     custom_elements::register_custom_elements_global(ctx, bridge);
     websocket::register_websocket(ctx, bridge);
-    event_source::register_event_source(ctx, bridge, fetch_handle);
+    event_source::register_event_source(ctx, bridge);
     event_constructors::register_event_constructors(ctx, bridge);
     navigator::register_navigator(ctx, bridge);
     url::register_url_constructors(ctx, bridge);

@@ -8,7 +8,6 @@ use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
-use elidex_net::FetchHandle;
 use elidex_script_session::{DispatchEvent, SessionCore};
 
 use elidex_plugin::ViewportOverflow;
@@ -52,7 +51,7 @@ pub(super) fn run_scripts_and_finalize(
     document: Entity,
     stylesheets: &[Stylesheet],
     script_sources: &[&str],
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
     font_db: &Arc<elidex_text::FontDatabase>,
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
@@ -65,7 +64,7 @@ pub(super) fn run_scripts_and_finalize(
 
     // Script execution phase.
     let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::with_fetch(Some(fetch_handle));
+    let mut runtime = JsRuntime::with_network(network_handle);
 
     if let Some(url) = current_url {
         runtime.set_current_url(Some(url.clone()));

@@ -7,15 +7,13 @@
 
 use std::rc::Rc;
 
-use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
-use elidex_net::FetchHandle;
-
 use crate::bridge::worker_state::OutgoingMessage;
 use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
+use boa_engine::object::ObjectInitializer;
+use boa_engine::property::Attribute;
+use boa_engine::{js_string, Context, JsNativeError, JsValue, NativeFunction};
 
 /// JSON.stringify a JS value, returning the stringified result.
 ///
@@ -72,15 +70,15 @@ pub fn register_worker_globals(
     bridge: &HostBridge,
     console_output: &ConsoleOutput,
     timer_queue: &TimerQueueHandle,
-    fetch_handle: Option<Rc<FetchHandle>>,
+    network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
 ) {
-    // Clone fetch_handle before register_fetch moves the original.
-    let import_fetch_handle = fetch_handle.clone();
+    // Clone network_handle before register_fetch moves the original.
+    let import_network_handle = network_handle.clone();
 
     // --- Shared Web Platform APIs ---
     crate::globals::console::register_console(ctx, console_output);
     crate::globals::timers::register_timers(ctx, timer_queue);
-    crate::globals::fetch::register_fetch(ctx, fetch_handle);
+    crate::globals::fetch::register_fetch(ctx, network_handle);
     crate::globals::fetch::constructors::register_fetch_constructors(ctx);
     crate::globals::url::register_url_constructors(ctx, bridge);
     crate::globals::encoding::register_encoding(ctx, bridge);
@@ -99,7 +97,7 @@ pub fn register_worker_globals(
     register_worker_name(ctx, bridge);
     register_worker_post_message(ctx, bridge);
     register_worker_close(ctx, bridge);
-    register_import_scripts(ctx, bridge, import_fetch_handle);
+    register_import_scripts(ctx, bridge, import_network_handle);
     register_worker_location(ctx, bridge);
     register_worker_navigator(ctx);
     register_is_secure_context(ctx, bridge);
@@ -169,26 +167,29 @@ fn register_worker_close(ctx: &mut Context, bridge: &HostBridge) {
 #[derive(Clone)]
 struct ImportScriptsCaptures {
     bridge: HostBridge,
-    fetch_handle: Rc<FetchHandle>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
 }
 
-// Trace/Finalize: FetchHandle + HostBridge contain only Rust types, no GC objects.
+// Trace/Finalize: NetworkHandle + HostBridge contain only Rust types, no GC objects.
 impl_empty_trace!(ImportScriptsCaptures);
 
 /// Register `importScripts(...urls)` on the worker global scope (WHATWG HTML §10.3.2).
 fn register_import_scripts(
     ctx: &mut Context,
     bridge: &HostBridge,
-    fetch_handle: Option<Rc<FetchHandle>>,
+    network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
 ) {
+    let Some(nh) = network_handle else {
+        return; // No network handle — importScripts unavailable.
+    };
     let captures = ImportScriptsCaptures {
         bridge: bridge.clone(),
-        fetch_handle: fetch_handle.unwrap_or_else(|| Rc::new(FetchHandle::with_default_client())),
+        network_handle: nh,
     };
     let import_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, captures, ctx| {
             let script_url = captures.bridge.worker_script_url();
-            let fetch_handle = &captures.fetch_handle;
+            let network_handle = &captures.network_handle;
 
             for arg in args {
                 let url_str = arg.to_string(ctx)?.to_std_string_escaped();
@@ -203,7 +204,7 @@ fn register_import_scripts(
                     headers: Vec::new(),
                     body: bytes::Bytes::new(),
                 };
-                let response = match fetch_handle.send_blocking(request) {
+                let response = match network_handle.fetch_blocking(request) {
                     Ok(resp) => resp,
                     Err(e) => {
                         return Err(JsNativeError::typ()

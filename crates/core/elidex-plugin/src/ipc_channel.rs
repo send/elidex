@@ -111,9 +111,7 @@ impl<S: Send, R: Send> IpcChannel<S, R> for crate::LocalChannel<S, R> {
     fn recv_timeout(&self, timeout: Duration) -> Result<R, IpcRecvTimeoutError> {
         self.recv_timeout(timeout).map_err(|e| match e {
             crossbeam_channel::RecvTimeoutError::Timeout => IpcRecvTimeoutError::Timeout,
-            crossbeam_channel::RecvTimeoutError::Disconnected => {
-                IpcRecvTimeoutError::Disconnected
-            }
+            crossbeam_channel::RecvTimeoutError::Disconnected => IpcRecvTimeoutError::Disconnected,
         })
     }
 }
@@ -132,10 +130,7 @@ mod tests {
         a.send("hello".to_string()).unwrap();
         b.send(42).unwrap();
 
-        assert_eq!(
-            IpcChannel::try_recv(b),
-            Ok("hello".to_string())
-        );
+        assert_eq!(IpcChannel::try_recv(b), Ok("hello".to_string()));
         assert_eq!(IpcChannel::try_recv(a), Ok(42));
     }
 

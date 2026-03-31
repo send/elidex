@@ -394,18 +394,19 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         elidex_css::Origin::Author,
         Some(&registry),
     )];
-    let fetch_handle = Rc::new(FetchHandle::new(elidex_net::NetClient::new()));
     let font_db = Arc::new(FontDatabase::new());
 
     let scripts = extract_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    // No NetworkHandle in standalone pipeline mode.
+    // Content threads receive a NetworkHandle from the browser thread.
     let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        None,
         &font_db,
         None,
         &registry,
@@ -479,7 +480,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        None, // NetworkHandle — wired when content thread receives it from browser
         &font_db,
         url.as_ref(),
         &registry,
@@ -656,7 +657,7 @@ pub fn build_pipeline_from_loaded(
         document,
         &stylesheets,
         &script_sources,
-        Rc::clone(&fetch_handle),
+        None, // NetworkHandle — wired when content thread receives it from browser
         &font_db,
         Some(&url),
         &registry,

@@ -22,16 +22,15 @@ pub struct MacOSEnforcer;
 impl SandboxEnforcer for MacOSEnforcer {
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
         let profile = build_profile(policy);
-        let c_profile =
-            CString::new(profile).map_err(|e| SandboxError::new(format!("invalid profile: {e}")))?;
+        let c_profile = CString::new(profile)
+            .map_err(|e| SandboxError::new(format!("invalid profile: {e}")))?;
 
         let mut err_buf: *mut libc::c_char = ptr::null_mut();
 
         // SAFETY: `sandbox_init` is a stable macOS API. We pass a valid
         // C string and a pointer to receive error messages. The error
         // string (if any) must be freed with `sandbox_free_error`.
-        let ret =
-            unsafe { sandbox_init(c_profile.as_ptr(), 0, &mut err_buf) };
+        let ret = unsafe { sandbox_init(c_profile.as_ptr(), 0, &mut err_buf) };
 
         if ret != 0 {
             let msg = if err_buf.is_null() {
@@ -95,7 +94,8 @@ fn build_profile(policy: &SandboxPolicy) -> String {
                     .to_string(),
             );
             rules.push(
-                "(allow file-read-metadata (subpath \"/usr/lib\") (subpath \"/System\"))".to_string(),
+                "(allow file-read-metadata (subpath \"/usr/lib\") (subpath \"/System\"))"
+                    .to_string(),
             );
         }
         FilesystemAccess::ReadOnly => {

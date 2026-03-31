@@ -6,11 +6,11 @@
 pub mod background;
 mod channel;
 mod computed_style;
-pub mod ipc_channel;
 pub mod css_resolve;
 mod error;
 mod event_types;
 pub mod handlers;
+pub mod ipc_channel;
 mod js_value;
 mod layout_types;
 mod logical;
@@ -24,7 +24,6 @@ pub mod url_security;
 mod values;
 
 pub use channel::{channel_pair, LocalChannel};
-pub use ipc_channel::{IpcChannel, IpcRecvTimeoutError, IpcSendError, IpcTryRecvError};
 pub use computed_style::{
     is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
     AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
@@ -44,6 +43,7 @@ pub use event_types::{
     EventPhase, FocusEventInit, HashChangeEventInit, InputEventInit, KeyboardEventInit,
     MouseEventInit, PageTransitionEventInit, TransitionEventInit, WheelEventInit,
 };
+pub use ipc_channel::{IpcChannel, IpcRecvTimeoutError, IpcSendError, IpcTryRecvError};
 pub use js_value::JsValue;
 pub use layout_types::{
     CssSize, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult, Point, Rect,

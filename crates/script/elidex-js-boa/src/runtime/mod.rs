@@ -8,8 +8,6 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::EventPayload;
 use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
 
-use elidex_net::FetchHandle;
-
 use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
@@ -46,16 +44,18 @@ impl JsRuntime {
     /// The `document_entity` must be passed to `eval()` and `drain_timers()`
     /// to bind the bridge to the correct document root.
     pub fn new() -> Self {
-        Self::with_fetch(None)
+        Self::with_network(None)
     }
 
-    /// Create a new JS runtime with optional fetch support.
+    /// Create a new JS runtime with optional network support.
     ///
-    /// If `fetch_handle` is `Some`, the `fetch()` global is registered.
-    /// The `Rc<FetchHandle>` is shared with the navigation layer so that
-    /// cookies and connection pools are reused across `fetch()` and navigation.
-    pub fn with_fetch(fetch_handle: Option<Rc<FetchHandle>>) -> Self {
+    /// If `network_handle` is `Some`, the `fetch()` global is registered and
+    /// the bridge is configured to route WS/SSE through the Network Process.
+    pub fn with_network(network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>) -> Self {
         let bridge = HostBridge::new();
+        if let Some(ref nh) = network_handle {
+            bridge.set_network_handle(Rc::clone(nh));
+        }
         let console_output = ConsoleOutput::new();
         let timer_queue = TimerQueueHandle::new();
 
@@ -67,7 +67,7 @@ impl JsRuntime {
             &bridge,
             &console_output,
             &timer_queue,
-            fetch_handle,
+            network_handle,
         );
 
         // Store timer queue handle in bridge for window.stop() support.
@@ -87,11 +87,14 @@ impl JsRuntime {
     /// (no `document`, `window`, DOM API). The bridge is initialized with
     /// worker-specific state (name, script URL, outgoing message queue).
     pub fn for_worker(
-        fetch_handle: Option<Rc<FetchHandle>>,
+        network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
         name: String,
         script_url: url::Url,
     ) -> Self {
         let bridge = HostBridge::new();
+        if let Some(ref nh) = network_handle {
+            bridge.set_network_handle(Rc::clone(nh));
+        }
         bridge.init_worker_state(name, script_url);
 
         let console_output = ConsoleOutput::new();
@@ -105,7 +108,7 @@ impl JsRuntime {
             &bridge,
             &console_output,
             &timer_queue,
-            fetch_handle,
+            network_handle,
         );
 
         // Store timer queue handle in bridge for close() timer cleanup.

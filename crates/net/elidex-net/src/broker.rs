@@ -429,13 +429,7 @@ impl NetworkProcessState {
         }
     }
 
-    fn handle_fetch(
-        &self,
-        cid: u64,
-        fetch_id: FetchId,
-        request: Request,
-        client: &Arc<NetClient>,
-    ) {
+    fn handle_fetch(&self, cid: u64, fetch_id: FetchId, request: Request, client: &Arc<NetClient>) {
         let client = Arc::clone(client);
         let tx = self.clients.get(&cid).cloned();
         // Spawn a dedicated thread with its own current-thread runtime for
@@ -449,7 +443,9 @@ impl NetworkProcessState {
                 .enable_all()
                 .build()
                 .expect("failed to create fetch runtime");
-            let result = rt.block_on(client.send(request)).map_err(|e| format!("{e:#}"));
+            let result = rt
+                .block_on(client.send(request))
+                .map_err(|e| format!("{e:#}"));
             if let Some(tx) = tx {
                 let _ = tx.send(NetworkToRenderer::FetchResponse(fetch_id, result));
             }
@@ -521,18 +517,10 @@ impl NetworkProcessState {
     }
 
     fn cleanup_finished(&mut self) {
-        self.ws_handles.retain(|_, handle| {
-            handle
-                .thread
-                .as_ref()
-                .map_or(true, |t| !t.is_finished())
-        });
-        self.sse_handles.retain(|_, handle| {
-            handle
-                .thread
-                .as_ref()
-                .map_or(true, |t| !t.is_finished())
-        });
+        self.ws_handles
+            .retain(|_, handle| handle.thread.as_ref().map_or(true, |t| !t.is_finished()));
+        self.sse_handles
+            .retain(|_, handle| handle.thread.as_ref().map_or(true, |t| !t.is_finished()));
     }
 
     fn close_all_for_client(&mut self, client_id: u64) {

@@ -4,13 +4,11 @@
 //! the parent via `crossbeam_channel`. Follows the same pattern as iframe OOP
 //! threads in `elidex-shell`.
 
-use std::rc::Rc;
 use std::time::Duration;
 
 use crossbeam_channel::RecvTimeoutError;
 use elidex_api_workers::{ParentToWorker, WorkerToParent};
 use elidex_ecs::EcsDom;
-use elidex_net::FetchHandle;
 use elidex_plugin::LocalChannel;
 use elidex_script_session::SessionCore;
 
@@ -48,8 +46,10 @@ pub fn worker_thread_main(
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
 ) {
-    // 1. Fetch the worker script.
-    let fetch_handle = FetchHandle::with_default_client();
+    // 1. Fetch the worker script using a temporary FetchHandle.
+    // Workers use their own FetchHandle for initial script fetch (one-time operation).
+    // In-worker fetch() goes through the NetworkHandle passed to the event loop.
+    let fetch_handle = elidex_net::FetchHandle::with_default_client();
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
@@ -98,11 +98,9 @@ pub fn worker_thread_main_with_source(
     name: String,
     channel: LocalChannel<WorkerToParent, ParentToWorker>,
 ) {
-    // 1. Create independent FetchHandle for this worker.
-    let fetch_handle = Rc::new(FetchHandle::with_default_client());
-
-    // 2. Create worker JsRuntime.
-    let mut runtime = JsRuntime::for_worker(Some(fetch_handle), name, script_url.clone());
+    // 1. Create worker JsRuntime (no NetworkHandle — worker fetch is not
+    //    routed through the Network Process broker yet; will be wired in M4-5.5).
+    let mut runtime = JsRuntime::for_worker(None, name, script_url.clone());
 
     // 3. Create empty EcsDom + SessionCore (required for bridge bind).
     let mut dom = EcsDom::new();
