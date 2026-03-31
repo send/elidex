@@ -51,7 +51,7 @@ impl JsRuntime {
     ///
     /// If `network_handle` is `Some`, the `fetch()` global is registered and
     /// the bridge is configured to route WS/SSE through the Network Process.
-    /// TODO(M4-12): Also wire `Arc<CookieJar>` for `document.cookie` support.
+    /// Cookie jar is wired separately via `bridge.set_cookie_jar()` by the content thread.
     pub fn with_network(network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>) -> Self {
         let bridge = HostBridge::new();
         if let Some(ref nh) = network_handle {
