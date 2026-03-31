@@ -26,10 +26,10 @@ pub struct QuotaManager {
     /// Per-origin usage tracking.
     usage: HashMap<String, OriginUsage>,
     /// Global storage limit in bytes.
-    /// Default: `min(available_disk / 2, 2 GiB)`.
+    /// Default: 2 GiB (fixed; disk-aware sizing deferred).
     global_limit: u64,
     /// Per-origin storage limit in bytes.
-    /// Default: `min(global_limit / 5, 500 MiB)`.
+    /// Default: 500 MiB (fixed; proportional sizing deferred).
     per_origin_limit: u64,
     /// Origins that have been granted persistent storage
     /// (exempt from LRU eviction).

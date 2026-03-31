@@ -545,7 +545,10 @@ impl NetworkProcessState {
                     }
                     return;
                 }
-                let cookie_jar = if with_credentials {
+                // Attach cookies for same-origin requests (origin=None) and
+                // cross-origin with withCredentials=true. Per WHATWG HTML §9.2,
+                // same-origin requests always include credentials.
+                let cookie_jar = if origin.is_none() || with_credentials {
                     Some(client.cookie_jar_arc())
                 } else {
                     None

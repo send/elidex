@@ -670,8 +670,10 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
-        if inner.network_handle.is_none() {
-            return Err("network unavailable".to_string());
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
         }
         let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {
@@ -747,8 +749,10 @@ impl HostBridge {
         js_object: JsObject,
     ) -> Result<u64, String> {
         let mut inner = self.inner.borrow_mut();
-        if inner.network_handle.is_none() {
-            return Err("network unavailable".to_string());
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
         }
         let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
         if let Some(handle) = &inner.network_handle {

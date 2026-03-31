@@ -343,6 +343,10 @@ pub struct PipelineResult {
     /// Network handle for communicating with the Network Process broker.
     /// `disconnected()` when no broker is available (standalone tests).
     pub network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    /// Keeps the broker thread alive for standalone pipelines.
+    /// `None` when the App owns the broker (normal tab mode).
+    #[allow(dead_code)]
+    pub(crate) broker_keepalive: Option<elidex_net::broker::NetworkProcessHandle>,
     /// CSS property registry (cached to avoid re-creation on each re-render).
     /// `Arc`-wrapped so it can be shared with child iframe pipelines.
     pub registry: Arc<elidex_plugin::CssPropertyRegistry>,
@@ -432,6 +436,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     // Start CSS animations declared in initial styles.
@@ -499,6 +504,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     sync_css_animations(&mut result, &[]);
@@ -567,6 +573,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     sync_css_animations(&mut result, &[]);
@@ -745,6 +752,7 @@ pub fn build_pipeline_from_loaded(
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
     };
 
     // Start CSS animations declared in initial styles.
@@ -771,7 +779,13 @@ pub fn build_pipeline_from_url(
     let network_handle = Rc::new(np.create_renderer_handle());
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
-    Ok(build_pipeline_from_loaded(loaded, network_handle, font_db))
+    let mut result = build_pipeline_from_loaded(loaded, network_handle, font_db);
+    result
+        .runtime
+        .bridge()
+        .set_cookie_jar(Arc::clone(np.cookie_jar()));
+    result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
+    Ok(result)
 }
 
 /// Run the browser from a URL string, opening a window.

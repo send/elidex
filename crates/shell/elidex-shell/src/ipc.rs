@@ -226,8 +226,9 @@ pub enum ContentToBrowser {
     FocusWindow,
     /// `IndexedDB` open/delete is requesting a version change (W3C `IndexedDB` §2.4).
     ///
-    /// Browser thread must broadcast `IdbVersionChange` to all other same-origin
-    /// tabs, wait for responses, then send `IdbUpgradeReady` or `IdbBlocked`.
+    /// Browser thread broadcasts `IdbVersionChange` to other same-origin tabs
+    /// and currently sends `IdbUpgradeReady` immediately (TODO(M4-10): wait for
+    /// `IdbConnectionsClosed` responses or timeout before sending).
     IdbVersionChangeRequest {
         /// Unique request ID for correlating responses across tabs.
         request_id: u64,
