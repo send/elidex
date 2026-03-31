@@ -165,6 +165,7 @@ pub(crate) struct HostBridgeInner {
     network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
     /// Shared cookie jar reference for `document.cookie` script access.
     /// Cloned from the Network Process's `NetClient` cookie jar.
+    /// TODO(M4-12): Wire via `NetworkProcessHandle` → `Arc<CookieJar>` → `bridge.set_cookie_jar()`.
     cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     // --- Timer queue ---
     /// Reference to the timer queue for `window.stop()`.

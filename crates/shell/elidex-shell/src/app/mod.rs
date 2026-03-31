@@ -99,8 +99,9 @@ pub struct App {
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
     /// Network Process broker handle (singleton, owns `NetClient` + `CookieJar`).
-    /// Creates `NetworkHandle`s for each content thread tab.
-    #[allow(dead_code)] // Used when content threads are spawned with renderer handles.
+    /// TODO(M4-12): Call `create_renderer_handle()` per tab and pass to content thread.
+    /// TODO(M4-12): Call `unregister_renderer()` on tab shutdown.
+    #[allow(dead_code)]
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
 }
 
