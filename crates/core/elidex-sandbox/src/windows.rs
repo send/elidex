@@ -41,7 +41,7 @@ fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
     // SAFETY: Win32 API calls with validated parameters.
     unsafe {
         let job: HANDLE = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job == std::ptr::null_mut() {
+        if job.is_null() {
             return Err(SandboxError::new("CreateJobObjectW failed"));
         }
 
