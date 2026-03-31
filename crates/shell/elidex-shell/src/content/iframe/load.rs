@@ -102,9 +102,21 @@ fn load_iframe_from_url(
         );
     };
 
-    // TODO: credentialless iframes should use a separate NetworkHandle
-    // with no cookie jar. For now, use the parent's handle.
-    match elidex_navigation::load_document(&resolved, ctx.network_handle, None) {
+    // Credentialless iframes use an isolated broker (no shared cookies).
+    // Non-credentialless iframes share the parent's NetworkHandle.
+    let credentialless_broker = if iframe_data.credentialless {
+        Some(elidex_net::broker::spawn_network_process(
+            elidex_net::NetClient::new_credentialless(),
+        ))
+    } else {
+        None
+    };
+    let credentialless_handle = credentialless_broker
+        .as_ref()
+        .map(elidex_net::broker::NetworkProcessHandle::create_renderer_handle);
+    let effective_handle: &elidex_net::broker::NetworkHandle =
+        credentialless_handle.as_ref().unwrap_or(ctx.network_handle);
+    match elidex_navigation::load_document(&resolved, effective_handle, None) {
         Ok(loaded) => {
             let doc_origin = SecurityOrigin::from_url(&loaded.url);
             if !check_framing_allowed(&loaded.response_headers, ctx.parent_origin, &doc_origin) {
@@ -125,11 +137,20 @@ fn load_iframe_from_url(
                 return make_out_of_process_entry(loaded, sandbox_flags);
             }
 
-            let pipeline = crate::build_pipeline_from_loaded(
-                loaded,
-                ctx.network_handle.clone(),
-                ctx.font_db.clone(),
-            );
+            // Use credentialless handle if applicable, otherwise parent's.
+            let pipeline_handle: std::rc::Rc<elidex_net::broker::NetworkHandle> =
+                if iframe_data.credentialless {
+                    std::rc::Rc::new(
+                        credentialless_broker
+                            .as_ref()
+                            .unwrap()
+                            .create_renderer_handle(),
+                    )
+                } else {
+                    ctx.network_handle.clone()
+                };
+            let pipeline =
+                crate::build_pipeline_from_loaded(loaded, pipeline_handle, ctx.font_db.clone());
             let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
             set_referrer(&entry, ctx);
             entry
