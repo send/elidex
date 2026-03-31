@@ -24,12 +24,7 @@ pub(super) fn handle_navigate(
     let network_handle = Rc::clone(&state.pipeline.network_handle);
     let font_db = Arc::clone(&state.pipeline.font_db);
 
-    // Navigation uses a temporary FetchHandle because elidex_navigation::load_document
-    // requires &FetchHandle (it handles sub-resource fetching internally).
-    // TODO(M4-12): Migrate elidex_navigation to accept NetworkHandle so cookies
-    // and connection pool are shared with the Network Process broker.
-    let nav_fetch = elidex_net::FetchHandle::with_default_client();
-    match elidex_navigation::load_document(url, &nav_fetch, request) {
+    match elidex_navigation::load_document(url, &network_handle, request) {
         Ok(loaded) => {
             // Shut down WebSocket/SSE connections before replacing the pipeline.
             state.pipeline.runtime.bridge().shutdown_all_realtime();

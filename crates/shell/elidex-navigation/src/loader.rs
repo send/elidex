@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use elidex_css::{Origin, Stylesheet};
 use elidex_dom_compat::parse_compat_stylesheet;
 use elidex_ecs::{BackgroundImages, EcsDom, Entity, ImageData};
-use elidex_net::{FetchHandle, NetError};
+use elidex_net::broker::NetworkHandle;
+use elidex_net::NetError;
 use elidex_plugin::background::BackgroundImage;
 use elidex_plugin::ComputedStyle;
 
@@ -125,12 +126,14 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
 /// This enables POST form submissions.
 pub fn load_document(
     url: &url::Url,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
     request: Option<elidex_net::Request>,
 ) -> Result<LoadedDocument, LoadError> {
     // 1. Fetch the HTML document.
     let req = request.unwrap_or_else(|| make_get_request(url.clone()));
-    let response = fetch_handle.send_blocking(req)?;
+    let response = network_handle
+        .fetch_blocking(req)
+        .map_err(|e| NetError::new(elidex_net::NetErrorKind::Other, e))?;
     if !(200..300).contains(&response.status) {
         tracing::warn!("HTTP {}: {}", response.status, url);
     }
@@ -167,7 +170,7 @@ pub fn load_document(
                 stylesheets.push(parse_compat_stylesheet(css, Origin::Author));
             }
             StyleSource::External(href) => {
-                match resolve_and_fetch_text(&response.url, href, fetch_handle) {
+                match resolve_and_fetch_text(&response.url, href, network_handle) {
                     Ok(css_text) => {
                         stylesheets.push(parse_compat_stylesheet(&css_text, Origin::Author));
                     }
@@ -188,7 +191,7 @@ pub fn load_document(
                 scripts.push(ResolvedScript { source, entity });
             }
             ScriptSource::External { src, entity } => {
-                match resolve_and_fetch_text(&response.url, &src, fetch_handle) {
+                match resolve_and_fetch_text(&response.url, &src, network_handle) {
                     Ok(js_text) => {
                         scripts.push(ResolvedScript {
                             source: js_text,
@@ -206,7 +209,7 @@ pub fn load_document(
     // 6. Extract and fetch images.
     let image_sources = extract_image_sources(&dom, document);
     for source in &image_sources {
-        match resolve_and_fetch_binary(&response.url, &source.src, fetch_handle) {
+        match resolve_and_fetch_binary(&response.url, &source.src, network_handle) {
             Ok(data) => match decode_image(&data) {
                 Ok(image_data) => {
                     let _ = dom.world_mut().insert_one(source.entity, image_data);
@@ -238,7 +241,7 @@ pub fn load_document(
 fn resolve_and_fetch(
     base: &url::Url,
     href: &str,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
 ) -> Result<elidex_net::Response, LoadError> {
     let resolved = base
         .join(href)
@@ -253,7 +256,9 @@ fn resolve_and_fetch(
             version: elidex_net::HttpVersion::H1,
         });
     }
-    let response = fetch_handle.send_blocking(make_get_request(resolved))?;
+    let response = network_handle
+        .fetch_blocking(make_get_request(resolved))
+        .map_err(|e| NetError::new(elidex_net::NetErrorKind::Other, e))?;
     if !(200..300).contains(&response.status) {
         tracing::warn!("HTTP {}: {}", response.status, response.url);
     }
@@ -264,9 +269,9 @@ fn resolve_and_fetch(
 fn resolve_and_fetch_binary(
     base: &url::Url,
     href: &str,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
 ) -> Result<Vec<u8>, LoadError> {
-    let response = resolve_and_fetch(base, href, fetch_handle)?;
+    let response = resolve_and_fetch(base, href, network_handle)?;
     Ok(response.body.to_vec())
 }
 
@@ -286,9 +291,9 @@ fn decode_image(bytes: &[u8]) -> Result<ImageData, image::ImageError> {
 fn resolve_and_fetch_text(
     base: &url::Url,
     href: &str,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
 ) -> Result<String, LoadError> {
-    let response = resolve_and_fetch(base, href, fetch_handle)?;
+    let response = resolve_and_fetch(base, href, network_handle)?;
     // L-10: Log non-UTF-8 sub-resources before lossy conversion.
     if std::str::from_utf8(&response.body).is_err() {
         tracing::debug!(
@@ -305,13 +310,13 @@ fn resolve_and_fetch_text(
 fn fetch_and_cache<S: std::hash::BuildHasher>(
     url_str: &str,
     base: &url::Url,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
     cache: &mut HashMap<String, Arc<ImageData>, S>,
 ) -> Option<Arc<ImageData>> {
     if let Some(cached) = cache.get(url_str) {
         return Some(Arc::clone(cached));
     }
-    match resolve_and_fetch_binary(base, url_str, fetch_handle) {
+    match resolve_and_fetch_binary(base, url_str, network_handle) {
         Ok(data) => match decode_image(&data) {
             Ok(image_data) => {
                 let arc = Arc::new(image_data);
@@ -338,7 +343,7 @@ fn fetch_and_cache<S: std::hash::BuildHasher>(
 pub fn fetch_background_images<S: std::hash::BuildHasher>(
     dom: &mut EcsDom,
     base_url: &url::Url,
-    fetch_handle: &FetchHandle,
+    network_handle: &NetworkHandle,
     url_cache: &mut std::collections::HashMap<String, Arc<ImageData>, S>,
 ) {
     // Collect entities that need background images.
@@ -365,7 +370,7 @@ pub fn fetch_background_images<S: std::hash::BuildHasher>(
             .iter()
             .map(|img| match img {
                 BackgroundImage::Url(url_str) => {
-                    fetch_and_cache(url_str, base_url, fetch_handle, url_cache)
+                    fetch_and_cache(url_str, base_url, network_handle, url_cache)
                 }
                 _ => None,
             })

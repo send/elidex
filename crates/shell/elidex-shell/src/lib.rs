@@ -699,13 +699,14 @@ pub fn build_pipeline_from_loaded(
 pub fn build_pipeline_from_url(
     url: &url::Url,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
-    let fetch_handle = elidex_net::FetchHandle::new(elidex_net::NetClient::new());
-    let loaded = elidex_navigation::load_document(url, &fetch_handle, None)?;
+    // Standalone mode: use a disconnected handle for pipeline (no broker).
+    // load_document still routes through NetworkHandle::fetch_blocking which
+    // returns "network process disconnected" for disconnected handles, so
+    // we create a temporary broker for standalone URL loading.
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let network_handle = Rc::new(np.create_renderer_handle());
+    let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
-    // Standalone mode: disconnected handle (no broker). fetch()/WS/SSE unavailable.
-    // In production, content threads receive a real NetworkHandle from the App's
-    // NetworkProcessHandle via create_renderer_handle(). See TODO(M4-12).
-    let network_handle = Rc::new(elidex_net::broker::NetworkHandle::disconnected());
     Ok(build_pipeline_from_loaded(loaded, network_handle, font_db))
 }
 

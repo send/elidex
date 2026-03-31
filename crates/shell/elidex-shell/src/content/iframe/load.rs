@@ -102,15 +102,9 @@ fn load_iframe_from_url(
         );
     };
 
-    // Navigation fetch uses a temporary FetchHandle.
-    // TODO: Route iframe navigation through NetworkHandle.
-    let nav_fetch = if iframe_data.credentialless {
-        elidex_net::FetchHandle::new(elidex_net::NetClient::new_credentialless())
-    } else {
-        elidex_net::FetchHandle::with_default_client()
-    };
-
-    match elidex_navigation::load_document(&resolved, &nav_fetch, None) {
+    // TODO: credentialless iframes should use a separate NetworkHandle
+    // with no cookie jar. For now, use the parent's handle.
+    match elidex_navigation::load_document(&resolved, ctx.network_handle, None) {
         Ok(loaded) => {
             let doc_origin = SecurityOrigin::from_url(&loaded.url);
             if !check_framing_allowed(&loaded.response_headers, ctx.parent_origin, &doc_origin) {
