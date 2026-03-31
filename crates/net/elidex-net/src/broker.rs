@@ -371,6 +371,16 @@ fn network_process_main(
 /// Maximum concurrent fetch threads across all renderers.
 const MAX_CONCURRENT_FETCHES: usize = 64;
 
+/// RAII guard that decrements the inflight fetch counter on drop.
+/// Ensures the counter is decremented even if the fetch thread panics.
+struct FetchInflightGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for FetchInflightGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Internal state of the Network Process.
 struct NetworkProcessState {
     /// Registered renderer clients: client_id → response sender.
@@ -407,6 +417,19 @@ impl NetworkProcessState {
                 protocols,
                 origin,
             } => {
+                // SSRF validation at the broker boundary — the renderer is
+                // sandboxed and cannot be trusted to validate URLs.
+                let http_url = url
+                    .to_string()
+                    .replacen("ws://", "http://", 1)
+                    .replacen("wss://", "https://", 1);
+                if let Ok(check_url) = url::Url::parse(&http_url) {
+                    if elidex_plugin::url_security::validate_url(&check_url).is_err() {
+                        // Silently reject — renderer gets no Connected event,
+                        // triggering an error/close on the JS side.
+                        return;
+                    }
+                }
                 let handle = crate::ws::spawn_ws_thread(url, protocols, origin);
                 self.ws_handles.insert((cid, conn_id), handle);
             }
@@ -416,6 +439,8 @@ impl NetworkProcessState {
                 }
             }
             RendererToNetwork::WebSocketClose(conn_id) => {
+                // Close with code 1000 (normal). JS-level close() uses
+                // WebSocketSend(_, WsCommand::Close(code, reason)) instead.
                 if let Some(handle) = self.ws_handles.get(&(cid, conn_id)) {
                     let _ = handle
                         .command_tx
@@ -429,6 +454,10 @@ impl NetworkProcessState {
                 origin,
                 with_credentials,
             } => {
+                // SSRF validation at the broker boundary.
+                if elidex_plugin::url_security::validate_url(&url).is_err() {
+                    return;
+                }
                 let cookie_jar = if with_credentials {
                     Some(client.cookie_jar_arc())
                 } else {
@@ -473,6 +502,10 @@ impl NetworkProcessState {
             return;
         }
         std::thread::spawn(move || {
+            // Drop guard ensures the counter is decremented even if the
+            // fetch panics (prevents permanent counter leak → fetch starvation).
+            let _guard = FetchInflightGuard(inflight);
+
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -483,7 +516,6 @@ impl NetworkProcessState {
             if let Some(tx) = tx {
                 let _ = tx.send(NetworkToRenderer::FetchResponse(fetch_id, result));
             }
-            inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });
     }
 
