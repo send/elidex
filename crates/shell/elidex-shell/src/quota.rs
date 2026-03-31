@@ -158,8 +158,12 @@ impl QuotaManager {
                 break;
             }
 
-            // Delete origin storage directory.
-            let origin_dir = self.data_dir.join("elidex").join("origins").join(&origin);
+            // Delete origin storage directory (hex-encoded to be filesystem-safe).
+            let origin_dir = self
+                .data_dir
+                .join("elidex")
+                .join("origins")
+                .join(hex_encode_origin(&origin));
             if origin_dir.exists() {
                 let _ = std::fs::remove_dir_all(&origin_dir);
             }
@@ -171,7 +175,23 @@ impl QuotaManager {
 
         evicted
     }
+}
 
+/// Hex-encode an origin string for use as a filesystem-safe directory name.
+///
+/// Same encoding as `elidex_indexeddb::origin::sanitize_origin_key()`.
+/// Prevents path traversal via crafted origin strings (e.g., containing `/` or `..`).
+fn hex_encode_origin(origin: &str) -> String {
+    origin
+        .bytes()
+        .fold(String::with_capacity(origin.len() * 2), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+}
+
+impl QuotaManager {
     /// Remove all usage tracking for an origin (e.g., "clear site data").
     pub fn clear_origin(&mut self, origin: &str) {
         self.usage.remove(origin);

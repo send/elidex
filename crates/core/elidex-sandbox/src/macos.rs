@@ -30,6 +30,10 @@ impl SandboxEnforcer for MacOSEnforcer {
         // SAFETY: `sandbox_init` is a stable macOS API. We pass a valid
         // C string and a pointer to receive error messages. The error
         // string (if any) must be freed with `sandbox_free_error`.
+        //
+        // Flags: 0 = raw SBPL profile string. The profile must start with
+        // `(version 1)`. SANDBOX_NAMED (0x0001) would interpret it as a
+        // profile name lookup instead.
         let ret = unsafe { sandbox_init(c_profile.as_ptr(), 0, &mut err_buf) };
 
         if ret != 0 {
