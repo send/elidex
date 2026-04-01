@@ -8,7 +8,7 @@
 ///
 /// Used for both SQLite table names and origin directory names on disk.
 pub fn sanitize_sql_name(s: &str) -> String {
-    if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) {
+    if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) && !is_windows_reserved(s) {
         return s.to_owned();
     }
     // Prefix hex output with "x_" to avoid collision with alphanumeric passthrough.
@@ -19,6 +19,35 @@ pub fn sanitize_sql_name(s: &str) -> String {
         let _ = write!(result, "{b:02x}");
     }
     result
+}
+
+/// Check if a name is a Windows reserved device name (case-insensitive).
+fn is_windows_reserved(s: &str) -> bool {
+    matches!(
+        s.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
 }
 
 #[cfg(test)]

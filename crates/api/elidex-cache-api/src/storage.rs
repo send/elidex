@@ -38,7 +38,7 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
             [name],
             |row| row.get(0),
         )
-        .unwrap_or(false);
+        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
 
     if exists {
         return Ok(false);
@@ -68,7 +68,7 @@ pub fn has(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
             [name],
             |row| row.get(0),
         )
-        .unwrap_or(false);
+        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
     Ok(exists)
 }
 

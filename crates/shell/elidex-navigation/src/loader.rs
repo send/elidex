@@ -246,9 +246,10 @@ pub fn load_document(
 fn extract_manifest_url(dom: &EcsDom, document: Entity, base_url: &url::Url) -> Option<url::Url> {
     use elidex_ecs::Attributes;
 
-    let mut stack = dom.children(document);
-    while let Some(entity) = stack.pop() {
-        stack.extend(dom.children(entity));
+    // BFS to preserve document order (first <link rel="manifest"> wins per spec).
+    let mut queue = std::collections::VecDeque::from(dom.children(document));
+    while let Some(entity) = queue.pop_front() {
+        queue.extend(dom.children(entity));
 
         let Some(tag) = dom.get_tag_name(entity) else {
             continue;

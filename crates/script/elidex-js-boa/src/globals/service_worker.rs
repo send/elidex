@@ -42,11 +42,33 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
 
             // Queue the registration request in the bridge (scope included).
-            bridge.queue_sw_register(script_url, scope);
+            bridge.queue_sw_register(script_url.clone(), scope);
 
-            // Return a resolved promise per spec (install is async).
-            let promise =
-                boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+            // Return a resolved promise with a stub ServiceWorkerRegistration.
+            let reg_stub = ObjectInitializer::new(ctx)
+                .property(
+                    js_string!("scope"),
+                    JsValue::from(js_string!(script_url.as_str())),
+                    boa_engine::property::Attribute::READONLY,
+                )
+                .property(
+                    js_string!("active"),
+                    JsValue::null(),
+                    boa_engine::property::Attribute::CONFIGURABLE,
+                )
+                .property(
+                    js_string!("installing"),
+                    JsValue::null(),
+                    boa_engine::property::Attribute::CONFIGURABLE,
+                )
+                .property(
+                    js_string!("waiting"),
+                    JsValue::null(),
+                    boa_engine::property::Attribute::CONFIGURABLE,
+                )
+                .build();
+            let val: JsValue = reg_stub.into();
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
             Ok(promise.into())
         },
         b,

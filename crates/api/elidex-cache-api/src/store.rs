@@ -127,7 +127,7 @@ pub fn delete(
             [&table],
             |row| row.get(0),
         )
-        .unwrap_or(false);
+        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
     if !exists {
         return Ok(false);
     }
@@ -225,7 +225,7 @@ fn scan_all_entries(conn: &SqliteConnection, table: &str) -> Result<Vec<CachedEn
             [table],
             |row| row.get(0),
         )
-        .unwrap_or(false);
+        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
 
     if !exists {
         return Ok(vec![]);
