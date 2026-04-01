@@ -1,3 +1,6 @@
+// SQLite limit parameters use usize→i64 casts safe for practical values.
+#![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+
 pub mod backend;
 pub mod error;
 pub mod migration;

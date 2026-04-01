@@ -151,7 +151,7 @@ impl std::fmt::Debug for OriginStorageManager {
         f.debug_struct("OriginStorageManager")
             .field("profile_dir", &self.profile_dir)
             .field("open_connections", &count)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

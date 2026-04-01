@@ -119,6 +119,7 @@ impl StorageBackend for SqliteBackend {
         Ok(())
     }
 
+    #[allow(clippy::unused_self, clippy::unnecessary_literal_bound)]
     fn name(&self) -> &str {
         "sqlite"
     }

@@ -36,7 +36,6 @@ pub struct QuotaManager {
 }
 
 const DEFAULT_GLOBAL_LIMIT: u64 = 10 * 1024 * 1024 * 1024; // 10 GB
-const PER_ORIGIN_FRACTION: f64 = 0.20; // 20% of global limit
 
 impl QuotaManager {
     pub fn new() -> Self {
@@ -69,7 +68,8 @@ impl QuotaManager {
     pub fn estimate(&self, origin: &OriginKey) -> QuotaEstimate {
         let origins = self.origins.lock().unwrap();
         let usage = origins.get(origin).map_or(0, |i| i.usage);
-        let per_origin_quota = (self.global_limit as f64 * PER_ORIGIN_FRACTION) as u64;
+        // global_limit * 0.20 — integer arithmetic avoids f64 cast warnings.
+        let per_origin_quota = self.global_limit / 5;
         QuotaEstimate {
             usage,
             quota: per_origin_quota,
@@ -80,7 +80,8 @@ impl QuotaManager {
     pub fn check_quota(&self, origin: &OriginKey, additional_bytes: u64) -> bool {
         let origins = self.origins.lock().unwrap();
         let current = origins.get(origin).map_or(0, |i| i.usage);
-        let per_origin_quota = (self.global_limit as f64 * PER_ORIGIN_FRACTION) as u64;
+        // global_limit * 0.20 — integer arithmetic avoids f64 cast warnings.
+        let per_origin_quota = self.global_limit / 5;
         current + additional_bytes <= per_origin_quota
     }
 
