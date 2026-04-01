@@ -45,14 +45,12 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
             bridge.queue_sw_register(script_url.clone(), scope);
 
             // Return a resolved promise with a stub ServiceWorkerRegistration.
+            // Note: scope is a placeholder — the real scope is computed by the
+            // content thread (URL resolution) and browser thread (SwCoordinator).
             let reg_stub = ObjectInitializer::new(ctx)
                 .property(
                     js_string!("scope"),
-                    JsValue::from(js_string!(elidex_api_sw::default_scope(
-                        &url::Url::parse(&script_url)
-                            .unwrap_or_else(|_| { url::Url::parse("about:blank").unwrap() })
-                    )
-                    .as_str())),
+                    JsValue::from(js_string!(script_url.as_str())),
                     boa_engine::property::Attribute::READONLY,
                 )
                 .property(

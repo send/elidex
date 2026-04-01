@@ -103,13 +103,11 @@ pub fn match_all(
                 Ok(vec![])
             }
             Err(e)
-                if matches!(
-                    e.kind,
-                    elidex_storage_core::StorageErrorKind::NotFound
-                        | elidex_storage_core::StorageErrorKind::Sqlite
-                ) =>
+                if matches!(e.kind, elidex_storage_core::StorageErrorKind::NotFound)
+                    || (matches!(e.kind, elidex_storage_core::StorageErrorKind::Sqlite)
+                        && e.message.contains("no such table")) =>
             {
-                // NotFound = key missing, Sqlite = table missing (cache never opened).
+                // NotFound = key missing; "no such table" = cache never opened.
                 Ok(vec![])
             }
             Err(e) => Err(CacheError::Storage(e)),

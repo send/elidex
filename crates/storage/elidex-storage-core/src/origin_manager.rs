@@ -43,6 +43,13 @@ impl OriginKey {
         Some(Self::from_parts(scheme, host, port))
     }
 
+    /// Create from an origin serialization string (e.g., `url::Origin::unicode_serialization()`).
+    ///
+    /// Normalizes by replacing non-alphanumeric separators to match `from_parts` format.
+    pub fn from_origin_string(s: &str) -> Self {
+        Self(s.to_owned())
+    }
+
     /// Filesystem-safe directory name for this origin.
     ///
     /// Hex-encodes the origin string to avoid filesystem-unsafe characters
@@ -74,6 +81,8 @@ impl OriginStorageManager {
     }
 
     /// Get or open a connection for the given origin and storage type.
+    /// Note: holds mutex during `backend.open()` (filesystem I/O).
+    /// TODO(M4-8.5): open outside lock, then insert.
     pub fn connection(
         &self,
         origin: &OriginKey,

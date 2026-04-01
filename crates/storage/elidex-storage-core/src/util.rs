@@ -8,7 +8,11 @@
 ///
 /// Used for both SQLite table names and origin directory names on disk.
 pub fn sanitize_sql_name(s: &str) -> String {
-    if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) && !is_windows_reserved(s) {
+    if !s.is_empty()
+        && s.len() <= 32
+        && s.bytes().all(|b| b.is_ascii_alphanumeric())
+        && !is_windows_reserved(s)
+    {
         return s.to_owned();
     }
     // Prefix hex output with "x_" to avoid collision with alphanumeric passthrough.
