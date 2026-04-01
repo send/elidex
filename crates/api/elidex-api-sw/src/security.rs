@@ -17,7 +17,10 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
 /// - HTTPS-only (localhost/::1 exception)
 /// - Same-origin (script_url vs page_origin)
 /// - data: URL prohibition
-/// - Scope within script directory (unless Service-Worker-Allowed header)
+/// - Scope same-origin as script
+///
+/// Note: scope path restriction (within script directory) is NOT enforced here.
+/// Use `validate_scope_path()` or `validate_service_worker_allowed()` separately.
 pub fn validate_registration(script_url: &Url, scope: &Url, page_url: &Url) -> Result<(), String> {
     // HTTPS-only (localhost/::1 exception)
     if !is_secure_context(page_url) {

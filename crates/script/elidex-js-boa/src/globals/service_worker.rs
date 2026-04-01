@@ -35,17 +35,19 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                         .with_message("serviceWorker.register requires a script URL")
                 })?;
 
-            let _scope = args
+            let scope = args
                 .get(1)
                 .and_then(JsValue::as_object)
                 .and_then(|opts| opts.get(js_string!("scope"), ctx).ok())
                 .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
 
-            // Queue the registration request in the bridge.
-            bridge.queue_sw_register(script_url);
+            // Queue the registration request in the bridge (scope included).
+            bridge.queue_sw_register(script_url, scope);
 
-            // Return a resolved promise (registration is async per spec).
-            Ok(JsValue::undefined())
+            // Return a resolved promise per spec (install is async).
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+            Ok(promise.into())
         },
         b,
     );

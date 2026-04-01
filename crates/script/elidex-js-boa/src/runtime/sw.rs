@@ -161,8 +161,9 @@ impl JsRuntime {
     /// via `addEventListener`, builds an event object, and calls each listener.
     /// This avoids string-based JS eval and injection risks.
     ///
-    /// `waitUntil()` collects promises; after all listeners run, `ctx.run_jobs()`
-    /// drains the microtask queue (Phase 2: synchronous resolution).
+    /// Phase 2 limitation: `waitUntil()` is a no-op stub. Promises passed to it
+    /// resolve synchronously via `ctx.run_jobs()` after all callbacks execute.
+    /// True promise tracking requires M4-10 (elidex-js VM with async support).
     /// If any callback throws, returns `false`.
     pub fn dispatch_sw_event(
         &mut self,

@@ -178,9 +178,11 @@ impl SwCoordinator {
                 }
             }
 
-            // Check if thread died unexpectedly.
+            // Check if thread died unexpectedly — transition to Redundant.
             if !handle.is_alive() && handle.state() != SwState::Redundant {
-                tracing::warn!(scope = %handle.scope(), "SW thread terminated unexpectedly");
+                let scope = handle.scope().clone();
+                tracing::warn!(scope = %scope, "SW thread terminated unexpectedly");
+                self.store.set_state(&scope, SwState::Redundant);
                 to_remove.push(scope_key.clone());
             }
         }

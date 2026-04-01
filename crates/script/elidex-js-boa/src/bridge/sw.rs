@@ -6,17 +6,19 @@ use super::HostBridge;
 #[derive(Clone, Debug)]
 pub struct SwRegisterRequest {
     pub script_url: String,
+    /// Explicit scope from options, if provided.
+    pub scope: Option<String>,
 }
 
 impl HostBridge {
     /// Queue a SW registration request (from navigator.serviceWorker.register()).
     ///
     /// The content thread drains these and sends `ContentToBrowser::SwRegister`.
-    pub fn queue_sw_register(&self, script_url: String) {
+    pub fn queue_sw_register(&self, script_url: String, scope: Option<String>) {
         let mut inner = self.inner.borrow_mut();
         inner
             .pending_sw_registers
-            .push(SwRegisterRequest { script_url });
+            .push(SwRegisterRequest { script_url, scope });
     }
 
     /// Drain pending SW registration requests.

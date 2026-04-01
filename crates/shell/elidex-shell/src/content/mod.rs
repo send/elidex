@@ -360,6 +360,8 @@ fn content_thread_main_url(
             return;
         }
     };
+    // Extract manifest URL before pipeline builder consumes LoadedDocument.
+    let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
     let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar));
 
@@ -368,6 +370,14 @@ fn content_thread_main_url(
 
     let mut state = ContentState::new(channel, nav_controller, pipeline);
     scroll::update_viewport_scroll_dimensions(&mut state);
+
+    // Notify browser thread of manifest discovery.
+    if let Some(manifest) = manifest_url {
+        let _ = state
+            .channel
+            .send(ContentToBrowser::ManifestDiscovered { url: manifest });
+    }
+
     // Scan for <iframe> elements present in the initial parsed DOM.
     iframe::scan_initial_iframes(&mut state);
     state.re_render();
@@ -511,16 +521,23 @@ fn run_event_loop(state: &mut ContentState) {
         for req in state.pipeline.runtime.bridge().drain_sw_register_requests() {
             if let Some(ref current_url) = state.pipeline.runtime.bridge().current_url() {
                 let origin = current_url.origin().unicode_serialization();
-                if let Ok(script_url) = url::Url::parse(&req.script_url) {
-                    let scope = elidex_api_sw::default_scope(&script_url);
-                    let _ = state
-                        .channel
-                        .send(crate::ipc::ContentToBrowser::SwRegister {
-                            script_url,
-                            scope,
-                            origin,
-                        });
-                }
+                // Resolve relative script URLs against current page URL.
+                let Ok(script_url) = current_url.join(&req.script_url) else {
+                    continue;
+                };
+                // Use explicit scope if provided, otherwise default to script directory.
+                let scope = req
+                    .scope
+                    .as_deref()
+                    .and_then(|s| current_url.join(s).ok())
+                    .unwrap_or_else(|| elidex_api_sw::default_scope(&script_url));
+                let _ = state
+                    .channel
+                    .send(crate::ipc::ContentToBrowser::SwRegister {
+                        script_url,
+                        scope,
+                        origin,
+                    });
             }
         }
 

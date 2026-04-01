@@ -47,7 +47,7 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
+        .as_millis();
 
     raw.execute(
         "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
@@ -93,7 +93,7 @@ pub fn keys(conn: &SqliteConnection) -> Result<Vec<String>, CacheError> {
     ensure_names_table(conn)?;
     let mut stmt = conn
         .raw_connection()
-        .prepare("SELECT name FROM _cache_names ORDER BY created_at ASC")
+        .prepare("SELECT name FROM _cache_names ORDER BY created_at ASC, name ASC")
         .map_err(sql_err)?;
     let names: Vec<String> = stmt
         .query_map([], |row| row.get(0))
