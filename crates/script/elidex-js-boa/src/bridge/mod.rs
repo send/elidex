@@ -11,6 +11,7 @@
 //! - `HostBridge` is `!Send` (via `Rc`)
 
 mod animation;
+mod cache;
 mod canvas;
 mod ce;
 mod cssom;
@@ -205,6 +206,9 @@ pub(crate) struct HostBridgeInner {
     /// Worker-side state (outgoing messages, close flag, name, script URL).
     /// `Some` only when this bridge belongs to a dedicated worker thread.
     worker_state: Option<worker_state::WorkerBridgeState>,
+    // --- Cache API ---
+    /// Per-origin Cache API SQLite connection (lazily initialized).
+    cache_conn: Option<elidex_storage_core::SqliteConnection>,
     // --- IndexedDB ---
     /// Per-origin `IndexedDB` backend (lazily initialized).
     idb_backend: Option<elidex_indexeddb::IdbBackend>,
@@ -433,6 +437,7 @@ impl HostBridge {
                 current_script_entity: None,
                 worker_registry: worker_registry::WorkerRegistry::default(),
                 worker_state: None,
+                cache_conn: None,
                 idb_backend: None,
                 idb_cursors: HashMap::new(),
                 idb_cursor_next_id: 1,
