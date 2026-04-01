@@ -48,7 +48,11 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
             let reg_stub = ObjectInitializer::new(ctx)
                 .property(
                     js_string!("scope"),
-                    JsValue::from(js_string!(script_url.as_str())),
+                    JsValue::from(js_string!(elidex_api_sw::default_scope(
+                        &url::Url::parse(&script_url)
+                            .unwrap_or_else(|_| { url::Url::parse("about:blank").unwrap() })
+                    )
+                    .as_str())),
                     boa_engine::property::Attribute::READONLY,
                 )
                 .property(

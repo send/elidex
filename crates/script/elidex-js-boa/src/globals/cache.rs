@@ -124,7 +124,7 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
 
     let b = bridge.clone();
     let match_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, _ctx| {
+        |_this, args, bridge, ctx| {
             let url = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -135,7 +135,6 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .ensure_cache_backend()
                 .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-            // Search all caches for a match
             let result = bridge
                 .with_cache(|conn| {
                     let cache_names = elidex_cache_api::storage::keys(conn).unwrap_or_default();
@@ -155,13 +154,16 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 })
                 .flatten();
 
-            match result {
-                Some(entry) => Ok(JsValue::from(js_string!(String::from_utf8_lossy(
+            // Phase 2: returns body string. M4-8.5 will return full Response object.
+            let val = match result {
+                Some(entry) => JsValue::from(js_string!(String::from_utf8_lossy(
                     &entry.response_body
                 )
-                .to_string()))),
-                None => Ok(JsValue::undefined()),
-            }
+                .to_string())),
+                None => JsValue::undefined(),
+            };
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         b,
     );

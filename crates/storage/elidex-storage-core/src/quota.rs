@@ -26,9 +26,12 @@ pub struct QuotaEstimate {
 
 /// Manages per-origin storage quotas (Ch.22).
 ///
-/// Default quota: min(20% of available disk, 10 GB).
-/// Origins can request persistent storage via `navigator.storage.persist()`.
-/// Non-persistent origins are subject to LRU eviction when quota is exceeded.
+/// Current implementation: fixed global limit (default 10 GB), per-origin = limit / 5.
+/// Tracks usage and persistent flag per origin. `eviction_candidates()` returns
+/// non-persistent origins sorted by LRU for the caller to evict.
+///
+/// TODO(M4-8.5): disk-aware limit (`min(20% of available disk, 10 GB)`),
+/// automatic eviction enforcement.
 pub struct QuotaManager {
     origins: Mutex<HashMap<OriginKey, QuotaInfo>>,
     /// Global storage limit in bytes.

@@ -102,7 +102,17 @@ pub fn match_all(
                 }
                 Ok(vec![])
             }
-            // Not found
+            Err(e)
+                if matches!(
+                    e.kind,
+                    elidex_storage_core::StorageErrorKind::NotFound
+                        | elidex_storage_core::StorageErrorKind::Sqlite
+                ) =>
+            {
+                // NotFound = key missing, Sqlite = table missing (cache never opened).
+                Ok(vec![])
+            }
+            Err(e) => Err(CacheError::Storage(e)),
             _ => Ok(vec![]),
         }
     }
@@ -177,9 +187,9 @@ pub fn add_all(
 ) -> Result<(), CacheError> {
     ensure_cache_table(conn, cache_name)?;
 
+    let table = table_name(cache_name);
     conn.transaction(|txn| {
         for entry in entries {
-            let table = table_name(cache_name);
             let key = entry.storage_key();
             let value = entry.serialize();
             txn.execute(&StorageOp::Put {

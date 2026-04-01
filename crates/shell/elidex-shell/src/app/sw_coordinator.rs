@@ -232,25 +232,25 @@ impl SwCoordinator {
     }
 
     /// Get quota estimate for an origin (for navigator.storage.estimate()).
+    #[allow(clippy::unused_self)]
     pub fn quota_estimate(
         &self,
         origin: &elidex_storage_core::OriginKey,
     ) -> elidex_storage_core::QuotaEstimate {
         // TODO(M4-8.5): use OriginStorageManager's QuotaManager.
         // For now, QuotaManager tracks in-memory only.
-        let _ = &self.sync_manager; // suppress unused field warning
         QUOTA.estimate(origin)
     }
 
     /// Request persistent storage for an origin.
+    #[allow(clippy::unused_self)]
     pub fn quota_persist(&self, origin: &elidex_storage_core::OriginKey) -> bool {
-        let _ = &self.persistence;
         QUOTA.request_persist(origin)
     }
 
     /// Check if an origin has persistent storage.
+    #[allow(clippy::unused_self)]
     pub fn quota_persisted(&self, origin: &elidex_storage_core::OriginKey) -> bool {
-        let _ = &self.persistence;
         QUOTA.is_persisted(origin)
     }
 
