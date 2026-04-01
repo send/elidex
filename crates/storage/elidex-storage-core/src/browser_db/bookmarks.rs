@@ -109,7 +109,7 @@ impl<'db> BookmarkStore<'db> {
                 [parent_id],
                 |row| row.get(0),
             )
-            .unwrap_or(-1);
+            .map_err(StorageError::from)?;
 
         self.conn
             .execute(

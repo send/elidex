@@ -172,6 +172,7 @@ impl CookieJar {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
+        let mut mutated = false;
         for (name, value) in headers {
             if !name.eq_ignore_ascii_case("set-cookie") {
                 continue;
@@ -189,6 +190,7 @@ impl CookieJar {
                     !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
                 });
                 jar.push(cookie);
+                mutated = true;
 
                 // Enforce per-domain limit: evict oldest cookies for this domain
                 let domain_count = jar.iter().filter(|c| c.domain == domain).count();
@@ -211,7 +213,9 @@ impl CookieJar {
                 }
             }
         }
-        self.bump_generation();
+        if mutated {
+            self.bump_generation();
+        }
     }
 
     /// Get cookies applicable to the given URL.
@@ -243,7 +247,7 @@ impl CookieJar {
                 if c.secure && !is_secure {
                     return false;
                 }
-                if !domain_matches(domain, &c.domain) {
+                if !cookie_domain_matches(c, domain) {
                     return false;
                 }
                 if !path_matches(path, &c.path) {
@@ -463,13 +467,25 @@ fn is_script_visible(c: &StoredCookie, domain: &str, path: &str, is_secure: bool
     if c.secure && !is_secure {
         return false;
     }
-    if !domain_matches(domain, &c.domain) {
+    if !cookie_domain_matches(c, domain) {
         return false;
     }
     if !path_matches(path, &c.path) {
         return false;
     }
     true
+}
+
+/// Check if a cookie's domain matches the request domain,
+/// respecting the host-only flag (RFC 6265bis §5.7).
+fn cookie_domain_matches(c: &StoredCookie, request_domain: &str) -> bool {
+    if c.host_only {
+        // Host-only cookies require exact domain match.
+        request_domain.eq_ignore_ascii_case(&c.domain)
+    } else {
+        // Domain cookies use suffix matching.
+        domain_matches(request_domain, &c.domain)
+    }
 }
 
 /// Parse a `Set-Cookie` header value into a `StoredCookie`.

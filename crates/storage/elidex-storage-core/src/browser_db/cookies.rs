@@ -102,11 +102,19 @@ impl<'db> CookieStore<'db> {
     }
 
     /// Delete a specific cookie by (host, path, name).
-    pub fn delete(&self, host: &str, path: &str, name: &str) -> Result<(), StorageError> {
+    /// Delete a specific cookie by (host, path, name, partition_key).
+    pub fn delete(
+        &self,
+        host: &str,
+        path: &str,
+        name: &str,
+        partition_key: &str,
+    ) -> Result<(), StorageError> {
         self.conn
             .execute(
-                "DELETE FROM cookies WHERE host = ?1 AND path = ?2 AND name = ?3",
-                rusqlite::params![host, path, name],
+                "DELETE FROM cookies WHERE host = ?1 AND path = ?2 AND name = ?3 \
+                 AND partition_key = ?4",
+                rusqlite::params![host, path, name, partition_key],
             )
             .map_err(StorageError::from)?;
         Ok(())
@@ -245,7 +253,7 @@ mod tests {
         let store = db.cookies();
 
         store.persist(&sample_cookie()).unwrap();
-        store.delete("example.com", "/", "sid").unwrap();
+        store.delete("example.com", "/", "sid", "").unwrap();
 
         let cookies = store.load_all().unwrap();
         assert!(cookies.is_empty());

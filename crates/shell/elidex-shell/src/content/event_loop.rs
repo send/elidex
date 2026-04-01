@@ -191,6 +191,13 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 }
 
 /// Handle a single message. Returns `false` for Shutdown.
+///
+/// Also exposed as `handle_message_public` for re-dispatch from navigation.rs.
+#[allow(clippy::too_many_lines)]
+pub(super) fn handle_message_public(msg: BrowserToContent, state: &mut ContentState) -> bool {
+    handle_message(msg, state)
+}
+
 #[allow(clippy::too_many_lines)]
 fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
     match msg {

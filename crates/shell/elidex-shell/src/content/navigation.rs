@@ -15,6 +15,7 @@ use super::ContentState;
 ///
 /// When `request` is `Some`, that request is sent instead of a default GET
 /// (used for POST form submissions).
+#[allow(clippy::too_many_lines)]
 pub(super) fn handle_navigate(
     state: &mut ContentState,
     url: &url::Url,
@@ -71,23 +72,40 @@ pub(super) fn handle_navigate(
                         resulting_client_id: String::new(),
                     });
 
-                // Wait for SW response (with timeout).
-                if let Ok(crate::ipc::BrowserToContent::SwFetchResponse {
-                    response: Some(resp),
-                    ..
-                }) = state
-                    .channel
-                    .recv_timeout(std::time::Duration::from_secs(30))
-                {
-                    tracing::debug!(
-                        url = %url,
-                        status = resp.status,
-                        "SW intercepted navigation"
-                    );
-                    // TODO: construct document from SW response body.
-                    // For now, fall through to normal fetch.
+                // Wait for SW response. Loop to avoid consuming unrelated
+                // messages (Copilot review: recv_timeout can eat other IPC).
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    if remaining.is_zero() {
+                        break; // Timeout — fall through to normal fetch.
+                    }
+                    match state.channel.recv_timeout(remaining) {
+                        Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                            response: Some(resp),
+                            ..
+                        }) => {
+                            tracing::debug!(
+                                url = %url,
+                                status = resp.status,
+                                "SW intercepted navigation"
+                            );
+                            // TODO: construct document from SW response body.
+                            break;
+                        }
+                        Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                            response: None,
+                            ..
+                        }) => {
+                            break; // Passthrough.
+                        }
+                        Ok(other) => {
+                            // Re-dispatch non-SwFetchResponse message.
+                            super::event_loop::handle_message_public(other, state);
+                        }
+                        Err(_) => break, // Timeout or disconnected.
+                    }
                 }
-                // Passthrough or timeout — proceed with normal fetch.
             }
         }
     }

@@ -16,13 +16,15 @@ use boa_engine::{
 fn cached_entry_to_response(entry: &elidex_cache_api::CachedEntry, ctx: &mut Context) -> JsValue {
     let body = String::from_utf8_lossy(&entry.response_body);
     let redirected = entry.response_url_list.len() > 1;
+    // Fetch spec: response.url is the final URL after redirects.
+    let url = entry.response_url_list.last().unwrap_or(&entry.request_url);
     super::fetch::build_response_from_parts(
         &super::fetch::ResponseParts {
             status: entry.response_status,
             status_text: &entry.response_status_text,
             headers: &entry.response_headers,
             body: &body,
-            url: &entry.request_url,
+            url,
             response_type: entry.response_type.as_str(),
             redirected,
         },

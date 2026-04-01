@@ -222,7 +222,13 @@ impl App {
         }
         self.cookie_gen = current_gen;
 
-        let persisted: Vec<_> = jar.snapshot().into_iter().map(snap_to_persisted).collect();
+        // Only persist persistent cookies (not session cookies).
+        let persisted: Vec<_> = jar
+            .snapshot()
+            .into_iter()
+            .filter(|c| c.persistent)
+            .map(snap_to_persisted)
+            .collect();
         if let Err(e) = db.cookies().sync_all(&persisted) {
             tracing::debug!(error = %e, "failed to sync cookies");
         }
