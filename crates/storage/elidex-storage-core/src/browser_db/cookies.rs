@@ -9,7 +9,7 @@ pub struct PersistedCookie {
     pub host: String,
     pub path: String,
     pub name: String,
-    /// Empty string = first-party; non-empty = CHIPS partitioned origin (e.g. "https://news.com").
+    /// Empty string = first-party; non-empty = CHIPS partitioned origin (e.g. `"https://news.com"`).
     pub partition_key: String,
     pub value: String,
     pub domain: String,
