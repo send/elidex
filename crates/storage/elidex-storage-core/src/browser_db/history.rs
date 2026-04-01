@@ -192,15 +192,16 @@ impl<'db> HistoryStore<'db> {
     }
 
     /// Delete visits in a time range and recalculate affected URL frecencies.
+    ///
+    /// Wrapped in a transaction for atomicity.
     pub fn delete_range(&self, from: SystemTime, to: SystemTime) -> Result<(), StorageError> {
-        let from_ts = from
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let to_ts = to
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(i64::MAX);
+        let from_ts = super::system_time_to_unix(from);
+        let to_ts = super::system_time_to_unix(to);
+
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(StorageError::from)?;
 
         // Find affected url_ids before deleting.
         let mut stmt = self
@@ -269,6 +270,7 @@ impl<'db> HistoryStore<'db> {
             }
         }
 
+        tx.commit().map_err(StorageError::from)?;
         Ok(())
     }
 

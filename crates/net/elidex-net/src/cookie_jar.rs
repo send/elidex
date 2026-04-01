@@ -148,9 +148,9 @@ impl CookieJar {
                 persistent: c.persistent,
                 secure: c.secure,
                 http_only: c.http_only,
-                same_site: match c.same_site.as_str() {
-                    "Strict" => SameSite::Strict,
-                    "None" => SameSite::None,
+                same_site: match c.same_site.to_ascii_lowercase().as_str() {
+                    "strict" => SameSite::Strict,
+                    "none" => SameSite::None,
                     _ => SameSite::Lax,
                 },
                 expires: c.expires,
@@ -181,13 +181,19 @@ impl CookieJar {
                 let domain = cookie.domain.clone();
                 // RFC 6265bis §5.7 step 23: preserve creation-time of existing cookie.
                 if let Some(existing) = jar.iter().find(|c| {
-                    c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path
+                    c.name == cookie.name
+                        && c.domain == cookie.domain
+                        && c.path == cookie.path
+                        && c.partition_key == cookie.partition_key
                 }) {
                     cookie.creation_time = existing.creation_time;
                 }
                 // Remove existing cookie with same name + domain + path.
                 jar.retain(|c| {
-                    !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+                    !(c.name == cookie.name
+                        && c.domain == cookie.domain
+                        && c.path == cookie.path
+                        && c.partition_key == cookie.partition_key)
                 });
                 jar.push(cookie);
                 mutated = true;
@@ -410,15 +416,20 @@ impl CookieJar {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // RFC 6265bis §5.7 step 23: preserve creation-time of existing cookie.
-        if let Some(existing) = jar
-            .iter()
-            .find(|c| c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
-        {
+        if let Some(existing) = jar.iter().find(|c| {
+            c.name == cookie.name
+                && c.domain == cookie.domain
+                && c.path == cookie.path
+                && c.partition_key == cookie.partition_key
+        }) {
             cookie.creation_time = existing.creation_time;
         }
         // Remove existing cookie with same name/domain/path.
         jar.retain(|c| {
-            !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+            !(c.name == cookie.name
+                && c.domain == cookie.domain
+                && c.path == cookie.path
+                && c.partition_key == cookie.partition_key)
         });
         // Evict the oldest cookie (first inserted) if at the global limit.
         if jar.len() >= MAX_TOTAL_COOKIES {

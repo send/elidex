@@ -190,7 +190,9 @@ fn compile_pattern(pattern: &str) -> (String, Vec<String>) {
                 }
             }
             '*' => {
-                groups.push("0".to_string());
+                // Unique wildcard group name to avoid HashMap key collision.
+                let wildcard_idx = groups.iter().filter(|g| g.starts_with('*')).count();
+                groups.push(format!("*{wildcard_idx}"));
                 regex.push_str("(.*)");
             }
             _ => {
