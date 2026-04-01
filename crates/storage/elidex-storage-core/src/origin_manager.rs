@@ -95,7 +95,7 @@ impl OriginStorageManager {
     ///
     /// Note: the connections mutex is held for the duration of `f`.
     /// The closure must not call back into `OriginStorageManager` to avoid deadlock.
-    /// TODO(M4-8.5): refactor to per-connection locking (Arc<Mutex<SqliteConnection>>)
+    /// TODO(M4-8.5): refactor to per-connection locking (`Arc<Mutex<SqliteConnection>>`)
     /// to avoid serializing unrelated origins.
     pub fn with_connection<F, T>(
         &self,
