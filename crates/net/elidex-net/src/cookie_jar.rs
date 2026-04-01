@@ -590,7 +590,8 @@ fn parse_set_cookie(
         return None;
     }
 
-    let persistent = expires.is_some();
+    // Deletion cookies (expires == UNIX_EPOCH) should not be persisted.
+    let persistent = expires.is_some_and(|e| e > SystemTime::UNIX_EPOCH);
     let now = SystemTime::now();
 
     Some(StoredCookie {

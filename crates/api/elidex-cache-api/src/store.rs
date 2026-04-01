@@ -25,6 +25,8 @@ pub fn validate_cache_name(name: &str) -> Result<(), CacheError> {
 
 /// Ensure the unified schema exists.
 pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
+    // Note: no migration from the previous per-cache-table schema.
+    // M4-8 (PR #41) introduced Cache API; no production data exists yet.
     conn.raw_connection().execute_batch(
         "CREATE TABLE IF NOT EXISTS caches (
                 id INTEGER PRIMARY KEY,
