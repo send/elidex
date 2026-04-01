@@ -1,6 +1,8 @@
 //! CacheStorage operations (WHATWG Cache API §2.2).
 //!
 //! Manages named caches within an origin's storage.
+//! The `_cache_names` registry is schema management (like IDB meta-tables)
+//! and uses `raw_connection()` directly, consistent with the IDB pattern.
 
 use elidex_storage_core::{SqliteConnection, StorageConnection};
 
@@ -10,12 +12,16 @@ use crate::error::CacheError;
 const CACHE_NAMES_SCHEMA: &str =
     "CREATE TABLE IF NOT EXISTS _cache_names (name TEXT PRIMARY KEY, created_at INTEGER NOT NULL)";
 
+/// Helper: convert rusqlite error to CacheError.
+fn sql_err(e: rusqlite::Error) -> CacheError {
+    CacheError::Storage(elidex_storage_core::StorageError::from(e))
+}
+
 /// Ensure the cache names table exists.
 fn ensure_names_table(conn: &SqliteConnection) -> Result<(), CacheError> {
     conn.raw_connection()
         .execute_batch(CACHE_NAMES_SCHEMA)
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
-    Ok(())
+        .map_err(sql_err)
 }
 
 /// Open (or create) a named cache.
@@ -25,8 +31,8 @@ fn ensure_names_table(conn: &SqliteConnection) -> Result<(), CacheError> {
 pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     ensure_names_table(conn)?;
 
-    let exists: bool = conn
-        .raw_connection()
+    let raw = conn.raw_connection();
+    let exists: bool = raw
         .query_row(
             "SELECT COUNT(*) > 0 FROM _cache_names WHERE name = ?1",
             [name],
@@ -43,12 +49,11 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
         .unwrap_or_default()
         .as_secs();
 
-    conn.raw_connection()
-        .execute(
-            "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
-            rusqlite::params![name, now.cast_signed()],
-        )
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
+    raw.execute(
+        "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
+        rusqlite::params![name, now.cast_signed()],
+    )
+    .map_err(sql_err)?;
 
     Ok(true)
 }
@@ -56,7 +61,6 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
 /// Check if a named cache exists.
 pub fn has(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     ensure_names_table(conn)?;
-
     let exists: bool = conn
         .raw_connection()
         .query_row(
@@ -65,7 +69,6 @@ pub fn has(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
             |row| row.get(0),
         )
         .unwrap_or(false);
-
     Ok(exists)
 }
 
@@ -73,48 +76,31 @@ pub fn has(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
 pub fn delete(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     ensure_names_table(conn)?;
 
-    // Drop the cache data table
-    let safe_name = sanitize_cache_name(name);
+    let raw = conn.raw_connection();
+    let safe_name = elidex_storage_core::sanitize_sql_name(name);
     let table = format!("cache_{safe_name}");
-    conn.raw_connection()
-        .execute_batch(&format!("DROP TABLE IF EXISTS [{table}]"))
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
+    raw.execute_batch(&format!("DROP TABLE IF EXISTS [{table}]"))
+        .map_err(sql_err)?;
 
-    // Remove from registry
-    let deleted: usize = conn
-        .raw_connection()
+    let deleted = raw
         .execute("DELETE FROM _cache_names WHERE name = ?1", [name])
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
-
+        .map_err(sql_err)?;
     Ok(deleted > 0)
 }
 
 /// List all cache names, in creation order.
 pub fn keys(conn: &SqliteConnection) -> Result<Vec<String>, CacheError> {
     ensure_names_table(conn)?;
-
     let mut stmt = conn
         .raw_connection()
         .prepare("SELECT name FROM _cache_names ORDER BY created_at ASC")
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
-
+        .map_err(sql_err)?;
     let names: Vec<String> = stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?
+        .map_err(sql_err)?
         .collect::<Result<_, _>>()
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
-
+        .map_err(sql_err)?;
     Ok(names)
-}
-
-/// Sanitize cache name for SQL table name (same as store.rs).
-fn sanitize_cache_name(name: &str) -> String {
-    name.bytes()
-        .fold(String::with_capacity(name.len() * 2), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
 }
 
 #[cfg(test)]
@@ -128,11 +114,8 @@ mod tests {
     #[test]
     fn open_creates_cache() {
         let conn = setup();
-        let created = open(&conn, "v1").unwrap();
-        assert!(created);
-
-        let created2 = open(&conn, "v1").unwrap();
-        assert!(!created2); // already exists
+        assert!(open(&conn, "v1").unwrap());
+        assert!(!open(&conn, "v1").unwrap());
     }
 
     #[test]
@@ -147,18 +130,14 @@ mod tests {
     fn delete_removes_cache() {
         let conn = setup();
         open(&conn, "v1").unwrap();
-        assert!(has(&conn, "v1").unwrap());
-
-        let deleted = delete(&conn, "v1").unwrap();
-        assert!(deleted);
+        assert!(delete(&conn, "v1").unwrap());
         assert!(!has(&conn, "v1").unwrap());
     }
 
     #[test]
     fn delete_nonexistent() {
         let conn = setup();
-        let deleted = delete(&conn, "nope").unwrap();
-        assert!(!deleted);
+        assert!(!delete(&conn, "nope").unwrap());
     }
 
     #[test]
@@ -167,16 +146,13 @@ mod tests {
         open(&conn, "first").unwrap();
         open(&conn, "second").unwrap();
         open(&conn, "third").unwrap();
-
-        let names = keys(&conn).unwrap();
-        assert_eq!(names, vec!["first", "second", "third"]);
+        assert_eq!(keys(&conn).unwrap(), vec!["first", "second", "third"]);
     }
 
     #[test]
     fn keys_empty() {
         let conn = setup();
-        let names = keys(&conn).unwrap();
-        assert!(names.is_empty());
+        assert!(keys(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -184,7 +160,6 @@ mod tests {
         let conn = setup();
         open(&conn, "data-cache").unwrap();
 
-        // Put some data
         let entry = crate::entry::CachedEntry {
             request_url: "https://example.com/".into(),
             request_method: "GET".into(),
@@ -197,12 +172,8 @@ mod tests {
         };
         crate::store::put(&conn, "data-cache", &entry).unwrap();
 
-        // Delete cache (should drop table)
         delete(&conn, "data-cache").unwrap();
-
-        // Re-open and verify empty
         open(&conn, "data-cache").unwrap();
-        let entries = crate::store::keys(&conn, "data-cache").unwrap();
-        assert!(entries.is_empty());
+        assert!(crate::store::keys(&conn, "data-cache").unwrap().is_empty());
     }
 }

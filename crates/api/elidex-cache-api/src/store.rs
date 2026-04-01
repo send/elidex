@@ -9,7 +9,7 @@ use crate::error::CacheError;
 
 /// Schema migration for a named cache's data table.
 fn ensure_cache_table(conn: &SqliteConnection, cache_name: &str) -> Result<(), CacheError> {
-    let safe_name = sanitize_cache_name(cache_name);
+    let safe_name = elidex_storage_core::sanitize_sql_name(cache_name);
     conn.raw_connection()
         .execute_batch(&format!(
             "CREATE TABLE IF NOT EXISTS [cache_{safe_name}] (\
@@ -184,19 +184,8 @@ pub fn add_all(
 // -- Internal helpers --
 
 fn table_name(cache_name: &str) -> String {
-    let safe = sanitize_cache_name(cache_name);
+    let safe = elidex_storage_core::sanitize_sql_name(cache_name);
     format!("cache_{safe}")
-}
-
-/// Sanitize cache name for use as a SQL table name suffix.
-/// Hex-encode to avoid collisions and SQL injection.
-fn sanitize_cache_name(name: &str) -> String {
-    name.bytes()
-        .fold(String::with_capacity(name.len() * 2), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
 }
 
 /// Custom operation to scan all entries from a cache table.
