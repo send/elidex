@@ -316,9 +316,11 @@ impl App {
                         script_url,
                         scope,
                         origin: _,
+                        page_url,
                     } => {
                         if let Some(ref np) = self.network_process {
-                            self.sw_coordinator.register(&script_url, &scope, np);
+                            self.sw_coordinator
+                                .register(&script_url, &scope, &page_url, np);
                         }
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {

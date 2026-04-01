@@ -537,6 +537,7 @@ fn run_event_loop(state: &mut ContentState) {
                         script_url,
                         scope,
                         origin,
+                        page_url: current_url.clone(),
                     });
             }
         }

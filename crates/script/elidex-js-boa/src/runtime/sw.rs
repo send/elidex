@@ -226,9 +226,9 @@ impl JsRuntime {
 
         let event_obj = build_extendable_event(&mut self.ctx, "fetch", event_props);
 
-        // respondWith() state tracked via a separate internal JS object with
-        // non-configurable, non-writable properties. This prevents SW scripts
-        // from resetting the responded flag via direct property assignment.
+        // respondWith() state tracked via a separate internal JS object.
+        // Properties are writable (for the closure to update) but non-configurable
+        // and non-enumerable. The state object is not exposed to SW scripts.
         let state_obj = ObjectInitializer::new(&mut self.ctx).build();
         let _ = state_obj.define_property_or_throw(
             js_string!("responded"),

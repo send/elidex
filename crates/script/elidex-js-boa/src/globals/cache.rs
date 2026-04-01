@@ -44,14 +44,16 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .map_err(|e| JsNativeError::typ().with_message(e))?;
 
             let cache_obj = build_cache_object(ctx, bridge, &name)?;
-            Ok(cache_obj.into())
+            let val: JsValue = cache_obj.into();
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         b,
     );
 
     let b = bridge.clone();
     let has_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, _ctx| {
+        |_this, args, bridge, ctx| {
             let name = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -67,14 +69,16 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .with_cache(|conn| elidex_cache_api::storage::has(conn, &name).unwrap_or(false))
                 .unwrap_or(false);
 
-            Ok(JsValue::from(result))
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::from(result), ctx);
+            Ok(promise.into())
         },
         b,
     );
 
     let b = bridge.clone();
     let delete_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, bridge, _ctx| {
+        |_this, args, bridge, ctx| {
             let name = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -90,7 +94,9 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .with_cache(|conn| elidex_cache_api::storage::delete(conn, &name).unwrap_or(false))
                 .unwrap_or(false);
 
-            Ok(JsValue::from(result))
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::from(result), ctx);
+            Ok(promise.into())
         },
         b,
     );
@@ -109,7 +115,9 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
             for name in names {
                 arr.push(JsValue::from(js_string!(name)), ctx)?;
             }
-            Ok(arr.into())
+            let val: JsValue = arr.into();
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         b,
     );

@@ -70,11 +70,11 @@ impl SwCoordinator {
         &mut self,
         script_url: &url::Url,
         scope: &url::Url,
+        page_url: &url::Url,
         network_process: &elidex_net::broker::NetworkProcessHandle,
     ) {
-        // Validate security constraints.
-        // Use scope as page_url proxy — both must be same-origin as the script.
-        if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, scope) {
+        // Validate security constraints against the actual registering page URL.
+        if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, page_url) {
             tracing::warn!(error = %msg, "SW registration rejected");
             return;
         }

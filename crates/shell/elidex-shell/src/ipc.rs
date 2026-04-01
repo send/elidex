@@ -308,6 +308,8 @@ pub enum ContentToBrowser {
         scope: url::Url,
         /// Origin of the registering page.
         origin: String,
+        /// URL of the registering page (for security validation).
+        page_url: url::Url,
     },
     /// A `<link rel="manifest">` was discovered during page load.
     ManifestDiscovered {
