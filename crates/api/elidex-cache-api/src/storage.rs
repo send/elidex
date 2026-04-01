@@ -29,6 +29,8 @@ fn ensure_names_table(conn: &SqliteConnection) -> Result<(), CacheError> {
 /// If the cache doesn't exist, it is created and registered.
 /// Returns `true` if the cache was newly created.
 pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
+    // Validate name length early (before registering in _cache_names).
+    crate::store::validate_cache_name(name)?;
     ensure_names_table(conn)?;
 
     let raw = conn.raw_connection();

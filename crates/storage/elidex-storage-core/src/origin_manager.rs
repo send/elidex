@@ -45,7 +45,7 @@ impl OriginKey {
 
     /// Create from an origin serialization string (e.g., `url::Origin::unicode_serialization()`).
     ///
-    /// Normalizes by replacing non-alphanumeric separators to match `from_parts` format.
+    /// Stores the string as-is. Use `dir_name()` for filesystem-safe encoding.
     pub fn from_origin_string(s: &str) -> Self {
         Self(s.to_owned())
     }

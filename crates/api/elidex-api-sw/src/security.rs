@@ -115,7 +115,9 @@ pub fn is_secure_context(url: &Url) -> bool {
                 Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
             )
         }
-        "https" | "wss" | "file" => true,
+        "https" | "wss" => true,
+        // file: URLs are not secure contexts for SW registration.
+        // SW scripts must be served over HTTP(S).
         _ => false,
     }
 }
@@ -151,7 +153,7 @@ mod tests {
         assert!(is_secure_context(&url("http://localhost:8080/")));
         assert!(is_secure_context(&url("http://127.0.0.1/")));
         assert!(is_secure_context(&url("http://[::1]/")));
-        assert!(is_secure_context(&url("file:///tmp/test.html")));
+        assert!(!is_secure_context(&url("file:///tmp/test.html")));
         assert!(!is_secure_context(&url("http://example.com/")));
     }
 

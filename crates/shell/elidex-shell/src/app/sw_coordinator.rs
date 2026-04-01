@@ -76,7 +76,7 @@ impl SwCoordinator {
         // Validate security constraints against the actual registering page URL.
         if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, page_url) {
             tracing::warn!(error = %msg, "SW registration rejected");
-            return;
+            return; // TODO(M4-8.5): send SwRegistered(success: false) back to content thread
         }
 
         let reg = SwRegistration {

@@ -11,19 +11,25 @@ use crate::error::CacheError;
 /// Checked against sanitized name (which can expand to ~2x via hex encoding).
 const MAX_TABLE_NAME_LEN: usize = 450;
 
-/// Schema migration for a named cache's data table.
-fn ensure_cache_table(conn: &SqliteConnection, cache_name: &str) -> Result<(), CacheError> {
-    let safe_name = elidex_storage_core::sanitize_sql_name(cache_name);
-    let full_table = format!("cache_{safe_name}");
-    if full_table.len() > MAX_TABLE_NAME_LEN {
+/// Validate that a cache name can produce a valid table name.
+pub fn validate_cache_name(name: &str) -> Result<(), CacheError> {
+    let safe = elidex_storage_core::sanitize_sql_name(name);
+    let full = format!("cache_{safe}");
+    if full.len() > MAX_TABLE_NAME_LEN {
         return Err(CacheError::Invalid(format!(
-            "cache name too long (table name would be {} bytes, max {MAX_TABLE_NAME_LEN})",
-            full_table.len()
+            "cache name too long ({} bytes sanitized, max {MAX_TABLE_NAME_LEN})",
+            full.len()
         )));
     }
+    Ok(())
+}
+
+/// Schema migration for a named cache's data table.
+fn ensure_cache_table(conn: &SqliteConnection, cache_name: &str) -> Result<(), CacheError> {
+    let table = table_name(cache_name)?;
     conn.raw_connection()
         .execute_batch(&format!(
-            "CREATE TABLE IF NOT EXISTS [cache_{safe_name}] (\
+            "CREATE TABLE IF NOT EXISTS [{table}] (\
                  key BLOB NOT NULL PRIMARY KEY,\
                  value BLOB NOT NULL\
              )"
@@ -42,7 +48,7 @@ pub fn put(
     entry: &CachedEntry,
 ) -> Result<(), CacheError> {
     ensure_cache_table(conn, cache_name)?;
-    let table = table_name(cache_name);
+    let table = table_name(cache_name)?;
     let key = entry.storage_key();
     let value = entry.serialize();
     conn.execute(&StorageOp::Put {
@@ -77,7 +83,7 @@ pub fn match_all(
     request_headers: &[(String, String)],
     options: &MatchOptions,
 ) -> Result<Vec<CachedEntry>, CacheError> {
-    let table = table_name(cache_name);
+    let table = table_name(cache_name)?;
 
     // If ignoring search or vary, scan all entries and filter
     // Otherwise try exact key lookup first
@@ -125,7 +131,7 @@ pub fn delete(
     request_headers: &[(String, String)],
     options: &MatchOptions,
 ) -> Result<bool, CacheError> {
-    let table = table_name(cache_name);
+    let table = table_name(cache_name)?;
 
     // If table doesn't exist, nothing to delete
     let exists: bool = conn
@@ -170,7 +176,7 @@ pub fn delete(
 
 /// List all request URLs (keys) in the cache.
 pub fn keys(conn: &SqliteConnection, cache_name: &str) -> Result<Vec<CachedEntry>, CacheError> {
-    let table = table_name(cache_name);
+    let table = table_name(cache_name)?;
     scan_all_entries(conn, &table)
 }
 
@@ -185,7 +191,7 @@ pub fn add_all(
 ) -> Result<(), CacheError> {
     ensure_cache_table(conn, cache_name)?;
 
-    let table = table_name(cache_name);
+    let table = table_name(cache_name)?;
     conn.transaction(|txn| {
         for entry in entries {
             let key = entry.storage_key();
@@ -203,9 +209,16 @@ pub fn add_all(
 
 // -- Internal helpers --
 
-fn table_name(cache_name: &str) -> String {
+fn table_name(cache_name: &str) -> Result<String, CacheError> {
     let safe = elidex_storage_core::sanitize_sql_name(cache_name);
-    format!("cache_{safe}")
+    let name = format!("cache_{safe}");
+    if name.len() > MAX_TABLE_NAME_LEN {
+        return Err(CacheError::Invalid(format!(
+            "cache name too long (table name {} bytes, max {MAX_TABLE_NAME_LEN})",
+            name.len()
+        )));
+    }
+    Ok(name)
 }
 
 /// Custom operation to scan all entries from a cache table.

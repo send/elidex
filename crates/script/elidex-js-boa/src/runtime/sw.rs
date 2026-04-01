@@ -222,6 +222,10 @@ impl JsRuntime {
     /// Returns whether the SW called respondWith() and with what response.
     /// respondWith() can only be called once (InvalidStateError on 2nd call).
     /// respondWith() must be called synchronously during dispatch.
+    ///
+    /// Phase 2 limitation: `respondWith(promise)` is not awaited — only
+    /// direct Response or string values are extracted. Promise-based responses
+    /// (e.g., `respondWith(fetch(event.request))`) require M4-10 async support.
     #[allow(clippy::too_many_lines)]
     pub fn dispatch_fetch_event(
         &mut self,

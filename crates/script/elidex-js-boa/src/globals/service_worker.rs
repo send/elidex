@@ -42,15 +42,14 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()));
 
             // Queue the registration request in the bridge (scope included).
-            bridge.queue_sw_register(script_url.clone(), scope);
+            let scope_for_stub = scope.clone().unwrap_or_else(|| script_url.clone());
+            bridge.queue_sw_register(script_url, scope);
 
             // Return a resolved promise with a stub ServiceWorkerRegistration.
-            // Note: scope is a placeholder — the real scope is computed by the
-            // content thread (URL resolution) and browser thread (SwCoordinator).
             let reg_stub = ObjectInitializer::new(ctx)
                 .property(
                     js_string!("scope"),
-                    JsValue::from(js_string!(script_url.as_str())),
+                    JsValue::from(js_string!(scope_for_stub.as_str())),
                     boa_engine::property::Attribute::READONLY,
                 )
                 .property(
