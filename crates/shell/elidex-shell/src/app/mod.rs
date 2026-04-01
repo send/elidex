@@ -534,12 +534,13 @@ impl App {
                         resulting_client_id: _,
                     } => {
                         // Route the FetchEvent to the controlling SW via the relay.
+                        // TODO(M4-10): Use SwFetchRelay to dispatch ContentToSw::FetchEvent
+                        // to the SW handle and route the response back. Currently sends
+                        // passthrough because SwCoordinator.handles is not directly accessible
+                        // from drain_content_messages (ownership boundary). Full wiring requires
+                        // async fetch in M4-10 (elidex-js VM event loop).
                         if let Some(reg) = self.sw_coordinator.find_controller(&request.url) {
                             let scope = reg.scope.clone();
-                            // Look up the SW handle by scope.
-                            // The relay will send ContentToSw::FetchEvent and track the pending fetch.
-                            // For now, we cannot access handles directly (they're in sw_coordinator).
-                            // Send passthrough response (SW interception will be wired in a follow-up).
                             let _ =
                                 tab.channel
                                     .send(crate::ipc::BrowserToContent::SwFetchResponse {

@@ -55,7 +55,7 @@ impl<'db> BookmarkStore<'db> {
         Self { conn }
     }
 
-    /// Load the entire bookmark tree rooted at `parent_id` (or all roots if `None`).
+    /// Load the entire bookmark tree (all root nodes and their descendants).
     pub fn load_tree(&self) -> Result<Vec<BookmarkNode>, StorageError> {
         // Load all nodes in one query, then build tree in memory.
         let mut stmt = self

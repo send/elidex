@@ -59,16 +59,16 @@ impl UrlPattern {
     /// Create a URLPattern matching both hostname and pathname.
     pub fn hostname_and_pathname(hostname: &str, pathname: &str) -> Result<Self, String> {
         let (path_re, groups) = compile_pattern(pathname);
-        let (host_re, mut host_groups) = compile_pattern(hostname);
-        host_groups.extend(groups.iter().cloned());
+        let (host_re, _host_groups) = compile_pattern(hostname);
         let pathname_re = regex::Regex::new(&format!("^{path_re}$"))
             .map_err(|e| format!("invalid pathname pattern '{pathname}': {e}"))?;
         let hostname_re = regex::Regex::new(&format!("^{host_re}$"))
             .map_err(|e| format!("invalid hostname pattern '{hostname}': {e}"))?;
+        // Only pathname groups are captured by exec(); hostname matching is boolean.
         Ok(Self {
             pathname_re,
             hostname_re: Some(hostname_re),
-            group_names: host_groups,
+            group_names: groups,
         })
     }
 
@@ -160,7 +160,7 @@ pub fn evaluate_routes<'a>(rules: &'a [RouterRule], url: &url::Url) -> Option<&'
 /// Compile a URLPattern component string to a regex + named groups.
 ///
 /// Implements the core subset of the URLPattern pattern syntax:
-/// - `:name` → named capturing group `([^/]+)` (pathname) or `([^.]+)` (hostname)
+/// - `:name` → named capturing group `([^/]+)`
 /// - `*` → wildcard `(.*)`
 /// - Literal characters are escaped for regex safety.
 fn compile_pattern(pattern: &str) -> (String, Vec<String>) {

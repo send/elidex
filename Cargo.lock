@@ -2246,6 +2246,7 @@ dependencies = [
  "pollster",
  "tracing",
  "url",
+ "uuid",
  "wgpu",
  "winit",
 ]

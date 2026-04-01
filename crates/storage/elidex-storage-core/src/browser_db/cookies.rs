@@ -101,8 +101,6 @@ impl<'db> CookieStore<'db> {
         Ok(())
     }
 
-    /// Delete a specific cookie by (host, path, name).
-    /// Delete a specific cookie by (host, path, name, partition_key).
     pub fn delete(
         &self,
         host: &str,

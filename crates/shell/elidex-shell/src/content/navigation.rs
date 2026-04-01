@@ -73,11 +73,13 @@ pub(super) fn handle_navigate(
                         fetch_id,
                         request: Box::new(sw_request),
                         client_id,
-                        resulting_client_id: String::new(),
+                        // The resulting document's client ID (for FetchEvent.resultingClientId).
+                        resulting_client_id: uuid::Uuid::new_v4().to_string(),
                     });
 
-                // Wait for SW response. Loop to avoid consuming unrelated
-                // messages (Copilot review: recv_timeout can eat other IPC).
+                // Wait for SW response. This blocks the content thread; fully async
+                // navigation interception requires M4-10 (elidex-js VM event loop).
+                // Loop to avoid consuming unrelated messages.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
                 loop {
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
