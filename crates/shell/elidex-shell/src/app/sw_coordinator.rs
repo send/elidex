@@ -10,6 +10,13 @@ use elidex_api_sw::{
     UpdateChecker, UpdateViaCache,
 };
 
+/// Global QuotaManager for navigator.storage API.
+///
+/// Shared across all tabs. Will be replaced by OriginStorageManager
+/// integration in M4-8.5.
+static QUOTA: std::sync::LazyLock<elidex_storage_core::QuotaManager> =
+    std::sync::LazyLock::new(elidex_storage_core::QuotaManager::new);
+
 /// Browser-thread Service Worker coordinator.
 ///
 /// Owns the registration store, persistence layer, active SW handles,
@@ -58,13 +65,23 @@ impl SwCoordinator {
 
     /// Handle a SW registration request from a content thread.
     ///
-    /// Creates a registration entry. The actual script fetch + SW thread
-    /// spawn is deferred until the network process is available.
-    pub fn register(&mut self, script_url: &url::Url, scope: &url::Url) {
+    /// Registers the SW, spawns a SW thread, and sends Install event.
+    pub fn register(
+        &mut self,
+        script_url: &url::Url,
+        scope: &url::Url,
+        network_process: &elidex_net::broker::NetworkProcessHandle,
+    ) {
+        // Validate security constraints.
+        if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, script_url) {
+            tracing::warn!(error = %msg, "SW registration rejected");
+            return;
+        }
+
         let reg = SwRegistration {
             scope: scope.clone(),
             script_url: script_url.clone(),
-            state: SwState::Parsed,
+            state: SwState::Installing,
             script_hash: None,
             last_update_check: None,
             update_via_cache: UpdateViaCache::default(),
@@ -76,11 +93,100 @@ impl SwCoordinator {
             let _ = persistence.save(&reg);
         }
 
+        // Spawn SW thread.
+        let nh = network_process.create_renderer_handle();
+        let (browser_ch, sw_ch) = elidex_plugin::channel_pair();
+        let sw_script_url = script_url.clone();
+        let sw_scope = scope.clone();
+        let thread = std::thread::spawn(move || {
+            elidex_js_boa::sw_thread::sw_thread_main(sw_script_url, sw_scope, sw_ch, nh);
+        });
+
+        let mut handle = SwHandle::new(scope.clone(), script_url.clone(), browser_ch, thread);
+        handle.set_state(SwState::Installing);
+
+        // Send Install event.
+        handle.send(elidex_api_sw::ContentToSw::Install);
+
+        self.handles.insert(scope.to_string(), handle);
+
         tracing::info!(
             scope = %scope,
             script = %script_url,
-            "SW registered"
+            "SW thread spawned, Install event sent"
         );
+    }
+
+    /// Drain responses from all active SW threads and advance lifecycle.
+    ///
+    /// Call this each frame from the browser thread event loop.
+    pub fn tick(&mut self) {
+        let mut to_remove = Vec::new();
+
+        for (scope_key, handle) in &mut self.handles {
+            while let Ok(msg) = handle.try_recv() {
+                match msg {
+                    elidex_api_sw::SwToContent::LifecycleComplete { event, success } => {
+                        let scope = handle.scope().clone();
+                        match event {
+                            elidex_api_sw::LifecycleEvent::Install => {
+                                if success {
+                                    handle.set_state(SwState::Installed);
+                                    // Auto-activate (simplified: no waiting for controlled clients)
+                                    handle.send(elidex_api_sw::ContentToSw::Activate);
+                                    handle.set_state(SwState::Activating);
+                                } else {
+                                    handle.set_state(SwState::Redundant);
+                                    self.store.set_state(&scope, SwState::Redundant);
+                                    to_remove.push(scope_key.clone());
+                                }
+                            }
+                            elidex_api_sw::LifecycleEvent::Activate => {
+                                if success {
+                                    handle.set_state(SwState::Activated);
+                                    self.store.set_state(&scope, SwState::Activated);
+                                    if let Some(ref persistence) = self.persistence {
+                                        if let Some(reg) = self.store.get_by_scope(&scope) {
+                                            let _ = persistence.save(reg);
+                                        }
+                                    }
+                                    tracing::info!(scope = %scope, "SW activated");
+                                } else {
+                                    handle.set_state(SwState::Redundant);
+                                    self.store.set_state(&scope, SwState::Redundant);
+                                    to_remove.push(scope_key.clone());
+                                }
+                            }
+                        }
+                    }
+                    elidex_api_sw::SwToContent::SkipWaiting => {
+                        // Force activation immediately.
+                        let scope = handle.scope().clone();
+                        if handle.state() == SwState::Installed {
+                            handle.send(elidex_api_sw::ContentToSw::Activate);
+                            handle.set_state(SwState::Activating);
+                            self.store.set_state(&scope, SwState::Activating);
+                        }
+                    }
+                    elidex_api_sw::SwToContent::Error { message, .. } => {
+                        tracing::warn!(scope = %handle.scope(), error = %message, "SW error");
+                    }
+                    // FetchResponse, SyncComplete, etc. are handled by the content thread,
+                    // not the browser thread coordinator.
+                    _ => {}
+                }
+            }
+
+            // Check if thread died unexpectedly.
+            if !handle.is_alive() && handle.state() != SwState::Redundant {
+                tracing::warn!(scope = %handle.scope(), "SW thread terminated unexpectedly");
+                to_remove.push(scope_key.clone());
+            }
+        }
+
+        for key in to_remove {
+            self.handles.remove(&key);
+        }
     }
 
     /// Check if a URL is controlled by an active SW.
@@ -120,6 +226,29 @@ impl SwCoordinator {
             }
         }
         removed
+    }
+
+    /// Get quota estimate for an origin (for navigator.storage.estimate()).
+    pub fn quota_estimate(
+        &self,
+        origin: &elidex_storage_core::OriginKey,
+    ) -> elidex_storage_core::QuotaEstimate {
+        // TODO(M4-8.5): use OriginStorageManager's QuotaManager.
+        // For now, QuotaManager tracks in-memory only.
+        let _ = &self.sync_manager; // suppress unused field warning
+        QUOTA.estimate(origin)
+    }
+
+    /// Request persistent storage for an origin.
+    pub fn quota_persist(&self, origin: &elidex_storage_core::OriginKey) -> bool {
+        let _ = &self.persistence;
+        QUOTA.request_persist(origin)
+    }
+
+    /// Check if an origin has persistent storage.
+    pub fn quota_persisted(&self, origin: &elidex_storage_core::OriginKey) -> bool {
+        let _ = &self.persistence;
+        QUOTA.is_persisted(origin)
     }
 
     /// Shut down all active SW threads.

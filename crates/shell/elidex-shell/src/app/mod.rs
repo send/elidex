@@ -317,18 +317,39 @@ impl App {
                         scope,
                         origin: _,
                     } => {
-                        self.sw_coordinator.register(&script_url, &scope);
+                        if let Some(ref np) = self.network_process {
+                            self.sw_coordinator.register(&script_url, &scope, np);
+                        }
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {
                         tracing::debug!(manifest_url = %url, "manifest discovered");
                         // TODO(M4-8): fetch manifest JSON, parse, apply to window
                     }
-                    ContentToBrowser::IdbConnectionsClosed { .. }
-                    | ContentToBrowser::StorageEstimate { .. }
-                    | ContentToBrowser::StoragePersist { .. }
-                    | ContentToBrowser::StoragePersisted { .. } => {
-                        // TODO: Handle storage API requests via QuotaManager.
+                    ContentToBrowser::StorageEstimate { origin } => {
+                        let origin_key = elidex_storage_core::OriginKey(origin);
+                        let est = self.sw_coordinator.quota_estimate(&origin_key);
+                        let _ =
+                            tab.channel
+                                .send(crate::ipc::BrowserToContent::StorageEstimateResult {
+                                    usage: est.usage,
+                                    quota: est.quota,
+                                });
                     }
+                    ContentToBrowser::StoragePersist { origin } => {
+                        let origin_key = elidex_storage_core::OriginKey(origin);
+                        let granted = self.sw_coordinator.quota_persist(&origin_key);
+                        let _ = tab
+                            .channel
+                            .send(crate::ipc::BrowserToContent::StoragePersistResult { granted });
+                    }
+                    ContentToBrowser::StoragePersisted { origin } => {
+                        let origin_key = elidex_storage_core::OriginKey(origin);
+                        let persisted = self.sw_coordinator.quota_persisted(&origin_key);
+                        let _ = tab.channel.send(
+                            crate::ipc::BrowserToContent::StoragePersistedResult { persisted },
+                        );
+                    }
+                    ContentToBrowser::IdbConnectionsClosed { .. } => {}
                 }
             }
         }
@@ -397,6 +418,9 @@ impl App {
                 }
             }
         }
+
+        // Tick SW coordinator — drain lifecycle responses, advance state.
+        self.sw_coordinator.tick();
 
         // Open new tabs requested by window.open().
         for url in new_tab_urls {

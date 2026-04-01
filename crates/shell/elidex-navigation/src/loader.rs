@@ -35,6 +35,8 @@ pub struct LoadedDocument {
     /// HTTP response headers (for CSP frame-ancestors, X-Frame-Options, Permissions-Policy).
     /// Multiple values for the same header name are preserved as separate entries.
     pub response_headers: HashMap<String, Vec<String>>,
+    /// URL of the Web App Manifest (`<link rel="manifest">`), if discovered.
+    pub manifest_url: Option<url::Url>,
 }
 
 /// A script ready for execution.
@@ -224,6 +226,9 @@ pub fn load_document(
         }
     }
 
+    // 7. Extract manifest URL (<link rel="manifest">).
+    let manifest_url = extract_manifest_url(&dom, document, &response.url);
+
     Ok(LoadedDocument {
         dom,
         document,
@@ -231,7 +236,43 @@ pub fn load_document(
         scripts,
         url: response.url,
         response_headers,
+        manifest_url,
     })
+}
+
+/// Extract `<link rel="manifest" href="...">` URL from the DOM.
+///
+/// Per W3C Web App Manifest: only the first `<link rel="manifest">` is used.
+fn extract_manifest_url(dom: &EcsDom, document: Entity, base_url: &url::Url) -> Option<url::Url> {
+    use elidex_ecs::Attributes;
+
+    let mut stack = dom.children(document);
+    while let Some(entity) = stack.pop() {
+        stack.extend(dom.children(entity));
+
+        let Some(tag) = dom.get_tag_name(entity) else {
+            continue;
+        };
+        if !tag.eq_ignore_ascii_case("link") {
+            continue;
+        }
+        let world = dom.world();
+        let Ok(attrs) = world.get::<&Attributes>(entity) else {
+            continue;
+        };
+        let rel = attrs.get("rel").unwrap_or_default();
+        if rel
+            .split_whitespace()
+            .any(|r| r.eq_ignore_ascii_case("manifest"))
+        {
+            if let Some(href) = attrs.get("href") {
+                if let Ok(url) = base_url.join(href) {
+                    return Some(url);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Resolve a potentially relative URL against a base and fetch the response.

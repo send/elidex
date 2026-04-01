@@ -2238,6 +2238,7 @@ dependencies = [
  "elidex-render",
  "elidex-sandbox",
  "elidex-script-session",
+ "elidex-storage-core",
  "elidex-style",
  "elidex-text",
  "pollster",

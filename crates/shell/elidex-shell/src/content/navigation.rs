@@ -21,6 +21,20 @@ pub(super) fn handle_navigate(
     is_history_nav: bool,
     request: Option<elidex_net::Request>,
 ) {
+    // Check if a Service Worker controls this scope (WHATWG SW §3.2).
+    // If so, the SW should intercept the fetch — but the SW handle lives on
+    // the browser thread. For now, log and proceed with normal fetch.
+    // TODO(M4-8.5): FetchEvent relay via browser thread IPC.
+    if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
+        if elidex_api_sw::matches_scope(&sw_scope, url) {
+            tracing::debug!(
+                scope = %sw_scope,
+                url = %url,
+                "SW controls this navigation — fetch interception pending"
+            );
+        }
+    }
+
     let network_handle = Rc::clone(&state.pipeline.network_handle);
     let font_db = Arc::clone(&state.pipeline.font_db);
 
