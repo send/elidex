@@ -61,13 +61,10 @@ pub(crate) fn table_name_for(cache_name: &str) -> Result<String, CacheError> {
 
 /// Get or create a cache_id for the given name.
 fn get_or_create_cache_id(conn: &rusqlite::Connection, name: &str) -> Result<i64, CacheError> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let now = now_secs();
     conn.execute(
         "INSERT OR IGNORE INTO caches (name, created_at) VALUES (?1, ?2)",
-        rusqlite::params![name, i64::try_from(now).unwrap_or(i64::MAX)],
+        rusqlite::params![name, now],
     )?;
 
     conn.query_row("SELECT id FROM caches WHERE name = ?1", [name], |row| {
@@ -140,7 +137,7 @@ fn insert_entry(
     Ok(())
 }
 
-fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

@@ -218,12 +218,11 @@ impl<'db> HistoryStore<'db> {
             .collect();
 
         // Delete visits in range.
-        self.conn
-            .execute(
-                "DELETE FROM visits WHERE visit_time >= ?1 AND visit_time <= ?2",
-                rusqlite::params![from_ts, to_ts],
-            )
-            .map_err(StorageError::from)?;
+        tx.execute(
+            "DELETE FROM visits WHERE visit_time >= ?1 AND visit_time <= ?2",
+            rusqlite::params![from_ts, to_ts],
+        )
+        .map_err(StorageError::from)?;
 
         // Recalculate frecency for affected URLs and clean up orphans.
         let now = super::system_time_to_unix(SystemTime::now());
@@ -240,8 +239,7 @@ impl<'db> HistoryStore<'db> {
 
             if visit_count == 0 {
                 // No visits remain — remove the URL entry.
-                self.conn
-                    .execute("DELETE FROM urls WHERE id = ?1", [url_id])
+                tx.execute("DELETE FROM urls WHERE id = ?1", [url_id])
                     .map_err(StorageError::from)?;
             } else {
                 let frecency = self.calculate_frecency(url_id, now)?;
@@ -261,7 +259,7 @@ impl<'db> HistoryStore<'db> {
                         |row| row.get(0),
                     )
                     .map_err(StorageError::from)?;
-                self.conn
+                tx
                     .execute(
                         "UPDATE urls SET frecency = ?1, visit_count = ?2, typed_count = ?3, last_visit_time = ?4 WHERE id = ?5",
                         rusqlite::params![frecency, visit_count, typed_count, last_visit, url_id],

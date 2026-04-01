@@ -25,13 +25,10 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
         return Ok(false);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    let now = crate::store::now_secs();
     raw.execute(
         "INSERT OR IGNORE INTO caches (name, created_at) VALUES (?1, ?2)",
-        rusqlite::params![name, i64::try_from(now).unwrap_or(i64::MAX)],
+        rusqlite::params![name, now],
     )?;
     Ok(true)
 }
