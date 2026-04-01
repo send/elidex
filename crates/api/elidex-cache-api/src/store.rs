@@ -7,8 +7,16 @@ use elidex_storage_core::{
 use crate::entry::{entry_matches, CachedEntry, MatchOptions};
 use crate::error::CacheError;
 
+/// Maximum cache name length (bytes). Prevents overly long SQL table names.
+const MAX_CACHE_NAME_LEN: usize = 200;
+
 /// Schema migration for a named cache's data table.
 fn ensure_cache_table(conn: &SqliteConnection, cache_name: &str) -> Result<(), CacheError> {
+    if cache_name.len() > MAX_CACHE_NAME_LEN {
+        return Err(CacheError::Invalid(format!(
+            "cache name exceeds {MAX_CACHE_NAME_LEN} bytes"
+        )));
+    }
     let safe_name = elidex_storage_core::sanitize_sql_name(cache_name);
     conn.raw_connection()
         .execute_batch(&format!(

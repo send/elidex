@@ -4,14 +4,18 @@
 use crate::backend::Migration;
 
 /// Build a migration set from a slice of (sql, version) pairs.
+///
+/// Sorts by version to ensure correct application order regardless of input order.
 pub fn migrations_from_pairs(pairs: &[(&'static str, u32)]) -> Vec<Migration> {
-    pairs
+    let mut migrations: Vec<Migration> = pairs
         .iter()
         .map(|(sql, version)| Migration {
             version: *version,
             sql,
         })
-        .collect()
+        .collect();
+    migrations.sort_by_key(|m| m.version);
+    migrations
 }
 
 #[cfg(test)]

@@ -1,10 +1,12 @@
 //! Shared storage utilities.
 
-/// Encode a string for safe use as a SQLite table name component.
+/// Encode a string for safe use as a SQLite table name or filesystem path component.
 ///
 /// Short ASCII-only names (≤32 chars, alphanumeric) pass through unchanged
-/// for readability. All other inputs are hex-encoded to guarantee
-/// collision-free, injection-safe identifiers.
+/// for readability. All other inputs are hex-encoded with an `x_` prefix
+/// to guarantee collision-free, injection-safe identifiers.
+///
+/// Used for both SQLite table names and origin directory names on disk.
 pub fn sanitize_sql_name(s: &str) -> String {
     if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return s.to_owned();

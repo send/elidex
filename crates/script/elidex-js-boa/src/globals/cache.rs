@@ -384,7 +384,13 @@ fn build_cache_object(
                 JsNativeError::typ().with_message("cache.addAll requires an array")
             })?;
 
-            let length: u64 = arr_obj.get(js_string!("length"), ctx)?.to_number(ctx)? as u64;
+            let raw_length = arr_obj.get(js_string!("length"), ctx)?.to_number(ctx)?;
+            if !raw_length.is_finite() || !(0.0..=10_000.0).contains(&raw_length) {
+                return Err(JsNativeError::typ()
+                    .with_message("cache.addAll: invalid array length")
+                    .into());
+            }
+            let length = raw_length as u64;
 
             let mut entries = Vec::with_capacity(length as usize);
             for i in 0..length {

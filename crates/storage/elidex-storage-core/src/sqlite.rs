@@ -241,7 +241,7 @@ impl StorageConnection for SqliteConnection {
 /// Validate table name to prevent SQL injection.
 fn validate_table_name(name: &str) -> Result<(), StorageError> {
     if name.is_empty()
-        || name.len() > 128
+        || name.len() > 512
         || name
             .chars()
             .any(|c| !c.is_alphanumeric() && c != '_' && c != '-')

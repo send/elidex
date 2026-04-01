@@ -224,52 +224,50 @@ impl JsRuntime {
             return FetchEventResult::Passthrough;
         }
 
-        // Create a shared flag for respondWith() state tracking.
-        // Use a hidden property on the event object.
         let event_obj = build_extendable_event(&mut self.ctx, "fetch", event_props);
 
-        // respondWith(response): stores response in __elidex_sw_response__ hidden prop.
-        // Can only be called once (tracked via __elidex_sw_responded__ flag).
-        let respond_fn = NativeFunction::from_copy_closure(|this, args, ctx| {
-            let event = this
-                .as_object()
-                .ok_or_else(|| boa_engine::JsNativeError::typ().with_message("not a FetchEvent"))?;
-
-            // Check if already called.
-            let already = event
-                .get(js_string!("__elidex_sw_responded__"), ctx)?
-                .to_boolean();
-            if already {
-                return Err(boa_engine::JsNativeError::typ()
-                    .with_message("InvalidStateError: respondWith() already called")
-                    .into());
-            }
-
-            // Mark as called.
-            let _ = event.set(
-                js_string!("__elidex_sw_responded__"),
-                JsValue::from(true),
-                false,
-                ctx,
-            );
-
-            // Store the response value.
-            let response = args.first().cloned().unwrap_or(JsValue::undefined());
-            let _ = event.set(js_string!("__elidex_sw_response__"), response, false, ctx);
-
-            Ok(JsValue::undefined())
-        });
-        let _ = event_obj.set(
-            js_string!("respondWith"),
-            respond_fn.to_js_function(self.ctx.realm()),
-            false,
+        // respondWith() state tracked via a separate internal JS object with
+        // non-configurable, non-writable properties. This prevents SW scripts
+        // from resetting the responded flag via direct property assignment.
+        let state_obj = ObjectInitializer::new(&mut self.ctx).build();
+        let _ = state_obj.define_property_or_throw(
+            js_string!("responded"),
+            boa_engine::property::PropertyDescriptor::builder()
+                .value(JsValue::from(false))
+                .writable(true) // writable by respondWith closure only
+                .configurable(false)
+                .enumerable(false),
+            &mut self.ctx,
+        );
+        let _ = state_obj.define_property_or_throw(
+            js_string!("response"),
+            boa_engine::property::PropertyDescriptor::builder()
+                .value(JsValue::undefined())
+                .writable(true)
+                .configurable(false)
+                .enumerable(false),
             &mut self.ctx,
         );
 
-        // Initialize hidden state.
+        let state_clone = state_obj.clone();
+        let respond_fn = NativeFunction::from_copy_closure_with_captures(
+            |_this, args, state, ctx| {
+                let already = state.get(js_string!("responded"), ctx)?.to_boolean();
+                if already {
+                    return Err(boa_engine::JsNativeError::typ()
+                        .with_message("InvalidStateError: respondWith() already called")
+                        .into());
+                }
+                let _ = state.set(js_string!("responded"), JsValue::from(true), false, ctx);
+                let response = args.first().cloned().unwrap_or(JsValue::undefined());
+                let _ = state.set(js_string!("response"), response, false, ctx);
+                Ok(JsValue::undefined())
+            },
+            state_clone,
+        );
         let _ = event_obj.set(
-            js_string!("__elidex_sw_responded__"),
-            JsValue::from(false),
+            js_string!("respondWith"),
+            respond_fn.to_js_function(self.ctx.realm()),
             false,
             &mut self.ctx,
         );
@@ -291,15 +289,14 @@ impl JsRuntime {
 
         let _ = self.ctx.run_jobs();
 
-        // Check if respondWith() was called.
-        let responded = event_obj
-            .get(js_string!("__elidex_sw_responded__"), &mut self.ctx)
+        let did_respond = state_obj
+            .get(js_string!("responded"), &mut self.ctx)
             .map(|v| v.to_boolean())
             .unwrap_or(false);
 
-        if responded {
-            let response = event_obj
-                .get(js_string!("__elidex_sw_response__"), &mut self.ctx)
+        if did_respond {
+            let response = state_obj
+                .get(js_string!("response"), &mut self.ctx)
                 .unwrap_or(JsValue::undefined());
 
             // Extract body, status, statusText, headers from the Response.
