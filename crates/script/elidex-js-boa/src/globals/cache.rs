@@ -191,7 +191,7 @@ fn build_cache_object(
 
     let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
     let match_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, (bridge, name), _ctx| {
+        |_this, args, (bridge, name), ctx| {
             let url = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -213,20 +213,22 @@ fn build_cache_object(
                 })
                 .flatten();
 
-            match result {
-                Some(entry) => Ok(JsValue::from(js_string!(String::from_utf8_lossy(
+            let val = match result {
+                Some(entry) => JsValue::from(js_string!(String::from_utf8_lossy(
                     &entry.response_body
                 )
-                .to_string()))),
-                None => Ok(JsValue::undefined()),
-            }
+                .to_string())),
+                None => JsValue::undefined(),
+            };
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         captures,
     );
 
     let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
     let put_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, (bridge, name), _ctx| {
+        |_this, args, (bridge, name), ctx| {
             let url = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -259,14 +261,16 @@ fn build_cache_object(
                 .unwrap_or(Err("cache backend not initialized".into()))
                 .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-            Ok(JsValue::undefined())
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+            Ok(promise.into())
         },
         captures,
     );
 
     let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
     let delete_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, (bridge, name), _ctx| {
+        |_this, args, (bridge, name), ctx| {
             let url = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -287,7 +291,9 @@ fn build_cache_object(
                 })
                 .unwrap_or(false);
 
-            Ok(JsValue::from(result))
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::from(result), ctx);
+            Ok(promise.into())
         },
         captures,
     );
@@ -303,7 +309,9 @@ fn build_cache_object(
             for entry in entries {
                 arr.push(JsValue::from(js_string!(entry.request_url)), ctx)?;
             }
-            Ok(arr.into())
+            let val: JsValue = arr.into();
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         captures,
     );
@@ -345,7 +353,9 @@ fn build_cache_object(
                     ctx,
                 )?;
             }
-            Ok(arr.into())
+            let val: JsValue = arr.into();
+            let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+            Ok(promise.into())
         },
         captures,
     );
@@ -353,7 +363,7 @@ fn build_cache_object(
     // add(request) — fetch + put (simplified: accepts URL string)
     let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
     let add_fn = NativeFunction::from_copy_closure_with_captures(
-        |_this, args, (bridge, name), _ctx| {
+        |_this, args, (bridge, name), ctx| {
             let url = args
                 .first()
                 .and_then(JsValue::as_string)
@@ -380,7 +390,9 @@ fn build_cache_object(
                 .unwrap_or(Err("cache backend not initialized".into()))
                 .map_err(|e| JsNativeError::typ().with_message(e))?;
 
-            Ok(JsValue::undefined())
+            let promise =
+                boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+            Ok(promise.into())
         },
         captures,
     );

@@ -103,32 +103,46 @@ pub(super) fn register_sw_dispatch_helpers(ctx: &mut Context, scope: &url::Url) 
         .expect("failed to register registration");
 
     // self.skipWaiting()
-    let skip_fn = NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined()));
+    let skip_fn = NativeFunction::from_fn_ptr(|_, _, ctx| {
+        let p = boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+        Ok(p.into())
+    });
     ctx.register_global_builtin_callable(js_string!("skipWaiting"), 0, skip_fn)
         .expect("failed to register skipWaiting");
 
-    // self.clients
+    // self.clients — all methods return Promises per spec.
     let clients = ObjectInitializer::new(ctx)
         .function(
-            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let p = boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+                Ok(p.into())
+            }),
             js_string!("claim"),
             0,
         )
         .function(
             NativeFunction::from_fn_ptr(|_, _, ctx| {
                 let arr = boa_engine::object::builtins::JsArray::new(ctx);
-                Ok(arr.into())
+                let val: JsValue = arr.into();
+                let p = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
+                Ok(p.into())
             }),
             js_string!("matchAll"),
             0,
         )
         .function(
-            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let p = boa_engine::object::builtins::JsPromise::resolve(JsValue::undefined(), ctx);
+                Ok(p.into())
+            }),
             js_string!("get"),
             1,
         )
         .function(
-            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::null())),
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let p = boa_engine::object::builtins::JsPromise::resolve(JsValue::null(), ctx);
+                Ok(p.into())
+            }),
             js_string!("openWindow"),
             1,
         )

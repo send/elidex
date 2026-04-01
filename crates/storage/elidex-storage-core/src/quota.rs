@@ -218,17 +218,15 @@ mod tests {
         let o2 = origin("new.com");
 
         qm.report_usage(&o1, 100);
-        // Re-report o2 to ensure its last_access is strictly after o1.
-        // On fast machines both may have the same Instant, so we
-        // re-report o1 then o2 to establish access order.
-        qm.report_usage(&o2, 200);
-        // Touch o2 again to guarantee it's "newer" than o1.
+        // Busy-wait to ensure distinct Instant values (platform timer resolution).
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(2) {}
         qm.report_usage(&o2, 200);
 
         let candidates = qm.eviction_candidates();
         assert_eq!(candidates.len(), 2);
-        // Both are non-persistent, LRU order by last_access.
-        // o1 was last accessed before o2's second report.
+        assert_eq!(candidates[0], o1); // oldest first
+        assert_eq!(candidates[1], o2);
     }
 
     #[test]
