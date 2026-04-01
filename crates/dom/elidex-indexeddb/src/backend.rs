@@ -2,20 +2,26 @@
 //!
 //! Each origin gets a single `SQLite` database file. Meta-tables track
 //! database names, versions, and object store definitions.
+//!
+//! Connection lifecycle is managed by `elidex-storage-core`'s
+//! `OriginStorageManager`. `IdbBackend` receives a `SqliteConnection`
+//! and applies IDB-specific schema via `StorageBackend::migrate()`.
 
-use std::path::Path;
-
-use rusqlite::{params, Connection, OptionalExtension};
+use elidex_storage_core::{
+    Migration, SqliteBackend, SqliteConnection, StorageBackend, StorageConnection,
+};
+use rusqlite::{params, OptionalExtension};
 
 use crate::IdbKey;
 
-/// Schema for the meta-tables that track IDB databases and object stores.
-const SCHEMA_SQL: &str = "
+/// IDB schema migrations.
+const IDB_MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    sql: "\
 CREATE TABLE IF NOT EXISTS _idb_meta (
     db_name TEXT PRIMARY KEY,
     version INTEGER NOT NULL DEFAULT 0
 );
-
 CREATE TABLE IF NOT EXISTS _idb_stores (
     db_name    TEXT NOT NULL,
     store_name TEXT NOT NULL,
@@ -24,7 +30,6 @@ CREATE TABLE IF NOT EXISTS _idb_stores (
     next_key   INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (db_name, store_name)
 );
-
 CREATE TABLE IF NOT EXISTS _idb_indexes (
     db_name    TEXT NOT NULL,
     store_name TEXT NOT NULL,
@@ -33,12 +38,15 @@ CREATE TABLE IF NOT EXISTS _idb_indexes (
     is_unique  INTEGER NOT NULL DEFAULT 0,
     multi_entry INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (db_name, store_name, index_name)
-);
-";
+);",
+}];
 
-/// Wrapper around a `rusqlite::Connection` providing IDB operations.
+/// Wrapper around a `SqliteConnection` providing IDB operations.
+///
+/// Connection lifecycle is managed by `OriginStorageManager`.
+/// IDB-specific schema is applied via `StorageBackend::migrate()`.
 pub struct IdbBackend {
-    conn: Connection,
+    storage_conn: SqliteConnection,
 }
 
 /// Error type for backend operations.
@@ -116,35 +124,32 @@ impl From<rusqlite::Error> for BackendError {
 use crate::util;
 
 impl IdbBackend {
-    /// Open or create a backend at the given file path.
+    /// Create an IDB backend from a `SqliteConnection` and apply IDB schema.
     ///
-    /// Configures WAL journal mode, 5s busy timeout, and `secure_delete`.
-    pub fn open(path: &Path) -> Result<Self, BackendError> {
-        let conn = Connection::open(path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA busy_timeout = 5000;
-             PRAGMA secure_delete = ON;",
-        )?;
-        conn.execute_batch(SCHEMA_SQL)?;
-        Ok(Self { conn })
+    /// The connection should be obtained from `OriginStorageManager`.
+    /// Pragmas (WAL, busy_timeout, secure_delete) are already configured
+    /// by `SqliteBackend::open()`.
+    pub fn new(storage_conn: SqliteConnection) -> Result<Self, BackendError> {
+        let backend = SqliteBackend::new();
+        backend
+            .migrate(&storage_conn, IDB_MIGRATIONS)
+            .map_err(|e| BackendError::Internal(format!("IDB schema migration failed: {e}")))?;
+        Ok(Self { storage_conn })
     }
 
     /// Open an in-memory backend (for testing).
     pub fn open_in_memory() -> Result<Self, BackendError> {
-        let conn = Connection::open_in_memory()?;
-        conn.execute_batch(SCHEMA_SQL)?;
-        Ok(Self { conn })
+        let conn = SqliteConnection::open_in_memory()
+            .map_err(|e| BackendError::Internal(format!("failed to open in-memory db: {e}")))?;
+        Self::new(conn)
     }
 
-    /// Returns a reference to the underlying connection (for transactions).
-    pub fn conn(&self) -> &Connection {
-        &self.conn
-    }
-
-    /// Returns a mutable reference to the underlying connection.
-    pub fn conn_mut(&mut self) -> &mut Connection {
-        &mut self.conn
+    /// Returns a reference to the underlying `rusqlite::Connection`.
+    ///
+    /// IDB operations use complex SQL that is domain-specific and not
+    /// expressible via `StorageOp`. Direct SQL access is appropriate here.
+    pub fn conn(&self) -> &rusqlite::Connection {
+        self.storage_conn.raw_connection()
     }
 
     // -- Database lifecycle --
@@ -152,7 +157,7 @@ impl IdbBackend {
     /// Get the version of a named database, or `None` if it doesn't exist.
     pub fn get_version(&self, db_name: &str) -> Result<Option<u64>, BackendError> {
         let result: Option<i64> = self
-            .conn
+            .conn()
             .query_row(
                 "SELECT version FROM _idb_meta WHERE db_name = ?1",
                 params![db_name],
@@ -166,7 +171,7 @@ impl IdbBackend {
     /// Set the version of a named database (upsert).
     #[allow(clippy::cast_possible_wrap)]
     pub fn set_version(&self, db_name: &str, version: u64) -> Result<(), BackendError> {
-        self.conn.execute(
+        self.conn().execute(
             "INSERT INTO _idb_meta (db_name, version) VALUES (?1, ?2)
              ON CONFLICT(db_name) DO UPDATE SET version = excluded.version",
             params![db_name, version as i64],
@@ -184,28 +189,28 @@ impl IdbBackend {
             let index_names = self.list_index_names(db_name, store_name)?;
             for idx_name in &index_names {
                 let idx_table = index_table_name(db_name, store_name, idx_name);
-                self.conn
+                self.conn()
                     .execute(&format!("DROP TABLE IF EXISTS [{idx_table}]"), [])?;
             }
-            self.conn
+            self.conn()
                 .execute(&format!("DROP TABLE IF EXISTS [{table}]"), [])?;
         }
-        self.conn.execute(
+        self.conn().execute(
             "DELETE FROM _idb_indexes WHERE db_name = ?1",
             params![db_name],
         )?;
-        self.conn.execute(
+        self.conn().execute(
             "DELETE FROM _idb_stores WHERE db_name = ?1",
             params![db_name],
         )?;
-        self.conn
+        self.conn()
             .execute("DELETE FROM _idb_meta WHERE db_name = ?1", params![db_name])?;
         Ok(())
     }
 
     /// List all database names in this origin.
     pub fn list_database_names(&self) -> Result<Vec<String>, BackendError> {
-        let mut stmt = self.conn.prepare("SELECT db_name FROM _idb_meta")?;
+        let mut stmt = self.conn().prepare("SELECT db_name FROM _idb_meta")?;
         let names = stmt
             .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<String>, _>>()?;
@@ -226,7 +231,7 @@ impl IdbBackend {
         const MAX_STORES: i64 = 200;
 
         // Check count limit
-        let store_count: i64 = self.conn.query_row(
+        let store_count: i64 = self.conn().query_row(
             "SELECT COUNT(*) FROM _idb_stores WHERE db_name = ?1",
             params![db_name],
             |row| row.get(0),
@@ -238,7 +243,7 @@ impl IdbBackend {
         }
 
         // Check for duplicate
-        let exists: bool = self.conn.query_row(
+        let exists: bool = self.conn().query_row(
             "SELECT COUNT(*) > 0 FROM _idb_stores WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
             |row| row.get(0),
@@ -249,14 +254,14 @@ impl IdbBackend {
             )));
         }
 
-        self.conn.execute(
+        self.conn().execute(
             "INSERT INTO _idb_stores (db_name, store_name, key_path, auto_increment) VALUES (?1, ?2, ?3, ?4)",
             params![db_name, store_name, key_path, i32::from(auto_increment)],
         )?;
 
         // Create data table: key_data BLOB (serialized IdbKey), value TEXT (JSON)
         let table = util::data_table_name(db_name, store_name);
-        self.conn.execute_batch(&format!(
+        self.conn().execute_batch(&format!(
             "CREATE TABLE [{table}] (
                 key_data BLOB NOT NULL PRIMARY KEY,
                 value    TEXT NOT NULL
@@ -268,7 +273,7 @@ impl IdbBackend {
 
     /// Delete an object store and its data table.
     pub fn delete_object_store(&self, db_name: &str, store_name: &str) -> Result<(), BackendError> {
-        let exists: bool = self.conn.query_row(
+        let exists: bool = self.conn().query_row(
             "SELECT COUNT(*) > 0 FROM _idb_stores WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
             |row| row.get(0),
@@ -283,19 +288,19 @@ impl IdbBackend {
         let index_names = self.list_index_names(db_name, store_name)?;
         for idx_name in &index_names {
             let idx_table = index_table_name(db_name, store_name, idx_name);
-            self.conn
+            self.conn()
                 .execute(&format!("DROP TABLE IF EXISTS [{idx_table}]"), [])?;
         }
-        self.conn.execute(
+        self.conn().execute(
             "DELETE FROM _idb_indexes WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
         )?;
 
         let table = util::data_table_name(db_name, store_name);
-        self.conn
+        self.conn()
             .execute(&format!("DROP TABLE IF EXISTS [{table}]"), [])?;
 
-        self.conn.execute(
+        self.conn().execute(
             "DELETE FROM _idb_stores WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
         )?;
@@ -312,11 +317,11 @@ impl IdbBackend {
     ) -> Result<(), BackendError> {
         let old_table = util::data_table_name(db_name, old_name);
         let new_table = util::data_table_name(db_name, new_name);
-        self.conn.execute(
+        self.conn().execute(
             "UPDATE _idb_stores SET store_name = ?3 WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, old_name, new_name],
         )?;
-        self.conn.execute_batch(&format!(
+        self.conn().execute_batch(&format!(
             "ALTER TABLE [{old_table}] RENAME TO [{new_table}]"
         ))?;
         // Rename index backing tables
@@ -324,11 +329,11 @@ impl IdbBackend {
         for idx_name in &index_names {
             let old_idx = util::index_table_name(db_name, old_name, idx_name);
             let new_idx = util::index_table_name(db_name, new_name, idx_name);
-            self.conn
+            self.conn()
                 .execute_batch(&format!("ALTER TABLE [{old_idx}] RENAME TO [{new_idx}]"))?;
         }
         // Update index metadata
-        self.conn.execute(
+        self.conn().execute(
             "UPDATE _idb_indexes SET store_name = ?3 WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, old_name, new_name],
         )?;
@@ -338,7 +343,7 @@ impl IdbBackend {
     /// List object store names for a database, sorted alphabetically.
     pub fn list_store_names(&self, db_name: &str) -> Result<Vec<String>, BackendError> {
         let mut stmt = self
-            .conn
+            .conn()
             .prepare("SELECT store_name FROM _idb_stores WHERE db_name = ?1 ORDER BY store_name")?;
         let names = stmt
             .query_map(params![db_name], |row| row.get(0))?
@@ -353,7 +358,7 @@ impl IdbBackend {
         store_name: &str,
     ) -> Result<(Option<String>, bool), BackendError> {
         let result = self
-            .conn
+            .conn()
             .query_row(
                 "SELECT key_path, auto_increment FROM _idb_stores WHERE db_name = ?1 AND store_name = ?2",
                 params![db_name, store_name],
@@ -376,7 +381,7 @@ impl IdbBackend {
         /// Maximum auto-increment value per W3C `IndexedDB` §2.11.
         const MAX_KEY: i64 = 1_i64 << 53; // 9007199254740992
 
-        let current: i64 = self.conn.query_row(
+        let current: i64 = self.conn().query_row(
             "SELECT next_key FROM _idb_stores WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
             |row| row.get(0),
@@ -386,7 +391,7 @@ impl IdbBackend {
                 "auto-increment key generator overflow (> 2^53)".into(),
             ));
         }
-        self.conn.execute(
+        self.conn().execute(
             "UPDATE _idb_stores SET next_key = next_key + 1 WHERE db_name = ?1 AND store_name = ?2",
             params![db_name, store_name],
         )?;
@@ -405,7 +410,7 @@ impl IdbBackend {
         if let IdbKey::Number(v) = key {
             let floored = v.floor() as i64;
             let int_val = floored.saturating_add(1);
-            self.conn.execute(
+            self.conn().execute(
                 "UPDATE _idb_stores SET next_key = MAX(next_key, ?3) WHERE db_name = ?1 AND store_name = ?2",
                 params![db_name, store_name, int_val],
             )?;
@@ -426,7 +431,7 @@ impl IdbBackend {
         db_name: &str,
         store_name: &str,
     ) -> Result<Vec<String>, BackendError> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn().prepare(
             "SELECT index_name FROM _idb_indexes WHERE db_name = ?1 AND store_name = ?2 ORDER BY index_name",
         )?;
         let names = stmt
