@@ -297,8 +297,134 @@ fn build_cache_object(
         captures,
     );
 
+    // matchAll(request?, options?) — returns array of matching responses
+    let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
+    let match_all_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, (bridge, name), ctx| {
+            let url = args
+                .first()
+                .and_then(JsValue::as_string)
+                .map(|s| s.to_std_string_escaped())
+                .unwrap_or_default();
+
+            let entries = bridge
+                .with_cache(|conn| {
+                    if url.is_empty() {
+                        elidex_cache_api::store::keys(conn, name).unwrap_or_default()
+                    } else {
+                        elidex_cache_api::store::match_all(
+                            conn,
+                            name,
+                            &url,
+                            "GET",
+                            &[],
+                            &elidex_cache_api::MatchOptions::default(),
+                        )
+                        .unwrap_or_default()
+                    }
+                })
+                .unwrap_or_default();
+
+            let arr = boa_engine::object::builtins::JsArray::new(ctx);
+            for entry in entries {
+                arr.push(
+                    JsValue::from(js_string!(
+                        String::from_utf8_lossy(&entry.response_body).to_string()
+                    )),
+                    ctx,
+                )?;
+            }
+            Ok(arr.into())
+        },
+        captures,
+    );
+
+    // add(request) — fetch + put (simplified: accepts URL string)
+    let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
+    let add_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, (bridge, name), _ctx| {
+            let url = args
+                .first()
+                .and_then(JsValue::as_string)
+                .map(|s| s.to_std_string_escaped())
+                .ok_or_else(|| JsNativeError::typ().with_message("cache.add requires a URL"))?;
+
+            // Phase 2: synchronous stub — stores empty response for the URL.
+            // Real implementation requires fetch() integration.
+            let entry = elidex_cache_api::CachedEntry {
+                request_url: url,
+                request_method: "GET".into(),
+                response_status: 200,
+                response_status_text: "OK".into(),
+                response_headers: vec![],
+                response_body: Vec::new(),
+                vary_headers: vec![],
+                is_opaque: false,
+            };
+
+            bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::store::put(conn, name, &entry).map_err(|e| format!("{e}"))
+                })
+                .unwrap_or(Err("cache backend not initialized".into()))
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+
+            Ok(JsValue::undefined())
+        },
+        captures,
+    );
+
+    // addAll(requests) — batch fetch + put (atomic, all-or-nothing)
+    let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
+    let add_all_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, (bridge, name), ctx| {
+            let arr = args.first().cloned().unwrap_or(JsValue::undefined());
+            let arr_obj = arr.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("cache.addAll requires an array")
+            })?;
+
+            let length: u64 = arr_obj.get(js_string!("length"), ctx)?.to_number(ctx)? as u64;
+
+            let mut entries = Vec::with_capacity(length as usize);
+            for i in 0..length {
+                let item = arr_obj.get(i, ctx)?;
+                let url = item
+                    .as_string()
+                    .map(|s| s.to_std_string_escaped())
+                    .ok_or_else(|| {
+                        JsNativeError::typ().with_message("cache.addAll: array items must be URLs")
+                    })?;
+
+                entries.push(elidex_cache_api::CachedEntry {
+                    request_url: url,
+                    request_method: "GET".into(),
+                    response_status: 200,
+                    response_status_text: "OK".into(),
+                    response_headers: vec![],
+                    response_body: Vec::new(),
+                    vary_headers: vec![],
+                    is_opaque: false,
+                });
+            }
+
+            bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::store::add_all(conn, name, &entries)
+                        .map_err(|e| format!("{e}"))
+                })
+                .unwrap_or(Err("cache backend not initialized".into()))
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+
+            Ok(JsValue::undefined())
+        },
+        captures,
+    );
+
     let obj = ObjectInitializer::new(ctx)
         .function(match_fn, js_string!("match"), 1)
+        .function(match_all_fn, js_string!("matchAll"), 1)
+        .function(add_fn, js_string!("add"), 1)
+        .function(add_all_fn, js_string!("addAll"), 1)
         .function(put_fn, js_string!("put"), 2)
         .function(delete_fn, js_string!("delete"), 1)
         .function(keys_fn, js_string!("keys"), 0)
