@@ -415,9 +415,9 @@ fn build_extendable_event(
         )
         .function(
             NativeFunction::from_fn_ptr(|_, _, _| {
-                // Phase 2: waitUntil() is a no-op — promises resolve synchronously
-                // via ctx.run_jobs() after all callbacks execute.
-                // If a promise rejects, the callback itself throws, caught by dispatch.
+                // Phase 2: waitUntil() is a no-op stub. The passed promise is ignored.
+                // Microtask queue is drained by ctx.run_jobs() after dispatch.
+                // True promise tracking requires M4-10 (elidex-js VM async support).
                 Ok(JsValue::undefined())
             }),
             js_string!("waitUntil"),

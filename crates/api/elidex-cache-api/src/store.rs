@@ -209,6 +209,11 @@ pub fn add_all(
 
 // -- Internal helpers --
 
+/// Compute the SQL table name for a cache, with length validation.
+pub(crate) fn table_name_for(cache_name: &str) -> Result<String, CacheError> {
+    table_name(cache_name)
+}
+
 fn table_name(cache_name: &str) -> Result<String, CacheError> {
     let safe = elidex_storage_core::sanitize_sql_name(cache_name);
     let name = format!("cache_{safe}");

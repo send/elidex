@@ -218,9 +218,7 @@ mod tests {
         let o2 = origin("new.com");
 
         qm.report_usage(&o1, 100);
-        // Busy-wait to ensure distinct Instant values (platform timer resolution).
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_millis(2) {}
+        std::thread::sleep(std::time::Duration::from_millis(15));
         qm.report_usage(&o2, 200);
 
         let candidates = qm.eviction_candidates();

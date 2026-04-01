@@ -79,8 +79,10 @@ pub fn delete(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     ensure_names_table(conn)?;
 
     let raw = conn.raw_connection();
-    let safe_name = elidex_storage_core::sanitize_sql_name(name);
-    let table = format!("cache_{safe_name}");
+    // Use store::table_name for consistent validation + naming.
+    let Ok(table) = crate::store::table_name_for(name) else {
+        return Ok(false); // invalid name = nothing to delete
+    };
     raw.execute_batch(&format!("DROP TABLE IF EXISTS [{table}]"))
         .map_err(sql_err)?;
 
