@@ -148,7 +148,7 @@ pub fn system_time_to_unix(t: std::time::SystemTime) -> i64 {
 
 /// Convert Unix timestamp (seconds) to `SystemTime`. Returns `None` for non-positive values.
 pub fn unix_to_system_time(ts: i64) -> Option<std::time::SystemTime> {
-    if ts <= 0 {
+    if ts < 0 {
         return None;
     }
     #[allow(clippy::cast_sign_loss)]

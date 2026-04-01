@@ -148,12 +148,18 @@ pub fn register_cookie_store(ctx: &mut Context, bridge: &HostBridge) {
                         .get(js_string!("name"), ctx)?
                         .as_string()
                         .map(|s| s.to_std_string_escaped())
-                        .unwrap_or_default();
+                        .ok_or_else(|| {
+                            JsNativeError::typ()
+                                .with_message("cookieStore.set: options.name is required")
+                        })?;
                     let value = obj
                         .get(js_string!("value"), ctx)?
                         .as_string()
                         .map(|s| s.to_std_string_escaped())
-                        .unwrap_or_default();
+                        .ok_or_else(|| {
+                            JsNativeError::typ()
+                                .with_message("cookieStore.set: options.value is required")
+                        })?;
                     let mut attrs = String::new();
                     if let Some(d) = obj
                         .get(js_string!("domain"), ctx)?
