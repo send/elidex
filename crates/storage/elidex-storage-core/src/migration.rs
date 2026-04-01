@@ -3,7 +3,7 @@
 
 use crate::backend::Migration;
 
-/// Build a migration set from a slice of (version, sql) pairs.
+/// Build a migration set from a slice of (sql, version) pairs.
 pub fn migrations_from_pairs(pairs: &[(&'static str, u32)]) -> Vec<Migration> {
     pairs
         .iter()

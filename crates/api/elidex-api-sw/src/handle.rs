@@ -82,11 +82,13 @@ impl SwHandle {
     }
 
     /// Shut down the SW thread.
+    ///
+    /// Sends Shutdown and detaches (drops JoinHandle without join)
+    /// to avoid blocking the browser thread.
     pub fn shutdown(&mut self) {
         let _ = self.channel.send(ContentToSw::Shutdown);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        // Detach — don't join, which could block the browser thread indefinitely.
+        self.thread.take();
         self.state = SwState::Redundant;
     }
 

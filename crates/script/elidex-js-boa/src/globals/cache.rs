@@ -270,6 +270,7 @@ fn build_cache_object(
                         name,
                         &url,
                         "GET",
+                        &[],
                         &elidex_cache_api::MatchOptions::default(),
                     )
                     .unwrap_or(false)

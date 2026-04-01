@@ -82,7 +82,7 @@ impl QuotaManager {
         let current = origins.get(origin).map_or(0, |i| i.usage);
         // global_limit * 0.20 — integer arithmetic avoids f64 cast warnings.
         let per_origin_quota = self.global_limit / 5;
-        current + additional_bytes <= per_origin_quota
+        current.saturating_add(additional_bytes) <= per_origin_quota
     }
 
     /// Request persistent storage for an origin.

@@ -43,9 +43,12 @@ impl OriginKey {
         Some(Self::from_parts(scheme, host, port))
     }
 
-    /// Directory name for this origin under the profile directory.
-    pub fn dir_name(&self) -> &str {
-        &self.0
+    /// Filesystem-safe directory name for this origin.
+    ///
+    /// Hex-encodes the origin string to avoid filesystem-unsafe characters
+    /// (e.g., ':' in IPv6 addresses is illegal on Windows).
+    pub fn dir_name(&self) -> String {
+        crate::util::sanitize_sql_name(&self.0)
     }
 }
 
@@ -89,6 +92,9 @@ impl OriginStorageManager {
     }
 
     /// Execute an operation on a connection, opening it if necessary.
+    ///
+    /// Note: the connections mutex is held for the duration of `f`.
+    /// The closure must not call back into `OriginStorageManager` to avoid deadlock.
     pub fn with_connection<F, T>(
         &self,
         origin: &OriginKey,
@@ -184,9 +190,13 @@ mod tests {
         let mgr = OriginStorageManager::new(PathBuf::from("/tmp/elidex-test"));
         let origin = OriginKey::from_parts("https", "example.com", 443);
         let path = mgr.db_path(&origin, StorageType::CacheApi);
+        // Origin key contains '.', triggering hex encoding with "x_" prefix.
+        let expected_dir = crate::util::sanitize_sql_name("https_example.com_443");
         assert_eq!(
             path,
-            PathBuf::from("/tmp/elidex-test/origins/https_example.com_443/cache.sqlite")
+            PathBuf::from(format!(
+                "/tmp/elidex-test/origins/{expected_dir}/cache.sqlite"
+            ))
         );
     }
 

@@ -51,7 +51,7 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
 
     raw.execute(
         "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
-        rusqlite::params![name, now.cast_signed()],
+        rusqlite::params![name, i64::try_from(now).unwrap_or(i64::MAX)],
     )
     .map_err(sql_err)?;
 

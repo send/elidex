@@ -326,6 +326,7 @@ impl App {
                         // TODO(M4-8): fetch manifest JSON, parse, apply to window
                     }
                     ContentToBrowser::StorageEstimate { origin } => {
+                        // Origin string from content thread uses url::Url::origin().unicode_serialization().
                         let origin_key = elidex_storage_core::OriginKey(origin);
                         let est = self.sw_coordinator.quota_estimate(&origin_key);
                         let _ =
@@ -336,6 +337,7 @@ impl App {
                                 });
                     }
                     ContentToBrowser::StoragePersist { origin } => {
+                        // Origin string from content thread uses url::Url::origin().unicode_serialization().
                         let origin_key = elidex_storage_core::OriginKey(origin);
                         let granted = self.sw_coordinator.quota_persist(&origin_key);
                         let _ = tab
@@ -343,6 +345,7 @@ impl App {
                             .send(crate::ipc::BrowserToContent::StoragePersistResult { granted });
                     }
                     ContentToBrowser::StoragePersisted { origin } => {
+                        // Origin string from content thread uses url::Url::origin().unicode_serialization().
                         let origin_key = elidex_storage_core::OriginKey(origin);
                         let persisted = self.sw_coordinator.quota_persisted(&origin_key);
                         let _ = tab.channel.send(

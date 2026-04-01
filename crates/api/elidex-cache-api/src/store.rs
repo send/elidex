@@ -103,6 +103,7 @@ pub fn delete(
     cache_name: &str,
     url: &str,
     method: &str,
+    request_headers: &[(String, String)],
     options: &MatchOptions,
 ) -> Result<bool, CacheError> {
     let table = table_name(cache_name);
@@ -125,7 +126,7 @@ pub fn delete(
         let all_entries = scan_all_entries(conn, &table)?;
         let mut deleted = false;
         for entry in &all_entries {
-            if entry_matches(entry, url, method, &[], options) {
+            if entry_matches(entry, url, method, request_headers, options) {
                 let key = entry.storage_key();
                 conn.execute(&StorageOp::Delete {
                     table: &table,
@@ -318,6 +319,7 @@ mod tests {
             "v1",
             "https://example.com/",
             "GET",
+            &[],
             &MatchOptions::default(),
         )
         .unwrap();
@@ -343,6 +345,7 @@ mod tests {
             "v1",
             "https://example.com/nope",
             "GET",
+            &[],
             &MatchOptions::default(),
         )
         .unwrap();

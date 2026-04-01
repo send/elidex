@@ -9,12 +9,14 @@ pub fn sanitize_sql_name(s: &str) -> String {
     if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return s.to_owned();
     }
-    s.bytes()
-        .fold(String::with_capacity(s.len() * 2), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
+    // Prefix hex output with "x_" to avoid collision with alphanumeric passthrough.
+    let mut result = String::with_capacity(2 + s.len() * 2);
+    result.push_str("x_");
+    for b in s.bytes() {
+        use std::fmt::Write;
+        let _ = write!(result, "{b:02x}");
+    }
+    result
 }
 
 #[cfg(test)]
@@ -31,8 +33,8 @@ mod tests {
     fn non_ascii_hex_encoded() {
         let name = sanitize_sql_name("my-db");
         assert_ne!(name, "my-db");
-        // Hex encoding: 'm'=6d, 'y'=79, '-'=2d, 'd'=64, 'b'=62
-        assert_eq!(name, "6d792d6462");
+        // Hex encoding with "x_" prefix to avoid collision with passthrough.
+        assert_eq!(name, "x_6d792d6462");
     }
 
     #[test]

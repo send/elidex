@@ -60,7 +60,7 @@ impl CachedEntry {
         Some(Self {
             request_url: json.get("request_url")?.as_str()?.to_owned(),
             request_method: json.get("request_method")?.as_str()?.to_owned(),
-            response_status: json.get("response_status")?.as_u64()? as u16,
+            response_status: u16::try_from(json.get("response_status")?.as_u64()?).ok()?,
             response_status_text: json
                 .get("response_status_text")
                 .and_then(|v| v.as_str())
