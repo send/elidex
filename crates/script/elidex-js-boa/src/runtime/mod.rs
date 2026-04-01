@@ -15,7 +15,7 @@ use crate::globals::timers::TimerQueueHandle;
 mod ce;
 mod observers;
 mod realtime;
-mod sw;
+pub(crate) mod sw;
 
 /// Drop guard that calls `HostBridge::unbind()` on drop.
 ///
@@ -546,6 +546,11 @@ impl JsRuntime {
     /// Returns a reference to the bridge.
     pub fn bridge(&self) -> &HostBridge {
         &self.bridge
+    }
+
+    /// Mutable access to the boa context (for building JS objects before dispatch).
+    pub fn context_mut(&mut self) -> &mut Context {
+        &mut self.ctx
     }
 
     /// Drain outgoing messages from the worker bridge, converting them to

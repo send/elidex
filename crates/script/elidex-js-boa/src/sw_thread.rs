@@ -169,21 +169,59 @@ fn sw_thread_run(
                         client_id,
                         resulting_client_id,
                     } => {
-                        // Build request and event properties safely (no string interpolation).
+                        use crate::runtime::sw::FetchEventResult;
+
+                        // Build request object for the FetchEvent.
+                        let request_obj =
+                            boa_engine::object::ObjectInitializer::new(runtime.context_mut())
+                                .property(
+                                    js_string!("url"),
+                                    JsValue::from(js_string!(request.url.as_str())),
+                                    boa_engine::property::Attribute::READONLY,
+                                )
+                                .property(
+                                    js_string!("method"),
+                                    JsValue::from(js_string!(request.method.as_str())),
+                                    boa_engine::property::Attribute::READONLY,
+                                )
+                                .property(
+                                    js_string!("mode"),
+                                    JsValue::from(js_string!(request.mode.as_str())),
+                                    boa_engine::property::Attribute::READONLY,
+                                )
+                                .property(
+                                    js_string!("destination"),
+                                    JsValue::from(js_string!(request.destination.as_str())),
+                                    boa_engine::property::Attribute::READONLY,
+                                )
+                                .build();
+
                         let props = [
+                            ("request", JsValue::from(request_obj)),
                             ("clientId", JsValue::from(js_string!(client_id))),
                             (
                                 "resultingClientId",
                                 JsValue::from(js_string!(resulting_client_id)),
                             ),
                         ];
-                        let success =
-                            runtime.dispatch_sw_event(&mut session, &mut dom, doc, "fetch", &props);
-                        if !success {
-                            let _ = channel.send(SwToContent::FetchPassthrough { fetch_id });
+
+                        match runtime.dispatch_fetch_event(&mut session, &mut dom, doc, &props) {
+                            FetchEventResult::Responded { body, status } => {
+                                let _ = channel.send(SwToContent::FetchResponse {
+                                    fetch_id,
+                                    response: elidex_api_sw::SwResponse {
+                                        status,
+                                        status_text: "OK".into(),
+                                        headers: vec![],
+                                        body: body.into_bytes(),
+                                        url: request.url,
+                                    },
+                                });
+                            }
+                            FetchEventResult::Passthrough | FetchEventResult::Error => {
+                                let _ = channel.send(SwToContent::FetchPassthrough { fetch_id });
+                            }
                         }
-                        // TODO: respondWith() integration — response sent via bridge
-                        let _ = (fetch_id, request); // suppress unused warnings
                     }
                     ContentToSw::SyncEvent { tag, last_chance } => {
                         let props = [
