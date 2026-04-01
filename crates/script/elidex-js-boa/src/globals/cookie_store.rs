@@ -3,6 +3,8 @@
 //! Provides async cookie access via `cookieStore` global.
 //! Available in both Window and ServiceWorker contexts.
 
+use std::fmt::Write;
+
 use boa_engine::object::builtins::{JsArray, JsPromise};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
@@ -134,26 +136,81 @@ pub fn register_cookie_store(ctx: &mut Context, bridge: &HostBridge) {
         0,
     );
 
-    // set(name, value)
+    // set(name, value) or set(options)
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| {
-                let name = args
-                    .get_or_undefined(0)
-                    .as_string()
-                    .map(|s| s.to_std_string_escaped())
-                    .ok_or_else(|| {
-                        JsNativeError::typ().with_message("cookieStore.set requires a name")
-                    })?;
-                let value = args
-                    .get_or_undefined(1)
-                    .as_string()
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default();
+                let first = args.get_or_undefined(0);
+                let (name, value, attrs) = if let Some(obj) = first.as_object() {
+                    // set(options) form: {name, value, domain?, path?, expires?, secure?, sameSite?}
+                    let name = obj
+                        .get(js_string!("name"), ctx)?
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                        .unwrap_or_default();
+                    let value = obj
+                        .get(js_string!("value"), ctx)?
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                        .unwrap_or_default();
+                    let mut attrs = String::new();
+                    if let Some(d) = obj
+                        .get(js_string!("domain"), ctx)?
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                    {
+                        write!(attrs, "; Domain={d}").unwrap();
+                    }
+                    if let Some(p) = obj
+                        .get(js_string!("path"), ctx)?
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                    {
+                        write!(attrs, "; Path={p}").unwrap();
+                    }
+                    if let Some(exp) = obj.get(js_string!("expires"), ctx)?.as_number() {
+                        // expires is milliseconds since epoch; Max-Age in seconds from now.
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as f64)
+                            .unwrap_or(0.0);
+                        let max_age = ((exp - now_ms) / 1000.0).max(0.0) as u64;
+                        write!(attrs, "; Max-Age={max_age}").unwrap();
+                    }
+                    if obj
+                        .get(js_string!("secure"), ctx)?
+                        .as_boolean()
+                        .unwrap_or(false)
+                    {
+                        attrs.push_str("; Secure");
+                    }
+                    if let Some(ss) = obj
+                        .get(js_string!("sameSite"), ctx)?
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                    {
+                        write!(attrs, "; SameSite={ss}").unwrap();
+                    }
+                    (name, value, attrs)
+                } else {
+                    // set(name, value) form.
+                    let name = first
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                        .ok_or_else(|| {
+                            JsNativeError::typ().with_message("cookieStore.set requires a name")
+                        })?;
+                    let value = args
+                        .get_or_undefined(1)
+                        .as_string()
+                        .map(|s| s.to_std_string_escaped())
+                        .unwrap_or_default();
+                    (name, value, String::new())
+                };
 
                 if let Some(url) = bridge.current_url() {
-                    bridge.set_cookie_from_script(&url, &format!("{name}={value}"));
+                    bridge.set_cookie_from_script(&url, &format!("{name}={value}{attrs}"));
                 }
                 Ok(JsPromise::resolve(JsValue::undefined(), ctx).into())
             },

@@ -252,10 +252,18 @@ impl<'db> HistoryStore<'db> {
                         |row| row.get(0),
                     )
                     .map_err(StorageError::from)?;
+                let typed_count: i64 = self
+                    .conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM visits WHERE url_id = ?1 AND transition_type = ?2",
+                        rusqlite::params![url_id, TransitionType::Typed as i32],
+                        |row| row.get(0),
+                    )
+                    .map_err(StorageError::from)?;
                 self.conn
                     .execute(
-                        "UPDATE urls SET frecency = ?1, visit_count = ?2, last_visit_time = ?3 WHERE id = ?4",
-                        rusqlite::params![frecency, visit_count, last_visit, url_id],
+                        "UPDATE urls SET frecency = ?1, visit_count = ?2, typed_count = ?3, last_visit_time = ?4 WHERE id = ?5",
+                        rusqlite::params![frecency, visit_count, typed_count, last_visit, url_id],
                     )
                     .map_err(StorageError::from)?;
             }

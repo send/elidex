@@ -87,6 +87,38 @@ fn persisted_to_snap(
     }
 }
 
+/// Platform-appropriate data directory for persistent storage.
+///
+/// - macOS: `~/Library/Application Support`
+/// - Linux: `$XDG_DATA_HOME` or `~/.local/share`
+/// - Windows: `%APPDATA%`
+/// - Fallback: temp directory
+fn dirs_next_data_dir() -> std::path::PathBuf {
+    // Simple cross-platform implementation without extra dependencies.
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home).join("Library/Application Support");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            return std::path::PathBuf::from(xdg);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home).join(".local/share");
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return std::path::PathBuf::from(appdata);
+        }
+    }
+    std::env::temp_dir()
+}
+
 /// Convert a winit mouse button to the DOM spec button number.
 ///
 /// DOM spec: 0=primary, 1=auxiliary, 2=secondary, 3=back, 4=forward.
@@ -184,9 +216,10 @@ impl App {
     /// Call once during startup, after the Network Process is spawned.
     /// Loads cookies from BrowserDb into the shared CookieJar.
     fn init_browser_db(&mut self) {
-        // Use a temporary directory for now; a proper profile_dir will be
-        // configured when the shell supports user profiles.
-        let profile_dir = std::env::temp_dir().join("elidex-profile");
+        // Use platform data directory. Falls back to temp if unavailable.
+        // A proper profile selection UI will be added when the shell supports
+        // multiple user profiles.
+        let profile_dir = dirs_next_data_dir().join("elidex");
         match elidex_storage_core::BrowserDb::open(&profile_dir) {
             Ok(db) => {
                 // Load persisted cookies into the shared CookieJar.
@@ -220,8 +253,6 @@ impl App {
         if current_gen == self.cookie_gen {
             return;
         }
-        self.cookie_gen = current_gen;
-
         // Only persist persistent cookies (not session cookies).
         let persisted: Vec<_> = jar
             .snapshot()
@@ -229,8 +260,9 @@ impl App {
             .filter(|c| c.persistent)
             .map(snap_to_persisted)
             .collect();
-        if let Err(e) = db.cookies().sync_all(&persisted) {
-            tracing::debug!(error = %e, "failed to sync cookies");
+        match db.cookies().sync_all(&persisted) {
+            Ok(()) => self.cookie_gen = current_gen,
+            Err(e) => tracing::debug!(error = %e, "failed to sync cookies — will retry"),
         }
     }
 

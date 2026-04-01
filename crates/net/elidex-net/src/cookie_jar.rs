@@ -373,8 +373,10 @@ impl CookieJar {
             })
             .collect();
 
-        // Bump generation if expired cookies were removed or access times updated.
-        if jar.len() != before_len || !result.is_empty() {
+        // Only bump generation if expired cookies were actually removed.
+        // last_access_time updates are internal bookkeeping, not mutations
+        // that require persistence (they'll be captured on the next real mutation).
+        if jar.len() != before_len {
             self.bump_generation();
         }
         result
@@ -583,6 +585,9 @@ fn parse_set_cookie(
         http_only,
         same_site,
         expires,
+        // CHIPS: partition_key requires parsing the `Partitioned` Set-Cookie
+        // attribute and computing the top-level site. Not yet implemented —
+        // all cookies are first-party (empty partition_key) for now.
         partition_key: String::new(),
         creation_time: now,
         last_access_time: now,

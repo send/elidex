@@ -47,11 +47,15 @@ pub(super) fn handle_navigate(
                     std::sync::atomic::AtomicU64::new(1);
                 let fetch_id = FETCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+                let (method, headers, body) = match &request {
+                    Some(req) => (req.method.clone(), req.headers.clone(), req.body.to_vec()),
+                    None => ("GET".into(), vec![], vec![]),
+                };
                 let sw_request = elidex_api_sw::SwRequest {
                     url: url.clone(),
-                    method: "GET".into(),
-                    headers: vec![],
-                    body: vec![],
+                    method,
+                    headers,
+                    body,
                     mode: "navigate".into(),
                     destination: "document".into(),
                     integrity: None,
@@ -82,9 +86,9 @@ pub(super) fn handle_navigate(
                     }
                     match state.channel.recv_timeout(remaining) {
                         Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                            fetch_id: resp_id,
                             response: Some(resp),
-                            ..
-                        }) => {
+                        }) if resp_id == fetch_id => {
                             tracing::debug!(
                                 url = %url,
                                 status = resp.status,
@@ -94,13 +98,14 @@ pub(super) fn handle_navigate(
                             break;
                         }
                         Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                            fetch_id: resp_id,
                             response: None,
-                            ..
-                        }) => {
+                        }) if resp_id == fetch_id => {
                             break; // Passthrough.
                         }
                         Ok(other) => {
-                            // Re-dispatch non-SwFetchResponse message.
+                            // Re-dispatch non-matching message (including
+                            // SwFetchResponse with wrong fetch_id).
                             super::event_loop::handle_message_public(other, state);
                         }
                         Err(_) => break, // Timeout or disconnected.
