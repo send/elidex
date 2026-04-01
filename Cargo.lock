@@ -1790,6 +1790,7 @@ dependencies = [
 name = "elidex-cache-api"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "elidex-storage-core",
  "rusqlite",
  "serde_json",
@@ -2001,7 +2002,9 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "elidex-api-observers",
+ "elidex-api-sw",
  "elidex-api-workers",
+ "elidex-cache-api",
  "elidex-custom-elements",
  "elidex-dom-api",
  "elidex-ecs",
@@ -2012,6 +2015,7 @@ dependencies = [
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
+ "elidex-storage-core",
  "elidex-wasm-runtime",
  "elidex-web-canvas",
  "encoding_rs",
@@ -2216,6 +2220,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "elidex-a11y",
+ "elidex-api-sw",
  "elidex-api-workers",
  "elidex-css",
  "elidex-css-anim",

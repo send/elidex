@@ -46,7 +46,7 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     conn.raw_connection()
         .execute(
             "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
-            rusqlite::params![name, now as i64],
+            rusqlite::params![name, now.cast_signed()],
         )
         .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
 

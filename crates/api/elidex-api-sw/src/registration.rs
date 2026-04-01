@@ -32,9 +32,10 @@ impl SwState {
 }
 
 /// updateViaCache option (WHATWG SW §4.4.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UpdateViaCache {
     /// HTTP cache not consulted for main script, consulted for imports (default).
+    #[default]
     Imports,
     /// HTTP cache consulted for both main script and imports.
     All,
@@ -58,12 +59,6 @@ impl UpdateViaCache {
             Self::All => "all",
             Self::None => "none",
         }
-    }
-}
-
-impl Default for UpdateViaCache {
-    fn default() -> Self {
-        Self::Imports
     }
 }
 
@@ -240,7 +235,10 @@ mod tests {
 
     #[test]
     fn update_via_cache_parse() {
-        assert_eq!(UpdateViaCache::parse("imports"), Some(UpdateViaCache::Imports));
+        assert_eq!(
+            UpdateViaCache::parse("imports"),
+            Some(UpdateViaCache::Imports)
+        );
         assert_eq!(UpdateViaCache::parse("all"), Some(UpdateViaCache::All));
         assert_eq!(UpdateViaCache::parse("none"), Some(UpdateViaCache::None));
         assert_eq!(UpdateViaCache::parse("invalid"), Option::None);

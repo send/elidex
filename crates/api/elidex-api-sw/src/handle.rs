@@ -92,9 +92,7 @@ impl SwHandle {
 
     /// Check if the SW thread is still running.
     pub fn is_alive(&self) -> bool {
-        self.thread
-            .as_ref()
-            .is_some_and(|t| !t.is_finished())
+        self.thread.as_ref().is_some_and(|t| !t.is_finished())
     }
 }
 
@@ -113,7 +111,7 @@ impl std::fmt::Debug for SwHandle {
             .field("script_url", &self.script_url.as_str())
             .field("state", &self.state)
             .field("alive", &self.is_alive())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

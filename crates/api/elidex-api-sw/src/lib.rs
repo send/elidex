@@ -1,3 +1,10 @@
+// Script hash and persistence use u64↔i64 casts for SQLite compatibility.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+
 //! Service Worker lifecycle, Cache API integration, and PWA support for elidex.
 //!
 //! Implements the WHATWG Service Worker specification:

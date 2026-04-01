@@ -161,19 +161,16 @@ impl StorageConnection for SqliteConnection {
                     Ok(value)
                 }) {
                     Ok(value) => Ok(StorageResult::Row(value)),
-                    Err(rusqlite::Error::QueryReturnedNoRows) => {
-                        Err(StorageError::not_found(format!(
-                            "key not found in table [{table}]"
-                        )))
-                    }
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Err(StorageError::not_found(
+                        format!("key not found in table [{table}]"),
+                    )),
                     Err(e) => Err(e.into()),
                 }
             }
 
             StorageOp::Put { table, key, value } => {
                 validate_table_name(table)?;
-                let sql =
-                    format!("INSERT OR REPLACE INTO [{table}] (key, value) VALUES (?1, ?2)");
+                let sql = format!("INSERT OR REPLACE INTO [{table}] (key, value) VALUES (?1, ?2)");
                 self.conn.execute(&sql, rusqlite::params![key, value])?;
                 Ok(StorageResult::Ok)
             }
@@ -206,10 +203,9 @@ impl StorageConnection for SqliteConnection {
                     );
                     let mut stmt = self.conn.prepare(&sql)?;
                     let rows: Vec<Vec<u8>> = stmt
-                        .query_map(
-                            rusqlite::params![prefix, upper, *limit as i64],
-                            |row| row.get(0),
-                        )?
+                        .query_map(rusqlite::params![prefix, upper, *limit as i64], |row| {
+                            row.get(0)
+                        })?
                         .collect::<Result<_, _>>()?;
                     Ok(StorageResult::Rows(rows))
                 }

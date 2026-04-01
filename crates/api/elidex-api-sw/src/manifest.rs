@@ -162,12 +162,14 @@ mod tests {
 
     #[test]
     fn resolve_relative_urls() {
-        let mut m = parse_manifest(r#"{
+        let mut m = parse_manifest(
+            r#"{
             "start_url": "/app/",
             "scope": "/app/",
             "icons": [{ "src": "icon.png" }],
             "shortcuts": [{ "name": "Home", "url": ".", "icons": [{ "src": "s.png" }] }]
-        }"#);
+        }"#,
+        );
 
         let manifest_url = url::Url::parse("https://example.com/manifests/app.json").unwrap();
         resolve_urls(&mut m, &manifest_url);
@@ -175,10 +177,7 @@ mod tests {
         assert_eq!(m.start_url.as_deref(), Some("https://example.com/app/"));
         assert_eq!(m.scope.as_deref(), Some("https://example.com/app/"));
         assert_eq!(m.icons[0].src, "https://example.com/manifests/icon.png");
-        assert_eq!(
-            m.shortcuts[0].url,
-            "https://example.com/manifests/"
-        );
+        assert_eq!(m.shortcuts[0].url, "https://example.com/manifests/");
         assert_eq!(
             m.shortcuts[0].icons[0].src,
             "https://example.com/manifests/s.png"

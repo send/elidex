@@ -52,7 +52,13 @@ impl SwPersistence {
             "INSERT OR REPLACE INTO _sw_registrations \
              (scope, script_url, script_hash, state, update_via_cache) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![reg.scope.as_str(), reg.script_url.as_str(), hash, state, cache],
+            rusqlite::params![
+                reg.scope.as_str(),
+                reg.script_url.as_str(),
+                hash,
+                state,
+                cache
+            ],
         )?;
         Ok(())
     }
@@ -225,10 +231,7 @@ mod tests {
             .unwrap();
 
         let loaded = p.load_all().unwrap();
-        assert_eq!(
-            loaded[0].script_hash,
-            Some(update::hash_script(new_body))
-        );
+        assert_eq!(loaded[0].script_hash, Some(update::hash_script(new_body)));
     }
 
     #[test]

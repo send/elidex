@@ -18,11 +18,7 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
 /// - Same-origin (script_url vs page_origin)
 /// - data: URL prohibition
 /// - Scope within script directory (unless Service-Worker-Allowed header)
-pub fn validate_registration(
-    script_url: &Url,
-    scope: &Url,
-    page_url: &Url,
-) -> Result<(), String> {
+pub fn validate_registration(script_url: &Url, scope: &Url, page_url: &Url) -> Result<(), String> {
     // HTTPS-only (localhost/::1 exception)
     if !is_secure_context(page_url) {
         return Err("Service Workers require a secure context (HTTPS or localhost)".into());
@@ -110,14 +106,13 @@ pub fn validate_mime_type(content_type: &str) -> bool {
 /// HTTPS, localhost, and ::1 (IPv6 loopback) are secure.
 pub fn is_secure_context(url: &Url) -> bool {
     match url.scheme() {
-        "https" | "wss" => true,
         "http" | "ws" => {
             matches!(
                 url.host_str(),
                 Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
             )
         }
-        "file" => true,
+        "https" | "wss" | "file" => true,
         _ => false,
     }
 }
@@ -208,10 +203,7 @@ mod tests {
             &script,
             &url("https://example.com/js/sub/")
         ));
-        assert!(!validate_scope_path(
-            &script,
-            &url("https://example.com/")
-        ));
+        assert!(!validate_scope_path(&script, &url("https://example.com/")));
     }
 
     #[test]
@@ -247,10 +239,7 @@ mod tests {
 
     #[test]
     fn script_directory_extraction() {
-        assert_eq!(
-            script_directory(&url("https://example.com/sw.js")),
-            "/"
-        );
+        assert_eq!(script_directory(&url("https://example.com/sw.js")), "/");
         assert_eq!(
             script_directory(&url("https://example.com/js/sw.js")),
             "/js/"

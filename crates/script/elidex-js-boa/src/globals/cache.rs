@@ -5,8 +5,8 @@
 use std::rc::Rc;
 
 use boa_engine::{
-    js_string, Context, JsNativeError, JsObject, JsResult, JsValue, NativeFunction,
-    object::ObjectInitializer,
+    js_string, object::ObjectInitializer, Context, JsNativeError, JsObject, JsResult, JsValue,
+    NativeFunction,
 };
 
 use crate::bridge::HostBridge;
@@ -20,23 +20,28 @@ pub fn register_caches(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register caches");
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     let b = bridge.clone();
     let open_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, bridge, ctx| {
             let name = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
-                .ok_or_else(|| JsNativeError::typ().with_message("caches.open requires a string name"))?;
+                .ok_or_else(|| {
+                    JsNativeError::typ().with_message("caches.open requires a string name")
+                })?;
 
-            bridge.ensure_cache_backend().map_err(|e| JsNativeError::typ().with_message(e))?;
-            bridge.with_cache(|conn| {
-                elidex_cache_api::storage::open(conn, &name)
-                    .map_err(|e| format!("{e}"))
-            })
-            .unwrap_or(Err("cache backend not initialized".into()))
-            .map_err(|e| JsNativeError::typ().with_message(e))?;
+            bridge
+                .ensure_cache_backend()
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+            bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::storage::open(conn, &name).map_err(|e| format!("{e}"))
+                })
+                .unwrap_or(Err("cache backend not initialized".into()))
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
 
             let cache_obj = build_cache_object(ctx, bridge, &name)?;
             Ok(cache_obj.into())
@@ -49,14 +54,18 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         |_this, args, bridge, _ctx| {
             let name = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
-                .ok_or_else(|| JsNativeError::typ().with_message("caches.has requires a string name"))?;
+                .ok_or_else(|| {
+                    JsNativeError::typ().with_message("caches.has requires a string name")
+                })?;
 
-            bridge.ensure_cache_backend().map_err(|e| JsNativeError::typ().with_message(e))?;
-            let result = bridge.with_cache(|conn| {
-                elidex_cache_api::storage::has(conn, &name).unwrap_or(false)
-            }).unwrap_or(false);
+            bridge
+                .ensure_cache_backend()
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+            let result = bridge
+                .with_cache(|conn| elidex_cache_api::storage::has(conn, &name).unwrap_or(false))
+                .unwrap_or(false);
 
             Ok(JsValue::from(result))
         },
@@ -68,14 +77,18 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         |_this, args, bridge, _ctx| {
             let name = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
-                .ok_or_else(|| JsNativeError::typ().with_message("caches.delete requires a string name"))?;
+                .ok_or_else(|| {
+                    JsNativeError::typ().with_message("caches.delete requires a string name")
+                })?;
 
-            bridge.ensure_cache_backend().map_err(|e| JsNativeError::typ().with_message(e))?;
-            let result = bridge.with_cache(|conn| {
-                elidex_cache_api::storage::delete(conn, &name).unwrap_or(false)
-            }).unwrap_or(false);
+            bridge
+                .ensure_cache_backend()
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+            let result = bridge
+                .with_cache(|conn| elidex_cache_api::storage::delete(conn, &name).unwrap_or(false))
+                .unwrap_or(false);
 
             Ok(JsValue::from(result))
         },
@@ -85,10 +98,12 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     let b = bridge.clone();
     let keys_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, ctx| {
-            bridge.ensure_cache_backend().map_err(|e| JsNativeError::typ().with_message(e))?;
-            let names = bridge.with_cache(|conn| {
-                elidex_cache_api::storage::keys(conn).unwrap_or_default()
-            }).unwrap_or_default();
+            bridge
+                .ensure_cache_backend()
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
+            let names = bridge
+                .with_cache(|conn| elidex_cache_api::storage::keys(conn).unwrap_or_default())
+                .unwrap_or_default();
 
             let arr = boa_engine::object::builtins::JsArray::new(ctx);
             for name in names {
@@ -104,30 +119,39 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         |_this, args, bridge, _ctx| {
             let url = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
                 .ok_or_else(|| JsNativeError::typ().with_message("caches.match requires a URL"))?;
 
-            bridge.ensure_cache_backend().map_err(|e| JsNativeError::typ().with_message(e))?;
+            bridge
+                .ensure_cache_backend()
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
 
             // Search all caches for a match
-            let result = bridge.with_cache(|conn| {
-                let cache_names = elidex_cache_api::storage::keys(conn).unwrap_or_default();
-                for name in cache_names {
-                    if let Ok(Some(entry)) = elidex_cache_api::store::match_request(
-                        conn, &name, &url, "GET", &[],
-                        &elidex_cache_api::MatchOptions::default(),
-                    ) {
-                        return Some(entry);
+            let result = bridge
+                .with_cache(|conn| {
+                    let cache_names = elidex_cache_api::storage::keys(conn).unwrap_or_default();
+                    for name in cache_names {
+                        if let Ok(Some(entry)) = elidex_cache_api::store::match_request(
+                            conn,
+                            &name,
+                            &url,
+                            "GET",
+                            &[],
+                            &elidex_cache_api::MatchOptions::default(),
+                        ) {
+                            return Some(entry);
+                        }
                     }
-                }
-                None
-            }).flatten();
+                    None
+                })
+                .flatten();
 
             match result {
-                Some(entry) => Ok(JsValue::from(js_string!(
-                    String::from_utf8_lossy(&entry.response_body).to_string()
-                ))),
+                Some(entry) => Ok(JsValue::from(js_string!(String::from_utf8_lossy(
+                    &entry.response_body
+                )
+                .to_string()))),
                 None => Ok(JsValue::undefined()),
             }
         },
@@ -147,6 +171,7 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
 /// Captures for per-cache closures: (bridge, cache_name).
 type CacheCaptures = (HostBridge, Rc<str>);
 
+#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
 fn build_cache_object(
     ctx: &mut Context,
     bridge: &HostBridge,
@@ -159,21 +184,30 @@ fn build_cache_object(
         |_this, args, (bridge, name), _ctx| {
             let url = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
                 .ok_or_else(|| JsNativeError::typ().with_message("cache.match requires a URL"))?;
 
-            let result = bridge.with_cache(|conn| {
-                elidex_cache_api::store::match_request(
-                    conn, name, &url, "GET", &[],
-                    &elidex_cache_api::MatchOptions::default(),
-                ).ok().flatten()
-            }).flatten();
+            let result = bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::store::match_request(
+                        conn,
+                        name,
+                        &url,
+                        "GET",
+                        &[],
+                        &elidex_cache_api::MatchOptions::default(),
+                    )
+                    .ok()
+                    .flatten()
+                })
+                .flatten();
 
             match result {
-                Some(entry) => Ok(JsValue::from(js_string!(
-                    String::from_utf8_lossy(&entry.response_body).to_string()
-                ))),
+                Some(entry) => Ok(JsValue::from(js_string!(String::from_utf8_lossy(
+                    &entry.response_body
+                )
+                .to_string()))),
                 None => Ok(JsValue::undefined()),
             }
         },
@@ -185,13 +219,15 @@ fn build_cache_object(
         |_this, args, (bridge, name), _ctx| {
             let url = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
-                .ok_or_else(|| JsNativeError::typ().with_message("cache.put requires a request URL"))?;
+                .ok_or_else(|| {
+                    JsNativeError::typ().with_message("cache.put requires a request URL")
+                })?;
 
             let body = args
                 .get(1)
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
 
@@ -206,12 +242,12 @@ fn build_cache_object(
                 is_opaque: false,
             };
 
-            bridge.with_cache(|conn| {
-                elidex_cache_api::store::put(conn, name, &entry)
-                    .map_err(|e| format!("{e}"))
-            })
-            .unwrap_or(Err("cache backend not initialized".into()))
-            .map_err(|e| JsNativeError::typ().with_message(e))?;
+            bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::store::put(conn, name, &entry).map_err(|e| format!("{e}"))
+                })
+                .unwrap_or(Err("cache backend not initialized".into()))
+                .map_err(|e| JsNativeError::typ().with_message(e))?;
 
             Ok(JsValue::undefined())
         },
@@ -223,16 +259,22 @@ fn build_cache_object(
         |_this, args, (bridge, name), _ctx| {
             let url = args
                 .first()
-                .and_then(|v| v.as_string())
+                .and_then(JsValue::as_string)
                 .map(|s| s.to_std_string_escaped())
                 .ok_or_else(|| JsNativeError::typ().with_message("cache.delete requires a URL"))?;
 
-            let result = bridge.with_cache(|conn| {
-                elidex_cache_api::store::delete(
-                    conn, name, &url, "GET",
-                    &elidex_cache_api::MatchOptions::default(),
-                ).unwrap_or(false)
-            }).unwrap_or(false);
+            let result = bridge
+                .with_cache(|conn| {
+                    elidex_cache_api::store::delete(
+                        conn,
+                        name,
+                        &url,
+                        "GET",
+                        &elidex_cache_api::MatchOptions::default(),
+                    )
+                    .unwrap_or(false)
+                })
+                .unwrap_or(false);
 
             Ok(JsValue::from(result))
         },
@@ -242,9 +284,9 @@ fn build_cache_object(
     let captures: CacheCaptures = (bridge.clone(), Rc::clone(&name));
     let keys_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, (bridge, name), ctx| {
-            let entries = bridge.with_cache(|conn| {
-                elidex_cache_api::store::keys(conn, name).unwrap_or_default()
-            }).unwrap_or_default();
+            let entries = bridge
+                .with_cache(|conn| elidex_cache_api::store::keys(conn, name).unwrap_or_default())
+                .unwrap_or_default();
 
             let arr = boa_engine::object::builtins::JsArray::new(ctx);
             for entry in entries {

@@ -20,10 +20,7 @@ impl HostBridge {
     }
 
     /// Execute a closure with the cache connection.
-    pub fn with_cache<R>(
-        &self,
-        f: impl FnOnce(&SqliteConnection) -> R,
-    ) -> Option<R> {
+    pub fn with_cache<R>(&self, f: impl FnOnce(&SqliteConnection) -> R) -> Option<R> {
         let inner = self.inner.borrow();
         inner.cache_conn.as_ref().map(f)
     }

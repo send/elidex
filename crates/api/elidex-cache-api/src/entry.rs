@@ -72,7 +72,10 @@ impl CachedEntry {
                 .iter()
                 .filter_map(|pair| {
                     let arr = pair.as_array()?;
-                    Some((arr.first()?.as_str()?.to_owned(), arr.get(1)?.as_str()?.to_owned()))
+                    Some((
+                        arr.first()?.as_str()?.to_owned(),
+                        arr.get(1)?.as_str()?.to_owned(),
+                    ))
                 })
                 .collect(),
             response_body: base64_decode(json.get("response_body")?.as_str()?),
@@ -83,14 +86,17 @@ impl CachedEntry {
                     arr.iter()
                         .filter_map(|pair| {
                             let a = pair.as_array()?;
-                            Some((a.first()?.as_str()?.to_owned(), a.get(1)?.as_str()?.to_owned()))
+                            Some((
+                                a.first()?.as_str()?.to_owned(),
+                                a.get(1)?.as_str()?.to_owned(),
+                            ))
                         })
                         .collect()
                 })
                 .unwrap_or_default(),
             is_opaque: json
                 .get("is_opaque")
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false),
         })
     }
@@ -165,8 +171,7 @@ pub fn entry_matches(
             let request_value = request_headers
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(header_name))
-                .map(|(_, v)| v.as_str())
-                .unwrap_or("");
+                .map_or("", |(_, v)| v.as_str());
             if cached_value != request_value {
                 return false;
             }
@@ -176,63 +181,14 @@ pub fn entry_matches(
     true
 }
 
-// Simple base64 encoding/decoding for response body storage.
-// Using a minimal implementation to avoid adding a base64 dependency.
+use base64::{engine::general_purpose::STANDARD, Engine};
 
 fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 {
-            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-        if chunk.len() > 2 {
-            result.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-    }
-    result
+    STANDARD.encode(data)
 }
 
 fn base64_decode(s: &str) -> Vec<u8> {
-    fn char_val(c: u8) -> u8 {
-        match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => 0,
-        }
-    }
-    let bytes: Vec<u8> = s.bytes().filter(|&b| b != b'=').collect();
-    let mut result = Vec::with_capacity(bytes.len() * 3 / 4);
-    for chunk in bytes.chunks(4) {
-        if chunk.len() < 2 {
-            break;
-        }
-        let b0 = char_val(chunk[0]) as u32;
-        let b1 = char_val(chunk[1]) as u32;
-        result.push(((b0 << 2) | (b1 >> 4)) as u8);
-        if chunk.len() > 2 {
-            let b2 = char_val(chunk[2]) as u32;
-            result.push((((b1 & 0xF) << 4) | (b2 >> 2)) as u8);
-            if chunk.len() > 3 {
-                let b3 = char_val(chunk[3]) as u32;
-                result.push((((b2 & 0x3) << 6) | b3) as u8);
-            }
-        }
-    }
-    result
+    STANDARD.decode(s).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -400,7 +356,7 @@ mod tests {
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
-            vary_headers: vec![("*".into(), "".into())],
+            vary_headers: vec![("*".into(), String::new())],
             is_opaque: false,
         };
         assert!(!entry_matches(
@@ -418,7 +374,7 @@ mod tests {
             request_url: "https://cdn.com/lib.js".into(),
             request_method: "GET".into(),
             response_status: 0,
-            response_status_text: "".into(),
+            response_status_text: String::new(),
             response_headers: vec![],
             response_body: vec![0; 1000],
             vary_headers: vec![],
@@ -442,7 +398,13 @@ mod tests {
 
     #[test]
     fn strip_query_test() {
-        assert_eq!(strip_query("https://example.com/page?v=1"), "https://example.com/page");
-        assert_eq!(strip_query("https://example.com/page"), "https://example.com/page");
+        assert_eq!(
+            strip_query("https://example.com/page?v=1"),
+            "https://example.com/page"
+        );
+        assert_eq!(
+            strip_query("https://example.com/page"),
+            "https://example.com/page"
+        );
     }
 }

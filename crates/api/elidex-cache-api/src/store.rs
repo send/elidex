@@ -91,7 +91,7 @@ pub fn match_all(
                 }
                 Ok(vec![])
             }
-            Err(_) => Ok(vec![]), // Not found
+            // Not found
             _ => Ok(vec![]),
         }
     }
@@ -149,10 +149,7 @@ pub fn delete(
 }
 
 /// List all request URLs (keys) in the cache.
-pub fn keys(
-    conn: &SqliteConnection,
-    cache_name: &str,
-) -> Result<Vec<CachedEntry>, CacheError> {
+pub fn keys(conn: &SqliteConnection, cache_name: &str) -> Result<Vec<CachedEntry>, CacheError> {
     let table = table_name(cache_name);
     scan_all_entries(conn, &table)
 }
@@ -208,10 +205,7 @@ struct ScanAllOp {
 }
 
 impl CustomOp for ScanAllOp {
-    fn execute(
-        &self,
-        conn: &rusqlite::Connection,
-    ) -> Result<StorageResult, StorageError> {
+    fn execute(&self, conn: &rusqlite::Connection) -> Result<StorageResult, StorageError> {
         let sql = format!("SELECT value FROM [{}] ORDER BY key", self.table);
         let mut stmt = conn.prepare(&sql)?;
         let rows: Vec<Vec<u8>> = stmt
@@ -221,10 +215,7 @@ impl CustomOp for ScanAllOp {
     }
 }
 
-fn scan_all_entries(
-    conn: &SqliteConnection,
-    table: &str,
-) -> Result<Vec<CachedEntry>, CacheError> {
+fn scan_all_entries(conn: &SqliteConnection, table: &str) -> Result<Vec<CachedEntry>, CacheError> {
     // Check if table exists first
     let exists: bool = conn
         .raw_connection()

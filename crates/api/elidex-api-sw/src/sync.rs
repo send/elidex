@@ -15,11 +15,11 @@ const MAX_RETRIES: u32 = 5;
 
 /// Backoff durations for each retry attempt.
 const BACKOFF_DURATIONS: [Duration; 5] = [
-    Duration::from_secs(60),       // 1 min
-    Duration::from_secs(300),      // 5 min
-    Duration::from_secs(1800),     // 30 min
-    Duration::from_secs(7200),     // 2 hours
-    Duration::from_secs(43200),    // 12 hours
+    Duration::from_secs(60),    // 1 min
+    Duration::from_secs(300),   // 5 min
+    Duration::from_secs(1800),  // 30 min
+    Duration::from_secs(7200),  // 2 hours
+    Duration::from_secs(43200), // 12 hours
 ];
 
 /// Minimum interval for periodic sync (browser enforced).
@@ -74,15 +74,12 @@ impl SyncManager {
         match entry {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 let reg = e.get_mut();
-                match reg.state {
-                    SyncState::Firing => {
-                        reg.state = SyncState::ReregisteredWhileFiring;
-                    }
-                    _ => {
-                        reg.state = SyncState::Pending;
-                        reg.retry_count = 0;
-                        reg.next_retry = None;
-                    }
+                if reg.state == SyncState::Firing {
+                    reg.state = SyncState::ReregisteredWhileFiring;
+                } else {
+                    reg.state = SyncState::Pending;
+                    reg.retry_count = 0;
+                    reg.next_retry = None;
                 }
             }
             std::collections::hash_map::Entry::Vacant(e) => {
@@ -109,8 +106,7 @@ impl SyncManager {
         self.registrations
             .iter()
             .filter(|(_, reg)| {
-                reg.state == SyncState::Pending
-                    && reg.next_retry.map_or(true, |t| now >= t)
+                reg.state == SyncState::Pending && reg.next_retry.is_none_or(|t| now >= t)
             })
             .map(|(tag, reg)| {
                 let last_chance = reg.retry_count >= MAX_RETRIES - 1;
@@ -155,11 +151,7 @@ impl SyncManager {
         let backoff_idx = (reg.retry_count - 1).min(BACKOFF_DURATIONS.len() as u32 - 1) as usize;
         reg.next_retry = Some(Instant::now() + BACKOFF_DURATIONS[backoff_idx]);
 
-        if reg.state == SyncState::ReregisteredWhileFiring {
-            reg.state = SyncState::Pending;
-        } else {
-            reg.state = SyncState::Pending;
-        }
+        reg.state = SyncState::Pending;
     }
 
     // -- Periodic sync --
@@ -194,7 +186,7 @@ impl SyncManager {
             .iter()
             .filter(|(_, reg)| {
                 reg.last_fired
-                    .map_or(true, |t| now.duration_since(t) >= reg.min_interval)
+                    .is_none_or(|t| now.duration_since(t) >= reg.min_interval)
             })
             .map(|(tag, _)| tag.clone())
             .collect()

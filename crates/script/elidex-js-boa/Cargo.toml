@@ -23,6 +23,7 @@ elidex-api-observers.workspace = true
 elidex-wasm-runtime.workspace = true
 elidex-custom-elements.workspace = true
 elidex-api-workers.workspace = true
+elidex-api-sw.workspace = true
 elidex-cache-api.workspace = true
 elidex-indexeddb.workspace = true
 elidex-storage-core.workspace = true

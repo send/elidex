@@ -99,7 +99,7 @@ impl QuotaManager {
     /// Check if an origin has persistent storage.
     pub fn is_persisted(&self, origin: &OriginKey) -> bool {
         let origins = self.origins.lock().unwrap();
-        origins.get(origin).map_or(false, |i| i.persistent)
+        origins.get(origin).is_some_and(|i| i.persistent)
     }
 
     /// Get origins eligible for LRU eviction (non-persistent, sorted by last_access ascending).

@@ -39,6 +39,17 @@ pub struct MouseClickEvent {
     pub mods: ModifierState,
 }
 
+/// Data for `BrowserToContent::SwRegistered` (boxed to reduce enum size).
+#[derive(Debug)]
+pub struct SwRegisteredData {
+    /// Scope URL of the registration.
+    pub scope: url::Url,
+    /// Whether registration succeeded.
+    pub success: bool,
+    /// Error message if failed.
+    pub error: Option<String>,
+}
+
 /// Messages sent from the browser thread to the content thread.
 #[derive(Debug)]
 pub enum BrowserToContent {
@@ -180,6 +191,15 @@ pub enum BrowserToContent {
         /// Whether this origin has persistent storage.
         persisted: bool,
     },
+    /// Service Worker registration result from browser thread.
+    SwRegistered(Box<SwRegisteredData>),
+    /// Service Worker controller set for this content's origin.
+    SwControllerSet {
+        /// Scope URL of the controlling SW.
+        scope: url::Url,
+    },
+    /// Parsed Web App Manifest from browser thread.
+    ManifestParsed(Box<elidex_api_sw::WebAppManifest>),
     /// Shut down the content thread.
     Shutdown,
 }
@@ -279,6 +299,20 @@ pub enum ContentToBrowser {
         new_value: Option<String>,
         /// The URL of the document that triggered the change.
         url: String,
+    },
+    /// Request Service Worker registration.
+    SwRegister {
+        /// SW script URL.
+        script_url: url::Url,
+        /// Registration scope.
+        scope: url::Url,
+        /// Origin of the registering page.
+        origin: String,
+    },
+    /// A `<link rel="manifest">` was discovered during page load.
+    ManifestDiscovered {
+        /// URL of the manifest file.
+        url: url::Url,
     },
 }
 

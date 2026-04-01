@@ -38,7 +38,7 @@ impl UpdateChecker {
     pub fn should_soft_update(&self, script_url: &url::Url) -> bool {
         self.last_check
             .get(script_url)
-            .map_or(true, |last| last.elapsed() >= SOFT_UPDATE_INTERVAL)
+            .is_none_or(|last| last.elapsed() >= SOFT_UPDATE_INTERVAL)
     }
 
     /// Record that an update check was performed.

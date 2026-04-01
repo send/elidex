@@ -309,10 +309,10 @@ impl App {
                     ContentToBrowser::IdbConnectionsClosed { .. }
                     | ContentToBrowser::StorageEstimate { .. }
                     | ContentToBrowser::StoragePersist { .. }
-                    | ContentToBrowser::StoragePersisted { .. } => {
-                        // TODO: Handle storage API requests via QuotaManager.
-                        // For now these are stub messages — the JS API implementation
-                        // will send these and wait for responses.
+                    | ContentToBrowser::StoragePersisted { .. }
+                    | ContentToBrowser::SwRegister { .. }
+                    | ContentToBrowser::ManifestDiscovered { .. } => {
+                        // TODO(M4-8): SwCoordinator, QuotaManager, manifest handling.
                     }
                 }
             }

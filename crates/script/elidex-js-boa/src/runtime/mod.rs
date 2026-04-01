@@ -123,6 +123,50 @@ impl JsRuntime {
         }
     }
 
+    /// Create a `JsRuntime` for a Service Worker thread.
+    ///
+    /// Similar to `for_worker()` but uses SW-specific globals (no DOM,
+    /// no window, but has caches, clients, registration, etc.).
+    pub fn for_service_worker(
+        network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
+        scope: &url::Url,
+        script_url: url::Url,
+    ) -> Self {
+        let bridge = HostBridge::new();
+        if let Some(ref nh) = network_handle {
+            bridge.set_network_handle(Rc::clone(nh));
+        }
+        // Use worker state infrastructure for message handling.
+        bridge.init_worker_state("ServiceWorker".to_string(), script_url);
+
+        let console_output = ConsoleOutput::new();
+        let timer_queue = TimerQueueHandle::new();
+
+        let mut ctx = Context::default();
+
+        // Register SW globals: worker-level APIs + cache API.
+        // SW uses the same base globals as dedicated workers.
+        crate::globals::worker_scope::register_worker_globals(
+            &mut ctx,
+            &bridge,
+            &console_output,
+            &timer_queue,
+            network_handle,
+        );
+
+        // Register SW-specific event dispatch helpers.
+        register_sw_dispatch_helpers(&mut ctx, scope);
+
+        bridge.set_timer_queue(timer_queue.clone());
+
+        Self {
+            ctx,
+            bridge,
+            console_output,
+            timer_queue,
+        }
+    }
+
     /// Evaluate a JavaScript source string.
     ///
     /// The bridge is bound to `session` and `dom` for the duration of eval,
@@ -899,6 +943,107 @@ impl Default for JsRuntime {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Register SW-specific dispatch helper functions in the JS context.
+///
+/// These are internal bridge functions called by `sw_thread.rs` to dispatch
+/// SW events. They fire addEventListener callbacks registered by the SW script.
+fn register_sw_dispatch_helpers(ctx: &mut Context, scope: &url::Url) {
+    // Register `registration.scope` as a global for SW access.
+    let scope_str = scope.to_string();
+    let bootstrap = format!(
+        r"
+        var __elidex_sw_listeners__ = {{}};
+        var __elidex_sw_response__ = null;
+
+        self.addEventListener = function(type, callback) {{
+            if (!__elidex_sw_listeners__[type]) {{
+                __elidex_sw_listeners__[type] = [];
+            }}
+            __elidex_sw_listeners__[type].push(callback);
+        }};
+
+        self.registration = {{
+            scope: '{scope_str}',
+            active: null,
+            waiting: null,
+            installing: null,
+            update: function() {{ return Promise.resolve(); }},
+            unregister: function() {{ return Promise.resolve(true); }},
+            showNotification: function(title, options) {{ return Promise.resolve(); }},
+            getNotifications: function() {{ return Promise.resolve([]); }},
+            sync: {{
+                register: function(tag) {{ return Promise.resolve(); }},
+                getTags: function() {{ return Promise.resolve([]); }}
+            }}
+        }};
+
+        self.skipWaiting = function() {{ return Promise.resolve(); }};
+        self.clients = {{
+            claim: function() {{ return Promise.resolve(); }},
+            matchAll: function() {{ return Promise.resolve([]); }},
+            get: function() {{ return Promise.resolve(undefined); }},
+            openWindow: function() {{ return Promise.resolve(null); }}
+        }};
+
+        function __elidex_sw_dispatch__(type, extra) {{
+            var listeners = __elidex_sw_listeners__[type] || [];
+            var event = {{ type: type, tag: extra || '' }};
+            event.waitUntil = function(p) {{}};
+            for (var i = 0; i < listeners.length; i++) {{
+                listeners[i](event);
+            }}
+        }}
+
+        function __elidex_sw_fetch__(fetchId, url, method, clientId, resultingClientId) {{
+            var listeners = __elidex_sw_listeners__['fetch'] || [];
+            if (listeners.length === 0) return false;
+
+            var responded = false;
+            var request = {{ url: url, method: method, mode: 'navigate', destination: 'document' }};
+            var event = {{
+                type: 'fetch',
+                request: request,
+                clientId: clientId,
+                resultingClientId: resultingClientId,
+                handled: Promise.resolve(),
+                respondWith: function(responseOrPromise) {{
+                    if (responded) throw new DOMException('respondWith already called', 'InvalidStateError');
+                    responded = true;
+                    __elidex_sw_response__ = {{ fetchId: fetchId, response: responseOrPromise }};
+                }},
+                waitUntil: function(p) {{}}
+            }};
+
+            for (var i = 0; i < listeners.length; i++) {{
+                listeners[i](event);
+            }}
+            return responded;
+        }}
+
+        function __elidex_sw_sync__(tag) {{
+            var listeners = __elidex_sw_listeners__['sync'] || [];
+            var event = {{ type: 'sync', tag: tag, lastChance: false }};
+            event.waitUntil = function(p) {{}};
+            for (var i = 0; i < listeners.length; i++) {{
+                listeners[i](event);
+            }}
+        }}
+
+        function __elidex_sw_periodic_sync__(tag) {{
+            var listeners = __elidex_sw_listeners__['periodicsync'] || [];
+            var event = {{ type: 'periodicsync', tag: tag }};
+            event.waitUntil = function(p) {{}};
+            for (var i = 0; i < listeners.length; i++) {{
+                listeners[i](event);
+            }}
+        }}
+        "
+    );
+
+    ctx.eval(Source::from_bytes(bootstrap.as_bytes()))
+        .expect("failed to register SW dispatch helpers");
 }
 
 #[cfg(test)]

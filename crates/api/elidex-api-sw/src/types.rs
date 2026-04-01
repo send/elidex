@@ -48,7 +48,7 @@ pub enum ContentToSw {
     /// Deliver a FetchEvent to the SW.
     FetchEvent {
         fetch_id: u64,
-        request: SwRequest,
+        request: Box<SwRequest>,
         /// Client ID (UUID) of the requesting context.
         client_id: String,
         /// For navigation requests: the client ID of the resulting document.
@@ -59,14 +59,9 @@ pub enum ContentToSw {
     /// Fire the 'activate' ExtendableEvent.
     Activate,
     /// Fire a Background Sync event (WICG).
-    SyncEvent {
-        tag: String,
-        last_chance: bool,
-    },
+    SyncEvent { tag: String, last_chance: bool },
     /// Fire a Periodic Background Sync event (WICG).
-    PeriodicSyncEvent {
-        tag: String,
-    },
+    PeriodicSyncEvent { tag: String },
     /// Deliver a message from client.postMessage().
     PostMessage {
         data: String,
@@ -94,14 +89,9 @@ pub enum NotificationAction {
 #[derive(Debug)]
 pub enum SwToContent {
     /// SW called respondWith(response) for a fetch event.
-    FetchResponse {
-        fetch_id: u64,
-        response: SwResponse,
-    },
+    FetchResponse { fetch_id: u64, response: SwResponse },
     /// SW did not call respondWith — fall through to network.
-    FetchPassthrough {
-        fetch_id: u64,
-    },
+    FetchPassthrough { fetch_id: u64 },
     /// Lifecycle event completed.
     LifecycleComplete {
         event: LifecycleEvent,
@@ -113,25 +103,13 @@ pub enum SwToContent {
     /// SW called self.clients.claim().
     ClientsClaim,
     /// Background Sync event completed.
-    SyncComplete {
-        tag: String,
-        success: bool,
-    },
+    SyncComplete { tag: String, success: bool },
     /// Periodic Background Sync event completed.
-    PeriodicSyncComplete {
-        tag: String,
-        success: bool,
-    },
+    PeriodicSyncComplete { tag: String, success: bool },
     /// SW called self.registration.showNotification().
-    ShowNotification {
-        title: String,
-        options_json: String,
-    },
+    ShowNotification { title: String, options_json: String },
     /// SW sent a message to a client.
-    PostMessage {
-        client_id: String,
-        data: String,
-    },
+    PostMessage { client_id: String, data: String },
     /// Error in SW script.
     Error {
         message: String,

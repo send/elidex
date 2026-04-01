@@ -92,32 +92,17 @@ mod tests {
     #[test]
     fn different_origin_no_match() {
         let scope = url("https://example.com/");
-        assert!(!matches_scope(
-            &scope,
-            &url("https://other.com/")
-        ));
-        assert!(!matches_scope(
-            &scope,
-            &url("http://example.com/")
-        ));
-        assert!(!matches_scope(
-            &scope,
-            &url("https://example.com:8080/")
-        ));
+        assert!(!matches_scope(&scope, &url("https://other.com/")));
+        assert!(!matches_scope(&scope, &url("http://example.com/")));
+        assert!(!matches_scope(&scope, &url("https://example.com:8080/")));
     }
 
     #[test]
     fn path_prefix_mismatch() {
         let scope = url("https://example.com/app/");
-        assert!(!matches_scope(
-            &scope,
-            &url("https://example.com/other/")
-        ));
+        assert!(!matches_scope(&scope, &url("https://example.com/other/")));
         // Note: /app (no trailing slash) does NOT match /app2/
-        assert!(!matches_scope(
-            &scope,
-            &url("https://example.com/app2/")
-        ));
+        assert!(!matches_scope(&scope, &url("https://example.com/app2/")));
     }
 
     #[test]
@@ -125,24 +110,15 @@ mod tests {
         let scope = url("https://example.com/app");
         // /app matches /app, /app/, /app/page, and also /app2/ (prefix match)
         assert!(matches_scope(&scope, &url("https://example.com/app")));
-        assert!(matches_scope(
-            &scope,
-            &url("https://example.com/app/page")
-        ));
+        assert!(matches_scope(&scope, &url("https://example.com/app/page")));
         // This is spec-correct but confusing: /app matches /app2
-        assert!(matches_scope(
-            &scope,
-            &url("https://example.com/app2/")
-        ));
+        assert!(matches_scope(&scope, &url("https://example.com/app2/")));
     }
 
     #[test]
     fn blob_and_data_urls_never_match() {
         let scope = url("https://example.com/");
-        assert!(!matches_scope(
-            &scope,
-            &url("data:text/html,<h1>hi</h1>")
-        ));
+        assert!(!matches_scope(&scope, &url("data:text/html,<h1>hi</h1>")));
         // blob: URLs have different origin format, won't match anyway
     }
 
@@ -155,10 +131,7 @@ mod tests {
         ];
 
         let result = find_registration(&registrations, &url("https://example.com/app/admin/page"));
-        assert_eq!(
-            result.unwrap().scope.path(),
-            "/app/admin/"
-        );
+        assert_eq!(result.unwrap().scope.path(), "/app/admin/");
 
         let result = find_registration(&registrations, &url("https://example.com/app/page"));
         assert_eq!(result.unwrap().scope.path(), "/app/");

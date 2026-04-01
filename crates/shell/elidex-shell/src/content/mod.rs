@@ -788,7 +788,10 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         | BrowserToContent::IdbBlocked { .. }
         | BrowserToContent::StorageEstimateResult { .. }
         | BrowserToContent::StoragePersistResult { .. }
-        | BrowserToContent::StoragePersistedResult { .. } => {}
+        | BrowserToContent::StoragePersistedResult { .. }
+        | BrowserToContent::SwRegistered(_)
+        | BrowserToContent::SwControllerSet { .. }
+        | BrowserToContent::ManifestParsed(_) => {}
     }
     true
 }

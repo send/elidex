@@ -1,3 +1,6 @@
+// Base64 encoding and response status use byte-level casts that are safe.
+#![allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+
 //! Cache API storage backend for elidex (WHATWG Cache API).
 //!
 //! Provides storage operations for the Cache API, built on top of
