@@ -15,6 +15,7 @@ pub(crate) mod hover;
 mod inline;
 pub(crate) mod navigation;
 mod render;
+pub(crate) mod sw_coordinator;
 pub(crate) mod tab;
 mod threaded;
 
@@ -100,6 +101,8 @@ pub struct App {
     pub(super) pending_focus: bool,
     /// Network Process broker handle (singleton, owns `NetClient` + `CookieJar`).
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
+    /// Service Worker coordinator (manages registrations, lifecycle, sync).
+    sw_coordinator: sw_coordinator::SwCoordinator,
 }
 
 impl App {
@@ -115,6 +118,7 @@ impl App {
             interactive: None,
             pending_focus: false,
             network_process: Some(np),
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -182,6 +186,7 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -212,6 +217,7 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -306,14 +312,49 @@ impl App {
                         ));
                     }
                     // No-op at browser level — tracked for future use.
-                    ContentToBrowser::IdbConnectionsClosed { .. }
-                    | ContentToBrowser::StorageEstimate { .. }
-                    | ContentToBrowser::StoragePersist { .. }
-                    | ContentToBrowser::StoragePersisted { .. } => {
-                        // TODO: Handle storage API requests via QuotaManager.
-                        // For now these are stub messages — the JS API implementation
-                        // will send these and wait for responses.
+                    ContentToBrowser::SwRegister {
+                        script_url,
+                        scope,
+                        origin: _,
+                        page_url,
+                    } => {
+                        if let Some(ref np) = self.network_process {
+                            self.sw_coordinator
+                                .register(&script_url, &scope, &page_url, np);
+                        }
                     }
+                    ContentToBrowser::ManifestDiscovered { url } => {
+                        tracing::debug!(manifest_url = %url, "manifest discovered");
+                        // TODO(M4-8): fetch manifest JSON, parse, apply to window
+                    }
+                    ContentToBrowser::StorageEstimate { origin } => {
+                        let origin_key =
+                            elidex_storage_core::OriginKey::from_origin_string(&origin);
+                        let est = self.sw_coordinator.quota_estimate(&origin_key);
+                        let _ =
+                            tab.channel
+                                .send(crate::ipc::BrowserToContent::StorageEstimateResult {
+                                    usage: est.usage,
+                                    quota: est.quota,
+                                });
+                    }
+                    ContentToBrowser::StoragePersist { origin } => {
+                        let origin_key =
+                            elidex_storage_core::OriginKey::from_origin_string(&origin);
+                        let granted = self.sw_coordinator.quota_persist(&origin_key);
+                        let _ = tab
+                            .channel
+                            .send(crate::ipc::BrowserToContent::StoragePersistResult { granted });
+                    }
+                    ContentToBrowser::StoragePersisted { origin } => {
+                        let origin_key =
+                            elidex_storage_core::OriginKey::from_origin_string(&origin);
+                        let persisted = self.sw_coordinator.quota_persisted(&origin_key);
+                        let _ = tab.channel.send(
+                            crate::ipc::BrowserToContent::StoragePersistedResult { persisted },
+                        );
+                    }
+                    ContentToBrowser::IdbConnectionsClosed { .. } => {}
                 }
             }
         }
@@ -382,6 +423,9 @@ impl App {
                 }
             }
         }
+
+        // Tick SW coordinator — drain lifecycle responses, advance state.
+        self.sw_coordinator.tick();
 
         // Open new tabs requested by window.open().
         for url in new_tab_urls {

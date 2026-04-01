@@ -106,7 +106,7 @@ impl HostBridge {
     /// Get or lazily initialize the `IndexedDB` backend for this origin.
     ///
     /// Uses an in-memory `SQLite` database. Persistent file-backed storage
-    /// will be integrated via `OriginIdbManager` when the shell provides a data directory.
+    /// will be integrated via `OriginStorageManager` when the shell provides a data directory.
     pub fn ensure_idb_backend(&self) -> Result<(), elidex_indexeddb::BackendError> {
         let mut inner = self.inner.borrow_mut();
         if inner.idb_backend.is_none() {

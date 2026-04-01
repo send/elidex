@@ -1,0 +1,22 @@
+[package]
+name = "elidex-storage-core"
+description = "Storage backend abstraction for elidex (Ch.22 StorageBackend)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+keywords = ["browser-engine", "storage", "sqlite"]
+categories = ["web-programming"]
+
+[lints]
+workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

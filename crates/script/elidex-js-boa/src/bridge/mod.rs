@@ -11,6 +11,7 @@
 //! - `HostBridge` is `!Send` (via `Rc`)
 
 mod animation;
+mod cache;
 mod canvas;
 mod ce;
 mod cssom;
@@ -23,6 +24,7 @@ mod media;
 mod navigation;
 mod observers;
 pub(crate) mod realtime;
+pub(crate) mod sw;
 mod traversal;
 mod viewport;
 pub(crate) mod worker_registry;
@@ -205,6 +207,14 @@ pub(crate) struct HostBridgeInner {
     /// Worker-side state (outgoing messages, close flag, name, script URL).
     /// `Some` only when this bridge belongs to a dedicated worker thread.
     worker_state: Option<worker_state::WorkerBridgeState>,
+    // --- Service Worker ---
+    /// Pending SW registration requests (from navigator.serviceWorker.register()).
+    pending_sw_registers: Vec<sw::SwRegisterRequest>,
+    /// Scope of the controlling SW for this page, if any.
+    sw_controller_scope: Option<url::Url>,
+    // --- Cache API ---
+    /// Per-origin Cache API SQLite connection (lazily initialized).
+    cache_conn: Option<elidex_storage_core::SqliteConnection>,
     // --- IndexedDB ---
     /// Per-origin `IndexedDB` backend (lazily initialized).
     idb_backend: Option<elidex_indexeddb::IdbBackend>,
@@ -433,6 +443,9 @@ impl HostBridge {
                 current_script_entity: None,
                 worker_registry: worker_registry::WorkerRegistry::default(),
                 worker_state: None,
+                pending_sw_registers: Vec::new(),
+                sw_controller_scope: None,
+                cache_conn: None,
                 idb_backend: None,
                 idb_cursors: HashMap::new(),
                 idb_cursor_next_id: 1,

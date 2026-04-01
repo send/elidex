@@ -14,7 +14,9 @@ categories = ["web-programming"]
 [dependencies]
 arboard.workspace = true
 bytes.workspace = true
+elidex-api-sw.workspace = true
 elidex-ecs.workspace = true
+elidex-storage-core.workspace = true
 elidex-plugin.workspace = true
 elidex-render.workspace = true
 elidex-sandbox.workspace = true

@@ -1757,6 +1757,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-api-sw"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "elidex-plugin",
+ "elidex-storage-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "elidex-api-workers"
 version = "0.1.0"
 dependencies = [
@@ -1770,6 +1784,17 @@ name = "elidex-bidi"
 version = "0.1.0"
 dependencies = [
  "unicode-bidi",
+]
+
+[[package]]
+name = "elidex-cache-api"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "elidex-storage-core",
+ "rusqlite",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -1951,6 +1976,7 @@ dependencies = [
 name = "elidex-indexeddb"
 version = "0.1.0"
 dependencies = [
+ "elidex-storage-core",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1976,7 +2002,9 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "elidex-api-observers",
+ "elidex-api-sw",
  "elidex-api-workers",
+ "elidex-cache-api",
  "elidex-custom-elements",
  "elidex-dom-api",
  "elidex-ecs",
@@ -1987,6 +2015,7 @@ dependencies = [
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
+ "elidex-storage-core",
  "elidex-wasm-runtime",
  "elidex-web-canvas",
  "encoding_rs",
@@ -2191,6 +2220,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "elidex-a11y",
+ "elidex-api-sw",
  "elidex-api-workers",
  "elidex-css",
  "elidex-css-anim",
@@ -2208,6 +2238,7 @@ dependencies = [
  "elidex-render",
  "elidex-sandbox",
  "elidex-script-session",
+ "elidex-storage-core",
  "elidex-style",
  "elidex-text",
  "pollster",
@@ -2215,6 +2246,16 @@ dependencies = [
  "url",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "elidex-storage-core"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "tempfile",
+ "tracing",
+ "url",
 ]
 
 [[package]]

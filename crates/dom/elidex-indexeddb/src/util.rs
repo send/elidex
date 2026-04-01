@@ -58,25 +58,9 @@ pub(crate) fn idb_key_to_json(key: &IdbKey) -> serde_json::Value {
     }
 }
 
-/// Encode a string as hex for use in `SQLite` table names.
-///
-/// Hex encoding is collision-free: distinct inputs always produce distinct outputs.
-pub(crate) fn sanitize_sql_name(s: &str) -> String {
-    // Short ASCII-only names use a fast path for readability
-    if s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric()) {
-        return s.to_owned();
-    }
-    // Hex-encode to avoid collisions (e.g., "a-b" vs "a_b")
-    s.bytes()
-        .fold(String::with_capacity(s.len() * 2), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
-}
-
 /// Build a data table name for an object store: `store_{db}_{name}`.
 pub(crate) fn data_table_name(db_name: &str, store_name: &str) -> String {
+    use elidex_storage_core::sanitize_sql_name;
     format!(
         "store_{}_{}",
         sanitize_sql_name(db_name),
@@ -86,6 +70,7 @@ pub(crate) fn data_table_name(db_name: &str, store_name: &str) -> String {
 
 /// Build an index table name: `idx_{db}_{store}_{index}`.
 pub(crate) fn index_table_name(db_name: &str, store_name: &str, index_name: &str) -> String {
+    use elidex_storage_core::sanitize_sql_name;
     format!(
         "idx_{}_{}_{}",
         sanitize_sql_name(db_name),

@@ -15,6 +15,7 @@ use crate::globals::timers::TimerQueueHandle;
 mod ce;
 mod observers;
 mod realtime;
+pub(crate) mod sw;
 
 /// Drop guard that calls `HostBridge::unbind()` on drop.
 ///
@@ -113,6 +114,50 @@ impl JsRuntime {
         );
 
         // Store timer queue handle in bridge for close() timer cleanup.
+        bridge.set_timer_queue(timer_queue.clone());
+
+        Self {
+            ctx,
+            bridge,
+            console_output,
+            timer_queue,
+        }
+    }
+
+    /// Create a `JsRuntime` for a Service Worker thread.
+    ///
+    /// Similar to `for_worker()` but uses SW-specific globals (no DOM,
+    /// no window, but has caches, clients, registration, etc.).
+    pub fn for_service_worker(
+        network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
+        scope: &url::Url,
+        script_url: url::Url,
+    ) -> Self {
+        let bridge = HostBridge::new();
+        if let Some(ref nh) = network_handle {
+            bridge.set_network_handle(Rc::clone(nh));
+        }
+        // Use worker state infrastructure for message handling.
+        bridge.init_worker_state("ServiceWorker".to_string(), script_url);
+
+        let console_output = ConsoleOutput::new();
+        let timer_queue = TimerQueueHandle::new();
+
+        let mut ctx = Context::default();
+
+        // Register SW globals: worker-level APIs + cache API.
+        // SW uses the same base globals as dedicated workers.
+        crate::globals::worker_scope::register_worker_globals(
+            &mut ctx,
+            &bridge,
+            &console_output,
+            &timer_queue,
+            network_handle,
+        );
+
+        // Register SW-specific event dispatch helpers.
+        sw::register_sw_dispatch_helpers(&mut ctx, scope);
+
         bridge.set_timer_queue(timer_queue.clone());
 
         Self {
@@ -501,6 +546,11 @@ impl JsRuntime {
     /// Returns a reference to the bridge.
     pub fn bridge(&self) -> &HostBridge {
         &self.bridge
+    }
+
+    /// Mutable access to the boa context (for building JS objects before dispatch).
+    pub fn context_mut(&mut self) -> &mut Context {
+        &mut self.ctx
     }
 
     /// Drain outgoing messages from the worker bridge, converting them to

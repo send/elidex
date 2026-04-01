@@ -45,6 +45,7 @@ mod error_conv;
 mod globals;
 pub mod runtime;
 pub mod script_extract;
+pub mod sw_thread;
 mod timer_queue;
 mod value_conv;
 pub mod worker_thread;
