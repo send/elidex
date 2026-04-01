@@ -146,7 +146,7 @@ pub fn system_time_to_unix(t: std::time::SystemTime) -> i64 {
         .unwrap_or(0)
 }
 
-/// Convert Unix timestamp (seconds) to `SystemTime`. Returns `None` for non-positive values.
+/// Convert Unix timestamp (seconds) to `SystemTime`. Returns `None` for negative values. Zero returns `UNIX_EPOCH`.
 pub fn unix_to_system_time(ts: i64) -> Option<std::time::SystemTime> {
     if ts < 0 {
         return None;

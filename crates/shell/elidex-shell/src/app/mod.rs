@@ -81,7 +81,7 @@ fn persisted_to_snap(
         secure: c.secure,
         http_only: c.httponly,
         same_site: c.samesite,
-        expires: unix_to_system_time(c.expires.unwrap_or(0)),
+        expires: c.expires.and_then(unix_to_system_time),
         creation_time: unix_to_system_time(c.creation_time).unwrap_or(now),
         last_access_time: unix_to_system_time(c.last_access_time).unwrap_or(now),
     }

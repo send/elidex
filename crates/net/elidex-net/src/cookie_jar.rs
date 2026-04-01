@@ -262,6 +262,10 @@ impl CookieJar {
                 true
             })
             .map(|c| {
+                // RFC 6265bis §5.8.3: update last-access-time on retrieval.
+                // Does not bump generation — access-time updates are not
+                // persisted until the next real mutation (by design, to avoid
+                // disk writes on every HTTP request).
                 c.last_access_time = now;
                 (c.name.clone(), c.value.clone())
             })
