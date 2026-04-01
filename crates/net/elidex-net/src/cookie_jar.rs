@@ -552,19 +552,24 @@ fn parse_set_cookie(
         // cookie::time::Duration → std::time::Duration
         let secs = max_age.whole_seconds();
         if secs <= 0 {
-            // Max-Age=0 means delete immediately
-            return None;
+            // Max-Age=0 means delete immediately.
+            // Return a cookie with epoch expiry so the caller's retain()
+            // removes the existing cookie and the expired one is cleaned
+            // up on the next access (RFC 6265bis §5.7 step 12).
+            Some(SystemTime::UNIX_EPOCH)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Some(SystemTime::now() + Duration::from_secs(secs as u64))
         }
-        #[allow(clippy::cast_sign_loss)] // secs > 0 checked above
-        Some(SystemTime::now() + Duration::from_secs(secs as u64))
     } else if let Some(exp) = cookie.expires_datetime() {
         // Convert cookie::time::OffsetDateTime to SystemTime
         let unix_ts = exp.unix_timestamp();
         if unix_ts <= 0 {
-            return None;
+            Some(SystemTime::UNIX_EPOCH)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(unix_ts as u64))
         }
-        #[allow(clippy::cast_sign_loss)] // unix_ts > 0 checked above
-        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(unix_ts as u64))
     } else {
         None // session cookie
     };
@@ -795,8 +800,11 @@ mod tests {
 
     #[test]
     fn max_age_zero_deletes() {
+        // Max-Age=0 returns a cookie with epoch expiry (for deletion).
         let result = parse_set_cookie("k=v; Max-Age=0", "example.com", "/");
-        assert!(result.is_none());
+        assert!(result.is_some());
+        let cookie = result.unwrap();
+        assert_eq!(cookie.expires, Some(SystemTime::UNIX_EPOCH));
     }
 
     #[test]

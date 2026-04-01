@@ -92,7 +92,12 @@ impl OriginKey {
 
 impl std::fmt::Display for OriginKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}://{}:{}", self.scheme, self.host, self.port)
+        if self.host.contains(':') {
+            // IPv6 address — wrap in brackets per RFC 3986 §3.2.2.
+            write!(f, "{}://[{}]:{}", self.scheme, self.host, self.port)
+        } else {
+            write!(f, "{}://{}:{}", self.scheme, self.host, self.port)
+        }
     }
 }
 
