@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use boa_engine::{js_string, Context, JsValue, Source};
+use boa_engine::{js_string, Context, JsValue, NativeFunction, Source};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::EventPayload;
 use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
@@ -945,105 +945,195 @@ impl Default for JsRuntime {
     }
 }
 
-/// Register SW-specific dispatch helper functions in the JS context.
+/// Register SW-specific globals via NativeFunction closures.
 ///
-/// These are internal bridge functions called by `sw_thread.rs` to dispatch
-/// SW events. They fire addEventListener callbacks registered by the SW script.
+/// `addEventListener`/`removeEventListener`/`dispatchEvent` are already
+/// registered by `register_worker_event_target()` and use the bridge's
+/// worker event listener storage. This function adds SW-only globals:
+/// `registration`, `skipWaiting`, `clients`.
+#[allow(clippy::too_many_lines)]
 fn register_sw_dispatch_helpers(ctx: &mut Context, scope: &url::Url) {
-    // Register `registration.scope` as a global for SW access.
+    use boa_engine::object::ObjectInitializer;
+
     let scope_str = scope.to_string();
-    let bootstrap = format!(
-        r"
-        var __elidex_sw_listeners__ = {{}};
-        var __elidex_sw_response__ = null;
 
-        self.addEventListener = function(type, callback) {{
-            if (!__elidex_sw_listeners__[type]) {{
-                __elidex_sw_listeners__[type] = [];
-            }}
-            __elidex_sw_listeners__[type].push(callback);
-        }};
+    // self.registration (ServiceWorkerRegistration stub)
+    let sync_obj = ObjectInitializer::new(ctx)
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            js_string!("register"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let arr = boa_engine::object::builtins::JsArray::new(ctx);
+                Ok(arr.into())
+            }),
+            js_string!("getTags"),
+            0,
+        )
+        .build();
 
-        self.registration = {{
-            scope: '{scope_str}',
-            active: null,
-            waiting: null,
-            installing: null,
-            update: function() {{ return Promise.resolve(); }},
-            unregister: function() {{ return Promise.resolve(true); }},
-            showNotification: function(title, options) {{ return Promise.resolve(); }},
-            getNotifications: function() {{ return Promise.resolve([]); }},
-            sync: {{
-                register: function(tag) {{ return Promise.resolve(); }},
-                getTags: function() {{ return Promise.resolve([]); }}
-            }}
-        }};
+    let registration = ObjectInitializer::new(ctx)
+        .property(
+            js_string!("scope"),
+            JsValue::from(js_string!(scope_str)),
+            boa_engine::property::Attribute::READONLY,
+        )
+        .property(
+            js_string!("active"),
+            JsValue::null(),
+            boa_engine::property::Attribute::CONFIGURABLE,
+        )
+        .property(
+            js_string!("waiting"),
+            JsValue::null(),
+            boa_engine::property::Attribute::CONFIGURABLE,
+        )
+        .property(
+            js_string!("installing"),
+            JsValue::null(),
+            boa_engine::property::Attribute::CONFIGURABLE,
+        )
+        .property(
+            js_string!("updateViaCache"),
+            JsValue::from(js_string!("imports")),
+            boa_engine::property::Attribute::READONLY,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            js_string!("update"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::from(true))),
+            js_string!("unregister"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            js_string!("showNotification"),
+            2,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let arr = boa_engine::object::builtins::JsArray::new(ctx);
+                Ok(arr.into())
+            }),
+            js_string!("getNotifications"),
+            0,
+        )
+        .property(
+            js_string!("sync"),
+            JsValue::from(sync_obj),
+            boa_engine::property::Attribute::READONLY,
+        )
+        .build();
 
-        self.skipWaiting = function() {{ return Promise.resolve(); }};
-        self.clients = {{
-            claim: function() {{ return Promise.resolve(); }},
-            matchAll: function() {{ return Promise.resolve([]); }},
-            get: function() {{ return Promise.resolve(undefined); }},
-            openWindow: function() {{ return Promise.resolve(null); }}
-        }};
+    let global = ctx.global_object();
+    global
+        .set(
+            js_string!("registration"),
+            JsValue::from(registration),
+            false,
+            ctx,
+        )
+        .expect("failed to register registration");
 
-        function __elidex_sw_dispatch__(type, extra) {{
-            var listeners = __elidex_sw_listeners__[type] || [];
-            var event = {{ type: type, tag: extra || '' }};
-            event.waitUntil = function(p) {{}};
-            for (var i = 0; i < listeners.length; i++) {{
-                listeners[i](event);
-            }}
-        }}
+    // self.skipWaiting()
+    let skip_fn = NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined()));
+    ctx.register_global_builtin_callable(js_string!("skipWaiting"), 0, skip_fn)
+        .expect("failed to register skipWaiting");
 
-        function __elidex_sw_fetch__(fetchId, url, method, clientId, resultingClientId) {{
-            var listeners = __elidex_sw_listeners__['fetch'] || [];
-            if (listeners.length === 0) return false;
+    // self.clients
+    let clients = ObjectInitializer::new(ctx)
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            js_string!("claim"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, ctx| {
+                let arr = boa_engine::object::builtins::JsArray::new(ctx);
+                Ok(arr.into())
+            }),
+            js_string!("matchAll"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            js_string!("get"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::null())),
+            js_string!("openWindow"),
+            1,
+        )
+        .build();
 
-            var responded = false;
-            var request = {{ url: url, method: method, mode: 'navigate', destination: 'document' }};
-            var event = {{
-                type: 'fetch',
-                request: request,
-                clientId: clientId,
-                resultingClientId: resultingClientId,
-                handled: Promise.resolve(),
-                respondWith: function(responseOrPromise) {{
-                    if (responded) throw new DOMException('respondWith already called', 'InvalidStateError');
-                    responded = true;
-                    __elidex_sw_response__ = {{ fetchId: fetchId, response: responseOrPromise }};
-                }},
-                waitUntil: function(p) {{}}
-            }};
+    global
+        .set(js_string!("clients"), JsValue::from(clients), false, ctx)
+        .expect("failed to register clients");
+}
 
-            for (var i = 0; i < listeners.length; i++) {{
-                listeners[i](event);
-            }}
-            return responded;
-        }}
+impl JsRuntime {
+    /// Dispatch a SW event by calling registered listeners via the bridge.
+    ///
+    /// Uses `worker_get_callbacks(event_type)` to get listeners registered
+    /// via `addEventListener`, builds an event object, and calls each listener.
+    /// This avoids string-based JS eval and injection risks.
+    pub fn dispatch_sw_event(
+        &mut self,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document_entity: Entity,
+        event_type: &str,
+        event_props: &[(&str, JsValue)],
+    ) -> bool {
+        self.bridge.bind(session, dom, document_entity);
+        let _guard = UnbindGuard(&self.bridge);
 
-        function __elidex_sw_sync__(tag) {{
-            var listeners = __elidex_sw_listeners__['sync'] || [];
-            var event = {{ type: 'sync', tag: tag, lastChance: false }};
-            event.waitUntil = function(p) {{}};
-            for (var i = 0; i < listeners.length; i++) {{
-                listeners[i](event);
-            }}
-        }}
+        let callbacks = self.bridge.worker_get_callbacks(event_type);
+        if callbacks.is_empty() {
+            return true; // No listeners — success
+        }
 
-        function __elidex_sw_periodic_sync__(tag) {{
-            var listeners = __elidex_sw_listeners__['periodicsync'] || [];
-            var event = {{ type: 'periodicsync', tag: tag }};
-            event.waitUntil = function(p) {{}};
-            for (var i = 0; i < listeners.length; i++) {{
-                listeners[i](event);
-            }}
-        }}
-        "
-    );
+        // Build event object with type and custom properties.
+        let event_obj = boa_engine::object::ObjectInitializer::new(&mut self.ctx)
+            .property(
+                js_string!("type"),
+                JsValue::from(js_string!(event_type)),
+                boa_engine::property::Attribute::READONLY,
+            )
+            .function(
+                NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+                js_string!("waitUntil"),
+                1,
+            )
+            .build();
 
-    ctx.eval(Source::from_bytes(bootstrap.as_bytes()))
-        .expect("failed to register SW dispatch helpers");
+        for (key, val) in event_props {
+            let _ = event_obj.set(js_string!(*key), val.clone(), false, &mut self.ctx);
+        }
+
+        let event_val = JsValue::from(event_obj);
+        let global = self.ctx.global_object();
+        let mut success = true;
+        for cb in callbacks {
+            let result = cb.call(
+                &JsValue::from(global.clone()),
+                std::slice::from_ref(&event_val),
+                &mut self.ctx,
+            );
+            if result.is_err() {
+                success = false;
+            }
+        }
+
+        let _ = self.ctx.run_jobs();
+        success
+    }
 }
 
 #[cfg(test)]

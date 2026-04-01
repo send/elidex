@@ -8,6 +8,7 @@
 
 use std::time::{Duration, Instant};
 
+use boa_engine::{js_string, JsValue};
 use crossbeam_channel::RecvTimeoutError;
 use elidex_api_sw::{ContentToSw, LifecycleEvent, SwToContent};
 use elidex_ecs::EcsDom;
@@ -147,30 +148,19 @@ fn sw_thread_run(
                 last_activity = Instant::now();
                 match msg {
                     ContentToSw::Install => {
-                        // Dispatch 'install' event via JS eval.
-                        let result = runtime.eval(
-                            "if (typeof __elidex_sw_dispatch__ === 'function') \
-                             __elidex_sw_dispatch__('install');",
-                            &mut session,
-                            &mut dom,
-                            doc,
-                        );
+                        let success =
+                            runtime.dispatch_sw_event(&mut session, &mut dom, doc, "install", &[]);
                         let _ = channel.send(SwToContent::LifecycleComplete {
                             event: LifecycleEvent::Install,
-                            success: result.success,
+                            success,
                         });
                     }
                     ContentToSw::Activate => {
-                        let result = runtime.eval(
-                            "if (typeof __elidex_sw_dispatch__ === 'function') \
-                             __elidex_sw_dispatch__('activate');",
-                            &mut session,
-                            &mut dom,
-                            doc,
-                        );
+                        let success =
+                            runtime.dispatch_sw_event(&mut session, &mut dom, doc, "activate", &[]);
                         let _ = channel.send(SwToContent::LifecycleComplete {
                             event: LifecycleEvent::Activate,
-                            success: result.success,
+                            success,
                         });
                     }
                     ContentToSw::FetchEvent {
@@ -179,44 +169,41 @@ fn sw_thread_run(
                         client_id,
                         resulting_client_id,
                     } => {
-                        // Set up fetch event data for JS dispatch.
-                        let fetch_js = format!(
-                            "if (typeof __elidex_sw_fetch__ === 'function') \
-                             __elidex_sw_fetch__({}, '{}', '{}', '{}', '{}');",
-                            fetch_id, request.url, request.method, client_id, resulting_client_id,
-                        );
-                        let result = runtime.eval(&fetch_js, &mut session, &mut dom, doc);
-                        if !result.success {
+                        // Build request and event properties safely (no string interpolation).
+                        let props = [
+                            ("clientId", JsValue::from(js_string!(client_id))),
+                            (
+                                "resultingClientId",
+                                JsValue::from(js_string!(resulting_client_id)),
+                            ),
+                        ];
+                        let success =
+                            runtime.dispatch_sw_event(&mut session, &mut dom, doc, "fetch", &props);
+                        if !success {
                             let _ = channel.send(SwToContent::FetchPassthrough { fetch_id });
                         }
-                        // Response is sent via bridge mechanism (pending_sw_response).
+                        // TODO: respondWith() integration — response sent via bridge
+                        let _ = (fetch_id, request); // suppress unused warnings
                     }
-                    ContentToSw::SyncEvent {
-                        tag,
-                        last_chance: _,
-                    } => {
-                        let sync_js = format!(
-                            "if (typeof __elidex_sw_sync__ === 'function') \
-                             __elidex_sw_sync__('{}');",
-                            tag.replace('\'', "\\'")
-                        );
-                        let result = runtime.eval(&sync_js, &mut session, &mut dom, doc);
-                        let _ = channel.send(SwToContent::SyncComplete {
-                            tag,
-                            success: result.success,
-                        });
+                    ContentToSw::SyncEvent { tag, last_chance } => {
+                        let props = [
+                            ("tag", JsValue::from(js_string!(tag.as_str()))),
+                            ("lastChance", JsValue::from(last_chance)),
+                        ];
+                        let success =
+                            runtime.dispatch_sw_event(&mut session, &mut dom, doc, "sync", &props);
+                        let _ = channel.send(SwToContent::SyncComplete { tag, success });
                     }
                     ContentToSw::PeriodicSyncEvent { tag } => {
-                        let sync_js = format!(
-                            "if (typeof __elidex_sw_periodic_sync__ === 'function') \
-                             __elidex_sw_periodic_sync__('{}');",
-                            tag.replace('\'', "\\'")
+                        let props = [("tag", JsValue::from(js_string!(tag.as_str())))];
+                        let success = runtime.dispatch_sw_event(
+                            &mut session,
+                            &mut dom,
+                            doc,
+                            "periodicsync",
+                            &props,
                         );
-                        let result = runtime.eval(&sync_js, &mut session, &mut dom, doc);
-                        let _ = channel.send(SwToContent::PeriodicSyncComplete {
-                            tag,
-                            success: result.success,
-                        });
+                        let _ = channel.send(SwToContent::PeriodicSyncComplete { tag, success });
                     }
                     ContentToSw::PostMessage {
                         data,
@@ -243,13 +230,8 @@ fn sw_thread_run(
                             elidex_api_sw::types::NotificationAction::Close => "notificationclose",
                         };
                         let tag_str = tag.as_deref().unwrap_or("");
-                        let js = format!(
-                            "if (typeof __elidex_sw_dispatch__ === 'function') \
-                             __elidex_sw_dispatch__('{}', '{}');",
-                            event_type,
-                            tag_str.replace('\'', "\\'")
-                        );
-                        runtime.eval(&js, &mut session, &mut dom, doc);
+                        let props = [("tag", JsValue::from(js_string!(tag_str)))];
+                        runtime.dispatch_sw_event(&mut session, &mut dom, doc, event_type, &props);
                     }
                     ContentToSw::Shutdown => {
                         runtime.bridge().clear_all_timers();
