@@ -507,6 +507,23 @@ fn run_event_loop(state: &mut ContentState) {
                 });
         }
 
+        // Drain pending SW registration requests.
+        for req in state.pipeline.runtime.bridge().drain_sw_register_requests() {
+            if let Some(ref current_url) = state.pipeline.runtime.bridge().current_url() {
+                let origin = current_url.origin().unicode_serialization();
+                if let Ok(script_url) = url::Url::parse(&req.script_url) {
+                    let scope = elidex_api_sw::default_scope(&script_url);
+                    let _ = state
+                        .channel
+                        .send(crate::ipc::ContentToBrowser::SwRegister {
+                            script_url,
+                            scope,
+                            origin,
+                        });
+                }
+            }
+        }
+
         // Batch-persist all dirty localStorage stores to disk (once per frame).
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 

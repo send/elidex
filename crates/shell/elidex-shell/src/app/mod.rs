@@ -15,6 +15,7 @@ pub(crate) mod hover;
 mod inline;
 pub(crate) mod navigation;
 mod render;
+pub(crate) mod sw_coordinator;
 pub(crate) mod tab;
 mod threaded;
 
@@ -100,6 +101,8 @@ pub struct App {
     pub(super) pending_focus: bool,
     /// Network Process broker handle (singleton, owns `NetClient` + `CookieJar`).
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
+    /// Service Worker coordinator (manages registrations, lifecycle, sync).
+    sw_coordinator: sw_coordinator::SwCoordinator,
 }
 
 impl App {
@@ -115,6 +118,7 @@ impl App {
             interactive: None,
             pending_focus: false,
             network_process: Some(np),
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -182,6 +186,7 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -212,6 +217,7 @@ impl App {
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
+            sw_coordinator: sw_coordinator::SwCoordinator::new(),
         }
     }
 
@@ -306,13 +312,22 @@ impl App {
                         ));
                     }
                     // No-op at browser level — tracked for future use.
+                    ContentToBrowser::SwRegister {
+                        script_url,
+                        scope,
+                        origin: _,
+                    } => {
+                        self.sw_coordinator.register(&script_url, &scope);
+                    }
+                    ContentToBrowser::ManifestDiscovered { url } => {
+                        tracing::debug!(manifest_url = %url, "manifest discovered");
+                        // TODO(M4-8): fetch manifest JSON, parse, apply to window
+                    }
                     ContentToBrowser::IdbConnectionsClosed { .. }
                     | ContentToBrowser::StorageEstimate { .. }
                     | ContentToBrowser::StoragePersist { .. }
-                    | ContentToBrowser::StoragePersisted { .. }
-                    | ContentToBrowser::SwRegister { .. }
-                    | ContentToBrowser::ManifestDiscovered { .. } => {
-                        // TODO(M4-8): SwCoordinator, QuotaManager, manifest handling.
+                    | ContentToBrowser::StoragePersisted { .. } => {
+                        // TODO: Handle storage API requests via QuotaManager.
                     }
                 }
             }
