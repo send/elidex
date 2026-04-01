@@ -1,46 +1,25 @@
 //! CacheStorage operations (WHATWG Cache API §2.2).
 //!
-//! Manages named caches within an origin's storage.
-//! The `_cache_names` registry is schema management (like IDB meta-tables)
-//! and uses `raw_connection()` directly, consistent with the IDB pattern.
+//! Manages named caches via the unified `caches` table (design doc §22.5.5).
 
 use elidex_storage_core::{SqliteConnection, StorageConnection};
 
 use crate::error::CacheError;
-
-/// Schema migration for the cache names registry.
-const CACHE_NAMES_SCHEMA: &str =
-    "CREATE TABLE IF NOT EXISTS _cache_names (name TEXT PRIMARY KEY, created_at INTEGER NOT NULL)";
-
-/// Helper: convert rusqlite error to CacheError.
-fn sql_err(e: rusqlite::Error) -> CacheError {
-    CacheError::Storage(elidex_storage_core::StorageError::from(e))
-}
-
-/// Ensure the cache names table exists.
-fn ensure_names_table(conn: &SqliteConnection) -> Result<(), CacheError> {
-    conn.raw_connection()
-        .execute_batch(CACHE_NAMES_SCHEMA)
-        .map_err(sql_err)
-}
+use crate::store;
 
 /// Open (or create) a named cache.
 ///
-/// If the cache doesn't exist, it is created and registered.
 /// Returns `true` if the cache was newly created.
 pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
-    // Validate name length early (before registering in _cache_names).
-    crate::store::validate_cache_name(name)?;
-    ensure_names_table(conn)?;
+    store::validate_cache_name(name)?;
+    store::ensure_schema(conn)?;
 
     let raw = conn.raw_connection();
-    let exists: bool = raw
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM _cache_names WHERE name = ?1",
-            [name],
-            |row| row.get(0),
-        )
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
+    let exists: bool = raw.query_row(
+        "SELECT COUNT(*) > 0 FROM caches WHERE name = ?1",
+        [name],
+        |row| row.get(0),
+    )?;
 
     if exists {
         return Ok(false);
@@ -50,60 +29,47 @@ pub fn open(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-
     raw.execute(
-        "INSERT OR IGNORE INTO _cache_names (name, created_at) VALUES (?1, ?2)",
+        "INSERT OR IGNORE INTO caches (name, created_at) VALUES (?1, ?2)",
         rusqlite::params![name, i64::try_from(now).unwrap_or(i64::MAX)],
-    )
-    .map_err(sql_err)?;
-
+    )?;
     Ok(true)
 }
 
 /// Check if a named cache exists.
 pub fn has(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
-    ensure_names_table(conn)?;
-    let exists: bool = conn
-        .raw_connection()
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM _cache_names WHERE name = ?1",
-            [name],
-            |row| row.get(0),
-        )
-        .map_err(|e| CacheError::Storage(elidex_storage_core::StorageError::from(e)))?;
+    store::ensure_schema(conn)?;
+    let exists: bool = conn.raw_connection().query_row(
+        "SELECT COUNT(*) > 0 FROM caches WHERE name = ?1",
+        [name],
+        |row| row.get(0),
+    )?;
     Ok(exists)
 }
 
-/// Delete a named cache and all its entries.
+/// Delete a named cache and all its entries (CASCADE).
 pub fn delete(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
-    ensure_names_table(conn)?;
-
+    store::ensure_schema(conn)?;
     let raw = conn.raw_connection();
-    // Use store::table_name for consistent validation + naming.
-    let Ok(table) = crate::store::table_name_for(name) else {
-        return Ok(false); // invalid name = nothing to delete
-    };
-    raw.execute_batch(&format!("DROP TABLE IF EXISTS [{table}]"))
-        .map_err(sql_err)?;
 
-    let deleted = raw
-        .execute("DELETE FROM _cache_names WHERE name = ?1", [name])
-        .map_err(sql_err)?;
+    // Also drop legacy per-cache table if it exists (migration cleanup).
+    if let Ok(table) = store::table_name_for(name) {
+        let _ = raw.execute_batch(&format!("DROP TABLE IF EXISTS [{table}]"));
+    }
+
+    let deleted = raw.execute("DELETE FROM caches WHERE name = ?1", [name])?;
     Ok(deleted > 0)
 }
 
 /// List all cache names, in creation order.
 pub fn keys(conn: &SqliteConnection) -> Result<Vec<String>, CacheError> {
-    ensure_names_table(conn)?;
+    store::ensure_schema(conn)?;
     let mut stmt = conn
         .raw_connection()
-        .prepare("SELECT name FROM _cache_names ORDER BY created_at ASC, name ASC")
-        .map_err(sql_err)?;
+        .prepare("SELECT name FROM caches ORDER BY created_at ASC, name ASC")?;
     let names: Vec<String> = stmt
-        .query_map([], |row| row.get(0))
-        .map_err(sql_err)?
-        .collect::<Result<_, _>>()
-        .map_err(sql_err)?;
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
     Ok(names)
 }
 
@@ -112,7 +78,9 @@ mod tests {
     use super::*;
 
     fn setup() -> SqliteConnection {
-        SqliteConnection::open_in_memory().unwrap()
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        store::ensure_schema(&conn).unwrap();
+        conn
     }
 
     #[test]
@@ -167,10 +135,13 @@ mod tests {
         let entry = crate::entry::CachedEntry {
             request_url: "https://example.com/".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: b"hello".to_vec(),
+            response_url_list: vec![],
+            response_type: crate::entry::ResponseType::Basic,
             vary_headers: vec![],
             is_opaque: false,
         };

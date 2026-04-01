@@ -41,7 +41,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use elidex_plugin::NetworkMiddleware;
 
-pub use cookie_jar::CookieJar;
+pub use cookie_jar::{CookieJar, CookieSnapshot};
 pub use cors::CorsContext;
 pub use error::{NetError, NetErrorKind};
 pub use fetch_handle::FetchHandle;
@@ -75,6 +75,9 @@ pub struct Response {
     pub url: url::Url,
     /// HTTP version used.
     pub version: HttpVersion,
+    /// URL list (redirect chain). First = original, last = final.
+    /// Empty for non-redirected responses (Fetch spec §3.1.4).
+    pub url_list: Vec<url::Url>,
 }
 
 /// Configuration for [`NetClient`].

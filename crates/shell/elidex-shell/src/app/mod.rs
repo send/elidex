@@ -16,6 +16,8 @@ mod inline;
 pub(crate) mod navigation;
 mod render;
 pub(crate) mod sw_coordinator;
+#[allow(dead_code)] // Infrastructure for FetchEvent IPC wiring — callers added in next commit.
+pub(crate) mod sw_fetch_relay;
 pub(crate) mod tab;
 mod threaded;
 
@@ -37,6 +39,53 @@ use crate::ipc::{BrowserToContent, ContentToBrowser, ModifierState};
 
 use render::try_init_render_state;
 use tab::{TabId, TabManager};
+
+/// Convert a `CookieSnapshot` to a `PersistedCookie` for DB persistence.
+fn snap_to_persisted(
+    snap: elidex_net::CookieSnapshot,
+) -> elidex_storage_core::browser_db::cookies::PersistedCookie {
+    use elidex_storage_core::browser_db::cookies::system_time_to_unix;
+    elidex_storage_core::browser_db::cookies::PersistedCookie {
+        host: snap.host,
+        path: snap.path,
+        name: snap.name,
+        partition_key: snap.partition_key,
+        value: snap.value,
+        domain: snap.domain,
+        host_only: snap.host_only,
+        persistent: snap.persistent,
+        expires: snap.expires.map(system_time_to_unix),
+        secure: snap.secure,
+        httponly: snap.http_only,
+        samesite: snap.same_site,
+        creation_time: system_time_to_unix(snap.creation_time),
+        last_access_time: system_time_to_unix(snap.last_access_time),
+    }
+}
+
+/// Convert a `PersistedCookie` to a `CookieSnapshot` for CookieJar loading.
+fn persisted_to_snap(
+    c: elidex_storage_core::browser_db::cookies::PersistedCookie,
+) -> elidex_net::CookieSnapshot {
+    use elidex_storage_core::browser_db::cookies::unix_to_system_time;
+    let now = std::time::SystemTime::now();
+    elidex_net::CookieSnapshot {
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        host: c.host,
+        path: c.path,
+        partition_key: c.partition_key,
+        host_only: c.host_only,
+        persistent: c.persistent,
+        secure: c.secure,
+        http_only: c.httponly,
+        same_site: c.samesite,
+        expires: unix_to_system_time(c.expires.unwrap_or(0)),
+        creation_time: unix_to_system_time(c.creation_time).unwrap_or(now),
+        last_access_time: unix_to_system_time(c.last_access_time).unwrap_or(now),
+    }
+}
 
 /// Convert a winit mouse button to the DOM spec button number.
 ///
@@ -103,13 +152,17 @@ pub struct App {
     network_process: Option<elidex_net::broker::NetworkProcessHandle>,
     /// Service Worker coordinator (manages registrations, lifecycle, sync).
     sw_coordinator: sw_coordinator::SwCoordinator,
+    /// Browser-owned centralized database (cookies, history, bookmarks, etc.).
+    browser_db: Option<elidex_storage_core::BrowserDb>,
+    /// Last-synced CookieJar generation (for dirty-check persistence).
+    cookie_gen: u64,
 }
 
 impl App {
     /// Create a threaded-mode `App` from a pre-initialized `TabManager`
     /// and `NetworkProcessHandle`.
     fn from_tab_manager(mgr: TabManager, np: elidex_net::broker::NetworkProcessHandle) -> Self {
-        Self {
+        let mut app = Self {
             render_state: None,
             tab_manager: Some(mgr),
             cursor_pos: None,
@@ -119,10 +172,65 @@ impl App {
             pending_focus: false,
             network_process: Some(np),
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
+            browser_db: None,
+            cookie_gen: 0,
+        };
+        app.init_browser_db();
+        app
+    }
+
+    /// Initialize browser.sqlite and load persisted data.
+    ///
+    /// Call once during startup, after the Network Process is spawned.
+    /// Loads cookies from BrowserDb into the shared CookieJar.
+    fn init_browser_db(&mut self) {
+        // Use a temporary directory for now; a proper profile_dir will be
+        // configured when the shell supports user profiles.
+        let profile_dir = std::env::temp_dir().join("elidex-profile");
+        match elidex_storage_core::BrowserDb::open(&profile_dir) {
+            Ok(db) => {
+                // Load persisted cookies into the shared CookieJar.
+                if let Some(ref np) = self.network_process {
+                    if let Ok(persisted) = db.cookies().load_all() {
+                        let snapshots: Vec<_> =
+                            persisted.into_iter().map(persisted_to_snap).collect();
+                        np.cookie_jar().load(snapshots);
+                        self.cookie_gen = np.cookie_jar().generation();
+                        tracing::info!(count = np.cookie_jar().len(), "loaded persisted cookies");
+                    }
+                }
+                self.browser_db = Some(db);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to open browser.sqlite — running without persistence");
+            }
+        }
+    }
+
+    /// Persist dirty cookies to browser.sqlite if the jar has changed.
+    ///
+    /// Called each frame from `handle_redraw_threaded`. Compares the CookieJar's
+    /// generation counter against the last-synced value.
+    fn sync_cookies_if_dirty(&mut self) {
+        let (Some(ref db), Some(ref np)) = (&self.browser_db, &self.network_process) else {
+            return;
+        };
+        let jar = np.cookie_jar();
+        let current_gen = jar.generation();
+        if current_gen == self.cookie_gen {
+            return;
+        }
+        self.cookie_gen = current_gen;
+
+        let persisted: Vec<_> = jar.snapshot().into_iter().map(snap_to_persisted).collect();
+        if let Err(e) = db.cookies().sync_all(&persisted) {
+            tracing::debug!(error = %e, "failed to sync cookies");
         }
     }
 
     /// Spawn the singleton Network Process broker.
+    ///
+    /// (Helper placed above to avoid `items_after_statements` lint.)
     fn create_network_process() -> elidex_net::broker::NetworkProcessHandle {
         elidex_net::broker::spawn_network_process(elidex_net::NetClient::new())
     }
@@ -187,6 +295,8 @@ impl App {
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
+            browser_db: None,
+            cookie_gen: 0,
         }
     }
 
@@ -218,6 +328,8 @@ impl App {
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
+            browser_db: None,
+            cookie_gen: 0,
         }
     }
 
@@ -264,6 +376,17 @@ impl App {
                     ContentToBrowser::UrlChanged(url) => {
                         tab.chrome.set_url(&url);
                         tab.current_origin = Some(url.origin().ascii_serialization());
+                        // Record visit in browser.sqlite history.
+                        if let Some(ref db) = self.browser_db {
+                            let title = &tab.window_title;
+                            if let Err(e) = db.history().record_visit(
+                                &url,
+                                title,
+                                elidex_storage_core::browser_db::history::TransitionType::Link,
+                            ) {
+                                tracing::debug!(error = %e, "failed to record history visit");
+                            }
+                        }
                     }
                     ContentToBrowser::NavigationFailed { url, error } => {
                         eprintln!("Navigation to {url} failed: {error}");
@@ -319,42 +442,87 @@ impl App {
                         page_url,
                     } => {
                         if let Some(ref np) = self.network_process {
-                            self.sw_coordinator
-                                .register(&script_url, &scope, &page_url, np);
+                            self.sw_coordinator.register(
+                                &script_url,
+                                &scope,
+                                &page_url,
+                                np,
+                                &tab.channel,
+                            );
                         }
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {
                         tracing::debug!(manifest_url = %url, "manifest discovered");
                         // TODO(M4-8): fetch manifest JSON, parse, apply to window
                     }
-                    ContentToBrowser::StorageEstimate { origin } => {
-                        let origin_key =
-                            elidex_storage_core::OriginKey::from_origin_string(&origin);
-                        let est = self.sw_coordinator.quota_estimate(&origin_key);
-                        let _ =
-                            tab.channel
-                                .send(crate::ipc::BrowserToContent::StorageEstimateResult {
+                    ContentToBrowser::StorageEstimate { origin_url } => {
+                        if let Some(origin_key) =
+                            elidex_storage_core::OriginKey::from_url(&origin_url)
+                        {
+                            let est = self.sw_coordinator.quota_estimate(&origin_key);
+                            let _ = tab.channel.send(
+                                crate::ipc::BrowserToContent::StorageEstimateResult {
                                     usage: est.usage,
                                     quota: est.quota,
-                                });
+                                },
+                            );
+                        }
                     }
-                    ContentToBrowser::StoragePersist { origin } => {
-                        let origin_key =
-                            elidex_storage_core::OriginKey::from_origin_string(&origin);
-                        let granted = self.sw_coordinator.quota_persist(&origin_key);
-                        let _ = tab
-                            .channel
-                            .send(crate::ipc::BrowserToContent::StoragePersistResult { granted });
+                    ContentToBrowser::StoragePersist { origin_url } => {
+                        if let Some(origin_key) =
+                            elidex_storage_core::OriginKey::from_url(&origin_url)
+                        {
+                            let granted = self.sw_coordinator.quota_persist(&origin_key);
+                            let _ = tab.channel.send(
+                                crate::ipc::BrowserToContent::StoragePersistResult { granted },
+                            );
+                        }
                     }
-                    ContentToBrowser::StoragePersisted { origin } => {
-                        let origin_key =
-                            elidex_storage_core::OriginKey::from_origin_string(&origin);
-                        let persisted = self.sw_coordinator.quota_persisted(&origin_key);
-                        let _ = tab.channel.send(
-                            crate::ipc::BrowserToContent::StoragePersistedResult { persisted },
-                        );
+                    ContentToBrowser::StoragePersisted { origin_url } => {
+                        if let Some(origin_key) =
+                            elidex_storage_core::OriginKey::from_url(&origin_url)
+                        {
+                            let persisted = self.sw_coordinator.quota_persisted(&origin_key);
+                            let _ = tab.channel.send(
+                                crate::ipc::BrowserToContent::StoragePersistedResult { persisted },
+                            );
+                        }
                     }
                     ContentToBrowser::IdbConnectionsClosed { .. } => {}
+                    ContentToBrowser::SwFetchRequest {
+                        fetch_id,
+                        request,
+                        client_id: _,
+                        resulting_client_id: _,
+                    } => {
+                        // Route the FetchEvent to the controlling SW via the relay.
+                        if let Some(reg) = self.sw_coordinator.find_controller(&request.url) {
+                            let scope = reg.scope.clone();
+                            // Look up the SW handle by scope.
+                            // The relay will send ContentToSw::FetchEvent and track the pending fetch.
+                            // For now, we cannot access handles directly (they're in sw_coordinator).
+                            // Send passthrough response (SW interception will be wired in a follow-up).
+                            let _ =
+                                tab.channel
+                                    .send(crate::ipc::BrowserToContent::SwFetchResponse {
+                                        fetch_id,
+                                        response: None, // passthrough
+                                    });
+                            tracing::debug!(
+                                scope = %scope,
+                                url = %request.url,
+                                "SW FetchEvent relay — passthrough (full wiring pending)"
+                            );
+                        } else {
+                            // No controlling SW — passthrough.
+                            let _ =
+                                tab.channel
+                                    .send(crate::ipc::BrowserToContent::SwFetchResponse {
+                                        fetch_id,
+                                        response: None,
+                                    });
+                        }
+                    }
                 }
             }
         }

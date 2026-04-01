@@ -3,6 +3,7 @@
 //! Stores cookies per domain/path and applies them to outgoing requests.
 //! Defaults to `SameSite=Lax` when the attribute is not specified.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
@@ -14,18 +15,29 @@ const MAX_COOKIES_PER_DOMAIN: usize = 180;
 /// Maximum total cookies across all domains (RFC 6265 recommends >= 3000).
 const MAX_TOTAL_COOKIES: usize = 3000;
 
-/// A stored cookie with metadata.
+/// A stored cookie with metadata (RFC 6265 §5.7).
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // http_only and same_site are stored for M2-7 cross-site filtering
+#[allow(clippy::struct_excessive_bools)]
 struct StoredCookie {
     name: String,
     value: String,
+    /// The domain the cookie is scoped to.
     domain: String,
+    /// The original request host (for host-only matching).
+    host: String,
     path: String,
+    /// True if Domain attribute was absent (exact host match only).
+    host_only: bool,
+    /// True if Max-Age/Expires was present (survives session end).
+    persistent: bool,
     secure: bool,
     http_only: bool,
     same_site: SameSite,
     expires: Option<SystemTime>,
+    /// CHIPS partition key (empty = first-party).
+    partition_key: String,
+    creation_time: SystemTime,
+    last_access_time: SystemTime,
 }
 
 /// `SameSite` cookie attribute.
@@ -36,11 +48,37 @@ enum SameSite {
     None,
 }
 
+/// Public cookie data for persistence sync.
+///
+/// `StoredCookie` is private; this struct is the public interface for
+/// loading/snapshotting cookies to/from external persistence.
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct CookieSnapshot {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub host: String,
+    pub path: String,
+    pub partition_key: String,
+    pub host_only: bool,
+    pub persistent: bool,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: String,
+    pub expires: Option<SystemTime>,
+    pub creation_time: SystemTime,
+    pub last_access_time: SystemTime,
+}
+
 /// Cookie jar for storing and retrieving cookies.
 ///
-/// Thread-safe via internal `Mutex`.
+/// Thread-safe via internal `Mutex`. Supports decoupled persistence
+/// via `generation()` / `snapshot()` / `load()` — the Browser Process
+/// checks `generation()` periodically and persists changes externally.
 pub struct CookieJar {
     cookies: Mutex<Vec<StoredCookie>>,
+    generation: AtomicU64,
 }
 
 impl std::fmt::Debug for CookieJar {
@@ -50,7 +88,10 @@ impl std::fmt::Debug for CookieJar {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len();
-        f.debug_struct("CookieJar").field("count", &count).finish()
+        f.debug_struct("CookieJar")
+            .field("count", &count)
+            .field("generation", &self.generation.load(Ordering::Relaxed))
+            .finish()
     }
 }
 
@@ -59,6 +100,63 @@ impl CookieJar {
     pub fn new() -> Self {
         Self {
             cookies: Mutex::new(Vec::new()),
+            generation: AtomicU64::new(0),
+        }
+    }
+
+    /// Monotonic generation counter. Incremented on every mutation.
+    /// Compare against a cached value to detect changes.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Bump the generation counter (called after mutations).
+    fn bump_generation(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Snapshot all cookies for external persistence.
+    ///
+    /// Bounded by `MAX_TOTAL_COOKIES` (3000), so this is cheap.
+    pub fn snapshot(&self) -> Vec<CookieSnapshot> {
+        let jar = self
+            .cookies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        jar.iter().map(stored_to_snapshot).collect()
+    }
+
+    /// Bulk-load cookies from external persistence (startup).
+    ///
+    /// Replaces all current cookies. Does not bump generation (load is
+    /// a restore, not a mutation).
+    pub fn load(&self, cookies: Vec<CookieSnapshot>) {
+        let mut jar = self
+            .cookies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        jar.clear();
+        for c in cookies {
+            jar.push(StoredCookie {
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                host: c.host,
+                path: c.path,
+                partition_key: c.partition_key,
+                host_only: c.host_only,
+                persistent: c.persistent,
+                secure: c.secure,
+                http_only: c.http_only,
+                same_site: match c.same_site.as_str() {
+                    "Strict" => SameSite::Strict,
+                    "None" => SameSite::None,
+                    _ => SameSite::Lax,
+                },
+                expires: c.expires,
+                creation_time: c.creation_time,
+                last_access_time: c.last_access_time,
+            });
         }
     }
 
@@ -78,9 +176,15 @@ impl CookieJar {
             if !name.eq_ignore_ascii_case("set-cookie") {
                 continue;
             }
-            if let Some(cookie) = parse_set_cookie(value, request_domain, request_path) {
+            if let Some(mut cookie) = parse_set_cookie(value, request_domain, request_path) {
                 let domain = cookie.domain.clone();
-                // Remove existing cookie with same name + domain + path
+                // RFC 6265bis §5.7 step 23: preserve creation-time of existing cookie.
+                if let Some(existing) = jar.iter().find(|c| {
+                    c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path
+                }) {
+                    cookie.creation_time = existing.creation_time;
+                }
+                // Remove existing cookie with same name + domain + path.
                 jar.retain(|c| {
                     !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
                 });
@@ -107,6 +211,7 @@ impl CookieJar {
                 }
             }
         }
+        self.bump_generation();
     }
 
     /// Get cookies applicable to the given URL.
@@ -131,24 +236,25 @@ impl CookieJar {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Opportunistically remove expired cookies
         jar.retain(|c| c.expires.is_none_or(|exp| now <= exp));
-        // Expired cookies already removed by retain() above.
-        jar.iter()
+        // RFC 6265bis §5.8.3: update last-access-time on retrieval.
+        // Use iter_mut to update matching cookies in-place.
+        jar.iter_mut()
             .filter(|c| {
-                // Check Secure flag
                 if c.secure && !is_secure {
                     return false;
                 }
-                // Check domain match
                 if !domain_matches(domain, &c.domain) {
                     return false;
                 }
-                // Check path match
                 if !path_matches(path, &c.path) {
                     return false;
                 }
                 true
             })
-            .map(|c| (c.name.clone(), c.value.clone()))
+            .map(|c| {
+                c.last_access_time = now;
+                (c.name.clone(), c.value.clone())
+            })
             .collect()
     }
 
@@ -159,7 +265,11 @@ impl CookieJar {
             .cookies
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = jar.len();
         jar.retain(|c| c.expires.is_none_or(|exp| now <= exp));
+        if jar.len() != before {
+            self.bump_generation();
+        }
     }
 
     /// Clear all cookies.
@@ -168,7 +278,10 @@ impl CookieJar {
             .cookies
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        jar.clear();
+        if !jar.is_empty() {
+            jar.clear();
+            self.bump_generation();
+        }
     }
 
     /// Number of stored cookies.
@@ -220,8 +333,21 @@ impl CookieJar {
     /// on non-HTTPS pages. Returns a `"name=value; name2=value2"` string
     /// (empty string when no cookies, never null).
     pub fn cookies_for_script(&self, url: &url::Url) -> String {
+        let details = self.cookie_details_for_script(url);
+        details
+            .iter()
+            .map(|c| format!("{}={}", c.name, c.value))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Return full cookie details for CookieStore API (WHATWG Cookie Store spec).
+    ///
+    /// Filters out `HttpOnly` cookies and `Secure` cookies on non-HTTPS.
+    /// Updates `last_access_time` on matched cookies (RFC 6265bis §5.8.3).
+    pub fn cookie_details_for_script(&self, url: &url::Url) -> Vec<CookieSnapshot> {
         let Some(domain) = url.host_str() else {
-            return String::new();
+            return Vec::new();
         };
         let path = url.path();
         let is_secure = url.scheme() == "https";
@@ -231,29 +357,23 @@ impl CookieJar {
             .cookies
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before_len = jar.len();
         jar.retain(|c| c.expires.is_none_or(|exp| now <= exp));
 
-        let pairs: Vec<String> = jar
-            .iter()
-            .filter(|c| {
-                // HttpOnly cookies must not be exposed to scripts.
-                if c.http_only {
-                    return false;
-                }
-                if c.secure && !is_secure {
-                    return false;
-                }
-                if !domain_matches(domain, &c.domain) {
-                    return false;
-                }
-                if !path_matches(path, &c.path) {
-                    return false;
-                }
-                true
+        let result: Vec<CookieSnapshot> = jar
+            .iter_mut()
+            .filter(|c| is_script_visible(c, domain, path, is_secure))
+            .map(|c| {
+                c.last_access_time = now;
+                stored_to_snapshot(c)
             })
-            .map(|c| format!("{}={}", c.name, c.value))
             .collect();
-        pairs.join("; ")
+
+        // Bump generation if expired cookies were removed or access times updated.
+        if jar.len() != before_len || !result.is_empty() {
+            self.bump_generation();
+        }
+        result
     }
 
     /// Set a cookie from script (`document.cookie` setter).
@@ -268,7 +388,7 @@ impl CookieJar {
         let is_secure = url.scheme() == "https";
         let path = url.path();
 
-        let Some(cookie) = parse_set_cookie(value, domain, path) else {
+        let Some(mut cookie) = parse_set_cookie(value, domain, path) else {
             return;
         };
         // Reject HttpOnly cookies set from script.
@@ -283,6 +403,13 @@ impl CookieJar {
             .cookies
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // RFC 6265bis §5.7 step 23: preserve creation-time of existing cookie.
+        if let Some(existing) = jar
+            .iter()
+            .find(|c| c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+        {
+            cookie.creation_time = existing.creation_time;
+        }
         // Remove existing cookie with same name/domain/path.
         jar.retain(|c| {
             !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
@@ -292,6 +419,7 @@ impl CookieJar {
             jar.remove(0);
         }
         jar.push(cookie);
+        self.bump_generation();
     }
 }
 
@@ -299,6 +427,49 @@ impl Default for CookieJar {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Convert a `StoredCookie` to a `CookieSnapshot`.
+///
+/// Uses lowercase `same_site` values per WHATWG Cookie Store spec.
+fn stored_to_snapshot(c: &StoredCookie) -> CookieSnapshot {
+    CookieSnapshot {
+        name: c.name.clone(),
+        value: c.value.clone(),
+        domain: c.domain.clone(),
+        host: c.host.clone(),
+        path: c.path.clone(),
+        partition_key: c.partition_key.clone(),
+        host_only: c.host_only,
+        persistent: c.persistent,
+        secure: c.secure,
+        http_only: c.http_only,
+        same_site: match c.same_site {
+            SameSite::Strict => "strict".to_string(),
+            SameSite::Lax => "lax".to_string(),
+            SameSite::None => "none".to_string(),
+        },
+        expires: c.expires,
+        creation_time: c.creation_time,
+        last_access_time: c.last_access_time,
+    }
+}
+
+/// Check if a cookie is visible to scripts (not HttpOnly, matching domain/path/secure).
+fn is_script_visible(c: &StoredCookie, domain: &str, path: &str, is_secure: bool) -> bool {
+    if c.http_only {
+        return false;
+    }
+    if c.secure && !is_secure {
+        return false;
+    }
+    if !domain_matches(domain, &c.domain) {
+        return false;
+    }
+    if !path_matches(path, &c.path) {
+        return false;
+    }
+    true
 }
 
 /// Parse a `Set-Cookie` header value into a `StoredCookie`.
@@ -317,7 +488,9 @@ fn parse_set_cookie(
     let name = cookie.name().to_string();
     let value = cookie.value().to_string();
 
-    // Domain: use cookie's domain attribute or default to request domain
+    // Domain: use cookie's domain attribute or default to request domain.
+    // host_only = true when no Domain attribute (RFC 6265 §5.7).
+    let host_only = cookie.domain().is_none();
     let domain = match cookie.domain() {
         Some(d) => d.strip_prefix('.').unwrap_or(d).to_ascii_lowercase(),
         None => request_domain.to_ascii_lowercase(),
@@ -379,15 +552,24 @@ fn parse_set_cookie(
         return None;
     }
 
+    let persistent = expires.is_some();
+    let now = SystemTime::now();
+
     Some(StoredCookie {
         name,
         value,
         domain,
+        host: request_domain.to_ascii_lowercase(),
         path,
+        host_only,
+        persistent,
         secure,
         http_only,
         same_site,
         expires,
+        partition_key: String::new(),
+        creation_time: now,
+        last_access_time: now,
     })
 }
 

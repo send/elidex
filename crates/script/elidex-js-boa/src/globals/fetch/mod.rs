@@ -263,27 +263,26 @@ fn register_response_methods(init: &mut ObjectInitializer<'_>) {
 // Response / Headers object construction
 // ---------------------------------------------------------------------------
 
-/// Create a JS Response object from an `elidex_net::Response`.
-fn create_response_object(
-    response: &elidex_net::Response,
-    request_url: &url::Url,
-    ctx: &mut Context,
-) -> JsValue {
-    let status = response.status;
+/// Input for building a JS Response object.
+pub(crate) struct ResponseParts<'a> {
+    pub status: u16,
+    pub status_text: &'a str,
+    pub headers: &'a [(String, String)],
+    pub body: &'a str,
+    pub url: &'a str,
+    pub response_type: &'a str,
+    pub redirected: bool,
+}
+
+/// Build a JS Response object from constituent parts.
+///
+/// Shared by `create_response_object` (fetch) and `cached_entry_to_response` (cache).
+pub(crate) fn build_response_from_parts(parts: &ResponseParts<'_>, ctx: &mut Context) -> JsValue {
+    let status = parts.status;
     let ok = (200..300).contains(&status);
-    let url_str = response.url.to_string();
-    let redirected = response.url.as_str() != request_url.as_str();
-    let status_text = status_text_for(status);
-
-    // Store body as a string in a hidden property.
-    let body_string = String::from_utf8_lossy(&response.body).into_owned();
-
-    // Build headers object.
-    let headers_obj = create_headers_object(&response.headers, ctx);
+    let headers_obj = create_headers_object(parts.headers, ctx);
 
     let mut init = ObjectInitializer::new(ctx);
-
-    // Properties.
     init.property(js_string!("ok"), JsValue::from(ok), Attribute::READONLY)
         .property(
             js_string!("status"),
@@ -292,18 +291,22 @@ fn create_response_object(
         )
         .property(
             js_string!("statusText"),
-            js_string!(status_text),
+            js_string!(parts.status_text),
             Attribute::READONLY,
         )
         .property(
             js_string!("url"),
-            js_string!(url_str.as_str()),
+            js_string!(parts.url),
             Attribute::READONLY,
         )
-        .property(js_string!("type"), js_string!("basic"), Attribute::READONLY)
+        .property(
+            js_string!("type"),
+            js_string!(parts.response_type),
+            Attribute::READONLY,
+        )
         .property(
             js_string!("redirected"),
-            JsValue::from(redirected),
+            JsValue::from(parts.redirected),
             Attribute::READONLY,
         )
         .property(
@@ -312,24 +315,44 @@ fn create_response_object(
             Attribute::READONLY,
         );
 
-    // Hidden properties for text()/json()/clone().
     init.property(
         js_string!(BODY_KEY),
-        js_string!(body_string.as_str()),
+        js_string!(parts.body),
         Attribute::empty(),
     );
     init.property(js_string!(HEADERS_KEY), headers_obj, Attribute::empty());
 
-    // Methods.
     register_response_methods(&mut init);
-
     init.build().into()
+}
+
+/// Create a JS Response object from an `elidex_net::Response`.
+fn create_response_object(
+    response: &elidex_net::Response,
+    request_url: &url::Url,
+    ctx: &mut Context,
+) -> JsValue {
+    let body_string = String::from_utf8_lossy(&response.body);
+    let url_string = response.url.to_string();
+    let redirected = response.url.as_str() != request_url.as_str();
+    build_response_from_parts(
+        &ResponseParts {
+            status: response.status,
+            status_text: status_text_for(response.status),
+            headers: &response.headers,
+            body: &body_string,
+            url: &url_string,
+            response_type: "basic",
+            redirected,
+        },
+        ctx,
+    )
 }
 
 /// Create a JS Headers object from header pairs.
 ///
 /// `get()` combines all values for a given name with `", "` per the Fetch spec.
-fn create_headers_object(headers: &[(String, String)], ctx: &mut Context) -> JsValue {
+pub(crate) fn create_headers_object(headers: &[(String, String)], ctx: &mut Context) -> JsValue {
     let mut init = ObjectInitializer::new(ctx);
 
     let header_map: Vec<(String, String)> = headers.to_vec();

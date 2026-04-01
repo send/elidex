@@ -84,8 +84,17 @@ fn build_sw_container(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         Ok(arr.into())
     });
 
-    // startMessages() → no-op (stub)
-    let start_messages_fn = NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined()));
+    // startMessages() — enables the client message queue.
+    // WHATWG SW §3.4.6: "enable this's client message queue if it is not enabled."
+    // Also: setting the onmessage setter enables the queue (first time only).
+    let b2 = bridge.clone();
+    let start_messages_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, _args, bridge, _ctx| {
+            bridge.enable_sw_messages();
+            Ok(JsValue::undefined())
+        },
+        b2,
+    );
 
     let container = ObjectInitializer::new(ctx)
         .function(register_fn, js_string!("register"), 1)

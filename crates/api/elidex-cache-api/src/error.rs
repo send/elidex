@@ -28,3 +28,9 @@ impl From<elidex_storage_core::StorageError> for CacheError {
         Self::Storage(e)
     }
 }
+
+impl From<rusqlite::Error> for CacheError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Storage(elidex_storage_core::StorageError::from(e))
+    }
+}

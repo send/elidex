@@ -213,6 +213,188 @@ impl RealtimeState {
     }
 }
 
+// --- HostBridge realtime methods (extracted from mod.rs) ---
+
+use super::HostBridge;
+
+impl HostBridge {
+    /// Drain all pending WebSocket and SSE events from the Network Process.
+    pub fn drain_realtime_events(&self) -> RealtimeEvents {
+        let inner = self.inner.borrow();
+        let Some(handle) = &inner.network_handle else {
+            return (Vec::new(), Vec::new());
+        };
+        let events = handle.drain_events();
+        let mut ws_events = Vec::new();
+        let mut sse_events = Vec::new();
+        for event in events {
+            match event {
+                elidex_net::broker::NetworkToRenderer::WebSocketEvent(conn_id, ws_event) => {
+                    ws_events.push((conn_id, ws_event));
+                }
+                elidex_net::broker::NetworkToRenderer::EventSourceEvent(conn_id, sse_event) => {
+                    sse_events.push((conn_id, sse_event));
+                }
+                elidex_net::broker::NetworkToRenderer::FetchResponse(..) => {
+                    // Late-arriving fetch response after content-thread timeout
+                    // (30s in fetch_blocking). Safe to drop — no JS promise waiting.
+                }
+            }
+        }
+        (ws_events, sse_events)
+    }
+
+    /// Shut down all WebSocket and SSE connections via the Network Process.
+    pub fn shutdown_all_realtime(&self) {
+        let mut inner = self.inner.borrow_mut();
+        inner.realtime.clear_all();
+        if let Some(handle) = &inner.network_handle {
+            handle.send(elidex_net::broker::RendererToNetwork::Shutdown);
+        }
+    }
+
+    // --- WebSocket API ---
+
+    /// Open a WebSocket connection. Returns connection ID or error.
+    pub fn open_websocket(
+        &self,
+        url: url::Url,
+        protocols: Vec<String>,
+        origin: String,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        let mut inner = self.inner.borrow_mut();
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
+        }
+        let conn_id = inner.realtime.register_ws_callbacks(&url, js_object)?;
+        if let Some(handle) = &inner.network_handle {
+            if !handle.send(elidex_net::broker::RendererToNetwork::WebSocketOpen {
+                conn_id,
+                url,
+                protocols,
+                origin,
+            }) {
+                inner.realtime.remove_ws(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
+        }
+        Ok(conn_id)
+    }
+
+    /// Read a WebSocket callback field via a closure.
+    pub(crate) fn with_ws_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&WsCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.ws_callbacks(id).map(f)
+    }
+
+    /// Mutate a WebSocket callback field via a closure.
+    pub(crate) fn with_ws_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut WsCallbacks) -> R,
+    {
+        self.inner.borrow_mut().realtime.ws_callbacks_mut(id).map(f)
+    }
+
+    /// Send text on a WebSocket via the Network Process.
+    #[must_use]
+    pub fn ws_send_text(&self, id: u64, data: String) -> bool {
+        let inner = self.inner.borrow();
+        if inner.realtime.ws_callbacks(id).is_none() {
+            return false;
+        }
+        if let Some(handle) = &inner.network_handle {
+            handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
+                id,
+                elidex_net::ws::WsCommand::SendText(data),
+            ))
+        } else {
+            false
+        }
+    }
+
+    /// Close a WebSocket via the Network Process.
+    pub fn ws_close(&self, id: u64, code: u16, reason: String) {
+        let inner = self.inner.borrow();
+        if let Some(handle) = &inner.network_handle {
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketSend(
+                id,
+                elidex_net::ws::WsCommand::Close(code, reason),
+            ));
+        }
+    }
+
+    /// Remove a WebSocket from the registry.
+    pub fn remove_ws(&self, id: u64) {
+        self.inner.borrow_mut().realtime.remove_ws(id);
+    }
+
+    // --- EventSource API ---
+
+    /// Open an `EventSource` connection via the Network Process.
+    pub fn open_event_source(
+        &self,
+        url: url::Url,
+        with_credentials: bool,
+        origin: Option<String>,
+        js_object: JsObject,
+    ) -> Result<u64, String> {
+        let mut inner = self.inner.borrow_mut();
+        match inner.network_handle.as_ref() {
+            None => return Err("network unavailable".to_string()),
+            Some(h) if h.client_id() == 0 => return Err("network disconnected".to_string()),
+            _ => {}
+        }
+        let conn_id = inner.realtime.register_sse_callbacks(&url, js_object)?;
+        if let Some(handle) = &inner.network_handle {
+            if !handle.send(elidex_net::broker::RendererToNetwork::EventSourceOpen {
+                conn_id,
+                url,
+                last_event_id: None,
+                origin,
+                with_credentials,
+            }) {
+                inner.realtime.remove_sse(conn_id);
+                return Err("network broker disconnected".to_string());
+            }
+        }
+        Ok(conn_id)
+    }
+
+    /// Read an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&SseCallbacks) -> R,
+    {
+        self.inner.borrow().realtime.sse_callbacks(id).map(f)
+    }
+
+    /// Mutate an SSE callback field via a closure.
+    pub(crate) fn with_sse_callbacks_mut<F, R>(&self, id: u64, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut SseCallbacks) -> R,
+    {
+        self.inner
+            .borrow_mut()
+            .realtime
+            .sse_callbacks_mut(id)
+            .map(f)
+    }
+
+    /// Close and remove an SSE connection via the Network Process.
+    pub fn sse_close(&self, id: u64) {
+        let mut inner = self.inner.borrow_mut();
+        inner.realtime.remove_sse(id);
+        if let Some(handle) = &inner.network_handle {
+            let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(id));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

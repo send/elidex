@@ -116,6 +116,7 @@ impl App {
     /// Returns `true` if a redraw is needed (due to chrome actions).
     fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
         self.drain_content_messages();
+        self.sync_cookies_if_dirty();
 
         // Apply pending window.focus() request.
         if self.pending_focus {

@@ -154,6 +154,7 @@ pub(super) fn register_sw_dispatch_helpers(ctx: &mut Context, scope: &url::Url) 
 }
 
 /// Result of dispatching a FetchEvent.
+#[derive(Debug)]
 pub enum FetchEventResult {
     /// SW called respondWith() with a response.
     Responded {

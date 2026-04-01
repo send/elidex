@@ -38,4 +38,27 @@ impl HostBridge {
         let inner = self.inner.borrow();
         inner.sw_controller_scope.clone()
     }
+
+    /// Enable the SW client message queue (WHATWG SW §3.4.6).
+    ///
+    /// Called by `startMessages()` or `onmessage` setter (first time only).
+    /// Messages queued before this call will be delivered once enabled.
+    pub fn enable_sw_messages(&self) {
+        let mut inner = self.inner.borrow_mut();
+        inner.sw_messages_enabled = true;
+        // Drain any buffered messages — currently no buffering infrastructure,
+        // so this is a flag for future message delivery integration.
+    }
+
+    /// Check if SW messages are enabled.
+    pub fn sw_messages_enabled(&self) -> bool {
+        let inner = self.inner.borrow();
+        inner.sw_messages_enabled
+    }
+
+    /// Get the unique client ID (UUID v4) for this browsing context.
+    pub fn client_id(&self) -> String {
+        let inner = self.inner.borrow();
+        inner.client_id.clone()
+    }
 }

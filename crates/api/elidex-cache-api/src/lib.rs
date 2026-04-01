@@ -1,5 +1,10 @@
-// Base64 encoding and response status use byte-level casts that are safe.
-#![allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+// SQLite integer↔Rust usize/u16 casts are safe for practical values.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless
+)]
 
 //! Cache API storage backend for elidex (WHATWG Cache API).
 //!
@@ -18,5 +23,5 @@ pub mod error;
 pub mod storage;
 pub mod store;
 
-pub use entry::{CachedEntry, MatchOptions};
+pub use entry::{CachedEntry, MatchOptions, ResponseType};
 pub use error::CacheError;

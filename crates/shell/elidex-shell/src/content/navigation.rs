@@ -21,17 +21,74 @@ pub(super) fn handle_navigate(
     is_history_nav: bool,
     request: Option<elidex_net::Request>,
 ) {
-    // Check if a Service Worker controls this scope (WHATWG SW §3.2).
-    // If so, the SW should intercept the fetch — but the SW handle lives on
-    // the browser thread. For now, log and proceed with normal fetch.
-    // TODO(M4-8.5): FetchEvent relay via browser thread IPC.
-    if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
-        if elidex_api_sw::matches_scope(&sw_scope, url) {
-            tracing::debug!(
-                scope = %sw_scope,
-                url = %url,
-                "SW controls this navigation — fetch interception pending"
-            );
+    // WHATWG SW Handle Fetch — skip SW interception in these cases:
+    // 1. Fragment-only navigation (same-document, no network fetch).
+    let is_fragment_only =
+        state
+            .pipeline
+            .runtime
+            .bridge()
+            .current_url()
+            .is_some_and(|ref current| {
+                current.as_str().split('#').next() == url.as_str().split('#').next()
+                    && url.fragment().is_some()
+            });
+
+    // 2. embed/object destination — always skip (SW spec Handle Fetch §1).
+    // 3. Shift+reload — skip (not yet tracked in this code path).
+    // These are handled by the browser thread for subresource requests.
+
+    if !is_fragment_only {
+        if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
+            if elidex_api_sw::matches_scope(&sw_scope, url) {
+                // Send FetchEvent relay request to browser thread.
+                static FETCH_ID: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(1);
+                let fetch_id = FETCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                let sw_request = elidex_api_sw::SwRequest {
+                    url: url.clone(),
+                    method: "GET".into(),
+                    headers: vec![],
+                    body: vec![],
+                    mode: "navigate".into(),
+                    destination: "document".into(),
+                    integrity: None,
+                    redirect: "follow".into(),
+                    referrer: "about:client".into(),
+                    referrer_policy: String::new(),
+                    cache_mode: "default".into(),
+                    keepalive: false,
+                };
+
+                let client_id = state.pipeline.runtime.bridge().client_id();
+                let _ = state
+                    .channel
+                    .send(crate::ipc::ContentToBrowser::SwFetchRequest {
+                        fetch_id,
+                        request: Box::new(sw_request),
+                        client_id,
+                        resulting_client_id: String::new(),
+                    });
+
+                // Wait for SW response (with timeout).
+                if let Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                    response: Some(resp),
+                    ..
+                }) = state
+                    .channel
+                    .recv_timeout(std::time::Duration::from_secs(30))
+                {
+                    tracing::debug!(
+                        url = %url,
+                        status = resp.status,
+                        "SW intercepted navigation"
+                    );
+                    // TODO: construct document from SW response body.
+                    // For now, fall through to normal fetch.
+                }
+                // Passthrough or timeout — proceed with normal fetch.
+            }
         }
     }
 
