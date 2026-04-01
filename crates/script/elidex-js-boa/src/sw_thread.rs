@@ -206,13 +206,18 @@ fn sw_thread_run(
                         ];
 
                         match runtime.dispatch_fetch_event(&mut session, &mut dom, doc, &props) {
-                            FetchEventResult::Responded { body, status } => {
+                            FetchEventResult::Responded {
+                                body,
+                                status,
+                                status_text,
+                                headers,
+                            } => {
                                 let _ = channel.send(SwToContent::FetchResponse {
                                     fetch_id,
                                     response: elidex_api_sw::SwResponse {
                                         status,
-                                        status_text: "OK".into(),
-                                        headers: vec![],
+                                        status_text,
+                                        headers,
                                         body: body.into_bytes(),
                                         url: request.url,
                                     },

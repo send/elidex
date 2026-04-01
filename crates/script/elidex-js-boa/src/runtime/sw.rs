@@ -141,8 +141,13 @@ pub(super) fn register_sw_dispatch_helpers(ctx: &mut Context, scope: &url::Url) 
 
 /// Result of dispatching a FetchEvent.
 pub enum FetchEventResult {
-    /// SW called respondWith() with a response body.
-    Responded { body: String, status: u16 },
+    /// SW called respondWith() with a response.
+    Responded {
+        body: String,
+        status: u16,
+        status_text: String,
+        headers: Vec<(String, String)>,
+    },
     /// SW did not call respondWith() — fall through to network.
     Passthrough,
     /// Error during dispatch.
@@ -202,6 +207,7 @@ impl JsRuntime {
     /// Returns whether the SW called respondWith() and with what response.
     /// respondWith() can only be called once (InvalidStateError on 2nd call).
     /// respondWith() must be called synchronously during dispatch.
+    #[allow(clippy::too_many_lines)]
     pub fn dispatch_fetch_event(
         &mut self,
         session: &mut SessionCore,
@@ -221,15 +227,17 @@ impl JsRuntime {
         // Use a hidden property on the event object.
         let event_obj = build_extendable_event(&mut self.ctx, "fetch", event_props);
 
-        // respondWith(response): stores response in __sw_response__ hidden prop.
-        // Can only be called once (tracked via __sw_responded__ flag).
+        // respondWith(response): stores response in __elidex_sw_response__ hidden prop.
+        // Can only be called once (tracked via __elidex_sw_responded__ flag).
         let respond_fn = NativeFunction::from_copy_closure(|this, args, ctx| {
             let event = this
                 .as_object()
                 .ok_or_else(|| boa_engine::JsNativeError::typ().with_message("not a FetchEvent"))?;
 
             // Check if already called.
-            let already = event.get(js_string!("__sw_responded__"), ctx)?.to_boolean();
+            let already = event
+                .get(js_string!("__elidex_sw_responded__"), ctx)?
+                .to_boolean();
             if already {
                 return Err(boa_engine::JsNativeError::typ()
                     .with_message("InvalidStateError: respondWith() already called")
@@ -238,7 +246,7 @@ impl JsRuntime {
 
             // Mark as called.
             let _ = event.set(
-                js_string!("__sw_responded__"),
+                js_string!("__elidex_sw_responded__"),
                 JsValue::from(true),
                 false,
                 ctx,
@@ -246,7 +254,7 @@ impl JsRuntime {
 
             // Store the response value.
             let response = args.first().cloned().unwrap_or(JsValue::undefined());
-            let _ = event.set(js_string!("__sw_response__"), response, false, ctx);
+            let _ = event.set(js_string!("__elidex_sw_response__"), response, false, ctx);
 
             Ok(JsValue::undefined())
         });
@@ -259,7 +267,7 @@ impl JsRuntime {
 
         // Initialize hidden state.
         let _ = event_obj.set(
-            js_string!("__sw_responded__"),
+            js_string!("__elidex_sw_responded__"),
             JsValue::from(false),
             false,
             &mut self.ctx,
@@ -284,42 +292,97 @@ impl JsRuntime {
 
         // Check if respondWith() was called.
         let responded = event_obj
-            .get(js_string!("__sw_responded__"), &mut self.ctx)
+            .get(js_string!("__elidex_sw_responded__"), &mut self.ctx)
             .map(|v| v.to_boolean())
             .unwrap_or(false);
 
         if responded {
-            // Extract response body.
             let response = event_obj
-                .get(js_string!("__sw_response__"), &mut self.ctx)
+                .get(js_string!("__elidex_sw_response__"), &mut self.ctx)
                 .unwrap_or(JsValue::undefined());
 
-            // If response is a string, use it directly as body.
-            // If response is an object with body/status, extract them.
-            let (body, status) = if let Some(s) = response.as_string() {
-                (s.to_std_string_escaped(), 200)
+            // Extract body, status, statusText, headers from the Response.
+            // Response constructor stores body in "__body__" hidden property.
+            // Plain strings are accepted as shorthand (body only, status 200).
+            let (body, status, status_text, headers) = if let Some(s) = response.as_string() {
+                (s.to_std_string_escaped(), 200, "OK".into(), vec![])
             } else if let Some(obj) = response.as_object() {
-                let body_val = obj
-                    .get(js_string!("body"), &mut self.ctx)
-                    .unwrap_or(JsValue::undefined());
-                let body_str = body_val
-                    .as_string()
-                    .map(|s| s.to_std_string_escaped())
+                // Body: try __body__ (Response constructor) then body (plain object).
+                let body_str = obj
+                    .get(js_string!("__body__"), &mut self.ctx)
+                    .ok()
+                    .or_else(|| obj.get(js_string!("body"), &mut self.ctx).ok())
+                    .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
                     .unwrap_or_default();
-                let status_val = obj
+
+                // Status: clamp to valid HTTP range [0, 999].
+                let raw_status = obj
                     .get(js_string!("status"), &mut self.ctx)
-                    .unwrap_or(JsValue::from(200));
-                let status = status_val.to_number(&mut self.ctx).unwrap_or(200.0) as u16;
-                (body_str, status)
+                    .ok()
+                    .and_then(|v| v.to_number(&mut self.ctx).ok())
+                    .unwrap_or(200.0);
+                let status = if raw_status.is_finite() && (0.0..=999.0).contains(&raw_status) {
+                    raw_status as u16
+                } else {
+                    200
+                };
+
+                // StatusText.
+                let status_text = obj
+                    .get(js_string!("statusText"), &mut self.ctx)
+                    .ok()
+                    .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
+                    .unwrap_or_else(|| "OK".into());
+
+                // Headers: Response stores in __headers__ (NUL-delimited pairs, newline-separated).
+                let headers = extract_response_headers(&obj, &mut self.ctx);
+
+                (body_str, status, status_text, headers)
             } else {
-                (String::new(), 200)
+                (String::new(), 200, "OK".into(), vec![])
             };
 
-            FetchEventResult::Responded { body, status }
+            FetchEventResult::Responded {
+                body,
+                status,
+                status_text,
+                headers,
+            }
         } else {
             FetchEventResult::Passthrough
         }
     }
+}
+
+/// Extract headers from a Response object's Headers sub-object.
+///
+/// The fetch constructors store headers in a `__headers__` hidden property
+/// on the Headers object, using NUL-delimited `name\0value` pairs separated
+/// by newlines.
+fn extract_response_headers(
+    response_obj: &boa_engine::JsObject,
+    ctx: &mut boa_engine::Context,
+) -> Vec<(String, String)> {
+    let Ok(headers_val) = response_obj.get(js_string!("headers"), ctx) else {
+        return vec![];
+    };
+    let Some(headers_obj) = headers_val.as_object() else {
+        return vec![];
+    };
+    let Ok(raw) = headers_obj.get(js_string!("__headers__"), ctx) else {
+        return vec![];
+    };
+    let Some(raw_str) = raw.as_string() else {
+        return vec![];
+    };
+    let raw_str = raw_str.to_std_string_escaped();
+    raw_str
+        .lines()
+        .filter_map(|line| {
+            let (name, value) = line.split_once('\0')?;
+            Some((name.to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 /// Build an ExtendableEvent object with type, waitUntil, and custom properties.
