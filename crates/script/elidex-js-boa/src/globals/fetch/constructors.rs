@@ -60,57 +60,14 @@ pub fn register_fetch_constructors(ctx: &mut Context) {
     }
 }
 
-/// Forbidden request header names (Fetch spec §2.2.1).
-const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
-    "accept-charset",
-    "accept-encoding",
-    "access-control-request-headers",
-    "access-control-request-method",
-    "connection",
-    "content-length",
-    "cookie",
-    "cookie2",
-    "date",
-    "dnt",
-    "expect",
-    "host",
-    "keep-alive",
-    "origin",
-    "referer",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-    "via",
-];
+use elidex_api_fetch::{is_valid_header_name, is_valid_header_value, HeaderGuard};
 
 /// Hidden property key for the headers guard.
 const GUARD_KEY: &str = "__guard__";
 
-/// Validate a header name per Fetch spec §2.2.1 (HTTP token production).
-///
-/// A valid token consists of characters from the HTTP token production
-/// (RFC 7230 §3.2.6) and must not be empty.
-fn is_valid_header_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.bytes().all(|b| {
-            matches!(b,
-                b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.'
-                | b'0'..=b'9' | b'A'..=b'Z' | b'^' | b'_' | b'`' | b'a'..=b'z' | b'|' | b'~'
-            )
-        })
-}
-
-/// Validate a header value per Fetch spec §2.2.2.
-///
-/// Header values must not contain NUL (`\0`), LF (`\n`), or CR (`\r`).
-fn is_valid_header_value(value: &str) -> bool {
-    value.bytes().all(|b| b != 0 && b != b'\n' && b != b'\r')
-}
-
 /// Check a header guard before mutation. Returns Err if disallowed.
 fn check_headers_guard(this: &JsValue, name: &str, ctx: &mut Context) -> boa_engine::JsResult<()> {
-    let guard = this
+    let guard_str = this
         .as_object()
         .map(|obj| obj.get(js_string!(GUARD_KEY), ctx))
         .transpose()?
@@ -119,24 +76,23 @@ fn check_headers_guard(this: &JsValue, name: &str, ctx: &mut Context) -> boa_eng
         .map(|s| s.to_std_string_escaped())
         .unwrap_or_default();
 
-    match guard.as_str() {
-        "immutable" => Err(JsNativeError::typ()
-            .with_message("Headers: cannot modify immutable headers")
-            .into()),
-        "request" => {
-            let lower = name.to_ascii_lowercase();
-            if FORBIDDEN_REQUEST_HEADERS.contains(&lower.as_str())
-                || lower.starts_with("proxy-")
-                || lower.starts_with("sec-")
-            {
-                Err(JsNativeError::typ()
-                    .with_message(format!("Headers: '{name}' is a forbidden header name"))
-                    .into())
-            } else {
-                Ok(())
-            }
-        }
-        _ => Ok(()),
+    let guard = match guard_str.as_str() {
+        "immutable" => HeaderGuard::Immutable,
+        "request" => HeaderGuard::Request,
+        "request-no-cors" => HeaderGuard::RequestNoCors,
+        "response" => HeaderGuard::Response,
+        _ => HeaderGuard::None,
+    };
+
+    if !guard.allows_set(name) {
+        let msg = if guard == HeaderGuard::Immutable {
+            "Headers: cannot modify immutable headers".to_string()
+        } else {
+            format!("Headers: '{name}' is a forbidden header name")
+        };
+        Err(JsNativeError::typ().with_message(msg).into())
+    } else {
+        Ok(())
     }
 }
 

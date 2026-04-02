@@ -15,12 +15,9 @@ use super::{define_connection_id, extract_connection_id, set_readystate_constant
 const WS_ID_KEY: &str = "__elidex_ws_id__";
 
 /// WebSocket readyState constants (WHATWG HTML §9.3).
-const WS_READYSTATE_CONSTANTS: [(&str, i32); 4] = [
-    ("CONNECTING", 0),
-    ("OPEN", 1),
-    ("CLOSING", 2),
-    ("CLOSED", 3),
-];
+///
+/// Re-exported from [`elidex_api_ws::WS_READYSTATE_CONSTANTS`].
+const WS_READYSTATE_CONSTANTS: [(&str, i32); 4] = elidex_api_ws::WS_READYSTATE_CONSTANTS;
 
 /// Extract the connection ID from a WebSocket JS object.
 fn extract_ws_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
@@ -83,43 +80,17 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
         JsNativeError::syntax().with_message(format!("WebSocket: invalid URL: {e}"))
     })?;
 
-    // 2. Validate scheme.
-    match url.scheme() {
-        "ws" | "wss" => {}
-        scheme => {
-            return Err(JsNativeError::syntax()
-                .with_message(format!("WebSocket: unsupported scheme: {scheme}"))
-                .into());
-        }
-    }
-
-    // 2b. SSRF check: convert ws/wss to http/https for validate_url.
-    {
-        let http_scheme = if url.scheme() == "wss" {
-            "https"
-        } else {
-            "http"
-        };
-        let mut check_url = url.clone();
-        check_url.set_scheme(http_scheme).ok();
-        if let Err(e) = elidex_plugin::url_security::validate_url(&check_url) {
-            return Err(JsNativeError::typ()
-                .with_message(format!("WebSocket URL blocked: {e}"))
-                .into());
-        }
-    }
-
-    // 3. Reject fragments.
-    if url.fragment().is_some() {
+    // 2-3. Validate scheme, SSRF, and fragment via shared utility.
+    if let Err(e) = elidex_api_ws::validate_ws_url(&url) {
         return Err(JsNativeError::syntax()
-            .with_message("WebSocket: URL must not contain a fragment")
+            .with_message(format!("WebSocket: {e}"))
             .into());
     }
 
     // 4. Mixed content check: https origin + ws:// URL.
     let origin = bridge.origin();
     if let elidex_plugin::SecurityOrigin::Tuple { ref scheme, .. } = origin {
-        if scheme == "https" && url.scheme() == "ws" {
+        if elidex_api_ws::is_mixed_content(scheme, &url) {
             return Err(JsNativeError::error()
                 .with_message(
                     "WebSocket: mixed content blocked (secure page cannot connect via ws://)",

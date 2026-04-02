@@ -439,37 +439,10 @@ pub(crate) fn create_headers_object(headers: &[(String, String)], ctx: &mut Cont
 }
 
 /// Map an HTTP status code to its standard reason phrase.
+///
+/// Delegates to [`elidex_api_fetch::status_text_for`].
 fn status_text_for(status: u16) -> &'static str {
-    match status {
-        100 => "Continue",
-        101 => "Switching Protocols",
-        200 => "OK",
-        201 => "Created",
-        202 => "Accepted",
-        204 => "No Content",
-        206 => "Partial Content",
-        301 => "Moved Permanently",
-        302 => "Found",
-        303 => "See Other",
-        304 => "Not Modified",
-        307 => "Temporary Redirect",
-        308 => "Permanent Redirect",
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        408 => "Request Timeout",
-        409 => "Conflict",
-        413 => "Payload Too Large",
-        415 => "Unsupported Media Type",
-        429 => "Too Many Requests",
-        500 => "Internal Server Error",
-        502 => "Bad Gateway",
-        503 => "Service Unavailable",
-        504 => "Gateway Timeout",
-        _ => "",
-    }
+    elidex_api_fetch::status_text_for(status)
 }
 
 #[cfg(test)]

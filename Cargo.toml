@@ -26,6 +26,9 @@ members = [
     "crates/api/elidex-api-observers",
     "crates/api/elidex-cache-api",
     "crates/api/elidex-api-sw",
+    "crates/api/elidex-api-fetch",
+    "crates/api/elidex-api-ws",
+    "crates/api/elidex-api-canvas",
     "crates/dom/elidex-custom-elements",
     "crates/dom/elidex-indexeddb",
     "crates/layout/elidex-layout",
@@ -142,6 +145,9 @@ elidex-api-observers = { path = "crates/api/elidex-api-observers" }
 elidex-storage-core = { path = "crates/storage/elidex-storage-core" }
 elidex-cache-api = { path = "crates/api/elidex-cache-api" }
 elidex-api-sw = { path = "crates/api/elidex-api-sw" }
+elidex-api-fetch = { path = "crates/api/elidex-api-fetch" }
+elidex-api-ws = { path = "crates/api/elidex-api-ws" }
+elidex-api-canvas = { path = "crates/api/elidex-api-canvas" }
 elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
 elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
 rusqlite = { version = "0.32", features = ["bundled"] }

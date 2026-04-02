@@ -128,8 +128,9 @@ pub(crate) fn create_context2d_object(
 
     // Store entity reference for identity. Split into high/low 32-bit halves
     // to avoid f64 precision loss for u64 values > 2^53.
-    let entity_hi = (entity_bits >> 32) as f64;
-    let entity_lo = (entity_bits & 0xFFFF_FFFF) as f64;
+    let (hi, lo) = elidex_api_canvas::split_entity_bits(entity_bits);
+    let entity_hi = f64::from(hi);
+    let entity_lo = f64::from(lo);
     init.property(
         js_string!(ENTITY_HI_KEY),
         JsValue::from(entity_hi),
@@ -549,7 +550,7 @@ fn extract_entity_bits(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
         let hi = hi_val.to_number(ctx)?;
         let lo = lo_val.to_number(ctx)?;
         if hi.is_finite() && lo.is_finite() && hi >= 0.0 && lo >= 0.0 {
-            let bits = ((hi as u64) << 32) | (lo as u64);
+            let bits = elidex_api_canvas::join_entity_bits(hi as u32, lo as u32);
             return Ok(bits);
         }
     }

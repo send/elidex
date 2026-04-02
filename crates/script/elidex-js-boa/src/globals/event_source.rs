@@ -14,7 +14,9 @@ use super::{define_connection_id, extract_connection_id, set_readystate_constant
 const SSE_ID_KEY: &str = "__elidex_sse_id__";
 
 /// `EventSource` readyState constants (WHATWG HTML §9.2).
-const SSE_READYSTATE_CONSTANTS: [(&str, i32); 3] = [("CONNECTING", 0), ("OPEN", 1), ("CLOSED", 2)];
+///
+/// Re-exported from [`elidex_api_ws::SSE_READYSTATE_CONSTANTS`].
+const SSE_READYSTATE_CONSTANTS: [(&str, i32); 3] = elidex_api_ws::SSE_READYSTATE_CONSTANTS;
 
 /// Extract the connection ID from an `EventSource` JS object.
 fn extract_sse_id(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
