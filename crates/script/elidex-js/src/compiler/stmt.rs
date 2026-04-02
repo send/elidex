@@ -261,7 +261,11 @@ pub fn compile_stmt(
             let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
 
             // Catch block.
-            let catch_offset = fc.pc();
+            let catch_offset = if handler.is_some() {
+                fc.pc()
+            } else {
+                u32::MAX // no catch — 0xFFFF sentinel
+            };
             if let Some(catch) = handler {
                 // Bind catch parameter.
                 fc.emit(Op::PushException);
@@ -301,11 +305,17 @@ pub fn compile_stmt(
             }
 
             // Patch the exception handler offsets.
-            assert!(
-                u16::try_from(catch_offset).is_ok(),
-                "catch offset {catch_offset} exceeds u16 range"
-            );
-            let catch_bytes = (catch_offset as u16).to_le_bytes();
+            // catch_offset is u32::MAX when there's no catch block → encode as 0xFFFF.
+            let catch_u16 = if catch_offset == u32::MAX {
+                0xFFFFu16
+            } else {
+                assert!(
+                    u16::try_from(catch_offset).is_ok(),
+                    "catch offset {catch_offset} exceeds u16 range"
+                );
+                catch_offset as u16
+            };
+            let catch_bytes = catch_u16.to_le_bytes();
             fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
             fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
             // Patch finally offset: actual PC if present, 0xFFFF if absent.

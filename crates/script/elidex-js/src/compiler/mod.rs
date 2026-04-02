@@ -234,6 +234,29 @@ mod tests {
     }
 
     #[test]
+    fn compile_try_finally() {
+        let output = compile_and_disasm("try { x; } finally { y; }");
+        assert!(output.contains("PushExceptionHandler"));
+        assert!(output.contains("PopExceptionHandler"));
+    }
+
+    #[test]
+    fn compile_switch() {
+        let output = compile_and_disasm("switch(x) { case 1: y; break; case 2: z; default: w; }");
+        assert!(output.contains("Dup"));
+        assert!(output.contains("StrictEq"));
+        assert!(output.contains("JumpIfTrue"));
+    }
+
+    #[test]
+    fn compile_switch_no_default() {
+        let output = compile_and_disasm("switch(x) { case 1: y; break; case 2: z; }");
+        assert!(output.contains("StrictEq"));
+        // No-match path should pop discriminant.
+        assert!(output.contains("Pop"));
+    }
+
+    #[test]
     fn compile_throw() {
         let output = compile_and_disasm("throw new Error();");
         assert!(output.contains("Throw"));

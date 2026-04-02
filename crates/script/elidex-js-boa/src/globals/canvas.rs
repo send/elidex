@@ -555,6 +555,8 @@ fn extract_entity_bits(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
             && lo >= 0.0
             && hi <= f64::from(u32::MAX)
             && lo <= f64::from(u32::MAX)
+            && hi.fract() == 0.0
+            && lo.fract() == 0.0
         {
             let bits = elidex_api_canvas::join_entity_bits(hi as u32, lo as u32);
             return Ok(bits);
