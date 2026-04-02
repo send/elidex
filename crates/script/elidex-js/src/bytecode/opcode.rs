@@ -297,6 +297,7 @@ impl Op {
 
     /// Number of operand bytes following this opcode (excluding Wide prefix).
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn operand_size(self) -> usize {
         match self {
             // Zero operands

@@ -43,6 +43,7 @@ impl CompiledScript {
 
 /// A single compiled function (or script body, class initializer, eval).
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct CompiledFunction {
     /// The bytecode instruction stream.
     pub bytecode: Vec<u8>,

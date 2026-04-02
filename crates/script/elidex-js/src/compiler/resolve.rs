@@ -146,7 +146,7 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> Vec<FunctionScope> {
             scope_to_func[i] = func_idx;
         } else {
             // Inherit from parent.
-            let parent_func = scope.parent.map(|p| scope_to_func[p]).unwrap_or(0);
+            let parent_func = scope.parent.map_or(0, |p| scope_to_func[p]);
             scope_to_func[i] = parent_func;
             func_scopes[parent_func].scope_indices.push(i);
         }
@@ -223,6 +223,7 @@ pub fn resolve_identifier(
 
 /// Create upvalue chain from the function where the binding lives
 /// to the function that references it.
+#[allow(clippy::too_many_arguments)]
 fn create_upvalue_chain(
     name: Atom,
     source_func_idx: usize,
@@ -245,8 +246,7 @@ fn create_upvalue_chain(
     let mut prev_index = source_slot;
     let mut is_local = true;
 
-    for i in 1..chain.len() {
-        let func_idx = chain[i];
+    for &func_idx in &chain[1..] {
         let uv_info = UpvalueInfo {
             is_local,
             index: prev_index,

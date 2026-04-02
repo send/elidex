@@ -14,6 +14,7 @@ pub const DEFAULT_HEIGHT: u32 = 150;
 /// Entity bits are split to avoid f64 precision loss for values > 2^53
 /// when stored in JS number properties.
 #[must_use]
+#[allow(clippy::cast_possible_truncation)]
 pub fn split_entity_bits(bits: u64) -> (u32, u32) {
     let hi = (bits >> 32) as u32;
     let lo = bits as u32;

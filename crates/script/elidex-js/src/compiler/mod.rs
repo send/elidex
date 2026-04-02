@@ -47,7 +47,7 @@ pub fn compile(
 ) -> Result<CompiledScript, CompileError> {
     let mut func_scopes = build_function_scopes(analysis);
 
-    let is_strict = analysis.scopes.first().map_or(false, |s| s.is_strict);
+    let is_strict = analysis.scopes.first().is_some_and(|s| s.is_strict);
 
     let mut fc = FunctionCompiler::new(0, is_strict);
     fc.name = Some("<script>".to_string());

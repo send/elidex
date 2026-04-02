@@ -1,6 +1,6 @@
 //! Bytecode disassembler for debugging and testing.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 
 use super::compiled::{CompiledFunction, CompiledScript, Constant};
 use super::opcode::Op;
@@ -15,23 +15,25 @@ pub fn disassemble_script(script: &CompiledScript) -> String {
 }
 
 /// Disassemble a single function.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, indent: usize) {
     let prefix = " ".repeat(indent);
-    out.push_str(&format!(
-        "{prefix}--- {name} (locals={}, params={}, upvalues={}{}{}{}) ---\n",
+    let _ = writeln!(
+        out,
+        "{prefix}--- {name} (locals={}, params={}, upvalues={}{}{}{}) ---",
         func.local_count,
         func.param_count,
         func.upvalues.len(),
         if func.is_async { ", async" } else { "" },
         if func.is_generator { ", generator" } else { "" },
         if func.is_strict { ", strict" } else { "" },
-    ));
+    );
 
     let mut pc = 0usize;
     while pc < func.bytecode.len() {
         let byte = func.bytecode[pc];
         let Some(op) = Op::from_byte(byte) else {
-            out.push_str(&format!("{prefix}  {pc:04}: <invalid 0x{byte:02x}>\n"));
+            let _ = writeln!(out, "{prefix}  {pc:04}: <invalid 0x{byte:02x}>");
             pc += 1;
             continue;
         };
@@ -40,7 +42,7 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
         let mut operand_str = String::new();
 
         match operand_size {
-            0 => {}
+            0 | 5.. => {}
             1 => {
                 if pc + 1 < func.bytecode.len() {
                     let val = func.bytecode[pc + 1];
@@ -64,7 +66,7 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
                             | Op::DefaultIfUndefined
                     ) {
                         let offset = val as i16;
-                        let target = (pc as i32) + 3 + (offset as i32);
+                        let target = (pc as i32) + 3 + i32::from(offset);
                         operand_str = format!(" {offset} (-> {target})");
                     } else {
                         operand_str = format!(" {val}");
@@ -79,7 +81,7 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
                                 | Op::TypeOfGlobal
                         ) {
                             if let Some(constant) = func.constants.get(val as usize) {
-                                operand_str.push_str(&format!(" ; {}", format_constant(constant)));
+                                let _ = write!(operand_str, " ; {}", format_constant(constant));
                             }
                         }
                     }
@@ -99,10 +101,9 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
                     operand_str = format!(" {a}, {b}");
                 }
             }
-            _ => {}
         }
 
-        out.push_str(&format!("{prefix}  {pc:04}: {op:?}{operand_str}\n"));
+        let _ = writeln!(out, "{prefix}  {pc:04}: {op:?}{operand_str}");
         pc += 1 + operand_size;
     }
 

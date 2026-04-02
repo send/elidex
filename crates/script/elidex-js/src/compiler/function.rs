@@ -11,6 +11,7 @@ use crate::span::Span;
 use super::resolve::FunctionScope;
 
 /// Per-function compilation state.
+#[allow(clippy::struct_excessive_bools)]
 pub struct FunctionCompiler {
     /// Bytecode being built.
     pub bytecode: Vec<u8>,
@@ -118,13 +119,14 @@ impl FunctionCompiler {
     }
 
     /// Patch a previously emitted jump offset to point to the current PC.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn patch_jump(&mut self, patch_pos: u32) {
         let target = self.pc();
         // Offset is relative to the byte AFTER the jump instruction
         // (opcode byte + 2 offset bytes = 3 bytes total).
         let offset = (target as i32) - (patch_pos as i32) - 2;
         debug_assert!(
-            (i16::MIN as i32..=i16::MAX as i32).contains(&offset),
+            (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
             "jump offset {offset} out of i16 range"
         );
         let bytes = (offset as i16).to_le_bytes();
@@ -133,11 +135,12 @@ impl FunctionCompiler {
     }
 
     /// Emit a backward jump to `target`.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn emit_jump_to(&mut self, op: Op, target: u32) {
         self.bytecode.push(op.to_byte());
         let offset = (target as i32) - (self.pc() as i32) - 2;
         debug_assert!(
-            (i16::MIN as i32..=i16::MAX as i32).contains(&offset),
+            (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
             "jump offset {offset} out of i16 range"
         );
         self.bytecode
@@ -148,6 +151,7 @@ impl FunctionCompiler {
 
     /// Add a constant to the pool, returning its index.
     /// Deduplicates numbers and strings.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn add_constant(&mut self, constant: Constant) -> u16 {
         // Dedup for numbers and strings.
         match &constant {

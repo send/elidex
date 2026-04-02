@@ -1,6 +1,7 @@
 //! Expression compilation: ExprKind → bytecode.
 
 use crate::arena::NodeId;
+#[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::bytecode::compiled::Constant;
@@ -11,6 +12,7 @@ use super::resolve::{resolve_identifier, FunctionScope, VarLocation};
 use crate::scope::ScopeAnalysis;
 
 /// Compile an expression, leaving its value on the stack.
+#[allow(clippy::too_many_lines)]
 pub fn compile_expr(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -179,7 +181,13 @@ pub fn compile_expr(
                                 fc.emit(Op::Swap);
                                 fc.emit(Op::DefineComputedProperty);
                             }
-                            _ => {
+                            PropertyKey::Literal(
+                                Literal::Number(_)
+                                | Literal::Boolean(_)
+                                | Literal::Null
+                                | Literal::BigInt(_)
+                                | Literal::RegExp { .. },
+                            ) => {
                                 let idx = fc.add_name("");
                                 fc.emit_u16(Op::DefineProperty, idx);
                             }
@@ -300,13 +308,18 @@ pub fn compile_expr(
 }
 
 /// Compile a literal value.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn compile_literal(fc: &mut FunctionCompiler, lit: &Literal) {
     match lit {
         Literal::Number(n) => {
             // Optimize small integers.
             let ni = *n as i64;
             if (ni as f64).to_bits() == n.to_bits()
-                && (i8::MIN as i64..=i8::MAX as i64).contains(&ni)
+                && (i64::from(i8::MIN)..=i64::from(i8::MAX)).contains(&ni)
             {
                 fc.emit_u8(Op::PushI8, ni as u8);
             } else {
@@ -549,8 +562,7 @@ fn unary_op_to_opcode(op: UnaryOp) -> Op {
         UnaryOp::Not => Op::Not,
         UnaryOp::BitwiseNot => Op::BitNot,
         UnaryOp::Typeof => Op::TypeOf,
-        UnaryOp::Void => Op::Void,
-        UnaryOp::Delete => Op::Void, // TODO: proper delete
+        UnaryOp::Void | UnaryOp::Delete => Op::Void, // TODO: proper delete
     }
 }
 
@@ -566,12 +578,9 @@ fn compound_op_to_opcode(op: AssignOp) -> Op {
         AssignOp::ShlAssign => Op::Shl,
         AssignOp::ShrAssign => Op::Shr,
         AssignOp::UShrAssign => Op::UShr,
-        AssignOp::BitAndAssign => Op::BitAnd,
-        AssignOp::BitOrAssign => Op::BitOr,
+        AssignOp::BitAndAssign | AssignOp::AndAssign => Op::BitAnd, // logical handled differently in practice
+        AssignOp::BitOrAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign => Op::BitOr, // logical/nullish handled differently in practice
         AssignOp::BitXorAssign => Op::BitXor,
-        AssignOp::AndAssign => Op::BitAnd, // logical, handled differently in practice
-        AssignOp::OrAssign => Op::BitOr,   // logical, handled differently in practice
-        AssignOp::NullCoalAssign => Op::BitOr, // handled differently in practice
         AssignOp::Assign => unreachable!("plain assign should not call compound_op_to_opcode"),
     }
 }

@@ -1,6 +1,7 @@
 //! Statement compilation: StmtKind → bytecode.
 
 use crate::arena::NodeId;
+#[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::bytecode::opcode::Op;
@@ -11,6 +12,7 @@ use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 
 /// Compile a statement.
+#[allow(clippy::too_many_lines)]
 pub fn compile_stmt(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -23,7 +25,19 @@ pub fn compile_stmt(
     fc.source_map.add(fc.pc(), span);
 
     match &stmt.kind {
-        StmtKind::Empty | StmtKind::Error | StmtKind::Debugger => {}
+        // No-ops: empty, parse error, debugger, hoisted declarations, stubs.
+        StmtKind::Empty
+        | StmtKind::Error
+        | StmtKind::Debugger
+        | StmtKind::FunctionDeclaration(_)
+        | StmtKind::ClassDeclaration(_)
+        | StmtKind::With { .. }
+        | StmtKind::ForIn { .. }
+        | StmtKind::ForOf { .. }
+        | StmtKind::ImportDeclaration(_)
+        | StmtKind::ExportDeclaration(_) => {
+            // TODO: FunctionDeclaration, ClassDeclaration, ForIn/ForOf, With
+        }
 
         StmtKind::Expression(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id);
@@ -319,27 +333,6 @@ pub fn compile_stmt(
                 fc.emit(Op::Pop); // pop discriminant
             }
             fc.pop_loop();
-        }
-
-        StmtKind::FunctionDeclaration(_) => {
-            // Function declarations are hoisted — handled at function entry.
-            // TODO: compile and hoist
-        }
-
-        StmtKind::ClassDeclaration(_) => {
-            // TODO: class compilation
-        }
-
-        StmtKind::With { .. } => {
-            // Strict mode only — `with` is always a syntax error.
-        }
-
-        StmtKind::ForIn { .. } | StmtKind::ForOf { .. } => {
-            // TODO: for-in/for-of
-        }
-
-        StmtKind::ImportDeclaration(_) | StmtKind::ExportDeclaration(_) => {
-            // Module declarations handled during module linking, not bytecode.
         }
     }
 }

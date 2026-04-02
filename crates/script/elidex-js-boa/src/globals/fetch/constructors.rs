@@ -84,15 +84,15 @@ fn check_headers_guard(this: &JsValue, name: &str, ctx: &mut Context) -> boa_eng
         _ => HeaderGuard::None,
     };
 
-    if !guard.allows_set(name) {
+    if guard.allows_set(name) {
+        Ok(())
+    } else {
         let msg = if guard == HeaderGuard::Immutable {
             "Headers: cannot modify immutable headers".to_string()
         } else {
             format!("Headers: '{name}' is a forbidden header name")
         };
         Err(JsNativeError::typ().with_message(msg).into())
-    } else {
-        Ok(())
     }
 }
 
