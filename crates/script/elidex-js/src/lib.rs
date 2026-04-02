@@ -25,6 +25,8 @@
 pub mod arena;
 pub mod ast;
 pub mod atom;
+pub mod bytecode;
+pub mod compiler;
 pub mod error;
 pub mod regexp;
 pub mod span;

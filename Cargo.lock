@@ -1747,6 +1747,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-api-canvas"
+version = "0.1.0"
+
+[[package]]
+name = "elidex-api-fetch"
+version = "0.1.0"
+
+[[package]]
 name = "elidex-api-observers"
 version = "0.1.0"
 dependencies = [
@@ -1776,6 +1784,14 @@ name = "elidex-api-workers"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "elidex-plugin",
+ "url",
+]
+
+[[package]]
+name = "elidex-api-ws"
+version = "0.1.0"
+dependencies = [
  "elidex-plugin",
  "url",
 ]
@@ -2002,9 +2018,12 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "dirs",
+ "elidex-api-canvas",
+ "elidex-api-fetch",
  "elidex-api-observers",
  "elidex-api-sw",
  "elidex-api-workers",
+ "elidex-api-ws",
  "elidex-cache-api",
  "elidex-custom-elements",
  "elidex-dom-api",
