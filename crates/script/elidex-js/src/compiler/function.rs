@@ -244,7 +244,7 @@ impl FunctionCompiler {
             let patches: Vec<u32> = ctx.continue_patches.drain(..).collect();
             for patch_pos in patches {
                 let offset = (target as i32) - (patch_pos as i32) - 2;
-                debug_assert!(
+                assert!(
                     (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
                     "jump offset {offset} out of i16 range"
                 );

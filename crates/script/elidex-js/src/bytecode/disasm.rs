@@ -88,14 +88,14 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
                 }
             }
             3 => {
-                if pc + 3 <= func.bytecode.len() {
+                if pc + 4 <= func.bytecode.len() {
                     let val = read_u16(&func.bytecode, pc + 1);
                     let flag = func.bytecode[pc + 3];
                     operand_str = format!(" {val}, {flag}");
                 }
             }
             4 => {
-                if pc + 4 <= func.bytecode.len() {
+                if pc + 5 <= func.bytecode.len() {
                     let a = read_u16(&func.bytecode, pc + 1);
                     let b = read_u16(&func.bytecode, pc + 3);
                     operand_str = format!(" {a}, {b}");

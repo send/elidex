@@ -407,6 +407,15 @@ pub fn compile_stmt(
                 }
             }
 
+            // If the last case body falls through (no break) and there's no
+            // default, it would reach the trailing Pop intended only for the
+            // no-match path. Emit a jump to skip it.
+            let end_fallthrough = if !has_default {
+                Some(fc.emit_jump(Op::Jump))
+            } else {
+                None
+            };
+
             // Patch the no-match jump.
             if has_default {
                 let default_pc = entry_pcs[default_idx];
@@ -423,6 +432,10 @@ pub fn compile_stmt(
             } else {
                 fc.patch_jump(no_match_jump);
                 fc.emit(Op::Pop); // pop discriminant (no case matched)
+            }
+            // Patch the end-of-switch jump for last-case fall-through.
+            if let Some(patch) = end_fallthrough {
+                fc.patch_jump(patch);
             }
             fc.pop_loop();
         }
