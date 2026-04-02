@@ -519,10 +519,17 @@ fn compile_assignment(
                         if op != AssignOp::Assign {
                             fc.emit(compound_op_to_opcode(op));
                         }
-                        if let MemberProp::Identifier(name) = property {
-                            let name_str = prog.interner.get(*name);
-                            let idx = fc.add_name(name_str);
-                            fc.emit_u16(Op::SetProp, idx);
+                        match property {
+                            MemberProp::Identifier(name) => {
+                                let name_str = prog.interner.get(*name);
+                                let idx = fc.add_name(name_str);
+                                fc.emit_u16(Op::SetProp, idx);
+                            }
+                            _ => {
+                                // PrivateIdentifier or computed (shouldn't reach here
+                                // for computed — handled above). Pop to keep stack balanced.
+                                fc.emit(Op::Pop);
+                            }
                         }
                     }
                 }
