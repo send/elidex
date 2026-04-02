@@ -549,7 +549,13 @@ fn extract_entity_bits(this: &JsValue, ctx: &mut Context) -> JsResult<u64> {
     if !hi_val.is_undefined() && !lo_val.is_undefined() {
         let hi = hi_val.to_number(ctx)?;
         let lo = lo_val.to_number(ctx)?;
-        if hi.is_finite() && lo.is_finite() && hi >= 0.0 && lo >= 0.0 {
+        if hi.is_finite()
+            && lo.is_finite()
+            && hi >= 0.0
+            && lo >= 0.0
+            && hi <= f64::from(u32::MAX)
+            && lo <= f64::from(u32::MAX)
+        {
             let bits = elidex_api_canvas::join_entity_bits(hi as u32, lo as u32);
             return Ok(bits);
         }

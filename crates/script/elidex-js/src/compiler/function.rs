@@ -44,6 +44,8 @@ pub struct LoopContext {
     /// Placeholder offsets that need patching for `continue` (used when
     /// the continue target is not yet known, e.g. do-while test, for-loop update).
     pub continue_patches: Vec<u32>,
+    /// `true` for switch statements — `continue` should skip these contexts.
+    pub is_switch: bool,
 }
 
 impl FunctionCompiler {
@@ -196,6 +198,17 @@ impl FunctionCompiler {
             continue_target,
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
+            is_switch: false,
+        });
+    }
+
+    /// Push a switch context (supports `break` but not `continue`).
+    pub fn push_switch(&mut self) {
+        self.loop_stack.push(LoopContext {
+            continue_target: 0,
+            break_patches: Vec::new(),
+            continue_patches: Vec::new(),
+            is_switch: true,
         });
     }
 
@@ -207,8 +220,9 @@ impl FunctionCompiler {
     }
 
     /// Record a continue jump that needs patching (target not yet known).
+    /// Skips switch contexts since `continue` does not apply to them.
     pub fn add_continue_patch(&mut self, patch_pos: u32) {
-        if let Some(ctx) = self.loop_stack.last_mut() {
+        if let Some(ctx) = self.loop_stack.iter_mut().rev().find(|c| !c.is_switch) {
             ctx.continue_patches.push(patch_pos);
         }
     }

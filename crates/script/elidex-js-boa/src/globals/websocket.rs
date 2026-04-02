@@ -81,6 +81,9 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
     })?;
 
     // 2-3. Validate scheme, SSRF, and fragment via shared utility.
+    // Note: All validation errors map to SyntaxError per WHATWG HTML §9.3.1
+    // ("If urlRecord is failure, throw a SyntaxError"). SSRF blocks are an
+    // elidex-specific extension and SyntaxError is the closest standard fit.
     if let Err(e) = elidex_api_ws::validate_ws_url(&url) {
         return Err(JsNativeError::syntax()
             .with_message(format!("WebSocket: {e}"))

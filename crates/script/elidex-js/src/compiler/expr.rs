@@ -186,13 +186,34 @@ pub fn compile_expr(
                                     let idx = fc.add_name(name_str);
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
+                                PropertyKey::Literal(Literal::Number(n)) => {
+                                    // ES2020: property key is ToString(number).
+                                    #[allow(
+                                        clippy::cast_possible_truncation,
+                                        clippy::cast_sign_loss,
+                                        clippy::cast_precision_loss
+                                    )]
+                                    let key_str = if *n == (*n as i64) as f64 && *n >= 0.0 {
+                                        format!("{}", *n as i64)
+                                    } else {
+                                        format!("{n}")
+                                    };
+                                    let idx = fc.add_name(&key_str);
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
+                                PropertyKey::Literal(Literal::Boolean(b)) => {
+                                    let idx = fc.add_name(if *b { "true" } else { "false" });
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
+                                PropertyKey::Literal(Literal::Null) => {
+                                    let idx = fc.add_name("null");
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
                                 PropertyKey::Literal(
-                                    Literal::Number(_)
-                                    | Literal::Boolean(_)
-                                    | Literal::Null
-                                    | Literal::BigInt(_)
-                                    | Literal::RegExp { .. },
+                                    Literal::BigInt(_) | Literal::RegExp { .. },
                                 ) => {
+                                    // BigInt/RegExp property keys are rare — emit empty string
+                                    // as a conservative fallback.
                                     let idx = fc.add_name("");
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
@@ -203,18 +224,38 @@ pub fn compile_expr(
                     PropertyKind::Get => {
                         if let Some(value) = prop.value {
                             compile_expr(fc, prog, analysis, func_scopes, value);
-                            if let PropertyKey::Identifier(name) = &prop.key {
-                                let idx = fc.add_name(prog.interner.get(*name));
-                                fc.emit_u16(Op::DefineGetter, idx);
+                            match &prop.key {
+                                PropertyKey::Identifier(name) => {
+                                    let idx = fc.add_name(prog.interner.get(*name));
+                                    fc.emit_u16(Op::DefineGetter, idx);
+                                }
+                                PropertyKey::Literal(Literal::String(s)) => {
+                                    let idx = fc.add_name(prog.interner.get(*s));
+                                    fc.emit_u16(Op::DefineGetter, idx);
+                                }
+                                _ => {
+                                    // Computed/other getter keys not yet supported — discard closure.
+                                    fc.emit(Op::Pop);
+                                }
                             }
                         }
                     }
                     PropertyKind::Set => {
                         if let Some(value) = prop.value {
                             compile_expr(fc, prog, analysis, func_scopes, value);
-                            if let PropertyKey::Identifier(name) = &prop.key {
-                                let idx = fc.add_name(prog.interner.get(*name));
-                                fc.emit_u16(Op::DefineSetter, idx);
+                            match &prop.key {
+                                PropertyKey::Identifier(name) => {
+                                    let idx = fc.add_name(prog.interner.get(*name));
+                                    fc.emit_u16(Op::DefineSetter, idx);
+                                }
+                                PropertyKey::Literal(Literal::String(s)) => {
+                                    let idx = fc.add_name(prog.interner.get(*s));
+                                    fc.emit_u16(Op::DefineSetter, idx);
+                                }
+                                _ => {
+                                    // Computed/other setter keys not yet supported — discard closure.
+                                    fc.emit(Op::Pop);
+                                }
                             }
                         }
                     }
@@ -253,17 +294,65 @@ pub fn compile_expr(
             let arg = prog.exprs.get(*argument);
             if let ExprKind::Identifier(atom) = &arg.kind {
                 let loc = resolve_identifier(*atom, fc.func_scope_idx, func_scopes, analysis);
-                if let VarLocation::Local(slot) = loc {
-                    let inc_op = match op {
-                        UpdateOp::Increment => Op::IncLocal,
-                        UpdateOp::Decrement => Op::DecLocal,
-                    };
-                    fc.emit_u16_u8(inc_op, slot, u8::from(*prefix));
-                    return;
+                match loc {
+                    VarLocation::Local(slot) => {
+                        let inc_op = match op {
+                            UpdateOp::Increment => Op::IncLocal,
+                            UpdateOp::Decrement => Op::DecLocal,
+                        };
+                        fc.emit_u16_u8(inc_op, slot, u8::from(*prefix));
+                        return;
+                    }
+                    VarLocation::Global => {
+                        // Global identifier update: load, increment/decrement, store.
+                        let name = prog.interner.get(*atom);
+                        let idx = fc.add_name(name);
+                        fc.emit_u16(Op::GetGlobal, idx);
+                        if !*prefix {
+                            fc.emit(Op::Dup); // postfix: keep old value
+                        }
+                        fc.emit_u8(Op::PushI8, 1);
+                        fc.emit(match op {
+                            UpdateOp::Increment => Op::Add,
+                            UpdateOp::Decrement => Op::Sub,
+                        });
+                        if *prefix {
+                            fc.emit(Op::Dup); // prefix: keep new value
+                        }
+                        let store_idx = fc.add_name(name);
+                        fc.emit_u16(Op::SetGlobal, store_idx);
+                        fc.emit(Op::Pop); // pop the SetGlobal result
+                        if !*prefix {
+                            // Stack already has old value from the Dup before inc/dec.
+                        }
+                        return;
+                    }
+                    VarLocation::Upvalue(uv_idx) => {
+                        // Upvalue identifier update: load, increment/decrement, store.
+                        fc.emit_u16(Op::GetUpvalue, uv_idx);
+                        if !*prefix {
+                            fc.emit(Op::Dup); // postfix: keep old value
+                        }
+                        fc.emit_u8(Op::PushI8, 1);
+                        fc.emit(match op {
+                            UpdateOp::Increment => Op::Add,
+                            UpdateOp::Decrement => Op::Sub,
+                        });
+                        if *prefix {
+                            fc.emit(Op::Dup); // prefix: keep new value
+                        }
+                        fc.emit_u16(Op::SetUpvalue, uv_idx);
+                        fc.emit(Op::Pop); // pop the SetUpvalue result
+                        return;
+                    }
+                    VarLocation::Module(_) => {
+                        // Module imports are immutable — fall through to push undefined.
+                    }
                 }
             }
-            // Fallback: general case (property update etc.)
-            // TODO: handle member expression updates
+            // Fallback: member expression updates (++obj.prop, obj[key]++).
+            // TODO: emit proper GetProp/SetProp sequence for member expressions.
+            // For now, compile the argument for its side effects and keep stack balanced.
             compile_expr(fc, prog, analysis, func_scopes, *argument);
         }
 
@@ -507,12 +596,16 @@ fn compile_identifier_store(
     let loc = resolve_identifier(atom, fc.func_scope_idx, func_scopes, analysis);
     match loc {
         VarLocation::Local(slot) => {
-            // Check for const assignment (ES2020 §13.15.2 — TypeError).
             if let Some(info) = func_scopes[fc.func_scope_idx].get_local(atom) {
+                // Check for const assignment (ES2020 §13.15.2 — TypeError).
                 assert!(
                     info.kind != BindingKind::Const,
                     "assignment to constant variable"
                 );
+                // Check TDZ for let/const bindings before writing.
+                if info.needs_tdz {
+                    fc.emit_u16(Op::CheckTdz, slot);
+                }
             }
             fc.emit_u16(Op::SetLocal, slot);
         }
@@ -523,11 +616,7 @@ fn compile_identifier_store(
             fc.emit_u16(Op::SetGlobal, idx);
         }
         VarLocation::Module(_) => {
-            // Module bindings are immutable (imports are read-only).
-            // Runtime error, but for now just emit SetGlobal as fallback.
-            let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
-            fc.emit_u16(Op::SetGlobal, idx);
+            unreachable!("assignment to import binding is not allowed (ES2020 §16.2.3.7)");
         }
     }
 }
@@ -585,8 +674,10 @@ fn compile_arguments(
         match arg {
             Argument::Expression(e) => compile_expr(fc, prog, analysis, func_scopes, *e),
             Argument::Spread(e) => {
+                // Spread arguments are not yet supported — the expression is
+                // compiled as a normal argument. The stack remains balanced since
+                // the spread expression produces one value, matching the argc count.
                 compile_expr(fc, prog, analysis, func_scopes, *e);
-                // TODO: proper spread in call — for now treat as normal arg
             }
         }
     }

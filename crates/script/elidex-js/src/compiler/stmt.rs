@@ -289,6 +289,11 @@ pub fn compile_stmt(
             fc.patch_jump(finally_jump);
 
             // Finally block (if present).
+            let finally_pc = if finalizer.is_some() {
+                Some(fc.pc())
+            } else {
+                None
+            };
             if let Some(fin_block) = finalizer {
                 for &s in fin_block {
                     compile_stmt(fc, prog, analysis, func_scopes, s);
@@ -303,9 +308,19 @@ pub fn compile_stmt(
             let catch_bytes = (catch_offset as u16).to_le_bytes();
             fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
             fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-            // Finally offset = 0xFFFF (no finally offset in simple model).
-            fc.bytecode[(handler_patch_pos + 2) as usize] = 0xFF;
-            fc.bytecode[(handler_patch_pos + 3) as usize] = 0xFF;
+            // Patch finally offset: actual PC if present, 0xFFFF if absent.
+            let finally_offset = if let Some(fpc) = finally_pc {
+                assert!(
+                    u16::try_from(fpc).is_ok(),
+                    "finally offset {fpc} exceeds u16 range"
+                );
+                fpc as u16
+            } else {
+                0xFFFF
+            };
+            let finally_bytes = finally_offset.to_le_bytes();
+            fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
+            fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
         }
 
         StmtKind::Switch {
@@ -357,7 +372,7 @@ pub fn compile_stmt(
             // Simplified: each case emits a "Pop + body". The test jump
             // lands at the Pop. Fall-through from prev case jumps over
             // the Pop to the body.
-            fc.push_loop(0); // for break support
+            fc.push_switch(); // for break support (continue skips switch contexts)
             let mut fallthrough_patches: Vec<u32> = Vec::new();
             let mut entry_pcs: Vec<u32> = Vec::new();
 
@@ -375,14 +390,8 @@ pub fn compile_stmt(
                 fc.emit(Op::Pop);
 
                 // Patch fall-through from previous case body to skip the Pop.
-                let body_start = fc.pc();
                 for ft_patch in fallthrough_patches.drain(..) {
-                    // Patch fall-through jump to body_start (after Pop).
-                    #[allow(clippy::cast_possible_wrap)]
-                    let offset = (body_start as i32) - (ft_patch as i32) - 2;
-                    let bytes = (offset as i16).to_le_bytes();
-                    fc.bytecode[ft_patch as usize] = bytes[0];
-                    fc.bytecode[(ft_patch + 1) as usize] = bytes[1];
+                    fc.patch_jump(ft_patch);
                 }
 
                 // Emit body statements.
@@ -401,12 +410,16 @@ pub fn compile_stmt(
             // Patch the no-match jump.
             if has_default {
                 let default_pc = entry_pcs[default_idx];
-                let patch_pos = no_match_jump;
+                // Manually patch to default_pc (not current PC) using assert-checked offset.
                 #[allow(clippy::cast_possible_wrap)]
-                let offset = (default_pc as i32) - (patch_pos as i32) - 2;
+                let offset = (default_pc as i32) - (no_match_jump as i32) - 2;
+                assert!(
+                    (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
+                    "switch default jump offset {offset} out of i16 range"
+                );
                 let bytes = (offset as i16).to_le_bytes();
-                fc.bytecode[patch_pos as usize] = bytes[0];
-                fc.bytecode[(patch_pos + 1) as usize] = bytes[1];
+                fc.bytecode[no_match_jump as usize] = bytes[0];
+                fc.bytecode[(no_match_jump + 1) as usize] = bytes[1];
             } else {
                 fc.patch_jump(no_match_jump);
                 fc.emit(Op::Pop); // pop discriminant (no case matched)
