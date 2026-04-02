@@ -53,12 +53,18 @@ pub fn compile(
     fc.name = Some("<script>".to_string());
 
     // Initialize var-declared locals to undefined (ES2020 §10.1.1.6).
-    for ((_scope_idx, _name), info) in &func_scopes[0].locals {
-        if matches!(info.kind, BindingKind::Var | BindingKind::Function) {
-            fc.emit(Op::PushUndefined);
-            fc.emit_u16(Op::SetLocal, info.slot);
-            fc.emit(Op::Pop);
-        }
+    // Sort by slot index for deterministic bytecode output.
+    let mut var_slots: Vec<u16> = func_scopes[0]
+        .locals
+        .values()
+        .filter(|info| matches!(info.kind, BindingKind::Var | BindingKind::Function))
+        .map(|info| info.slot)
+        .collect();
+    var_slots.sort_unstable();
+    for slot in var_slots {
+        fc.emit(Op::PushUndefined);
+        fc.emit_u16(Op::SetLocal, slot);
+        fc.emit(Op::Pop);
     }
 
     // Compile top-level statements.
