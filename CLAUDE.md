@@ -299,3 +299,39 @@ mise run bench                   # Run all benchmarks (CSS, style, layout)
 - Actions pinned: `actions/checkout@v4`, `Swatinem/rust-cache@v2`, `dorny/paths-filter@v3`, `taiki-e/install-action@v2`.
 - `rust-toolchain.toml`: `channel = "stable"`.
 
+### elidex-storage-core (browser_db module, M4-8.5)
+
+- **BrowserDb**: `browser.sqlite` centralized database (8 tables). Typed sub-stores: `CookieStore<'db>`, `HistoryStore<'db>`, `BookmarkStore<'db>`.
+- **OriginKey**: Typed struct `{scheme, host, port}` (not string wrapper). `from_url()`, `from_origin()`. IPv6 brackets in `Display`.
+- **system_time_to_unix / unix_to_system_time**: Shared helpers in `browser_db/mod.rs`. `ts == 0` → `Some(UNIX_EPOCH)`, `ts < 0` → `None`.
+- **History**: 2-table design (`urls` + `visits`). `record_visit` and `delete_range` use transactions. Frecency with time-decay buckets.
+- **Cookies**: RFC 6265bis §5.7 full fields. `sync_all()` does DELETE + bulk INSERT in transaction. `PersistedCookie.delete()` includes `partition_key`.
+
+### elidex-net (CookieJar, M4-8.5)
+
+- **CookieJar**: RFC 6265bis §5.7 compliant. `generation()` / `snapshot()` / `load()` for decoupled persistence sync. `cookie_details_for_script()` returns full `CookieSnapshot` for CookieStore API.
+- **Cookie deletion**: `Max-Age=0` returns cookie with `expires = UNIX_EPOCH` + `persistent = false` (not `None`). Caller's `retain()` removes existing cookie.
+- **Host-only matching**: `cookie_domain_matches()` uses exact match for `host_only = true`.
+- **`stored_to_snapshot()`**: Shared conversion, lowercase `same_site`.
+
+### elidex-api-sw (router module, M4-8.5)
+
+- **URLPattern**: `UrlPattern::pathname()` / `hostname_and_pathname()` return `Result<Self, String>`. Pattern syntax: `:name` → `([^/]+)`, `*` → `(.*)` with unique group names `*0`/`*1`. `test(&url::Url)` / `exec(&url::Url)` avoid re-parsing.
+- **RouterSource**: `FetchEvent` / `Network` / `Cache(name)` / `RaceNetworkAndFetchHandler`.
+- **ClientState enums**: `ClientType`, `FrameType`, `VisibilityState` (not strings).
+
+### elidex-js-boa (M4-8.5 additions)
+
+- **CookieStore API**: `globals/cookie_store.rs`. `get`/`getAll` return full `CookieListItem` (7 props, `READONLY`). `set` accepts `(name, value)` or options object. `delete` uses `Max-Age=0`. Registered in Window + SW contexts.
+- **Response builder**: `fetch/mod.rs::build_response_from_parts(ResponseParts)` shared by fetch + cache. Provides `text()`/`json()`/`clone()`.
+- **cached_entry_to_response**: Delegates to `build_response_from_parts`. `response.url` uses final URL from `response_url_list`.
+- **ResponseType enum**: `entry.rs` — `Basic`/`Cors`/`Default`/`Error`/`Opaque`/`OpaqueRedirect`. `from_str_lossy` is case-insensitive.
+- **HostBridge**: `client_id()` returns UUID v4. `enable_sw_messages()` for startMessages(). `cookie_details_for_script()` for CookieStore API.
+
+### elidex-shell (M4-8.5 additions)
+
+- **SwFetchRelay**: `app/sw_fetch_relay.rs` — `initiate()`/`resolve()`/`check_timeouts()`. Tracks pending fetch by `fetch_id`.
+- **App.browser_db**: Initialized in `init_browser_db()`. Cookie sync via `sync_cookies_if_dirty()` in frame loop (generation-based dirty check, persistent cookies only).
+- **content/event_loop.rs**: Extracted `run_event_loop()` + `handle_message()` from `content/mod.rs`.
+- **Navigation SW filter**: Fragment-only skip, fetch_id verification loop, POST method/headers pass-through.
+
