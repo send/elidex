@@ -119,13 +119,14 @@ impl FunctionScope {
 /// Each function scope gets local slot assignments for all bindings
 /// declared within it.
 ///
-/// Returns a list of `FunctionScope`s. Index 0 is the top-level
+/// Returns `(func_scopes, scope_to_func)`. Index 0 is the top-level
 /// (script/module body). Nested functions are added in order of
-/// appearance.
-pub fn build_function_scopes(analysis: &ScopeAnalysis) -> Vec<FunctionScope> {
+/// appearance. `scope_to_func` maps each scope index to its owning
+/// function index for O(1) lookup.
+pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, Vec<usize>) {
     let scopes = &analysis.scopes;
     if scopes.is_empty() {
-        return vec![FunctionScope::new(false)];
+        return (vec![FunctionScope::new(false)], vec![]);
     }
 
     // Map each scope index to its owning function index.
@@ -167,7 +168,7 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> Vec<FunctionScope> {
         }
     }
 
-    func_scopes
+    (func_scopes, scope_to_func)
 }
 
 /// Resolve an identifier reference to its storage location.
@@ -344,7 +345,7 @@ mod tests {
     use crate::{analyze_scopes, parse_script};
 
     /// Helper: parse JS, analyze scopes, build function scopes.
-    fn setup(source: &str) -> (ScopeAnalysis, Vec<FunctionScope>) {
+    fn setup(source: &str) -> (ScopeAnalysis, Vec<FunctionScope>, Vec<usize>) {
         let output = parse_script(source);
         assert!(
             output.errors.is_empty(),
@@ -357,33 +358,28 @@ mod tests {
             "scope errors: {:?}",
             analysis.errors
         );
-        let func_scopes = build_function_scopes(&analysis);
-        (analysis, func_scopes)
+        let (func_scopes, scope_to_func) = build_function_scopes(&analysis);
+        (analysis, func_scopes, scope_to_func)
     }
 
     #[test]
     fn global_reference() {
-        let (analysis, _func_scopes) = setup("console.log(x);");
-        // `console` and `x` are not declared — should resolve to Global.
-        // Since we don't have access to the program's interner, test via the
-        // scope analysis: no bindings means everything is global.
+        let (analysis, _func_scopes, _) = setup("console.log(x);");
         assert!(analysis.scopes[0].bindings.is_empty());
     }
 
     #[test]
     fn local_var() {
-        let (_analysis, func_scopes) = setup("var x = 1;");
+        let (_analysis, func_scopes, _) = setup("var x = 1;");
         assert_eq!(func_scopes.len(), 1);
-        // Should have one local for `x`.
         assert_eq!(func_scopes[0].locals.len(), 1);
         assert_eq!(func_scopes[0].next_local, 1);
     }
 
     #[test]
     fn local_let_const() {
-        let (_analysis, func_scopes) = setup("let x = 1; const y = 2;");
+        let (_analysis, func_scopes, _) = setup("let x = 1; const y = 2;");
         assert_eq!(func_scopes[0].locals.len(), 2);
-        // Both should have TDZ.
         for info in func_scopes[0].locals.values() {
             assert!(info.needs_tdz);
         }
@@ -391,23 +387,27 @@ mod tests {
 
     #[test]
     fn function_creates_new_scope() {
-        let (_analysis, func_scopes) = setup("function foo(a) { let b = a; }");
-        // func_scopes[0] = script body, func_scopes[1] = foo
+        let (_analysis, func_scopes, _) = setup("function foo(a) { let b = a; }");
         assert!(func_scopes.len() >= 2);
-        // foo should have locals: a (param) and b (let)
         assert!(func_scopes[1].locals.len() >= 2);
     }
 
     #[test]
     fn nested_function_upvalue() {
-        let (analysis, mut func_scopes) =
-            setup("function outer() { let x = 1; function inner() { return x; } }");
-        // Should have 3 function scopes: script, outer, inner.
+        let source = "function outer() { let x = 1; function inner() { return x; } }";
+        let output = parse_script(source);
+        assert!(output.errors.is_empty());
+        let analysis = analyze_scopes(&output.program);
+        assert!(analysis.errors.is_empty());
+        let (mut func_scopes, _) = build_function_scopes(&analysis);
         assert!(func_scopes.len() >= 3);
 
-        // Resolve `x` from inner's perspective should create an upvalue.
-        // Find `x`'s atom from outer's locals (it has `let x`).
-        let x_atom = *func_scopes[1].locals.keys().find(|_| true).unwrap();
+        // Use the program's interner to find the exact Atom for "x".
+        let x_atom = output.program.interner.lookup("x");
+        assert!(
+            func_scopes[1].locals.contains_key(&x_atom),
+            "outer should have local 'x'"
+        );
 
         let loc = resolve_identifier(x_atom, 2, &mut func_scopes, &analysis);
         assert!(matches!(loc, VarLocation::Upvalue(_)));
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn var_not_tdz() {
-        let (_, func_scopes) = setup("var x = 1;");
+        let (_, func_scopes, _) = setup("var x = 1;");
         for info in func_scopes[0].locals.values() {
             assert!(!info.needs_tdz);
         }
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn param_not_tdz() {
-        let (_, func_scopes) = setup("function f(_a, _b) {}");
+        let (_, func_scopes, _) = setup("function f(_a, _b) {}");
         assert!(func_scopes.len() >= 2);
         for info in func_scopes[1].locals.values() {
             assert!(!info.needs_tdz);

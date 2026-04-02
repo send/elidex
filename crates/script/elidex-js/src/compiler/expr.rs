@@ -25,7 +25,7 @@ pub fn compile_expr(
     fc.source_map.add(fc.pc(), span);
 
     match &expr.kind {
-        ExprKind::Literal(lit) => compile_literal(fc, lit),
+        ExprKind::Literal(lit) => compile_literal(fc, prog, lit),
         ExprKind::Identifier(atom) => {
             compile_identifier_load(fc, prog, analysis, func_scopes, *atom);
         }
@@ -313,7 +313,7 @@ pub fn compile_expr(
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )]
-fn compile_literal(fc: &mut FunctionCompiler, lit: &Literal) {
+fn compile_literal(fc: &mut FunctionCompiler, prog: &Program, lit: &Literal) {
     match lit {
         Literal::Number(n) => {
             // Optimize small integers.
@@ -327,22 +327,25 @@ fn compile_literal(fc: &mut FunctionCompiler, lit: &Literal) {
                 fc.emit_u16(Op::PushConst, idx);
             }
         }
-        Literal::String(_atom) => {
-            // String literals need the interner — handled by compile_literal_with_interner.
-            let idx = fc.add_constant(Constant::String(String::new()));
+        Literal::String(atom) => {
+            let s = prog.interner.get(*atom).to_string();
+            let idx = fc.add_constant(Constant::String(s));
             fc.emit_u16(Op::PushConst, idx);
         }
         Literal::Boolean(true) => fc.emit(Op::PushTrue),
         Literal::Boolean(false) => fc.emit(Op::PushFalse),
         Literal::Null => fc.emit(Op::PushNull),
-        Literal::BigInt(_) => {
-            let idx = fc.add_constant(Constant::BigInt(String::new()));
+        Literal::BigInt(atom) => {
+            let s = prog.interner.get(*atom).to_string();
+            let idx = fc.add_constant(Constant::BigInt(s));
             fc.emit_u16(Op::PushConst, idx);
         }
-        Literal::RegExp { .. } => {
+        Literal::RegExp { pattern, flags } => {
+            let p = prog.interner.get(*pattern).to_string();
+            let f = prog.interner.get(*flags).to_string();
             let idx = fc.add_constant(Constant::RegExp {
-                pattern: String::new(),
-                flags: String::new(),
+                pattern: p,
+                flags: f,
             });
             fc.emit_u16(Op::PushConst, idx);
         }

@@ -45,7 +45,7 @@ pub fn compile(
     analysis: &ScopeAnalysis,
     source: &str,
 ) -> Result<CompiledScript, CompileError> {
-    let mut func_scopes = build_function_scopes(analysis);
+    let (mut func_scopes, _scope_to_func) = build_function_scopes(analysis);
 
     let is_strict = analysis.scopes.first().is_some_and(|s| s.is_strict);
 

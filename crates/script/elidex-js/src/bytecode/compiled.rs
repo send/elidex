@@ -1,5 +1,7 @@
 //! Compilation unit structures for the elidex-js bytecode.
 
+use crate::span::SourceLocation;
+
 use super::source_map::SourceMap;
 
 /// A compiled script or module — the top-level compilation unit.
@@ -14,17 +16,10 @@ pub struct CompiledScript {
 }
 
 impl CompiledScript {
-    /// Compute line and column (both 1-based) from a byte offset in source.
+    /// Compute source location from a byte offset.
     #[must_use]
-    pub fn location(&self, offset: u32) -> (u32, u32) {
-        let line = self.line_starts.partition_point(|&start| start <= offset);
-        let line_start = if line > 0 {
-            self.line_starts[line - 1]
-        } else {
-            0
-        };
-        let col = offset - line_start + 1;
-        (line as u32, col)
+    pub fn location(&self, offset: u32) -> SourceLocation {
+        SourceLocation::from_offset(offset, &self.line_starts)
     }
 
     /// Build line_starts from source text.
@@ -157,8 +152,12 @@ mod tests {
             source: "hello\nworld".into(),
             line_starts: vec![0, 6],
         };
-        assert_eq!(script.location(0), (1, 1));
-        assert_eq!(script.location(4), (1, 5));
+        let loc = script.location(0);
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 0);
+        let loc = script.location(4);
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 4);
     }
 
     #[test]
@@ -168,8 +167,12 @@ mod tests {
             source: "hello\nworld".into(),
             line_starts: vec![0, 6],
         };
-        assert_eq!(script.location(6), (2, 1));
-        assert_eq!(script.location(9), (2, 4));
+        let loc = script.location(6);
+        assert_eq!(loc.line, 2);
+        assert_eq!(loc.column, 0);
+        let loc = script.location(9);
+        assert_eq!(loc.line, 2);
+        assert_eq!(loc.column, 3);
     }
 
     #[test]
