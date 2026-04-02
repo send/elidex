@@ -410,10 +410,10 @@ pub fn compile_stmt(
             // If the last case body falls through (no break) and there's no
             // default, it would reach the trailing Pop intended only for the
             // no-match path. Emit a jump to skip it.
-            let end_fallthrough = if !has_default {
-                Some(fc.emit_jump(Op::Jump))
-            } else {
+            let end_fallthrough = if has_default {
                 None
+            } else {
+                Some(fc.emit_jump(Op::Jump))
             };
 
             // Patch the no-match jump.

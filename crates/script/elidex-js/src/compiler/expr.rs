@@ -616,12 +616,12 @@ fn compile_accessor(
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
-    prop: &Property,
+    property: &Property,
     define_op: Op,
 ) {
-    if let Some(value) = prop.value {
+    if let Some(value) = property.value {
         compile_expr(fc, prog, analysis, func_scopes, value);
-        match &prop.key {
+        match &property.key {
             PropertyKey::Identifier(name) => {
                 let idx = fc.add_name(prog.interner.get(*name));
                 fc.emit_u16(define_op, idx);
