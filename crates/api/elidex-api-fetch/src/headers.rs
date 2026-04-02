@@ -34,7 +34,7 @@ pub enum HeaderGuard {
     None,
     /// Request headers — rejects forbidden header names and `proxy-`/`sec-` prefixes.
     Request,
-    /// Request (no-cors) — allows only CORS-safelisted headers.
+    /// Request (no-cors) — stub: currently allows all (CORS-safelisted restriction TODO).
     RequestNoCors,
     /// Response — no extra restrictions (standard response guard).
     Response,

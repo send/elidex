@@ -24,8 +24,11 @@ pub enum VarLocation {
 /// Tracks local slot assignments and upvalue chains for a single function.
 #[derive(Debug)]
 pub struct FunctionScope {
-    /// Maps binding name → local slot index within this function.
-    pub locals: HashMap<Atom, LocalInfo>,
+    /// Maps (scope_idx, binding name) → local slot info.
+    /// Using scope_idx as part of the key allows block-scoped shadowing
+    /// (e.g. `let x` in an inner block gets a separate slot from an
+    /// outer `let x`).
+    pub locals: HashMap<(usize, Atom), LocalInfo>,
     /// Upvalue descriptors for this function.
     pub upvalues: Vec<UpvalueInfo>,
     /// Maps (parent scope index, binding name) → upvalue index (for dedup).
@@ -75,8 +78,8 @@ impl FunctionScope {
         }
     }
 
-    /// Allocate a local slot for a binding.
-    pub fn add_local(&mut self, name: Atom, kind: BindingKind) -> u16 {
+    /// Allocate a local slot for a binding in a specific scope.
+    pub fn add_local(&mut self, scope_idx: usize, name: Atom, kind: BindingKind) -> u16 {
         let slot = self.next_local;
         self.next_local += 1;
         let needs_tdz = matches!(
@@ -84,7 +87,7 @@ impl FunctionScope {
             BindingKind::Let | BindingKind::Const | BindingKind::Class
         );
         self.locals.insert(
-            name,
+            (scope_idx, name),
             LocalInfo {
                 slot,
                 kind,
@@ -94,10 +97,39 @@ impl FunctionScope {
         slot
     }
 
-    /// Look up a local by name.
+    /// Look up a local by name, searching from the innermost scope
+    /// outward within this function's scope indices.
     #[must_use]
     pub fn get_local(&self, name: Atom) -> Option<&LocalInfo> {
-        self.locals.get(&name)
+        // Search from innermost to outermost scope within this function.
+        for &scope_idx in self.scope_indices.iter().rev() {
+            if let Some(info) = self.locals.get(&(scope_idx, name)) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    /// Look up a local by name, searching from a specific scope outward
+    /// through parent scopes within this function.
+    #[must_use]
+    pub fn get_local_from_scope(
+        &self,
+        name: Atom,
+        scope_idx: usize,
+        analysis: &ScopeAnalysis,
+    ) -> Option<&LocalInfo> {
+        let mut current = Some(scope_idx);
+        while let Some(idx) = current {
+            if !self.scope_indices.contains(&idx) {
+                break;
+            }
+            if let Some(info) = self.locals.get(&(idx, name)) {
+                return Some(info);
+            }
+            current = analysis.scopes[idx].parent;
+        }
+        None
     }
 
     /// Add an upvalue capture, returning its index. Deduplicates.
@@ -159,12 +191,21 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
         let func = &mut func_scopes[func_idx];
 
         for binding in &scope.bindings {
-            // Skip if already allocated (e.g., hoisted var seen in block scope
-            // that was already allocated at function scope).
-            if func.locals.contains_key(&binding.name) {
+            // Skip if already allocated in this exact scope (duplicate binding).
+            if func.locals.contains_key(&(scope_idx, binding.name)) {
                 continue;
             }
-            func.add_local(binding.name, binding.kind);
+            // For `var` declarations, skip if already allocated in any scope
+            // within this function (var is function-scoped, not block-scoped).
+            if binding.kind == BindingKind::Var
+                && func
+                    .scope_indices
+                    .iter()
+                    .any(|&si| func.locals.contains_key(&(si, binding.name)))
+            {
+                continue;
+            }
+            func.add_local(scope_idx, binding.name, binding.kind);
         }
     }
 
@@ -405,7 +446,7 @@ mod tests {
         // Use the program's interner to find the exact Atom for "x".
         let x_atom = output.program.interner.lookup("x");
         assert!(
-            func_scopes[1].locals.contains_key(&x_atom),
+            func_scopes[1].get_local(x_atom).is_some(),
             "outer should have local 'x'"
         );
 

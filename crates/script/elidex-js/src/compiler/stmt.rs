@@ -100,6 +100,9 @@ pub fn compile_stmt(
 
             compile_stmt(fc, prog, analysis, func_scopes, *body);
 
+            // Patch continue jumps to loop_start (test re-evaluation).
+            fc.patch_continue_jumps_to(loop_start);
+
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
             fc.pop_loop();
@@ -107,12 +110,15 @@ pub fn compile_stmt(
 
         StmtKind::DoWhile { body, test } => {
             let loop_start = fc.pc();
-            let continue_target = fc.pc(); // continue jumps to test
-            fc.push_loop(continue_target);
+            // continue_target is a placeholder; actual continue jumps are
+            // collected via continue_patches and patched to the test PC.
+            fc.push_loop(loop_start);
 
             compile_stmt(fc, prog, analysis, func_scopes, *body);
 
-            // Continue target: evaluate test.
+            // Patch continue jumps to here (the test evaluation).
+            fc.patch_continue_jumps();
+
             compile_expr(fc, prog, analysis, func_scopes, *test);
             fc.emit_jump_to(Op::JumpIfTrue, loop_start);
             fc.pop_loop();
@@ -131,17 +137,23 @@ pub fn compile_stmt(
                         for decl in declarators {
                             if let Some(init_expr) = decl.init {
                                 compile_expr(fc, prog, analysis, func_scopes, init_expr);
-                                let pattern = prog.patterns.get(decl.pattern);
-                                if let PatternKind::Identifier(atom) = &pattern.kind {
-                                    compile_pattern_store(
-                                        fc,
-                                        prog,
-                                        analysis,
-                                        func_scopes,
-                                        *atom,
-                                        *kind,
-                                    );
-                                }
+                            } else if *kind == VarKind::Var {
+                                // var without init: already undefined at function entry.
+                                continue;
+                            } else {
+                                // let/const without init: push undefined to exit TDZ.
+                                fc.emit(Op::PushUndefined);
+                            }
+                            let pattern = prog.patterns.get(decl.pattern);
+                            if let PatternKind::Identifier(atom) = &pattern.kind {
+                                compile_pattern_store(
+                                    fc,
+                                    prog,
+                                    analysis,
+                                    func_scopes,
+                                    *atom,
+                                    *kind,
+                                );
                             }
                         }
                     }
@@ -153,9 +165,9 @@ pub fn compile_stmt(
             }
 
             let loop_start = fc.pc();
-            // Continue target is the update expression (or loop start if no update).
-            let continue_target = fc.pc(); // will be updated below
-            fc.push_loop(continue_target);
+            // continue_target is a placeholder; actual continue jumps are
+            // collected via continue_patches and patched before the update.
+            fc.push_loop(loop_start);
 
             // Test.
             let exit_patch = if let Some(test_expr) = test {
@@ -168,11 +180,8 @@ pub fn compile_stmt(
             // Body.
             compile_stmt(fc, prog, analysis, func_scopes, *body);
 
-            // Update the continue target to point here (before update expression).
-            let current_pc = fc.pc();
-            if let Some(ctx) = fc.loop_stack.last_mut() {
-                ctx.continue_target = current_pc;
-            }
+            // Patch continue jumps to here (before update expression).
+            fc.patch_continue_jumps();
 
             // Update.
             if let Some(update_expr) = update {
@@ -213,10 +222,11 @@ pub fn compile_stmt(
             if label.is_some() {
                 // TODO: labeled continue
             }
-            if let Some(ctx) = fc.loop_stack.last() {
-                let target = ctx.continue_target;
-                fc.emit_jump_to(Op::Jump, target);
-            }
+            // Emit a placeholder jump; it will be patched to the correct
+            // continue target (test for do-while, update for for-loops)
+            // when patch_continue_jumps() is called.
+            let patch = fc.emit_jump(Op::Jump);
+            fc.add_continue_patch(patch);
         }
 
         StmtKind::Labeled { label: _, body } => {
@@ -277,6 +287,10 @@ pub fn compile_stmt(
             }
 
             // Patch the exception handler offsets.
+            assert!(
+                u16::try_from(catch_offset).is_ok(),
+                "catch offset {catch_offset} exceeds u16 range"
+            );
             let catch_bytes = (catch_offset as u16).to_le_bytes();
             fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
             fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
@@ -291,46 +305,102 @@ pub fn compile_stmt(
         } => {
             compile_expr(fc, prog, analysis, func_scopes, *discriminant);
 
-            let mut case_patches: Vec<u32> = Vec::new();
-            let mut default_patch: Option<u32> = None;
-
             // First pass: emit tests and conditional jumps.
-            for case in cases {
+            //
+            // For each case with a test:
+            //   Dup discriminant    [disc disc]
+            //   PushConst(case_val) [disc disc case_val]
+            //   StrictEq            [disc bool]
+            //   JumpIfTrue → entry  [disc]       (pops true)
+            //   Pop                 [disc]       (pops false, next test)
+            //
+            // After all tests, jump to default or end (discriminant on stack).
+            let mut case_entry_patches: Vec<u32> = Vec::new();
+            let mut has_default = false;
+            let mut default_idx: usize = 0;
+
+            for (i, case) in cases.iter().enumerate() {
                 if let Some(test) = case.test {
                     fc.emit(Op::Dup); // keep discriminant
                     compile_expr(fc, prog, analysis, func_scopes, test);
                     fc.emit(Op::StrictEq);
                     let patch = fc.emit_jump(Op::JumpIfTrue);
-                    case_patches.push(patch);
+                    case_entry_patches.push(patch);
                 } else {
-                    // default case
-                    default_patch = Some(0); // placeholder
-                    case_patches.push(0); // placeholder
+                    has_default = true;
+                    default_idx = i;
+                    case_entry_patches.push(0); // not used for jump
                 }
             }
 
-            // Jump to default or end.
-            let end_or_default = fc.emit_jump(Op::Jump);
-            fc.emit(Op::Pop); // pop discriminant
+            // No case matched: jump to default or end.
+            let no_match_jump = fc.emit_jump(Op::Jump);
 
             // Second pass: emit case bodies.
+            //
+            // Each case entry point (jumped to from the test phase) pops
+            // the discriminant, then falls through to the body statements.
+            // Fall-through from a previous case body goes directly to the
+            // body statements (skipping the Pop), which is why we use a
+            // jump-over pattern: entry → Pop disc → Jump over skip →
+            // [fall-through entry] → body statements.
+            //
+            // Simplified: each case emits a "Pop + body". The test jump
+            // lands at the Pop. Fall-through from prev case jumps over
+            // the Pop to the body.
             fc.push_loop(0); // for break support
+            let mut fallthrough_patches: Vec<u32> = Vec::new();
+            let mut entry_pcs: Vec<u32> = Vec::new();
+
             for (i, case) in cases.iter().enumerate() {
+                // Record the entry PC (where test-match jumps land).
+                let entry_pc = fc.pc();
+                entry_pcs.push(entry_pc);
+
+                // Patch the test jump for this case.
                 if case.test.is_some() {
-                    fc.patch_jump(case_patches[i]);
-                    fc.emit(Op::Pop); // pop true from StrictEq
-                } else if default_patch.is_some() {
-                    fc.patch_jump(end_or_default);
+                    fc.patch_jump(case_entry_patches[i]);
                 }
-                fc.emit(Op::Pop); // pop discriminant copy
+
+                // Pop discriminant (only reached from test jump, not fall-through).
+                fc.emit(Op::Pop);
+
+                // Patch fall-through from previous case body to skip the Pop.
+                let body_start = fc.pc();
+                for ft_patch in fallthrough_patches.drain(..) {
+                    // Patch fall-through jump to body_start (after Pop).
+                    #[allow(clippy::cast_possible_wrap)]
+                    let offset = (body_start as i32) - (ft_patch as i32) - 2;
+                    let bytes = (offset as i16).to_le_bytes();
+                    fc.bytecode[ft_patch as usize] = bytes[0];
+                    fc.bytecode[(ft_patch + 1) as usize] = bytes[1];
+                }
+
+                // Emit body statements.
                 for &s in &case.consequent {
                     compile_stmt(fc, prog, analysis, func_scopes, s);
                 }
+
+                // If there's a next case, emit a jump placeholder for
+                // fall-through (to skip the next case's Pop).
+                if i + 1 < cases.len() {
+                    let ft = fc.emit_jump(Op::Jump);
+                    fallthrough_patches.push(ft);
+                }
             }
 
-            if default_patch.is_none() {
-                fc.patch_jump(end_or_default);
-                fc.emit(Op::Pop); // pop discriminant
+            // Patch the no-match jump.
+            if has_default {
+                let default_pc = entry_pcs[default_idx];
+                let patch_pos = no_match_jump;
+                #[allow(clippy::cast_possible_wrap)]
+                let offset = (default_pc as i32) - (patch_pos as i32) - 2;
+                let bytes = (offset as i16).to_le_bytes();
+                fc.bytecode[patch_pos as usize] = bytes[0];
+                fc.bytecode[(patch_pos + 1) as usize] = bytes[1];
+            } else {
+                fc.patch_jump(no_match_jump);
+                fc.emit(Op::Pop); // pop discriminant (no case matched)
             }
             fc.pop_loop();
         }

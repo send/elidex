@@ -41,6 +41,9 @@ pub struct LoopContext {
     pub continue_target: u32,
     /// Placeholder offsets that need patching for `break`.
     pub break_patches: Vec<u32>,
+    /// Placeholder offsets that need patching for `continue` (used when
+    /// the continue target is not yet known, e.g. do-while test, for-loop update).
+    pub continue_patches: Vec<u32>,
 }
 
 impl FunctionCompiler {
@@ -192,6 +195,7 @@ impl FunctionCompiler {
         self.loop_stack.push(LoopContext {
             continue_target,
             break_patches: Vec::new(),
+            continue_patches: Vec::new(),
         });
     }
 
@@ -199,6 +203,41 @@ impl FunctionCompiler {
     pub fn add_break_patch(&mut self, patch_pos: u32) {
         if let Some(ctx) = self.loop_stack.last_mut() {
             ctx.break_patches.push(patch_pos);
+        }
+    }
+
+    /// Record a continue jump that needs patching (target not yet known).
+    pub fn add_continue_patch(&mut self, patch_pos: u32) {
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            ctx.continue_patches.push(patch_pos);
+        }
+    }
+
+    /// Patch all pending continue jumps to the current PC.
+    pub fn patch_continue_jumps(&mut self) {
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            let patches: Vec<u32> = ctx.continue_patches.drain(..).collect();
+            for patch in patches {
+                self.patch_jump(patch);
+            }
+        }
+    }
+
+    /// Patch all pending continue jumps to a specific target PC.
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn patch_continue_jumps_to(&mut self, target: u32) {
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            let patches: Vec<u32> = ctx.continue_patches.drain(..).collect();
+            for patch_pos in patches {
+                let offset = (target as i32) - (patch_pos as i32) - 2;
+                debug_assert!(
+                    (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
+                    "jump offset {offset} out of i16 range"
+                );
+                let bytes = (offset as i16).to_le_bytes();
+                self.bytecode[patch_pos as usize] = bytes[0];
+                self.bytecode[(patch_pos + 1) as usize] = bytes[1];
+            }
         }
     }
 
