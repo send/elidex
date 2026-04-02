@@ -18,4 +18,5 @@ mod custom_elements;
 mod dom_api;
 mod events;
 mod observers;
+mod service_worker;
 mod web_apis;

@@ -21,6 +21,45 @@ static QUOTA: std::sync::LazyLock<elidex_storage_core::QuotaManager> =
 ///
 /// Owns the registration store, persistence layer, active SW handles,
 /// update checker, and sync manager.
+/// Client type (WHATWG SW §4.2 `ClientType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum ClientType {
+    Window,
+    Worker,
+    SharedWorker,
+}
+
+/// Frame type (WHATWG SW §4.2 `FrameType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FrameType {
+    TopLevel,
+    Nested,
+    Auxiliary,
+    None,
+}
+
+/// Visibility state (Page Visibility spec §4.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum VisibilityState {
+    Visible,
+    Hidden,
+}
+
+/// Tracked state for a controlled client (WHATWG SW §4.2 Client).
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct ClientState {
+    pub id: String,
+    pub url: String,
+    pub client_type: ClientType,
+    pub frame_type: FrameType,
+    pub visibility: VisibilityState,
+    pub focused: bool,
+}
+
 #[allow(dead_code)]
 pub struct SwCoordinator {
     store: SwRegistrationStore,
@@ -28,6 +67,8 @@ pub struct SwCoordinator {
     handles: HashMap<String, SwHandle>,
     update_checker: UpdateChecker,
     sync_manager: SyncManager,
+    /// Active clients tracked for clients.matchAll()/get().
+    client_states: HashMap<String, ClientState>,
 }
 
 #[allow(dead_code)]
@@ -40,6 +81,7 @@ impl SwCoordinator {
             handles: HashMap::new(),
             update_checker: UpdateChecker::new(),
             sync_manager: SyncManager::new(),
+            client_states: HashMap::new(),
         }
     }
 
@@ -57,6 +99,7 @@ impl SwCoordinator {
         Self {
             store,
             persistence: Some(persistence),
+            client_states: HashMap::new(),
             handles: HashMap::new(),
             update_checker: UpdateChecker::new(),
             sync_manager: SyncManager::new(),
@@ -66,17 +109,29 @@ impl SwCoordinator {
     /// Handle a SW registration request from a content thread.
     ///
     /// Registers the SW, spawns a SW thread, and sends Install event.
+    /// Sends `SwRegistered(success: false)` back on validation failure.
     pub fn register(
         &mut self,
         script_url: &url::Url,
         scope: &url::Url,
         page_url: &url::Url,
         network_process: &elidex_net::broker::NetworkProcessHandle,
+        reply_channel: &elidex_plugin::LocalChannel<
+            crate::ipc::BrowserToContent,
+            crate::ipc::ContentToBrowser,
+        >,
     ) {
         // Validate security constraints against the actual registering page URL.
         if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, page_url) {
             tracing::warn!(error = %msg, "SW registration rejected");
-            return; // TODO(M4-8.5): send SwRegistered(success: false) back to content thread
+            let _ = reply_channel.send(crate::ipc::BrowserToContent::SwRegistered(Box::new(
+                crate::ipc::SwRegisteredData {
+                    scope: scope.clone(),
+                    success: false,
+                    error: Some(msg),
+                },
+            )));
+            return;
         }
 
         let reg = SwRegistration {
@@ -259,6 +314,35 @@ impl SwCoordinator {
         for (_, mut handle) in self.handles.drain() {
             handle.shutdown();
         }
+    }
+
+    // --- Client tracking (WHATWG SW §4.2-4.3) ---
+
+    /// Register or update a controlled client.
+    pub fn register_client(&mut self, state: ClientState) {
+        self.client_states.insert(state.id.clone(), state);
+    }
+
+    /// Unregister a client (e.g., tab closed).
+    pub fn unregister_client(&mut self, client_id: &str) {
+        self.client_states.remove(client_id);
+    }
+
+    /// Get all tracked clients (for `clients.matchAll()`).
+    pub fn all_clients(&self) -> Vec<&ClientState> {
+        self.client_states.values().collect()
+    }
+
+    /// Get a specific client by ID (for `clients.get(id)`).
+    pub fn get_client(&self, id: &str) -> Option<&ClientState> {
+        self.client_states.get(id)
+    }
+
+    /// Check if any client is visible (for Background Sync).
+    pub fn has_foreground_client(&self) -> bool {
+        self.client_states
+            .values()
+            .any(|c| c.visibility == VisibilityState::Visible)
     }
 }
 

@@ -296,6 +296,7 @@ fn resolve_and_fetch(
             body: parsed.body,
             url: resolved,
             version: elidex_net::HttpVersion::H1,
+            url_list: vec![],
         });
     }
     let response = network_handle

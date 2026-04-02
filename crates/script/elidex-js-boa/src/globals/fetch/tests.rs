@@ -160,6 +160,7 @@ fn response_object_properties() {
         body: bytes::Bytes::from("hello world"),
         url: url::Url::parse("https://example.com/page").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/page").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -211,6 +212,7 @@ fn response_redirected_flag() {
         body: bytes::Bytes::new(),
         url: url::Url::parse("https://example.com/final").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/original").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -229,6 +231,7 @@ fn response_404_not_ok() {
         body: bytes::Bytes::from("not found"),
         url: url::Url::parse("https://example.com/missing").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/missing").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -253,6 +256,7 @@ fn response_text_method() {
         body: bytes::Bytes::from("body content"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -289,6 +293,7 @@ fn response_json_method() {
         body: bytes::Bytes::from(r#"{"key":"value","num":42}"#),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -327,6 +332,7 @@ fn response_json_invalid_rejects() {
         body: bytes::Bytes::from("not json at all"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -356,6 +362,7 @@ fn response_clone_method() {
         body: bytes::Bytes::from("cloned body"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -401,6 +408,7 @@ fn response_clone_has_clone() {
         body: bytes::Bytes::from("deep clone"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
+        url_list: vec![],
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);

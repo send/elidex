@@ -4,13 +4,33 @@
 //! push, and replace operations. Mirrors the browser's session history
 //! for a single browsing context.
 
-/// A single entry in the session history.
+/// Scroll restoration mode (WHATWG HTML §7.4.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScrollRestorationMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+/// A single entry in the session history (WHATWG HTML §7.4.1).
 #[derive(Clone, Debug)]
 pub struct HistoryEntry {
     /// The URL for this history entry.
     pub url: url::Url,
     /// The document title (may be empty).
     pub title: String,
+    /// Unique key for this entry (Navigation API). Survives replaceState.
+    pub navigation_api_key: String,
+    /// Unique ID for this entry (Navigation API). Changes on replaceState.
+    pub navigation_api_id: String,
+    /// Scroll restoration mode.
+    pub scroll_restoration: ScrollRestorationMode,
+    /// Saved scroll position (x, y) for scroll restoration.
+    pub scroll_position: Option<(f64, f64)>,
+    /// Serialized state from pushState/replaceState (JSON string).
+    pub classic_history_api_state: Option<String>,
+    /// Navigation API state (WHATWG HTML §7.4.1, initially undefined).
+    pub navigation_api_state: Option<String>,
 }
 
 /// A pending navigation request from `location.assign()`, `location.href = ...`, etc.
@@ -58,6 +78,8 @@ pub struct NavigationController {
     entries: Vec<HistoryEntry>,
     /// Current position in the history. `None` means no page loaded.
     index: Option<usize>,
+    /// Monotonic counter for generating unique entry keys/IDs.
+    next_entry_id: u64,
 }
 
 impl NavigationController {
@@ -66,7 +88,15 @@ impl NavigationController {
         Self {
             entries: Vec::new(),
             index: None,
+            next_entry_id: 1,
         }
+    }
+
+    /// Generate a unique opaque string for navigation API key/ID.
+    fn next_id(&mut self) -> String {
+        let id = self.next_entry_id;
+        self.next_entry_id += 1;
+        format!("{id:016x}")
     }
 
     /// Push a new URL onto the history, discarding any forward entries.
@@ -75,9 +105,17 @@ impl NavigationController {
         let new_index = self.index.map_or(0, |i| i + 1);
         self.entries.truncate(new_index);
 
+        let key = self.next_id();
+        let id = self.next_id();
         self.entries.push(HistoryEntry {
             url,
             title: String::new(),
+            navigation_api_key: key,
+            navigation_api_id: id,
+            scroll_restoration: ScrollRestorationMode::default(),
+            scroll_position: None,
+            classic_history_api_state: None,
+            navigation_api_state: None,
         });
         self.index = Some(new_index);
 
@@ -93,9 +131,13 @@ impl NavigationController {
     /// Replace the current entry's URL without adding a new entry.
     ///
     /// If there are no entries, this behaves like `push`.
+    /// The `navigation_api_key` is preserved (spec: key survives replace),
+    /// but `navigation_api_id` gets a new value.
     pub fn replace(&mut self, url: url::Url) {
         if let Some(idx) = self.index {
+            let new_id = self.next_id();
             self.entries[idx].url = url;
+            self.entries[idx].navigation_api_id = new_id;
         } else {
             self.push(url);
         }

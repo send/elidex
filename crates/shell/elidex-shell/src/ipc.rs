@@ -200,6 +200,13 @@ pub enum BrowserToContent {
     },
     /// Parsed Web App Manifest from browser thread.
     ManifestParsed(Box<elidex_api_sw::WebAppManifest>),
+    /// Service Worker FetchEvent response from browser thread.
+    SwFetchResponse {
+        /// Fetch request ID (matches `ContentToBrowser::SwFetchRequest`).
+        fetch_id: u64,
+        /// SW response, or `None` for passthrough (no respondWith called).
+        response: Option<Box<elidex_api_sw::SwResponse>>,
+    },
     /// Shut down the content thread.
     Shutdown,
 }
@@ -271,18 +278,18 @@ pub enum ContentToBrowser {
     },
     /// Request storage usage estimate for this origin (W3C Storage Standard §4).
     StorageEstimate {
-        /// The origin to estimate.
-        origin: String,
+        /// The page URL (origin derived via `OriginKey::from_url`).
+        origin_url: url::Url,
     },
     /// Request persistent storage for this origin (W3C Storage Standard §4).
     StoragePersist {
-        /// The origin requesting persistence.
-        origin: String,
+        /// The page URL (origin derived via `OriginKey::from_url`).
+        origin_url: url::Url,
     },
     /// Query whether this origin has persistent storage.
     StoragePersisted {
-        /// The origin to query.
-        origin: String,
+        /// The page URL (origin derived via `OriginKey::from_url`).
+        origin_url: url::Url,
     },
     /// A `localStorage` value was changed (WHATWG HTML §11.2.1).
     ///
@@ -315,6 +322,17 @@ pub enum ContentToBrowser {
     ManifestDiscovered {
         /// URL of the manifest file.
         url: url::Url,
+    },
+    /// Request SW FetchEvent interception for a navigation.
+    SwFetchRequest {
+        /// Unique fetch request ID.
+        fetch_id: u64,
+        /// The request to intercept.
+        request: Box<elidex_api_sw::SwRequest>,
+        /// Client ID of the requesting context.
+        client_id: String,
+        /// Client ID of the resulting document (for navigation requests).
+        resulting_client_id: String,
     },
 }
 

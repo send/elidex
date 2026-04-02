@@ -17,6 +17,18 @@ impl HostBridge {
         }
     }
 
+    /// Get full cookie details for CookieStore API (WHATWG Cookie Store spec).
+    ///
+    /// Returns structured cookie data with domain, path, expires, secure, sameSite.
+    pub fn cookie_details_for_script(&self, url: &url::Url) -> Vec<elidex_net::CookieSnapshot> {
+        let inner = self.inner.borrow();
+        if let Some(jar) = &inner.cookie_jar {
+            jar.cookie_details_for_script(url)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Set a cookie from script (`document.cookie = "..."` setter).
     ///
     /// Rejects `HttpOnly` and Secure-over-non-HTTPS cookies.

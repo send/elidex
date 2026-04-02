@@ -198,11 +198,13 @@ fn sw_thread_run(
 
                         let props = [
                             ("request", JsValue::from(request_obj)),
-                            ("clientId", JsValue::from(js_string!(client_id))),
+                            ("clientId", JsValue::from(js_string!(client_id.as_str()))),
                             (
                                 "resultingClientId",
-                                JsValue::from(js_string!(resulting_client_id)),
+                                JsValue::from(js_string!(resulting_client_id.as_str())),
                             ),
+                            // WHATWG SW §4.6: replacesClientId (empty string for non-navigation).
+                            ("replacesClientId", JsValue::from(js_string!(""))),
                         ];
 
                         match runtime.dispatch_fetch_event(&mut session, &mut dom, doc, &props) {

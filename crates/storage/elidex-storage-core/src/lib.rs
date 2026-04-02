@@ -2,6 +2,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 pub mod backend;
+pub mod browser_db;
 pub mod error;
 pub mod migration;
 pub mod origin_manager;
@@ -12,6 +13,7 @@ pub mod util;
 pub use backend::{
     CustomOp, Migration, OpenOptions, StorageBackend, StorageConnection, StorageOp, StorageResult,
 };
+pub use browser_db::BrowserDb;
 pub use error::{StorageError, StorageErrorKind};
 pub use origin_manager::{OriginKey, OriginStorageManager, StorageType};
 pub use quota::{QuotaEstimate, QuotaManager};

@@ -1,3 +1,46 @@
+/// Response type (Fetch spec §3.1.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResponseType {
+    Basic,
+    Cors,
+    Default,
+    Error,
+    Opaque,
+    OpaqueRedirect,
+}
+
+impl ResponseType {
+    /// Parse from string (case-insensitive). Unknown values default to `Basic`.
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "cors" => Self::Cors,
+            "error" => Self::Error,
+            "opaque" => Self::Opaque,
+            "opaqueredirect" => Self::OpaqueRedirect,
+            "default" => Self::Default,
+            _ => Self::Basic,
+        }
+    }
+
+    /// Serialize to the spec-defined string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Basic => "basic",
+            Self::Cors => "cors",
+            Self::Default => "default",
+            Self::Error => "error",
+            Self::Opaque => "opaque",
+            Self::OpaqueRedirect => "opaqueredirect",
+        }
+    }
+}
+
+impl std::fmt::Display for ResponseType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A cached request/response pair stored in the Cache API.
 #[derive(Debug, Clone)]
 pub struct CachedEntry {
@@ -5,6 +48,8 @@ pub struct CachedEntry {
     pub request_url: String,
     /// Request HTTP method.
     pub request_method: String,
+    /// Request headers as (name, value) pairs (for `cache.keys()` returning Request objects).
+    pub request_headers: Vec<(String, String)>,
     /// Response HTTP status code.
     pub response_status: u16,
     /// Response HTTP status text.
@@ -13,6 +58,10 @@ pub struct CachedEntry {
     pub response_headers: Vec<(String, String)>,
     /// Response body bytes.
     pub response_body: Vec<u8>,
+    /// Redirect chain URLs (Fetch spec §3.1.4). First = original, last = final.
+    pub response_url_list: Vec<String>,
+    /// Response type (Fetch spec §3.1.1).
+    pub response_type: ResponseType,
     /// Vary headers from the response (for matching).
     /// Stored as the request header values that Vary references.
     pub vary_headers: Vec<(String, String)>,
@@ -47,10 +96,13 @@ impl CachedEntry {
         serde_json::json!({
             "request_url": self.request_url,
             "request_method": self.request_method,
+            "request_headers": self.request_headers,
             "response_status": self.response_status,
             "response_status_text": self.response_status_text,
             "response_headers": self.response_headers,
             "response_body": base64_encode(&self.response_body),
+            "response_url_list": self.response_url_list,
+            "response_type": self.response_type.as_str(),
             "vary_headers": self.vary_headers,
             "is_opaque": self.is_opaque,
         })
@@ -60,40 +112,30 @@ impl CachedEntry {
         Some(Self {
             request_url: json.get("request_url")?.as_str()?.to_owned(),
             request_method: json.get("request_method")?.as_str()?.to_owned(),
+            request_headers: parse_header_pairs(json.get("request_headers")),
             response_status: u16::try_from(json.get("response_status")?.as_u64()?).ok()?,
             response_status_text: json
                 .get("response_status_text")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_owned(),
-            response_headers: json
-                .get("response_headers")?
-                .as_array()?
-                .iter()
-                .filter_map(|pair| {
-                    let arr = pair.as_array()?;
-                    Some((
-                        arr.first()?.as_str()?.to_owned(),
-                        arr.get(1)?.as_str()?.to_owned(),
-                    ))
-                })
-                .collect(),
+            response_headers: parse_header_pairs(json.get("response_headers")),
             response_body: base64_decode(json.get("response_body")?.as_str()?),
-            vary_headers: json
-                .get("vary_headers")
+            response_url_list: json
+                .get("response_url_list")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|pair| {
-                            let a = pair.as_array()?;
-                            Some((
-                                a.first()?.as_str()?.to_owned(),
-                                a.get(1)?.as_str()?.to_owned(),
-                            ))
-                        })
+                        .filter_map(|v| v.as_str().map(str::to_owned))
                         .collect()
                 })
                 .unwrap_or_default(),
+            response_type: ResponseType::from_str_lossy(
+                json.get("response_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("basic"),
+            ),
+            vary_headers: parse_header_pairs(json.get("vary_headers")),
             is_opaque: json
                 .get("is_opaque")
                 .and_then(serde_json::Value::as_bool)
@@ -181,6 +223,23 @@ pub fn entry_matches(
     true
 }
 
+/// Parse a JSON array of [name, value] pairs into `Vec<(String, String)>`.
+fn parse_header_pairs(val: Option<&serde_json::Value>) -> Vec<(String, String)> {
+    val.and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|pair| {
+                    let a = pair.as_array()?;
+                    Some((
+                        a.first()?.as_str()?.to_owned(),
+                        a.get(1)?.as_str()?.to_owned(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 
 fn base64_encode(data: &[u8]) -> String {
@@ -200,10 +259,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://example.com/page".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![("content-type".into(), "text/html".into())],
             response_body: b"<h1>Hello</h1>".to_vec(),
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![],
             is_opaque: false,
         };
@@ -225,10 +287,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://example.com/page?v=1".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![],
             is_opaque: false,
         };
@@ -253,10 +318,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://example.com/page?v=1".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![],
             is_opaque: false,
         };
@@ -278,10 +346,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://example.com/api".into(),
             request_method: "POST".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![],
             is_opaque: false,
         };
@@ -310,10 +381,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://api.com/data".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![("accept".into(), "application/json".into())],
             is_opaque: false,
         };
@@ -352,10 +426,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://example.com/".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 200,
             response_status_text: "OK".into(),
             response_headers: vec![],
             response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
             vary_headers: vec![("*".into(), String::new())],
             is_opaque: false,
         };
@@ -373,10 +450,13 @@ mod tests {
         let entry = CachedEntry {
             request_url: "https://cdn.com/lib.js".into(),
             request_method: "GET".into(),
+            request_headers: vec![],
             response_status: 0,
             response_status_text: String::new(),
             response_headers: vec![],
             response_body: vec![0; 1000],
+            response_url_list: vec![],
+            response_type: ResponseType::Opaque,
             vary_headers: vec![],
             is_opaque: true,
         };

@@ -11,7 +11,7 @@ use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
 /// Unique identifier for a tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TabId(u64);
+pub(crate) struct TabId(pub(crate) u64);
 
 /// Monotonic tab ID generator.
 struct TabIdGenerator(u64);

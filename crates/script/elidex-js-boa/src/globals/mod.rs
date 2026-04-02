@@ -5,6 +5,7 @@ pub mod blob;
 pub mod cache;
 pub mod canvas;
 pub mod console;
+pub mod cookie_store;
 pub mod cssom;
 pub mod custom_elements;
 pub mod document;
@@ -915,6 +916,7 @@ pub fn register_all_globals(
     form_data::register_form_data(ctx, bridge);
     worker_constructor::register_worker_constructor(ctx, bridge);
     cache::register_caches(ctx, bridge);
+    cookie_store::register_cookie_store(ctx, bridge);
     service_worker::register_service_worker(ctx, bridge);
     indexeddb::register_indexeddb(ctx, bridge);
     // Register location and history as global properties.

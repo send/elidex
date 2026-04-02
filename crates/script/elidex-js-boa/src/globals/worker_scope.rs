@@ -93,6 +93,7 @@ pub fn register_worker_globals(
     crate::globals::window::dom_parser::register_structured_clone(ctx);
 
     crate::globals::cache::register_caches(ctx, bridge);
+    crate::globals::cookie_store::register_cookie_store(ctx, bridge);
 
     // --- Worker-specific APIs ---
     register_worker_self(ctx);

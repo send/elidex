@@ -166,6 +166,7 @@ impl HttpTransport {
                 body,
                 url: request.url.clone(),
                 version,
+                url_list: vec![],
             })
         })
         .await

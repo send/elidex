@@ -5,9 +5,52 @@
 use std::rc::Rc;
 
 use boa_engine::{
-    js_string, object::ObjectInitializer, Context, JsNativeError, JsObject, JsResult, JsValue,
-    NativeFunction,
+    js_string, object::ObjectInitializer, property::Attribute, Context, JsNativeError, JsObject,
+    JsResult, JsValue, NativeFunction,
 };
+
+/// Build a JS Response object from a `CachedEntry`.
+///
+/// Delegates to the shared `build_response_from_parts` in fetch/mod.rs,
+/// which provides text(), json(), and clone() methods.
+fn cached_entry_to_response(entry: &elidex_cache_api::CachedEntry, ctx: &mut Context) -> JsValue {
+    let body = String::from_utf8_lossy(&entry.response_body);
+    let redirected = entry.response_url_list.len() > 1;
+    // Fetch spec: response.url is the final URL after redirects.
+    let url = entry.response_url_list.last().unwrap_or(&entry.request_url);
+    super::fetch::build_response_from_parts(
+        &super::fetch::ResponseParts {
+            status: entry.response_status,
+            status_text: &entry.response_status_text,
+            headers: &entry.response_headers,
+            body: &body,
+            url,
+            response_type: entry.response_type.as_str(),
+            redirected,
+        },
+        ctx,
+    )
+}
+
+/// Build a JS Request object from a `CachedEntry` (for cache.keys()).
+fn cached_entry_to_request(entry: &elidex_cache_api::CachedEntry, ctx: &mut Context) -> JsValue {
+    let headers = super::fetch::create_headers_object(&entry.request_headers, ctx);
+
+    let mut init = ObjectInitializer::new(ctx);
+    init.property(
+        js_string!("url"),
+        JsValue::from(js_string!(entry.request_url.as_str())),
+        Attribute::READONLY,
+    );
+    init.property(
+        js_string!("method"),
+        JsValue::from(js_string!(entry.request_method.as_str())),
+        Attribute::READONLY,
+    );
+    init.property(js_string!("headers"), headers, Attribute::READONLY);
+
+    JsValue::from(init.build())
+}
 
 use crate::bridge::HostBridge;
 
@@ -154,12 +197,8 @@ fn build_cache_storage(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 })
                 .flatten();
 
-            // Phase 2: returns body string. M4-8.5 will return full Response object.
             let val = match result {
-                Some(entry) => JsValue::from(js_string!(String::from_utf8_lossy(
-                    &entry.response_body
-                )
-                .to_string())),
+                Some(entry) => cached_entry_to_response(&entry, ctx),
                 None => JsValue::undefined(),
             };
             let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
@@ -214,10 +253,7 @@ fn build_cache_object(
                 .flatten();
 
             let val = match result {
-                Some(entry) => JsValue::from(js_string!(String::from_utf8_lossy(
-                    &entry.response_body
-                )
-                .to_string())),
+                Some(entry) => cached_entry_to_response(&entry, ctx),
                 None => JsValue::undefined(),
             };
             let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
@@ -246,10 +282,13 @@ fn build_cache_object(
             let entry = elidex_cache_api::CachedEntry {
                 request_url: url,
                 request_method: "GET".into(),
+                request_headers: vec![],
                 response_status: 200,
                 response_status_text: "OK".into(),
                 response_headers: vec![],
                 response_body: body.into_bytes(),
+                response_url_list: vec![],
+                response_type: elidex_cache_api::ResponseType::Basic,
                 vary_headers: vec![],
                 is_opaque: false,
             };
@@ -306,8 +345,8 @@ fn build_cache_object(
                 .unwrap_or_default();
 
             let arr = boa_engine::object::builtins::JsArray::new(ctx);
-            for entry in entries {
-                arr.push(JsValue::from(js_string!(entry.request_url)), ctx)?;
+            for entry in &entries {
+                arr.push(cached_entry_to_request(entry, ctx), ctx)?;
             }
             let val: JsValue = arr.into();
             let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
@@ -345,13 +384,8 @@ fn build_cache_object(
                 .unwrap_or_default();
 
             let arr = boa_engine::object::builtins::JsArray::new(ctx);
-            for entry in entries {
-                arr.push(
-                    JsValue::from(js_string!(
-                        String::from_utf8_lossy(&entry.response_body).to_string()
-                    )),
-                    ctx,
-                )?;
+            for entry in &entries {
+                arr.push(cached_entry_to_response(entry, ctx), ctx)?;
             }
             let val: JsValue = arr.into();
             let promise = boa_engine::object::builtins::JsPromise::resolve(val, ctx);
@@ -375,10 +409,13 @@ fn build_cache_object(
             let entry = elidex_cache_api::CachedEntry {
                 request_url: url,
                 request_method: "GET".into(),
+                request_headers: vec![],
                 response_status: 200,
                 response_status_text: "OK".into(),
                 response_headers: vec![],
                 response_body: Vec::new(),
+                response_url_list: vec![],
+                response_type: elidex_cache_api::ResponseType::Basic,
                 vary_headers: vec![],
                 is_opaque: false,
             };
@@ -427,10 +464,13 @@ fn build_cache_object(
                 entries.push(elidex_cache_api::CachedEntry {
                     request_url: url,
                     request_method: "GET".into(),
+                    request_headers: vec![],
                     response_status: 200,
                     response_status_text: "OK".into(),
                     response_headers: vec![],
                     response_body: Vec::new(),
+                    response_url_list: vec![],
+                    response_type: elidex_cache_api::ResponseType::Basic,
                     vary_headers: vec![],
                     is_opaque: false,
                 });
