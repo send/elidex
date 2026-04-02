@@ -11,7 +11,7 @@ mod stmt;
 use crate::ast::Program;
 use crate::bytecode::compiled::CompiledScript;
 use crate::bytecode::opcode::Op;
-use crate::scope::ScopeAnalysis;
+use crate::scope::{BindingKind, ScopeAnalysis};
 
 use function::FunctionCompiler;
 use resolve::build_function_scopes;
@@ -51,6 +51,15 @@ pub fn compile(
 
     let mut fc = FunctionCompiler::new(0, is_strict);
     fc.name = Some("<script>".to_string());
+
+    // Initialize var-declared locals to undefined (ES2020 §10.1.1.6).
+    for ((_scope_idx, _name), info) in &func_scopes[0].locals {
+        if matches!(info.kind, BindingKind::Var | BindingKind::Function) {
+            fc.emit(Op::PushUndefined);
+            fc.emit_u16(Op::SetLocal, info.slot);
+            fc.emit(Op::Pop);
+        }
+    }
 
     // Compile top-level statements.
     for &stmt_id in &program.body {

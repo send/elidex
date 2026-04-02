@@ -9,7 +9,7 @@ use crate::bytecode::opcode::Op;
 
 use super::function::FunctionCompiler;
 use super::resolve::{resolve_identifier, FunctionScope, VarLocation};
-use crate::scope::ScopeAnalysis;
+use crate::scope::{BindingKind, ScopeAnalysis};
 
 /// Compile an expression, leaving its value on the stack.
 #[allow(clippy::too_many_lines)]
@@ -157,39 +157,46 @@ pub fn compile_expr(
                 }
                 match prop.kind {
                     PropertyKind::Init => {
+                        let is_computed = matches!(&prop.key, PropertyKey::Computed(_));
+                        // Evaluate key first if computed (ES2020 §13.1.5.7).
+                        if is_computed {
+                            if let PropertyKey::Computed(e) = &prop.key {
+                                compile_expr(fc, prog, analysis, func_scopes, *e);
+                            }
+                        }
+                        // Then evaluate value.
                         if let Some(value) = prop.value {
                             compile_expr(fc, prog, analysis, func_scopes, value);
                         } else {
                             fc.emit(Op::PushUndefined);
                         }
-                        match &prop.key {
-                            PropertyKey::Identifier(name)
-                            | PropertyKey::PrivateIdentifier(name) => {
-                                let name_str = prog.interner.get(*name);
-                                let idx = fc.add_name(name_str);
-                                fc.emit_u16(Op::DefineProperty, idx);
-                            }
-                            PropertyKey::Literal(Literal::String(s)) => {
-                                let name_str = prog.interner.get(*s);
-                                let idx = fc.add_name(name_str);
-                                fc.emit_u16(Op::DefineProperty, idx);
-                            }
-                            PropertyKey::Computed(e) => {
-                                // Need key on stack before value, but value is already pushed.
-                                // Swap key and value.
-                                compile_expr(fc, prog, analysis, func_scopes, *e);
-                                fc.emit(Op::Swap);
-                                fc.emit(Op::DefineComputedProperty);
-                            }
-                            PropertyKey::Literal(
-                                Literal::Number(_)
-                                | Literal::Boolean(_)
-                                | Literal::Null
-                                | Literal::BigInt(_)
-                                | Literal::RegExp { .. },
-                            ) => {
-                                let idx = fc.add_name("");
-                                fc.emit_u16(Op::DefineProperty, idx);
+                        // Define property.
+                        if is_computed {
+                            fc.emit(Op::DefineComputedProperty);
+                        } else {
+                            match &prop.key {
+                                PropertyKey::Identifier(name)
+                                | PropertyKey::PrivateIdentifier(name) => {
+                                    let name_str = prog.interner.get(*name);
+                                    let idx = fc.add_name(name_str);
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
+                                PropertyKey::Literal(Literal::String(s)) => {
+                                    let name_str = prog.interner.get(*s);
+                                    let idx = fc.add_name(name_str);
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
+                                PropertyKey::Literal(
+                                    Literal::Number(_)
+                                    | Literal::Boolean(_)
+                                    | Literal::Null
+                                    | Literal::BigInt(_)
+                                    | Literal::RegExp { .. },
+                                ) => {
+                                    let idx = fc.add_name("");
+                                    fc.emit_u16(Op::DefineProperty, idx);
+                                }
+                                PropertyKey::Computed(_) => unreachable!(),
                             }
                         }
                     }
@@ -396,6 +403,28 @@ fn compile_assignment(
             let target = prog.exprs.get(*target_id);
             match &target.kind {
                 ExprKind::Identifier(atom) => {
+                    // Handle logical assignment operators with short-circuit (ES2020 §13.15.3).
+                    if matches!(
+                        op,
+                        AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign
+                    ) {
+                        compile_identifier_load(fc, prog, analysis, func_scopes, *atom);
+                        let jump_op = match op {
+                            AssignOp::AndAssign => Op::JumpIfFalse,
+                            AssignOp::OrAssign => Op::JumpIfTrue,
+                            AssignOp::NullCoalAssign => Op::JumpIfNotNullish,
+                            _ => unreachable!(),
+                        };
+                        // Dup + conditional jump: if short-circuit, keep current value.
+                        fc.emit(Op::Dup);
+                        let patch = fc.emit_jump(jump_op);
+                        fc.emit(Op::Pop); // discard old value
+                        compile_expr(fc, prog, analysis, func_scopes, right);
+                        compile_identifier_store(fc, prog, analysis, func_scopes, *atom);
+                        fc.patch_jump(patch);
+                        return;
+                    }
+
                     if op != AssignOp::Assign {
                         // Compound: load current value first.
                         compile_identifier_load(fc, prog, analysis, func_scopes, *atom);
@@ -477,7 +506,16 @@ fn compile_identifier_store(
 ) {
     let loc = resolve_identifier(atom, fc.func_scope_idx, func_scopes, analysis);
     match loc {
-        VarLocation::Local(slot) => fc.emit_u16(Op::SetLocal, slot),
+        VarLocation::Local(slot) => {
+            // Check for const assignment (ES2020 §13.15.2 — TypeError).
+            if let Some(info) = func_scopes[fc.func_scope_idx].get_local(atom) {
+                assert!(
+                    info.kind != BindingKind::Const,
+                    "assignment to constant variable"
+                );
+            }
+            fc.emit_u16(Op::SetLocal, slot);
+        }
         VarLocation::Upvalue(idx) => fc.emit_u16(Op::SetUpvalue, idx),
         VarLocation::Global => {
             let name = prog.interner.get(atom);
@@ -606,8 +644,13 @@ fn compound_op_to_opcode(op: AssignOp) -> Op {
         AssignOp::ShlAssign => Op::Shl,
         AssignOp::ShrAssign => Op::Shr,
         AssignOp::UShrAssign => Op::UShr,
-        AssignOp::BitAndAssign | AssignOp::AndAssign => Op::BitAnd, // logical handled differently in practice
-        AssignOp::BitOrAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign => Op::BitOr, // logical/nullish handled differently in practice
+        AssignOp::BitAndAssign => Op::BitAnd,
+        AssignOp::BitOrAssign => Op::BitOr,
+        AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign => {
+            unreachable!(
+                "logical assignment operators use short-circuit, not compound_op_to_opcode"
+            )
+        }
         AssignOp::BitXorAssign => Op::BitXor,
         AssignOp::Assign => unreachable!("plain assign should not call compound_op_to_opcode"),
     }
