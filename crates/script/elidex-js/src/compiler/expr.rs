@@ -222,42 +222,10 @@ pub fn compile_expr(
                         }
                     }
                     PropertyKind::Get => {
-                        if let Some(value) = prop.value {
-                            compile_expr(fc, prog, analysis, func_scopes, value);
-                            match &prop.key {
-                                PropertyKey::Identifier(name) => {
-                                    let idx = fc.add_name(prog.interner.get(*name));
-                                    fc.emit_u16(Op::DefineGetter, idx);
-                                }
-                                PropertyKey::Literal(Literal::String(s)) => {
-                                    let idx = fc.add_name(prog.interner.get(*s));
-                                    fc.emit_u16(Op::DefineGetter, idx);
-                                }
-                                _ => {
-                                    // Computed/other getter keys not yet supported — discard closure.
-                                    fc.emit(Op::Pop);
-                                }
-                            }
-                        }
+                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineGetter);
                     }
                     PropertyKind::Set => {
-                        if let Some(value) = prop.value {
-                            compile_expr(fc, prog, analysis, func_scopes, value);
-                            match &prop.key {
-                                PropertyKey::Identifier(name) => {
-                                    let idx = fc.add_name(prog.interner.get(*name));
-                                    fc.emit_u16(Op::DefineSetter, idx);
-                                }
-                                PropertyKey::Literal(Literal::String(s)) => {
-                                    let idx = fc.add_name(prog.interner.get(*s));
-                                    fc.emit_u16(Op::DefineSetter, idx);
-                                }
-                                _ => {
-                                    // Computed/other setter keys not yet supported — discard closure.
-                                    fc.emit(Op::Pop);
-                                }
-                            }
-                        }
+                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineSetter);
                     }
                 }
             }
@@ -304,45 +272,32 @@ pub fn compile_expr(
                         return;
                     }
                     VarLocation::Global => {
-                        // Global identifier update: load, increment/decrement, store.
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
-                        fc.emit_u16(Op::GetGlobal, idx);
-                        if !*prefix {
-                            fc.emit(Op::Dup); // postfix: keep old value
-                        }
-                        fc.emit_u8(Op::PushI8, 1);
-                        fc.emit(match op {
-                            UpdateOp::Increment => Op::Add,
-                            UpdateOp::Decrement => Op::Sub,
-                        });
-                        if *prefix {
-                            fc.emit(Op::Dup); // prefix: keep new value
-                        }
+                        let load_idx = fc.add_name(name);
                         let store_idx = fc.add_name(name);
-                        fc.emit_u16(Op::SetGlobal, store_idx);
-                        fc.emit(Op::Pop); // pop the SetGlobal result
-                        if !*prefix {
-                            // Stack already has old value from the Dup before inc/dec.
-                        }
+                        emit_update_sequence(
+                            fc,
+                            *op,
+                            *prefix,
+                            |f| f.emit_u16(Op::GetGlobal, load_idx),
+                            |f| {
+                                f.emit_u16(Op::SetGlobal, store_idx);
+                                f.emit(Op::Pop);
+                            },
+                        );
                         return;
                     }
                     VarLocation::Upvalue(uv_idx) => {
-                        // Upvalue identifier update: load, increment/decrement, store.
-                        fc.emit_u16(Op::GetUpvalue, uv_idx);
-                        if !*prefix {
-                            fc.emit(Op::Dup); // postfix: keep old value
-                        }
-                        fc.emit_u8(Op::PushI8, 1);
-                        fc.emit(match op {
-                            UpdateOp::Increment => Op::Add,
-                            UpdateOp::Decrement => Op::Sub,
-                        });
-                        if *prefix {
-                            fc.emit(Op::Dup); // prefix: keep new value
-                        }
-                        fc.emit_u16(Op::SetUpvalue, uv_idx);
-                        fc.emit(Op::Pop); // pop the SetUpvalue result
+                        emit_update_sequence(
+                            fc,
+                            *op,
+                            *prefix,
+                            |f| f.emit_u16(Op::GetUpvalue, uv_idx),
+                            |f| {
+                                f.emit_u16(Op::SetUpvalue, uv_idx);
+                                f.emit(Op::Pop);
+                            },
+                        );
                         return;
                     }
                     VarLocation::Module(_) => {
@@ -655,6 +610,33 @@ fn compile_member_property(
     }
 }
 
+/// Compile a getter or setter property definition.
+fn compile_accessor(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    prop: &Property,
+    define_op: Op,
+) {
+    if let Some(value) = prop.value {
+        compile_expr(fc, prog, analysis, func_scopes, value);
+        match &prop.key {
+            PropertyKey::Identifier(name) => {
+                let idx = fc.add_name(prog.interner.get(*name));
+                fc.emit_u16(define_op, idx);
+            }
+            PropertyKey::Literal(Literal::String(s)) => {
+                let idx = fc.add_name(prog.interner.get(*s));
+                fc.emit_u16(define_op, idx);
+            }
+            _ => {
+                fc.emit(Op::Pop);
+            }
+        }
+    }
+}
+
 /// Compile function call arguments.
 ///
 /// Panics if more than 255 arguments are provided (u8 argc encoding limit).
@@ -709,6 +691,31 @@ fn binary_op_to_opcode(op: BinaryOp) -> Op {
         BinaryOp::In => Op::In,
         BinaryOp::Instanceof => Op::Instanceof,
     }
+}
+
+/// Emit a prefix/postfix update sequence (++/--) for non-local targets.
+///
+/// `emit_load` pushes the current value; `emit_store` pops and stores the new value.
+fn emit_update_sequence(
+    fc: &mut FunctionCompiler,
+    op: UpdateOp,
+    prefix: bool,
+    emit_load: impl FnOnce(&mut FunctionCompiler),
+    emit_store: impl FnOnce(&mut FunctionCompiler),
+) {
+    emit_load(fc);
+    if !prefix {
+        fc.emit(Op::Dup); // postfix: keep old value under new
+    }
+    fc.emit_u8(Op::PushI8, 1);
+    fc.emit(match op {
+        UpdateOp::Increment => Op::Add,
+        UpdateOp::Decrement => Op::Sub,
+    });
+    if prefix {
+        fc.emit(Op::Dup); // prefix: keep new value
+    }
+    emit_store(fc);
 }
 
 /// Map UnaryOp to opcode.
