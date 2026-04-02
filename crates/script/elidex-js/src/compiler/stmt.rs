@@ -345,8 +345,8 @@ pub fn compile_stmt(
             //   Dup discriminant    [disc disc]
             //   PushConst(case_val) [disc disc case_val]
             //   StrictEq            [disc bool]
-            //   JumpIfTrue → entry  [disc]       (pops true)
-            //   Pop                 [disc]       (pops false, next test)
+            //   JumpIfTrue → entry  [disc]       (pops bool; if true, jumps to case entry)
+            //                                     (if false, falls through to next test)
             //
             // After all tests, jump to default or end (discriminant on stack).
             let mut case_entry_patches: Vec<u32> = Vec::new();
