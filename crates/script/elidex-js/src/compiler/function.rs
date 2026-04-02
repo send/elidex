@@ -128,7 +128,7 @@ impl FunctionCompiler {
         // Offset is relative to the byte AFTER the jump instruction
         // (opcode byte + 2 offset bytes = 3 bytes total).
         let offset = (target as i32) - (patch_pos as i32) - 2;
-        debug_assert!(
+        assert!(
             (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
             "jump offset {offset} out of i16 range"
         );
@@ -142,7 +142,7 @@ impl FunctionCompiler {
     pub fn emit_jump_to(&mut self, op: Op, target: u32) {
         self.bytecode.push(op.to_byte());
         let offset = (target as i32) - (self.pc() as i32) - 2;
-        debug_assert!(
+        assert!(
             (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&offset),
             "jump offset {offset} out of i16 range"
         );

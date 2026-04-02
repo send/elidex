@@ -102,12 +102,12 @@ pub fn compile_expr(
                 fc.emit(Op::Dup); // keep receiver for CallMethod
                 compile_member_property(fc, prog, analysis, func_scopes, property, *computed);
                 compile_arguments(fc, prog, analysis, func_scopes, arguments);
-                let argc = arguments.len().min(255) as u8;
+                let argc = arguments.len() as u8;
                 fc.emit_u8(Op::CallMethod, argc);
             } else {
                 compile_expr(fc, prog, analysis, func_scopes, *callee);
                 compile_arguments(fc, prog, analysis, func_scopes, arguments);
-                let argc = arguments.len().min(255) as u8;
+                let argc = arguments.len() as u8;
                 fc.emit_u8(Op::Call, argc);
             }
         }
@@ -115,7 +115,7 @@ pub fn compile_expr(
         ExprKind::New { callee, arguments } => {
             compile_expr(fc, prog, analysis, func_scopes, *callee);
             compile_arguments(fc, prog, analysis, func_scopes, arguments);
-            let argc = arguments.len().min(255) as u8;
+            let argc = arguments.len() as u8;
             fc.emit_u8(Op::New, argc);
         }
 
@@ -418,17 +418,14 @@ fn compile_assignment(
                         if let MemberProp::Expression(key_expr) = property {
                             compile_expr(fc, prog, analysis, func_scopes, *key_expr);
                         }
-                        if op != AssignOp::Assign {
-                            // Compound assignment (e.g. obj[key] += val):
-                            // Stack: [obj key]. Need current value for the operation.
-                            // TODO: compound computed member assignment requires
-                            // DupTwo or re-evaluation of key (side effects).
-                            // For now, fall back to simple assignment semantics.
-                        }
+                        // Compound computed assignment (obj[key] += val) requires
+                        // preserving object+key while loading the old value. Not yet
+                        // supported — reject to avoid miscompilation.
+                        assert!(
+                            op == AssignOp::Assign,
+                            "compound assignments to computed members are not yet supported"
+                        );
                         compile_expr(fc, prog, analysis, func_scopes, right);
-                        if op != AssignOp::Assign {
-                            fc.emit(compound_op_to_opcode(op));
-                        }
                         fc.emit(Op::SetElem);
                     } else {
                         // Named property assignment: obj.prop = value
@@ -462,9 +459,10 @@ fn compile_assignment(
             }
         }
         AssignTarget::Pattern(_pattern_id) => {
-            // Destructuring assignment — handled in pattern.rs
+            // Destructuring assignment not yet implemented — pop RHS to keep
+            // stack balanced and fail explicitly.
             compile_expr(fc, prog, analysis, func_scopes, right);
-            // TODO: destructure
+            fc.emit(Op::Pop);
         }
     }
 }
@@ -532,8 +530,7 @@ fn compile_member_property(
 
 /// Compile function call arguments.
 ///
-/// At most 255 arguments are compiled; extra arguments are silently
-/// dropped to match the u8 argc encoding.
+/// Panics if more than 255 arguments are provided (u8 argc encoding limit).
 fn compile_arguments(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -541,8 +538,12 @@ fn compile_arguments(
     func_scopes: &mut [FunctionScope],
     arguments: &[Argument],
 ) {
-    let argc = arguments.len().min(255);
-    for arg in &arguments[..argc] {
+    assert!(
+        arguments.len() <= 255,
+        "too many arguments ({}) — maximum 255 supported",
+        arguments.len()
+    );
+    for arg in arguments {
         match arg {
             Argument::Expression(e) => compile_expr(fc, prog, analysis, func_scopes, *e),
             Argument::Spread(e) => {

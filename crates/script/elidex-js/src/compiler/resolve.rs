@@ -216,6 +216,13 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
 ///
 /// `current_func_idx` is the index into the `func_scopes` array.
 /// Walks outward through enclosing functions to find the binding.
+///
+/// **Limitation (M4-9):** Resolution searches all scopes within a function
+/// without tracking the current lexical scope position. Block-scoped shadowing
+/// (e.g., `{ let x = 1; } x;`) may resolve incorrectly. Correct resolution
+/// requires the compiler to track a `current_scope_idx` during AST traversal
+/// and call `get_local_from_scope()` instead of `get_local()`. This will be
+/// addressed in M4-10 alongside the interpreter.
 pub fn resolve_identifier(
     name: Atom,
     current_func_idx: usize,

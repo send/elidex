@@ -40,7 +40,7 @@ impl WsReadyState {
 /// - SSRF protection via `elidex_plugin::url_security::validate_url`
 ///   (converts ws/wss to http/https for validation)
 ///
-/// Returns the validated URL or an error message.
+/// Returns `Ok(())` if the URL is valid, or an error message if it is not.
 pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
     // 1. Scheme check.
     match url.scheme() {

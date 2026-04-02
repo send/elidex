@@ -56,12 +56,16 @@ pub fn compile_stmt(
                     fc.emit(Op::PushUndefined);
                 }
 
-                // Simple identifier pattern.
                 let pattern = prog.patterns.get(decl.pattern);
-                if let PatternKind::Identifier(atom) = &pattern.kind {
-                    compile_pattern_store(fc, prog, analysis, func_scopes, *atom, *kind);
+                match &pattern.kind {
+                    PatternKind::Identifier(atom) => {
+                        compile_pattern_store(fc, prog, analysis, func_scopes, *atom, *kind);
+                    }
+                    // Destructuring patterns not yet supported — pop value to keep stack balanced.
+                    _ => {
+                        fc.emit(Op::Pop);
+                    }
                 }
-                // TODO: destructuring patterns
             }
         }
 
@@ -145,15 +149,20 @@ pub fn compile_stmt(
                                 fc.emit(Op::PushUndefined);
                             }
                             let pattern = prog.patterns.get(decl.pattern);
-                            if let PatternKind::Identifier(atom) = &pattern.kind {
-                                compile_pattern_store(
-                                    fc,
-                                    prog,
-                                    analysis,
-                                    func_scopes,
-                                    *atom,
-                                    *kind,
-                                );
+                            match &pattern.kind {
+                                PatternKind::Identifier(atom) => {
+                                    compile_pattern_store(
+                                        fc,
+                                        prog,
+                                        analysis,
+                                        func_scopes,
+                                        *atom,
+                                        *kind,
+                                    );
+                                }
+                                _ => {
+                                    fc.emit(Op::Pop);
+                                }
                             }
                         }
                     }
