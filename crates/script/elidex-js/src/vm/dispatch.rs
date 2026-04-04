@@ -295,10 +295,27 @@ impl Vm {
                         };
                         self.inner.stack.push(JsValue::Boolean(found));
                     } else {
-                        let msg = self.inner.strings.intern(
+                        let msg_str = self.inner.strings.intern(
                             "Cannot use 'in' operator to search for property in non-object",
                         );
-                        let val = JsValue::String(msg);
+                        let type_error_name = self.inner.strings.intern("TypeError");
+                        let error_obj = self.alloc_object(Object {
+                            kind: ObjectKind::Error {
+                                name: type_error_name,
+                            },
+                            properties: vec![
+                                (
+                                    self.inner.well_known.message,
+                                    Property::data(JsValue::String(msg_str)),
+                                ),
+                                (
+                                    self.inner.well_known.name,
+                                    Property::data(JsValue::String(type_error_name)),
+                                ),
+                            ],
+                            prototype: None,
+                        });
+                        let val = JsValue::Object(error_obj);
                         if self.handle_exception(val, entry_frame_depth) {
                             continue;
                         }
@@ -638,14 +655,14 @@ impl Vm {
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
                     if let Err(e) = self.do_call(argc, JsValue::Undefined) {
-                        if let VmErrorKind::ThrowValue(val) = e.kind {
-                            if self.handle_exception(val, entry_frame_depth) {
-                                continue;
-                            }
-                            return Err(VmError {
-                                kind: VmErrorKind::ThrowValue(val),
-                                message: e.message,
-                            });
+                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
+                            val
+                        } else {
+                            let msg = self.inner.strings.intern(&e.to_string());
+                            JsValue::String(msg)
+                        };
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
                         }
                         return Err(e);
                     }
@@ -662,14 +679,14 @@ impl Vm {
                     match self.call_value(callee, receiver, &call_args) {
                         Ok(result) => self.inner.stack.push(result),
                         Err(e) => {
-                            if let VmErrorKind::ThrowValue(val) = e.kind {
-                                if self.handle_exception(val, entry_frame_depth) {
-                                    continue;
-                                }
-                                return Err(VmError {
-                                    kind: VmErrorKind::ThrowValue(val),
-                                    message: e.message,
-                                });
+                            let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
+                                val
+                            } else {
+                                let msg = self.inner.strings.intern(&e.to_string());
+                                JsValue::String(msg)
+                            };
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
                             }
                             return Err(e);
                         }
@@ -678,14 +695,14 @@ impl Vm {
                 Op::New => {
                     let argc = self.read_u8_op() as usize;
                     if let Err(e) = self.do_new(argc) {
-                        if let VmErrorKind::ThrowValue(val) = e.kind {
-                            if self.handle_exception(val, entry_frame_depth) {
-                                continue;
-                            }
-                            return Err(VmError {
-                                kind: VmErrorKind::ThrowValue(val),
-                                message: e.message,
-                            });
+                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
+                            val
+                        } else {
+                            let msg = self.inner.strings.intern(&e.to_string());
+                            JsValue::String(msg)
+                        };
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
                         }
                         return Err(e);
                     }

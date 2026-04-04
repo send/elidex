@@ -130,28 +130,23 @@ fn parse_float_prefix(s: &str) -> f64 {
         i += 1;
     }
 
-    let start = i;
-
     // Integer digits
+    let mut has_digit = false;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
+        has_digit = true;
         i += 1;
     }
 
-    // Decimal point + fraction
+    // Decimal point + fraction (`.5` is valid — digits may appear only after the dot)
     if i < bytes.len() && bytes[i] == b'.' {
         i += 1;
         while i < bytes.len() && bytes[i].is_ascii_digit() {
+            has_digit = true;
             i += 1;
         }
     }
 
     // Must have consumed at least one digit (a bare "." or sign is invalid).
-    let has_digit = if start < i {
-        // Check that we didn't just consume a lone "."
-        !(i == start + 1 && bytes[start] == b'.')
-    } else {
-        false
-    };
     if !has_digit {
         return f64::NAN;
     }

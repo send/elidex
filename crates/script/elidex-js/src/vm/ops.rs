@@ -164,8 +164,9 @@ impl Vm {
                 // String.length
                 if key == self.inner.well_known.length {
                     let s = self.inner.strings.get(sid);
+                    // JS string length is measured in UTF-16 code units, not bytes.
                     #[allow(clippy::cast_precision_loss)]
-                    Ok(JsValue::Number(s.len() as f64))
+                    Ok(JsValue::Number(s.encode_utf16().count() as f64))
                 } else if let Some(proto_id) = self.inner.string_prototype {
                     // Look up method on String.prototype.
                     Ok(get_property(&self.inner, proto_id, key).unwrap_or(JsValue::Undefined))
