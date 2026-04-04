@@ -655,12 +655,7 @@ impl Vm {
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
                     if let Err(e) = self.do_call(argc, JsValue::Undefined) {
-                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
-                            val
-                        } else {
-                            let msg = self.inner.strings.intern(&e.to_string());
-                            JsValue::String(msg)
-                        };
+                        let thrown = self.vm_error_to_thrown(&e);
                         if self.handle_exception(thrown, entry_frame_depth) {
                             continue;
                         }
@@ -695,12 +690,7 @@ impl Vm {
                 Op::New => {
                     let argc = self.read_u8_op() as usize;
                     if let Err(e) = self.do_new(argc) {
-                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
-                            val
-                        } else {
-                            let msg = self.inner.strings.intern(&e.to_string());
-                            JsValue::String(msg)
-                        };
+                        let thrown = self.vm_error_to_thrown(&e);
                         if self.handle_exception(thrown, entry_frame_depth) {
                             continue;
                         }

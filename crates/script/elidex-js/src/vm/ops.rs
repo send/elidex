@@ -6,10 +6,51 @@ use super::coerce::{
     NumericBinaryOp,
 };
 use super::value::{
-    FuncId, JsValue, ObjectKind, Property, StringId, Upvalue, UpvalueState, VmError,
+    FuncId, JsValue, ObjectKind, Property, StringId, Upvalue, UpvalueState, VmError, VmErrorKind,
 };
 use super::Vm;
 use crate::bytecode::compiled::Constant;
+
+// ---------------------------------------------------------------------------
+// Error-to-thrown-value conversion
+// ---------------------------------------------------------------------------
+
+impl Vm {
+    /// Convert a `VmError` into a `JsValue` suitable for `handle_exception`.
+    /// `ThrowValue` errors pass through; other runtime errors are wrapped
+    /// in a proper Error object (TypeError, ReferenceError, etc.).
+    pub(crate) fn vm_error_to_thrown(&mut self, error: &VmError) -> JsValue {
+        match &error.kind {
+            VmErrorKind::ThrowValue(val) => *val,
+            kind => {
+                let error_name = match kind {
+                    VmErrorKind::TypeError => "TypeError",
+                    VmErrorKind::ReferenceError => "ReferenceError",
+                    VmErrorKind::RangeError => "RangeError",
+                    VmErrorKind::SyntaxError => "SyntaxError",
+                    _ => "Error",
+                };
+                let name_id = self.inner.strings.intern(error_name);
+                let msg_id = self.inner.strings.intern(&error.message);
+                let error_obj = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::Error { name: name_id },
+                    properties: vec![
+                        (
+                            self.inner.well_known.name,
+                            Property::data(JsValue::String(name_id)),
+                        ),
+                        (
+                            self.inner.well_known.message,
+                            Property::data(JsValue::String(msg_id)),
+                        ),
+                    ],
+                    prototype: self.inner.object_prototype,
+                });
+                JsValue::Object(error_obj)
+            }
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Operator helpers
