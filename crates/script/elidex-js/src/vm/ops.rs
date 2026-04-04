@@ -16,18 +16,20 @@ use crate::bytecode::compiled::Constant;
 // ---------------------------------------------------------------------------
 
 impl Vm {
-    pub(crate) fn binary_numeric(&mut self, op: NumericBinaryOp) {
-        let b = self.inner.stack.pop().unwrap_or(JsValue::Undefined);
-        let a = self.inner.stack.pop().unwrap_or(JsValue::Undefined);
+    pub(crate) fn binary_numeric(&mut self, op: NumericBinaryOp) -> Result<(), VmError> {
+        let b = self.pop()?;
+        let a = self.pop()?;
         let r = op_numeric_binary(&self.inner, a, b, op);
         self.inner.stack.push(r);
+        Ok(())
     }
 
-    pub(crate) fn binary_bitwise(&mut self, op: BitwiseOp) {
-        let b = self.inner.stack.pop().unwrap_or(JsValue::Undefined);
-        let a = self.inner.stack.pop().unwrap_or(JsValue::Undefined);
+    pub(crate) fn binary_bitwise(&mut self, op: BitwiseOp) -> Result<(), VmError> {
+        let b = self.pop()?;
+        let a = self.pop()?;
         let r = op_bitwise(&self.inner, a, b, op);
         self.inner.stack.push(r);
+        Ok(())
     }
 
     pub(crate) fn relational_op(&mut self, swap: bool, eq: bool) -> Result<(), VmError> {
@@ -255,12 +257,7 @@ impl Vm {
 // ---------------------------------------------------------------------------
 
 impl Vm {
-    pub(crate) fn do_call(
-        &mut self,
-        argc: usize,
-        default_this: JsValue,
-        _entry_frame_depth: usize,
-    ) -> Result<(), VmError> {
+    pub(crate) fn do_call(&mut self, argc: usize, default_this: JsValue) -> Result<(), VmError> {
         let args_start = self.inner.stack.len() - argc;
         let callee = self.inner.stack[args_start - 1];
         // PERF: M4-11 — eliminate this allocation by restructuring call_internal

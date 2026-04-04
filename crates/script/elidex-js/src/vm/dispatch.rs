@@ -184,19 +184,19 @@ impl Vm {
                     let r = op_add(&mut self.inner, a, b);
                     self.inner.stack.push(r);
                 }
-                Op::Sub => self.binary_numeric(NumericBinaryOp::Sub),
-                Op::Mul => self.binary_numeric(NumericBinaryOp::Mul),
-                Op::Div => self.binary_numeric(NumericBinaryOp::Div),
-                Op::Mod => self.binary_numeric(NumericBinaryOp::Rem),
-                Op::Exp => self.binary_numeric(NumericBinaryOp::Exp),
+                Op::Sub => self.binary_numeric(NumericBinaryOp::Sub)?,
+                Op::Mul => self.binary_numeric(NumericBinaryOp::Mul)?,
+                Op::Div => self.binary_numeric(NumericBinaryOp::Div)?,
+                Op::Mod => self.binary_numeric(NumericBinaryOp::Rem)?,
+                Op::Exp => self.binary_numeric(NumericBinaryOp::Exp)?,
 
                 // ── Bitwise ─────────────────────────────────────────
-                Op::BitAnd => self.binary_bitwise(BitwiseOp::And),
-                Op::BitOr => self.binary_bitwise(BitwiseOp::Or),
-                Op::BitXor => self.binary_bitwise(BitwiseOp::Xor),
-                Op::Shl => self.binary_bitwise(BitwiseOp::Shl),
-                Op::Shr => self.binary_bitwise(BitwiseOp::Shr),
-                Op::UShr => self.binary_bitwise(BitwiseOp::UShr),
+                Op::BitAnd => self.binary_bitwise(BitwiseOp::And)?,
+                Op::BitOr => self.binary_bitwise(BitwiseOp::Or)?,
+                Op::BitXor => self.binary_bitwise(BitwiseOp::Xor)?,
+                Op::Shl => self.binary_bitwise(BitwiseOp::Shl)?,
+                Op::Shr => self.binary_bitwise(BitwiseOp::Shr)?,
+                Op::UShr => self.binary_bitwise(BitwiseOp::UShr)?,
 
                 // ── Comparison ──────────────────────────────────────
                 Op::Eq => {
@@ -477,7 +477,7 @@ impl Vm {
                 // ── Function call ───────────────────────────────────
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
-                    self.do_call(argc, JsValue::Undefined, entry_frame_depth)?;
+                    self.do_call(argc, JsValue::Undefined)?;
                 }
                 Op::CallMethod => {
                     let argc = self.read_u8_op() as usize;
@@ -854,10 +854,16 @@ impl Vm {
     fn jump_relative(&mut self, offset: i16) {
         let frame = self.inner.frames.last_mut().unwrap();
         // offset is relative to the ip AFTER reading the operand
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
-        {
-            frame.ip = (frame.ip as isize + offset as isize) as usize;
-        }
+        let new_ip = frame.ip.wrapping_add_signed(offset as isize);
+        let bytecode_len = self.inner.compiled_functions[frame.func_id.0 as usize]
+            .bytecode
+            .len();
+        debug_assert!(
+            new_ip <= bytecode_len,
+            "invalid jump: ip={}, offset={offset}, bytecode_len={bytecode_len}",
+            frame.ip
+        );
+        frame.ip = new_ip;
     }
 
     fn load_constant(&mut self, func_id: FuncId, idx: u16) -> Result<JsValue, VmError> {

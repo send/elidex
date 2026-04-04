@@ -108,13 +108,13 @@ pub fn compile_expr(
                 // Method call: push receiver, then callee.
                 compile_expr(fc, prog, analysis, func_scopes, *object)?;
                 fc.emit(Op::Dup); // keep receiver for CallMethod
-                compile_member_property(fc, prog, analysis, func_scopes, property, *computed);
-                compile_arguments(fc, prog, analysis, func_scopes, arguments);
+                compile_member_property(fc, prog, analysis, func_scopes, property, *computed)?;
+                compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                 let argc = arguments.len() as u8;
                 fc.emit_u8(Op::CallMethod, argc);
             } else {
                 compile_expr(fc, prog, analysis, func_scopes, *callee)?;
-                compile_arguments(fc, prog, analysis, func_scopes, arguments);
+                compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                 let argc = arguments.len() as u8;
                 fc.emit_u8(Op::Call, argc);
             }
@@ -122,7 +122,7 @@ pub fn compile_expr(
 
         ExprKind::New { callee, arguments } => {
             compile_expr(fc, prog, analysis, func_scopes, *callee)?;
-            compile_arguments(fc, prog, analysis, func_scopes, arguments);
+            compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
             let argc = arguments.len() as u8;
             fc.emit_u8(Op::New, argc);
         }
@@ -133,7 +133,7 @@ pub fn compile_expr(
             computed,
         } => {
             compile_expr(fc, prog, analysis, func_scopes, *object)?;
-            compile_member_property(fc, prog, analysis, func_scopes, property, *computed);
+            compile_member_property(fc, prog, analysis, func_scopes, property, *computed)?;
         }
 
         ExprKind::Array(elements) => {
@@ -230,10 +230,10 @@ pub fn compile_expr(
                         }
                     }
                     PropertyKind::Get => {
-                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineGetter);
+                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineGetter)?;
                     }
                     PropertyKind::Set => {
-                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineSetter);
+                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineSetter)?;
                     }
                 }
             }
@@ -389,10 +389,10 @@ pub fn compile_expr(
                             func_scopes,
                             property,
                             *computed,
-                        );
+                        )?;
                     }
                     OptionalChainPart::Call(arguments) => {
-                        compile_arguments(fc, prog, analysis, func_scopes, arguments);
+                        compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                         let argc = arguments.len() as u8;
                         fc.emit_u8(Op::Call, argc);
                     }
@@ -543,7 +543,7 @@ fn compile_assignment(
                         fc.emit(Op::Dup);
                         let patch = fc.emit_jump(jump_op);
                         fc.emit(Op::Pop); // discard old value
-                        let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+                        compile_expr(fc, prog, analysis, func_scopes, right)?;
                         compile_identifier_store(fc, prog, analysis, func_scopes, *atom)?;
                         fc.patch_jump(patch);
                         return Ok(());
@@ -553,7 +553,7 @@ fn compile_assignment(
                         // Compound: load current value first.
                         compile_identifier_load(fc, prog, analysis, func_scopes, *atom);
                     }
-                    let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+                    compile_expr(fc, prog, analysis, func_scopes, right)?;
                     if op != AssignOp::Assign {
                         fc.emit(compound_op_to_opcode(op));
                     }
@@ -567,9 +567,9 @@ fn compile_assignment(
                     if *computed {
                         // Computed member assignment: obj[key] = value
                         // SetElem expects [object key value -- value]
-                        let _ = compile_expr(fc, prog, analysis, func_scopes, *object);
+                        compile_expr(fc, prog, analysis, func_scopes, *object)?;
                         if let MemberProp::Expression(key_expr) = property {
-                            let _ = compile_expr(fc, prog, analysis, func_scopes, *key_expr);
+                            compile_expr(fc, prog, analysis, func_scopes, *key_expr)?;
                         }
                         // Compound computed assignment (obj[key] += val) requires
                         // preserving object+key while loading the old value. Not yet
@@ -578,12 +578,12 @@ fn compile_assignment(
                             op == AssignOp::Assign,
                             "compound assignments to computed members are not yet supported"
                         );
-                        let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+                        compile_expr(fc, prog, analysis, func_scopes, right)?;
                         fc.emit(Op::SetElem);
                     } else {
                         // Named property assignment: obj.prop = value
                         // SetProp expects [object value -- value]
-                        let _ = compile_expr(fc, prog, analysis, func_scopes, *object);
+                        compile_expr(fc, prog, analysis, func_scopes, *object)?;
                         if op != AssignOp::Assign {
                             fc.emit(Op::Dup);
                             compile_member_property(
@@ -593,9 +593,9 @@ fn compile_assignment(
                                 func_scopes,
                                 property,
                                 false,
-                            );
+                            )?;
                         }
-                        let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+                        compile_expr(fc, prog, analysis, func_scopes, right)?;
                         if op != AssignOp::Assign {
                             fc.emit(compound_op_to_opcode(op));
                         }
@@ -614,14 +614,14 @@ fn compile_assignment(
                     }
                 }
                 _ => {
-                    let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+                    compile_expr(fc, prog, analysis, func_scopes, right)?;
                 }
             }
         }
         AssignTarget::Pattern(_pattern_id) => {
             // Destructuring assignment not yet implemented — pop RHS to keep
             // stack balanced and fail explicitly.
-            let _ = compile_expr(fc, prog, analysis, func_scopes, right);
+            compile_expr(fc, prog, analysis, func_scopes, right)?;
             fc.emit(Op::Pop);
         }
     }
@@ -683,7 +683,7 @@ fn compile_member_property(
     func_scopes: &mut [FunctionScope],
     property: &MemberProp,
     computed: bool,
-) {
+) -> Result<(), CompileError> {
     match property {
         MemberProp::Identifier(name) if !computed => {
             let name_str = prog.interner.get(*name);
@@ -691,7 +691,7 @@ fn compile_member_property(
             fc.emit_u16(Op::GetProp, idx);
         }
         MemberProp::Expression(e) => {
-            let _ = compile_expr(fc, prog, analysis, func_scopes, *e);
+            compile_expr(fc, prog, analysis, func_scopes, *e)?;
             fc.emit(Op::GetElem);
         }
         MemberProp::Identifier(name) => {
@@ -707,6 +707,7 @@ fn compile_member_property(
             fc.emit_u16(Op::GetPrivate, idx);
         }
     }
+    Ok(())
 }
 
 /// Compile a getter or setter property definition.
@@ -717,9 +718,9 @@ fn compile_accessor(
     func_scopes: &mut [FunctionScope],
     property: &Property,
     define_op: Op,
-) {
+) -> Result<(), CompileError> {
     if let Some(value) = property.value {
-        let _ = compile_expr(fc, prog, analysis, func_scopes, value);
+        compile_expr(fc, prog, analysis, func_scopes, value)?;
         match &property.key {
             PropertyKey::Identifier(name) => {
                 let idx = fc.add_name(prog.interner.get(*name));
@@ -734,6 +735,7 @@ fn compile_accessor(
             }
         }
     }
+    Ok(())
 }
 
 /// Compile function call arguments.
@@ -745,7 +747,7 @@ fn compile_arguments(
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
     arguments: &[Argument],
-) {
+) -> Result<(), CompileError> {
     assert!(
         arguments.len() <= 255,
         "too many arguments ({}) — maximum 255 supported",
@@ -754,16 +756,17 @@ fn compile_arguments(
     for arg in arguments {
         match arg {
             Argument::Expression(e) => {
-                let _ = compile_expr(fc, prog, analysis, func_scopes, *e);
+                compile_expr(fc, prog, analysis, func_scopes, *e)?;
             }
             Argument::Spread(e) => {
                 // Spread arguments are not yet supported — the expression is
                 // compiled as a normal argument. The stack remains balanced since
                 // the spread expression produces one value, matching the argc count.
-                let _ = compile_expr(fc, prog, analysis, func_scopes, *e);
+                compile_expr(fc, prog, analysis, func_scopes, *e)?;
             }
         }
     }
+    Ok(())
 }
 
 /// Map BinaryOp to opcode.

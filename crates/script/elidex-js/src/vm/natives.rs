@@ -380,8 +380,8 @@ pub(super) fn native_math_random(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Simple PRNG: use a basic approach. For M4-10, system time based seed.
-    // This is not cryptographically secure but sufficient for Math.random().
+    // Uses RandomState (OS-RNG seeded hash state) for non-cryptographic randomness.
+    // Not cryptographically secure but sufficient for Math.random().
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
     let s = RandomState::new();

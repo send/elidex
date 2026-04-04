@@ -112,6 +112,7 @@ pub fn compile_stmt(
             fc.patch_continue_jumps_to(loop_start);
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
+            fc.emit(Op::Pop); // pop leftover key from done path
             fc.emit(Op::Pop); // pop iterator
             fc.pop_loop();
         }
@@ -135,6 +136,7 @@ pub fn compile_stmt(
             fc.patch_continue_jumps_to(loop_start);
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
+            fc.emit(Op::Pop); // pop leftover value from done path
             fc.emit(Op::Pop); // pop iterator
             fc.pop_loop();
         }
@@ -343,6 +345,11 @@ pub fn compile_stmt(
             if let Some(label_atom) = label {
                 // Labeled break: find the loop context by label.
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
+                    if loop_idx >= fc.loop_stack.len() {
+                        return Err(CompileError {
+                            message: "labeled break target out of bounds".into(),
+                        });
+                    }
                     fc.loop_stack[loop_idx].break_patches.push(patch);
                 } else {
                     fc.add_break_patch(patch);
@@ -357,6 +364,11 @@ pub fn compile_stmt(
             if let Some(label_atom) = label {
                 // Labeled continue: find the loop context by label.
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
+                    if loop_idx >= fc.loop_stack.len() {
+                        return Err(CompileError {
+                            message: "labeled continue target out of bounds".into(),
+                        });
+                    }
                     fc.loop_stack[loop_idx].continue_patches.push(patch);
                 } else {
                     fc.add_continue_patch(patch);
