@@ -1007,13 +1007,19 @@ pub(super) fn compile_class(
                     fc.emit_u16(Op::Closure, const_idx); // [ctor ctor method]
                     match kind {
                         MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter);
+                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
                         }
                         MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter);
+                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
                         }
                         _ => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty);
+                            emit_class_member_name_op(
+                                fc,
+                                prog,
+                                key,
+                                *computed,
+                                Op::DefineProperty,
+                            )?;
                         }
                     }
                     // After DefineProperty/Getter/Setter: [ctor ctor_with_method]
@@ -1027,13 +1033,19 @@ pub(super) fn compile_class(
                     fc.emit_u16(Op::Closure, const_idx); // [ctor proto method]
                     match kind {
                         MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter);
+                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
                         }
                         MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter);
+                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
                         }
                         _ => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty);
+                            emit_class_member_name_op(
+                                fc,
+                                prog,
+                                key,
+                                *computed,
+                                Op::DefineProperty,
+                            )?;
                         }
                     }
                     // After: [ctor proto]
@@ -1094,7 +1106,7 @@ pub(super) fn compile_class(
                         fc.emit(Op::PushUndefined);
                     }
                     // [ctor ctor value]
-                    emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty);
+                    emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty)?;
                     // [ctor ctor]
                     fc.emit(Op::Pop); // [ctor]
                 }
@@ -1169,46 +1181,44 @@ fn emit_class_member_name_op(
     key: &PropertyKey,
     computed: bool,
     op: Op,
-) {
+) -> Result<(), CompileError> {
     if computed {
-        // For computed keys, we would need to evaluate the key expression first.
-        // For now, use a placeholder. DefineComputedProperty only works for Init.
-        // Since we don't support computed method keys yet, just use DefineProperty
-        // with an empty name as a fallback.
-        let idx = fc.add_name("");
-        fc.emit_u16(op, idx);
-    } else {
-        match key {
-            PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
-                let name_str = prog.interner.get(*name);
-                let idx = fc.add_name(name_str);
-                fc.emit_u16(op, idx);
-            }
-            PropertyKey::Literal(Literal::String(s)) => {
-                let name_str = prog.interner.get(*s);
-                let idx = fc.add_name(name_str);
-                fc.emit_u16(op, idx);
-            }
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                clippy::cast_precision_loss
-            )]
-            PropertyKey::Literal(Literal::Number(n)) => {
-                let key_str = if *n == (*n as i64) as f64 && *n >= 0.0 {
-                    format!("{}", *n as i64)
-                } else {
-                    format!("{n}")
-                };
-                let idx = fc.add_name(&key_str);
-                fc.emit_u16(op, idx);
-            }
-            _ => {
-                let idx = fc.add_name("");
-                fc.emit_u16(op, idx);
-            }
+        return Err(CompileError {
+            message: "computed class member keys not yet supported".into(),
+        });
+    }
+    match key {
+        PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
+            let name_str = prog.interner.get(*name);
+            let idx = fc.add_name(name_str);
+            fc.emit_u16(op, idx);
+        }
+        PropertyKey::Literal(Literal::String(s)) => {
+            let name_str = prog.interner.get(*s);
+            let idx = fc.add_name(name_str);
+            fc.emit_u16(op, idx);
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        PropertyKey::Literal(Literal::Number(n)) => {
+            let key_str = if *n == (*n as i64) as f64 && *n >= 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{n}")
+            };
+            let idx = fc.add_name(&key_str);
+            fc.emit_u16(op, idx);
+        }
+        _ => {
+            return Err(CompileError {
+                message: "unsupported class member key type".into(),
+            });
         }
     }
+    Ok(())
 }
 
 // ── Nested function compilation ────────────────────────────────────
@@ -1289,6 +1299,49 @@ pub(super) fn compile_nested_function(
             child_fc.emit_u16(Op::SetLocal, slot);
             child_fc.emit(Op::Pop);
             child_fc.patch_jump(skip);
+        }
+    }
+
+    // Hoist function declarations: compile and store before executing body statements.
+    for &stmt_id in &func.body {
+        let stmt = prog.stmts.get(stmt_id);
+        if let StmtKind::FunctionDeclaration(inner_func) = &stmt.kind {
+            if let Some(name) = &inner_func.name {
+                let hoisted = compile_nested_function(
+                    &mut child_fc,
+                    prog,
+                    analysis,
+                    func_scopes,
+                    inner_func,
+                    true,
+                )?;
+                let idx = child_fc.add_constant(crate::bytecode::compiled::Constant::Function(
+                    Box::new(hoisted),
+                ));
+                child_fc.emit_u16(Op::Closure, idx);
+                let loc = super::resolve::resolve_identifier(
+                    *name,
+                    child_fc.func_scope_idx,
+                    child_fc.current_scope_idx,
+                    func_scopes,
+                    analysis,
+                );
+                match loc {
+                    super::resolve::VarLocation::Local(slot) => {
+                        child_fc.emit_u16(Op::SetLocal, slot);
+                        child_fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Global => {
+                        let name_str = prog.interner.get(*name);
+                        let name_idx = child_fc.add_name(name_str);
+                        child_fc.emit_u16(Op::SetGlobal, name_idx);
+                        child_fc.emit(Op::Pop);
+                    }
+                    _ => {
+                        child_fc.emit(Op::Pop);
+                    }
+                }
+            }
         }
     }
 

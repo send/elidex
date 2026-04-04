@@ -8,11 +8,10 @@ use crate::bytecode::opcode::Op;
 use crate::scope::{ScopeAnalysis, ScopeKind};
 use crate::span::Span;
 
-use super::expr::{compile_class, compile_expr, compile_nested_function};
+use super::expr::{compile_class, compile_expr};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 use super::CompileError;
-use crate::bytecode::compiled::Constant;
 
 /// Compile a statement.
 #[allow(clippy::too_many_lines)]
@@ -28,12 +27,16 @@ pub fn compile_stmt(
     fc.source_map.add(fc.pc(), span);
 
     match &stmt.kind {
-        // No-ops: empty, parse error, debugger, stubs.
+        // No-ops: empty, parse error, debugger, stubs, hoisted function declarations.
         StmtKind::Empty
         | StmtKind::Error
         | StmtKind::Debugger
         | StmtKind::ImportDeclaration(_)
-        | StmtKind::ExportDeclaration(_) => {}
+        | StmtKind::ExportDeclaration(_)
+        | StmtKind::FunctionDeclaration(_) => {
+            // FunctionDeclaration: hoisted at function/script level
+            // (mod.rs compile() or compile_nested_function). No-op at declaration site.
+        }
 
         StmtKind::ClassDeclaration(class) => {
             compile_class(fc, prog, analysis, func_scopes, class)?;
@@ -50,39 +53,6 @@ pub fn compile_stmt(
                     super::resolve::VarLocation::Local(slot) => {
                         // Clear TDZ for the outer class declaration binding.
                         fc.emit_u16(Op::InitLocal, slot);
-                        fc.emit_u16(Op::SetLocal, slot);
-                        fc.emit(Op::Pop);
-                    }
-                    super::resolve::VarLocation::Global => {
-                        let name_str = prog.interner.get(*name);
-                        let name_idx = fc.add_name(name_str);
-                        fc.emit_u16(Op::SetGlobal, name_idx);
-                        fc.emit(Op::Pop);
-                    }
-                    _ => {
-                        fc.emit(Op::Pop);
-                    }
-                }
-            } else {
-                fc.emit(Op::Pop);
-            }
-        }
-
-        StmtKind::FunctionDeclaration(func) => {
-            let child_func = compile_nested_function(fc, prog, analysis, func_scopes, func, true)?;
-            let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
-            fc.emit_u16(Op::Closure, idx);
-            // Store the function in its binding.
-            if let Some(name) = &func.name {
-                let loc = super::resolve::resolve_identifier(
-                    *name,
-                    fc.func_scope_idx,
-                    fc.current_scope_idx,
-                    func_scopes,
-                    analysis,
-                );
-                match loc {
-                    super::resolve::VarLocation::Local(slot) => {
                         fc.emit_u16(Op::SetLocal, slot);
                         fc.emit(Op::Pop);
                     }
@@ -436,87 +406,134 @@ pub fn compile_stmt(
             }
             fc.current_scope_idx = saved_try_scope;
             fc.emit(Op::PopExceptionHandler);
-            let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
 
-            // Catch block.
-            let catch_offset = if handler.is_some() {
-                fc.pc()
-            } else {
-                u32::MAX // no catch — 0xFFFF sentinel
-            };
-            if let Some(catch) = handler {
-                let saved_scope = fc.current_scope_idx;
-                if let Some(catch_scope) =
-                    find_child_catch_scope(analysis, fc.current_scope_idx, catch.span)
-                {
-                    fc.current_scope_idx = catch_scope;
-                }
-                // Bind catch parameter.
-                fc.emit(Op::PushException);
-                if let Some(param_id) = catch.param {
-                    let pattern = prog.patterns.get(param_id);
-                    if let PatternKind::Identifier(atom) = &pattern.kind {
-                        let loc = super::resolve::resolve_identifier(
-                            *atom,
-                            fc.func_scope_idx,
-                            fc.current_scope_idx,
-                            func_scopes,
-                            analysis,
-                        );
-                        if let super::resolve::VarLocation::Local(slot) = loc {
-                            fc.emit_u16(Op::SetLocal, slot);
-                        }
-                    }
-                }
-                fc.emit(Op::Pop); // pop exception from stack
+            // ── try/finally without catch: two-copy layout ──────────
+            //
+            //   PushExceptionHandler(catch=rethrow_entry, finally=0xFFFF)
+            //   <try body>
+            //   PopExceptionHandler
+            //   <finally body>          ← normal path
+            //   Jump(end)
+            //   rethrow_entry:          ← exception path
+            //   PushException
+            //   <finally body>          (duplicate)
+            //   Throw                   ← re-throw the saved exception
+            //   end:
+            //
+            // When a catch block is present the original layout is kept:
+            // exception → catch → finally (shared).
 
-                for &s in &catch.body {
-                    compile_stmt(fc, prog, analysis, func_scopes, s)?;
-                }
-                fc.current_scope_idx = saved_scope;
-            }
-
-            fc.patch_jump(finally_jump);
-
-            // Finally block (if present).
-            let finally_pc = if finalizer.is_some() {
-                Some(fc.pc())
-            } else {
-                None
-            };
-            if let Some(fin_block) = finalizer {
+            if handler.is_none() && finalizer.is_some() {
+                // Normal path: run finally body, then jump over rethrow.
+                let fin_block = finalizer.as_ref().unwrap();
                 for &s in fin_block {
                     compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
-            }
+                let end_jump = fc.emit_jump(Op::Jump);
 
-            // Patch the exception handler offsets.
-            // catch_offset is u32::MAX when there's no catch block → encode as 0xFFFF.
-            let catch_u16 = if catch_offset == u32::MAX {
-                0xFFFFu16
-            } else {
+                // Exception path: PushException → finally body → Throw.
+                let rethrow_entry = fc.pc();
+                fc.emit(Op::PushException);
+                for &s in fin_block {
+                    compile_stmt(fc, prog, analysis, func_scopes, s)?;
+                }
+                fc.emit(Op::Throw);
+
+                fc.patch_jump(end_jump);
+
+                // Patch handler: catch_ip = rethrow_entry, finally_ip = 0xFFFF.
                 assert!(
-                    u16::try_from(catch_offset).is_ok(),
-                    "catch offset {catch_offset} exceeds u16 range"
+                    u16::try_from(rethrow_entry).is_ok(),
+                    "rethrow entry {rethrow_entry} exceeds u16 range"
                 );
-                catch_offset as u16
-            };
-            let catch_bytes = catch_u16.to_le_bytes();
-            fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-            fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-            // Patch finally offset: actual PC if present, 0xFFFF if absent.
-            let finally_offset = if let Some(fpc) = finally_pc {
-                assert!(
-                    u16::try_from(fpc).is_ok(),
-                    "finally offset {fpc} exceeds u16 range"
-                );
-                fpc as u16
+                let catch_bytes = (rethrow_entry as u16).to_le_bytes();
+                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
+                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
+                let finally_bytes = 0xFFFFu16.to_le_bytes();
+                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
+                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
             } else {
-                0xFFFF
-            };
-            let finally_bytes = finally_offset.to_le_bytes();
-            fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
-            fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+                // Original layout for try/catch, try/catch/finally.
+                let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
+
+                // Catch block.
+                let catch_offset = if handler.is_some() {
+                    fc.pc()
+                } else {
+                    u32::MAX // no catch, no finally — shouldn't normally happen
+                };
+                if let Some(catch) = handler {
+                    let saved_scope = fc.current_scope_idx;
+                    if let Some(catch_scope) =
+                        find_child_catch_scope(analysis, fc.current_scope_idx, catch.span)
+                    {
+                        fc.current_scope_idx = catch_scope;
+                    }
+                    // Bind catch parameter.
+                    fc.emit(Op::PushException);
+                    if let Some(param_id) = catch.param {
+                        let pattern = prog.patterns.get(param_id);
+                        if let PatternKind::Identifier(atom) = &pattern.kind {
+                            let loc = super::resolve::resolve_identifier(
+                                *atom,
+                                fc.func_scope_idx,
+                                fc.current_scope_idx,
+                                func_scopes,
+                                analysis,
+                            );
+                            if let super::resolve::VarLocation::Local(slot) = loc {
+                                fc.emit_u16(Op::SetLocal, slot);
+                            }
+                        }
+                    }
+                    fc.emit(Op::Pop); // pop exception from stack
+
+                    for &s in &catch.body {
+                        compile_stmt(fc, prog, analysis, func_scopes, s)?;
+                    }
+                    fc.current_scope_idx = saved_scope;
+                }
+
+                fc.patch_jump(finally_jump);
+
+                // Finally block (if present).
+                let finally_pc = if finalizer.is_some() {
+                    Some(fc.pc())
+                } else {
+                    None
+                };
+                if let Some(fin_block) = finalizer {
+                    for &s in fin_block {
+                        compile_stmt(fc, prog, analysis, func_scopes, s)?;
+                    }
+                }
+
+                // Patch the exception handler offsets.
+                let catch_u16 = if catch_offset == u32::MAX {
+                    0xFFFFu16
+                } else {
+                    assert!(
+                        u16::try_from(catch_offset).is_ok(),
+                        "catch offset {catch_offset} exceeds u16 range"
+                    );
+                    catch_offset as u16
+                };
+                let catch_bytes = catch_u16.to_le_bytes();
+                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
+                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
+                let finally_offset = if let Some(fpc) = finally_pc {
+                    assert!(
+                        u16::try_from(fpc).is_ok(),
+                        "finally offset {fpc} exceeds u16 range"
+                    );
+                    fpc as u16
+                } else {
+                    0xFFFF
+                };
+                let finally_bytes = finally_offset.to_le_bytes();
+                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
+                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+            }
         }
 
         StmtKind::Switch {

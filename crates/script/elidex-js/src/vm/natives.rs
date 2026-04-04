@@ -36,19 +36,28 @@ pub(super) fn native_parse_int(
         }
     } else {
         let r = ctx.to_number(radix_arg);
-        if r.is_nan() || !(2.0..=36.0).contains(&r) {
-            return Ok(JsValue::Number(f64::NAN));
-        }
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        let ru = r as u32;
-        let rest = if ru == 16 {
-            rest.strip_prefix("0x")
-                .or_else(|| rest.strip_prefix("0X"))
-                .unwrap_or(rest)
+        let ri = r as i32;
+        // ES2020 §18.2.5: radix 0 (or undefined) → default (10, with 0x prefix detection).
+        if ri == 0 {
+            if let Some(r2) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                (16u32, r2)
+            } else {
+                (10u32, rest)
+            }
+        } else if r.is_nan() || !(2..=36).contains(&ri) {
+            return Ok(JsValue::Number(f64::NAN));
         } else {
-            rest
-        };
-        (ru, rest)
+            let ru = ri.cast_unsigned();
+            let rest = if ru == 16 {
+                rest.strip_prefix("0x")
+                    .or_else(|| rest.strip_prefix("0X"))
+                    .unwrap_or(rest)
+            } else {
+                rest
+            };
+            (ru, rest)
+        }
     };
 
     if !(2..=36).contains(&radix) {
