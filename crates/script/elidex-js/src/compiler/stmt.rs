@@ -816,7 +816,7 @@ fn compile_destructure_pattern(
                 fc.emit(Op::CreateObject); // [value value rest_obj]
                 fc.emit(Op::Swap); // [value rest_obj value]
                 fc.emit(Op::SpreadObject); // [value rest_obj] (copies all props)
-                // Delete the already-destructured keys from rest_obj.
+                                           // Delete the already-destructured keys from rest_obj.
                 for prop in properties {
                     match &prop.key {
                         PropertyKey::Identifier(atom) => {
