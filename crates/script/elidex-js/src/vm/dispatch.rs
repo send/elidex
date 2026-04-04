@@ -280,13 +280,32 @@ impl Vm {
                 Op::In => {
                     let rhs = self.pop()?; // object
                     let lhs = self.pop()?; // key
-                    let result = if let JsValue::Object(obj_id) = rhs {
+                    if let JsValue::Object(obj_id) = rhs {
                         let key_id = to_string(&mut self.inner, lhs);
-                        super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                        let obj = self.inner.get_object(obj_id);
+                        let found = if let ObjectKind::Array { ref elements } = obj.kind {
+                            let key_str = self.inner.strings.get(key_id);
+                            if let Ok(idx) = key_str.parse::<usize>() {
+                                idx < elements.len()
+                            } else {
+                                super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                            }
+                        } else {
+                            super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                        };
+                        self.inner.stack.push(JsValue::Boolean(found));
                     } else {
-                        false
-                    };
-                    self.inner.stack.push(JsValue::Boolean(result));
+                        let msg = self.inner.strings.intern(
+                            "Cannot use 'in' operator to search for property in non-object",
+                        );
+                        let val = JsValue::String(msg);
+                        if self.handle_exception(val, entry_frame_depth) {
+                            continue;
+                        }
+                        return Err(VmError::type_error(
+                            "Cannot use 'in' operator to search for property in non-object",
+                        ));
+                    }
                 }
 
                 // ── Unary ───────────────────────────────────────────
@@ -618,7 +637,18 @@ impl Vm {
                 // ── Function call ───────────────────────────────────
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
-                    self.do_call(argc, JsValue::Undefined)?;
+                    if let Err(e) = self.do_call(argc, JsValue::Undefined) {
+                        if let VmErrorKind::ThrowValue(val) = e.kind {
+                            if self.handle_exception(val, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(VmError {
+                                kind: VmErrorKind::ThrowValue(val),
+                                message: e.message,
+                            });
+                        }
+                        return Err(e);
+                    }
                 }
                 Op::CallMethod => {
                     let argc = self.read_u8_op() as usize;
@@ -629,12 +659,36 @@ impl Vm {
                     // PERF: M4-11 — eliminate this allocation by restructuring call_internal
                     let call_args: Vec<JsValue> = self.inner.stack[args_start..].to_vec();
                     self.inner.stack.truncate(args_start - 2);
-                    let result = self.call_value(callee, receiver, &call_args)?;
-                    self.inner.stack.push(result);
+                    match self.call_value(callee, receiver, &call_args) {
+                        Ok(result) => self.inner.stack.push(result),
+                        Err(e) => {
+                            if let VmErrorKind::ThrowValue(val) = e.kind {
+                                if self.handle_exception(val, entry_frame_depth) {
+                                    continue;
+                                }
+                                return Err(VmError {
+                                    kind: VmErrorKind::ThrowValue(val),
+                                    message: e.message,
+                                });
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Op::New => {
                     let argc = self.read_u8_op() as usize;
-                    self.do_new(argc)?;
+                    if let Err(e) = self.do_new(argc) {
+                        if let VmErrorKind::ThrowValue(val) = e.kind {
+                            if self.handle_exception(val, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(VmError {
+                                kind: VmErrorKind::ThrowValue(val),
+                                message: e.message,
+                            });
+                        }
+                        return Err(e);
+                    }
                 }
                 Op::PushThis => {
                     let this = self.inner.frames[frame_idx].this_value;

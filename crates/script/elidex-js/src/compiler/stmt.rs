@@ -479,6 +479,17 @@ pub fn compile_stmt(
                 } else {
                     u32::MAX // no catch, no finally — shouldn't normally happen
                 };
+                // If there's a finally block, we need a second exception handler
+                // around the catch body so that throws/returns inside catch
+                // still execute finally.
+                let catch_rethrow_patch = if handler.is_some() && finalizer.is_some() {
+                    let placeholder = fc.pc();
+                    fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
+                    Some(placeholder + 1) // offset of catch u16 in this handler
+                } else {
+                    None
+                };
+
                 if let Some(catch) = handler {
                     let saved_scope = fc.current_scope_idx;
                     if let Some(catch_scope) =
@@ -509,6 +520,11 @@ pub fn compile_stmt(
                         compile_stmt(fc, prog, analysis, func_scopes, s)?;
                     }
                     fc.current_scope_idx = saved_scope;
+                }
+
+                // Pop the catch-body exception handler (if we pushed one).
+                if catch_rethrow_patch.is_some() {
+                    fc.emit(Op::PopExceptionHandler);
                 }
 
                 fc.patch_jump(finally_jump);
@@ -550,6 +566,36 @@ pub fn compile_stmt(
                 let finally_bytes = finally_offset.to_le_bytes();
                 fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
                 fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+
+                // Patch the catch-body exception handler (if present).
+                // This handler routes exceptions thrown inside `catch` to a
+                // rethrow stub that runs `finally` body then re-throws.
+                if let Some(patch_pos) = catch_rethrow_patch {
+                    let end_jump = fc.emit_jump(Op::Jump); // skip rethrow stub on normal path
+
+                    let rethrow_entry = fc.pc();
+                    fc.emit(Op::PushException);
+                    if let Some(fin_block) = finalizer {
+                        for &s in fin_block {
+                            compile_stmt(fc, prog, analysis, func_scopes, s)?;
+                        }
+                    }
+                    fc.emit(Op::Throw);
+
+                    fc.patch_jump(end_jump);
+
+                    // Patch: catch_ip = rethrow_entry, finally_ip = 0xFFFF
+                    assert!(
+                        u16::try_from(rethrow_entry).is_ok(),
+                        "catch-body rethrow entry {rethrow_entry} exceeds u16 range"
+                    );
+                    let rethrow_bytes = (rethrow_entry as u16).to_le_bytes();
+                    fc.bytecode[patch_pos as usize] = rethrow_bytes[0];
+                    fc.bytecode[(patch_pos + 1) as usize] = rethrow_bytes[1];
+                    let no_finally = 0xFFFFu16.to_le_bytes();
+                    fc.bytecode[(patch_pos + 2) as usize] = no_finally[0];
+                    fc.bytecode[(patch_pos + 3) as usize] = no_finally[1];
+                }
             }
 
             // Pop the finally stack entry (if we pushed one).
