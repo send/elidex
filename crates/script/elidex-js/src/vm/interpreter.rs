@@ -84,6 +84,11 @@ impl Vm {
         let copy_count = args.len().min(param_count);
         self.inner.stack[base..base + copy_count].copy_from_slice(&args[..copy_count]);
 
+        // Save and reset completion_value so that ReturnUndefined in nested
+        // function calls does not leak the parent scope's completion value.
+        let saved_completion = self.inner.completion_value;
+        self.inner.completion_value = JsValue::Undefined;
+
         self.inner.frames.push(CallFrame {
             func_id,
             ip: 0,
@@ -92,9 +97,15 @@ impl Vm {
             local_upvalue_ids: Vec::new(),
             this_value: this,
             exception_handlers: Vec::new(),
+            tdz_slots: vec![true; local_count],
         });
 
-        self.run()
+        let result = self.run();
+
+        // Restore the parent scope's completion value.
+        self.inner.completion_value = saved_completion;
+
+        result
     }
 
     /// Run a function as the initial (or only) frame.

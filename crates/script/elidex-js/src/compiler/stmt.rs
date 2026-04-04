@@ -47,6 +47,8 @@ pub fn compile_stmt(
                 );
                 match loc {
                     super::resolve::VarLocation::Local(slot) => {
+                        // Clear TDZ for the outer class declaration binding.
+                        fc.emit_u16(Op::InitLocal, slot);
                         fc.emit_u16(Op::SetLocal, slot);
                         fc.emit(Op::Pop);
                     }

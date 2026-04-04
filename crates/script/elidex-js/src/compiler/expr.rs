@@ -59,6 +59,37 @@ pub fn compile_expr(
                     }
                 }
             }
+            if matches!(op, UnaryOp::Delete) {
+                let arg = prog.exprs.get(*argument);
+                if let ExprKind::Member {
+                    object,
+                    property,
+                    computed,
+                } = &arg.kind
+                {
+                    compile_expr(fc, prog, analysis, func_scopes, *object)?;
+                    if !computed {
+                        if let MemberProp::Identifier(prop_atom) = property {
+                            let prop_name = prog.interner.get(*prop_atom);
+                            let name_idx = fc.add_name(prop_name);
+                            fc.emit_u16(Op::DeleteProp, name_idx);
+                        } else {
+                            // Private field delete — always returns true per spec stub.
+                            fc.emit(Op::Pop);
+                            fc.emit(Op::PushTrue);
+                        }
+                    } else if let MemberProp::Expression(prop_expr_id) = property {
+                        compile_expr(fc, prog, analysis, func_scopes, *prop_expr_id)?;
+                        fc.emit(Op::DeleteElem);
+                    }
+                } else {
+                    // `delete identifier` or `delete literal` — evaluate and return true.
+                    compile_expr(fc, prog, analysis, func_scopes, *argument)?;
+                    fc.emit(Op::Pop);
+                    fc.emit(Op::PushTrue);
+                }
+                return Ok(());
+            }
             compile_expr(fc, prog, analysis, func_scopes, *argument)?;
             fc.emit(unary_op_to_opcode(*op));
         }
@@ -157,8 +188,10 @@ pub fn compile_expr(
             fc.emit(Op::CreateObject);
             for prop in properties {
                 if prop.flags.is_spread() {
-                    if let Some(value) = prop.value {
-                        compile_expr(fc, prog, analysis, func_scopes, value)?;
+                    // The spread expression is stored in `key` (as Computed(expr)),
+                    // not in `value` (which is None for spread properties).
+                    if let PropertyKey::Computed(expr_id) = &prop.key {
+                        compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
                         fc.emit(Op::SpreadObject);
                     }
                     continue;
@@ -319,10 +352,40 @@ pub fn compile_expr(
                     }
                 }
             }
-            // Fallback: member expression updates (++obj.prop, obj[key]++).
-            // TODO: emit proper GetProp/SetProp sequence for member expressions.
-            // For now, compile the argument for its side effects and keep stack balanced.
-            compile_expr(fc, prog, analysis, func_scopes, *argument)?;
+            // Member expression updates (++obj.prop, obj[key]++).
+            if let ExprKind::Member {
+                object,
+                property,
+                computed,
+            } = &arg.kind
+            {
+                compile_expr(fc, prog, analysis, func_scopes, *object)?;
+                if !computed {
+                    if let MemberProp::Identifier(prop_atom) = property {
+                        // Static property: use IncProp/DecProp.
+                        let prop_name = prog.interner.get(*prop_atom);
+                        let name_idx = fc.add_name(prop_name);
+                        let inc_op = match op {
+                            UpdateOp::Increment => Op::IncProp,
+                            UpdateOp::Decrement => Op::DecProp,
+                        };
+                        fc.emit_u16_u8(inc_op, name_idx, u8::from(*prefix));
+                    } else {
+                        // PrivateIdentifier — unsupported for now, just keep value.
+                    }
+                } else if let MemberProp::Expression(prop_expr_id) = property {
+                    // Computed property: use IncElem/DecElem.
+                    compile_expr(fc, prog, analysis, func_scopes, *prop_expr_id)?;
+                    let inc_op = match op {
+                        UpdateOp::Increment => Op::IncElem,
+                        UpdateOp::Decrement => Op::DecElem,
+                    };
+                    fc.emit_u8(inc_op, u8::from(*prefix));
+                }
+            } else {
+                // Unsupported update target — just evaluate for side effects.
+                compile_expr(fc, prog, analysis, func_scopes, *argument)?;
+            }
         }
 
         ExprKind::Await(arg) => {

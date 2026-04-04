@@ -396,6 +396,27 @@ impl Vm {
             prototype: None,
         });
 
+        // Non-arrow functions get a `.prototype` property (a plain object with
+        // a `.constructor` back-reference), matching ES2020 §9.2.5.
+        if !is_arrow {
+            let obj_proto = self.inner.object_prototype;
+            let proto_obj = self.alloc_object(super::value::Object {
+                kind: ObjectKind::Ordinary,
+                properties: Vec::new(),
+                prototype: obj_proto,
+            });
+            // Set constructor back-reference on the prototype.
+            let ctor_key = self.inner.well_known.constructor;
+            self.get_object_mut(proto_obj)
+                .properties
+                .push((ctor_key, Property::method(JsValue::Object(func_obj))));
+            // Set .prototype on the function object.
+            let proto_key = self.inner.well_known.prototype;
+            self.get_object_mut(func_obj)
+                .properties
+                .push((proto_key, Property::data(JsValue::Object(proto_obj))));
+        }
+
         self.inner.stack.push(JsValue::Object(func_obj));
         Ok(())
     }

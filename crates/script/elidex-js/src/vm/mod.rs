@@ -93,6 +93,10 @@ pub(crate) struct VmInner {
     pub(crate) well_known: WellKnownStrings,
     /// String.prototype object: methods like charAt, indexOf, etc.
     pub(crate) string_prototype: Option<ObjectId>,
+    /// Object.prototype (root of the prototype chain for ordinary objects).
+    pub(crate) object_prototype: Option<ObjectId>,
+    /// Array.prototype (prototype for array instances).
+    pub(crate) array_prototype: Option<ObjectId>,
     /// Completion value for eval: the last value popped by a Pop opcode
     /// at the script (entry) frame level.
     pub(crate) completion_value: JsValue,
@@ -218,6 +222,8 @@ impl Vm {
                 globals: HashMap::new(),
                 well_known,
                 string_prototype: None,
+                object_prototype: None,
+                array_prototype: None,
                 completion_value: JsValue::Undefined,
                 current_exception: JsValue::Undefined,
                 rng_state: {

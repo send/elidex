@@ -263,6 +263,9 @@ pub struct CallFrame {
     pub this_value: JsValue,
     /// Active exception handlers (try/catch/finally).
     pub exception_handlers: Vec<HandlerEntry>,
+    /// TDZ tracking: `true` = slot is uninitialized (in temporal dead zone).
+    /// Only `let`/`const` bindings are checked; `var` slots are cleared at frame creation.
+    pub tdz_slots: Vec<bool>,
 }
 
 /// A registered exception handler within a call frame.

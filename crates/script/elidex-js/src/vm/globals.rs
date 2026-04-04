@@ -45,6 +45,9 @@ impl Vm {
         self.register_global_function("isNaN", native_is_nan);
         self.register_global_function("isFinite", native_is_finite);
 
+        // Object.prototype and Array.prototype
+        self.register_prototypes();
+
         // Error constructors
         self.register_error_constructors();
 
@@ -93,6 +96,24 @@ impl Vm {
                 .push((key, Property::method(JsValue::Object(fn_id))));
         }
         obj_id
+    }
+
+    fn register_prototypes(&mut self) {
+        // Object.prototype — root of the prototype chain.
+        let obj_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            properties: Vec::new(),
+            prototype: None,
+        });
+        self.inner.object_prototype = Some(obj_proto);
+
+        // Array.prototype — inherits from Object.prototype.
+        let arr_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            properties: Vec::new(),
+            prototype: Some(obj_proto),
+        });
+        self.inner.array_prototype = Some(arr_proto);
     }
 
     fn register_error_constructors(&mut self) {

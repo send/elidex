@@ -131,17 +131,40 @@ impl Vm {
                 }
                 Op::CheckTdz => {
                     let slot = self.read_u16_op() as usize;
-                    let base = self.inner.frames[frame_idx].base;
-                    if matches!(self.inner.stack[base + slot], JsValue::Undefined) {
-                        // TDZ check: could be uninitialized. For M4-10, we use a
-                        // sentinel approach — Undefined means "not yet initialized"
-                        // for let/const. This is a simplification.
+                    let frame = &self.inner.frames[frame_idx];
+                    if frame.tdz_slots.get(slot).copied().unwrap_or(false) {
+                        // Create a ReferenceError object and throw it through
+                        // the JS exception handling path (try/catch).
+                        let msg = "Cannot access variable before initialization";
+                        let msg_id = self.inner.strings.intern(msg);
+                        let err_name_id = self.inner.strings.intern("ReferenceError");
+                        let err_obj = self.alloc_object(Object {
+                            kind: ObjectKind::Error { name: err_name_id },
+                            properties: vec![
+                                (
+                                    self.inner.well_known.message,
+                                    Property::data(JsValue::String(msg_id)),
+                                ),
+                                (
+                                    self.inner.well_known.name,
+                                    Property::data(JsValue::String(err_name_id)),
+                                ),
+                            ],
+                            prototype: None,
+                        });
+                        let thrown = JsValue::Object(err_obj);
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
+                        }
+                        return Err(VmError::reference_error(msg));
                     }
                 }
                 Op::InitLocal => {
-                    let _slot = self.read_u16_op();
-                    // Mark as initialized (TDZ cleared). With the sentinel approach,
-                    // no action needed — the subsequent SetLocal writes the value.
+                    let slot = self.read_u16_op() as usize;
+                    let frame = &mut self.inner.frames[frame_idx];
+                    if let Some(v) = frame.tdz_slots.get_mut(slot) {
+                        *v = false;
+                    }
                 }
 
                 // ── Upvalue access ──────────────────────────────────
@@ -226,11 +249,44 @@ impl Vm {
                 Op::Gt => self.relational_op(true, false)?,
                 Op::GtEq => self.relational_op(true, true)?,
 
-                Op::Instanceof | Op::In => {
-                    // Simplified: pop both, push false.
-                    self.pop()?;
-                    self.pop()?;
-                    self.inner.stack.push(JsValue::Boolean(false));
+                Op::Instanceof => {
+                    let rhs = self.pop()?; // constructor
+                    let lhs = self.pop()?; // object
+                                           // Walk lhs's prototype chain looking for rhs.prototype
+                    let result =
+                        if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
+                            let proto_key = self.inner.well_known.prototype;
+                            let ctor_proto =
+                                super::coerce::get_property(&self.inner, ctor_id, proto_key);
+                            if let Some(JsValue::Object(target_proto)) = ctor_proto {
+                                let mut current = self.inner.get_object(obj_id).prototype;
+                                let mut found = false;
+                                while let Some(proto_id) = current {
+                                    if proto_id == target_proto {
+                                        found = true;
+                                        break;
+                                    }
+                                    current = self.inner.get_object(proto_id).prototype;
+                                }
+                                found
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                    self.inner.stack.push(JsValue::Boolean(result));
+                }
+                Op::In => {
+                    let rhs = self.pop()?; // object
+                    let lhs = self.pop()?; // key
+                    let result = if let JsValue::Object(obj_id) = rhs {
+                        let key_id = to_string(&mut self.inner, lhs);
+                        super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                    } else {
+                        false
+                    };
+                    self.inner.stack.push(JsValue::Boolean(result));
                 }
 
                 // ── Unary ───────────────────────────────────────────
@@ -287,18 +343,49 @@ impl Vm {
                     let push_val = if prefix { new } else { old };
                     self.inner.stack.push(JsValue::Number(push_val));
                 }
-                Op::IncProp | Op::DecProp | Op::IncElem | Op::DecElem => {
-                    // Simplified: consume operands and push NaN.
-                    if matches!(op, Op::IncProp | Op::DecProp) {
-                        self.read_u16_op(); // name const
-                        self.read_u8_op(); // prefix
-                        self.pop()?; // object
+                Op::IncProp | Op::DecProp => {
+                    let name_idx = self.read_u16_op();
+                    let prefix = self.read_u8_op() != 0;
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let obj_val = self.pop()?;
+                    let old = if let JsValue::Object(id) = obj_val {
+                        super::coerce::get_property(&self.inner, id, name_id)
+                            .unwrap_or(JsValue::Undefined)
                     } else {
-                        self.read_u8_op(); // prefix
-                        self.pop()?; // key
-                        self.pop()?; // object
+                        JsValue::Undefined
+                    };
+                    let old_num = to_number(&self.inner, old);
+                    let new_num = if op == Op::IncProp {
+                        old_num + 1.0
+                    } else {
+                        old_num - 1.0
+                    };
+                    if let JsValue::Object(id) = obj_val {
+                        self.set_property_val(
+                            JsValue::Object(id),
+                            name_id,
+                            JsValue::Number(new_num),
+                        )?;
                     }
-                    self.inner.stack.push(JsValue::Number(f64::NAN));
+                    self.inner
+                        .stack
+                        .push(JsValue::Number(if prefix { new_num } else { old_num }));
+                }
+                Op::IncElem | Op::DecElem => {
+                    let prefix = self.read_u8_op() != 0;
+                    let key = self.pop()?;
+                    let obj_val = self.pop()?;
+                    let old = self.get_element(obj_val, key)?;
+                    let old_num = to_number(&self.inner, old);
+                    let new_num = if op == Op::IncElem {
+                        old_num + 1.0
+                    } else {
+                        old_num - 1.0
+                    };
+                    self.set_element(obj_val, key, JsValue::Number(new_num))?;
+                    self.inner
+                        .stack
+                        .push(JsValue::Number(if prefix { new_num } else { old_num }));
                 }
 
                 // ── Control flow ────────────────────────────────────
@@ -383,23 +470,34 @@ impl Vm {
                     self.set_element(obj, key, val)?;
                     self.inner.stack.push(val);
                 }
-                Op::DeleteProp | Op::DeleteElem => {
-                    if op == Op::DeleteProp {
-                        self.read_u16_op();
+                Op::DeleteProp => {
+                    let name_idx = self.read_u16_op();
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let obj_val = self.pop()?;
+                    if let JsValue::Object(id) = obj_val {
+                        let obj = self.get_object_mut(id);
+                        obj.properties.retain(|(k, _)| *k != name_id);
                     }
-                    self.pop()?; // object (or key for DeleteElem)
-                    if op == Op::DeleteElem {
-                        self.pop()?; // object
+                    self.inner.stack.push(JsValue::Boolean(true));
+                }
+                Op::DeleteElem => {
+                    let key = self.pop()?;
+                    let obj_val = self.pop()?;
+                    if let JsValue::Object(id) = obj_val {
+                        let key_id = to_string(&mut self.inner, key);
+                        let obj = self.get_object_mut(id);
+                        obj.properties.retain(|(k, _)| *k != key_id);
                     }
                     self.inner.stack.push(JsValue::Boolean(true));
                 }
 
                 // ── Object/Array creation ───────────────────────────
                 Op::CreateObject => {
+                    let proto = self.inner.object_prototype;
                     let id = self.alloc_object(super::value::Object {
                         kind: ObjectKind::Ordinary,
                         properties: Vec::new(),
-                        prototype: None,
+                        prototype: proto,
                     });
                     self.inner.stack.push(JsValue::Object(id));
                 }
@@ -409,9 +507,15 @@ impl Vm {
                     let val = self.pop()?;
                     let obj_val = self.peek()?;
                     if let JsValue::Object(id) = obj_val {
-                        self.get_object_mut(id)
-                            .properties
-                            .push((name_id, Property::data(val)));
+                        let obj = self.get_object_mut(id);
+                        // Overwrite if key already exists (e.g. after spread).
+                        if let Some(existing) =
+                            obj.properties.iter_mut().find(|(k, _)| *k == name_id)
+                        {
+                            existing.1 = Property::data(val);
+                        } else {
+                            obj.properties.push((name_id, Property::data(val)));
+                        }
                     }
                 }
                 Op::DefineComputedProperty => {
@@ -426,12 +530,13 @@ impl Vm {
                     }
                 }
                 Op::CreateArray => {
+                    let proto = self.inner.array_prototype;
                     let id = self.alloc_object(super::value::Object {
                         kind: ObjectKind::Array {
                             elements: Vec::new(),
                         },
                         properties: Vec::new(),
-                        prototype: None,
+                        prototype: proto,
                     });
                     self.inner.stack.push(JsValue::Object(id));
                 }
@@ -454,9 +559,45 @@ impl Vm {
                         }
                     }
                 }
-                Op::ArraySpread | Op::SpreadObject => {
-                    // Simplified: pop source, ignore spread.
-                    self.pop()?;
+                Op::ArraySpread => {
+                    let source = self.pop()?;
+                    let arr_val = self.peek()?;
+                    if let (JsValue::Object(src_id), JsValue::Object(arr_id)) = (source, arr_val) {
+                        let src = self.inner.get_object(src_id);
+                        if let ObjectKind::Array { elements } = &src.kind {
+                            let elems: Vec<JsValue> = elements.clone();
+                            let arr = self.inner.get_object_mut(arr_id);
+                            if let ObjectKind::Array {
+                                elements: ref mut target,
+                            } = arr.kind
+                            {
+                                target.extend(elems);
+                            }
+                        }
+                    }
+                }
+                Op::SpreadObject => {
+                    let source = self.pop()?;
+                    let obj_val = self.peek()?;
+                    if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
+                        let src = self.inner.get_object(src_id);
+                        let props: Vec<(StringId, Property)> = src
+                            .properties
+                            .iter()
+                            .filter(|(_, p)| p.enumerable)
+                            .map(|(k, p)| (*k, Property::data(p.value)))
+                            .collect();
+                        let dst = self.inner.get_object_mut(dst_id);
+                        for (k, p) in props {
+                            if let Some(existing) =
+                                dst.properties.iter_mut().find(|(ek, _)| *ek == k)
+                            {
+                                existing.1 = p;
+                            } else {
+                                dst.properties.push((k, p));
+                            }
+                        }
+                    }
                 }
 
                 // ── Template ────────────────────────────────────────
@@ -681,10 +822,11 @@ impl Vm {
                             }
                         }
                     }
+                    let proto = self.inner.array_prototype;
                     let arr = self.alloc_object(Object {
                         kind: ObjectKind::Array { elements },
                         properties: Vec::new(),
-                        prototype: None,
+                        prototype: proto,
                     });
                     self.inner.stack.push(JsValue::Object(arr));
                 }
@@ -701,7 +843,20 @@ impl Vm {
                     self.pop()?; // super
                     self.inner.stack.push(JsValue::Undefined);
                 }
-                Op::DefineMethod | Op::DefineField => {
+                Op::DefineMethod => {
+                    let name_idx = self.read_u16_op();
+                    let _flags = self.read_u8_op(); // flags byte (static|kind)
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let val = self.pop()?;
+                    let obj_val = self.peek()?;
+                    if let JsValue::Object(id) = obj_val {
+                        // Class methods are non-enumerable per ES2020 spec.
+                        self.get_object_mut(id)
+                            .properties
+                            .push((name_id, Property::method(val)));
+                    }
+                }
+                Op::DefineField => {
                     self.read_u16_op();
                     self.read_u8_op();
                     self.pop()?; // value/closure
