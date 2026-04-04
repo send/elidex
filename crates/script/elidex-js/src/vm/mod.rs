@@ -98,6 +98,8 @@ pub(crate) struct VmInner {
     pub(crate) completion_value: JsValue,
     /// The most recently thrown/caught exception value (for PushException).
     pub(crate) current_exception: JsValue,
+    /// xorshift64 PRNG state for `Math.random()`.
+    pub(crate) rng_state: u64,
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -218,6 +220,21 @@ impl Vm {
                 string_prototype: None,
                 completion_value: JsValue::Undefined,
                 current_exception: JsValue::Undefined,
+                rng_state: {
+                    // Seed from OS-RNG via RandomState so each Vm gets a
+                    // unique sequence without requiring `rand`.
+                    use std::collections::hash_map::RandomState;
+                    use std::hash::{BuildHasher, Hasher};
+                    let mut hasher = RandomState::new().build_hasher();
+                    hasher.write_u64(0);
+                    let seed = hasher.finish();
+                    // Ensure non-zero (xorshift64 fixpoint).
+                    if seed == 0 {
+                        1
+                    } else {
+                        seed
+                    }
+                },
             },
         };
 
@@ -303,7 +320,7 @@ impl Vm {
 
     /// Get a global variable.
     pub fn get_global(&self, name: &str) -> Option<JsValue> {
-        // Linear lookup through intern_map — only used by external callers,
+        // HashMap lookup through intern_map — only used by external callers,
         // not the hot interpreter path (which uses StringId directly).
         self.inner
             .strings

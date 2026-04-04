@@ -82,12 +82,87 @@ pub(super) fn native_parse_float(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let s_id = ctx.to_string_val(val);
-    let s = ctx.get_string(s_id).trim().to_string();
-    // Try to parse as much of the string as a float. Simple approach: use
-    // Rust's parse for the full trimmed string, then progressively shorter.
-    // For M4-10, full-string parse is sufficient.
-    let n = s.parse::<f64>().unwrap_or(f64::NAN);
+    let trimmed = ctx.get_string(s_id).trim_start().to_string();
+    let n = parse_float_prefix(&trimmed);
     Ok(JsValue::Number(n))
+}
+
+/// Parse the longest valid float prefix from a string (ES2020 `parseFloat` semantics).
+///
+/// Recognises `[+-]? digits [. digits] [eE [+-] digits]` and the literal
+/// `Infinity` / `+Infinity` / `-Infinity`. Rejects Rust-specific literals
+/// such as `inf`, `nan`, etc.
+fn parse_float_prefix(s: &str) -> f64 {
+    if s.is_empty() {
+        return f64::NAN;
+    }
+
+    // Check for Infinity literals (the only non-numeric token parseFloat accepts).
+    if let Some(rest) = s.strip_prefix("Infinity") {
+        let _ = rest;
+        return f64::INFINITY;
+    }
+    if let Some(rest) = s.strip_prefix("+Infinity") {
+        let _ = rest;
+        return f64::INFINITY;
+    }
+    if s.starts_with("-Infinity") {
+        return f64::NEG_INFINITY;
+    }
+
+    // Scan the longest valid numeric prefix: [+-]? digits [. digits] [eE [+-] digits]
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    // Optional sign
+    if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+        i += 1;
+    }
+
+    let start = i;
+
+    // Integer digits
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+
+    // Decimal point + fraction
+    if i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+
+    // Must have consumed at least one digit (a bare "." or sign is invalid).
+    let has_digit = if start < i {
+        // Check that we didn't just consume a lone "."
+        !(i == start + 1 && bytes[start] == b'.')
+    } else {
+        false
+    };
+    if !has_digit {
+        return f64::NAN;
+    }
+
+    // Exponent part
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        let save = i;
+        i += 1;
+        if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+            i += 1;
+        }
+        let exp_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == exp_start {
+            // No digits after 'e', roll back to before the exponent.
+            i = save;
+        }
+    }
+
+    s[..i].parse::<f64>().unwrap_or(f64::NAN)
 }
 
 pub(super) fn native_is_nan(
@@ -376,21 +451,21 @@ pub(super) fn native_math_min(
 }
 
 pub(super) fn native_math_random(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Uses RandomState (OS-RNG seeded hash state) for non-cryptographic randomness.
-    // Not cryptographically secure but sufficient for Math.random().
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    let s = RandomState::new();
-    let mut hasher = s.build_hasher();
-    hasher.write_u64(0);
-    let bits = hasher.finish();
+    // xorshift64 PRNG — not cryptographically secure but sufficient for
+    // Math.random(). State is stored in VmInner so successive calls produce
+    // distinct values.
+    let mut s = ctx.vm.rng_state;
+    s ^= s << 13;
+    s ^= s >> 7;
+    s ^= s << 17;
+    ctx.vm.rng_state = s;
     // The shift produces a 53-bit value that fits in f64's mantissa exactly.
     #[allow(clippy::cast_precision_loss)]
-    let n = (bits >> 11) as f64 / (1u64 << 53) as f64;
+    let n = (s >> 11) as f64 / (1u64 << 53) as f64;
     Ok(JsValue::Number(n))
 }
 
