@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::arena::NodeId;
+use crate::ast::Stmt;
 use crate::atom::Atom;
 use crate::bytecode::compiled::{CompiledFunction, Constant, ExceptionHandler, UpvalueDesc};
 use crate::bytecode::opcode::Op;
@@ -33,6 +35,14 @@ pub struct FunctionCompiler {
     pub is_strict: bool,
     /// Reference to the function scope (local slot assignments).
     pub func_scope_idx: usize,
+    /// Current lexical scope index for block-scope-aware resolution.
+    /// Starts at the function's root scope and is updated on block entry/exit.
+    pub current_scope_idx: usize,
+    /// Stack of finally blocks surrounding the current compilation point.
+    /// When `return`/`break`/`continue` is compiled inside a try/finally,
+    /// these bodies are emitted inline before the jump/return.
+    /// Each entry is a list of statement IDs constituting one finally block.
+    pub finally_stack: Vec<Vec<NodeId<Stmt>>>,
 }
 
 /// Loop context for break/continue jump patching.
@@ -50,7 +60,10 @@ pub struct LoopContext {
 
 impl FunctionCompiler {
     /// Create a new function compiler.
-    pub fn new(func_scope_idx: usize, is_strict: bool) -> Self {
+    ///
+    /// `initial_scope_idx` is the scope index (in `ScopeAnalysis.scopes`) for
+    /// the function's root scope. For the top-level script this is `0`.
+    pub fn new(func_scope_idx: usize, initial_scope_idx: usize, is_strict: bool) -> Self {
         Self {
             bytecode: Vec::new(),
             constants: Vec::new(),
@@ -64,6 +77,8 @@ impl FunctionCompiler {
             is_arrow: false,
             is_strict,
             func_scope_idx,
+            current_scope_idx: initial_scope_idx,
+            finally_stack: Vec::new(),
         }
     }
 
@@ -298,7 +313,7 @@ mod tests {
 
     #[test]
     fn emit_basic() {
-        let mut fc = FunctionCompiler::new(0, false);
+        let mut fc = FunctionCompiler::new(0, 0, false);
         fc.emit(Op::PushUndefined);
         fc.emit(Op::Return);
         assert_eq!(fc.bytecode, vec![Op::PushUndefined as u8, Op::Return as u8]);
@@ -306,14 +321,14 @@ mod tests {
 
     #[test]
     fn emit_u16() {
-        let mut fc = FunctionCompiler::new(0, false);
+        let mut fc = FunctionCompiler::new(0, 0, false);
         fc.emit_u16(Op::PushConst, 0x0102);
         assert_eq!(fc.bytecode, vec![Op::PushConst as u8, 0x02, 0x01]);
     }
 
     #[test]
     fn jump_patching() {
-        let mut fc = FunctionCompiler::new(0, false);
+        let mut fc = FunctionCompiler::new(0, 0, false);
         let patch = fc.emit_jump(Op::JumpIfFalse);
         fc.emit(Op::Pop);
         fc.emit(Op::Pop);
@@ -325,7 +340,7 @@ mod tests {
 
     #[test]
     fn constant_dedup() {
-        let mut fc = FunctionCompiler::new(0, false);
+        let mut fc = FunctionCompiler::new(0, 0, false);
         let a = fc.add_constant(Constant::Number(42.0));
         let b = fc.add_constant(Constant::Number(42.0));
         assert_eq!(a, b);
@@ -339,7 +354,7 @@ mod tests {
 
     #[test]
     fn loop_break_patching() {
-        let mut fc = FunctionCompiler::new(0, false);
+        let mut fc = FunctionCompiler::new(0, 0, false);
         fc.push_loop(0);
         let break_patch = fc.emit_jump(Op::Jump);
         fc.add_break_patch(break_patch);

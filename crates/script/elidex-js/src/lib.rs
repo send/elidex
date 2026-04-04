@@ -31,6 +31,15 @@ pub mod error;
 pub mod regexp;
 pub mod span;
 pub mod token;
+// Native functions share a fixed `fn(...) -> Result<JsValue, VmError>` pointer
+// signature even when infallible, so wraps are inherent to the design.
+#[allow(clippy::unnecessary_wraps)]
+pub mod vm;
+
+#[cfg(feature = "engine")]
+mod engine;
+#[cfg(feature = "engine")]
+pub use engine::ElidexJsEngine;
 
 mod lexer;
 mod parser;

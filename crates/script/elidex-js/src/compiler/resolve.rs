@@ -186,11 +186,32 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
     }
 
     // Second pass: allocate local slots for bindings in each function.
+    // Params must be allocated first (slots 0..N) so that `call_internal`
+    // can copy arguments directly into param slots.
     for (scope_idx, scope) in scopes.iter().enumerate() {
         let func_idx = scope_to_func[scope_idx];
         let func = &mut func_scopes[func_idx];
 
+        // First: allocate Param bindings in source order.
         for binding in &scope.bindings {
+            if binding.kind != BindingKind::Param {
+                continue;
+            }
+            if func.locals.contains_key(&(scope_idx, binding.name)) {
+                continue;
+            }
+            func.add_local(scope_idx, binding.name, binding.kind);
+        }
+    }
+    for (scope_idx, scope) in scopes.iter().enumerate() {
+        let func_idx = scope_to_func[scope_idx];
+        let func = &mut func_scopes[func_idx];
+
+        // Then: allocate all non-Param bindings.
+        for binding in &scope.bindings {
+            if binding.kind == BindingKind::Param {
+                continue;
+            }
             // Skip if already allocated in this exact scope (duplicate binding).
             if func.locals.contains_key(&(scope_idx, binding.name)) {
                 continue;
@@ -215,22 +236,25 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
 /// Resolve an identifier reference to its storage location.
 ///
 /// `current_func_idx` is the index into the `func_scopes` array.
-/// Walks outward through enclosing functions to find the binding.
+/// `current_scope_idx` is the current lexical scope position within the
+/// function — resolution walks from this scope upward through parent scopes,
+/// preventing references to bindings in sibling or descendant block scopes.
 ///
-/// **Limitation (M4-9):** Resolution searches all scopes within a function
-/// without tracking the current lexical scope position. Block-scoped shadowing
-/// (e.g., `{ let x = 1; } x;`) may resolve incorrectly. Correct resolution
-/// requires the compiler to track a `current_scope_idx` during AST traversal
-/// and call `get_local_from_scope()` instead of `get_local()`. This will be
-/// addressed in M4-10 alongside the interpreter.
+/// Walks outward through enclosing functions to find the binding.
 pub fn resolve_identifier(
     name: Atom,
     current_func_idx: usize,
+    current_scope_idx: usize,
     func_scopes: &mut [FunctionScope],
     analysis: &ScopeAnalysis,
 ) -> VarLocation {
-    // 1. Check current function's locals.
-    if let Some(info) = func_scopes[current_func_idx].get_local(name) {
+    // 1. Check current function's locals, walking from current scope upward.
+    //    Block scope tracking (M4-10) ensures `current_scope_idx` is updated
+    //    on Block/For/ForIn/ForOf/Catch entry/exit, so `get_local_from_scope`
+    //    correctly limits resolution to the current scope chain.
+    if let Some(info) =
+        func_scopes[current_func_idx].get_local_from_scope(name, current_scope_idx, analysis)
+    {
         return VarLocation::Local(info.slot);
     }
 
@@ -457,7 +481,8 @@ mod tests {
             "outer should have local 'x'"
         );
 
-        let loc = resolve_identifier(x_atom, 2, &mut func_scopes, &analysis);
+        let root_scope = func_scopes[2].scope_indices[0];
+        let loc = resolve_identifier(x_atom, 2, root_scope, &mut func_scopes, &analysis);
         assert!(matches!(loc, VarLocation::Upvalue(_)));
     }
 
