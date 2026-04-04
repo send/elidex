@@ -293,6 +293,25 @@ fn eval_nested_try_catch() {
 }
 
 #[test]
+fn eval_finally_runs_on_return() {
+    // finally must execute even when try block returns
+    assert_eq!(
+        eval_number(
+            "var x = 0; function f() { try { x = 1; return 42; } finally { x = 2; } } f(); x;"
+        ),
+        2.0
+    );
+}
+
+#[test]
+fn eval_finally_runs_on_break() {
+    assert_eq!(
+        eval_number("var x = 0; while (true) { try { x = 1; break; } finally { x = 2; } } x;"),
+        2.0
+    );
+}
+
+#[test]
 fn eval_switch() {
     assert_eq!(
         eval_number("var x = 2; var r = 0; switch(x) { case 1: r = 10; break; case 2: r = 20; break; default: r = 30; } r;"),

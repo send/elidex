@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::arena::NodeId;
+use crate::ast::Stmt;
 use crate::atom::Atom;
 use crate::bytecode::compiled::{CompiledFunction, Constant, ExceptionHandler, UpvalueDesc};
 use crate::bytecode::opcode::Op;
@@ -36,6 +38,11 @@ pub struct FunctionCompiler {
     /// Current lexical scope index for block-scope-aware resolution.
     /// Starts at the function's root scope and is updated on block entry/exit.
     pub current_scope_idx: usize,
+    /// Stack of finally blocks surrounding the current compilation point.
+    /// When `return`/`break`/`continue` is compiled inside a try/finally,
+    /// these bodies are emitted inline before the jump/return.
+    /// Each entry is a list of statement IDs constituting one finally block.
+    pub finally_stack: Vec<Vec<NodeId<Stmt>>>,
 }
 
 /// Loop context for break/continue jump patching.
@@ -71,6 +78,7 @@ impl FunctionCompiler {
             is_strict,
             func_scope_idx,
             current_scope_idx: initial_scope_idx,
+            finally_stack: Vec::new(),
         }
     }
 

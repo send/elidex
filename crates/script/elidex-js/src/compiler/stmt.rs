@@ -326,10 +326,13 @@ pub fn compile_stmt(
         StmtKind::Return(arg) => {
             if let Some(expr_id) = arg {
                 compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
-                fc.emit(Op::Return);
             } else {
-                fc.emit(Op::ReturnUndefined);
+                fc.emit(Op::PushUndefined);
             }
+            // If inside try/finally, emit finally bodies before returning.
+            // The return value is on the stack; finally bodies must not consume it.
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            fc.emit(Op::Return);
         }
 
         StmtKind::Throw(expr_id) => {
@@ -338,6 +341,7 @@ pub fn compile_stmt(
         }
 
         StmtKind::Break(label) => {
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
                 let label_name = prog.interner.get(*label_atom);
@@ -361,6 +365,7 @@ pub fn compile_stmt(
         }
 
         StmtKind::Continue(label) => {
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
                 let label_name = prog.interner.get(*label_atom);
@@ -399,6 +404,12 @@ pub fn compile_stmt(
             // PushExceptionHandler with placeholder offsets.
             fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
             let handler_patch_pos = catch_placeholder + 1; // offset of catch u16
+
+            // Push finally body onto the stack so that return/break/continue
+            // inside the try block will emit it before jumping.
+            if let Some(fin_block) = finalizer {
+                fc.finally_stack.push(fin_block.clone());
+            }
 
             // Try block (has its own Block scope in the scope tree).
             let saved_try_scope = fc.current_scope_idx;
@@ -539,6 +550,11 @@ pub fn compile_stmt(
                 let finally_bytes = finally_offset.to_le_bytes();
                 fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
                 fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+            }
+
+            // Pop the finally stack entry (if we pushed one).
+            if finalizer.is_some() {
+                fc.finally_stack.pop();
             }
         }
 
@@ -927,6 +943,28 @@ fn find_child_block_scope(
         }
     }
     None
+}
+
+/// Emit all pending finally bodies (innermost first) before a return/break/continue.
+///
+/// This ensures `try { return x; } finally { cleanup(); }` runs the cleanup
+/// before the return takes effect.
+fn emit_pending_finally_bodies(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+) -> Result<(), CompileError> {
+    // Clone the stack to avoid borrow conflict (finally_stack is on fc).
+    let stacks: Vec<Vec<NodeId<Stmt>>> = fc.finally_stack.clone();
+    // Emit innermost (last pushed) first — but for return semantics,
+    // we need innermost-to-outermost order, which is reverse iteration.
+    for fin_stmts in stacks.iter().rev() {
+        for &s in fin_stmts {
+            compile_stmt(fc, prog, analysis, func_scopes, s)?;
+        }
+    }
+    Ok(())
 }
 
 /// Find a child scope of `parent_idx` that is a `Catch` scope matching `catch_span`.
