@@ -514,7 +514,7 @@ fn eval_parse_float() {
 
 #[test]
 fn eval_parse_float_prefix() {
-    assert_eq!(eval_number("parseFloat('3.14abc');"), 3.14);
+    assert_eq!(eval_number("parseFloat('3.25abc');"), 3.25);
     assert!(eval_bool("isNaN(parseFloat('inf'));"));
 }
 
