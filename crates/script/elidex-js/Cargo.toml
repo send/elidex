@@ -15,7 +15,7 @@ default = []
 engine = ["elidex-script-session", "elidex-ecs"]
 
 [dependencies]
-hashbrown = "0.15"
+hashbrown = "0.16"
 unicode-ident = "1.0"
 elidex-script-session = { workspace = true, optional = true }
 elidex-ecs = { workspace = true, optional = true }
