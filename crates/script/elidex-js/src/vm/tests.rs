@@ -1004,3 +1004,42 @@ fn eval_object_has_prototype() {
     // For now, just verify that `in` works through prototype chain for arrays.
     assert_eq!(eval_number("var a = [1, 2, 3]; a.length;"), 3.0);
 }
+
+// ---------------------------------------------------------------------------
+// M4-10 scope items
+// ---------------------------------------------------------------------------
+
+#[test]
+fn eval_block_scope_isolation() {
+    // x should not be accessible outside the block
+    assert_eq!(eval_string("{ let x = 'inner'; } typeof x;"), "undefined");
+}
+
+#[test]
+fn eval_default_param() {
+    assert_eq!(eval_number("function f(x = 10) { return x; } f();"), 10.0);
+    assert_eq!(eval_number("function f(x = 10) { return x; } f(42);"), 42.0);
+}
+
+#[test]
+fn eval_arrow_default_param() {
+    assert_eq!(eval_number("var f = (x = 5) => x; f();"), 5.0);
+}
+
+#[test]
+fn eval_forin_prototype_chain() {
+    assert_eq!(
+        eval_number(
+            "var parent = {a: 1}; var child = Object.create(parent); child.b = 2; var s = 0; for (var k in child) { s += child[k]; } s;"
+        ),
+        3.0
+    );
+}
+
+#[test]
+fn eval_function_hoisting() {
+    assert_eq!(
+        eval_number("var x = f(); function f() { return 42; } x;"),
+        42.0
+    );
+}

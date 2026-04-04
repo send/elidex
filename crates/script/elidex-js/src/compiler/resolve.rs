@@ -249,16 +249,12 @@ pub fn resolve_identifier(
     analysis: &ScopeAnalysis,
 ) -> VarLocation {
     // 1. Check current function's locals, walking from current scope upward.
-    //    When scope tracking is fully implemented (Block entry/exit updates
-    //    `current_scope_idx`), `get_local_from_scope` alone will suffice.
-    //    Until then, fall back to `get_local` so that bindings in child
-    //    scopes (e.g. catch parameters) are still found.
+    //    Block scope tracking (M4-10) ensures `current_scope_idx` is updated
+    //    on Block/For/ForIn/ForOf/Catch entry/exit, so `get_local_from_scope`
+    //    correctly limits resolution to the current scope chain.
     if let Some(info) =
         func_scopes[current_func_idx].get_local_from_scope(name, current_scope_idx, analysis)
     {
-        return VarLocation::Local(info.slot);
-    }
-    if let Some(info) = func_scopes[current_func_idx].get_local(name) {
         return VarLocation::Local(info.slot);
     }
 

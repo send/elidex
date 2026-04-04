@@ -191,14 +191,12 @@ impl Parser<'_> {
                 right,
             } => {
                 let pat_id = self.expr_to_pattern(lhs);
-                let inner = self.patterns.alloc(Pattern {
-                    kind: PatternKind::Assign {
-                        left: pat_id,
-                        right,
-                    },
+                Param {
+                    pattern: pat_id,
+                    default: Some(right),
+                    rest: false,
                     span,
-                });
-                Param::simple(inner, span)
+                }
             }
             ExprKind::Spread(inner) => {
                 let pat = self.expr_to_pattern(inner);

@@ -5,7 +5,8 @@ use crate::arena::NodeId;
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::bytecode::opcode::Op;
-use crate::scope::ScopeAnalysis;
+use crate::scope::{ScopeAnalysis, ScopeKind};
+use crate::span::Span;
 
 use super::expr::{compile_class, compile_expr, compile_nested_function};
 use super::function::FunctionCompiler;
@@ -101,6 +102,11 @@ pub fn compile_stmt(
         }
 
         StmtKind::ForIn { left, right, body } => {
+            let saved_scope = fc.current_scope_idx;
+            if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span)
+            {
+                fc.current_scope_idx = child_scope;
+            }
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
             fc.emit(Op::ForInIterator);
             let loop_start = fc.pc();
@@ -117,6 +123,7 @@ pub fn compile_stmt(
             fc.emit(Op::Pop); // pop leftover key from done path
             fc.emit(Op::Pop); // pop iterator
             fc.pop_loop();
+            fc.current_scope_idx = saved_scope;
         }
 
         StmtKind::ForOf {
@@ -125,6 +132,11 @@ pub fn compile_stmt(
             body,
             is_await: _,
         } => {
+            let saved_scope = fc.current_scope_idx;
+            if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span)
+            {
+                fc.current_scope_idx = child_scope;
+            }
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
             fc.emit(Op::GetIterator);
             let loop_start = fc.pc();
@@ -141,6 +153,7 @@ pub fn compile_stmt(
             fc.emit(Op::Pop); // pop leftover value from done path
             fc.emit(Op::Pop); // pop iterator
             fc.pop_loop();
+            fc.current_scope_idx = saved_scope;
         }
 
         StmtKind::With { .. } => {
@@ -186,9 +199,15 @@ pub fn compile_stmt(
         }
 
         StmtKind::Block(body) => {
+            let saved_scope = fc.current_scope_idx;
+            if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span)
+            {
+                fc.current_scope_idx = child_scope;
+            }
             for &s in body {
                 compile_stmt(fc, prog, analysis, func_scopes, s)?;
             }
+            fc.current_scope_idx = saved_scope;
         }
 
         StmtKind::If {
@@ -250,6 +269,11 @@ pub fn compile_stmt(
             update,
             body,
         } => {
+            let saved_scope = fc.current_scope_idx;
+            if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span)
+            {
+                fc.current_scope_idx = child_scope;
+            }
             // Init.
             if let Some(for_init) = init {
                 match for_init {
@@ -326,6 +350,7 @@ pub fn compile_stmt(
                 fc.patch_jump(patch);
             }
             fc.pop_loop();
+            fc.current_scope_idx = saved_scope;
         }
 
         StmtKind::Return(arg) => {
@@ -399,10 +424,17 @@ pub fn compile_stmt(
             fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
             let handler_patch_pos = catch_placeholder + 1; // offset of catch u16
 
-            // Try block.
+            // Try block (has its own Block scope in the scope tree).
+            let saved_try_scope = fc.current_scope_idx;
+            if let Some(try_block_scope) =
+                find_child_block_scope(analysis, fc.current_scope_idx, span)
+            {
+                fc.current_scope_idx = try_block_scope;
+            }
             for &s in block {
                 compile_stmt(fc, prog, analysis, func_scopes, s)?;
             }
+            fc.current_scope_idx = saved_try_scope;
             fc.emit(Op::PopExceptionHandler);
             let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
 
@@ -413,6 +445,12 @@ pub fn compile_stmt(
                 u32::MAX // no catch — 0xFFFF sentinel
             };
             if let Some(catch) = handler {
+                let saved_scope = fc.current_scope_idx;
+                if let Some(catch_scope) =
+                    find_child_catch_scope(analysis, fc.current_scope_idx, catch.span)
+                {
+                    fc.current_scope_idx = catch_scope;
+                }
                 // Bind catch parameter.
                 fc.emit(Op::PushException);
                 if let Some(param_id) = catch.param {
@@ -435,6 +473,7 @@ pub fn compile_stmt(
                 for &s in &catch.body {
                     compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
+                fc.current_scope_idx = saved_scope;
             }
 
             fc.patch_jump(finally_jump);
@@ -824,4 +863,36 @@ fn compile_pattern_store(
     }
 
     Ok(())
+}
+
+/// Find a child scope of `parent_idx` that is a `Block` scope matching `span`.
+fn find_child_block_scope(
+    analysis: &ScopeAnalysis,
+    parent_idx: usize,
+    span: Span,
+) -> Option<usize> {
+    let parent = &analysis.scopes[parent_idx];
+    for &child_idx in &parent.children {
+        let child = &analysis.scopes[child_idx];
+        if child.kind == ScopeKind::Block && child.span == span {
+            return Some(child_idx);
+        }
+    }
+    None
+}
+
+/// Find a child scope of `parent_idx` that is a `Catch` scope matching `catch_span`.
+fn find_child_catch_scope(
+    analysis: &ScopeAnalysis,
+    parent_idx: usize,
+    catch_span: Span,
+) -> Option<usize> {
+    let parent = &analysis.scopes[parent_idx];
+    for &child_idx in &parent.children {
+        let child = &analysis.scopes[child_idx];
+        if child.kind == ScopeKind::Catch && child.span == catch_span {
+            return Some(child_idx);
+        }
+    }
+    None
 }

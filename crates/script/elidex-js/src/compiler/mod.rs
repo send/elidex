@@ -8,8 +8,8 @@ pub mod function;
 pub mod resolve;
 mod stmt;
 
-use crate::ast::Program;
-use crate::bytecode::compiled::CompiledScript;
+use crate::ast::{Program, StmtKind};
+use crate::bytecode::compiled::{CompiledScript, Constant};
 use crate::bytecode::opcode::Op;
 use crate::scope::{BindingKind, ScopeAnalysis};
 
@@ -65,6 +65,47 @@ pub fn compile(
         fc.emit(Op::PushUndefined);
         fc.emit_u16(Op::SetLocal, slot);
         fc.emit(Op::Pop);
+    }
+
+    // Hoist function declarations: compile and store before executing any statements.
+    for &stmt_id in &program.body {
+        let stmt = program.stmts.get(stmt_id);
+        if let StmtKind::FunctionDeclaration(func) = &stmt.kind {
+            if let Some(name) = &func.name {
+                let child_func = expr::compile_nested_function(
+                    &mut fc,
+                    program,
+                    analysis,
+                    &mut func_scopes,
+                    func,
+                    true,
+                )?;
+                let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
+                fc.emit_u16(Op::Closure, idx);
+                let loc = resolve::resolve_identifier(
+                    *name,
+                    fc.func_scope_idx,
+                    fc.current_scope_idx,
+                    &mut func_scopes,
+                    analysis,
+                );
+                match loc {
+                    resolve::VarLocation::Local(slot) => {
+                        fc.emit_u16(Op::SetLocal, slot);
+                        fc.emit(Op::Pop);
+                    }
+                    resolve::VarLocation::Global => {
+                        let name_str = program.interner.get(*name);
+                        let name_idx = fc.add_name(name_str);
+                        fc.emit_u16(Op::SetGlobal, name_idx);
+                        fc.emit(Op::Pop);
+                    }
+                    _ => {
+                        fc.emit(Op::Pop);
+                    }
+                }
+            }
+        }
     }
 
     // Compile top-level statements.

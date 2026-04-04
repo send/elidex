@@ -1277,6 +1277,21 @@ pub(super) fn compile_nested_function(
         child_fc.emit(Op::Pop);
     }
 
+    // Compile default parameter values.
+    for (i, param) in func.params.iter().enumerate() {
+        if let Some(default_expr) = param.default {
+            let slot = i as u16;
+            child_fc.emit_u16(Op::GetLocal, slot);
+            child_fc.emit(Op::PushUndefined);
+            child_fc.emit(Op::StrictEq);
+            let skip = child_fc.emit_jump(Op::JumpIfFalse);
+            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
+            child_fc.emit_u16(Op::SetLocal, slot);
+            child_fc.emit(Op::Pop);
+            child_fc.patch_jump(skip);
+        }
+    }
+
     // Compile body statements.
     for &stmt_id in &func.body {
         super::stmt::compile_stmt(&mut child_fc, prog, analysis, func_scopes, stmt_id)?;
@@ -1332,6 +1347,21 @@ fn compile_arrow_function(
         child_fc.emit(Op::PushUndefined);
         child_fc.emit_u16(Op::SetLocal, slot);
         child_fc.emit(Op::Pop);
+    }
+
+    // Compile default parameter values.
+    for (i, param) in arrow.params.iter().enumerate() {
+        if let Some(default_expr) = param.default {
+            let slot = i as u16;
+            child_fc.emit_u16(Op::GetLocal, slot);
+            child_fc.emit(Op::PushUndefined);
+            child_fc.emit(Op::StrictEq);
+            let skip = child_fc.emit_jump(Op::JumpIfFalse);
+            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
+            child_fc.emit_u16(Op::SetLocal, slot);
+            child_fc.emit(Op::Pop);
+            child_fc.patch_jump(skip);
+        }
     }
 
     match &arrow.body {

@@ -870,17 +870,25 @@ impl Vm {
                 // ── For-in iteration ────────────────────────────────
                 Op::ForInIterator => {
                     let obj = self.pop()?;
-                    // Collect enumerable string keys from the object.
+                    // Collect enumerable string keys from the object and its
+                    // prototype chain, skipping shadowed properties.
                     let keys = if let JsValue::Object(obj_id) = obj {
-                        let obj_ref = self.inner.objects[obj_id.0 as usize]
-                            .as_ref()
-                            .ok_or_else(|| VmError::type_error("cannot iterate freed object"))?;
-                        obj_ref
-                            .properties
-                            .iter()
-                            .filter(|(_, prop)| prop.enumerable)
-                            .map(|(k, _)| *k)
-                            .collect::<Vec<_>>()
+                        let mut keys = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        let mut current = Some(obj_id);
+                        while let Some(id) = current {
+                            let obj_ref =
+                                self.inner.objects[id.0 as usize].as_ref().ok_or_else(|| {
+                                    VmError::type_error("cannot iterate freed object")
+                                })?;
+                            for (key, prop) in &obj_ref.properties {
+                                if prop.enumerable && seen.insert(*key) {
+                                    keys.push(*key);
+                                }
+                            }
+                            current = obj_ref.prototype;
+                        }
+                        keys
                     } else {
                         Vec::new()
                     };
