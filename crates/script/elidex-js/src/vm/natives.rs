@@ -456,8 +456,13 @@ pub(super) fn native_math_round(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
-    // JS Math.round: round half toward +Infinity.
-    Ok(JsValue::Number((n + 0.5).floor()))
+    // ES2020 §20.2.2.28: if n is in [-0.5, 0), result is -0.
+    let result = if (-0.5..0.0).contains(&n) {
+        -0.0_f64
+    } else {
+        (n + 0.5).floor()
+    };
+    Ok(JsValue::Number(result))
 }
 
 pub(super) fn native_math_max(

@@ -557,8 +557,12 @@ fn compile_identifier_load(
     );
     match loc {
         VarLocation::Local(slot) => {
-            // Check TDZ if needed.
-            if let Some(info) = func_scopes[fc.func_scope_idx].get_local(atom) {
+            // Check TDZ if needed — use scope-aware lookup to respect shadowing.
+            if let Some(info) = func_scopes[fc.func_scope_idx].get_local_from_scope(
+                atom,
+                fc.current_scope_idx,
+                analysis,
+            ) {
                 if info.needs_tdz {
                     fc.emit_u16(Op::CheckTdz, slot);
                 }
@@ -708,7 +712,12 @@ fn compile_identifier_store(
     );
     match loc {
         VarLocation::Local(slot) => {
-            if let Some(info) = func_scopes[fc.func_scope_idx].get_local(atom) {
+            // Use scope-aware lookup to respect shadowing.
+            if let Some(info) = func_scopes[fc.func_scope_idx].get_local_from_scope(
+                atom,
+                fc.current_scope_idx,
+                analysis,
+            ) {
                 // Check for const assignment (ES2020 §13.15.2 — TypeError).
                 if info.kind == BindingKind::Const {
                     return Err(CompileError {

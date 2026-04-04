@@ -668,7 +668,17 @@ impl Vm {
                         // Handler found and activated — continue the dispatch loop.
                         continue;
                     }
-                    // No handler found — propagate as Rust error.
+                    // No handler found — clean up frames/stack so subsequent
+                    // `eval()` calls don't see stale state.
+                    while self.inner.frames.len() > entry_frame_depth {
+                        let frame = self.inner.frames.pop().unwrap();
+                        self.close_upvalues(&frame.local_upvalue_ids);
+                        self.inner.stack.truncate(frame.base);
+                    }
+                    if let Some(frame) = self.inner.frames.pop() {
+                        self.close_upvalues(&frame.local_upvalue_ids);
+                        self.inner.stack.truncate(frame.base);
+                    }
                     return Err(VmError {
                         kind: VmErrorKind::ThrowValue(val),
                         message: "uncaught throw".into(),
