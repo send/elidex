@@ -810,9 +810,34 @@ fn compile_destructure_pattern(
             }
 
             if let Some(rest_pat) = rest {
-                // Simplified: assign the whole object (proper rest excludes
-                // already-destructured keys, but that requires runtime support).
-                fc.emit(Op::Dup);
+                // Create a new object with all enumerable own properties EXCEPT
+                // the keys already destructured above.
+                fc.emit(Op::Dup); // [value value]
+                fc.emit(Op::CreateObject); // [value value rest_obj]
+                fc.emit(Op::Swap); // [value rest_obj value]
+                fc.emit(Op::SpreadObject); // [value rest_obj] (copies all props)
+                // Delete the already-destructured keys from rest_obj.
+                for prop in properties {
+                    match &prop.key {
+                        PropertyKey::Identifier(atom) => {
+                            let name = prog.interner.get(*atom);
+                            let idx = fc.add_name(name);
+                            fc.emit(Op::Dup); // [value rest_obj rest_obj]
+                            fc.emit_u16(Op::DeleteProp, idx); // [value rest_obj bool]
+                            fc.emit(Op::Pop); // [value rest_obj]
+                        }
+                        PropertyKey::Literal(Literal::String(atom)) => {
+                            let name = prog.interner.get(*atom);
+                            let idx = fc.add_name(name);
+                            fc.emit(Op::Dup);
+                            fc.emit_u16(Op::DeleteProp, idx);
+                            fc.emit(Op::Pop);
+                        }
+                        // Computed/other keys: can't statically delete, skip
+                        _ => {}
+                    }
+                }
+                // Stack: [value rest_obj]
                 compile_destructure_pattern(fc, prog, analysis, func_scopes, *rest_pat, var_kind)?;
             }
 

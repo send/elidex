@@ -656,6 +656,21 @@ fn eval_array_rest() {
     );
 }
 
+#[test]
+fn eval_object_rest_destructuring() {
+    // rest should exclude already-destructured keys
+    assert_eq!(
+        eval_number("var {a, ...rest} = {a: 1, b: 2, c: 3}; rest.b + rest.c;"),
+        5.0
+    );
+}
+
+#[test]
+fn eval_object_rest_no_excluded_key() {
+    // rest should not contain 'a'
+    assert!(eval_bool("var {a, ...rest} = {a: 1, b: 2}; !('a' in rest);"));
+}
+
 // ── String.prototype methods ────────────────────────────────────
 
 #[test]
