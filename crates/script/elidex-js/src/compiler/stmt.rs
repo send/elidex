@@ -340,16 +340,20 @@ pub fn compile_stmt(
         StmtKind::Break(label) => {
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                // Labeled break: find the loop context by label.
+                let label_name = prog.interner.get(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
-                            message: "labeled break target out of bounds".into(),
+                            message: format!(
+                                "label '{label_name}' is not associated with a loop or switch"
+                            ),
                         });
                     }
                     fc.loop_stack[loop_idx].break_patches.push(patch);
                 } else {
-                    fc.add_break_patch(patch);
+                    return Err(CompileError {
+                        message: format!("undefined label '{label_name}'"),
+                    });
                 }
             } else {
                 fc.add_break_patch(patch);
@@ -359,16 +363,20 @@ pub fn compile_stmt(
         StmtKind::Continue(label) => {
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                // Labeled continue: find the loop context by label.
+                let label_name = prog.interner.get(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
-                            message: "labeled continue target out of bounds".into(),
+                            message: format!(
+                                "label '{label_name}' is not associated with a loop"
+                            ),
                         });
                     }
                     fc.loop_stack[loop_idx].continue_patches.push(patch);
                 } else {
-                    fc.add_continue_patch(patch);
+                    return Err(CompileError {
+                        message: format!("undefined label '{label_name}'"),
+                    });
                 }
             } else {
                 fc.add_continue_patch(patch);
