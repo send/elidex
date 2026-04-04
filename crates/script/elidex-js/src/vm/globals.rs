@@ -10,10 +10,12 @@ use super::natives::{
     native_math_log, native_math_max, native_math_min, native_math_pow, native_math_random,
     native_math_round, native_math_sqrt, native_object_assign, native_object_create,
     native_object_define_property, native_object_keys, native_object_values, native_parse_float,
-    native_parse_int, native_string_char_at, native_string_char_code_at, native_string_ends_with,
+    native_parse_int, native_range_error_constructor, native_reference_error_constructor,
+    native_string_char_at, native_string_char_code_at, native_string_ends_with,
     native_string_includes, native_string_index_of, native_string_replace, native_string_slice,
     native_string_split, native_string_starts_with, native_string_substring,
     native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_type_error_constructor,
 };
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, VmError};
 use super::{NativeFn, Vm};
@@ -86,7 +88,7 @@ impl Vm {
         let obj_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             properties: Vec::new(),
-            prototype: None,
+            prototype: self.inner.object_prototype,
         });
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
@@ -117,15 +119,15 @@ impl Vm {
     }
 
     fn register_error_constructors(&mut self) {
-        for name in &["Error", "TypeError", "ReferenceError", "RangeError"] {
-            let fn_id = self.create_native_function(name, native_error_constructor);
+        let ctors: &[(&str, NativeFn)] = &[
+            ("Error", native_error_constructor),
+            ("TypeError", native_type_error_constructor),
+            ("ReferenceError", native_reference_error_constructor),
+            ("RangeError", native_range_error_constructor),
+        ];
+        for &(name, func) in ctors {
+            let fn_id = self.create_native_function(name, func);
             let name_id = self.inner.strings.intern(name);
-            // Store the error name on the function object as a property so the
-            // constructor can read it back.
-            let error_name_key = self.inner.strings.intern("_errorName");
-            self.get_object_mut(fn_id)
-                .properties
-                .push((error_name_key, Property::builtin(JsValue::String(name_id))));
             self.inner.globals.insert(name_id, JsValue::Object(fn_id));
         }
     }

@@ -17,46 +17,48 @@ pub(super) fn native_parse_int(
     let s_id = ctx.to_string_val(val);
     let s = ctx.get_string(s_id).trim().to_string();
 
-    let radix = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let radix = if matches!(radix, JsValue::Undefined) {
-        if s.starts_with("0x") || s.starts_with("0X") {
-            16
+    // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
+    let mut negative = false;
+    let mut rest = s.as_str();
+    if let Some(r) = rest.strip_prefix('-') {
+        negative = true;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix('+') {
+        rest = r;
+    }
+
+    let radix_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let (radix, rest) = if matches!(radix_arg, JsValue::Undefined) {
+        if let Some(r) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+            (16u32, r)
         } else {
-            10
+            (10u32, rest)
         }
     } else {
-        let r = ctx.to_number(radix);
+        let r = ctx.to_number(radix_arg);
         if r.is_nan() || !(2.0..=36.0).contains(&r) {
             return Ok(JsValue::Number(f64::NAN));
         }
-        // Safe: range checked above.
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let ru = r as u32;
-        ru
+        let rest = if ru == 16 {
+            rest.strip_prefix("0x")
+                .or_else(|| rest.strip_prefix("0X"))
+                .unwrap_or(rest)
+        } else {
+            rest
+        };
+        (ru, rest)
     };
 
     if !(2..=36).contains(&radix) {
         return Ok(JsValue::Number(f64::NAN));
     }
 
-    let parse_str = if radix == 16 && (s.starts_with("0x") || s.starts_with("0X")) {
-        &s[2..]
-    } else {
-        &s
-    };
-
     // Parse as many valid digits as possible (prefix parsing).
     let mut result: f64 = 0.0;
     let mut found = false;
-    let mut negative = false;
-    let mut chars = parse_str.chars().peekable();
-
-    if chars.peek() == Some(&'-') {
-        negative = true;
-        chars.next();
-    } else if chars.peek() == Some(&'+') {
-        chars.next();
-    }
+    let chars = rest.chars();
 
     for ch in chars {
         let Some(digit) = ch.to_digit(radix) else {
@@ -187,13 +189,22 @@ pub(super) fn native_is_finite(
 
 // -- Error constructors -----------------------------------------------------
 
-pub(super) fn native_error_constructor(
+fn error_ctor_impl(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
+    error_name: &str,
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
-        let msg = args.first().copied().unwrap_or(JsValue::Undefined);
+        let name_key = ctx.vm.well_known.name;
+        let name_val = JsValue::String(ctx.intern(error_name));
+        ctx.get_object_mut(id)
+            .properties
+            .push((name_key, Property::data(name_val)));
+        let msg = args
+            .first()
+            .copied()
+            .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
         let msg_id = ctx.to_string_val(msg);
         let msg_key = ctx.vm.well_known.message;
         ctx.get_object_mut(id)
@@ -201,6 +212,38 @@ pub(super) fn native_error_constructor(
             .push((msg_key, Property::data(JsValue::String(msg_id))));
     }
     Ok(this)
+}
+
+pub(super) fn native_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "Error")
+}
+
+pub(super) fn native_type_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "TypeError")
+}
+
+pub(super) fn native_reference_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "ReferenceError")
+}
+
+pub(super) fn native_range_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "RangeError")
 }
 
 // -- Object static methods --------------------------------------------------

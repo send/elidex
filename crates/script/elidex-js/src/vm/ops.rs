@@ -410,11 +410,18 @@ impl Vm {
             self.get_object_mut(proto_obj)
                 .properties
                 .push((ctor_key, Property::method(JsValue::Object(func_obj))));
-            // Set .prototype on the function object.
+            // Set .prototype on the function object (writable, non-enumerable,
+            // non-configurable per ES2020 §9.2.5).
             let proto_key = self.inner.well_known.prototype;
-            self.get_object_mut(func_obj)
-                .properties
-                .push((proto_key, Property::data(JsValue::Object(proto_obj))));
+            self.get_object_mut(func_obj).properties.push((
+                proto_key,
+                Property {
+                    value: JsValue::Object(proto_obj),
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                },
+            ));
         }
 
         self.inner.stack.push(JsValue::Object(func_obj));
