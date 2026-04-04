@@ -269,7 +269,7 @@ pub(super) fn native_object_keys(
                 elements: Vec::new(),
             },
             properties: Vec::new(),
-            prototype: None,
+            prototype: ctx.vm.array_prototype,
         })));
     };
     let keys: Vec<JsValue> = ctx
@@ -282,7 +282,7 @@ pub(super) fn native_object_keys(
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: keys },
         properties: Vec::new(),
-        prototype: None,
+        prototype: ctx.vm.array_prototype,
     })))
 }
 
@@ -298,7 +298,7 @@ pub(super) fn native_object_values(
                 elements: Vec::new(),
             },
             properties: Vec::new(),
-            prototype: None,
+            prototype: ctx.vm.array_prototype,
         })));
     };
     let values: Vec<JsValue> = ctx
@@ -311,7 +311,7 @@ pub(super) fn native_object_values(
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },
         properties: Vec::new(),
-        prototype: None,
+        prototype: ctx.vm.array_prototype,
     })))
 }
 
@@ -769,7 +769,7 @@ pub(super) fn native_string_split(
                 elements: Vec::new(),
             },
             properties: Vec::new(),
-            prototype: None,
+            prototype: ctx.vm.array_prototype,
         })));
     };
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
@@ -784,7 +784,7 @@ pub(super) fn native_string_split(
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: parts },
         properties: Vec::new(),
-        prototype: None,
+        prototype: ctx.vm.array_prototype,
     })))
 }
 
