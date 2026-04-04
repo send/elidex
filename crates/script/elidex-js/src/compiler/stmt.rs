@@ -367,9 +367,7 @@ pub fn compile_stmt(
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
-                            message: format!(
-                                "label '{label_name}' is not associated with a loop"
-                            ),
+                            message: format!("label '{label_name}' is not associated with a loop"),
                         });
                     }
                     fc.loop_stack[loop_idx].continue_patches.push(patch);
