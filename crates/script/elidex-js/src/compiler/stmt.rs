@@ -7,9 +7,11 @@ use crate::atom::Atom;
 use crate::bytecode::opcode::Op;
 use crate::scope::ScopeAnalysis;
 
-use super::expr::compile_expr;
+use super::expr::{compile_class, compile_expr, compile_nested_function};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
+use super::CompileError;
+use crate::bytecode::compiled::Constant;
 
 /// Compile a statement.
 #[allow(clippy::too_many_lines)]
@@ -19,35 +21,139 @@ pub fn compile_stmt(
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
     stmt_id: NodeId<Stmt>,
-) {
+) -> Result<(), CompileError> {
     let stmt = prog.stmts.get(stmt_id);
     let span = stmt.span;
     fc.source_map.add(fc.pc(), span);
 
     match &stmt.kind {
-        // No-ops: empty, parse error, debugger, hoisted declarations, stubs.
+        // No-ops: empty, parse error, debugger, stubs.
         StmtKind::Empty
         | StmtKind::Error
         | StmtKind::Debugger
-        | StmtKind::FunctionDeclaration(_)
-        | StmtKind::ClassDeclaration(_)
-        | StmtKind::With { .. }
-        | StmtKind::ForIn { .. }
-        | StmtKind::ForOf { .. }
         | StmtKind::ImportDeclaration(_)
-        | StmtKind::ExportDeclaration(_) => {
-            // TODO: FunctionDeclaration, ClassDeclaration, ForIn/ForOf, With
+        | StmtKind::ExportDeclaration(_) => {}
+
+        StmtKind::ClassDeclaration(class) => {
+            compile_class(fc, prog, analysis, func_scopes, class)?;
+            // Store the class (constructor) in its binding.
+            if let Some(name) = &class.name {
+                let loc = super::resolve::resolve_identifier(
+                    *name,
+                    fc.func_scope_idx,
+                    fc.current_scope_idx,
+                    func_scopes,
+                    analysis,
+                );
+                match loc {
+                    super::resolve::VarLocation::Local(slot) => {
+                        fc.emit_u16(Op::SetLocal, slot);
+                        fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Global => {
+                        let name_str = prog.interner.get(*name);
+                        let name_idx = fc.add_name(name_str);
+                        fc.emit_u16(Op::SetGlobal, name_idx);
+                        fc.emit(Op::Pop);
+                    }
+                    _ => {
+                        fc.emit(Op::Pop);
+                    }
+                }
+            } else {
+                fc.emit(Op::Pop);
+            }
+        }
+
+        StmtKind::FunctionDeclaration(func) => {
+            let child_func = compile_nested_function(fc, prog, analysis, func_scopes, func, true)?;
+            let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
+            fc.emit_u16(Op::Closure, idx);
+            // Store the function in its binding.
+            if let Some(name) = &func.name {
+                let loc = super::resolve::resolve_identifier(
+                    *name,
+                    fc.func_scope_idx,
+                    fc.current_scope_idx,
+                    func_scopes,
+                    analysis,
+                );
+                match loc {
+                    super::resolve::VarLocation::Local(slot) => {
+                        fc.emit_u16(Op::SetLocal, slot);
+                        fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Global => {
+                        let name_str = prog.interner.get(*name);
+                        let name_idx = fc.add_name(name_str);
+                        fc.emit_u16(Op::SetGlobal, name_idx);
+                        fc.emit(Op::Pop);
+                    }
+                    _ => {
+                        fc.emit(Op::Pop);
+                    }
+                }
+            } else {
+                fc.emit(Op::Pop);
+            }
+        }
+
+        StmtKind::ForIn { left, right, body } => {
+            compile_expr(fc, prog, analysis, func_scopes, *right)?;
+            fc.emit(Op::ForInIterator);
+            let loop_start = fc.pc();
+            fc.push_loop(loop_start);
+            fc.emit(Op::ForInNext); // [iterator key done]
+            let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
+                                                           // Bind `left` to key (key is on stack).
+            compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+            // Patch continue jumps to loop_start.
+            fc.patch_continue_jumps_to(loop_start);
+            fc.emit_jump_to(Op::Jump, loop_start);
+            fc.patch_jump(exit_patch);
+            fc.emit(Op::Pop); // pop iterator
+            fc.pop_loop();
+        }
+
+        StmtKind::ForOf {
+            left,
+            right,
+            body,
+            is_await: _,
+        } => {
+            compile_expr(fc, prog, analysis, func_scopes, *right)?;
+            fc.emit(Op::GetIterator);
+            let loop_start = fc.pc();
+            fc.push_loop(loop_start);
+            fc.emit(Op::IteratorNext); // [iterator value done]
+            let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
+                                                           // Bind `left` to value (value is on stack).
+            compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+            // Patch continue jumps to loop_start.
+            fc.patch_continue_jumps_to(loop_start);
+            fc.emit_jump_to(Op::Jump, loop_start);
+            fc.patch_jump(exit_patch);
+            fc.emit(Op::Pop); // pop iterator
+            fc.pop_loop();
+        }
+
+        StmtKind::With { .. } => {
+            return Err(CompileError {
+                message: "with statement is not supported (strict mode / ADR #2)".into(),
+            });
         }
 
         StmtKind::Expression(expr_id) => {
-            compile_expr(fc, prog, analysis, func_scopes, *expr_id);
+            compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
             fc.emit(Op::Pop); // statement expressions discard their value
         }
 
         StmtKind::VariableDeclaration { kind, declarators } => {
             for decl in declarators {
                 if let Some(init) = decl.init {
-                    compile_expr(fc, prog, analysis, func_scopes, init);
+                    compile_expr(fc, prog, analysis, func_scopes, init)?;
                 } else if *kind == VarKind::Var {
                     // var without init: already initialized to undefined at function entry.
                     continue;
@@ -59,11 +165,17 @@ pub fn compile_stmt(
                 let pattern = prog.patterns.get(decl.pattern);
                 match &pattern.kind {
                     PatternKind::Identifier(atom) => {
-                        compile_pattern_store(fc, prog, analysis, func_scopes, *atom, *kind);
+                        compile_pattern_store(fc, prog, analysis, func_scopes, *atom, *kind)?;
                     }
-                    // Destructuring patterns not yet supported — pop value to keep stack balanced.
                     _ => {
-                        fc.emit(Op::Pop);
+                        compile_destructure_pattern(
+                            fc,
+                            prog,
+                            analysis,
+                            func_scopes,
+                            decl.pattern,
+                            *kind,
+                        )?;
                     }
                 }
             }
@@ -71,7 +183,7 @@ pub fn compile_stmt(
 
         StmtKind::Block(body) => {
             for &s in body {
-                compile_stmt(fc, prog, analysis, func_scopes, s);
+                compile_stmt(fc, prog, analysis, func_scopes, s)?;
             }
         }
 
@@ -80,15 +192,15 @@ pub fn compile_stmt(
             consequent,
             alternate,
         } => {
-            compile_expr(fc, prog, analysis, func_scopes, *test);
+            compile_expr(fc, prog, analysis, func_scopes, *test)?;
             let else_patch = fc.emit_jump(Op::JumpIfFalse);
 
-            compile_stmt(fc, prog, analysis, func_scopes, *consequent);
+            compile_stmt(fc, prog, analysis, func_scopes, *consequent)?;
 
             if let Some(alt) = alternate {
                 let end_patch = fc.emit_jump(Op::Jump);
                 fc.patch_jump(else_patch);
-                compile_stmt(fc, prog, analysis, func_scopes, *alt);
+                compile_stmt(fc, prog, analysis, func_scopes, *alt)?;
                 fc.patch_jump(end_patch);
             } else {
                 fc.patch_jump(else_patch);
@@ -99,10 +211,10 @@ pub fn compile_stmt(
             let loop_start = fc.pc();
             fc.push_loop(loop_start);
 
-            compile_expr(fc, prog, analysis, func_scopes, *test);
+            compile_expr(fc, prog, analysis, func_scopes, *test)?;
             let exit_patch = fc.emit_jump(Op::JumpIfFalse);
 
-            compile_stmt(fc, prog, analysis, func_scopes, *body);
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
 
             // Patch continue jumps to loop_start (test re-evaluation).
             fc.patch_continue_jumps_to(loop_start);
@@ -118,12 +230,12 @@ pub fn compile_stmt(
             // collected via continue_patches and patched to the test PC.
             fc.push_loop(loop_start);
 
-            compile_stmt(fc, prog, analysis, func_scopes, *body);
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
 
             // Patch continue jumps to here (the test evaluation).
             fc.patch_continue_jumps();
 
-            compile_expr(fc, prog, analysis, func_scopes, *test);
+            compile_expr(fc, prog, analysis, func_scopes, *test)?;
             fc.emit_jump_to(Op::JumpIfTrue, loop_start);
             fc.pop_loop();
         }
@@ -140,7 +252,7 @@ pub fn compile_stmt(
                     ForInit::Declaration { kind, declarators } => {
                         for decl in declarators {
                             if let Some(init_expr) = decl.init {
-                                compile_expr(fc, prog, analysis, func_scopes, init_expr);
+                                compile_expr(fc, prog, analysis, func_scopes, init_expr)?;
                             } else if *kind == VarKind::Var {
                                 // var without init: already undefined at function entry.
                                 continue;
@@ -158,16 +270,23 @@ pub fn compile_stmt(
                                         func_scopes,
                                         *atom,
                                         *kind,
-                                    );
+                                    )?;
                                 }
                                 _ => {
-                                    fc.emit(Op::Pop);
+                                    compile_destructure_pattern(
+                                        fc,
+                                        prog,
+                                        analysis,
+                                        func_scopes,
+                                        decl.pattern,
+                                        *kind,
+                                    )?;
                                 }
                             }
                         }
                     }
                     ForInit::Expression(e) => {
-                        compile_expr(fc, prog, analysis, func_scopes, *e);
+                        compile_expr(fc, prog, analysis, func_scopes, *e)?;
                         fc.emit(Op::Pop);
                     }
                 }
@@ -180,21 +299,21 @@ pub fn compile_stmt(
 
             // Test.
             let exit_patch = if let Some(test_expr) = test {
-                compile_expr(fc, prog, analysis, func_scopes, *test_expr);
+                compile_expr(fc, prog, analysis, func_scopes, *test_expr)?;
                 Some(fc.emit_jump(Op::JumpIfFalse))
             } else {
                 None
             };
 
             // Body.
-            compile_stmt(fc, prog, analysis, func_scopes, *body);
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
 
             // Patch continue jumps to here (before update expression).
             fc.patch_continue_jumps();
 
             // Update.
             if let Some(update_expr) = update {
-                compile_expr(fc, prog, analysis, func_scopes, *update_expr);
+                compile_expr(fc, prog, analysis, func_scopes, *update_expr)?;
                 fc.emit(Op::Pop);
             }
 
@@ -207,7 +326,7 @@ pub fn compile_stmt(
 
         StmtKind::Return(arg) => {
             if let Some(expr_id) = arg {
-                compile_expr(fc, prog, analysis, func_scopes, *expr_id);
+                compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
                 fc.emit(Op::Return);
             } else {
                 fc.emit(Op::ReturnUndefined);
@@ -215,32 +334,45 @@ pub fn compile_stmt(
         }
 
         StmtKind::Throw(expr_id) => {
-            compile_expr(fc, prog, analysis, func_scopes, *expr_id);
+            compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
             fc.emit(Op::Throw);
         }
 
         StmtKind::Break(label) => {
-            if label.is_some() {
-                // TODO: labeled break
-            }
             let patch = fc.emit_jump(Op::Jump);
-            fc.add_break_patch(patch);
+            if let Some(label_atom) = label {
+                // Labeled break: find the loop context by label.
+                if let Some(&loop_idx) = fc.label_map.get(label_atom) {
+                    fc.loop_stack[loop_idx].break_patches.push(patch);
+                } else {
+                    fc.add_break_patch(patch);
+                }
+            } else {
+                fc.add_break_patch(patch);
+            }
         }
 
         StmtKind::Continue(label) => {
-            if label.is_some() {
-                // TODO: labeled continue
-            }
-            // Emit a placeholder jump; it will be patched to the correct
-            // continue target (test for do-while, update for for-loops)
-            // when patch_continue_jumps() is called.
             let patch = fc.emit_jump(Op::Jump);
-            fc.add_continue_patch(patch);
+            if let Some(label_atom) = label {
+                // Labeled continue: find the loop context by label.
+                if let Some(&loop_idx) = fc.label_map.get(label_atom) {
+                    fc.loop_stack[loop_idx].continue_patches.push(patch);
+                } else {
+                    fc.add_continue_patch(patch);
+                }
+            } else {
+                fc.add_continue_patch(patch);
+            }
         }
 
-        StmtKind::Labeled { label: _, body } => {
-            // TODO: proper labeled statement support
-            compile_stmt(fc, prog, analysis, func_scopes, *body);
+        StmtKind::Labeled { label, body } => {
+            // Map label to the current loop stack depth so that labeled
+            // break/continue can target the loop that follows.
+            let loop_depth = fc.loop_stack.len();
+            fc.label_map.insert(*label, loop_depth);
+            compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+            fc.label_map.remove(label);
         }
 
         StmtKind::Try {
@@ -255,7 +387,7 @@ pub fn compile_stmt(
 
             // Try block.
             for &s in block {
-                compile_stmt(fc, prog, analysis, func_scopes, s);
+                compile_stmt(fc, prog, analysis, func_scopes, s)?;
             }
             fc.emit(Op::PopExceptionHandler);
             let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
@@ -275,6 +407,7 @@ pub fn compile_stmt(
                         let loc = super::resolve::resolve_identifier(
                             *atom,
                             fc.func_scope_idx,
+                            fc.current_scope_idx,
                             func_scopes,
                             analysis,
                         );
@@ -286,7 +419,7 @@ pub fn compile_stmt(
                 fc.emit(Op::Pop); // pop exception from stack
 
                 for &s in &catch.body {
-                    compile_stmt(fc, prog, analysis, func_scopes, s);
+                    compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
             }
 
@@ -300,7 +433,7 @@ pub fn compile_stmt(
             };
             if let Some(fin_block) = finalizer {
                 for &s in fin_block {
-                    compile_stmt(fc, prog, analysis, func_scopes, s);
+                    compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
             }
 
@@ -337,7 +470,7 @@ pub fn compile_stmt(
             discriminant,
             cases,
         } => {
-            compile_expr(fc, prog, analysis, func_scopes, *discriminant);
+            compile_expr(fc, prog, analysis, func_scopes, *discriminant)?;
 
             // First pass: emit tests and conditional jumps.
             //
@@ -356,7 +489,7 @@ pub fn compile_stmt(
             for (i, case) in cases.iter().enumerate() {
                 if let Some(test) = case.test {
                     fc.emit(Op::Dup); // keep discriminant
-                    compile_expr(fc, prog, analysis, func_scopes, test);
+                    compile_expr(fc, prog, analysis, func_scopes, test)?;
                     fc.emit(Op::StrictEq);
                     let patch = fc.emit_jump(Op::JumpIfTrue);
                     case_entry_patches.push(patch);
@@ -406,7 +539,7 @@ pub fn compile_stmt(
 
                 // Emit body statements.
                 for &s in &case.consequent {
-                    compile_stmt(fc, prog, analysis, func_scopes, s);
+                    compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
 
                 // If there's a next case, emit a jump placeholder for
@@ -450,9 +583,193 @@ pub fn compile_stmt(
             fc.pop_loop();
         }
     }
+
+    Ok(())
+}
+
+/// Compile the left-hand-side binding for `for-in` / `for-of`.
+///
+/// Expects the iteration value (key or element) on top of stack.
+/// After this function, the value is consumed (popped).
+fn compile_forin_left_binding(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    left: &ForInOfLeft,
+) -> Result<(), CompileError> {
+    match left {
+        ForInOfLeft::Declaration { kind, pattern } => {
+            let pat = prog.patterns.get(*pattern);
+            if let PatternKind::Identifier(atom) = &pat.kind {
+                compile_pattern_store(fc, prog, analysis, func_scopes, *atom, *kind)?;
+            } else {
+                compile_destructure_pattern(fc, prog, analysis, func_scopes, *pattern, *kind)?;
+            }
+        }
+        ForInOfLeft::Pattern(expr_id) => {
+            // Assignment target (e.g. `for (x in obj)`).
+            let expr = prog.exprs.get(*expr_id);
+            if let ExprKind::Identifier(atom) = &expr.kind {
+                // Store the value to the identifier.
+                let loc = super::resolve::resolve_identifier(
+                    *atom,
+                    fc.func_scope_idx,
+                    fc.current_scope_idx,
+                    func_scopes,
+                    analysis,
+                );
+                match loc {
+                    super::resolve::VarLocation::Local(slot) => {
+                        fc.emit_u16(Op::SetLocal, slot);
+                        fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Upvalue(idx) => {
+                        fc.emit_u16(Op::SetUpvalue, idx);
+                        fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Global => {
+                        let name = prog.interner.get(*atom);
+                        let idx = fc.add_name(name);
+                        fc.emit_u16(Op::SetGlobal, idx);
+                        fc.emit(Op::Pop);
+                    }
+                    super::resolve::VarLocation::Module(_) => {
+                        fc.emit(Op::Pop);
+                    }
+                }
+            } else {
+                // Complex LHS (e.g. `for (obj.prop in ...)`) — not yet supported.
+                fc.emit(Op::Pop);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Compile a destructuring pattern.
+///
+/// Assumes the value to destructure is on top of the stack.
+/// After compilation, the value is consumed (popped).
+#[allow(clippy::too_many_lines)]
+fn compile_destructure_pattern(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    pattern_id: NodeId<Pattern>,
+    var_kind: VarKind,
+) -> Result<(), CompileError> {
+    let pattern = prog.patterns.get(pattern_id);
+    match &pattern.kind {
+        PatternKind::Identifier(atom) => {
+            compile_pattern_store(fc, prog, analysis, func_scopes, *atom, var_kind)?;
+        }
+        PatternKind::Array { elements, rest } => {
+            // Stack: [value]
+            fc.emit(Op::GetIterator); // [iterator]
+
+            for elem in elements {
+                if let Some(ArrayPatternElement {
+                    pattern: p,
+                    default: def,
+                }) = elem
+                {
+                    fc.emit(Op::IteratorNext); // [iterator value done]
+                    fc.emit(Op::Pop); // [iterator value]
+
+                    if let Some(default_expr) = def {
+                        // ES2020: default triggers only on undefined, not null.
+                        fc.emit(Op::Dup); // [iterator value value]
+                        fc.emit(Op::PushUndefined); // [iterator value value undefined]
+                        fc.emit(Op::StrictNotEq); // [iterator value bool]
+                        let skip = fc.emit_jump(Op::JumpIfTrue); // [iterator value]
+                        fc.emit(Op::Pop); // [iterator]
+                        compile_expr(fc, prog, analysis, func_scopes, *default_expr)?;
+                        fc.patch_jump(skip); // [iterator value_or_default]
+                    }
+
+                    compile_destructure_pattern(fc, prog, analysis, func_scopes, *p, var_kind)?;
+                } else {
+                    // Elision / hole: skip one iterator value.
+                    fc.emit(Op::IteratorNext); // [iterator value done]
+                    fc.emit(Op::Pop); // [iterator value]
+                    fc.emit(Op::Pop); // [iterator]
+                }
+            }
+
+            if let Some(rest_pattern) = rest {
+                fc.emit(Op::IteratorRest); // [rest_array]
+                compile_destructure_pattern(
+                    fc,
+                    prog,
+                    analysis,
+                    func_scopes,
+                    *rest_pattern,
+                    var_kind,
+                )?;
+            } else {
+                fc.emit(Op::Pop); // pop iterator
+            }
+        }
+        PatternKind::Object { properties, rest } => {
+            // Stack: [value]
+            for prop in properties {
+                fc.emit(Op::Dup); // [value value]
+                match &prop.key {
+                    PropertyKey::Identifier(atom) => {
+                        let name = prog.interner.get(*atom);
+                        let idx = fc.add_name(name);
+                        fc.emit_u16(Op::GetProp, idx); // [value prop_value]
+                    }
+                    PropertyKey::Literal(Literal::String(atom)) => {
+                        let name = prog.interner.get(*atom);
+                        let idx = fc.add_name(name);
+                        fc.emit_u16(Op::GetProp, idx);
+                    }
+                    PropertyKey::Computed(expr) => {
+                        compile_expr(fc, prog, analysis, func_scopes, *expr)?;
+                        fc.emit(Op::GetElem);
+                    }
+                    _ => {
+                        fc.emit(Op::PushUndefined);
+                    }
+                }
+                // Stack: [value prop_value]
+                compile_destructure_pattern(fc, prog, analysis, func_scopes, prop.value, var_kind)?;
+            }
+
+            if let Some(rest_pat) = rest {
+                // Simplified: assign the whole object (proper rest excludes
+                // already-destructured keys, but that requires runtime support).
+                fc.emit(Op::Dup);
+                compile_destructure_pattern(fc, prog, analysis, func_scopes, *rest_pat, var_kind)?;
+            }
+
+            fc.emit(Op::Pop); // pop original object
+        }
+        PatternKind::Assign { left, right } => {
+            // Stack: [value]
+            // ES2020: default triggers only on undefined, not null.
+            fc.emit(Op::Dup); // [value value]
+            fc.emit(Op::PushUndefined); // [value value undefined]
+            fc.emit(Op::StrictNotEq); // [value bool]
+            let skip = fc.emit_jump(Op::JumpIfTrue); // [value]
+            fc.emit(Op::Pop); // discard undefined
+            compile_expr(fc, prog, analysis, func_scopes, *right)?;
+            fc.patch_jump(skip);
+            // Stack: [actual_value_or_default]
+            compile_destructure_pattern(fc, prog, analysis, func_scopes, *left, var_kind)?;
+        }
+        PatternKind::Expression(_) | PatternKind::Error => {
+            fc.emit(Op::Pop);
+        }
+    }
+    Ok(())
 }
 
 /// Store a value (on top of stack) to a variable binding.
+#[allow(clippy::unnecessary_wraps)] // Result kept for consistency with other compile_* fns
 fn compile_pattern_store(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -460,8 +777,14 @@ fn compile_pattern_store(
     func_scopes: &mut [FunctionScope],
     atom: Atom,
     kind: VarKind,
-) {
-    let loc = super::resolve::resolve_identifier(atom, fc.func_scope_idx, func_scopes, analysis);
+) -> Result<(), CompileError> {
+    let loc = super::resolve::resolve_identifier(
+        atom,
+        fc.func_scope_idx,
+        fc.current_scope_idx,
+        func_scopes,
+        analysis,
+    );
     match loc {
         super::resolve::VarLocation::Local(slot) => {
             // For let/const, mark as initialized.
@@ -485,4 +808,6 @@ fn compile_pattern_store(
             fc.emit(Op::Pop);
         }
     }
+
+    Ok(())
 }

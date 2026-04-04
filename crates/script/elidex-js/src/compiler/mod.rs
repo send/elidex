@@ -49,7 +49,7 @@ pub fn compile(
 
     let is_strict = analysis.scopes.first().is_some_and(|s| s.is_strict);
 
-    let mut fc = FunctionCompiler::new(0, is_strict);
+    let mut fc = FunctionCompiler::new(0, 0, is_strict);
     fc.name = Some("<script>".to_string());
 
     // Initialize var-declared locals to undefined (ES2020 §10.1.1.6).
@@ -69,7 +69,7 @@ pub fn compile(
 
     // Compile top-level statements.
     for &stmt_id in &program.body {
-        compile_stmt(&mut fc, program, analysis, &mut func_scopes, stmt_id);
+        compile_stmt(&mut fc, program, analysis, &mut func_scopes, stmt_id)?;
     }
 
     // Ensure the function ends with a return.

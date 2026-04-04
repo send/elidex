@@ -10,9 +10,15 @@ publish.workspace = true
 keywords = ["browser-engine", "javascript", "parser"]
 categories = ["web-programming", "parsing"]
 
+[features]
+default = []
+engine = ["elidex-script-session", "elidex-ecs"]
+
 [dependencies]
 hashbrown = "0.15"
 unicode-ident = "1.0"
+elidex-script-session = { workspace = true, optional = true }
+elidex-ecs = { workspace = true, optional = true }
 
 [lints]
 workspace = true
