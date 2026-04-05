@@ -35,7 +35,8 @@ pub(super) fn native_number_to_string(
         }
     } else if n == 0.0 {
         "0".to_string()
-    } else if n.fract() == 0.0 && n.abs() < 1e20 {
+    } else if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
+        // 2^53: maximum safe integer representable in f64
         format!("{}", n as i64)
     } else {
         format!("{n}")

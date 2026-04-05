@@ -473,9 +473,9 @@ pub(super) fn native_string_match(
         let subject = ctx.vm.strings.get_utf8(sid);
 
         if global {
-            let matches: Vec<String> = compiled
+            let matches: Vec<Option<String>> = compiled
                 .find_iter(&subject)
-                .map(|m| subject[m.start()..m.end()].to_string())
+                .map(|m| Some(subject[m.start()..m.end()].to_string()))
                 .collect();
             (
                 true,
@@ -488,14 +488,14 @@ pub(super) fn native_string_match(
         } else {
             match compiled.find(&subject) {
                 Some(m) => {
-                    let mut matches = vec![subject[m.start()..m.end()].to_string()];
+                    let mut matches: Vec<Option<String>> =
+                        vec![Some(subject[m.start()..m.end()].to_string())];
                     for group in &m.captures {
-                        match group {
-                            Some(range) => {
-                                matches.push(subject[range.start..range.end].to_string());
-                            }
-                            None => matches.push(String::new()),
-                        }
+                        matches.push(
+                            group
+                                .as_ref()
+                                .map(|range| subject[range.start..range.end].to_string()),
+                        );
                     }
                     (false, Some((matches, m.start())))
                 }
@@ -510,11 +510,16 @@ pub(super) fn native_string_match(
 
     // Build the result array from collected strings.
     let mut elements = Vec::with_capacity(matches.len());
-    for (i, s) in matches.iter().enumerate() {
-        if !global && i > 0 && s.is_empty() {
-            elements.push(JsValue::Undefined);
-        } else {
+    if global {
+        for s in matches.iter().flatten() {
             elements.push(JsValue::String(ctx.intern(s)));
+        }
+    } else {
+        for s in &matches {
+            match s {
+                Some(s) => elements.push(JsValue::String(ctx.intern(s))),
+                None => elements.push(JsValue::Undefined),
+            }
         }
     }
     let arr_id = ctx.alloc_object(Object {

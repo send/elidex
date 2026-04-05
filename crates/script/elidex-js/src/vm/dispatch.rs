@@ -793,20 +793,24 @@ impl Vm {
                 // ── Accessor property definition ────────────────────
                 Op::DefineGetter => {
                     let name_idx = self.read_u16_op();
+                    let flags = self.read_u8_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    self.op_define_getter(name_id)?;
+                    let enumerable = flags & 1 != 0;
+                    self.op_define_accessor(name_id, true, enumerable)?;
                 }
                 Op::DefineSetter => {
                     let name_idx = self.read_u16_op();
+                    let flags = self.read_u8_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    self.op_define_setter(name_id)?;
+                    let enumerable = flags & 1 != 0;
+                    self.op_define_accessor(name_id, false, enumerable)?;
                 }
 
                 // ── Arguments object ────────────────────────────────
                 Op::CreateArguments => {
                     let args = self.inner.frames[frame_idx]
                         .actual_args
-                        .clone()
+                        .take()
                         .unwrap_or_default();
                     let len = args.len();
                     let args_obj = self.alloc_object(super::value::Object {

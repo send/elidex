@@ -281,12 +281,12 @@ impl Property {
         }
     }
 
-    /// Create a non-enumerable, configurable accessor property.
-    pub fn accessor(getter: Option<ObjectId>, setter: Option<ObjectId>) -> Self {
+    /// Create a configurable accessor property with the given enumerability.
+    pub fn accessor(getter: Option<ObjectId>, setter: Option<ObjectId>, enumerable: bool) -> Self {
         Self {
             slot: PropertyValue::Accessor { getter, setter },
             writable: false,
-            enumerable: false,
+            enumerable,
             configurable: true,
         }
     }

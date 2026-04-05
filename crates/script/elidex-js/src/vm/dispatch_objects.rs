@@ -191,10 +191,11 @@ impl Vm {
     }
 
     /// Define a getter or setter accessor on the object at TOS.
-    fn op_define_accessor(
+    pub(crate) fn op_define_accessor(
         &mut self,
         name_id: super::value::StringId,
         is_getter: bool,
+        enumerable: bool,
     ) -> Result<(), VmError> {
         let closure = self.pop()?;
         let obj_val = self.peek()?;
@@ -216,28 +217,14 @@ impl Vm {
                         }
                     }
                     PropertyValue::Data(_) => {
-                        existing.1 = Property::accessor(init_get, init_set);
+                        existing.1 = Property::accessor(init_get, init_set, enumerable);
                     }
                 }
             } else {
                 obj.properties
-                    .push((pk, Property::accessor(init_get, init_set)));
+                    .push((pk, Property::accessor(init_get, init_set, enumerable)));
             }
         }
         Ok(())
-    }
-
-    pub(crate) fn op_define_getter(
-        &mut self,
-        name_id: super::value::StringId,
-    ) -> Result<(), VmError> {
-        self.op_define_accessor(name_id, true)
-    }
-
-    pub(crate) fn op_define_setter(
-        &mut self,
-        name_id: super::value::StringId,
-    ) -> Result<(), VmError> {
-        self.op_define_accessor(name_id, false)
     }
 }

@@ -18,10 +18,12 @@ fn run_regexp(
             return Err(VmError::type_error("not a RegExp"));
         }
     };
-    let global = flags_str.contains('g') || flags_str.contains('y');
+    let is_global = flags_str.contains('g');
+    let is_sticky = flags_str.contains('y');
+    let uses_last_index = is_global || is_sticky;
 
     // Read lastIndex for global/sticky.
-    let start = if global {
+    let start = if uses_last_index {
         let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
         let obj = ctx.get_object(obj_id);
         let mut val = 0usize;
@@ -48,11 +50,17 @@ fn run_regexp(
         let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
             return Err(VmError::type_error("not a RegExp"));
         };
-        compiled.find_from(subject, start).next()
+        let m = compiled.find_from(subject, start).next();
+        // Sticky: the match must start exactly at `start`.
+        if is_sticky {
+            m.filter(|m| m.start() == start)
+        } else {
+            m
+        }
     };
 
     // Update lastIndex for global/sticky.
-    if global {
+    if uses_last_index {
         let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
         #[allow(clippy::cast_precision_loss)]
         let new_idx = if let Some(ref m) = found {
