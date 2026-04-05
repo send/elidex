@@ -32,17 +32,33 @@ impl Vm {
         let arr_val = self.peek()?;
         if let Some(iterator) = self.resolve_iterator(source)? {
             if matches!(iterator, JsValue::Object(_)) {
-                loop {
-                    let Some(value) = self.iter_next(iterator)? else {
-                        break;
-                    };
-                    // Push to target array.
-                    if let JsValue::Object(arr_id) = arr_val {
-                        let arr = self.inner.get_object_mut(arr_id);
-                        if let ObjectKind::Array { ref mut elements } = arr.kind {
-                            elements.push(value);
+                let result = self.spread_iter_loop(iterator, arr_val);
+                if result.is_err() {
+                    // Best-effort IteratorClose on error — ignore close errors.
+                    if let JsValue::Object(iter_id) = iterator {
+                        let return_key = PropertyKey::String(self.inner.well_known.return_str);
+                        if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
+                            let _ = self.call_value(return_fn, iterator, &[]);
                         }
                     }
+                }
+                result?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Inner loop for [`op_array_spread`] — extracted so iteration errors can
+    /// be caught and `IteratorClose` called before propagating.
+    fn spread_iter_loop(&mut self, iterator: JsValue, arr_val: JsValue) -> Result<(), VmError> {
+        loop {
+            let Some(value) = self.iter_next(iterator)? else {
+                break;
+            };
+            if let JsValue::Object(arr_id) = arr_val {
+                let arr = self.inner.get_object_mut(arr_id);
+                if let ObjectKind::Array { ref mut elements } = arr.kind {
+                    elements.push(value);
                 }
             }
         }

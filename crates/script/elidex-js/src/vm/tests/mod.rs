@@ -1107,6 +1107,15 @@ fn symbol_define_property() {
 }
 
 #[test]
+fn eval_global_object_property_lookup_falls_back_to_globals() {
+    // Non-strict `this` is coerced to globalThis; `this.Math` should resolve.
+    assert_eq!(
+        eval_string("function f() { return typeof this.Math; } f();"),
+        "object",
+    );
+}
+
+#[test]
 fn eval_symbol_to_string_type_error() {
     assert_eq!(
         eval_string("var r; try { '' + Symbol(); } catch(e) { r = e.message; } r;"),

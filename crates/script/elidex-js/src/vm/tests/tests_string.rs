@@ -172,6 +172,12 @@ fn eval_lone_surrogate_length() {
 }
 
 #[test]
+fn eval_char_at_negative_fraction_truncates_to_zero() {
+    // charAt(-0.5) should behave like charAt(0) per ES2020 ToInteger (trunc, not floor).
+    assert_eq!(eval_string("'abc'.charAt(-0.5);"), "a");
+}
+
+#[test]
 fn eval_lone_surrogate_char_code_at() {
     assert_eq!(
         eval_number("'\\uD800'.charCodeAt(0);"),

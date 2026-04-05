@@ -288,6 +288,14 @@ impl Vm {
         let pk = PropertyKey::String(key);
         match obj {
             JsValue::Object(id) => {
+                // If this is the global object, fall back to the globals
+                // HashMap so that `this.Math` etc. resolve correctly when
+                // non-strict `this` is coerced to `globalThis`.
+                if id == self.inner.global_object {
+                    if let Some(&val) = self.inner.globals.get(&key) {
+                        return Ok(val);
+                    }
+                }
                 Ok(get_property(&self.inner, id, pk).unwrap_or(JsValue::Undefined))
             }
             JsValue::String(sid) => {

@@ -28,8 +28,8 @@ fn to_integer_index(n: f64) -> Option<usize> {
     if n.is_nan() {
         return Some(0);
     }
-    let i = n.floor();
-    if i < 0.0 || i >= (usize::MAX as f64) {
+    let i = n.trunc();
+    if i < 0.0 || i.is_infinite() {
         None
     } else {
         Some(i as usize)
