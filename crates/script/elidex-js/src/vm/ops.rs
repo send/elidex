@@ -314,13 +314,19 @@ impl Vm {
         let pk = PropertyKey::String(key);
         match obj {
             JsValue::Object(id) => {
-                // If this is the global object, fall back to the globals
-                // HashMap so that `this.Math` etc. resolve correctly when
-                // non-strict `this` is coerced to `globalThis`.
                 if id == self.inner.global_object {
+                    // Check own properties + prototype chain first so that
+                    // Object.defineProperty(globalThis, ...) takes precedence.
+                    if let Some(val) = get_property(&self.inner, id, pk) {
+                        return Ok(val);
+                    }
+                    // Fall back to the globals HashMap so that `this.Math`
+                    // etc. resolve correctly when non-strict `this` is
+                    // coerced to `globalThis`.
                     if let Some(&val) = self.inner.globals.get(&key) {
                         return Ok(val);
                     }
+                    return Ok(JsValue::Undefined);
                 }
                 Ok(get_property(&self.inner, id, pk).unwrap_or(JsValue::Undefined))
             }

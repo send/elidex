@@ -157,10 +157,15 @@ impl Vm {
         let val = self.pop()?;
         let obj_val = self.peek()?;
         if let JsValue::Object(id) = obj_val {
-            // Class methods are non-enumerable per ES2020 spec.
-            self.get_object_mut(id)
-                .properties
-                .push((PropertyKey::String(name_id), Property::method(val)));
+            let key = PropertyKey::String(name_id);
+            let obj = self.get_object_mut(id);
+            // Upsert: overwrite if key exists (e.g. method override in
+            // derived class), otherwise push.
+            if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
+                existing.1 = Property::method(val);
+            } else {
+                obj.properties.push((key, Property::method(val)));
+            }
         }
         Ok(())
     }
