@@ -1,6 +1,6 @@
 //! WTF-16 string interner and utilities.
 
-use std::hash::{Hash, Hasher};
+use std::hash::BuildHasher;
 
 use hashbrown::HashTable;
 
@@ -10,12 +10,13 @@ pub struct Wtf16Interner {
     buffer: Vec<u16>,
     spans: Vec<(u32, u32)>, // (offset, length) in u16 units
     table: HashTable<u32>,
+    /// Reusable hasher state (ahash via hashbrown::DefaultHashBuilder).
+    hash_builder: hashbrown::DefaultHashBuilder,
 }
 
-fn hash_u16(s: &[u16]) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
+#[allow(clippy::trivially_copy_pass_by_ref)] // borrow from &self.hash_builder
+fn hash_u16(s: &[u16], build: &hashbrown::DefaultHashBuilder) -> u64 {
+    build.hash_one(s)
 }
 
 impl Wtf16Interner {
@@ -27,10 +28,14 @@ impl Wtf16Interner {
             buffer: Vec::with_capacity(4096),
             spans: Vec::with_capacity(256),
             table: HashTable::with_capacity(256),
+            hash_builder: hashbrown::DefaultHashBuilder::default(),
         };
         // Index 0 = empty string
         si.spans.push((0, 0));
-        si.table.insert_unique(hash_u16(&[]), 0, |_| hash_u16(&[]));
+        si.table
+            .insert_unique(hash_u16(&[], &si.hash_builder), 0, |_| {
+                hash_u16(&[], &si.hash_builder)
+            });
         si
     }
 
@@ -41,7 +46,7 @@ impl Wtf16Interner {
 
     /// Intern from raw WTF-16 slice.
     pub fn intern_wtf16(&mut self, units: &[u16]) -> u32 {
-        let h = hash_u16(units);
+        let h = hash_u16(units, &self.hash_builder);
         let spans = &self.spans;
         let buffer: &[u16] = &self.buffer;
         if let Some(&idx) = self.table.find(h, |&idx| {
@@ -73,7 +78,10 @@ impl Wtf16Interner {
         let buffer: &[u16] = &self.buffer;
         self.table.insert_unique(h, idx, |&i| {
             let (off, len) = spans[i as usize];
-            hash_u16(&buffer[off as usize..(off + len) as usize])
+            hash_u16(
+                &buffer[off as usize..(off + len) as usize],
+                &self.hash_builder,
+            )
         });
 
         idx
@@ -104,7 +112,7 @@ impl Wtf16Interner {
 
     /// Look up an already-interned WTF-16 string without inserting.
     pub fn lookup_wtf16(&self, units: &[u16]) -> Option<u32> {
-        let h = hash_u16(units);
+        let h = hash_u16(units, &self.hash_builder);
         let spans = &self.spans;
         let buffer: &[u16] = &self.buffer;
         self.table
