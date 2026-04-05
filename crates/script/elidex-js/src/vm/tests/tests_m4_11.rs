@@ -107,6 +107,25 @@ fn define_property_descriptor_getter() {
 }
 
 #[test]
+fn define_property_descriptor_field_order() {
+    // §6.2.5.5: enumerable getter runs before value getter.
+    // The enumerable getter sets desc.value, which should be visible
+    // when value is read later.
+    assert_eq!(
+        eval_number(
+            "var o = {}; var desc = {}; \
+             Object.defineProperty(desc, 'enumerable', { get: function() { \
+                 Object.defineProperty(desc, 'value', { value: 77, configurable: true }); \
+                 return true; \
+             } }); \
+             desc.value = 1; \
+             Object.defineProperty(o, 'x', desc); o.x;"
+        ),
+        77.0
+    );
+}
+
+#[test]
 fn to_string_tag_accessor() {
     // Use o.toString() directly (Function.prototype.call not yet implemented).
     assert_eq!(

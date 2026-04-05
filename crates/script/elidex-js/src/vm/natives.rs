@@ -417,14 +417,15 @@ pub(super) fn native_object_define_property(
         let writable_key = PropertyKey::String(ctx.intern("writable"));
 
         // §6.2.5.5 ToPropertyDescriptor: HasProperty + Get per field in
-        // spec order.  No up-front snapshot — each Get sees the current
-        // state, including mutations from earlier getters and inherited fields.
-        let has_get = ctx.try_get_property_value(desc_id, get_key)?;
-        let has_set = ctx.try_get_property_value(desc_id, set_key)?;
-        let has_value = ctx.try_get_property_value(desc_id, value_key)?;
-        let has_writable = ctx.try_get_property_value(desc_id, writable_key)?;
+        // spec order (enumerable, configurable, value, writable, get, set).
+        // No up-front snapshot — each Get sees the current state, including
+        // mutations from earlier getters and inherited fields.
         let has_enumerable = ctx.try_get_property_value(desc_id, enumerable_key)?;
         let has_configurable = ctx.try_get_property_value(desc_id, configurable_key)?;
+        let has_value = ctx.try_get_property_value(desc_id, value_key)?;
+        let has_writable = ctx.try_get_property_value(desc_id, writable_key)?;
+        let has_get = ctx.try_get_property_value(desc_id, get_key)?;
+        let has_set = ctx.try_get_property_value(desc_id, set_key)?;
         // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
         let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
         let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
