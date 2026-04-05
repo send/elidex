@@ -351,3 +351,33 @@ fn regexp_global_last_index_reset() {
         "var r = /a/g; r.test('a'); r.test('b'); r.lastIndex === 0;"
     ));
 }
+
+// ── Sticky (/y) tests ──────────────────────────────────────────────────
+
+#[test]
+fn regexp_sticky_match_at_last_index() {
+    // Sticky matches only at lastIndex position.
+    assert!(eval_bool("var r = /a/y; r.lastIndex = 2; r.test('xxa');"));
+}
+
+#[test]
+fn regexp_sticky_fail_resets_last_index() {
+    // Sticky failure resets lastIndex to 0.
+    assert!(eval_bool(
+        "var r = /a/y; r.lastIndex = 1; r.test('xxa'); r.lastIndex === 0;"
+    ));
+}
+
+#[test]
+fn regexp_sticky_no_scan_ahead() {
+    // Sticky must not scan ahead — match must start exactly at lastIndex.
+    assert!(!eval_bool("var r = /b/y; r.test('ab');"));
+}
+
+#[test]
+fn regexp_sticky_exec_index() {
+    assert_eq!(
+        eval_number("var r = /a/y; r.lastIndex = 2; var m = r.exec('xxa'); m.index;"),
+        2.0,
+    );
+}

@@ -81,7 +81,18 @@ pub(super) fn native_number_to_fixed(
             raw as usize
         }
     };
-    let s = format!("{n:.digits$}");
+    // Non-finite values return their toString representation (§20.1.3.3 step 5-6).
+    let s = if n.is_nan() {
+        "NaN".to_string()
+    } else if n.is_infinite() {
+        if n.is_sign_positive() {
+            "Infinity".to_string()
+        } else {
+            "-Infinity".to_string()
+        }
+    } else {
+        format!("{n:.digits$}")
+    };
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
 }
