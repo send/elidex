@@ -19,7 +19,7 @@ fn eval_string(source: &str) -> String {
     let mut vm = Vm::new();
     let result = vm.eval(source).unwrap();
     match result {
-        JsValue::String(id) => vm.get_string(id).to_string(),
+        JsValue::String(id) => vm.get_string(id),
         other => panic!("expected string, got {other:?}"),
     }
 }
@@ -164,6 +164,69 @@ fn eval_typeof() {
 #[test]
 fn eval_typeof_global_undeclared() {
     assert_eq!(eval_string("typeof nonexistent;"), "undefined");
+}
+
+#[test]
+fn eval_get_global_reference_error() {
+    // Accessing an undeclared variable should throw ReferenceError.
+    assert_eq!(
+        eval_string("var r; try { undeclared; } catch(e) { r = e.message; } r;"),
+        "undeclared is not defined",
+    );
+}
+
+#[test]
+fn eval_set_global_strict_mode_reference_error() {
+    // §8.1.1.2.5: In strict mode, assigning to an undeclared variable
+    // should throw ReferenceError.
+    assert_eq!(
+        eval_string(
+            "var r = 'ok'; try { (function() { 'use strict'; undeclared = 1; })(); } catch(e) { r = e.message; } r;"
+        ),
+        "undeclared is not defined",
+    );
+}
+
+#[test]
+fn eval_set_global_sloppy_creates_global() {
+    // Sloppy mode: assigning to undeclared variable creates a global.
+    assert_eq!(
+        eval_number("(function() { sloppyGlobal = 42; })(); sloppyGlobal;"),
+        42.0
+    );
+}
+
+#[test]
+fn eval_this_coercion_global_object() {
+    // Non-strict function: `this` should be coerced to the global object
+    // when called without a receiver (§9.2.1.2).
+    assert_eq!(
+        eval_string("function f() { return typeof this; } f();"),
+        "object"
+    );
+}
+
+#[test]
+fn eval_this_coercion_method_receiver() {
+    // Method call: `this` should be the receiver, not coerced.
+    assert_eq!(
+        eval_number("var o = { v: 42, f() { return this.v; } }; o.f();"),
+        42.0,
+    );
+}
+
+#[test]
+fn eval_optional_chain_this_binding() {
+    // obj?.method() should bind `this` to `obj`.
+    assert_eq!(
+        eval_number("var o = { v: 99, m() { return this.v; } }; o?.m();"),
+        99.0,
+    );
+}
+
+#[test]
+fn eval_optional_chain_nullish_returns_undefined() {
+    assert_eq!(eval_string("var x = null; typeof (x?.foo());"), "undefined",);
 }
 
 #[test]
@@ -418,111 +481,6 @@ fn eval_for_of_array() {
     );
 }
 
-// ── Class tests ─────────────────────────────────────────────────
-
-#[test]
-fn class_declaration_basic() {
-    assert_eq!(
-        eval_number(
-            "class Foo {
-                constructor(x) { this.x = x; }
-                getX() { return this.x; }
-            }
-            var f = new Foo(42);
-            f.getX();"
-        ),
-        42.0
-    );
-}
-
-#[test]
-fn class_static_method() {
-    assert_eq!(
-        eval_number(
-            "class Foo {
-                static create(n) { return new Foo(n); }
-                constructor(x) { this.x = x; }
-            }
-            var f = Foo.create(99);
-            f.x;"
-        ),
-        99.0
-    );
-}
-
-#[test]
-fn class_default_constructor() {
-    // Class with no explicit constructor should still work with `new`.
-    assert_eq!(
-        eval_number(
-            "class Empty {}
-            var e = new Empty();
-            e.x = 7;
-            e.x;"
-        ),
-        7.0
-    );
-}
-
-#[test]
-fn class_expression() {
-    assert_eq!(
-        eval_number(
-            "var Foo = class {
-                constructor(v) { this.v = v; }
-                get() { return this.v; }
-            };
-            new Foo(10).get();"
-        ),
-        10.0
-    );
-}
-
-#[test]
-fn class_multiple_methods() {
-    assert_eq!(
-        eval_number(
-            "class Calc {
-                constructor(a, b) { this.a = a; this.b = b; }
-                sum() { return this.a + this.b; }
-                product() { return this.a * this.b; }
-            }
-            var c = new Calc(3, 4);
-            c.sum() + c.product();"
-        ),
-        19.0 // 7 + 12
-    );
-}
-
-#[test]
-fn class_prototype_shared() {
-    // Instances of the same class share methods via the prototype.
-    assert_eq!(
-        eval_number(
-            "class Foo {
-                method() { return 1; }
-            }
-            var a = new Foo();
-            var b = new Foo();
-            a.method() + b.method();"
-        ),
-        2.0
-    );
-}
-
-#[test]
-fn class_static_property() {
-    assert_eq!(
-        eval_number(
-            "class Config {
-                static defaultValue = 100;
-            }
-            Config.defaultValue;"
-        ),
-        100.0
-    );
-}
-
 // -- Built-in globals tests ------------------------------------------------
 
 #[test]
@@ -643,141 +601,6 @@ fn eval_json_stubs() {
     assert!(matches!(eval("JSON.parse('{}');"), Ok(JsValue::Undefined)));
 }
 
-// ── Destructuring ───────────────────────────────────────────────
-
-#[test]
-fn eval_array_destructuring() {
-    assert_eq!(eval_number("var [a, b] = [1, 2]; a + b;"), 3.0);
-}
-
-#[test]
-fn eval_array_destructuring_skip() {
-    assert_eq!(eval_number("var [, b] = [1, 2]; b;"), 2.0);
-}
-
-#[test]
-fn eval_object_destructuring() {
-    assert_eq!(eval_number("var {x, y} = {x: 10, y: 20}; x + y;"), 30.0);
-}
-
-#[test]
-fn eval_object_destructuring_rename() {
-    assert_eq!(
-        eval_number("var {x: a, y: b} = {x: 10, y: 20}; a + b;"),
-        30.0
-    );
-}
-
-#[test]
-fn eval_destructuring_default() {
-    assert_eq!(eval_number("var [a, b = 5] = [1]; a + b;"), 6.0);
-}
-
-#[test]
-fn eval_nested_destructuring() {
-    assert_eq!(eval_number("var {a: {b}} = {a: {b: 42}}; b;"), 42.0);
-}
-
-#[test]
-fn eval_array_rest() {
-    assert_eq!(
-        eval_number("var [a, ...rest] = [1, 2, 3]; rest.length;"),
-        2.0
-    );
-}
-
-#[test]
-fn eval_object_rest_destructuring() {
-    // rest should exclude already-destructured keys
-    assert_eq!(
-        eval_number("var {a, ...rest} = {a: 1, b: 2, c: 3}; rest.b + rest.c;"),
-        5.0
-    );
-}
-
-#[test]
-fn eval_object_rest_no_excluded_key() {
-    // rest should not contain 'a'
-    assert!(eval_bool(
-        "var {a, ...rest} = {a: 1, b: 2}; !('a' in rest);"
-    ));
-}
-
-// ── String.prototype methods ────────────────────────────────────
-
-#[test]
-fn eval_string_char_at() {
-    assert_eq!(eval_string("'hello'.charAt(1);"), "e");
-    assert_eq!(eval_string("'hello'.charAt(0);"), "h");
-    assert_eq!(eval_string("'hello'.charAt(10);"), "");
-}
-
-#[test]
-fn eval_string_char_code_at() {
-    assert_eq!(eval_number("'A'.charCodeAt(0);"), 65.0);
-    assert!(eval_number("'hello'.charCodeAt(10);").is_nan());
-}
-
-#[test]
-fn eval_string_index_of() {
-    assert_eq!(eval_number("'hello'.indexOf('l');"), 2.0);
-    assert_eq!(eval_number("'hello'.indexOf('z');"), -1.0);
-    assert_eq!(eval_number("'hello'.indexOf('l', 3);"), 3.0);
-}
-
-#[test]
-fn eval_string_includes() {
-    assert!(eval_bool("'hello'.includes('ell');"));
-    assert!(!eval_bool("'hello'.includes('xyz');"));
-}
-
-#[test]
-fn eval_string_slice() {
-    assert_eq!(eval_string("'hello'.slice(1, 3);"), "el");
-    assert_eq!(eval_string("'hello'.slice(-3);"), "llo");
-    assert_eq!(eval_string("'hello'.slice(1);"), "ello");
-}
-
-#[test]
-fn eval_string_substring() {
-    assert_eq!(eval_string("'hello'.substring(1, 3);"), "el");
-    assert_eq!(eval_string("'hello'.substring(3, 1);"), "el");
-}
-
-#[test]
-fn eval_string_to_case() {
-    assert_eq!(eval_string("'Hello'.toLowerCase();"), "hello");
-    assert_eq!(eval_string("'Hello'.toUpperCase();"), "HELLO");
-}
-
-#[test]
-fn eval_string_trim() {
-    assert_eq!(eval_string("'  hello  '.trim();"), "hello");
-}
-
-#[test]
-fn eval_string_split() {
-    assert_eq!(eval_number("'a,b,c'.split(',').length;"), 3.0);
-}
-
-#[test]
-fn eval_string_starts_ends_with() {
-    assert!(eval_bool("'hello'.startsWith('hel');"));
-    assert!(!eval_bool("'hello'.startsWith('llo');"));
-    assert!(eval_bool("'hello'.endsWith('llo');"));
-    assert!(!eval_bool("'hello'.endsWith('hel');"));
-}
-
-#[test]
-fn eval_string_replace() {
-    assert_eq!(
-        eval_string("'hello world'.replace('world', 'rust');"),
-        "hello rust"
-    );
-    // Only replaces first occurrence.
-    assert_eq!(eval_string("'aaa'.replace('a', 'b');"), "baa");
-}
-
 // ── StringPool / Object heap / Globals tests ────────────────────
 
 #[test]
@@ -788,16 +611,17 @@ fn string_pool_intern_dedup() {
     let c = pool.intern("world");
     assert_eq!(a, b);
     assert_ne!(a, c);
-    assert_eq!(pool.get(a), "hello");
-    assert_eq!(pool.get(c), "world");
-    assert_eq!(pool.len(), 2);
+    assert_eq!(pool.get_utf8(a), "hello");
+    assert_eq!(pool.get_utf8(c), "world");
+    // +1 for the pre-interned empty string at index 0
+    assert_eq!(pool.len(), 3);
 }
 
 #[test]
 fn string_pool_empty_string() {
     let mut pool = super::StringPool::new();
     let id = pool.intern("");
-    assert_eq!(pool.get(id), "");
+    assert_eq!(pool.get_utf8(id), "");
 }
 
 #[test]
@@ -1090,3 +914,25 @@ fn eval_function_hoisting() {
         42.0
     );
 }
+
+#[test]
+fn eval_global_object_property_lookup_falls_back_to_globals() {
+    // Non-strict `this` is coerced to globalThis; `this.Math` should resolve.
+    assert_eq!(
+        eval_string("function f() { return typeof this.Math; } f();"),
+        "object",
+    );
+}
+
+#[test]
+fn eval_global_object_set_property_syncs_to_globals() {
+    // Writing to `this.<prop>` in a non-strict function (which resolves to
+    // globalThis) must be visible via bare identifier lookup (GetGlobal).
+    assert_eq!(
+        eval_number("function f() { this.testGlobal = 42; } f(); testGlobal;"),
+        42.0,
+    );
+}
+
+mod tests_string;
+mod tests_symbol_iter;

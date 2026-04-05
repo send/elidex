@@ -5,9 +5,13 @@
 
 pub mod coerce;
 mod dispatch;
+mod dispatch_iter;
+mod dispatch_objects;
 mod globals;
 pub mod interpreter;
 mod natives;
+mod natives_string;
+mod natives_symbol;
 mod ops;
 pub mod value;
 
@@ -18,8 +22,10 @@ use std::collections::HashMap;
 
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
-    StringId, UpvalueId, VmError,
+    StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
 };
+
+use crate::wtf16::Wtf16Interner;
 
 use crate::bytecode::compiled::CompiledFunction;
 
@@ -30,47 +36,49 @@ type NativeFn = fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValu
 // StringPool
 // ---------------------------------------------------------------------------
 
-/// Interned string pool. All runtime strings are stored here and referenced
-/// by `StringId`. Deduplication ensures that property-name comparisons are
-/// O(1) integer equality.
-pub struct StringPool {
-    /// Indexed by `StringId`.
-    strings: Vec<Box<str>>,
-    /// Reverse map for interning (dedup).
-    intern_map: HashMap<Box<str>, StringId>,
-}
+/// Interned string pool backed by a WTF-16 contiguous buffer. All runtime
+/// strings are stored here and referenced by `StringId`. Deduplication
+/// ensures that property-name comparisons are O(1) integer equality.
+pub struct StringPool(Wtf16Interner);
 
 impl StringPool {
     fn new() -> Self {
-        Self {
-            strings: Vec::new(),
-            intern_map: HashMap::new(),
-        }
+        Self(Wtf16Interner::new())
     }
 
-    /// Intern a string, returning its `StringId`. If the string was already
-    /// interned, the existing ID is returned.
+    /// Intern a string from UTF-8, returning its `StringId`.
     pub fn intern(&mut self, s: &str) -> StringId {
-        if let Some(&id) = self.intern_map.get(s) {
-            return id;
-        }
-        let id = StringId(self.strings.len() as u32);
-        let boxed: Box<str> = s.into();
-        self.intern_map.insert(boxed.clone(), id);
-        self.strings.push(boxed);
-        id
+        StringId(self.0.intern(s))
     }
 
-    /// Look up a string by its ID.
+    /// Intern a string from raw WTF-16 code units.
+    pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
+        StringId(self.0.intern_wtf16(units))
+    }
+
+    /// Look up a string by its ID, returning WTF-16 code units.
     #[inline]
-    pub fn get(&self, id: StringId) -> &str {
-        &self.strings[id.0 as usize]
+    pub fn get(&self, id: StringId) -> &[u16] {
+        self.0.get(id.0)
+    }
+
+    /// Check if a string is already interned (without inserting), returning
+    /// its `StringId` if found. O(1) hash lookup.
+    pub fn lookup(&self, s: &str) -> Option<StringId> {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        self.0.lookup_wtf16(&units).map(StringId)
+    }
+
+    /// Look up a string by its ID, returning a UTF-8 `String` (lossy for
+    /// lone surrogates).
+    pub fn get_utf8(&self, id: StringId) -> String {
+        self.0.get_utf8(id.0)
     }
 
     /// Returns the number of interned strings.
     #[allow(dead_code, clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        self.strings.len()
+        self.0.len()
     }
 }
 
@@ -89,14 +97,31 @@ pub(crate) struct VmInner {
     pub(crate) upvalues: Vec<value::Upvalue>,
     pub(crate) free_upvalues: Vec<u32>,
     pub(crate) globals: HashMap<StringId, JsValue>,
+    /// Symbol table: indexed by `SymbolId`.
+    pub(crate) symbols: Vec<SymbolRecord>,
+    /// Global Symbol registry for `Symbol.for()` / `Symbol.keyFor()`.
+    pub(crate) symbol_registry: HashMap<StringId, SymbolId>,
+    /// Reverse map for `Symbol.keyFor()`: O(1) lookup from SymbolId → key.
+    pub(crate) symbol_reverse_registry: HashMap<SymbolId, StringId>,
     /// Well-known interned strings (cached for fast lookup).
     pub(crate) well_known: WellKnownStrings,
+    /// Well-known symbols (cached for fast property lookup).
+    pub(crate) well_known_symbols: WellKnownSymbols,
     /// String.prototype object: methods like charAt, indexOf, etc.
     pub(crate) string_prototype: Option<ObjectId>,
+    /// Symbol.prototype object: toString, etc.
+    pub(crate) symbol_prototype: Option<ObjectId>,
     /// Object.prototype (root of the prototype chain for ordinary objects).
     pub(crate) object_prototype: Option<ObjectId>,
     /// Array.prototype (prototype for array instances).
     pub(crate) array_prototype: Option<ObjectId>,
+    /// Shared prototype for array iterator objects (next + @@iterator).
+    pub(crate) array_iterator_prototype: Option<ObjectId>,
+    /// Shared prototype for string iterator objects (next + @@iterator).
+    pub(crate) string_iterator_prototype: Option<ObjectId>,
+    /// The global object (`globalThis`). Used for `this` coercion in
+    /// non-strict functions (§9.2.1.2).
+    pub(crate) global_object: ObjectId,
     /// Completion value for eval: the last value popped by a Pop opcode
     /// at the script (entry) frame level.
     pub(crate) completion_value: JsValue,
@@ -131,10 +156,34 @@ pub(crate) struct WellKnownStrings {
     pub(crate) number_type: StringId,
     pub(crate) string_type: StringId,
     pub(crate) function_type: StringId,
+    pub(crate) symbol_type: StringId,
     pub(crate) object_to_string: StringId,
+    pub(crate) next: StringId,
+    pub(crate) value: StringId,
+    pub(crate) done: StringId,
+    pub(crate) return_str: StringId,
+}
+
+/// Well-known symbol IDs, allocated at VM creation.
+#[allow(dead_code)]
+pub(crate) struct WellKnownSymbols {
+    pub(crate) iterator: SymbolId,
+    pub(crate) async_iterator: SymbolId,
+    pub(crate) has_instance: SymbolId,
+    pub(crate) to_primitive: SymbolId,
+    pub(crate) to_string_tag: SymbolId,
+    pub(crate) species: SymbolId,
+    pub(crate) is_concat_spreadable: SymbolId,
 }
 
 impl VmInner {
+    /// Allocate a new symbol, returning its `SymbolId`.
+    pub(crate) fn alloc_symbol(&mut self, description: Option<StringId>) -> SymbolId {
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(SymbolRecord { description });
+        id
+    }
+
     /// Allocate an object, returning its `ObjectId`.
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
         if let Some(idx) = self.free_objects.pop() {
@@ -206,7 +255,31 @@ impl Vm {
             number_type: strings.intern("number"),
             string_type: strings.intern("string"),
             function_type: strings.intern("function"),
+            symbol_type: strings.intern("symbol"),
             object_to_string: strings.intern("[object Object]"),
+            next: strings.intern("next"),
+            value: strings.intern("value"),
+            done: strings.intern("done"),
+            return_str: strings.intern("return"),
+        };
+
+        // Allocate well-known symbols (fixed IDs 0-6).
+        let mut symbols = Vec::new();
+        let mut alloc_wk = |desc: &str| -> SymbolId {
+            let id = SymbolId(symbols.len() as u32);
+            symbols.push(SymbolRecord {
+                description: Some(strings.intern(desc)),
+            });
+            id
+        };
+        let well_known_symbols = WellKnownSymbols {
+            iterator: alloc_wk("Symbol.iterator"),
+            async_iterator: alloc_wk("Symbol.asyncIterator"),
+            has_instance: alloc_wk("Symbol.hasInstance"),
+            to_primitive: alloc_wk("Symbol.toPrimitive"),
+            to_string_tag: alloc_wk("Symbol.toStringTag"),
+            species: alloc_wk("Symbol.species"),
+            is_concat_spreadable: alloc_wk("Symbol.isConcatSpreadable"),
         };
 
         let mut vm = Vm {
@@ -220,10 +293,19 @@ impl Vm {
                 upvalues: Vec::new(),
                 free_upvalues: Vec::new(),
                 globals: HashMap::new(),
+                symbols,
+                symbol_registry: HashMap::new(),
+                symbol_reverse_registry: HashMap::new(),
                 well_known,
+                well_known_symbols,
                 string_prototype: None,
+                symbol_prototype: None,
                 object_prototype: None,
                 array_prototype: None,
+                array_iterator_prototype: None,
+                string_iterator_prototype: None,
+                // Placeholder — immediately replaced by register_globals().
+                global_object: ObjectId(0),
                 completion_value: JsValue::Undefined,
                 current_exception: JsValue::Undefined,
                 rng_state: {
@@ -256,10 +338,16 @@ impl Vm {
         self.inner.strings.intern(s)
     }
 
-    /// Look up an interned string by its ID.
+    /// Look up an interned string by its ID, returning WTF-16 code units.
     #[inline]
-    pub fn get_string(&self, id: StringId) -> &str {
+    pub fn get_string_u16(&self, id: StringId) -> &[u16] {
         self.inner.strings.get(id)
+    }
+
+    /// Look up an interned string by its ID, returning a UTF-8 `String`.
+    #[inline]
+    pub fn get_string(&self, id: StringId) -> String {
+        self.inner.strings.get_utf8(id)
     }
 
     // -- Object heap ---------------------------------------------------------
@@ -326,16 +414,12 @@ impl Vm {
 
     /// Get a global variable.
     pub fn get_global(&self, name: &str) -> Option<JsValue> {
-        // HashMap lookup through intern_map — only used by external callers,
-        // not the hot interpreter path (which uses StringId directly).
-        self.inner
-            .strings
-            .intern_map
-            .get(name)
-            .and_then(|id| self.inner.globals.get(id).copied())
+        let sid = self.inner.strings.lookup(name)?;
+        self.inner.globals.get(&sid).copied()
     }
 
-    /// Helper: create a native function object.
+    /// Helper: create a native function object (non-constructable by default,
+    /// matching the ES2020 spec for most built-in functions).
     pub(crate) fn create_native_function(
         &mut self,
         name: &str,
@@ -346,6 +430,25 @@ impl Vm {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
+                constructable: false,
+            }),
+            properties: Vec::new(),
+            prototype: None,
+        })
+    }
+
+    /// Helper: create a constructable native function object (for Error, etc.).
+    pub(crate) fn create_constructable_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.inner.strings.intern(name);
+        self.alloc_object(Object {
+            kind: ObjectKind::NativeFunction(NativeFunction {
+                name: name_id,
+                func,
+                constructable: true,
             }),
             properties: Vec::new(),
             prototype: None,
@@ -364,16 +467,28 @@ impl Default for Vm {
 // ---------------------------------------------------------------------------
 
 impl NativeContext<'_> {
-    /// Intern a string.
+    /// Intern a string from UTF-8.
     #[inline]
     pub fn intern(&mut self, s: &str) -> StringId {
         self.vm.strings.intern(s)
     }
 
-    /// Look up an interned string.
+    /// Intern a string from raw WTF-16 code units.
     #[inline]
-    pub fn get_string(&self, id: StringId) -> &str {
+    pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
+        self.vm.strings.intern_utf16(units)
+    }
+
+    /// Look up an interned string as WTF-16.
+    #[inline]
+    pub fn get_u16(&self, id: StringId) -> &[u16] {
         self.vm.strings.get(id)
+    }
+
+    /// Look up an interned string as UTF-8 (lossy for lone surrogates).
+    #[inline]
+    pub fn get_utf8(&self, id: StringId) -> String {
+        self.vm.strings.get_utf8(id)
     }
 
     /// Allocate an object.
@@ -394,14 +509,16 @@ impl NativeContext<'_> {
     }
 
     /// Convert a value to f64 using ES2020 ToNumber.
+    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
     #[inline]
-    pub fn to_number(&self, val: JsValue) -> f64 {
+    pub fn to_number(&self, val: JsValue) -> Result<f64, VmError> {
         coerce::to_number(self.vm, val)
     }
 
     /// Convert a value to an interned string using ES2020 ToString.
+    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.12).
     #[inline]
-    pub fn to_string_val(&mut self, val: JsValue) -> StringId {
+    pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
         coerce::to_string(self.vm, val)
     }
 

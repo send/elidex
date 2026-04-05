@@ -216,7 +216,7 @@ impl ScopeState {
             return;
         }
         if !self.exported_names.insert(name) {
-            let s = prog.interner.get(name);
+            let s = prog.interner.get_utf8(name);
             self.errors.push(JsParseError {
                 kind: JsParseErrorKind::DuplicateBinding,
                 span,
@@ -248,7 +248,7 @@ impl ScopeState {
         ) && (name == prog.atoms.eval || name == prog.atoms.arguments)
             && self.is_strict()
         {
-            let name_str = prog.interner.get(name);
+            let name_str = prog.interner.get_utf8(name);
             self.errors.push(JsParseError {
                 kind: JsParseErrorKind::StrictModeViolation,
                 span,
@@ -295,7 +295,7 @@ impl ScopeState {
                 BindingKind::Implicit => false,
             };
             if conflict {
-                let s = prog.interner.get(name);
+                let s = prog.interner.get_utf8(name);
                 self.errors.push(JsParseError {
                     kind: JsParseErrorKind::DuplicateBinding,
                     span,
@@ -338,7 +338,7 @@ impl ScopeState {
             if self.scopes[idx].kind == ScopeKind::Catch {
                 for b in &self.scopes[idx].bindings {
                     if b.name == name && b.kind == BindingKind::CatchParam {
-                        let s = prog.interner.get(name);
+                        let s = prog.interner.get_utf8(name);
                         self.errors.push(JsParseError {
                             kind: JsParseErrorKind::DuplicateBinding,
                             span,
@@ -354,12 +354,26 @@ impl ScopeState {
 
 /// Check for "use strict" directive prologue.
 pub(super) fn has_use_strict(prog: &Program, body: &[NodeId<Stmt>]) -> bool {
+    // "use strict" is pure ASCII — use a const UTF-16 array to avoid
+    // allocating inside the loop.
+    const USE_STRICT_U16: &[u16] = &[
+        b'u' as u16,
+        b's' as u16,
+        b'e' as u16,
+        b' ' as u16,
+        b's' as u16,
+        b't' as u16,
+        b'r' as u16,
+        b'i' as u16,
+        b'c' as u16,
+        b't' as u16,
+    ];
     for &stmt_id in body {
         let stmt = prog.stmts.get(stmt_id);
         if let StmtKind::Expression(expr_id) = &stmt.kind {
             let expr = prog.exprs.get(*expr_id);
             if let ExprKind::Literal(Literal::String(s)) = expr.kind {
-                if prog.interner.get(s) == "use strict" {
+                if prog.interner.get(s) == USE_STRICT_U16 {
                     return true;
                 }
                 continue; // other string directives

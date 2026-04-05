@@ -10,8 +10,7 @@ use crate::bytecode::opcode::Op;
 use super::function::FunctionCompiler;
 use super::resolve::{resolve_identifier, FunctionScope, VarLocation};
 use super::CompileError;
-use crate::scope::{BindingKind, ScopeAnalysis, ScopeKind};
-use crate::span::Span;
+use crate::scope::{BindingKind, ScopeAnalysis};
 
 /// Compile an expression, leaving its value on the stack.
 #[allow(clippy::too_many_lines)]
@@ -53,7 +52,7 @@ pub fn compile_expr(
                     );
                     if loc == VarLocation::Global {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::TypeOfGlobal, idx);
                         return Ok(());
                     }
@@ -71,7 +70,7 @@ pub fn compile_expr(
                     if !computed {
                         if let MemberProp::Identifier(prop_atom) = property {
                             let prop_name = prog.interner.get(*prop_atom);
-                            let name_idx = fc.add_name(prop_name);
+                            let name_idx = fc.add_name_u16(prop_name);
                             fc.emit_u16(Op::DeleteProp, name_idx);
                         } else {
                             // Private field delete — always returns true per spec stub.
@@ -218,13 +217,13 @@ pub fn compile_expr(
                             match &prop.key {
                                 PropertyKey::Identifier(name)
                                 | PropertyKey::PrivateIdentifier(name) => {
-                                    let name_str = prog.interner.get(*name);
-                                    let idx = fc.add_name(name_str);
+                                    let name_u16 = prog.interner.get(*name);
+                                    let idx = fc.add_name_u16(name_u16);
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
                                 PropertyKey::Literal(Literal::String(s)) => {
-                                    let name_str = prog.interner.get(*s);
-                                    let idx = fc.add_name(name_str);
+                                    let name_u16 = prog.interner.get(*s);
+                                    let idx = fc.add_name_u16(name_u16);
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
                                 PropertyKey::Literal(Literal::Number(n)) => {
@@ -276,8 +275,11 @@ pub fn compile_expr(
             // Push quasis and expressions interleaved, then concat.
             let total = tpl.quasis.len() + tpl.expressions.len();
             for (i, quasi) in tpl.quasis.iter().enumerate() {
-                let cooked = quasi.cooked.as_ref().map_or("", |a| prog.interner.get(*a));
-                let idx = fc.add_constant(Constant::String(cooked.to_string()));
+                let cooked_u16: Vec<u16> = quasi
+                    .cooked
+                    .as_ref()
+                    .map_or_else(Vec::new, |a| prog.interner.get(*a).to_vec());
+                let idx = fc.add_constant(Constant::Wtf16(cooked_u16));
                 fc.emit_u16(Op::PushConst, idx);
                 if i < tpl.expressions.len() {
                     compile_expr(fc, prog, analysis, func_scopes, tpl.expressions[i])?;
@@ -320,8 +322,8 @@ pub fn compile_expr(
                     }
                     VarLocation::Global => {
                         let name = prog.interner.get(*atom);
-                        let load_idx = fc.add_name(name);
-                        let store_idx = fc.add_name(name);
+                        let load_idx = fc.add_name_u16(name);
+                        let store_idx = fc.add_name_u16(name);
                         emit_update_sequence(
                             fc,
                             *op,
@@ -364,7 +366,7 @@ pub fn compile_expr(
                     if let MemberProp::Identifier(prop_atom) = property {
                         // Static property: use IncProp/DecProp.
                         let prop_name = prog.interner.get(*prop_atom);
-                        let name_idx = fc.add_name(prop_name);
+                        let name_idx = fc.add_name_u16(prop_name);
                         let inc_op = match op {
                             UpdateOp::Increment => Op::IncProp,
                             UpdateOp::Decrement => Op::DecProp,
@@ -442,9 +444,17 @@ pub fn compile_expr(
             // Not nullish — pop the dup, leaving original value: [base_value]
             fc.emit(Op::Pop);
             // Compile chain parts on the base value.
-            for part in chain {
+            for (i, part) in chain.iter().enumerate() {
                 match part {
                     OptionalChainPart::Member { property, computed } => {
+                        // If the next part is a Call, keep the receiver for
+                        // CallMethod so that `obj?.method()` binds `this`
+                        // correctly to `obj`.
+                        let next_is_call =
+                            matches!(chain.get(i + 1), Some(OptionalChainPart::Call(_)));
+                        if next_is_call {
+                            fc.emit(Op::Dup); // keep receiver
+                        }
                         compile_member_property(
                             fc,
                             prog,
@@ -457,7 +467,15 @@ pub fn compile_expr(
                     OptionalChainPart::Call(arguments) => {
                         compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                         let argc = arguments.len() as u8;
-                        fc.emit_u8(Op::Call, argc);
+                        // Use CallMethod when preceded by a Member access
+                        // (receiver is on the stack below the callee).
+                        let prev_is_member =
+                            i > 0 && matches!(chain[i - 1], OptionalChainPart::Member { .. });
+                        if prev_is_member {
+                            fc.emit_u8(Op::CallMethod, argc);
+                        } else {
+                            fc.emit_u8(Op::Call, argc);
+                        }
                     }
                 }
             }
@@ -475,8 +493,8 @@ pub fn compile_expr(
 
         ExprKind::PrivateIn { name, right } => {
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::PrivateIn, idx);
         }
 
@@ -516,21 +534,21 @@ fn compile_literal(fc: &mut FunctionCompiler, prog: &Program, lit: &Literal) {
             }
         }
         Literal::String(atom) => {
-            let s = prog.interner.get(*atom).to_string();
-            let idx = fc.add_constant(Constant::String(s));
+            let units = prog.interner.get(*atom).to_vec();
+            let idx = fc.add_constant(Constant::Wtf16(units));
             fc.emit_u16(Op::PushConst, idx);
         }
         Literal::Boolean(true) => fc.emit(Op::PushTrue),
         Literal::Boolean(false) => fc.emit(Op::PushFalse),
         Literal::Null => fc.emit(Op::PushNull),
         Literal::BigInt(atom) => {
-            let s = prog.interner.get(*atom).to_string();
+            let s = prog.interner.get_utf8(*atom);
             let idx = fc.add_constant(Constant::BigInt(s));
             fc.emit_u16(Op::PushConst, idx);
         }
         Literal::RegExp { pattern, flags } => {
-            let p = prog.interner.get(*pattern).to_string();
-            let f = prog.interner.get(*flags).to_string();
+            let p = prog.interner.get_utf8(*pattern);
+            let f = prog.interner.get_utf8(*flags);
             let idx = fc.add_constant(Constant::RegExp {
                 pattern: p,
                 flags: f,
@@ -572,7 +590,7 @@ fn compile_identifier_load(
         VarLocation::Upvalue(idx) => fc.emit_u16(Op::GetUpvalue, idx),
         VarLocation::Global => {
             let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
+            let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::GetGlobal, idx);
         }
         VarLocation::Module(idx) => fc.emit_u16(Op::GetModuleVar, idx),
@@ -668,8 +686,8 @@ fn compile_assignment(
                         }
                         match property {
                             MemberProp::Identifier(name) => {
-                                let name_str = prog.interner.get(*name);
-                                let idx = fc.add_name(name_str);
+                                let name_u16 = prog.interner.get(*name);
+                                let idx = fc.add_name_u16(name_u16);
                                 fc.emit_u16(Op::SetProp, idx);
                             }
                             _ => {
@@ -723,7 +741,7 @@ fn compile_identifier_store(
                     return Err(CompileError {
                         message: format!(
                             "Assignment to constant variable '{}'",
-                            prog.interner.get(atom)
+                            prog.interner.get_utf8(atom)
                         ),
                     });
                 }
@@ -737,7 +755,7 @@ fn compile_identifier_store(
         VarLocation::Upvalue(idx) => fc.emit_u16(Op::SetUpvalue, idx),
         VarLocation::Global => {
             let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
+            let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::SetGlobal, idx);
         }
         VarLocation::Module(_) => {
@@ -758,8 +776,8 @@ fn compile_member_property(
 ) -> Result<(), CompileError> {
     match property {
         MemberProp::Identifier(name) if !computed => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::GetProp, idx);
         }
         MemberProp::Expression(e) => {
@@ -768,14 +786,14 @@ fn compile_member_property(
         }
         MemberProp::Identifier(name) => {
             // computed identifier — compile as string key
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::PushConst, idx);
             fc.emit(Op::GetElem);
         }
         MemberProp::PrivateIdentifier(name) => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::GetPrivate, idx);
         }
     }
@@ -795,11 +813,11 @@ fn compile_accessor(
         compile_expr(fc, prog, analysis, func_scopes, value)?;
         match &property.key {
             PropertyKey::Identifier(name) => {
-                let idx = fc.add_name(prog.interner.get(*name));
+                let idx = fc.add_name_u16(prog.interner.get(*name));
                 fc.emit_u16(define_op, idx);
             }
             PropertyKey::Literal(Literal::String(s)) => {
-                let idx = fc.add_name(prog.interner.get(*s));
+                let idx = fc.add_name_u16(prog.interner.get(*s));
                 fc.emit_u16(define_op, idx);
             }
             _ => {
@@ -930,521 +948,6 @@ fn compound_op_to_opcode(op: AssignOp) -> Op {
     }
 }
 
-// ── Class compilation ──────────────────────────────────────────────
-
-/// Compile a class declaration or expression.
-///
-/// Desugars the class into existing opcodes:
-/// 1. Compile the constructor (or create a default one) as a function → `Closure`
-/// 2. Create a prototype object and attach it to the constructor via `DefineProperty`
-/// 3. Define prototype methods on the prototype object
-/// 4. Define static methods on the constructor object
-/// 5. Set up the `constructor` back-link on the prototype
-///
-/// Stack effect: pushes the constructor (class) value.
-#[allow(clippy::too_many_lines)]
-pub(super) fn compile_class(
-    fc: &mut FunctionCompiler,
-    prog: &Program,
-    analysis: &ScopeAnalysis,
-    func_scopes: &mut [FunctionScope],
-    class: &Class,
-) -> Result<(), CompileError> {
-    // 1. Find and compile the constructor method, or create a default one.
-    let constructor = class.body.iter().find(|m| {
-        matches!(
-            m.kind,
-            ClassMemberKind::Method {
-                kind: MethodKind::Constructor,
-                ..
-            }
-        )
-    });
-
-    if let Some(ctor_member) = constructor {
-        if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
-            let child = compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
-            let idx = fc.add_constant(Constant::Function(Box::new(child)));
-            fc.emit_u16(Op::Closure, idx);
-        }
-    } else {
-        // Default constructor: an empty function that returns undefined.
-        // Use PushUndefined + Return (not ReturnUndefined) because ReturnUndefined
-        // has special completion-value semantics for script-level eval.
-        let default_ctor = crate::bytecode::compiled::CompiledFunction {
-            bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
-            name: class.name.map(|a| prog.interner.get(a).to_string()),
-            ..Default::default()
-        };
-        let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));
-        fc.emit_u16(Op::Closure, idx);
-    }
-    // Stack: [constructor]
-
-    // 2. Create a prototype object and link it:
-    //    proto.constructor = ctor; ctor.prototype = proto
-    fc.emit(Op::Dup); //                          [ctor ctor]
-    fc.emit(Op::CreateObject); //                 [ctor ctor proto]
-    fc.emit(Op::Swap); //                         [ctor proto ctor]
-    let constructor_name = fc.add_name("constructor");
-    fc.emit_u16(Op::DefineProperty, constructor_name); // [ctor proto]  (proto.constructor = ctor)
-    let prototype_name = fc.add_name("prototype");
-    fc.emit_u16(Op::DefineProperty, prototype_name); // [ctor]  (ctor.prototype = proto)
-
-    // 3. Define prototype methods.
-    for member in &class.body {
-        match &member.kind {
-            ClassMemberKind::Method {
-                key,
-                function,
-                kind,
-                is_static,
-                computed,
-            } => {
-                if matches!(kind, MethodKind::Constructor) {
-                    continue;
-                }
-
-                let child =
-                    compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
-                let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
-
-                if *is_static {
-                    // Static method: define on the constructor itself.
-                    // Stack: [ctor]
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor ctor method]
-                    match kind {
-                        MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
-                        }
-                        MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
-                        }
-                        _ => {
-                            emit_class_member_name_op(
-                                fc,
-                                prog,
-                                key,
-                                *computed,
-                                Op::DefineProperty,
-                            )?;
-                        }
-                    }
-                    // After DefineProperty/Getter/Setter: [ctor ctor_with_method]
-                    fc.emit(Op::Pop); // [ctor]
-                } else {
-                    // Prototype method: define on constructor.prototype.
-                    // Stack: [ctor]
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    let proto_name = fc.add_name("prototype");
-                    fc.emit_u16(Op::GetProp, proto_name); // [ctor proto]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor proto method]
-                    match kind {
-                        MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
-                        }
-                        MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
-                        }
-                        _ => {
-                            emit_class_member_name_op(
-                                fc,
-                                prog,
-                                key,
-                                *computed,
-                                Op::DefineProperty,
-                            )?;
-                        }
-                    }
-                    // After: [ctor proto]
-                    fc.emit(Op::Pop); // [ctor]
-                }
-            }
-            ClassMemberKind::PrivateMethod {
-                name,
-                function,
-                kind,
-                is_static,
-            } => {
-                let child =
-                    compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
-                let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
-                let name_str = prog.interner.get(*name);
-
-                if *is_static {
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor ctor method]
-                    let define_op = match kind {
-                        MethodKind::Get => Op::DefineGetter,
-                        MethodKind::Set => Op::DefineSetter,
-                        _ => Op::DefineProperty,
-                    };
-                    let idx = fc.add_name(name_str);
-                    fc.emit_u16(define_op, idx); // [ctor ctor]
-                    fc.emit(Op::Pop); // [ctor]
-                } else {
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    let proto_name = fc.add_name("prototype");
-                    fc.emit_u16(Op::GetProp, proto_name); // [ctor proto]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor proto method]
-                    let define_op = match kind {
-                        MethodKind::Get => Op::DefineGetter,
-                        MethodKind::Set => Op::DefineSetter,
-                        _ => Op::DefineProperty,
-                    };
-                    let idx = fc.add_name(name_str);
-                    fc.emit_u16(define_op, idx); // [ctor proto]
-                    fc.emit(Op::Pop); // [ctor]
-                }
-            }
-            ClassMemberKind::Property {
-                key,
-                value,
-                is_static,
-                computed,
-            } => {
-                // Static properties are defined on the constructor.
-                // Instance properties would be initialized in the constructor, but
-                // for simplicity we skip instance field initializers for now.
-                if *is_static {
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    if let Some(val_expr) = value {
-                        compile_expr(fc, prog, analysis, func_scopes, *val_expr)?;
-                    } else {
-                        fc.emit(Op::PushUndefined);
-                    }
-                    // [ctor ctor value]
-                    emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty)?;
-                    // [ctor ctor]
-                    fc.emit(Op::Pop); // [ctor]
-                }
-                // Non-static properties: skip (would need field initializer injection).
-            }
-            ClassMemberKind::PrivateField {
-                name,
-                value,
-                is_static,
-            } => {
-                if *is_static {
-                    fc.emit(Op::Dup); // [ctor ctor]
-                    if let Some(val_expr) = value {
-                        compile_expr(fc, prog, analysis, func_scopes, *val_expr)?;
-                    } else {
-                        fc.emit(Op::PushUndefined);
-                    }
-                    let name_str = prog.interner.get(*name);
-                    let idx = fc.add_name(name_str);
-                    fc.emit_u16(Op::DefineProperty, idx); // [ctor ctor]
-                    fc.emit(Op::Pop); // [ctor]
-                }
-            }
-            ClassMemberKind::StaticBlock(stmts) => {
-                // Compile static block statements. They execute with `this` = class.
-                // For simplicity, just compile the statements inline.
-                for &stmt_id in stmts {
-                    super::stmt::compile_stmt(fc, prog, analysis, func_scopes, stmt_id)?;
-                }
-            }
-            ClassMemberKind::Empty => {}
-        }
-    }
-
-    // Stack: [constructor]. This is the class value.
-
-    // Initialize the inner class name binding so that methods can reference
-    // the class via upvalue capture. The scope analysis creates a Block scope
-    // with the class span that contains a Class binding for the name.
-    if let Some(name) = class.name {
-        // Find the inner block scope for this class (ScopeKind::Block with class.span).
-        let inner_scope_idx = analysis.scopes.iter().enumerate().find_map(|(idx, scope)| {
-            if scope.kind == ScopeKind::Block && scope.span == class.span {
-                Some(idx)
-            } else {
-                None
-            }
-        });
-        if let Some(inner_idx) = inner_scope_idx {
-            if let Some(info) = func_scopes[fc.func_scope_idx]
-                .locals
-                .get(&(inner_idx, name))
-            {
-                let slot = info.slot;
-                fc.emit(Op::Dup); // keep class on stack
-                fc.emit_u16(Op::InitLocal, slot);
-                fc.emit_u16(Op::SetLocal, slot);
-                fc.emit(Op::Pop); // pop the dup
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Emit a DefineProperty/DefineGetter/DefineSetter with the appropriate key.
-///
-/// For computed keys, falls back to `DefineComputedProperty`.
-fn emit_class_member_name_op(
-    fc: &mut FunctionCompiler,
-    prog: &Program,
-    key: &PropertyKey,
-    computed: bool,
-    op: Op,
-) -> Result<(), CompileError> {
-    if computed {
-        return Err(CompileError {
-            message: "computed class member keys not yet supported".into(),
-        });
-    }
-    match key {
-        PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
-            fc.emit_u16(op, idx);
-        }
-        PropertyKey::Literal(Literal::String(s)) => {
-            let name_str = prog.interner.get(*s);
-            let idx = fc.add_name(name_str);
-            fc.emit_u16(op, idx);
-        }
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            clippy::cast_precision_loss
-        )]
-        PropertyKey::Literal(Literal::Number(n)) => {
-            let key_str = if *n == (*n as i64) as f64 && *n >= 0.0 {
-                format!("{}", *n as i64)
-            } else {
-                format!("{n}")
-            };
-            let idx = fc.add_name(&key_str);
-            fc.emit_u16(op, idx);
-        }
-        _ => {
-            return Err(CompileError {
-                message: "unsupported class member key type".into(),
-            });
-        }
-    }
-    Ok(())
-}
-
-// ── Nested function compilation ────────────────────────────────────
-
-/// Find the `func_scopes` index for a function/arrow with the given span.
-///
-/// Searches `analysis.scopes` for a `Function` scope whose span matches,
-/// then maps that scope index back to its owning `func_scopes` entry.
-fn find_func_scope_for_span(
-    analysis: &ScopeAnalysis,
-    func_scopes: &[FunctionScope],
-    span: Span,
-) -> Option<usize> {
-    for (scope_idx, scope) in analysis.scopes.iter().enumerate() {
-        if scope.kind == ScopeKind::Function && scope.span == span {
-            for (fi, fs) in func_scopes.iter().enumerate() {
-                if fs.scope_indices.first() == Some(&scope_idx) {
-                    return Some(fi);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Compile a nested `Function` (declaration or expression) into a `CompiledFunction`.
-///
-/// This is `pub(super)` so that `stmt.rs` can call it for `FunctionDeclaration`.
-pub(super) fn compile_nested_function(
-    _parent_fc: &mut FunctionCompiler,
-    prog: &Program,
-    analysis: &ScopeAnalysis,
-    func_scopes: &mut [FunctionScope],
-    func: &Function,
-    _is_declaration: bool,
-) -> Result<crate::bytecode::compiled::CompiledFunction, CompileError> {
-    let child_func_idx =
-        find_func_scope_for_span(analysis, func_scopes, func.span).ok_or_else(|| CompileError {
-            message: format!("no function scope found for span {:?}", func.span),
-        })?;
-
-    let root_scope_idx = func_scopes[child_func_idx].scope_indices[0];
-    let is_strict = analysis.scopes[root_scope_idx].is_strict;
-
-    let mut child_fc = FunctionCompiler::new(child_func_idx, root_scope_idx, is_strict);
-    child_fc.name = func.name.map(|a| prog.interner.get(a).to_string());
-    child_fc.is_async = func.is_async;
-    child_fc.is_generator = func.is_generator;
-
-    // Initialize var-declared locals to undefined (same pattern as top-level in mod.rs).
-    let mut var_slots: Vec<u16> = func_scopes[child_func_idx]
-        .locals
-        .values()
-        .filter(|info| matches!(info.kind, BindingKind::Var | BindingKind::Function))
-        .map(|info| info.slot)
-        .collect();
-    var_slots.sort_unstable();
-    // Skip param slots (they are filled by the caller).
-    let param_count = func.params.len() as u16;
-    for slot in var_slots {
-        if slot < param_count {
-            continue;
-        }
-        child_fc.emit(Op::PushUndefined);
-        child_fc.emit_u16(Op::SetLocal, slot);
-        child_fc.emit(Op::Pop);
-    }
-
-    // Compile default parameter values.
-    for (i, param) in func.params.iter().enumerate() {
-        if let Some(default_expr) = param.default {
-            let slot = i as u16;
-            child_fc.emit_u16(Op::GetLocal, slot);
-            child_fc.emit(Op::PushUndefined);
-            child_fc.emit(Op::StrictEq);
-            let skip = child_fc.emit_jump(Op::JumpIfFalse);
-            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
-            child_fc.emit_u16(Op::SetLocal, slot);
-            child_fc.emit(Op::Pop);
-            child_fc.patch_jump(skip);
-        }
-    }
-
-    // Hoist function declarations: compile and store before executing body statements.
-    for &stmt_id in &func.body {
-        let stmt = prog.stmts.get(stmt_id);
-        if let StmtKind::FunctionDeclaration(inner_func) = &stmt.kind {
-            if let Some(name) = &inner_func.name {
-                let hoisted = compile_nested_function(
-                    &mut child_fc,
-                    prog,
-                    analysis,
-                    func_scopes,
-                    inner_func,
-                    true,
-                )?;
-                let idx = child_fc.add_constant(crate::bytecode::compiled::Constant::Function(
-                    Box::new(hoisted),
-                ));
-                child_fc.emit_u16(Op::Closure, idx);
-                let loc = super::resolve::resolve_identifier(
-                    *name,
-                    child_fc.func_scope_idx,
-                    child_fc.current_scope_idx,
-                    func_scopes,
-                    analysis,
-                );
-                match loc {
-                    super::resolve::VarLocation::Local(slot) => {
-                        child_fc.emit_u16(Op::SetLocal, slot);
-                        child_fc.emit(Op::Pop);
-                    }
-                    super::resolve::VarLocation::Global => {
-                        let name_str = prog.interner.get(*name);
-                        let name_idx = child_fc.add_name(name_str);
-                        child_fc.emit_u16(Op::SetGlobal, name_idx);
-                        child_fc.emit(Op::Pop);
-                    }
-                    _ => {
-                        child_fc.emit(Op::Pop);
-                    }
-                }
-            }
-        }
-    }
-
-    // Compile body statements.
-    for &stmt_id in &func.body {
-        super::stmt::compile_stmt(&mut child_fc, prog, analysis, func_scopes, stmt_id)?;
-    }
-
-    // Ensure the function ends with a return.
-    if child_fc.bytecode.last() != Some(&(Op::Return as u8))
-        && child_fc.bytecode.last() != Some(&(Op::ReturnUndefined as u8))
-    {
-        child_fc.emit(Op::ReturnUndefined);
-    }
-
-    let mut compiled = child_fc.finish(&func_scopes[child_func_idx]);
-    compiled.param_count = func.params.len() as u16;
-    Ok(compiled)
-}
-
-/// Compile an arrow function expression into a `CompiledFunction`.
-fn compile_arrow_function(
-    _parent_fc: &mut FunctionCompiler,
-    prog: &Program,
-    analysis: &ScopeAnalysis,
-    func_scopes: &mut [FunctionScope],
-    arrow: &ArrowFunction,
-) -> Result<crate::bytecode::compiled::CompiledFunction, CompileError> {
-    let child_func_idx =
-        find_func_scope_for_span(analysis, func_scopes, arrow.span).ok_or_else(|| {
-            CompileError {
-                message: format!("no function scope found for arrow span {:?}", arrow.span),
-            }
-        })?;
-
-    let root_scope_idx = func_scopes[child_func_idx].scope_indices[0];
-    let is_strict = analysis.scopes[root_scope_idx].is_strict;
-
-    let mut child_fc = FunctionCompiler::new(child_func_idx, root_scope_idx, is_strict);
-    child_fc.is_arrow = true;
-    child_fc.is_async = arrow.is_async;
-
-    // Initialize var-declared locals to undefined, skipping params.
-    let mut var_slots: Vec<u16> = func_scopes[child_func_idx]
-        .locals
-        .values()
-        .filter(|info| matches!(info.kind, BindingKind::Var | BindingKind::Function))
-        .map(|info| info.slot)
-        .collect();
-    var_slots.sort_unstable();
-    let param_count = arrow.params.len() as u16;
-    for slot in var_slots {
-        if slot < param_count {
-            continue;
-        }
-        child_fc.emit(Op::PushUndefined);
-        child_fc.emit_u16(Op::SetLocal, slot);
-        child_fc.emit(Op::Pop);
-    }
-
-    // Compile default parameter values.
-    for (i, param) in arrow.params.iter().enumerate() {
-        if let Some(default_expr) = param.default {
-            let slot = i as u16;
-            child_fc.emit_u16(Op::GetLocal, slot);
-            child_fc.emit(Op::PushUndefined);
-            child_fc.emit(Op::StrictEq);
-            let skip = child_fc.emit_jump(Op::JumpIfFalse);
-            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
-            child_fc.emit_u16(Op::SetLocal, slot);
-            child_fc.emit(Op::Pop);
-            child_fc.patch_jump(skip);
-        }
-    }
-
-    match &arrow.body {
-        ArrowBody::Expression(expr_id) => {
-            compile_expr(&mut child_fc, prog, analysis, func_scopes, *expr_id)?;
-            child_fc.emit(Op::Return); // implicit return of expression value
-        }
-        ArrowBody::Block(stmts) => {
-            for &stmt_id in stmts {
-                super::stmt::compile_stmt(&mut child_fc, prog, analysis, func_scopes, stmt_id)?;
-            }
-            // Ensure block-body arrow ends with return.
-            if child_fc.bytecode.last() != Some(&(Op::Return as u8))
-                && child_fc.bytecode.last() != Some(&(Op::ReturnUndefined as u8))
-            {
-                child_fc.emit(Op::ReturnUndefined);
-            }
-        }
-    }
-
-    let mut compiled = child_fc.finish(&func_scopes[child_func_idx]);
-    compiled.param_count = arrow.params.len() as u16;
-    Ok(compiled)
-}
+// Re-exports from split modules so that existing call-sites keep working.
+pub(super) use super::expr_class::compile_class;
+pub(super) use super::expr_function::{compile_arrow_function, compile_nested_function};

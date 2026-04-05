@@ -4,9 +4,12 @@
 //! that can be executed by the elidex-js interpreter (M4-10).
 
 mod expr;
+mod expr_class;
+mod expr_function;
 pub mod function;
 pub mod resolve;
 mod stmt;
+mod stmt_destructure;
 
 use crate::ast::{Program, StmtKind};
 use crate::bytecode::compiled::{CompiledScript, Constant};
@@ -95,8 +98,8 @@ pub fn compile(
                         fc.emit(Op::Pop);
                     }
                     resolve::VarLocation::Global => {
-                        let name_str = program.interner.get(*name);
-                        let name_idx = fc.add_name(name_str);
+                        let name_u16 = program.interner.get(*name);
+                        let name_idx = fc.add_name_u16(name_u16);
                         fc.emit_u16(Op::SetGlobal, name_idx);
                         fc.emit(Op::Pop);
                     }

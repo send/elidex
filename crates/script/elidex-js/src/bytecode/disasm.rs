@@ -122,7 +122,7 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
 fn format_constant(c: &Constant) -> String {
     match c {
         Constant::Number(n) => format!("{n}"),
-        Constant::String(s) => format!("\"{s}\""),
+        Constant::Wtf16(v) => format!("\"{}\"", String::from_utf16_lossy(v)),
         Constant::BigInt(s) => format!("{s}n"),
         Constant::Function(_) => "<function>".to_string(),
         Constant::RegExp { pattern, flags } => format!("/{pattern}/{flags}"),

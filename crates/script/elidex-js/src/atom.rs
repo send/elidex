@@ -4,20 +4,19 @@
 //! string literals, and other textual data in the lexer/parser/AST use `Atom`
 //! instead of `String`, eliminating per-token heap allocations.
 //!
-//! Internally, all strings are stored in a single contiguous buffer.
-//! Deduplication uses `hashbrown::HashTable` with external hash/eq
-//! resolved through the buffer — zero per-string heap allocations.
+//! Internally, all strings are stored in a WTF-16 contiguous buffer via
+//! `Wtf16Interner`. Deduplication uses `hashbrown::HashTable` with external
+//! hash/eq resolved through the buffer — zero per-string heap allocations.
 
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
-use hashbrown::HashTable;
+use crate::wtf16::Wtf16Interner;
 
 /// An interned string handle. Copy + Eq + Hash + Ord.
 ///
 /// Index 0 is reserved for the empty string.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Atom(u32);
+pub struct Atom(pub(crate) u32);
 
 impl Atom {
     /// The empty-string atom (always index 0).
@@ -30,19 +29,12 @@ impl fmt::Debug for Atom {
     }
 }
 
-/// Append-only string interner backed by a contiguous buffer.
+/// Append-only string interner backed by a WTF-16 contiguous buffer.
 ///
 /// Deduplicates strings so that equal strings map to the same `Atom`.
 /// Thread-local (not `Sync`); each parser instance owns one.
 #[derive(Debug)]
-pub struct StringInterner {
-    /// All interned strings concatenated.
-    buffer: String,
-    /// `(byte_offset, byte_len)` for each `Atom` index.
-    spans: Vec<(u32, u32)>,
-    /// Hash table mapping string content → `Atom` index.
-    table: HashTable<u32>,
-}
+pub struct StringInterner(Wtf16Interner);
 
 impl Default for StringInterner {
     fn default() -> Self {
@@ -50,114 +42,41 @@ impl Default for StringInterner {
     }
 }
 
-/// Compute a hash for a string slice (used for hash table operations).
-fn hash_str(s: &str) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
-}
-
 impl StringInterner {
-    /// Maximum number of interned strings — matches `Arena::MAX_NODES`.
-    pub const MAX_STRINGS: usize = 16 * 1024 * 1024;
-
-    /// Maximum cumulative buffer size (256 MiB).
-    const MAX_BUFFER_BYTES: usize = 256 * 1024 * 1024;
-
     /// Create a new interner with the empty string pre-interned at index 0.
     #[must_use]
     pub fn new() -> Self {
-        let mut si = Self {
-            buffer: String::with_capacity(4096),
-            spans: Vec::with_capacity(256),
-            table: HashTable::with_capacity(256),
-        };
-        // Index 0 = empty string (offset 0, len 0 in an empty buffer).
-        si.spans.push((0, 0));
-        si.table.insert_unique(hash_str(""), 0, |_| hash_str(""));
-        si
+        Self(Wtf16Interner::new())
     }
 
-    /// Resolve an `(offset, len)` span to a buffer slice.
-    #[inline]
-    fn slice(&self, idx: u32) -> &str {
-        let (off, len) = self.spans[idx as usize];
-        &self.buffer[off as usize..(off + len) as usize]
-    }
-
-    /// Intern a string, returning its `Atom`. Idempotent.
-    ///
-    /// Returns `Atom::EMPTY` if the interner is at capacity.
+    /// Intern a UTF-8 string, returning its `Atom`. Idempotent.
     pub fn intern(&mut self, s: &str) -> Atom {
-        let h = hash_str(s);
+        Atom(self.0.intern(s))
+    }
 
-        // Look up existing entry.
-        let spans = &self.spans;
-        let buffer: &str = &self.buffer;
-        if let Some(&idx) = self.table.find(h, |&idx| {
-            let (off, len) = spans[idx as usize];
-            &buffer[off as usize..(off + len) as usize] == s
-        }) {
-            return Atom(idx);
-        }
+    /// Intern a WTF-16 slice, returning its `Atom`. Idempotent.
+    pub fn intern_wtf16(&mut self, units: &[u16]) -> Atom {
+        Atom(self.0.intern_wtf16(units))
+    }
 
-        if self.spans.len() >= Self::MAX_STRINGS
-            || self.buffer.len() + s.len() > Self::MAX_BUFFER_BYTES
-        {
-            return Atom::EMPTY;
-        }
+    /// Resolve an `Atom` back to its WTF-16 content.
+    #[inline]
+    #[must_use]
+    pub fn get(&self, atom: Atom) -> &[u16] {
+        self.0.get(atom.0)
+    }
 
-        // Append to buffer and record span.
-        let idx = self.spans.len() as u32;
-        // Guard against u32 overflow on cumulative buffer length.
-        let offset = u32::try_from(self.buffer.len()).unwrap_or(u32::MAX);
-        if offset == u32::MAX {
-            return Atom::EMPTY;
-        }
-        let slen = u32::try_from(s.len()).unwrap_or(u32::MAX);
-        if slen == u32::MAX {
-            return Atom::EMPTY;
-        }
-        self.buffer.push_str(s);
-        self.spans.push((offset, slen));
-
-        // Insert into hash table (reborrow after mutation).
-        let spans = &self.spans;
-        let buffer: &str = &self.buffer;
-        self.table.insert_unique(h, idx, |&i| {
-            let (off, len) = spans[i as usize];
-            hash_str(&buffer[off as usize..(off + len) as usize])
-        });
-
-        Atom(idx)
+    /// Resolve an `Atom` back to a UTF-8 String (lossy for lone surrogates).
+    #[must_use]
+    pub fn get_utf8(&self, atom: Atom) -> String {
+        self.0.get_utf8(atom.0)
     }
 
     /// Look up an already-interned string, returning its `Atom` or `Atom::EMPTY` if not found.
     #[must_use]
     pub fn lookup(&self, s: &str) -> Atom {
-        let h = hash_str(s);
-        let spans = &self.spans;
-        let buffer: &str = &self.buffer;
-        self.table
-            .find(h, |&idx| {
-                let (off, len) = spans[idx as usize];
-                &buffer[off as usize..(off + len) as usize] == s
-            })
-            .copied()
-            .map_or(Atom::EMPTY, Atom)
-    }
-
-    /// Resolve an `Atom` back to its string slice.
-    #[inline]
-    #[must_use]
-    pub fn get(&self, atom: Atom) -> &str {
-        debug_assert!(
-            (atom.0 as usize) < self.spans.len(),
-            "StringInterner::get: Atom({}) out of bounds (len={})",
-            atom.0,
-            self.spans.len()
-        );
-        self.slice(atom.0)
+        let units: Vec<u16> = s.encode_utf16().collect();
+        self.0.lookup_wtf16(&units).map_or(Atom::EMPTY, Atom)
     }
 }
 
@@ -226,13 +145,13 @@ mod tests {
         let a = si.intern("hello");
         let b = si.intern("hello");
         assert_eq!(a, b);
-        assert_eq!(si.get(a), "hello");
+        assert_eq!(si.get_utf8(a), "hello");
     }
 
     #[test]
     fn empty_atom() {
         let si = StringInterner::new();
-        assert_eq!(si.get(Atom::EMPTY), "");
+        assert_eq!(si.get_utf8(Atom::EMPTY), "");
     }
 
     #[test]
@@ -241,8 +160,8 @@ mod tests {
         let a = si.intern("foo");
         let b = si.intern("bar");
         assert_ne!(a, b);
-        assert_eq!(si.get(a), "foo");
-        assert_eq!(si.get(b), "bar");
+        assert_eq!(si.get_utf8(a), "foo");
+        assert_eq!(si.get_utf8(b), "bar");
     }
 
     #[test]
@@ -267,14 +186,20 @@ mod tests {
     }
 
     #[test]
-    fn contiguous_buffer() {
+    fn intern_wtf16_dedup() {
         let mut si = StringInterner::new();
-        si.intern("abc");
-        si.intern("def");
-        si.intern("ghi");
-        // All strings share the same contiguous buffer
-        assert!(si.buffer.contains("abc"));
-        assert!(si.buffer.contains("def"));
-        assert!(si.buffer.contains("ghi"));
+        let units: Vec<u16> = "abc".encode_utf16().collect();
+        let a = si.intern_wtf16(&units);
+        let b = si.intern_wtf16(&units);
+        assert_eq!(a, b);
+        assert_eq!(si.get(a), &units[..]);
+    }
+
+    #[test]
+    fn get_returns_u16_slice() {
+        let mut si = StringInterner::new();
+        let a = si.intern("hello");
+        let expected: Vec<u16> = "hello".encode_utf16().collect();
+        assert_eq!(si.get(a), &expected[..]);
     }
 }

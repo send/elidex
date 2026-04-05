@@ -3,7 +3,6 @@
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
-use crate::atom::Atom;
 use crate::bytecode::opcode::Op;
 use crate::scope::{ScopeAnalysis, ScopeKind};
 use crate::span::Span;
@@ -11,6 +10,7 @@ use crate::span::Span;
 use super::expr::{compile_class, compile_expr};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
+use super::stmt_destructure::{compile_destructure_pattern, compile_pattern_store};
 use super::CompileError;
 
 /// Compile a statement.
@@ -57,8 +57,8 @@ pub fn compile_stmt(
                         fc.emit(Op::Pop);
                     }
                     super::resolve::VarLocation::Global => {
-                        let name_str = prog.interner.get(*name);
-                        let name_idx = fc.add_name(name_str);
+                        let name_u16 = prog.interner.get(*name);
+                        let name_idx = fc.add_name_u16(name_u16);
                         fc.emit_u16(Op::SetGlobal, name_idx);
                         fc.emit(Op::Pop);
                     }
@@ -109,8 +109,22 @@ pub fn compile_stmt(
             }
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
             fc.emit(Op::GetIterator);
+            // Save iterator to a temp local so return/throw can close it.
+            let iter_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+            fc.emit(Op::Dup);
+            fc.emit_u16(Op::SetLocal, iter_slot);
+            fc.emit(Op::Pop);
+
+            // Wrap the loop body in an implicit exception handler so that
+            // an uncaught throw from the body closes the iterator (ES2020
+            // §13.7.5.13 ForIn/OfBodyEvaluation — IteratorClose on abrupt).
+            let handler_pos = fc.pc();
+            fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
+            let handler_patch_pos = handler_pos + 1; // offset of catch u16
+
             let loop_start = fc.pc();
-            fc.push_loop(loop_start);
+            fc.push_for_of_loop(loop_start, iter_slot);
             fc.emit(Op::IteratorNext); // [iterator value done]
             let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
                                                            // Bind `left` to value (value is on stack).
@@ -120,8 +134,36 @@ pub fn compile_stmt(
             fc.patch_continue_jumps_to(loop_start);
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
+            fc.emit(Op::PopExceptionHandler);
             fc.emit(Op::Pop); // pop leftover value from done path
-            fc.emit(Op::Pop); // pop iterator
+            fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
+            let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
+
+            // Catch handler: close iterator, then re-throw the original exception.
+            // NOTE: If IteratorClose (.return()) itself throws, that new error
+            // correctly takes precedence over the original abrupt completion
+            // per ECMA-262 §7.4.6 IteratorClose. The opcode order here already
+            // matches: a throw from Op::IteratorClose skips the re-throw below.
+            let catch_ip = fc.pc();
+            fc.emit_u16(Op::GetLocal, iter_slot);
+            fc.emit(Op::IteratorClose);
+            fc.emit(Op::PushException);
+            fc.emit(Op::Throw);
+
+            fc.patch_jump(end_patch);
+
+            // Patch the exception handler: catch_ip = catch handler, finally_ip = 0xFFFF.
+            assert!(
+                u16::try_from(catch_ip).is_ok(),
+                "for-of catch entry {catch_ip} exceeds u16 range"
+            );
+            let catch_bytes = (catch_ip as u16).to_le_bytes();
+            fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
+            fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
+            let no_finally = 0xFFFFu16.to_le_bytes();
+            fc.bytecode[(handler_patch_pos + 2) as usize] = no_finally[0];
+            fc.bytecode[(handler_patch_pos + 3) as usize] = no_finally[1];
+
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
         }
@@ -331,20 +373,40 @@ pub fn compile_stmt(
             }
             // If inside try/finally, emit finally bodies before returning.
             // The return value is on the stack; finally bodies must not consume it.
+            // Finally bodies run before IteratorClose per spec (finally is
+            // "closer" to the abrupt completion site).
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            // If inside for-of loop(s), close iterators before returning.
+            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             fc.emit(Op::Return);
         }
 
         StmtKind::Throw(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             fc.emit(Op::Throw);
         }
 
         StmtKind::Break(label) => {
+            // Finally bodies run before IteratorClose per spec (finally is
+            // "closer" to the abrupt completion site).
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            // For for-of loops, emit IteratorClose for each for-of context
+            // being exited so every iterator's .return() is called on
+            // abrupt completion.
+            let target_idx = if let Some(label_atom) = label {
+                fc.label_map.get(label_atom).copied()
+            } else {
+                // Unlabeled break exits only the innermost loop.
+                fc.loop_stack.len().checked_sub(1)
+            };
+            if let Some(target) = target_idx {
+                emit_iter_close_range(fc, target, fc.loop_stack.len());
+            }
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                let label_name = prog.interner.get(*label_atom);
+                let label_name = prog.interner.get_utf8(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
@@ -368,7 +430,7 @@ pub fn compile_stmt(
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                let label_name = prog.interner.get(*label_atom);
+                let label_name = prog.interner.get_utf8(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
@@ -768,7 +830,7 @@ fn compile_forin_left_binding(
                     }
                     super::resolve::VarLocation::Global => {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::SetGlobal, idx);
                         fc.emit(Op::Pop);
                     }
@@ -782,196 +844,6 @@ fn compile_forin_left_binding(
             }
         }
     }
-    Ok(())
-}
-
-/// Compile a destructuring pattern.
-///
-/// Assumes the value to destructure is on top of the stack.
-/// After compilation, the value is consumed (popped).
-#[allow(clippy::too_many_lines)]
-fn compile_destructure_pattern(
-    fc: &mut FunctionCompiler,
-    prog: &Program,
-    analysis: &ScopeAnalysis,
-    func_scopes: &mut [FunctionScope],
-    pattern_id: NodeId<Pattern>,
-    var_kind: VarKind,
-) -> Result<(), CompileError> {
-    let pattern = prog.patterns.get(pattern_id);
-    match &pattern.kind {
-        PatternKind::Identifier(atom) => {
-            compile_pattern_store(fc, prog, analysis, func_scopes, *atom, var_kind)?;
-        }
-        PatternKind::Array { elements, rest } => {
-            // Stack: [value]
-            fc.emit(Op::GetIterator); // [iterator]
-
-            for elem in elements {
-                if let Some(ArrayPatternElement {
-                    pattern: p,
-                    default: def,
-                }) = elem
-                {
-                    fc.emit(Op::IteratorNext); // [iterator value done]
-                    fc.emit(Op::Pop); // [iterator value]
-
-                    if let Some(default_expr) = def {
-                        // ES2020: default triggers only on undefined, not null.
-                        fc.emit(Op::Dup); // [iterator value value]
-                        fc.emit(Op::PushUndefined); // [iterator value value undefined]
-                        fc.emit(Op::StrictNotEq); // [iterator value bool]
-                        let skip = fc.emit_jump(Op::JumpIfTrue); // [iterator value]
-                        fc.emit(Op::Pop); // [iterator]
-                        compile_expr(fc, prog, analysis, func_scopes, *default_expr)?;
-                        fc.patch_jump(skip); // [iterator value_or_default]
-                    }
-
-                    compile_destructure_pattern(fc, prog, analysis, func_scopes, *p, var_kind)?;
-                } else {
-                    // Elision / hole: skip one iterator value.
-                    fc.emit(Op::IteratorNext); // [iterator value done]
-                    fc.emit(Op::Pop); // [iterator value]
-                    fc.emit(Op::Pop); // [iterator]
-                }
-            }
-
-            if let Some(rest_pattern) = rest {
-                fc.emit(Op::IteratorRest); // [rest_array]
-                compile_destructure_pattern(
-                    fc,
-                    prog,
-                    analysis,
-                    func_scopes,
-                    *rest_pattern,
-                    var_kind,
-                )?;
-            } else {
-                fc.emit(Op::Pop); // pop iterator
-            }
-        }
-        PatternKind::Object { properties, rest } => {
-            // Stack: [value]
-            for prop in properties {
-                fc.emit(Op::Dup); // [value value]
-                match &prop.key {
-                    PropertyKey::Identifier(atom) => {
-                        let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
-                        fc.emit_u16(Op::GetProp, idx); // [value prop_value]
-                    }
-                    PropertyKey::Literal(Literal::String(atom)) => {
-                        let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
-                        fc.emit_u16(Op::GetProp, idx);
-                    }
-                    PropertyKey::Computed(expr) => {
-                        compile_expr(fc, prog, analysis, func_scopes, *expr)?;
-                        fc.emit(Op::GetElem);
-                    }
-                    _ => {
-                        fc.emit(Op::PushUndefined);
-                    }
-                }
-                // Stack: [value prop_value]
-                compile_destructure_pattern(fc, prog, analysis, func_scopes, prop.value, var_kind)?;
-            }
-
-            if let Some(rest_pat) = rest {
-                // Create a new object with all enumerable own properties EXCEPT
-                // the keys already destructured above.
-                fc.emit(Op::Dup); // [value value]
-                fc.emit(Op::CreateObject); // [value value rest_obj]
-                fc.emit(Op::Swap); // [value rest_obj value]
-                fc.emit(Op::SpreadObject); // [value rest_obj] (copies all props)
-                                           // Delete the already-destructured keys from rest_obj.
-                for prop in properties {
-                    match &prop.key {
-                        PropertyKey::Identifier(atom) => {
-                            let name = prog.interner.get(*atom);
-                            let idx = fc.add_name(name);
-                            fc.emit(Op::Dup); // [value rest_obj rest_obj]
-                            fc.emit_u16(Op::DeleteProp, idx); // [value rest_obj bool]
-                            fc.emit(Op::Pop); // [value rest_obj]
-                        }
-                        PropertyKey::Literal(Literal::String(atom)) => {
-                            let name = prog.interner.get(*atom);
-                            let idx = fc.add_name(name);
-                            fc.emit(Op::Dup);
-                            fc.emit_u16(Op::DeleteProp, idx);
-                            fc.emit(Op::Pop);
-                        }
-                        // Computed/other keys: can't statically delete, skip
-                        _ => {}
-                    }
-                }
-                // Stack: [value rest_obj]
-                compile_destructure_pattern(fc, prog, analysis, func_scopes, *rest_pat, var_kind)?;
-            }
-
-            fc.emit(Op::Pop); // pop original object
-        }
-        PatternKind::Assign { left, right } => {
-            // Stack: [value]
-            // ES2020: default triggers only on undefined, not null.
-            fc.emit(Op::Dup); // [value value]
-            fc.emit(Op::PushUndefined); // [value value undefined]
-            fc.emit(Op::StrictNotEq); // [value bool]
-            let skip = fc.emit_jump(Op::JumpIfTrue); // [value]
-            fc.emit(Op::Pop); // discard undefined
-            compile_expr(fc, prog, analysis, func_scopes, *right)?;
-            fc.patch_jump(skip);
-            // Stack: [actual_value_or_default]
-            compile_destructure_pattern(fc, prog, analysis, func_scopes, *left, var_kind)?;
-        }
-        PatternKind::Expression(_) | PatternKind::Error => {
-            fc.emit(Op::Pop);
-        }
-    }
-    Ok(())
-}
-
-/// Store a value (on top of stack) to a variable binding.
-#[allow(clippy::unnecessary_wraps)] // Result kept for consistency with other compile_* fns
-fn compile_pattern_store(
-    fc: &mut FunctionCompiler,
-    prog: &Program,
-    analysis: &ScopeAnalysis,
-    func_scopes: &mut [FunctionScope],
-    atom: Atom,
-    kind: VarKind,
-) -> Result<(), CompileError> {
-    let loc = super::resolve::resolve_identifier(
-        atom,
-        fc.func_scope_idx,
-        fc.current_scope_idx,
-        func_scopes,
-        analysis,
-    );
-    match loc {
-        super::resolve::VarLocation::Local(slot) => {
-            // For let/const, mark as initialized.
-            if matches!(kind, VarKind::Let | VarKind::Const) {
-                fc.emit_u16(Op::InitLocal, slot);
-            }
-            fc.emit_u16(Op::SetLocal, slot);
-            fc.emit(Op::Pop); // discard value (statement, not expression)
-        }
-        super::resolve::VarLocation::Upvalue(idx) => {
-            fc.emit_u16(Op::SetUpvalue, idx);
-            fc.emit(Op::Pop);
-        }
-        super::resolve::VarLocation::Global => {
-            let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
-            fc.emit_u16(Op::SetGlobal, idx);
-            fc.emit(Op::Pop);
-        }
-        super::resolve::VarLocation::Module(_) => {
-            fc.emit(Op::Pop);
-        }
-    }
-
     Ok(())
 }
 
@@ -989,6 +861,18 @@ fn find_child_block_scope(
         }
     }
     None
+}
+
+/// Emit `IteratorClose` for all for-of loops in the given range of the loop stack.
+///
+/// Walks from innermost (top) to outermost so iterators are closed in LIFO order.
+fn emit_iter_close_range(fc: &mut FunctionCompiler, from: usize, to: usize) {
+    for i in (from..to).rev() {
+        if let Some(slot) = fc.loop_stack[i].iter_local {
+            fc.emit_u16(Op::GetLocal, slot);
+            fc.emit(Op::IteratorClose);
+        }
+    }
 }
 
 /// Emit all pending finally bodies (innermost first) before a return/break/continue.

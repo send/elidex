@@ -3,7 +3,7 @@
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, VmError};
+use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
 use super::VmInner;
 
 // -- Global functions -------------------------------------------------------
@@ -14,8 +14,8 @@ pub(super) fn native_parse_int(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let s_id = ctx.to_string_val(val);
-    let s = ctx.get_string(s_id).trim().to_string();
+    let s_id = ctx.to_string_val(val)?;
+    let s = ctx.get_utf8(s_id).trim().to_string();
 
     // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
     let mut negative = false;
@@ -35,7 +35,7 @@ pub(super) fn native_parse_int(
             (10u32, rest)
         }
     } else {
-        let r = ctx.to_number(radix_arg);
+        let r = ctx.to_number(radix_arg)?;
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let ri = r as i32;
         // ES2020 §18.2.5: radix 0 (or undefined) → default (10, with 0x prefix detection).
@@ -92,8 +92,8 @@ pub(super) fn native_parse_float(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let s_id = ctx.to_string_val(val);
-    let trimmed = ctx.get_string(s_id).trim_start().to_string();
+    let s_id = ctx.to_string_val(val)?;
+    let trimmed = ctx.get_utf8(s_id).trim_start().to_string();
     let n = parse_float_prefix(&trimmed);
     Ok(JsValue::Number(n))
 }
@@ -177,7 +177,7 @@ pub(super) fn native_is_nan(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val);
+    let n = ctx.to_number(val)?;
     Ok(JsValue::Boolean(n.is_nan()))
 }
 
@@ -187,7 +187,7 @@ pub(super) fn native_is_finite(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val);
+    let n = ctx.to_number(val)?;
     Ok(JsValue::Boolean(n.is_finite()))
 }
 
@@ -200,7 +200,7 @@ fn error_ctor_impl(
     error_name: &str,
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
-        let name_key = ctx.vm.well_known.name;
+        let name_key = PropertyKey::String(ctx.vm.well_known.name);
         let name_val = JsValue::String(ctx.intern(error_name));
         ctx.get_object_mut(id)
             .properties
@@ -209,8 +209,8 @@ fn error_ctor_impl(
             .first()
             .copied()
             .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
-        let msg_id = ctx.to_string_val(msg);
-        let msg_key = ctx.vm.well_known.message;
+        let msg_id = ctx.to_string_val(msg)?;
+        let msg_key = PropertyKey::String(ctx.vm.well_known.message);
         ctx.get_object_mut(id)
             .properties
             .push((msg_key, Property::data(JsValue::String(msg_id))));
@@ -272,7 +272,13 @@ pub(super) fn native_object_keys(
         .properties
         .iter()
         .filter(|(_, p)| p.enumerable)
-        .map(|(k, _)| JsValue::String(*k))
+        .filter_map(|(k, _)| {
+            if let PropertyKey::String(sid) = k {
+                Some(JsValue::String(*sid))
+            } else {
+                None
+            }
+        })
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: keys },
@@ -300,7 +306,7 @@ pub(super) fn native_object_values(
         .get_object(obj_id)
         .properties
         .iter()
-        .filter(|(_, p)| p.enumerable)
+        .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
         .map(|(_, p)| p.value)
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
@@ -319,25 +325,32 @@ pub(super) fn native_object_assign(
     let JsValue::Object(target_id) = target else {
         return Ok(target);
     };
+    let is_global = target_id == ctx.vm.global_object;
     for &source in args.iter().skip(1) {
         let JsValue::Object(src_id) = source else {
             continue;
         };
         // Collect source properties first to avoid borrow conflict.
-        let props: Vec<(super::value::StringId, JsValue)> = ctx
+        let props: Vec<(PropertyKey, JsValue)> = ctx
             .get_object(src_id)
             .properties
             .iter()
             .filter(|(_, p)| p.enumerable)
             .map(|(k, p)| (*k, p.value))
             .collect();
-        for (key, value) in props {
+        for (key, value) in &props {
+            // Sync global object writes to the globals HashMap.
+            if is_global {
+                if let PropertyKey::String(sid) = key {
+                    ctx.vm.globals.insert(*sid, *value);
+                }
+            }
             // Update existing or push new.
             let target_obj = ctx.get_object_mut(target_id);
-            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| *k == key) {
-                prop.1.value = value;
+            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| k == key) {
+                prop.1.value = *value;
             } else {
-                target_obj.properties.push((key, Property::data(value)));
+                target_obj.properties.push((*key, Property::data(*value)));
             }
         }
     }
@@ -377,11 +390,14 @@ pub(super) fn native_object_define_property(
             "Object.defineProperty called on non-object",
         ));
     };
-    let key = ctx.to_string_val(prop_val);
+    let key = match prop_val {
+        JsValue::Symbol(sid) => PropertyKey::Symbol(sid),
+        other => PropertyKey::String(ctx.to_string_val(other)?),
+    };
 
     // Extract value from descriptor if it's an object.
     let value = if let JsValue::Object(desc_id) = desc_val {
-        let value_key = ctx.intern("value");
+        let value_key = PropertyKey::String(ctx.intern("value"));
         ctx.get_object(desc_id)
             .properties
             .iter()
@@ -391,6 +407,12 @@ pub(super) fn native_object_define_property(
         JsValue::Undefined
     };
 
+    // Sync global object writes to the globals HashMap.
+    if obj_id == ctx.vm.global_object {
+        if let PropertyKey::String(sid) = key {
+            ctx.vm.globals.insert(sid, value);
+        }
+    }
     let obj = ctx.get_object_mut(obj_id);
     if let Some(prop) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
         prop.1.value = value;
@@ -423,7 +445,7 @@ pub(super) fn native_math_abs(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.abs()))
 }
 
@@ -432,7 +454,7 @@ pub(super) fn native_math_ceil(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.ceil()))
 }
 
@@ -441,7 +463,7 @@ pub(super) fn native_math_floor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.floor()))
 }
 
@@ -450,7 +472,7 @@ pub(super) fn native_math_round(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     // ES2020 §20.2.2.28: if n is in [-0.5, 0), result is -0.
     let result = if (-0.5..0.0).contains(&n) {
         -0.0_f64
@@ -470,7 +492,7 @@ pub(super) fn native_math_max(
     }
     let mut result = f64::NEG_INFINITY;
     for &arg in args {
-        let n = ctx.to_number(arg);
+        let n = ctx.to_number(arg)?;
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
@@ -491,7 +513,7 @@ pub(super) fn native_math_min(
     }
     let mut result = f64::INFINITY;
     for &arg in args {
-        let n = ctx.to_number(arg);
+        let n = ctx.to_number(arg)?;
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
@@ -526,7 +548,7 @@ pub(super) fn native_math_sqrt(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.sqrt()))
 }
 
@@ -535,8 +557,8 @@ pub(super) fn native_math_pow(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
-    let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined));
+    let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(base.powf(exp)))
 }
 
@@ -545,220 +567,27 @@ pub(super) fn native_math_log(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.ln()))
 }
 
-// -- String.prototype methods -----------------------------------------------
+// -- Object.getOwnPropertySymbols ---------------------------------------------
 
-/// Helper: extract the string from `this` for String.prototype methods.
-fn this_to_string(ctx: &NativeContext<'_>, this: JsValue) -> Option<String> {
-    match this {
-        JsValue::String(id) => Some(ctx.get_string(id).to_string()),
-        _ => None,
+pub(super) fn native_object_get_own_property_symbols(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // §19.1.2.10.1: ToObject — throw TypeError for null/undefined
+    if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Cannot convert undefined or null to object",
+        ));
     }
-}
-
-pub(super) fn native_string_char_at(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let index = args.first().map_or(0, |a| ctx.to_number(*a) as usize);
-    let ch = s
-        .chars()
-        .nth(index)
-        .map_or(String::new(), |c| c.to_string());
-    let id = ctx.intern(&ch);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_char_code_at(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        return Ok(JsValue::Number(f64::NAN));
-    };
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let index = args.first().map_or(0, |a| ctx.to_number(*a) as usize);
-    let code = s
-        .chars()
-        .nth(index)
-        .map_or(f64::NAN, |c| f64::from(c as u32));
-    Ok(JsValue::Number(code))
-}
-
-pub(super) fn native_string_index_of(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        return Ok(JsValue::Number(-1.0));
-    };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let from = args.get(1).map_or(0, |a| {
-        let n = ctx.to_number(*a);
-        if n.is_nan() || n < 0.0 {
-            0usize
-        } else {
-            n as usize
-        }
-    });
-    // Work with char indices: find starting from `from`-th char.
-    let byte_from = s
-        .char_indices()
-        .nth(from)
-        .map_or(s.len(), |(byte_idx, _)| byte_idx);
-    let result = s[byte_from..].find(&search).map_or(-1.0, |byte_pos| {
-        // Convert byte position back to char index.
-        #[allow(clippy::cast_precision_loss)]
-        let char_idx = s[..byte_from + byte_pos].chars().count() as f64;
-        char_idx
-    });
-    Ok(JsValue::Number(result))
-}
-
-pub(super) fn native_string_includes(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        return Ok(JsValue::Boolean(false));
-    };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.contains(&search)))
-}
-
-pub(super) fn native_string_slice(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let char_len = s.chars().count();
-    #[allow(clippy::cast_possible_wrap)]
-    let len = char_len as isize;
-    let raw_start = args.first().map_or(0.0, |a| ctx.to_number(*a));
-    #[allow(clippy::cast_possible_truncation)]
-    let resolve_index = |n_raw: f64, char_len_usize: usize, len_i: isize| -> usize {
-        let n = n_raw as isize;
-        if n < 0 {
-            (len_i + n).max(0).cast_unsigned()
-        } else {
-            n.cast_unsigned().min(char_len_usize)
-        }
-    };
-    let start = resolve_index(raw_start, char_len, len);
-    let end = if args.len() > 1 {
-        let raw_end = ctx.to_number(args[1]);
-        resolve_index(raw_end, char_len, len)
-    } else {
-        char_len
-    };
-    let result: String = if start <= end {
-        s.chars().skip(start).take(end - start).collect()
-    } else {
-        String::new()
-    };
-    let id = ctx.intern(&result);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_substring(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let len = s.chars().count();
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let clamp = |n: f64| -> usize {
-        if n.is_nan() || n < 0.0 {
-            0
-        } else {
-            (n as usize).min(len)
-        }
-    };
-    let mut a = clamp(args.first().map_or(0.0, |v| ctx.to_number(*v)));
-    let mut b = if args.len() > 1 {
-        clamp(ctx.to_number(args[1]))
-    } else {
-        len
-    };
-    if a > b {
-        std::mem::swap(&mut a, &mut b);
-    }
-    let result: String = s.chars().skip(a).take(b - a).collect();
-    let id = ctx.intern(&result);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_to_lower_case(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let lower = s.to_lowercase();
-    let id = ctx.intern(&lower);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_to_upper_case(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let upper = s.to_uppercase();
-    let id = ctx.intern(&upper);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_trim(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let trimmed = s.trim();
-    let id = ctx.intern(trimmed);
-    Ok(JsValue::String(id))
-}
-
-pub(super) fn native_string_split(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let JsValue::Object(obj_id) = obj_val else {
+        // Primitives (number, string, boolean, symbol): ToObject would wrap,
+        // but primitive wrappers have no own symbol properties.
         return Ok(JsValue::Object(ctx.alloc_object(Object {
             kind: ObjectKind::Array {
                 elements: Vec::new(),
@@ -767,76 +596,26 @@ pub(super) fn native_string_split(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let sep = ctx.get_string(sep_id).to_string();
-    let parts: Vec<JsValue> = s
-        .split(&sep)
-        .map(|part| {
-            let id = ctx.intern(part);
-            JsValue::String(id)
+    let syms: Vec<JsValue> = ctx
+        .get_object(obj_id)
+        .properties
+        .iter()
+        .filter_map(|(k, _)| {
+            if let PropertyKey::Symbol(sid) = k {
+                Some(JsValue::Symbol(*sid))
+            } else {
+                None
+            }
         })
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements: parts },
+        kind: ObjectKind::Array { elements: syms },
         properties: Vec::new(),
         prototype: ctx.vm.array_prototype,
     })))
 }
 
-pub(super) fn native_string_starts_with(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        return Ok(JsValue::Boolean(false));
-    };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.starts_with(&search)))
-}
-
-pub(super) fn native_string_ends_with(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        return Ok(JsValue::Boolean(false));
-    };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.ends_with(&search)))
-}
-
-pub(super) fn native_string_replace(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined));
-    let replacement = ctx.get_string(replacement_id).to_string();
-    // Replace first occurrence only (like JS String.prototype.replace with a string pattern).
-    let result = if let Some(pos) = s.find(&search) {
-        let mut r = String::with_capacity(s.len() - search.len() + replacement.len());
-        r.push_str(&s[..pos]);
-        r.push_str(&replacement);
-        r.push_str(&s[pos + search.len()..]);
-        r
-    } else {
-        s
-    };
-    let id = ctx.intern(&result);
-    Ok(JsValue::String(id))
-}
-
-// -- JSON stubs (M4-10) -----------------------------------------------------
+// -- JSON stubs ---------------------------------------------------------------
 
 pub(super) fn native_json_stringify_stub(
     _ctx: &mut NativeContext<'_>,
@@ -857,8 +636,8 @@ pub(super) fn native_json_parse_stub(
 // -- Console ----------------------------------------------------------------
 
 fn format_value_for_console(vm: &mut VmInner, val: JsValue) -> String {
-    let id = super::coerce::to_string(vm, val);
-    vm.strings.get(id).to_string()
+    let id = super::coerce::to_display_string(vm, val);
+    vm.strings.get_utf8(id)
 }
 
 fn console_output(
@@ -897,3 +676,17 @@ pub(super) fn native_console_warn(
 ) -> Result<JsValue, VmError> {
     console_output(ctx, args, "[warn] ")
 }
+
+// Re-exports from split modules.
+pub(super) use super::natives_string::{
+    native_string_char_at, native_string_char_code_at, native_string_ends_with,
+    native_string_includes, native_string_index_of, native_string_replace, native_string_slice,
+    native_string_split, native_string_starts_with, native_string_substring,
+    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+};
+pub(super) use super::natives_symbol::{
+    native_array_iterator_next, native_array_values, native_iterator_self,
+    native_object_prototype_to_string, native_string_iterator, native_string_iterator_next,
+    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
+    native_symbol_prototype_to_string,
+};

@@ -1,9 +1,9 @@
 use super::*;
 use crate::{analyze_scopes, parse_module, parse_script};
 
-/// Resolve an Atom to &str using the program's interner.
-fn r(program: &Program, atom: Atom) -> &str {
-    program.interner.get(atom)
+/// Resolve an Atom to String using the program's interner.
+fn r(program: &Program, atom: Atom) -> String {
+    program.interner.get_utf8(atom)
 }
 
 #[test]

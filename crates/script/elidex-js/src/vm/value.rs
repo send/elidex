@@ -49,6 +49,34 @@ impl fmt::Debug for UpvalueId {
     }
 }
 
+/// Index into `Vm::symbols`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolId(pub(crate) u32);
+
+impl fmt::Debug for SymbolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SymbolId({})", self.0)
+    }
+}
+
+/// A Symbol record stored in the VM's symbol table.
+pub struct SymbolRecord {
+    /// Optional description (e.g., `Symbol("foo")` → `"foo"`).
+    pub description: Option<StringId>,
+}
+
+// ---------------------------------------------------------------------------
+// PropertyKey — String or Symbol key for object properties
+// ---------------------------------------------------------------------------
+
+/// A property key: either a string name or a symbol.
+/// Used as the key type in `Object.properties`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PropertyKey {
+    String(StringId),
+    Symbol(SymbolId),
+}
+
 // ---------------------------------------------------------------------------
 // JsValue — the core runtime value (16 bytes, Copy)
 // ---------------------------------------------------------------------------
@@ -62,6 +90,7 @@ pub enum JsValue {
     Boolean(bool),
     Number(f64),
     String(StringId),
+    Symbol(SymbolId),
     Object(ObjectId),
 }
 
@@ -81,7 +110,7 @@ impl JsValue {
             Self::Undefined | Self::Null => true,
             Self::Boolean(b) => !b,
             Self::Number(n) => n == 0.0 || n.is_nan(),
-            Self::String(_) | Self::Object(_) => false,
+            Self::String(_) | Self::Symbol(_) | Self::Object(_) => false,
         }
     }
 }
@@ -96,6 +125,7 @@ impl PartialEq for JsValue {
                 a == b
             }
             (Self::String(a), Self::String(b)) => a == b,
+            (Self::Symbol(a), Self::Symbol(b)) => a == b,
             (Self::Object(a), Self::Object(b)) => a == b,
             _ => false,
         }
@@ -110,7 +140,7 @@ impl PartialEq for JsValue {
 pub struct Object {
     pub kind: ObjectKind,
     /// Property list. Linear scan for now; M4-11 adds hidden classes.
-    pub properties: Vec<(StringId, Property)>,
+    pub properties: Vec<(PropertyKey, Property)>,
     /// Prototype chain link (`__proto__`).
     pub prototype: Option<ObjectId>,
 }
@@ -139,6 +169,8 @@ pub enum ObjectKind {
     ForInIterator(ForInState),
     /// Array/iterable iterator state.
     ArrayIterator(ArrayIterState),
+    /// String iterator state (for `String.prototype[Symbol.iterator]()`).
+    StringIterator(StringIterState),
 }
 
 /// A compiled JS function with captured upvalues.
@@ -174,6 +206,8 @@ pub enum ThisMode {
 pub struct NativeFunction {
     pub name: StringId,
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    /// Whether `new` can be used on this function. `false` for Symbol etc.
+    pub constructable: bool,
 }
 
 /// Context passed to native functions, providing mutable access to the VM.
@@ -296,6 +330,14 @@ pub struct ArrayIterState {
     /// The array being iterated.
     pub array_id: ObjectId,
     /// Current index.
+    pub index: usize,
+}
+
+/// State for a string iterator (yields individual code points).
+pub struct StringIterState {
+    /// The interned string being iterated (avoids O(n) clone).
+    pub string_id: StringId,
+    /// Current UTF-16 index.
     pub index: usize,
 }
 

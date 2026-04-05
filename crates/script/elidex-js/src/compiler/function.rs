@@ -56,6 +56,11 @@ pub struct LoopContext {
     pub continue_patches: Vec<u32>,
     /// `true` for switch statements — `continue` should skip these contexts.
     pub is_switch: bool,
+    /// `true` for for-of loops — `break` must emit `IteratorClose` before jumping.
+    pub for_of: bool,
+    /// For for-of loops: local slot storing the iterator value, used to emit
+    /// `IteratorClose` on `return`/`throw` from inside the loop body.
+    pub iter_local: Option<u16>,
 }
 
 impl FunctionCompiler {
@@ -184,9 +189,9 @@ impl FunctionCompiler {
                     }
                 }
             }
-            Constant::String(s) => {
+            Constant::Wtf16(s) => {
                 for (i, c) in self.constants.iter().enumerate() {
-                    if let Constant::String(existing) = c {
+                    if let Constant::Wtf16(existing) = c {
                         if s == existing {
                             return i as u16;
                         }
@@ -200,9 +205,15 @@ impl FunctionCompiler {
         idx as u16
     }
 
-    /// Add a name (identifier) constant and return its index.
+    /// Add a name (identifier) constant from a UTF-8 `&str` and return its index.
     pub fn add_name(&mut self, name: &str) -> u16 {
-        self.add_constant(Constant::String(name.to_string()))
+        let units: Vec<u16> = name.encode_utf16().collect();
+        self.add_constant(Constant::Wtf16(units))
+    }
+
+    /// Add a name (identifier) constant from a WTF-16 `&[u16]` and return its index.
+    pub fn add_name_u16(&mut self, name: &[u16]) -> u16 {
+        self.add_constant(Constant::Wtf16(name.to_vec()))
     }
 
     // ── Loop management ─────────────────────────────────────────────
@@ -214,6 +225,21 @@ impl FunctionCompiler {
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
             is_switch: false,
+            for_of: false,
+            iter_local: None,
+        });
+    }
+
+    /// Push a for-of loop context (break emits `IteratorClose`).
+    /// `iter_local` is the local slot where the iterator is saved for cleanup.
+    pub fn push_for_of_loop(&mut self, continue_target: u32, iter_local: u16) {
+        self.loop_stack.push(LoopContext {
+            continue_target,
+            break_patches: Vec::new(),
+            continue_patches: Vec::new(),
+            is_switch: false,
+            for_of: true,
+            iter_local: Some(iter_local),
         });
     }
 
@@ -224,6 +250,8 @@ impl FunctionCompiler {
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
             is_switch: true,
+            for_of: false,
+            iter_local: None,
         });
     }
 
@@ -346,8 +374,9 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(fc.constants.len(), 1);
 
-        let c = fc.add_constant(Constant::String("hello".into()));
-        let d = fc.add_constant(Constant::String("hello".into()));
+        let hello: Vec<u16> = "hello".encode_utf16().collect();
+        let c = fc.add_constant(Constant::Wtf16(hello.clone()));
+        let d = fc.add_constant(Constant::Wtf16(hello));
         assert_eq!(c, d);
         assert_eq!(fc.constants.len(), 2);
     }

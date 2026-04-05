@@ -15,8 +15,8 @@ impl LexResult {
     }
 
     /// Resolve an atom to its string.
-    fn resolve(&self, atom: Atom) -> &str {
-        self.interner.get(atom)
+    fn resolve(&self, atom: Atom) -> String {
+        self.interner.get_utf8(atom)
     }
 }
 
@@ -318,7 +318,7 @@ fn template_raw_escape() {
     let out = lex(r"`\n`");
     match &out.tokens[0] {
         TokenKind::TemplateNoSub { cooked, raw } => {
-            assert_eq!(cooked.map(|a| out.resolve(a)), Some("\n"));
+            assert_eq!(cooked.map(|a| out.resolve(a)), Some("\n".to_string()));
             assert_eq!(out.resolve(*raw), "\\n");
         }
         other => panic!("Expected TemplateNoSub, got {other:?}"),
@@ -332,7 +332,7 @@ fn template_invalid_escape_cooked_none() {
     match tok.kind {
         TokenKind::TemplateNoSub { cooked, raw } => {
             assert!(cooked.is_none(), "cooked should be None for invalid escape");
-            assert_eq!(lex.interner.get(raw), "\\8");
+            assert_eq!(lex.interner.get_utf8(raw), "\\8");
         }
         other => panic!("Expected TemplateNoSub, got {other:?}"),
     }
@@ -344,8 +344,11 @@ fn template_head_tail_raw() {
     let (t1, _) = lex.next_token();
     match t1.kind {
         TokenKind::TemplateHead { cooked, raw } => {
-            assert_eq!(cooked.map(|a| lex.interner.get(a)), Some("a\n"));
-            assert_eq!(lex.interner.get(raw), "a\\n");
+            assert_eq!(
+                cooked.map(|a| lex.interner.get_utf8(a)),
+                Some("a\n".to_string())
+            );
+            assert_eq!(lex.interner.get_utf8(raw), "a\\n");
         }
         other => panic!("Expected TemplateHead, got {other:?}"),
     }
@@ -354,8 +357,11 @@ fn template_head_tail_raw() {
     let t2 = lex.lex_template_part();
     match t2.kind {
         TokenKind::TemplateTail { cooked, raw } => {
-            assert_eq!(cooked.map(|a| lex.interner.get(a)), Some("b\t"));
-            assert_eq!(lex.interner.get(raw), "b\\t");
+            assert_eq!(
+                cooked.map(|a| lex.interner.get_utf8(a)),
+                Some("b\t".to_string())
+            );
+            assert_eq!(lex.interner.get_utf8(raw), "b\\t");
         }
         other => panic!("Expected TemplateTail, got {other:?}"),
     }
@@ -503,8 +509,8 @@ fn unicode_escape_out_of_range_error() {
 }
 
 #[test]
-fn unicode_escape_surrogate_replacement() {
-    // S5: Lone surrogates are valid in ES string literals; replaced with U+FFFD in UTF-8
+fn unicode_escape_surrogate_preserved() {
+    // Lone surrogates are valid in ES string literals; now preserved as WTF-16
     let mut lex = Lexer::new(r#""\uD800""#);
     let (tok, _) = lex.next_token();
     assert!(matches!(tok.kind, TokenKind::StringLiteral(_)));
@@ -514,8 +520,12 @@ fn unicode_escape_surrogate_replacement() {
         lex.errors
     );
     if let TokenKind::StringLiteral(atom) = tok.kind {
-        let s = lex.interner.get(atom);
-        assert_eq!(s, "\u{FFFD}", "Surrogate should be replaced with U+FFFD");
+        let units = lex.interner.get(atom);
+        assert_eq!(
+            units,
+            &[0xD800u16],
+            "Surrogate should be preserved as WTF-16"
+        );
     }
 }
 
@@ -731,7 +741,7 @@ fn combining_mark_as_first_private_id_char_rejected() {
     let (tok, _) = lex.next_token();
     match tok.kind {
         TokenKind::PrivateIdentifier(name) => {
-            let s = lex.interner.get(name);
+            let s = lex.interner.get_utf8(name);
             assert!(
                 s.is_empty() || !s.starts_with('\u{0301}'),
                 "Combining mark should not be accepted as first char of private identifier"

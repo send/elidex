@@ -2,20 +2,64 @@
 //! upvalue management, and operator helpers.
 
 use super::coerce::{
-    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_string, BitwiseOp,
-    NumericBinaryOp,
+    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_boolean, to_number,
+    to_string, BitwiseOp, NumericBinaryOp,
 };
 use super::value::{
-    FuncId, JsValue, ObjectKind, Property, StringId, Upvalue, UpvalueState, VmError, VmErrorKind,
+    FuncId, JsValue, ObjectKind, Property, PropertyKey, StringId, Upvalue, UpvalueState, VmError,
+    VmErrorKind,
 };
 use super::Vm;
 use crate::bytecode::compiled::Constant;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
+/// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
+/// or overflow.
+pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
+    if units.is_empty() {
+        return None;
+    }
+    // Reject leading zeros (except "0" itself).
+    if units.len() > 1 && units[0] == u16::from(b'0') {
+        return None;
+    }
+    let mut n: usize = 0;
+    for &u in units {
+        let digit = u.wrapping_sub(u16::from(b'0'));
+        if digit > 9 {
+            return None;
+        }
+        n = n.checked_mul(10)?.checked_add(digit as usize)?;
+    }
+    Some(n)
+}
 
 // ---------------------------------------------------------------------------
 // Error-to-thrown-value conversion
 // ---------------------------------------------------------------------------
 
 impl Vm {
+    /// Create a thrown JS error object from a `VmError` and attempt to dispatch
+    /// it through the exception handling chain.  Returns `Ok(())` if the
+    /// exception was caught (caller should `continue` the dispatch loop) or
+    /// `Err(error)` if no handler exists (caller should `return Err`).
+    pub(crate) fn throw_error(
+        &mut self,
+        error: VmError,
+        entry_frame_depth: usize,
+    ) -> Result<(), VmError> {
+        let thrown = self.vm_error_to_thrown(&error);
+        if self.handle_exception(thrown, entry_frame_depth) {
+            Ok(()) // caught — caller continues
+        } else {
+            Err(error) // uncaught
+        }
+    }
+
     /// Convert a `VmError` into a `JsValue` suitable for `handle_exception`.
     /// `ThrowValue` errors pass through; other runtime errors are wrapped
     /// in a proper Error object (TypeError, ReferenceError, etc.).
@@ -36,11 +80,11 @@ impl Vm {
                     kind: ObjectKind::Error { name: name_id },
                     properties: vec![
                         (
-                            self.inner.well_known.name,
+                            PropertyKey::String(self.inner.well_known.name),
                             Property::data(JsValue::String(name_id)),
                         ),
                         (
-                            self.inner.well_known.message,
+                            PropertyKey::String(self.inner.well_known.message),
                             Property::data(JsValue::String(msg_id)),
                         ),
                     ],
@@ -53,6 +97,62 @@ impl Vm {
 }
 
 // ---------------------------------------------------------------------------
+// ToPrimitive / op_add (ES2020 §7.1.1, §12.8.3)
+// ---------------------------------------------------------------------------
+
+impl Vm {
+    /// ToPrimitive (ES2020 §7.1.1). Checks `@@toPrimitive` on objects and calls
+    /// it if present. Falls back to OrdinaryToPrimitive (simplified: returns
+    /// `"[object Object]"`).
+    #[allow(clippy::wrong_self_convention)] // matches ES2020 abstract operation name
+    pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
+        match val {
+            JsValue::Object(obj_id) => {
+                // §7.1.1 step 2d: Check @@toPrimitive
+                let to_prim_key = PropertyKey::Symbol(self.inner.well_known_symbols.to_primitive);
+                if let Some(exotic_to_prim) = get_property(&self.inner, obj_id, to_prim_key) {
+                    let hint_id = self.inner.strings.intern(hint);
+                    let result =
+                        self.call_value(exotic_to_prim, val, &[JsValue::String(hint_id)])?;
+                    if matches!(result, JsValue::Object(_)) {
+                        return Err(VmError::type_error(
+                            "Cannot convert object to primitive value",
+                        ));
+                    }
+                    return Ok(result);
+                }
+                // OrdinaryToPrimitive: simplified — return "[object Object]"
+                Ok(JsValue::String(self.inner.well_known.object_to_string))
+            }
+            // Symbols (and all other primitives) are already primitive.
+            other => Ok(other),
+        }
+    }
+
+    /// The `+` operator (ES2020 §12.8.3). Handles both addition and string
+    /// concatenation, calling `ToPrimitive` which may invoke `@@toPrimitive`.
+    pub(crate) fn op_add(&mut self, lhs: JsValue, rhs: JsValue) -> Result<JsValue, VmError> {
+        let lhs = self.to_primitive(lhs, "default")?;
+        let rhs = self.to_primitive(rhs, "default")?;
+        // If either operand is a string, concatenate.
+        if matches!(lhs, JsValue::String(_)) || matches!(rhs, JsValue::String(_)) {
+            let ls = to_string(&mut self.inner, lhs)?;
+            let rs = to_string(&mut self.inner, rhs)?;
+            let left = self.inner.strings.get(ls);
+            let right = self.inner.strings.get(rs);
+            let mut concat: Vec<u16> = Vec::with_capacity(left.len() + right.len());
+            concat.extend_from_slice(left);
+            concat.extend_from_slice(right);
+            let id = self.inner.strings.intern_utf16(&concat);
+            return Ok(JsValue::String(id));
+        }
+        let a = to_number(&self.inner, lhs)?;
+        let b = to_number(&self.inner, rhs)?;
+        Ok(JsValue::Number(a + b))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Operator helpers
 // ---------------------------------------------------------------------------
 
@@ -60,7 +160,7 @@ impl Vm {
     pub(crate) fn binary_numeric(&mut self, op: NumericBinaryOp) -> Result<(), VmError> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let r = op_numeric_binary(&self.inner, a, b, op);
+        let r = op_numeric_binary(&self.inner, a, b, op)?;
         self.inner.stack.push(r);
         Ok(())
     }
@@ -68,7 +168,7 @@ impl Vm {
     pub(crate) fn binary_bitwise(&mut self, op: BitwiseOp) -> Result<(), VmError> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let r = op_bitwise(&self.inner, a, b, op);
+        let r = op_bitwise(&self.inner, a, b, op)?;
         self.inner.stack.push(r);
         Ok(())
     }
@@ -80,17 +180,31 @@ impl Vm {
             // x <= y  ===  !(y < x)
             // x >= y  ===  !(x < y)  (with swap)
             let (lhs, rhs) = if swap { (a, b) } else { (b, a) };
-            match abstract_relational(&mut self.inner, lhs, rhs, swap) {
+            match abstract_relational(&mut self.inner, lhs, rhs, swap)? {
                 Some(false) => true,        // !(y < x) → <=
                 Some(true) | None => false, // y < x, or NaN
             }
         } else {
             // x < y  or  x > y (with swap)
             let (lhs, rhs) = if swap { (b, a) } else { (a, b) };
-            abstract_relational(&mut self.inner, lhs, rhs, !swap).unwrap_or(false)
+            abstract_relational(&mut self.inner, lhs, rhs, !swap)?.unwrap_or(false)
         };
         self.inner.stack.push(JsValue::Boolean(result));
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Property key conversion
+// ---------------------------------------------------------------------------
+
+impl Vm {
+    /// Convert a `JsValue` to a `PropertyKey`, preserving symbols (ES2020 §7.1.14 ToPropertyKey).
+    pub(crate) fn make_property_key(&mut self, key: JsValue) -> Result<PropertyKey, VmError> {
+        match key {
+            JsValue::Symbol(sid) => Ok(PropertyKey::Symbol(sid)),
+            other => Ok(PropertyKey::String(to_string(&mut self.inner, other)?)),
+        }
     }
 }
 
@@ -197,20 +311,42 @@ impl Vm {
         obj: JsValue,
         key: StringId,
     ) -> Result<JsValue, VmError> {
+        let pk = PropertyKey::String(key);
         match obj {
             JsValue::Object(id) => {
-                Ok(get_property(&self.inner, id, key).unwrap_or(JsValue::Undefined))
+                if id == self.inner.global_object {
+                    // Check own properties + prototype chain first so that
+                    // Object.defineProperty(globalThis, ...) takes precedence.
+                    if let Some(val) = get_property(&self.inner, id, pk) {
+                        return Ok(val);
+                    }
+                    // Fall back to the globals HashMap so that `this.Math`
+                    // etc. resolve correctly when non-strict `this` is
+                    // coerced to `globalThis`.
+                    if let Some(&val) = self.inner.globals.get(&key) {
+                        return Ok(val);
+                    }
+                    return Ok(JsValue::Undefined);
+                }
+                Ok(get_property(&self.inner, id, pk).unwrap_or(JsValue::Undefined))
             }
             JsValue::String(sid) => {
-                // String.length
+                // String.length — WTF-16 slice length is already in UTF-16 code units.
                 if key == self.inner.well_known.length {
-                    let s = self.inner.strings.get(sid);
-                    // JS string length is measured in UTF-16 code units, not bytes.
                     #[allow(clippy::cast_precision_loss)]
-                    Ok(JsValue::Number(s.encode_utf16().count() as f64))
+                    let len = self.inner.strings.get(sid).len() as f64;
+                    Ok(JsValue::Number(len))
                 } else if let Some(proto_id) = self.inner.string_prototype {
                     // Look up method on String.prototype.
-                    Ok(get_property(&self.inner, proto_id, key).unwrap_or(JsValue::Undefined))
+                    Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
+                } else {
+                    Ok(JsValue::Undefined)
+                }
+            }
+            JsValue::Symbol(_) => {
+                // Look up method on Symbol.prototype.
+                if let Some(proto_id) = self.inner.symbol_prototype {
+                    Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
                 } else {
                     Ok(JsValue::Undefined)
                 }
@@ -225,16 +361,22 @@ impl Vm {
         key: StringId,
         val: JsValue,
     ) -> Result<(), VmError> {
+        let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
+            // Mirror writes to the global object into the globals HashMap
+            // so that GetGlobal can find them.
+            if id == self.inner.global_object {
+                self.inner.globals.insert(key, val);
+            }
             let obj = self.get_object_mut(id);
             // Check if property exists.
             for prop in &mut obj.properties {
-                if prop.0 == key {
+                if prop.0 == pk {
                     prop.1.value = val;
                     return Ok(());
                 }
             }
-            obj.properties.push((key, Property::data(val)));
+            obj.properties.push((pk, Property::data(val)));
         }
         Ok(())
     }
@@ -255,9 +397,57 @@ impl Vm {
                     }
                 }
             }
+            // Symbol key → direct property lookup.
+            if let JsValue::Symbol(sid) = key {
+                return Ok(get_property(&self.inner, id, PropertyKey::Symbol(sid))
+                    .unwrap_or(JsValue::Undefined));
+            }
             // Fall back to string key property lookup.
-            let key_id = to_string(&mut self.inner, key);
-            Ok(get_property(&self.inner, id, key_id).unwrap_or(JsValue::Undefined))
+            let key_id = to_string(&mut self.inner, key)?;
+            Ok(get_property(&self.inner, id, PropertyKey::String(key_id))
+                .unwrap_or(JsValue::Undefined))
+        } else if let JsValue::String(sid) = obj {
+            // String bracket access: str[index] returns a single UTF-16 code unit.
+            if let JsValue::Number(n) = key {
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                let idx = n as usize;
+                #[allow(clippy::cast_precision_loss)]
+                if n >= 0.0 && (idx as f64) == n {
+                    let unit = self.inner.strings.get(sid).get(idx).copied();
+                    if let Some(u) = unit {
+                        let id = self.inner.strings.intern_utf16(&[u]);
+                        return Ok(JsValue::String(id));
+                    }
+                }
+            } else if let JsValue::String(key_sid) = key {
+                // String key that might be a canonical numeric index (e.g. "1").
+                // Read the unit under an immutable borrow, then intern.
+                let unit = {
+                    let key_units = self.inner.strings.get(key_sid);
+                    parse_array_index_u16(key_units)
+                        .and_then(|idx| self.inner.strings.get(sid).get(idx).copied())
+                };
+                if let Some(u) = unit {
+                    let ch_id = self.inner.strings.intern_utf16(&[u]);
+                    return Ok(JsValue::String(ch_id));
+                }
+            }
+            // Non-index string property access: handle "length" and
+            // fall back to String.prototype (e.g. "charAt", Symbol.iterator).
+            let pk = match key {
+                JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
+                other => PropertyKey::String(to_string(&mut self.inner, other)?),
+            };
+            if pk == PropertyKey::String(self.inner.well_known.length) {
+                #[allow(clippy::cast_precision_loss)]
+                let len = self.inner.strings.get(sid).len() as f64;
+                return Ok(JsValue::Number(len));
+            }
+            if let Some(proto_id) = self.inner.string_prototype {
+                Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
+            } else {
+                Ok(JsValue::Undefined)
+            }
         } else {
             Ok(JsValue::Undefined)
         }
@@ -287,10 +477,59 @@ impl Vm {
                     }
                 }
             }
-            let key_id = to_string(&mut self.inner, key);
+            // Symbol key → direct property set.
+            if let JsValue::Symbol(sid) = key {
+                let pk = PropertyKey::Symbol(sid);
+                let obj = self.get_object_mut(id);
+                for prop in &mut obj.properties {
+                    if prop.0 == pk {
+                        prop.1.value = val;
+                        return Ok(());
+                    }
+                }
+                obj.properties.push((pk, Property::data(val)));
+                return Ok(());
+            }
+            let key_id = to_string(&mut self.inner, key)?;
             self.set_property_val(JsValue::Object(id), key_id, val)?;
         }
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Iterator helper
+// ---------------------------------------------------------------------------
+
+impl Vm {
+    /// Call `iterator.next()` and return `Some(value)` if not done,
+    /// or `None` when the iterator is exhausted (`done=true`).
+    /// Returns `Err(TypeError)` for protocol violations.
+    pub(crate) fn iter_next(&mut self, iter_val: JsValue) -> Result<Option<JsValue>, VmError> {
+        let JsValue::Object(iter_id) = iter_val else {
+            return Err(VmError::type_error("iterator value is not an object"));
+        };
+
+        // Generic iterator protocol (.next() call + {value, done}).
+        // No fast paths — optimise in M4-11 (inline caches) where we can
+        // safely guard against `.next` override.
+        let next_key = PropertyKey::String(self.inner.well_known.next);
+        let Some(next_fn) = get_property(&self.inner, iter_id, next_key) else {
+            return Err(VmError::type_error("iterator.next is not defined"));
+        };
+        let result = self.call_value(next_fn, iter_val, &[])?;
+        let JsValue::Object(result_id) = result else {
+            return Err(VmError::type_error("iterator.next() must return an object"));
+        };
+        let done_key = PropertyKey::String(self.inner.well_known.done);
+        let done =
+            get_property(&self.inner, result_id, done_key).unwrap_or(JsValue::Boolean(false));
+        if to_boolean(&self.inner, done) {
+            return Ok(None);
+        }
+        let value_key = PropertyKey::String(self.inner.well_known.value);
+        let value = get_property(&self.inner, result_id, value_key).unwrap_or(JsValue::Undefined);
+        Ok(Some(value))
     }
 }
 
@@ -330,8 +569,17 @@ impl Vm {
         self.inner.stack.truncate(args_start - 1);
 
         if let JsValue::Object(ctor_id) = constructor {
+            // Non-constructable native functions (e.g. Symbol) must reject `new`.
+            if let ObjectKind::NativeFunction(ref nf) = self.get_object(ctor_id).kind {
+                if !nf.constructable {
+                    let name_str = self.inner.strings.get_utf8(nf.name);
+                    return Err(VmError::type_error(format!(
+                        "{name_str} is not a constructor"
+                    )));
+                }
+            }
             // Look up constructor.prototype for the new instance's [[Prototype]].
-            let proto_key = self.inner.well_known.prototype;
+            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
             let proto_id = get_property(&self.inner, ctor_id, proto_key).and_then(|v| {
                 if let JsValue::Object(id) = v {
                     Some(id)
@@ -451,13 +699,13 @@ impl Vm {
                 prototype: obj_proto,
             });
             // Set constructor back-reference on the prototype.
-            let ctor_key = self.inner.well_known.constructor;
+            let ctor_key = PropertyKey::String(self.inner.well_known.constructor);
             self.get_object_mut(proto_obj)
                 .properties
                 .push((ctor_key, Property::method(JsValue::Object(func_obj))));
             // Set .prototype on the function object (writable, non-enumerable,
             // non-configurable per ES2020 §9.2.5).
-            let proto_key = self.inner.well_known.prototype;
+            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
             self.get_object_mut(func_obj).properties.push((
                 proto_key,
                 Property {
