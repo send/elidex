@@ -145,7 +145,8 @@ impl Vm {
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.inner.global_object;
             let src = self.inner.get_object(src_id);
-            // TODO(M4-10.5): spread should invoke getters via Get for accessor properties.
+            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
+            // Requires VM single dispatcher (NativeContext re-entrancy).
             let props: Vec<(PropertyKey, Property)> = src
                 .properties
                 .iter()

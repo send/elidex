@@ -307,8 +307,8 @@ pub(super) fn native_object_values(
         .properties
         .iter()
         .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
-        // TODO(M4-10.5): accessor properties should invoke getter via Get.
-        // Requires NativeContext → Vm::call() bridge (architecture change).
+        // TODO(M4-11): accessor properties should invoke getter via Get.
+        // Requires VM single dispatcher (NativeContext re-entrancy).
         .map(|(_, p)| p.data_value())
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
@@ -333,7 +333,8 @@ pub(super) fn native_object_assign(
             continue;
         };
         // Collect source properties first to avoid borrow conflict.
-        // TODO(M4-10.5): should invoke getters via Get for accessor properties.
+        // TODO(M4-11): should invoke getters via Get for accessor properties.
+        // Requires VM single dispatcher (NativeContext re-entrancy).
         let props: Vec<(PropertyKey, JsValue)> = ctx
             .get_object(src_id)
             .properties
