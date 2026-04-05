@@ -5,9 +5,12 @@
 
 pub mod coerce;
 mod dispatch;
+mod dispatch_iter;
 mod globals;
 pub mod interpreter;
 mod natives;
+mod natives_string;
+mod natives_symbol;
 mod ops;
 pub mod value;
 

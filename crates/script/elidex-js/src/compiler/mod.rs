@@ -4,6 +4,8 @@
 //! that can be executed by the elidex-js interpreter (M4-10).
 
 mod expr;
+mod expr_class;
+mod expr_function;
 pub mod function;
 pub mod resolve;
 mod stmt;

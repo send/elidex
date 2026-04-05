@@ -1,0 +1,127 @@
+//! Iterator-protocol opcode handlers extracted from the main dispatch loop.
+
+use super::coerce::get_property;
+use super::value::{ForInState, JsValue, Object, ObjectKind, PropertyKey, VmError};
+use super::Vm;
+
+impl Vm {
+    /// `Op::ArraySpread` — spread an iterable into the array on the stack top.
+    pub(super) fn op_array_spread(&mut self) -> Result<(), VmError> {
+        let source = self.pop()?;
+        let arr_val = self.peek()?;
+        if let JsValue::Object(src_id) = source {
+            // Get iterator via Symbol.iterator protocol.
+            let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+            if let Some(iter_fn) = get_property(&self.inner, src_id, iter_key) {
+                let iterator = self.call_value(iter_fn, source, &[])?;
+                if matches!(iterator, JsValue::Object(_)) {
+                    loop {
+                        let Some(value) = self.iter_next(iterator)? else {
+                            break;
+                        };
+                        // Push to target array.
+                        if let JsValue::Object(arr_id) = arr_val {
+                            let arr = self.inner.get_object_mut(arr_id);
+                            if let ObjectKind::Array { ref mut elements } = arr.kind {
+                                elements.push(value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `Op::GetIterator` — call `[Symbol.iterator]()` on the top-of-stack value.
+    pub(super) fn op_get_iterator(&mut self, entry_frame_depth: usize) -> Result<(), VmError> {
+        let val = self.pop()?;
+        if let JsValue::Object(obj_id) = val {
+            // Look up Symbol.iterator on the object.
+            let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+            if let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) {
+                // Call the @@iterator method with the object as `this`.
+                let result = self.call_value(iter_fn, val, &[])?;
+                self.inner.stack.push(result);
+            } else {
+                let err = VmError::type_error("object is not iterable");
+                self.throw_error(err, entry_frame_depth)?;
+            }
+        } else {
+            let err = VmError::type_error("value is not iterable");
+            self.throw_error(err, entry_frame_depth)?;
+        }
+        Ok(())
+    }
+
+    /// `Op::ForInIterator` — collect enumerable string keys from the object
+    /// and its prototype chain into a `ForInIterator` object.
+    pub(super) fn op_for_in_iterator(&mut self) -> Result<(), VmError> {
+        let obj = self.pop()?;
+        // Collect enumerable string keys from the object and its
+        // prototype chain, skipping shadowed properties.
+        let keys = if let JsValue::Object(obj_id) = obj {
+            let mut keys = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            let mut current = Some(obj_id);
+            while let Some(id) = current {
+                let obj_ref = self.inner.objects[id.0 as usize]
+                    .as_ref()
+                    .ok_or_else(|| VmError::type_error("cannot iterate freed object"))?;
+                for (key, prop) in &obj_ref.properties {
+                    if let PropertyKey::String(sid) = key {
+                        if prop.enumerable && seen.insert(*sid) {
+                            keys.push(*sid);
+                        }
+                    }
+                }
+                current = obj_ref.prototype;
+            }
+            keys
+        } else {
+            Vec::new()
+        };
+        let iter_obj = self.alloc_object(Object {
+            kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
+            properties: Vec::new(),
+            prototype: None,
+        });
+        self.inner.stack.push(JsValue::Object(iter_obj));
+        Ok(())
+    }
+
+    /// `Op::ForInNext` — advance the for-in iterator, pushing the next key
+    /// and a done flag.
+    pub(super) fn op_for_in_next(&mut self) -> Result<(), VmError> {
+        // Stack: [iterator] → [iterator key done]
+        let iter_val = *self
+            .inner
+            .stack
+            .last()
+            .ok_or_else(|| VmError::internal("empty stack on ForInNext"))?;
+        if let JsValue::Object(iter_id) = iter_val {
+            let iter_obj = self.inner.objects[iter_id.0 as usize]
+                .as_mut()
+                .ok_or_else(|| VmError::internal("freed for-in iterator"))?;
+            if let ObjectKind::ForInIterator(state) = &mut iter_obj.kind {
+                if state.index < state.keys.len() {
+                    let key_sid = state.keys[state.index];
+                    state.index += 1;
+                    let key_val = JsValue::String(key_sid);
+                    self.inner.stack.push(key_val);
+                    self.inner.stack.push(JsValue::Boolean(false)); // not done
+                } else {
+                    self.inner.stack.push(JsValue::Undefined);
+                    self.inner.stack.push(JsValue::Boolean(true)); // done
+                }
+            } else {
+                self.inner.stack.push(JsValue::Undefined);
+                self.inner.stack.push(JsValue::Boolean(true));
+            }
+        } else {
+            self.inner.stack.push(JsValue::Undefined);
+            self.inner.stack.push(JsValue::Boolean(true));
+        }
+        Ok(())
+    }
+}
