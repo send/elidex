@@ -141,8 +141,7 @@ pub(super) fn native_string_slice(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let s = ctx.get_u16(sid).to_vec();
-    let u16_len = s.len();
+    let u16_len = ctx.get_u16(sid).len();
     #[allow(clippy::cast_possible_wrap)]
     let len_i = u16_len as isize;
     let raw_start = match args.first() {
@@ -166,7 +165,10 @@ pub(super) fn native_string_slice(
         u16_len
     };
     let id = if start <= end {
-        ctx.intern_utf16(&s[start..end])
+        // Copy only the result slice (not the whole string) to release the
+        // immutable borrow before calling intern_utf16.
+        let result = ctx.get_u16(sid)[start..end].to_vec();
+        ctx.intern_utf16(&result)
     } else {
         ctx.intern("")
     };
@@ -182,8 +184,7 @@ pub(super) fn native_string_substring(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let s = ctx.get_u16(sid).to_vec();
-    let u16len = s.len();
+    let u16len = ctx.get_u16(sid).len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let clamp = |n: f64| -> usize {
         if n.is_nan() || n < 0.0 {
@@ -205,7 +206,9 @@ pub(super) fn native_string_substring(
     if a > b {
         std::mem::swap(&mut a, &mut b);
     }
-    let id = ctx.intern_utf16(&s[a..b]);
+    // Copy only the result slice to release the immutable borrow before intern.
+    let result = ctx.get_u16(sid)[a..b].to_vec();
+    let id = ctx.intern_utf16(&result);
     Ok(JsValue::String(id))
 }
 
@@ -248,9 +251,9 @@ pub(super) fn native_string_trim(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let s = ctx.get_u16(sid).to_vec();
-    let trimmed = trim_u16(&s);
-    let id = ctx.intern_utf16(trimmed);
+    // Copy only the trimmed portion to release the immutable borrow before intern.
+    let trimmed = trim_u16(ctx.get_u16(sid)).to_vec();
+    let id = ctx.intern_utf16(&trimmed);
     Ok(JsValue::String(id))
 }
 
@@ -269,27 +272,37 @@ pub(super) fn native_string_split(
         })));
     };
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // sep must be owned: we need it across intern_utf16 calls that borrow ctx mutably.
     let sep = ctx.get_u16(sep_id).to_vec();
-    let s = ctx.get_u16(sid).to_vec();
     let mut parts: Vec<JsValue> = Vec::new();
     if sep.is_empty() {
-        // Split into individual code units.
-        for &unit in &s {
+        // Split into individual code units — no full-string clone needed.
+        let len = ctx.get_u16(sid).len();
+        for i in 0..len {
+            let unit = ctx.get_u16(sid)[i];
             let id = ctx.intern_utf16(&[unit]);
             parts.push(JsValue::String(id));
         }
     } else {
+        // Compute split ranges under immutable borrows, then intern each part.
+        let s_len = ctx.get_u16(sid).len();
+        let sep_len = sep.len();
+        let mut ranges: Vec<(usize, usize)> = Vec::new();
         let mut start = 0;
-        while start <= s.len() {
-            if let Some(pos) = find_u16(&s[start..], &sep) {
-                let id = ctx.intern_utf16(&s[start..start + pos]);
-                parts.push(JsValue::String(id));
-                start += pos + sep.len();
+        while start <= s_len {
+            if let Some(pos) = find_u16(&ctx.get_u16(sid)[start..], &sep) {
+                ranges.push((start, start + pos));
+                start += pos + sep_len;
             } else {
-                let id = ctx.intern_utf16(&s[start..]);
-                parts.push(JsValue::String(id));
+                ranges.push((start, s_len));
                 break;
             }
+        }
+        for (a, b) in ranges {
+            // Copy only each part slice to release the borrow before intern.
+            let part = ctx.get_u16(sid)[a..b].to_vec();
+            let id = ctx.intern_utf16(&part);
+            parts.push(JsValue::String(id));
         }
     }
     Ok(JsValue::Object(ctx.alloc_object(Object {

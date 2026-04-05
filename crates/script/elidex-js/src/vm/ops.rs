@@ -483,7 +483,8 @@ impl Vm {
 
 impl Vm {
     /// Call `iterator.next()` and return `Some(value)` if not done,
-    /// or `None` when the iterator is exhausted (done=true) or not an object.
+    /// or `None` when the iterator is exhausted (`done=true`).
+    /// Returns `Err(TypeError)` for protocol violations.
     pub(crate) fn iter_next(&mut self, iter_val: JsValue) -> Result<Option<JsValue>, VmError> {
         let JsValue::Object(iter_id) = iter_val else {
             return Err(VmError::type_error("iterator value is not an object"));

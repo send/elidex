@@ -614,6 +614,10 @@ impl Vm {
                     let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
                     if let JsValue::Object(id) = obj_val {
+                        // Sync global object deletes to the globals HashMap.
+                        if id == self.inner.global_object {
+                            self.inner.globals.remove(&name_id);
+                        }
                         let obj = self.get_object_mut(id);
                         obj.properties.retain(|(k, _)| *k != pk);
                     }
@@ -625,6 +629,12 @@ impl Vm {
                     if let JsValue::Object(id) = obj_val {
                         match self.make_property_key(key) {
                             Ok(pk) => {
+                                // Sync global object deletes to the globals HashMap.
+                                if id == self.inner.global_object {
+                                    if let PropertyKey::String(sid) = pk {
+                                        self.inner.globals.remove(&sid);
+                                    }
+                                }
                                 let obj = self.get_object_mut(id);
                                 obj.properties.retain(|(k, _)| *k != pk);
                             }

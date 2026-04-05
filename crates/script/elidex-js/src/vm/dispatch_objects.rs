@@ -46,9 +46,13 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             match self.make_property_key(key) {
                 Ok(pk) => {
-                    self.get_object_mut(id)
-                        .properties
-                        .push((pk, Property::data(val)));
+                    let obj = self.get_object_mut(id);
+                    // Upsert: overwrite if key exists, otherwise push.
+                    if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
+                        existing.1 = Property::data(val);
+                    } else {
+                        obj.properties.push((pk, Property::data(val)));
+                    }
                 }
                 Err(e) => {
                     self.throw_error(e, entry_frame_depth)?;
@@ -69,9 +73,13 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             match self.make_property_key(key) {
                 Ok(pk) => {
-                    self.get_object_mut(id)
-                        .properties
-                        .push((pk, Property::method(val)));
+                    let obj = self.get_object_mut(id);
+                    // Upsert: overwrite if key exists, otherwise push.
+                    if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
+                        existing.1 = Property::method(val);
+                    } else {
+                        obj.properties.push((pk, Property::method(val)));
+                    }
                 }
                 Err(e) => {
                     self.throw_error(e, entry_frame_depth)?;
