@@ -221,11 +221,26 @@ pub(super) fn compile_class(
                 }
             }
             ClassMemberKind::StaticBlock(stmts) => {
-                // Compile static block statements. They execute with `this` = class.
-                // For simplicity, just compile the statements inline.
+                // Static blocks execute as strict, with `this` bound to the class.
+                // Compile as a separate function scope (IIFE) for correct
+                // var-hoisting and scope isolation, then immediately call
+                // with the constructor as `this`.
+                // Stack: [ctor]
+                fc.emit(Op::Dup); // [ctor ctor] — keep ctor, use copy as this
+
+                let mut child_fc =
+                    FunctionCompiler::new(fc.func_scope_idx, fc.current_scope_idx, true);
                 for &stmt_id in stmts {
-                    super::stmt::compile_stmt(fc, prog, analysis, func_scopes, stmt_id)?;
+                    super::stmt::compile_stmt(&mut child_fc, prog, analysis, func_scopes, stmt_id)?;
                 }
+                child_fc.emit(Op::PushUndefined);
+                child_fc.emit(Op::Return);
+
+                let child = child_fc.finish(&func_scopes[fc.func_scope_idx]);
+                let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
+                fc.emit_u16(Op::Closure, const_idx); // [ctor ctor closure]
+                fc.emit_u8(Op::CallMethod, 0); // [ctor result] — this=ctor
+                fc.emit(Op::Pop); // [ctor] — discard result
             }
             ClassMemberKind::Empty => {}
         }

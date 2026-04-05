@@ -205,19 +205,63 @@ impl Vm {
                         }
                     }
                 }
-                Op::Sub => self.binary_numeric(NumericBinaryOp::Sub)?,
-                Op::Mul => self.binary_numeric(NumericBinaryOp::Mul)?,
-                Op::Div => self.binary_numeric(NumericBinaryOp::Div)?,
-                Op::Mod => self.binary_numeric(NumericBinaryOp::Rem)?,
-                Op::Exp => self.binary_numeric(NumericBinaryOp::Exp)?,
+                Op::Sub => {
+                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Sub) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Mul => {
+                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Mul) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Div => {
+                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Div) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Mod => {
+                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Rem) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Exp => {
+                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Exp) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
 
                 // ── Bitwise ─────────────────────────────────────────
-                Op::BitAnd => self.binary_bitwise(BitwiseOp::And)?,
-                Op::BitOr => self.binary_bitwise(BitwiseOp::Or)?,
-                Op::BitXor => self.binary_bitwise(BitwiseOp::Xor)?,
-                Op::Shl => self.binary_bitwise(BitwiseOp::Shl)?,
-                Op::Shr => self.binary_bitwise(BitwiseOp::Shr)?,
-                Op::UShr => self.binary_bitwise(BitwiseOp::UShr)?,
+                Op::BitAnd => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::And) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::BitOr => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::Or) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::BitXor => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::Xor) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Shl => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shl) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Shr => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shr) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::UShr => {
+                    if let Err(e) = self.binary_bitwise(BitwiseOp::UShr) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
 
                 // ── Comparison ──────────────────────────────────────
                 Op::Eq => {
@@ -242,10 +286,26 @@ impl Vm {
                     let a = self.pop()?;
                     self.inner.stack.push(JsValue::Boolean(!strict_eq(a, b)));
                 }
-                Op::Lt => self.relational_op(false, false)?,
-                Op::LtEq => self.relational_op(false, true)?,
-                Op::Gt => self.relational_op(true, false)?,
-                Op::GtEq => self.relational_op(true, true)?,
+                Op::Lt => {
+                    if let Err(e) = self.relational_op(false, false) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::LtEq => {
+                    if let Err(e) = self.relational_op(false, true) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::Gt => {
+                    if let Err(e) = self.relational_op(true, false) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
+                Op::GtEq => {
+                    if let Err(e) = self.relational_op(true, true) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
 
                 Op::Instanceof => {
                     let rhs = self.pop()?; // constructor
@@ -325,11 +385,17 @@ impl Vm {
                 // ── Unary ───────────────────────────────────────────
                 Op::Neg => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_neg(&self.inner, a)?);
+                    match op_neg(&self.inner, a) {
+                        Ok(r) => self.inner.stack.push(r),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
                 Op::Pos => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_pos(&self.inner, a)?);
+                    match op_pos(&self.inner, a) {
+                        Ok(r) => self.inner.stack.push(r),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
                 Op::Not => {
                     let a = self.pop()?;
@@ -337,7 +403,10 @@ impl Vm {
                 }
                 Op::BitNot => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_bitnot(&self.inner, a)?);
+                    match op_bitnot(&self.inner, a) {
+                        Ok(r) => self.inner.stack.push(r),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
                 Op::TypeOf => {
                     let a = self.pop()?;
@@ -366,15 +435,19 @@ impl Vm {
                     let slot = self.read_u16_op() as usize;
                     let prefix = self.read_u8_op() != 0;
                     let base = self.inner.frames[frame_idx].base;
-                    let old = to_number(&self.inner, self.inner.stack[base + slot])?;
-                    let new = if op == Op::IncLocal {
-                        old + 1.0
-                    } else {
-                        old - 1.0
-                    };
-                    self.inner.stack[base + slot] = JsValue::Number(new);
-                    let push_val = if prefix { new } else { old };
-                    self.inner.stack.push(JsValue::Number(push_val));
+                    match to_number(&self.inner, self.inner.stack[base + slot]) {
+                        Ok(old) => {
+                            let new = if op == Op::IncLocal {
+                                old + 1.0
+                            } else {
+                                old - 1.0
+                            };
+                            self.inner.stack[base + slot] = JsValue::Number(new);
+                            let push_val = if prefix { new } else { old };
+                            self.inner.stack.push(JsValue::Number(push_val));
+                        }
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
                 Op::IncProp | Op::DecProp => {
                     let name_idx = self.read_u16_op();
@@ -387,38 +460,63 @@ impl Vm {
                     } else {
                         JsValue::Undefined
                     };
-                    let old_num = to_number(&self.inner, old)?;
-                    let new_num = if op == Op::IncProp {
-                        old_num + 1.0
-                    } else {
-                        old_num - 1.0
-                    };
-                    if let JsValue::Object(id) = obj_val {
-                        self.set_property_val(
-                            JsValue::Object(id),
-                            name_id,
-                            JsValue::Number(new_num),
-                        )?;
+                    match to_number(&self.inner, old) {
+                        Ok(old_num) => {
+                            let new_num = if op == Op::IncProp {
+                                old_num + 1.0
+                            } else {
+                                old_num - 1.0
+                            };
+                            if let JsValue::Object(id) = obj_val {
+                                if let Err(e) = self.set_property_val(
+                                    JsValue::Object(id),
+                                    name_id,
+                                    JsValue::Number(new_num),
+                                ) {
+                                    self.throw_error(e, entry_frame_depth)?;
+                                    continue;
+                                }
+                            }
+                            self.inner.stack.push(JsValue::Number(if prefix {
+                                new_num
+                            } else {
+                                old_num
+                            }));
+                        }
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
-                    self.inner
-                        .stack
-                        .push(JsValue::Number(if prefix { new_num } else { old_num }));
                 }
                 Op::IncElem | Op::DecElem => {
                     let prefix = self.read_u8_op() != 0;
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
-                    let old = self.get_element(obj_val, key)?;
-                    let old_num = to_number(&self.inner, old)?;
-                    let new_num = if op == Op::IncElem {
-                        old_num + 1.0
-                    } else {
-                        old_num - 1.0
+                    let old = match self.get_element(obj_val, key) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
                     };
-                    self.set_element(obj_val, key, JsValue::Number(new_num))?;
-                    self.inner
-                        .stack
-                        .push(JsValue::Number(if prefix { new_num } else { old_num }));
+                    match to_number(&self.inner, old) {
+                        Ok(old_num) => {
+                            let new_num = if op == Op::IncElem {
+                                old_num + 1.0
+                            } else {
+                                old_num - 1.0
+                            };
+                            if let Err(e) = self.set_element(obj_val, key, JsValue::Number(new_num))
+                            {
+                                self.throw_error(e, entry_frame_depth)?;
+                                continue;
+                            }
+                            self.inner.stack.push(JsValue::Number(if prefix {
+                                new_num
+                            } else {
+                                old_num
+                            }));
+                        }
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
 
                 // ── Control flow ────────────────────────────────────
@@ -745,8 +843,10 @@ impl Vm {
                     if let JsValue::Object(iter_id) = iter_val {
                         let return_key = PropertyKey::String(self.inner.well_known.return_str);
                         if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
-                            // Call .return() and propagate errors.
-                            self.call_value(return_fn, iter_val, &[])?;
+                            // Call .return() and route errors through exception handling.
+                            if let Err(e) = self.call_value(return_fn, iter_val, &[]) {
+                                self.throw_error(e, entry_frame_depth)?;
+                            }
                         }
                     }
                 }
