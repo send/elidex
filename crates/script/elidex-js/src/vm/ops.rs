@@ -13,6 +13,32 @@ use super::Vm;
 use crate::bytecode::compiled::Constant;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
+/// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
+/// or overflow.
+fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
+    if units.is_empty() {
+        return None;
+    }
+    // Reject leading zeros (except "0" itself).
+    if units.len() > 1 && units[0] == u16::from(b'0') {
+        return None;
+    }
+    let mut n: usize = 0;
+    for &u in units {
+        let digit = u.wrapping_sub(u16::from(b'0'));
+        if digit > 9 {
+            return None;
+        }
+        n = n.checked_mul(10)?.checked_add(digit as usize)?;
+    }
+    Some(n)
+}
+
+// ---------------------------------------------------------------------------
 // Error-to-thrown-value conversion
 // ---------------------------------------------------------------------------
 
@@ -382,6 +408,18 @@ impl Vm {
                         return Ok(JsValue::String(id));
                     }
                 }
+            } else if let JsValue::String(key_sid) = key {
+                // String key that might be a canonical numeric index (e.g. "1").
+                // Read the unit under an immutable borrow, then intern.
+                let unit = {
+                    let key_units = self.inner.strings.get(key_sid);
+                    parse_array_index_u16(key_units)
+                        .and_then(|idx| self.inner.strings.get(sid).get(idx).copied())
+                };
+                if let Some(u) = unit {
+                    let ch_id = self.inner.strings.intern_utf16(&[u]);
+                    return Ok(JsValue::String(ch_id));
+                }
             }
             // String property access (e.g. "length" handled elsewhere).
             Ok(JsValue::Undefined)
@@ -563,6 +601,15 @@ impl Vm {
         self.inner.stack.truncate(args_start - 1);
 
         if let JsValue::Object(ctor_id) = constructor {
+            // Non-constructable native functions (e.g. Symbol) must reject `new`.
+            if let ObjectKind::NativeFunction(ref nf) = self.get_object(ctor_id).kind {
+                if !nf.constructable {
+                    let name_str = self.inner.strings.get_utf8(nf.name);
+                    return Err(VmError::type_error(format!(
+                        "{name_str} is not a constructor"
+                    )));
+                }
+            }
             // Look up constructor.prototype for the new instance's [[Prototype]].
             let proto_key = PropertyKey::String(self.inner.well_known.prototype);
             let proto_id = get_property(&self.inner, ctor_id, proto_key).and_then(|v| {

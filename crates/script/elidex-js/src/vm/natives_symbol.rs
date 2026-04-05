@@ -9,15 +9,11 @@ use super::value::{
 
 pub(super) fn native_symbol_constructor(
     ctx: &mut NativeContext<'_>,
-    this: JsValue,
+    _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `new Symbol()` must throw TypeError (ES2020 §19.4.1).
-    // When called via `new`, `this` is the newly created instance (an Object).
-    // When called normally, `this` is Undefined.
-    if matches!(this, JsValue::Object(_)) {
-        return Err(VmError::type_error("Symbol is not a constructor"));
-    }
+    // `new Symbol()` is rejected by `do_new` via `constructable: false`.
+    // This function only runs for direct calls: `Symbol('desc')`.
     let desc = match args.first().copied() {
         Some(JsValue::Undefined) | None => None,
         Some(val) => Some(ctx.to_string_val(val)?),
@@ -98,6 +94,7 @@ pub(super) fn native_array_values(
         kind: ObjectKind::NativeFunction(NativeFunction {
             name: next_name,
             func: native_array_iterator_next,
+            constructable: true,
         }),
         properties: Vec::new(),
         prototype: None,
@@ -219,6 +216,7 @@ pub(super) fn native_string_iterator(
         kind: ObjectKind::NativeFunction(NativeFunction {
             name: next_name,
             func: native_string_iterator_next,
+            constructable: true,
         }),
         properties: Vec::new(),
         prototype: None,

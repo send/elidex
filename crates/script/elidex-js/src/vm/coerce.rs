@@ -143,15 +143,21 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
     if trimmed.is_empty() {
         return 0.0;
     }
-    // Fast path: if all code units are ASCII, build a str on the stack.
+    // Fast path: if all code units are ASCII, use a stack buffer.
     if trimmed.iter().all(|&u| u <= 0x7F) {
-        #[allow(clippy::cast_possible_truncation)]
-        let ascii: Vec<u8> = trimmed.iter().map(|&u| u as u8).collect();
-        // All bytes are valid ASCII ⊂ UTF-8.
-        let s = std::str::from_utf8(&ascii).unwrap_or("");
-        return string_to_number(s);
+        let mut buf = [0u8; 64];
+        if trimmed.len() <= buf.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            for (i, &u) in trimmed.iter().enumerate() {
+                buf[i] = u as u8;
+            }
+            // All bytes are valid ASCII ⊂ UTF-8.
+            let s = std::str::from_utf8(&buf[..trimmed.len()]).unwrap_or("");
+            return string_to_number(s);
+        }
+        // Long ASCII string — fall through to heap path.
     }
-    // Slow path: non-ASCII content — allocate UTF-8 String.
+    // Slow path: non-ASCII or long content — allocate.
     let s = String::from_utf16_lossy(trimmed);
     string_to_number(&s)
 }

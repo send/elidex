@@ -206,6 +206,8 @@ pub enum ThisMode {
 pub struct NativeFunction {
     pub name: StringId,
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    /// Whether `new` can be used on this function. `false` for Symbol etc.
+    pub constructable: bool,
 }
 
 /// Context passed to native functions, providing mutable access to the VM.

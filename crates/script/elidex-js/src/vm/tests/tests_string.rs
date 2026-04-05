@@ -184,3 +184,20 @@ fn eval_lone_surrogate_char_code_at() {
         f64::from(0xD800_i32)
     );
 }
+
+#[test]
+fn eval_string_bracket_string_key() {
+    // String bracket access with a string key that is a numeric index.
+    assert_eq!(eval_string("'abc'['1'];"), "b");
+}
+
+#[test]
+fn eval_string_bracket_string_key_zero() {
+    assert_eq!(eval_string("'abc'['0'];"), "a");
+}
+
+#[test]
+fn eval_string_bracket_non_numeric_string_key() {
+    // Non-numeric string keys return undefined.
+    assert!(eval_bool("'abc'['foo'] === undefined;"));
+}

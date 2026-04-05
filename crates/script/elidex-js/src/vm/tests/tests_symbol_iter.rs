@@ -360,6 +360,12 @@ fn eval_symbol_call_still_works() {
     assert_eq!(eval_string("typeof Symbol('test');"), "symbol");
 }
 
+#[test]
+fn eval_symbol_called_with_object_this() {
+    // Symbol called as method on object (this is an object, not via `new`).
+    assert_eq!(eval_number("({ f: Symbol }).f('x'); 1;"), 1.0);
+}
+
 // -- Fix 4: Symbol.keyFor reverse map (O(1)) --------------------------------
 
 #[test]

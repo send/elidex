@@ -423,6 +423,25 @@ impl Vm {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
+                constructable: true,
+            }),
+            properties: Vec::new(),
+            prototype: None,
+        })
+    }
+
+    /// Helper: create a non-constructable native function object (e.g. Symbol).
+    pub(crate) fn create_non_constructable_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.inner.strings.intern(name);
+        self.alloc_object(Object {
+            kind: ObjectKind::NativeFunction(NativeFunction {
+                name: name_id,
+                func,
+                constructable: false,
             }),
             properties: Vec::new(),
             prototype: None,

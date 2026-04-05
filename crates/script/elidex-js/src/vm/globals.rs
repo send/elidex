@@ -260,7 +260,7 @@ impl Vm {
         // The Symbol "constructor" is callable but not constructable.
         // Register it as a native function, then attach static methods and
         // well-known symbol properties.
-        let sym_fn_id = self.create_native_function("Symbol", native_symbol_constructor);
+        let sym_fn_id = self.create_non_constructable_function("Symbol", native_symbol_constructor);
         let name_id = self.inner.strings.intern("Symbol");
         self.inner
             .globals
