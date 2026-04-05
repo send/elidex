@@ -62,7 +62,8 @@ pub(super) fn set_regexp_last_index(
             return;
         }
     }
-    obj.properties.push((last_index_key, Property::data(val)));
+    // lastIndex is writable but non-enumerable (§21.2.5.3).
+    obj.properties.push((last_index_key, Property::method(val)));
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -447,7 +448,7 @@ pub(super) fn native_string_replace(
                 None
             }
         };
-        if let Some((is_global, is_sticky)) = regexp_flags {
+        if let Some((is_global, _is_sticky)) = regexp_flags {
             let replacement_id =
                 ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
             let replacement = ctx.vm.strings.get(replacement_id).to_vec();
@@ -466,16 +467,11 @@ pub(super) fn native_string_replace(
                     last_end = m.end();
                 }
                 out.extend_from_slice(&subject[last_end..]);
+                set_regexp_last_index(ctx, re_id, 0);
                 out
             } else {
-                let m = if is_sticky {
-                    compiled
-                        .find_from_utf16(&subject, 0)
-                        .next()
-                        .filter(|m| m.start() == 0)
-                } else {
-                    compiled.find_from_utf16(&subject, 0).next()
-                };
+                // Non-global: delegate to run_regexp for correct lastIndex/sticky.
+                let m = super::natives_regexp::run_regexp(ctx, re_id, &subject)?;
                 if let Some(m) = m {
                     let mut out = Vec::with_capacity(subject.len());
                     out.extend_from_slice(&subject[..m.start()]);
@@ -486,9 +482,6 @@ pub(super) fn native_string_replace(
                     subject
                 }
             };
-            if is_global || is_sticky {
-                set_regexp_last_index(ctx, re_id, 0);
-            }
             let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
@@ -552,7 +545,15 @@ pub(super) fn native_string_match(
             ..
         } = obj.kind
         else {
-            return Ok(JsValue::Null);
+            // Non-RegExp object: coerce to string and compile (like non-object path).
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            let pattern_str = ctx.vm.strings.get_utf8(pat_id);
+            let compiled = regress::Regex::new(&pattern_str)
+                .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+            let Some(m) = compiled.find_from_utf16(&subject, 0).next() else {
+                return Ok(JsValue::Null);
+            };
+            return build_match_result(ctx, &subject, &m, sid);
         };
         let flags_str = ctx.vm.strings.get_utf8(*flags);
         let is_global = flags_str.contains('g');
@@ -580,22 +581,11 @@ pub(super) fn native_string_match(
                 },
             )
         } else {
-            let found = if is_sticky {
-                compiled
-                    .find_from_utf16(&subject, 0)
-                    .next()
-                    .filter(|m| m.start() == 0)
-            } else {
-                compiled.find_from_utf16(&subject, 0).next()
-            };
-            // Non-global: return exec-style result.
-            if let Some(m) = found {
-                if is_global || is_sticky {
-                    set_regexp_last_index(ctx, re_id, 0);
-                }
+            // Non-global: delegate to run_regexp for correct lastIndex/sticky.
+            if let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
                 return build_match_result(ctx, &subject, &m, sid);
             }
-            (is_global, is_sticky, None)
+            return Ok(JsValue::Null);
         }
     };
 
@@ -650,7 +640,18 @@ pub(super) fn native_string_search(
     let result = {
         let obj = ctx.get_object(re_id);
         let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
-            return Ok(JsValue::Number(-1.0));
+            // Non-RegExp object: coerce to string and compile.
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            let pattern_str = ctx.vm.strings.get_utf8(pat_id);
+            let compiled = regress::Regex::new(&pattern_str)
+                .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(JsValue::Number(
+                compiled
+                    .find_from_utf16(&subject, 0)
+                    .next()
+                    .map_or(-1.0, |m| m.start() as f64),
+            ));
         };
         compiled
             .find_from_utf16(&subject, 0)

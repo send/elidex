@@ -125,20 +125,22 @@ impl Vm {
                     properties: Vec::new(),
                     prototype: proto,
                 });
+                // source and flags are non-enumerable, non-writable (§21.2.5.10, §21.2.5.3).
                 let source_key = PropertyKey::String(self.inner.strings.intern("source"));
                 self.get_object_mut(obj_id).properties.push((
                     source_key,
-                    Property::data(JsValue::String(pat_id)),
+                    Property::builtin(JsValue::String(pat_id)),
                 ));
                 let flags_key = PropertyKey::String(self.inner.strings.intern("flags"));
                 self.get_object_mut(obj_id).properties.push((
                     flags_key,
-                    Property::data(JsValue::String(flags_id)),
+                    Property::builtin(JsValue::String(flags_id)),
                 ));
+                // lastIndex is writable but non-enumerable (§21.2.5.3).
                 let last_index_key = PropertyKey::String(self.inner.strings.intern("lastIndex"));
                 self.get_object_mut(obj_id).properties.push((
                     last_index_key,
-                    Property::data(JsValue::Number(0.0)),
+                    Property::method(JsValue::Number(0.0)),
                 ));
                 Ok(JsValue::Object(obj_id))
             }

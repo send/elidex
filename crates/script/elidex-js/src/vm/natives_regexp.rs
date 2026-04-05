@@ -17,7 +17,7 @@ fn intern_u16_range(
 }
 
 /// Run a regex match on a WTF-16 subject, handling lastIndex for g/y flags.
-fn run_regexp(
+pub(super) fn run_regexp(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
     subject: &[u16],
