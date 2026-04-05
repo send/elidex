@@ -24,6 +24,10 @@ impl Vm {
         let val = self.pop()?;
         let obj_val = self.peek()?;
         if let JsValue::Object(id) = obj_val {
+            // Sync global object writes to the globals HashMap.
+            if id == self.inner.global_object {
+                self.inner.globals.insert(name_id, val);
+            }
             let obj = self.get_object_mut(id);
             // Overwrite if key already exists (e.g. after spread).
             if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
@@ -130,6 +134,7 @@ impl Vm {
         let source = self.pop()?;
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
+            let is_global = dst_id == self.inner.global_object;
             let src = self.inner.get_object(src_id);
             let props: Vec<(PropertyKey, Property)> = src
                 .properties
@@ -137,6 +142,14 @@ impl Vm {
                 .filter(|(_, p)| p.enumerable)
                 .map(|(k, p)| (*k, Property::data(p.value)))
                 .collect();
+            // Sync global object writes to the globals HashMap.
+            if is_global {
+                for (k, p) in &props {
+                    if let PropertyKey::String(sid) = k {
+                        self.inner.globals.insert(*sid, p.value);
+                    }
+                }
+            }
             let dst = self.inner.get_object_mut(dst_id);
             for (k, p) in props {
                 if let Some(existing) = dst.properties.iter_mut().find(|(ek, _)| *ek == k) {

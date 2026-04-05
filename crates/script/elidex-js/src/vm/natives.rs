@@ -325,6 +325,7 @@ pub(super) fn native_object_assign(
     let JsValue::Object(target_id) = target else {
         return Ok(target);
     };
+    let is_global = target_id == ctx.vm.global_object;
     for &source in args.iter().skip(1) {
         let JsValue::Object(src_id) = source else {
             continue;
@@ -337,13 +338,19 @@ pub(super) fn native_object_assign(
             .filter(|(_, p)| p.enumerable)
             .map(|(k, p)| (*k, p.value))
             .collect();
-        for (key, value) in props {
+        for (key, value) in &props {
+            // Sync global object writes to the globals HashMap.
+            if is_global {
+                if let PropertyKey::String(sid) = key {
+                    ctx.vm.globals.insert(*sid, *value);
+                }
+            }
             // Update existing or push new.
             let target_obj = ctx.get_object_mut(target_id);
-            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| *k == key) {
-                prop.1.value = value;
+            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| k == key) {
+                prop.1.value = *value;
             } else {
-                target_obj.properties.push((key, Property::data(value)));
+                target_obj.properties.push((*key, Property::data(*value)));
             }
         }
     }
@@ -400,6 +407,12 @@ pub(super) fn native_object_define_property(
         JsValue::Undefined
     };
 
+    // Sync global object writes to the globals HashMap.
+    if obj_id == ctx.vm.global_object {
+        if let PropertyKey::String(sid) = key {
+            ctx.vm.globals.insert(sid, value);
+        }
+    }
     let obj = ctx.get_object_mut(obj_id);
     if let Some(prop) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
         prop.1.value = value;

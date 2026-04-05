@@ -318,7 +318,13 @@ impl Vm {
                         if let Some(has_instance_fn) =
                             super::coerce::get_property(&self.inner, rhs_id, has_instance_key)
                         {
-                            let result = self.call_value(has_instance_fn, rhs, &[lhs])?;
+                            let result = match self.call_value(has_instance_fn, rhs, &[lhs]) {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    self.throw_error(e, entry_frame_depth)?;
+                                    continue;
+                                }
+                            };
                             let bool_result = to_boolean(&self.inner, result);
                             self.inner.stack.push(JsValue::Boolean(bool_result));
                             continue;
@@ -663,7 +669,11 @@ impl Vm {
                 Op::CreateArray => self.op_create_array(),
                 Op::ArrayPush => self.op_array_push()?,
                 Op::ArrayHole => self.op_array_hole()?,
-                Op::ArraySpread => self.op_array_spread()?,
+                Op::ArraySpread => {
+                    if let Err(e) = self.op_array_spread() {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
                 Op::SpreadObject => self.op_spread_object()?,
 
                 // ── Template ────────────────────────────────────────
@@ -823,12 +833,18 @@ impl Vm {
                         .stack
                         .last()
                         .ok_or_else(|| VmError::internal("empty stack on IteratorNext"))?;
-                    if let Some(value) = self.iter_next(iter_val)? {
-                        self.inner.stack.push(value);
-                        self.inner.stack.push(JsValue::Boolean(false));
-                    } else {
-                        self.inner.stack.push(JsValue::Undefined);
-                        self.inner.stack.push(JsValue::Boolean(true));
+                    match self.iter_next(iter_val) {
+                        Ok(Some(value)) => {
+                            self.inner.stack.push(value);
+                            self.inner.stack.push(JsValue::Boolean(false));
+                        }
+                        Ok(None) => {
+                            self.inner.stack.push(JsValue::Undefined);
+                            self.inner.stack.push(JsValue::Boolean(true));
+                        }
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
                 Op::IteratorRest => {
@@ -836,8 +852,15 @@ impl Vm {
                     // Collect remaining iterator elements into a new array.
                     let iter_val = self.pop()?;
                     let mut elements = Vec::new();
-                    while let Some(value) = self.iter_next(iter_val)? {
-                        elements.push(value);
+                    loop {
+                        match self.iter_next(iter_val) {
+                            Ok(Some(value)) => elements.push(value),
+                            Ok(None) => break,
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                                break;
+                            }
+                        }
                     }
                     let proto = self.inner.array_prototype;
                     let arr = self.alloc_object(Object {
