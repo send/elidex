@@ -32,7 +32,7 @@ pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> f64 {
         JsValue::Null | JsValue::Boolean(false) => 0.0,
         JsValue::Boolean(true) => 1.0,
         JsValue::Number(n) => n,
-        JsValue::String(id) => string_to_number(&vm.strings.get_utf8(id)),
+        JsValue::String(id) => string_to_number_u16(vm.strings.get(id)),
     }
 }
 
@@ -124,6 +124,36 @@ fn string_to_number(s: &str) -> f64 {
         }
         trimmed.parse::<f64>().unwrap_or(f64::NAN)
     }
+}
+
+/// Parse a WTF-16 string to a number without heap allocation for ASCII content.
+/// Falls back to UTF-8 conversion only for non-ASCII strings.
+fn string_to_number_u16(units: &[u16]) -> f64 {
+    use crate::wtf16::is_js_whitespace;
+    // Trim leading/trailing whitespace directly on &[u16].
+    let start = units
+        .iter()
+        .position(|&u| !is_js_whitespace(u))
+        .unwrap_or(units.len());
+    let end = units
+        .iter()
+        .rposition(|&u| !is_js_whitespace(u))
+        .map_or(start, |i| i + 1);
+    let trimmed = &units[start..end];
+    if trimmed.is_empty() {
+        return 0.0;
+    }
+    // Fast path: if all code units are ASCII, build a str on the stack.
+    if trimmed.iter().all(|&u| u <= 0x7F) {
+        #[allow(clippy::cast_possible_truncation)]
+        let ascii: Vec<u8> = trimmed.iter().map(|&u| u as u8).collect();
+        // All bytes are valid ASCII ⊂ UTF-8.
+        let s = std::str::from_utf8(&ascii).unwrap_or("");
+        return string_to_number(s);
+    }
+    // Slow path: non-ASCII content — allocate UTF-8 String.
+    let s = String::from_utf16_lossy(trimmed);
+    string_to_number(&s)
 }
 
 // ---------------------------------------------------------------------------
