@@ -9,6 +9,11 @@ use crate::wtf16::{
 
 // -- Helpers ----------------------------------------------------------------
 
+/// Convert a UTF-8 byte offset to a UTF-16 code unit index.
+fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
+    s[..byte_offset].encode_utf16().count()
+}
+
 /// Set `lastIndex` to 0 on a RegExp object (used after String.prototype methods).
 fn set_regexp_last_index(ctx: &mut NativeContext<'_>, obj_id: super::value::ObjectId, idx: usize) {
     let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
@@ -509,7 +514,7 @@ pub(super) fn native_string_match(
                         .map(|range| subject[range.start..range.end].to_string()),
                 );
             }
-            (matches, m.start())
+            (matches, byte_offset_to_utf16(&subject, m.start()))
         });
         let Some((matches, index)) = match_data else {
             return Ok(JsValue::Null);
@@ -583,7 +588,11 @@ pub(super) fn native_string_match(
                                 .map(|range| subject[range.start..range.end].to_string()),
                         );
                     }
-                    (false, is_sticky, Some((matches, m.start())))
+                    (
+                        false,
+                        is_sticky,
+                        Some((matches, byte_offset_to_utf16(&subject, m.start()))),
+                    )
                 }
                 None => (false, is_sticky, None),
             }
@@ -650,9 +659,9 @@ pub(super) fn native_string_search(
             .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
         let subject = ctx.vm.strings.get_utf8(sid);
         #[allow(clippy::cast_precision_loss)]
-        return Ok(JsValue::Number(
-            compiled.find(&subject).map_or(-1.0, |m| m.start() as f64),
-        ));
+        return Ok(JsValue::Number(compiled.find(&subject).map_or(-1.0, |m| {
+            byte_offset_to_utf16(&subject, m.start()) as f64
+        })));
     }
     let JsValue::Object(re_id) = re_val else {
         unreachable!();
@@ -664,7 +673,9 @@ pub(super) fn native_string_search(
             return Ok(JsValue::Number(-1.0));
         };
         let subject = ctx.vm.strings.get_utf8(sid);
-        compiled.find(&subject).map(|m| m.start())
+        compiled
+            .find(&subject)
+            .map(|m| byte_offset_to_utf16(&subject, m.start()))
     };
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))

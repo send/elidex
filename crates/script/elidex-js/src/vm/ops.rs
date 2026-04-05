@@ -379,6 +379,9 @@ impl Vm {
                     self.lookup_on_proto(self.inner.string_prototype, pk, obj)
                 }
             }
+            // TODO(M4-11): strict-mode getters on primitive prototypes should
+            // receive a ToObject wrapper as `this`, not the raw primitive.
+            // Requires VM single dispatcher for correct receiver boxing.
             JsValue::Symbol(_) => self.lookup_on_proto(self.inner.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.inner.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.inner.boolean_prototype, pk, obj),

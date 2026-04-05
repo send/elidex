@@ -411,6 +411,8 @@ pub(super) fn native_object_define_property(
         let configurable_key = PropertyKey::String(ctx.intern("configurable"));
         let writable_key = PropertyKey::String(ctx.intern("writable"));
 
+        // TODO(M4-11): descriptor fields should be read via Get (invoking getters).
+        // Requires VM single dispatcher for NativeContext re-entrancy.
         let desc = ctx.get_object(desc_id);
         let find = |k: PropertyKey| -> Option<JsValue> {
             desc.properties
@@ -442,9 +444,23 @@ pub(super) fn native_object_define_property(
         let validate_accessor = |v: JsValue, role: &str| -> Result<Option<ObjectId>, VmError> {
             match v {
                 JsValue::Undefined => Ok(None),
-                JsValue::Object(id) => Ok(Some(id)),
+                JsValue::Object(id) => {
+                    let is_callable = matches!(
+                        &ctx.get_object(id).kind,
+                        ObjectKind::Function(_)
+                            | ObjectKind::NativeFunction(_)
+                            | ObjectKind::BoundFunction { .. }
+                    );
+                    if is_callable {
+                        Ok(Some(id))
+                    } else {
+                        Err(VmError::type_error(format!(
+                            "Property descriptor {role} must be a function or undefined"
+                        )))
+                    }
+                }
                 _ => Err(VmError::type_error(format!(
-                    "Property description {role} must be a function or undefined"
+                    "Property descriptor {role} must be a function or undefined"
                 ))),
             }
         };
