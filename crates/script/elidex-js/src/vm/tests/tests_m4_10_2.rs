@@ -381,3 +381,58 @@ fn regexp_sticky_exec_index() {
         2.0,
     );
 }
+
+// ── Additional coverage ────────────────────────────────────────────────
+
+#[test]
+fn accessor_on_global_this() {
+    // Test via Vm::eval which persists globals across calls.
+    let mut vm = Vm::new();
+    // Define an accessor on the global object via a function (this = globalThis in sloppy mode).
+    vm.eval("function defineGlobalAccessor() { Object.defineProperty(this, '__test_acc', { get: function() { return 42; }, configurable: true }); } defineGlobalAccessor();").unwrap();
+    let result = vm.eval("__test_acc;").unwrap();
+    assert_eq!(result, JsValue::Number(42.0));
+}
+
+#[test]
+fn typeof_undeclared_vs_undefined() {
+    assert_eq!(eval_str("typeof undeclared_xyz;"), "undefined");
+    assert_eq!(eval_str("var x = undefined; typeof x;"), "undefined");
+}
+
+#[test]
+fn arguments_write() {
+    assert_eq!(
+        eval_number("function f() { arguments[0] = 99; return arguments[0]; } f(1);"),
+        99.0,
+    );
+}
+
+#[test]
+fn match_non_regexp_object() {
+    // Non-RegExp object is coerced via ToString → "[object Object]"
+    assert!(eval_bool("'[object Object]'.match({}) !== null;"));
+}
+
+#[test]
+fn search_non_regexp_object() {
+    // {} → "[object Object]" as regex → character class [object Objec] then "t]"
+    // Matches at index 1 ("o" in "object" matches [object Objec]).
+    assert!(eval_bool("'[object Object]'.search({}) >= 0;"));
+}
+
+#[test]
+fn to_fixed_non_finite() {
+    assert_eq!(eval_str("Infinity.toFixed(2);"), "Infinity");
+    assert_eq!(eval_str("(-Infinity).toFixed(0);"), "-Infinity");
+}
+
+#[test]
+fn writable_false_enforcement() {
+    assert_eq!(
+        eval_number(
+            "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); o.x = 2; o.x;"
+        ),
+        1.0,
+    );
+}
