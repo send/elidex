@@ -645,4 +645,18 @@ impl NativeContext<'_> {
     ) -> Result<JsValue, VmError> {
         self.vm.get_property_value(obj_id, key)
     }
+
+    /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
+    /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
+    pub fn try_get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<Option<JsValue>, VmError> {
+        let exists = coerce::get_property(self.vm, obj_id, key).is_some();
+        if !exists {
+            return Ok(None);
+        }
+        Ok(Some(self.vm.get_property_value(obj_id, key)?))
+    }
 }

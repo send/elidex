@@ -416,28 +416,15 @@ pub(super) fn native_object_define_property(
         let configurable_key = PropertyKey::String(ctx.intern("configurable"));
         let writable_key = PropertyKey::String(ctx.intern("writable"));
 
-        // Snapshot which keys exist on the descriptor, then do a fresh Get
-        // per key (§7.3.1).  A getter on one field may mutate another field,
-        // so we must not cache values across calls.
-        let desc_keys: Vec<PropertyKey> = ctx
-            .get_object(desc_id)
-            .properties
-            .iter()
-            .map(|(k, _)| *k)
-            .collect();
-        let get_field =
-            |ctx: &mut NativeContext<'_>, key: PropertyKey| -> Result<Option<JsValue>, VmError> {
-                if !desc_keys.contains(&key) {
-                    return Ok(None);
-                }
-                Ok(Some(ctx.get_property_value(desc_id, key)?))
-            };
-        let has_get = get_field(ctx, get_key)?;
-        let has_set = get_field(ctx, set_key)?;
-        let has_value = get_field(ctx, value_key)?;
-        let has_writable = get_field(ctx, writable_key)?;
-        let has_enumerable = get_field(ctx, enumerable_key)?;
-        let has_configurable = get_field(ctx, configurable_key)?;
+        // §6.2.5.5 ToPropertyDescriptor: HasProperty + Get per field in
+        // spec order.  No up-front snapshot — each Get sees the current
+        // state, including mutations from earlier getters and inherited fields.
+        let has_get = ctx.try_get_property_value(desc_id, get_key)?;
+        let has_set = ctx.try_get_property_value(desc_id, set_key)?;
+        let has_value = ctx.try_get_property_value(desc_id, value_key)?;
+        let has_writable = ctx.try_get_property_value(desc_id, writable_key)?;
+        let has_enumerable = ctx.try_get_property_value(desc_id, enumerable_key)?;
+        let has_configurable = ctx.try_get_property_value(desc_id, configurable_key)?;
         // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
         let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
         let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
