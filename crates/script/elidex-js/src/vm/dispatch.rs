@@ -132,12 +132,21 @@ impl Vm {
                     if let Some(val) = self.inner.globals.get(&name_id).copied() {
                         self.inner.stack.push(val);
                     } else {
-                        // typeof uses TypeOfGlobal, so this only fires for
-                        // actual undeclared variable access.
-                        let name_str = self.inner.strings.get_utf8(name_id);
-                        let msg = format!("{name_str} is not defined");
-                        let err = VmError::reference_error(&msg);
-                        self.throw_error(err, entry_frame_depth)?;
+                        // Fall back to the global object (supports accessor properties
+                        // defined via Object.defineProperty(globalThis, ...)).
+                        let global_obj = self.inner.global_object;
+                        match self.get_property_val(JsValue::Object(global_obj), name_id) {
+                            Ok(JsValue::Undefined) => {
+                                let name_str = self.inner.strings.get_utf8(name_id);
+                                let msg = format!("{name_str} is not defined");
+                                let err = VmError::reference_error(&msg);
+                                self.throw_error(err, entry_frame_depth)?;
+                            }
+                            Ok(val) => self.inner.stack.push(val),
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                            }
+                        }
                     }
                 }
                 Op::SetGlobal => {
@@ -154,7 +163,14 @@ impl Vm {
                         let err = VmError::reference_error(&msg);
                         self.throw_error(err, entry_frame_depth)?;
                     } else {
-                        self.inner.globals.insert(name_id, val);
+                        // Check for accessor setter on globalThis before
+                        // writing to the globals HashMap.
+                        let global_obj = self.inner.global_object;
+                        if let Err(e) =
+                            self.set_property_val(JsValue::Object(global_obj), name_id, val)
+                        {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
 
