@@ -825,7 +825,11 @@ impl Vm {
                 }
 
                 // ── Iteration ───────────────────────────────────────
-                Op::GetIterator => self.op_get_iterator(entry_frame_depth)?,
+                Op::GetIterator => {
+                    if let Err(e) = self.op_get_iterator(entry_frame_depth) {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
                 Op::IteratorNext => {
                     // Stack: [iterator] → [iterator value done]
                     let iter_val = *self

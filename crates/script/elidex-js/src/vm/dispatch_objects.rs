@@ -50,8 +50,13 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             match self.make_property_key(key) {
                 Ok(pk) => {
+                    // Sync global object writes to globals HashMap.
+                    if id == self.inner.global_object {
+                        if let PropertyKey::String(sid) = pk {
+                            self.inner.globals.insert(sid, val);
+                        }
+                    }
                     let obj = self.get_object_mut(id);
-                    // Upsert: overwrite if key exists, otherwise push.
                     if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
                         existing.1 = Property::data(val);
                     } else {
@@ -77,8 +82,12 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             match self.make_property_key(key) {
                 Ok(pk) => {
+                    if id == self.inner.global_object {
+                        if let PropertyKey::String(sid) = pk {
+                            self.inner.globals.insert(sid, val);
+                        }
+                    }
                     let obj = self.get_object_mut(id);
-                    // Upsert: overwrite if key exists, otherwise push.
                     if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
                         existing.1 = Property::method(val);
                     } else {
