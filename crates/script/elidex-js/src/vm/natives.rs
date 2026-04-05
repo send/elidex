@@ -3,7 +3,9 @@
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, VmError,
+};
 use super::VmInner;
 
 // -- Global functions -------------------------------------------------------
@@ -380,6 +382,7 @@ pub(super) fn native_object_create(
     Ok(JsValue::Object(obj_id))
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn native_object_define_property(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -419,10 +422,11 @@ pub(super) fn native_object_define_property(
         let has_set = find(set_key);
         let has_value = find(value_key);
         let has_writable = find(writable_key);
+        let has_enumerable = find(enumerable_key);
+        let has_configurable = find(configurable_key);
         // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
-        let enumerable = find(enumerable_key).is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
-        let configurable =
-            find(configurable_key).is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
+        let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
+        let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
 
         let has_accessor = has_get.is_some() || has_set.is_some();
         let has_data = has_value.is_some() || has_writable.is_some();
@@ -434,31 +438,60 @@ pub(super) fn native_object_define_property(
             ));
         }
 
+        // §9.1.6.3 step 7-8: get/set must be callable or undefined.
+        let validate_accessor = |v: JsValue, role: &str| -> Result<Option<ObjectId>, VmError> {
+            match v {
+                JsValue::Undefined => Ok(None),
+                JsValue::Object(id) => Ok(Some(id)),
+                _ => Err(VmError::type_error(format!(
+                    "Property description {role} must be a function or undefined"
+                ))),
+            }
+        };
+
+        // Look up the existing property to merge partial descriptors.
+        let existing = ctx
+            .get_object(obj_id)
+            .properties
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, p)| *p);
+
         if has_accessor {
-            // Validate that get/set are callable or undefined (§9.1.6.3 step 7-8).
-            let to_fn = |v: JsValue| {
-                if let JsValue::Object(id) = v {
-                    Some(id)
-                } else {
-                    None
-                }
+            let getter = match has_get {
+                Some(v) => validate_accessor(v, "get")?,
+                None => existing.and_then(|p| match p.slot {
+                    super::value::PropertyValue::Accessor { getter, .. } => getter,
+                    super::value::PropertyValue::Data(_) => None,
+                }),
             };
-            let getter = has_get.and_then(to_fn);
-            let setter = has_set.and_then(to_fn);
+            let setter = match has_set {
+                Some(v) => validate_accessor(v, "set")?,
+                None => existing.and_then(|p| match p.slot {
+                    super::value::PropertyValue::Accessor { setter, .. } => setter,
+                    super::value::PropertyValue::Data(_) => None,
+                }),
+            };
             Property {
                 slot: super::value::PropertyValue::Accessor { getter, setter },
                 writable: false,
-                enumerable,
-                configurable,
+                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
+                configurable: configurable
+                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
             }
         } else {
-            let value = has_value.unwrap_or(JsValue::Undefined);
-            let writable = has_writable.is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
+            let value = has_value
+                .unwrap_or_else(|| existing.map_or(JsValue::Undefined, |p| p.data_value()));
+            let writable = has_writable.map_or_else(
+                || existing.is_some_and(|p| p.writable),
+                |v| super::coerce::to_boolean(ctx.vm, v),
+            );
             Property {
                 slot: super::value::PropertyValue::Data(value),
                 writable,
-                enumerable,
-                configurable,
+                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
+                configurable: configurable
+                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
             }
         }
     } else {

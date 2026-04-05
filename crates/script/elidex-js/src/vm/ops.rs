@@ -407,9 +407,9 @@ impl Vm {
             let obj = self.get_object_mut(id);
             for prop in &mut obj.properties {
                 if prop.0 == pk {
-                    // Only write to data properties; accessor-only (no setter)
-                    // is silently ignored in sloppy mode.
-                    if matches!(prop.1.slot, PropertyValue::Data(_)) {
+                    // Accessor without setter or non-writable data property:
+                    // silently ignored in sloppy mode (strict: TypeError — M4-11).
+                    if matches!(prop.1.slot, PropertyValue::Data(_)) && prop.1.writable {
                         prop.1.slot = PropertyValue::Data(val);
                     }
                     return Ok(());
@@ -549,7 +549,7 @@ impl Vm {
                 let obj_ref = self.get_object_mut(id);
                 for prop in &mut obj_ref.properties {
                     if prop.0 == pk {
-                        if matches!(prop.1.slot, PropertyValue::Data(_)) {
+                        if matches!(prop.1.slot, PropertyValue::Data(_)) && prop.1.writable {
                             prop.1.slot = PropertyValue::Data(val);
                         }
                         return Ok(());
