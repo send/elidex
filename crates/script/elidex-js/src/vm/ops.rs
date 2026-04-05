@@ -441,8 +441,8 @@ impl Vm {
                         ObjectKind::Array { ref elements } => {
                             return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
                         }
-                        ObjectKind::Arguments { ref values } => {
-                            return Ok(values.get(idx).copied().unwrap_or(JsValue::Undefined));
+                        ObjectKind::Arguments { ref values } if idx < values.len() => {
+                            return Ok(values[idx]);
                         }
                         _ => {}
                     }
@@ -542,10 +542,8 @@ impl Vm {
                             elements[idx] = val;
                             return Ok(());
                         }
-                        ObjectKind::Arguments { ref mut values } => {
-                            if idx < values.len() {
-                                values[idx] = val;
-                            }
+                        ObjectKind::Arguments { ref mut values } if idx < values.len() => {
+                            values[idx] = val;
                             return Ok(());
                         }
                         _ => {}

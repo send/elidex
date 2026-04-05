@@ -140,10 +140,9 @@ pub(super) fn native_regexp_exec(
         .properties
         .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
     let input_key = PropertyKey::String(ctx.intern("input"));
-    let input_str = ctx.vm.strings.intern_utf16(&subject);
     ctx.get_object_mut(arr_id)
         .properties
-        .push((input_key, Property::data(JsValue::String(input_str))));
+        .push((input_key, Property::data(JsValue::String(sid))));
 
     Ok(JsValue::Object(arr_id))
 }

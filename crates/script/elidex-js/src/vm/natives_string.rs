@@ -46,6 +46,23 @@ fn build_match_result(
     Ok(JsValue::Object(arr_id))
 }
 
+/// Read the current `lastIndex` from a RegExp object (as raw f64).
+pub(super) fn get_regexp_last_index(
+    ctx: &mut NativeContext<'_>,
+    obj_id: super::value::ObjectId,
+) -> f64 {
+    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    let obj = ctx.get_object(obj_id);
+    for (k, p) in &obj.properties {
+        if *k == last_index_key {
+            if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
+                return n;
+            }
+        }
+    }
+    0.0
+}
+
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
 pub(super) fn set_regexp_last_index(
     ctx: &mut NativeContext<'_>,
@@ -652,10 +669,12 @@ pub(super) fn native_string_search(
             ));
         }
     }
-    // Use run_regexp with lastIndex=0 for correct sticky handling.
+    // §21.1.3.15: save lastIndex, set to 0, run, restore.
+    let saved = get_regexp_last_index(ctx, re_id);
     set_regexp_last_index(ctx, re_id, 0);
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
-    set_regexp_last_index(ctx, re_id, 0);
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    set_regexp_last_index(ctx, re_id, saved as usize);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }
