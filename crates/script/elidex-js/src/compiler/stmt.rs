@@ -139,12 +139,15 @@ pub fn compile_stmt(
             fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
             let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
 
-            // Catch handler: close iterator, then re-throw.
+            // Catch handler: close iterator, then re-throw the original exception.
+            // NOTE: If IteratorClose (.return()) itself throws, that error will
+            // override the original — ES2020 §7.4.6 says the original should win.
+            // Correct handling requires completion records; accepted deviation.
             let catch_ip = fc.pc();
             fc.emit_u16(Op::GetLocal, iter_slot);
             fc.emit(Op::IteratorClose);
-            fc.emit(Op::PushException); // push current_exception back to stack
-            fc.emit(Op::Throw); // re-throw
+            fc.emit(Op::PushException);
+            fc.emit(Op::Throw);
 
             fc.patch_jump(end_patch);
 

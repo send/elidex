@@ -826,7 +826,7 @@ impl Vm {
 
                 // ── Iteration ───────────────────────────────────────
                 Op::GetIterator => {
-                    if let Err(e) = self.op_get_iterator(entry_frame_depth) {
+                    if let Err(e) = self.op_get_iterator() {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }

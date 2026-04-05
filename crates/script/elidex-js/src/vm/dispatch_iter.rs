@@ -71,18 +71,16 @@ impl Vm {
     ///
     /// For objects, looks up `@@iterator` on the object itself (+ prototype chain).
     /// For strings, looks up `@@iterator` on `String.prototype`.
-    pub(super) fn op_get_iterator(&mut self, entry_frame_depth: usize) -> Result<(), VmError> {
+    pub(super) fn op_get_iterator(&mut self) -> Result<(), VmError> {
         let val = self.pop()?;
         if let Some(iter) = self.resolve_iterator(val)? {
             if matches!(iter, JsValue::Object(_)) {
                 self.inner.stack.push(iter);
             } else {
-                let err = VmError::type_error("@@iterator must return an object");
-                self.throw_error(err, entry_frame_depth)?;
+                return Err(VmError::type_error("@@iterator must return an object"));
             }
         } else {
-            let err = VmError::type_error("value is not iterable");
-            self.throw_error(err, entry_frame_depth)?;
+            return Err(VmError::type_error("value is not iterable"));
         }
         Ok(())
     }
