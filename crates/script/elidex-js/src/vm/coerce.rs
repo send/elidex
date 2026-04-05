@@ -573,19 +573,48 @@ pub(crate) fn get_property(
     None
 }
 
-/// Look up a setter on an object's prototype chain.
-/// Returns `Some(setter_object_id)` if an accessor with a setter is found.
-pub(crate) fn find_setter(vm: &VmInner, obj_id: ObjectId, key: PropertyKey) -> Option<ObjectId> {
-    let mut current = Some(obj_id);
+/// Result of looking up an inherited property on the prototype chain.
+///
+/// Used by `set_property_val` to implement §9.1.9 OrdinarySet:
+/// - Setter: invoke the setter.
+/// - WritableFalse: reject the set (TypeError in strict, silent in sloppy).
+/// - AccessorNoSetter: reject the set (same as WritableFalse).
+/// - None: no inherited property found; create own property.
+pub(crate) enum InheritedProperty {
+    Setter(ObjectId),
+    WritableFalse,
+    AccessorNoSetter,
+    None,
+}
+
+/// Look up an inherited property on an object's prototype chain (§9.1.9).
+///
+/// Skips the object's own properties and walks prototypes only.
+pub(crate) fn find_inherited_property(
+    vm: &VmInner,
+    obj_id: ObjectId,
+    key: PropertyKey,
+) -> InheritedProperty {
+    // Start from the prototype, not the object itself.
+    let start = vm.objects[obj_id.0 as usize]
+        .as_ref()
+        .and_then(|o| o.prototype);
+    let mut current = start;
     while let Some(id) = current {
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             for (k, prop) in &obj.properties {
                 if *k == key {
-                    return match prop.slot {
+                    return match &prop.slot {
                         super::value::PropertyValue::Accessor {
                             setter: Some(s), ..
-                        } => Some(s),
-                        _ => None,
+                        } => InheritedProperty::Setter(*s),
+                        super::value::PropertyValue::Accessor { setter: None, .. } => {
+                            InheritedProperty::AccessorNoSetter
+                        }
+                        super::value::PropertyValue::Data(_) if !prop.writable => {
+                            InheritedProperty::WritableFalse
+                        }
+                        super::value::PropertyValue::Data(_) => InheritedProperty::None,
                     };
                 }
             }
@@ -594,7 +623,7 @@ pub(crate) fn find_setter(vm: &VmInner, obj_id: ObjectId, key: PropertyKey) -> O
             break;
         }
     }
-    None
+    InheritedProperty::None
 }
 
 // ---------------------------------------------------------------------------
@@ -804,6 +833,7 @@ mod tests {
         let hello = vm.inner.strings.intern("hello");
         let world = vm.inner.strings.intern(" world");
         let result = vm
+            .inner
             .op_add(JsValue::String(hello), JsValue::String(world))
             .unwrap();
         let JsValue::String(id) = result else {
@@ -817,6 +847,7 @@ mod tests {
         let mut vm = Vm::new();
         let s = vm.inner.strings.intern("px");
         let result = vm
+            .inner
             .op_add(JsValue::Number(42.0), JsValue::String(s))
             .unwrap();
         let JsValue::String(id) = result else {
@@ -829,6 +860,7 @@ mod tests {
     fn add_numbers() {
         let mut vm = Vm::new();
         let result = vm
+            .inner
             .op_add(JsValue::Number(1.0), JsValue::Number(2.0))
             .unwrap();
         assert_eq!(result, JsValue::Number(3.0));

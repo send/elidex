@@ -5,7 +5,7 @@
 use crate::bytecode::compiled::Constant;
 
 use super::value::{FuncId, JsValue, Object, ObjectKind, Property, PropertyKey, StringId, VmError};
-use super::Vm;
+use super::VmInner;
 
 // ---------------------------------------------------------------------------
 // Bytecode reading (free functions, used by methods below)
@@ -59,35 +59,35 @@ pub(super) fn regress_flags_from_str(flags: &str) -> regress::Flags {
 // Vm helper methods
 // ---------------------------------------------------------------------------
 
-impl Vm {
+impl VmInner {
     pub(crate) fn read_u8_op(&mut self) -> u8 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
+        let frame = self.frames.last_mut().unwrap();
+        let bc = &self.compiled_functions[frame.func_id.0 as usize].bytecode;
         read_u8(bc, &mut frame.ip)
     }
 
     pub(crate) fn read_i8_op(&mut self) -> i8 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
+        let frame = self.frames.last_mut().unwrap();
+        let bc = &self.compiled_functions[frame.func_id.0 as usize].bytecode;
         read_i8(bc, &mut frame.ip)
     }
 
     pub(crate) fn read_u16_op(&mut self) -> u16 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
+        let frame = self.frames.last_mut().unwrap();
+        let bc = &self.compiled_functions[frame.func_id.0 as usize].bytecode;
         read_u16(bc, &mut frame.ip)
     }
 
     pub(crate) fn read_i16_op(&mut self) -> i16 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
+        let frame = self.frames.last_mut().unwrap();
+        let bc = &self.compiled_functions[frame.func_id.0 as usize].bytecode;
         read_i16(bc, &mut frame.ip)
     }
 
     pub(crate) fn jump_relative(&mut self, offset: i16) {
-        let frame = self.inner.frames.last_mut().unwrap();
+        let frame = self.frames.last_mut().unwrap();
         let new_ip = frame.ip.wrapping_add_signed(offset as isize);
-        let bytecode_len = self.inner.compiled_functions[frame.func_id.0 as usize]
+        let bytecode_len = self.compiled_functions[frame.func_id.0 as usize]
             .bytecode
             .len();
         debug_assert!(
@@ -99,23 +99,23 @@ impl Vm {
     }
 
     pub(crate) fn load_constant(&mut self, func_id: FuncId, idx: u16) -> Result<JsValue, VmError> {
-        let constant = self.inner.compiled_functions[func_id.0 as usize]
+        let constant = self.compiled_functions[func_id.0 as usize]
             .constants
             .get(idx as usize)
             .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
         match constant {
             Constant::Number(n) => Ok(JsValue::Number(*n)),
             Constant::Wtf16(v) => {
-                let id = self.inner.strings.intern_utf16(v);
+                let id = self.strings.intern_utf16(v);
                 Ok(JsValue::String(id))
             }
             Constant::RegExp { pattern, flags } => {
                 let regex_flags = regress_flags_from_str(flags);
                 let compiled = regress::Regex::with_flags(pattern, regex_flags)
                     .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
-                let pat_id = self.inner.strings.intern(pattern);
-                let flags_id = self.inner.strings.intern(flags);
-                let proto = self.inner.regexp_prototype;
+                let pat_id = self.strings.intern(pattern);
+                let flags_id = self.strings.intern(flags);
+                let proto = self.regexp_prototype;
                 let obj_id = self.alloc_object(Object {
                     kind: ObjectKind::RegExp {
                         pattern: pat_id,
@@ -126,18 +126,18 @@ impl Vm {
                     prototype: proto,
                 });
                 // source and flags are non-enumerable, non-writable (§21.2.5.10, §21.2.5.3).
-                let source_key = PropertyKey::String(self.inner.strings.intern("source"));
+                let source_key = PropertyKey::String(self.strings.intern("source"));
                 self.get_object_mut(obj_id).properties.push((
                     source_key,
                     Property::builtin(JsValue::String(pat_id)),
                 ));
-                let flags_key = PropertyKey::String(self.inner.strings.intern("flags"));
+                let flags_key = PropertyKey::String(self.strings.intern("flags"));
                 self.get_object_mut(obj_id).properties.push((
                     flags_key,
                     Property::builtin(JsValue::String(flags_id)),
                 ));
                 // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
-                let last_index_key = PropertyKey::String(self.inner.strings.intern("lastIndex"));
+                let last_index_key = PropertyKey::String(self.strings.intern("lastIndex"));
                 self.get_object_mut(obj_id).properties.push((
                     last_index_key,
                     Property {
@@ -160,13 +160,13 @@ impl Vm {
         func_id: FuncId,
         idx: u16,
     ) -> Result<StringId, VmError> {
-        let constant = self.inner.compiled_functions[func_id.0 as usize]
+        let constant = self.compiled_functions[func_id.0 as usize]
             .constants
             .get(idx as usize)
             .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
         match constant {
             Constant::Wtf16(v) => {
-                let id = self.inner.strings.intern_utf16(v);
+                let id = self.strings.intern_utf16(v);
                 Ok(id)
             }
             _ => Err(VmError::internal("expected string constant")),

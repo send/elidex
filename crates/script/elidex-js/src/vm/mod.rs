@@ -227,6 +227,104 @@ impl VmInner {
             .as_mut()
             .expect("object already freed")
     }
+
+    // -- Compiled functions --------------------------------------------------
+
+    /// Register a compiled function in the VM, returning its `FuncId`.
+    pub(crate) fn register_function(&mut self, func: CompiledFunction) -> FuncId {
+        let id = FuncId(self.compiled_functions.len() as u32);
+        self.compiled_functions.push(func);
+        id
+    }
+
+    /// Get a reference to a compiled function.
+    #[inline]
+    pub(crate) fn get_compiled(&self, id: FuncId) -> &CompiledFunction {
+        &self.compiled_functions[id.0 as usize]
+    }
+
+    // -- Upvalues ------------------------------------------------------------
+
+    /// Allocate an upvalue, returning its `UpvalueId`.
+    pub(crate) fn alloc_upvalue(&mut self, uv: value::Upvalue) -> UpvalueId {
+        if let Some(idx) = self.free_upvalues.pop() {
+            self.upvalues[idx as usize] = uv;
+            UpvalueId(idx)
+        } else {
+            let id = UpvalueId(self.upvalues.len() as u32);
+            self.upvalues.push(uv);
+            id
+        }
+    }
+
+    // -- Native function helpers ---------------------------------------------
+
+    /// Helper: create a native function object (non-constructable by default,
+    /// matching the ES2020 spec for most built-in functions).
+    pub(crate) fn create_native_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.strings.intern(name);
+        self.alloc_object(Object {
+            kind: ObjectKind::NativeFunction(NativeFunction {
+                name: name_id,
+                func,
+                constructable: false,
+            }),
+            properties: Vec::new(),
+            prototype: None,
+        })
+    }
+
+    /// Helper: create a constructable native function object (for Error, etc.).
+    pub(crate) fn create_constructable_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.strings.intern(name);
+        self.alloc_object(Object {
+            kind: ObjectKind::NativeFunction(NativeFunction {
+                name: name_id,
+                func,
+                constructable: true,
+            }),
+            properties: Vec::new(),
+            prototype: None,
+        })
+    }
+
+    /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
+    /// if the slot is an accessor.
+    pub(crate) fn resolve_slot(
+        &mut self,
+        slot: value::PropertyValue,
+        this: JsValue,
+    ) -> Result<JsValue, VmError> {
+        match slot {
+            value::PropertyValue::Data(v) => Ok(v),
+            value::PropertyValue::Accessor {
+                getter: Some(g), ..
+            } => self.call(g, this, &[]),
+            value::PropertyValue::Accessor { getter: None, .. } => Ok(JsValue::Undefined),
+        }
+    }
+
+    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
+    pub(crate) fn get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<JsValue, VmError> {
+        let result = coerce::get_property(self, obj_id, key);
+        match result {
+            Some(coerce::PropertyResult::Data(v)) => Ok(v),
+            Some(coerce::PropertyResult::Getter(g)) => self.call(g, JsValue::Object(obj_id), &[]),
+            None => Ok(JsValue::Undefined),
+        }
+    }
 }
 
 /// The elidex-js bytecode VM.
@@ -339,11 +437,34 @@ impl Vm {
             },
         };
 
-        vm.register_globals();
+        vm.inner.register_globals();
         vm
     }
 
-    // -- String pool ---------------------------------------------------------
+    // -- Public API: all delegate to VmInner --------------------------------
+
+    /// Parse, compile, and execute JavaScript source code.
+    pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
+        self.inner.eval(source)
+    }
+
+    /// Load and execute a compiled script.
+    pub fn run_script(
+        &mut self,
+        script: crate::bytecode::compiled::CompiledScript,
+    ) -> Result<JsValue, VmError> {
+        self.inner.run_script(script)
+    }
+
+    /// Call a JS function object with the given `this` and arguments.
+    pub fn call(
+        &mut self,
+        func_obj_id: ObjectId,
+        this: JsValue,
+        args: &[JsValue],
+    ) -> Result<JsValue, VmError> {
+        self.inner.call(func_obj_id, this, args)
+    }
 
     /// Intern a string, returning its `StringId`.
     #[inline]
@@ -363,61 +484,38 @@ impl Vm {
         self.inner.strings.get_utf8(id)
     }
 
-    // -- Object heap ---------------------------------------------------------
-
     /// Allocate an object, returning its `ObjectId`.
     pub fn alloc_object(&mut self, obj: Object) -> ObjectId {
         self.inner.alloc_object(obj)
     }
 
     /// Get a reference to an object.
-    ///
-    /// # Panics
-    /// Panics if the object has been freed.
     #[inline]
     pub fn get_object(&self, id: ObjectId) -> &Object {
         self.inner.get_object(id)
     }
 
     /// Get a mutable reference to an object.
-    ///
-    /// # Panics
-    /// Panics if the object has been freed.
     #[inline]
     pub fn get_object_mut(&mut self, id: ObjectId) -> &mut Object {
         self.inner.get_object_mut(id)
     }
 
-    // -- Compiled functions --------------------------------------------------
-
     /// Register a compiled function in the VM, returning its `FuncId`.
     pub fn register_function(&mut self, func: CompiledFunction) -> FuncId {
-        let id = FuncId(self.inner.compiled_functions.len() as u32);
-        self.inner.compiled_functions.push(func);
-        id
+        self.inner.register_function(func)
     }
 
     /// Get a reference to a compiled function.
     #[inline]
     pub fn get_compiled(&self, id: FuncId) -> &CompiledFunction {
-        &self.inner.compiled_functions[id.0 as usize]
+        self.inner.get_compiled(id)
     }
-
-    // -- Upvalues ------------------------------------------------------------
 
     /// Allocate an upvalue, returning its `UpvalueId`.
     pub fn alloc_upvalue(&mut self, uv: value::Upvalue) -> UpvalueId {
-        if let Some(idx) = self.inner.free_upvalues.pop() {
-            self.inner.upvalues[idx as usize] = uv;
-            UpvalueId(idx)
-        } else {
-            let id = UpvalueId(self.inner.upvalues.len() as u32);
-            self.inner.upvalues.push(uv);
-            id
-        }
+        self.inner.alloc_upvalue(uv)
     }
-
-    // -- Globals -------------------------------------------------------------
 
     /// Set a global variable.
     pub fn set_global(&mut self, name: &str, value: JsValue) {
@@ -429,43 +527,6 @@ impl Vm {
     pub fn get_global(&self, name: &str) -> Option<JsValue> {
         let sid = self.inner.strings.lookup(name)?;
         self.inner.globals.get(&sid).copied()
-    }
-
-    /// Helper: create a native function object (non-constructable by default,
-    /// matching the ES2020 spec for most built-in functions).
-    pub(crate) fn create_native_function(
-        &mut self,
-        name: &str,
-        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
-    ) -> ObjectId {
-        let name_id = self.inner.strings.intern(name);
-        self.alloc_object(Object {
-            kind: ObjectKind::NativeFunction(NativeFunction {
-                name: name_id,
-                func,
-                constructable: false,
-            }),
-            properties: Vec::new(),
-            prototype: None,
-        })
-    }
-
-    /// Helper: create a constructable native function object (for Error, etc.).
-    pub(crate) fn create_constructable_function(
-        &mut self,
-        name: &str,
-        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
-    ) -> ObjectId {
-        let name_id = self.inner.strings.intern(name);
-        self.alloc_object(Object {
-            kind: ObjectKind::NativeFunction(NativeFunction {
-                name: name_id,
-                func,
-                constructable: true,
-            }),
-            properties: Vec::new(),
-            prototype: None,
-        })
     }
 }
 
@@ -539,5 +600,63 @@ impl NativeContext<'_> {
     #[inline]
     pub fn to_boolean(&self, val: JsValue) -> bool {
         coerce::to_boolean(self.vm, val)
+    }
+
+    /// Call a JS function object by `ObjectId` (e.g. getter/setter invoke).
+    ///
+    /// Enables native functions to call back into the VM for re-entrant
+    /// execution (e.g. invoking accessor getters from `Object.values`).
+    pub fn call_function(
+        &mut self,
+        callee: ObjectId,
+        this: JsValue,
+        args: &[JsValue],
+    ) -> Result<JsValue, VmError> {
+        self.vm.call(callee, this, args)
+    }
+
+    /// Call a value as a function (type-checked: must be an object).
+    pub fn call_value(
+        &mut self,
+        callee: JsValue,
+        this: JsValue,
+        args: &[JsValue],
+    ) -> Result<JsValue, VmError> {
+        self.vm.call_value(callee, this, args)
+    }
+
+    /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
+    /// if the slot is an accessor.
+    pub fn resolve_slot(
+        &mut self,
+        slot: value::PropertyValue,
+        this: JsValue,
+    ) -> Result<JsValue, VmError> {
+        self.vm.resolve_slot(slot, this)
+    }
+
+    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
+    /// Looks up the property (own + prototype chain), resolves accessors.
+    /// Returns `JsValue::Undefined` when the property does not exist.
+    pub fn get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<JsValue, VmError> {
+        self.vm.get_property_value(obj_id, key)
+    }
+
+    /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
+    /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
+    pub fn try_get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<Option<JsValue>, VmError> {
+        let exists = coerce::get_property(self.vm, obj_id, key).is_some();
+        if !exists {
+            return Ok(None);
+        }
+        Ok(Some(self.vm.get_property_value(obj_id, key)?))
     }
 }

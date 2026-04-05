@@ -304,15 +304,18 @@ pub(super) fn native_object_values(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    let values: Vec<JsValue> = ctx
+    // §7.3.21 EnumerableOwnPropertyNames: snapshot keys, then Get per key.
+    let keys: Vec<PropertyKey> = ctx
         .get_object(obj_id)
         .properties
         .iter()
         .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
-        // TODO(M4-11): accessor properties should invoke getter via Get.
-        // Requires VM single dispatcher (NativeContext re-entrancy).
-        .map(|(_, p)| p.data_value())
+        .map(|(k, _)| *k)
         .collect();
+    let mut values = Vec::with_capacity(keys.len());
+    for key in keys {
+        values.push(ctx.get_property_value(obj_id, key)?);
+    }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },
         properties: Vec::new(),
@@ -334,16 +337,18 @@ pub(super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // Collect source properties first to avoid borrow conflict.
-        // TODO(M4-11): should invoke getters via Get for accessor properties.
-        // Requires VM single dispatcher (NativeContext re-entrancy).
-        let props: Vec<(PropertyKey, JsValue)> = ctx
+        // §19.1.2.1 step 5c: snapshot keys, then Get per key.
+        let keys: Vec<PropertyKey> = ctx
             .get_object(src_id)
             .properties
             .iter()
             .filter(|(_, p)| p.enumerable)
-            .map(|(k, p)| (*k, p.data_value()))
+            .map(|(k, _)| *k)
             .collect();
+        let mut props = Vec::with_capacity(keys.len());
+        for key in keys {
+            props.push((key, ctx.get_property_value(src_id, key)?));
+        }
         for (key, value) in &props {
             // Sync global object writes to the globals HashMap.
             if is_global {
@@ -411,21 +416,16 @@ pub(super) fn native_object_define_property(
         let configurable_key = PropertyKey::String(ctx.intern("configurable"));
         let writable_key = PropertyKey::String(ctx.intern("writable"));
 
-        // TODO(M4-11): descriptor fields should be read via Get (invoking getters).
-        // Requires VM single dispatcher for NativeContext re-entrancy.
-        let desc = ctx.get_object(desc_id);
-        let find = |k: PropertyKey| -> Option<JsValue> {
-            desc.properties
-                .iter()
-                .find(|(pk, _)| *pk == k)
-                .map(|(_, p)| p.data_value())
-        };
-        let has_get = find(get_key);
-        let has_set = find(set_key);
-        let has_value = find(value_key);
-        let has_writable = find(writable_key);
-        let has_enumerable = find(enumerable_key);
-        let has_configurable = find(configurable_key);
+        // §6.2.5.5 ToPropertyDescriptor: HasProperty + Get per field in
+        // spec order (enumerable, configurable, value, writable, get, set).
+        // No up-front snapshot — each Get sees the current state, including
+        // mutations from earlier getters and inherited fields.
+        let has_enumerable = ctx.try_get_property_value(desc_id, enumerable_key)?;
+        let has_configurable = ctx.try_get_property_value(desc_id, configurable_key)?;
+        let has_value = ctx.try_get_property_value(desc_id, value_key)?;
+        let has_writable = ctx.try_get_property_value(desc_id, writable_key)?;
+        let has_get = ctx.try_get_property_value(desc_id, get_key)?;
+        let has_set = ctx.try_get_property_value(desc_id, set_key)?;
         // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
         let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
         let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
@@ -515,6 +515,87 @@ pub(super) fn native_object_define_property(
             "Property description must be an object",
         ));
     };
+
+    // §9.1.6.3: Validate attribute changes against existing non-configurable property.
+    if let Some(existing) = ctx
+        .get_object(obj_id)
+        .properties
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, p)| *p)
+    {
+        if !existing.configurable {
+            // Cannot change configurable from false to true.
+            if new_prop.configurable {
+                return Err(VmError::type_error(
+                    "Cannot redefine property: configurable is false",
+                ));
+            }
+            // Cannot change enumerable on non-configurable property.
+            if new_prop.enumerable != existing.enumerable {
+                return Err(VmError::type_error(
+                    "Cannot redefine property: cannot change enumerable",
+                ));
+            }
+            // Cannot change from data to accessor or vice versa.
+            let existing_is_accessor =
+                matches!(existing.slot, super::value::PropertyValue::Accessor { .. });
+            let new_is_accessor =
+                matches!(new_prop.slot, super::value::PropertyValue::Accessor { .. });
+            if existing_is_accessor != new_is_accessor {
+                return Err(VmError::type_error(
+                    "Cannot redefine property: cannot convert between data and accessor",
+                ));
+            }
+            match (existing.slot, new_prop.slot) {
+                // Non-configurable data: cannot change writable false→true
+                // or value if non-writable.
+                (
+                    super::value::PropertyValue::Data(existing_val),
+                    super::value::PropertyValue::Data(new_val),
+                ) => {
+                    if !existing.writable {
+                        if new_prop.writable {
+                            return Err(VmError::type_error(
+                                "Cannot redefine property: cannot make non-writable property writable",
+                            ));
+                        }
+                        if !super::value::same_value(existing_val, new_val) {
+                            return Err(VmError::type_error(
+                                "Cannot redefine property: cannot change value of non-writable, non-configurable property",
+                            ));
+                        }
+                    }
+                }
+                // Non-configurable accessor: cannot change getter or setter
+                // unless SameValue (§9.1.6.3 step 11).
+                (
+                    super::value::PropertyValue::Accessor {
+                        getter: eg,
+                        setter: es,
+                    },
+                    super::value::PropertyValue::Accessor {
+                        getter: ng,
+                        setter: ns,
+                    },
+                ) => {
+                    let obj_or_undef =
+                        |o: Option<ObjectId>| o.map_or(JsValue::Undefined, JsValue::Object);
+                    if !super::value::same_value(obj_or_undef(eg), obj_or_undef(ng)) {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot change getter of non-configurable accessor",
+                        ));
+                    }
+                    if !super::value::same_value(obj_or_undef(es), obj_or_undef(ns)) {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot change setter of non-configurable accessor",
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 
     // Sync globals HashMap: data properties are cached for GetGlobal fast path;
     // accessor properties remove any stale data entry so GetGlobal falls back
