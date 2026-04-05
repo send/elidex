@@ -173,6 +173,8 @@ pub(super) fn native_object_prototype_to_string(
         JsValue::Object(obj_id) => {
             // Check @@toStringTag
             let tag_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.to_string_tag);
+            // TODO(M4-10.5): accessor @@toStringTag should invoke getter via Get.
+            // Currently only data properties are supported (NativeContext can't call Vm::call).
             if let Some(super::coerce::PropertyResult::Data(JsValue::String(tag_id))) =
                 super::coerce::get_property(ctx.vm, obj_id, tag_key)
             {

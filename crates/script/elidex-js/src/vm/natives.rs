@@ -307,6 +307,8 @@ pub(super) fn native_object_values(
         .properties
         .iter()
         .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
+        // TODO(M4-10.5): accessor properties should invoke getter via Get.
+        // Requires NativeContext → Vm::call() bridge (architecture change).
         .map(|(_, p)| p.data_value())
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
@@ -331,6 +333,7 @@ pub(super) fn native_object_assign(
             continue;
         };
         // Collect source properties first to avoid borrow conflict.
+        // TODO(M4-10.5): should invoke getters via Get for accessor properties.
         let props: Vec<(PropertyKey, JsValue)> = ctx
             .get_object(src_id)
             .properties
@@ -414,26 +417,33 @@ pub(super) fn native_object_define_property(
         let has_get = find(get_key);
         let has_set = find(set_key);
         let has_value = find(value_key);
-        let enumerable = find(enumerable_key).is_some_and(|v| matches!(v, JsValue::Boolean(true)));
+        let has_writable = find(writable_key);
+        // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
+        let enumerable = find(enumerable_key).is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
         let configurable =
-            find(configurable_key).is_some_and(|v| matches!(v, JsValue::Boolean(true)));
+            find(configurable_key).is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
 
-        if has_get.is_some() || has_set.is_some() {
-            // Accessor descriptor.
-            let getter = has_get.and_then(|v| {
+        let has_accessor = has_get.is_some() || has_set.is_some();
+        let has_data = has_value.is_some() || has_writable.is_some();
+
+        // §9.1.6.3 step 2: mixing accessor and data fields is a TypeError.
+        if has_accessor && has_data {
+            return Err(VmError::type_error(
+                "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute",
+            ));
+        }
+
+        if has_accessor {
+            // Validate that get/set are callable or undefined (§9.1.6.3 step 7-8).
+            let to_fn = |v: JsValue| {
                 if let JsValue::Object(id) = v {
                     Some(id)
                 } else {
                     None
                 }
-            });
-            let setter = has_set.and_then(|v| {
-                if let JsValue::Object(id) = v {
-                    Some(id)
-                } else {
-                    None
-                }
-            });
+            };
+            let getter = has_get.and_then(to_fn);
+            let setter = has_set.and_then(to_fn);
             Property {
                 slot: super::value::PropertyValue::Accessor { getter, setter },
                 writable: false,
@@ -441,9 +451,8 @@ pub(super) fn native_object_define_property(
                 configurable,
             }
         } else {
-            // Data descriptor.
             let value = has_value.unwrap_or(JsValue::Undefined);
-            let writable = find(writable_key).is_some_and(|v| matches!(v, JsValue::Boolean(true)));
+            let writable = has_writable.is_some_and(|v| super::coerce::to_boolean(ctx.vm, v));
             Property {
                 slot: super::value::PropertyValue::Data(value),
                 writable,

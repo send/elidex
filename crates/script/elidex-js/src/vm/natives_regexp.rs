@@ -30,9 +30,15 @@ fn run_regexp(
         for (k, p) in &obj.properties {
             if *k == last_index_key {
                 if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    {
-                        val = n as usize;
+                    // ToLength-like coercion: non-finite/negative → 0,
+                    // clamp to subject length.
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        clippy::cast_precision_loss
+                    )]
+                    if n.is_finite() && n > 0.0 {
+                        val = n.trunc().min(subject.len() as f64) as usize;
                     }
                 }
             }

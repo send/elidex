@@ -472,6 +472,7 @@ pub(super) fn native_string_replace(
     Ok(JsValue::String(id))
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn native_string_match(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -481,8 +482,56 @@ pub(super) fn native_string_match(
         return Ok(JsValue::Null);
     };
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(re_id) = re_val else {
-        return Ok(JsValue::Null);
+
+    // Non-RegExp argument: coerce to string and create a regex.
+    #[allow(clippy::manual_let_else)] // else branch has complex early-return logic
+    let re_id = if let JsValue::Object(id) = re_val {
+        id
+    } else {
+        let pattern_str = if matches!(re_val, JsValue::Undefined) {
+            String::new()
+        } else {
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            ctx.vm.strings.get_utf8(pat_id)
+        };
+        let compiled = regress::Regex::new(&pattern_str)
+            .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+        let subject = ctx.vm.strings.get_utf8(sid);
+        // Quick non-global match for string patterns.
+        let m = compiled.find(&subject);
+        let match_data: Option<(Vec<Option<String>>, usize)> = m.map(|m| {
+            let mut matches: Vec<Option<String>> =
+                vec![Some(subject[m.start()..m.end()].to_string())];
+            for group in &m.captures {
+                matches.push(
+                    group
+                        .as_ref()
+                        .map(|range| subject[range.start..range.end].to_string()),
+                );
+            }
+            (matches, m.start())
+        });
+        let Some((matches, index)) = match_data else {
+            return Ok(JsValue::Null);
+        };
+        let mut elements = Vec::with_capacity(matches.len());
+        for s in &matches {
+            match s {
+                Some(s) => elements.push(JsValue::String(ctx.intern(s))),
+                None => elements.push(JsValue::Undefined),
+            }
+        }
+        let arr_id = ctx.alloc_object(Object {
+            kind: ObjectKind::Array { elements },
+            properties: Vec::new(),
+            prototype: ctx.vm.array_prototype,
+        });
+        let index_key = PropertyKey::String(ctx.intern("index"));
+        #[allow(clippy::cast_precision_loss)]
+        ctx.get_object_mut(arr_id)
+            .properties
+            .push((index_key, Property::data(JsValue::Number(index as f64))));
+        return Ok(JsValue::Object(arr_id));
     };
 
     // Extract match data with immutable borrow, then build result with mutable.
@@ -588,8 +637,25 @@ pub(super) fn native_string_search(
         return Ok(JsValue::Number(-1.0));
     };
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    // Non-RegExp argument: coerce to string and create a regex.
+    if !matches!(re_val, JsValue::Object(_)) {
+        let pattern_str = if matches!(re_val, JsValue::Undefined) {
+            String::new()
+        } else {
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            ctx.vm.strings.get_utf8(pat_id)
+        };
+        let compiled = regress::Regex::new(&pattern_str)
+            .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+        let subject = ctx.vm.strings.get_utf8(sid);
+        #[allow(clippy::cast_precision_loss)]
+        return Ok(JsValue::Number(
+            compiled.find(&subject).map_or(-1.0, |m| m.start() as f64),
+        ));
+    }
     let JsValue::Object(re_id) = re_val else {
-        return Ok(JsValue::Number(-1.0));
+        unreachable!();
     };
     // Extract result with immutable borrow.
     let result = {
