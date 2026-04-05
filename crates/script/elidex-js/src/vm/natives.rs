@@ -561,16 +561,19 @@ pub(super) fn native_object_define_property(
                     "Cannot redefine property: cannot convert between data and accessor",
                 ));
             }
-            // Non-configurable data property: cannot change writable false→true,
-            // cannot change value if non-writable.
-            if let super::value::PropertyValue::Data(existing_val) = existing.slot {
-                if !existing.writable {
-                    if new_prop.writable {
-                        return Err(VmError::type_error(
-                            "Cannot redefine property: cannot make non-writable property writable",
-                        ));
-                    }
-                    if let super::value::PropertyValue::Data(new_val) = new_prop.slot {
+            match (existing.slot, new_prop.slot) {
+                // Non-configurable data: cannot change writable false→true
+                // or value if non-writable.
+                (
+                    super::value::PropertyValue::Data(existing_val),
+                    super::value::PropertyValue::Data(new_val),
+                ) => {
+                    if !existing.writable {
+                        if new_prop.writable {
+                            return Err(VmError::type_error(
+                                "Cannot redefine property: cannot make non-writable property writable",
+                            ));
+                        }
                         if !super::value::same_value(existing_val, new_val) {
                             return Err(VmError::type_error(
                                 "Cannot redefine property: cannot change value of non-writable, non-configurable property",
@@ -578,6 +581,32 @@ pub(super) fn native_object_define_property(
                         }
                     }
                 }
+                // Non-configurable accessor: cannot change getter or setter
+                // unless SameValue (§9.1.6.3 step 11).
+                (
+                    super::value::PropertyValue::Accessor {
+                        getter: eg,
+                        setter: es,
+                    },
+                    super::value::PropertyValue::Accessor {
+                        getter: ng,
+                        setter: ns,
+                    },
+                ) => {
+                    let obj_or_undef =
+                        |o: Option<ObjectId>| o.map_or(JsValue::Undefined, JsValue::Object);
+                    if !super::value::same_value(obj_or_undef(eg), obj_or_undef(ng)) {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot change getter of non-configurable accessor",
+                        ));
+                    }
+                    if !super::value::same_value(obj_or_undef(es), obj_or_undef(ns)) {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot change setter of non-configurable accessor",
+                        ));
+                    }
+                }
+                _ => {}
             }
         }
     }

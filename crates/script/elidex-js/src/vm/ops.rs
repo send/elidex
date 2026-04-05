@@ -413,7 +413,7 @@ impl VmInner {
                 }
                 return Ok(false);
             }
-            obj.properties.swap_remove(pos);
+            obj.properties.remove(pos);
             // Sync global object deletes to the globals HashMap.
             if id == self.global_object {
                 if let PropertyKey::String(sid) = pk {
@@ -435,7 +435,49 @@ impl VmInner {
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
             let is_strict = self.is_strict_mode();
-            // §9.1.9 OrdinarySet: check prototype chain for inherited properties.
+            let is_global = id == self.global_object;
+            // §9.1.9 OrdinarySet step 1: check own property first.
+            let own = self
+                .get_object(id)
+                .properties
+                .iter()
+                .find(|(k, _)| *k == pk)
+                .map(|(_, p)| (p.slot, p.writable));
+            if let Some((slot, writable)) = own {
+                match slot {
+                    PropertyValue::Data(_) if writable => {
+                        let obj_ref = self.get_object_mut(id);
+                        for prop in &mut obj_ref.properties {
+                            if prop.0 == pk {
+                                prop.1.slot = PropertyValue::Data(val);
+                                break;
+                            }
+                        }
+                        if is_global {
+                            self.globals.insert(key, val);
+                        }
+                    }
+                    PropertyValue::Data(_) => {
+                        if is_strict {
+                            return Err(VmError::type_error("Cannot assign to read only property"));
+                        }
+                    }
+                    PropertyValue::Accessor {
+                        setter: Some(s), ..
+                    } => {
+                        self.call(s, obj, &[val])?;
+                    }
+                    PropertyValue::Accessor { setter: None, .. } => {
+                        if is_strict {
+                            return Err(VmError::type_error(
+                                "Cannot set property which has only a getter",
+                            ));
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            // §9.1.9 step 2: no own property — check prototype chain.
             match find_inherited_property(self, id, pk) {
                 InheritedProperty::Setter(setter_id) => {
                     self.call(setter_id, obj, &[val])?;
@@ -451,45 +493,10 @@ impl VmInner {
                 }
                 InheritedProperty::None => {}
             }
-            let is_global = id == self.global_object;
-            let obj = self.get_object_mut(id);
-            for prop in &mut obj.properties {
-                if prop.0 == pk {
-                    match &prop.1.slot {
-                        PropertyValue::Data(_) if prop.1.writable => {
-                            prop.1.slot = PropertyValue::Data(val);
-                            if is_global {
-                                self.globals.insert(key, val);
-                            }
-                        }
-                        PropertyValue::Data(_) => {
-                            if is_strict {
-                                return Err(VmError::type_error(
-                                    "Cannot assign to read only property",
-                                ));
-                            }
-                        }
-                        PropertyValue::Accessor {
-                            setter: Some(s), ..
-                        } => {
-                            // Own accessor with setter: invoke it.
-                            let setter_id = *s;
-                            let receiver = JsValue::Object(id);
-                            self.call(setter_id, receiver, &[val])?;
-                        }
-                        PropertyValue::Accessor { setter: None, .. } => {
-                            // Own accessor without setter: reject.
-                            if is_strict {
-                                return Err(VmError::type_error(
-                                    "Cannot set property which has only a getter",
-                                ));
-                            }
-                        }
-                    }
-                    return Ok(());
-                }
-            }
-            obj.properties.push((pk, Property::data(val)));
+            // §9.1.9 step 3: create own data property.
+            self.get_object_mut(id)
+                .properties
+                .push((pk, Property::data(val)));
             if is_global {
                 self.globals.insert(key, val);
             }
@@ -622,11 +629,46 @@ impl VmInner {
                     }
                 }
             }
-            // Symbol key → direct property set.
+            // Symbol key → §9.1.9 OrdinarySet (same logic as set_property_val).
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
                 let is_strict = self.is_strict_mode();
-                // §9.1.9: check prototype chain for inherited constraints.
+                // Step 1: check own property first.
+                let own = self
+                    .get_object(id)
+                    .properties
+                    .iter()
+                    .find(|(k, _)| *k == pk)
+                    .map(|(_, p)| (p.slot, p.writable));
+                if let Some((slot, writable)) = own {
+                    match slot {
+                        PropertyValue::Data(_) if writable => {
+                            let obj_ref = self.get_object_mut(id);
+                            for prop in &mut obj_ref.properties {
+                                if prop.0 == pk {
+                                    prop.1.slot = PropertyValue::Data(val);
+                                    break;
+                                }
+                            }
+                        }
+                        PropertyValue::Data(_) if is_strict => {
+                            return Err(VmError::type_error("Cannot assign to read only property"));
+                        }
+                        PropertyValue::Accessor {
+                            setter: Some(s), ..
+                        } => {
+                            self.call(s, obj, &[val])?;
+                        }
+                        PropertyValue::Accessor { setter: None, .. } if is_strict => {
+                            return Err(VmError::type_error(
+                                "Cannot set property which has only a getter",
+                            ));
+                        }
+                        _ => {}
+                    }
+                    return Ok(());
+                }
+                // Step 2: no own property — check prototype chain.
                 match find_inherited_property(self, id, pk) {
                     InheritedProperty::Setter(setter_id) => {
                         self.call(setter_id, obj, &[val])?;
@@ -642,35 +684,10 @@ impl VmInner {
                     }
                     InheritedProperty::None => {}
                 }
-                let obj_ref = self.get_object_mut(id);
-                for prop in &mut obj_ref.properties {
-                    if prop.0 == pk {
-                        match &prop.1.slot {
-                            PropertyValue::Data(_) if prop.1.writable => {
-                                prop.1.slot = PropertyValue::Data(val);
-                            }
-                            PropertyValue::Data(_) if is_strict => {
-                                return Err(VmError::type_error(
-                                    "Cannot assign to read only property",
-                                ));
-                            }
-                            PropertyValue::Accessor {
-                                setter: Some(s), ..
-                            } => {
-                                let setter_id = *s;
-                                self.call(setter_id, obj, &[val])?;
-                            }
-                            PropertyValue::Accessor { setter: None, .. } if is_strict => {
-                                return Err(VmError::type_error(
-                                    "Cannot set property which has only a getter",
-                                ));
-                            }
-                            _ => {}
-                        }
-                        return Ok(());
-                    }
-                }
-                obj_ref.properties.push((pk, Property::data(val)));
+                // Step 3: create own data property.
+                self.get_object_mut(id)
+                    .properties
+                    .push((pk, Property::data(val)));
                 return Ok(());
             }
             let key_id = to_string(self, key)?;

@@ -273,3 +273,53 @@ fn define_property_non_configurable_same_value_ok() {
         42.0
     );
 }
+
+#[test]
+fn define_property_non_configurable_accessor_reject_getter_change() {
+    eval_throws(
+        "var g1 = function() { return 1; }; var g2 = function() { return 2; }; \
+         var o = {}; Object.defineProperty(o, 'x', { get: g1, configurable: false }); \
+         Object.defineProperty(o, 'x', { get: g2 });",
+    );
+}
+
+#[test]
+fn define_property_non_configurable_accessor_same_getter_ok() {
+    assert_eq!(
+        eval_number(
+            "var g = function() { return 7; }; \
+             var o = {}; Object.defineProperty(o, 'x', { get: g, configurable: false }); \
+             Object.defineProperty(o, 'x', { get: g }); o.x;"
+        ),
+        7.0
+    );
+}
+
+// ─── OrdinarySet ordering: own property takes precedence over prototype ──
+
+#[test]
+fn own_property_takes_precedence_over_inherited_setter() {
+    assert_eq!(
+        eval_number(
+            "var proto = {}; var called = 0; \
+             Object.defineProperty(proto, 'x', { set: function(v) { called = v; } }); \
+             var o = Object.create(proto); \
+             Object.defineProperty(o, 'x', { value: 1, writable: true, configurable: true }); \
+             o.x = 42; o.x;"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn own_property_takes_precedence_over_inherited_writable_false() {
+    assert_eq!(
+        eval_number(
+            "var proto = {}; Object.defineProperty(proto, 'x', { value: 1, writable: false }); \
+             var o = Object.create(proto); \
+             Object.defineProperty(o, 'x', { value: 10, writable: true, configurable: true }); \
+             o.x = 42; o.x;"
+        ),
+        42.0
+    );
+}

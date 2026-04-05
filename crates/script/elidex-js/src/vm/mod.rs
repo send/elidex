@@ -612,19 +612,12 @@ impl NativeContext<'_> {
     }
 
     /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
-    /// if the slot is an accessor. Used by `Object.values`, `Object.assign`,
-    /// spread, and `Object.defineProperty` descriptor reading.
+    /// if the slot is an accessor.
     pub fn resolve_slot(
         &mut self,
         slot: value::PropertyValue,
         this: JsValue,
     ) -> Result<JsValue, VmError> {
-        match slot {
-            value::PropertyValue::Data(v) => Ok(v),
-            value::PropertyValue::Accessor {
-                getter: Some(g), ..
-            } => self.call_function(g, this, &[]),
-            value::PropertyValue::Accessor { getter: None, .. } => Ok(JsValue::Undefined),
-        }
+        self.vm.resolve_slot(slot, this)
     }
 }
