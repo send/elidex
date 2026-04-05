@@ -47,12 +47,38 @@ impl Vm {
                         fo.captured_this.unwrap_or(JsValue::Undefined)
                     }
                     super::value::ThisMode::Global => {
-                        // §9.2.1.2: non-strict functions coerce undefined/null
-                        // this to the global object.
-                        if matches!(this, JsValue::Undefined | JsValue::Null) {
-                            JsValue::Object(self.inner.global_object)
-                        } else {
-                            this
+                        // §9.2.1.2 OrdinaryCallBindThis:
+                        // Step 5: undefined/null → globalThis
+                        // Step 6.b.ii: primitive → ToObject wrapper
+                        match this {
+                            JsValue::Undefined | JsValue::Null => {
+                                JsValue::Object(self.inner.global_object)
+                            }
+                            JsValue::Number(n) => {
+                                let wrapper = self.alloc_object(super::value::Object {
+                                    kind: ObjectKind::NumberWrapper(n),
+                                    properties: Vec::new(),
+                                    prototype: self.inner.number_prototype,
+                                });
+                                JsValue::Object(wrapper)
+                            }
+                            JsValue::String(s) => {
+                                let wrapper = self.alloc_object(super::value::Object {
+                                    kind: ObjectKind::StringWrapper(s),
+                                    properties: Vec::new(),
+                                    prototype: self.inner.string_prototype,
+                                });
+                                JsValue::Object(wrapper)
+                            }
+                            JsValue::Boolean(b) => {
+                                let wrapper = self.alloc_object(super::value::Object {
+                                    kind: ObjectKind::BooleanWrapper(b),
+                                    properties: Vec::new(),
+                                    prototype: self.inner.boolean_prototype,
+                                });
+                                JsValue::Object(wrapper)
+                            }
+                            _ => this,
                         }
                     }
                     super::value::ThisMode::Strict => this,
@@ -81,7 +107,9 @@ impl Vm {
         let compiled = self.get_compiled(func_id);
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
+        let needs_arguments = compiled.needs_arguments;
 
+        let entry_frames = self.inner.frames.len();
         let base = self.inner.stack.len();
 
         // Allocate locals (initialized to Undefined).
@@ -107,9 +135,23 @@ impl Vm {
             this_value: this,
             exception_handlers: Vec::new(),
             tdz_slots: vec![true; local_count],
+            actual_args: if needs_arguments {
+                Some(args.to_vec())
+            } else {
+                None
+            },
         });
 
         let result = self.run();
+
+        // On error, clean up the frame if it's still on the stack.
+        // The inner run() may have left it if the throw was uncaught.
+        if result.is_err()
+            && self.inner.frames.len() > entry_frames
+            && self.inner.frames.last().map(|f| f.base) == Some(base)
+        {
+            self.pop_frame();
+        }
 
         // Restore the parent scope's completion value.
         self.inner.completion_value = saved_completion;

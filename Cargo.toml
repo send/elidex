@@ -169,6 +169,7 @@ rayon = "1"
 unicode-segmentation = "1"
 unicode-linebreak = "0.1"
 regex = "1"
+regress = "0.10"
 criterion = { version = "0.8", default-features = false }
 elidex-wpt = { path = "crates/tools/elidex-wpt" }
 

@@ -2007,6 +2007,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-script-session",
  "hashbrown 0.15.5",
+ "regress",
  "unicode-ident",
 ]
 

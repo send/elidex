@@ -1,6 +1,6 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
-use super::value::{JsValue, ObjectKind, Property, PropertyKey, VmError};
+use super::value::{JsValue, ObjectKind, Property, PropertyKey, PropertyValue, VmError};
 use super::Vm;
 
 impl Vm {
@@ -149,13 +149,13 @@ impl Vm {
                 .properties
                 .iter()
                 .filter(|(_, p)| p.enumerable)
-                .map(|(k, p)| (*k, Property::data(p.value)))
+                .map(|(k, p)| (*k, Property::data(p.data_value())))
                 .collect();
             // Sync global object writes to the globals HashMap.
             if is_global {
                 for (k, p) in &props {
                     if let PropertyKey::String(sid) = k {
-                        self.inner.globals.insert(*sid, p.value);
+                        self.inner.globals.insert(*sid, p.data_value());
                     }
                 }
             }
@@ -181,8 +181,6 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             let key = PropertyKey::String(name_id);
             let obj = self.get_object_mut(id);
-            // Upsert: overwrite if key exists (e.g. method override in
-            // derived class), otherwise push.
             if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
                 existing.1 = Property::method(val);
             } else {
@@ -190,5 +188,56 @@ impl Vm {
             }
         }
         Ok(())
+    }
+
+    /// Define a getter or setter accessor on the object at TOS.
+    fn op_define_accessor(
+        &mut self,
+        name_id: super::value::StringId,
+        is_getter: bool,
+    ) -> Result<(), VmError> {
+        let closure = self.pop()?;
+        let obj_val = self.peek()?;
+        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
+            let pk = PropertyKey::String(name_id);
+            let (init_get, init_set) = if is_getter {
+                (Some(fn_id), None)
+            } else {
+                (None, Some(fn_id))
+            };
+            let obj = self.get_object_mut(obj_id);
+            if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
+                match &mut existing.1.slot {
+                    PropertyValue::Accessor { getter, setter } => {
+                        if is_getter {
+                            *getter = Some(fn_id);
+                        } else {
+                            *setter = Some(fn_id);
+                        }
+                    }
+                    PropertyValue::Data(_) => {
+                        existing.1 = Property::accessor(init_get, init_set);
+                    }
+                }
+            } else {
+                obj.properties
+                    .push((pk, Property::accessor(init_get, init_set)));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn op_define_getter(
+        &mut self,
+        name_id: super::value::StringId,
+    ) -> Result<(), VmError> {
+        self.op_define_accessor(name_id, true)
+    }
+
+    pub(crate) fn op_define_setter(
+        &mut self,
+        name_id: super::value::StringId,
+    ) -> Result<(), VmError> {
+        self.op_define_accessor(name_id, false)
     }
 }

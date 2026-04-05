@@ -19,9 +19,10 @@ impl Vm {
             return Ok(None);
         };
         let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
-        let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) else {
+        let Some(iter_result) = get_property(&self.inner, obj_id, iter_key) else {
             return Ok(None);
         };
+        let iter_fn = self.resolve_property(iter_result, val)?;
         let result = self.call_value(iter_fn, val, &[])?;
         Ok(Some(result))
     }
@@ -41,7 +42,8 @@ impl Vm {
             // takes precedence over the original iteration error.
             if let JsValue::Object(iter_id) = iterator {
                 let return_key = PropertyKey::String(self.inner.well_known.return_str);
-                if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
+                if let Some(return_result) = get_property(&self.inner, iter_id, return_key) {
+                    let return_fn = self.resolve_property(return_result, iterator)?;
                     self.call_value(return_fn, iterator, &[])?;
                 }
             }

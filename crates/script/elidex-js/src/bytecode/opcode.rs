@@ -244,6 +244,9 @@ pub enum Op {
     /// `[new.target args_array -- this]`
     SuperCallSpread,
 
+    /// Create the `arguments` object from the current frame's actual args. `[ -- arguments_obj]`
+    CreateArguments,
+
     // ── Generator / Async ───────────────────────────────────────────
     /// `[value -- resumed_value]`
     Yield,
@@ -375,6 +378,7 @@ impl Op {
             | Self::SuperCallSpread
             | Self::ForInIterator
             | Self::ForInNext
+            | Self::CreateArguments
             | Self::Wide => 0,
 
             // 1-byte operand (u8 or i8)

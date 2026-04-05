@@ -1,9 +1,8 @@
 //! Main bytecode dispatch loop.
 //!
-//! Contains `Vm::run()` — the core opcode-dispatch loop — along with the
-//! bytecode reading helpers it uses.
+//! Contains `Vm::run()` — the core opcode-dispatch loop. Bytecode reading
+//! helpers, constant loading, and jump support live in `dispatch_helpers.rs`.
 
-use crate::bytecode::compiled::Constant;
 use crate::bytecode::opcode::Op;
 
 use super::coerce::{
@@ -11,43 +10,8 @@ use super::coerce::{
     to_number, to_string, typeof_str, BitwiseOp, NumericBinaryOp,
 };
 use super::ops::parse_array_index_u16;
-use super::value::{
-    FuncId, JsValue, Object, ObjectKind, PropertyKey, StringId, VmError, VmErrorKind,
-};
+use super::value::{JsValue, Object, ObjectKind, Property, PropertyKey, VmError, VmErrorKind};
 use super::Vm;
-
-// ---------------------------------------------------------------------------
-// Bytecode reading helpers (free functions)
-// ---------------------------------------------------------------------------
-
-/// Read a u8 from bytecode at `ip`, advancing ip.
-#[inline]
-fn read_u8(bytecode: &[u8], ip: &mut usize) -> u8 {
-    let val = bytecode[*ip];
-    *ip += 1;
-    val
-}
-
-/// Read a u16 (little-endian) from bytecode at `ip`, advancing ip.
-#[inline]
-fn read_u16(bytecode: &[u8], ip: &mut usize) -> u16 {
-    let lo = u16::from(bytecode[*ip]);
-    let hi = u16::from(bytecode[*ip + 1]);
-    *ip += 2;
-    lo | (hi << 8)
-}
-
-/// Read an i16 (little-endian) from bytecode at `ip`, advancing ip.
-#[inline]
-fn read_i16(bytecode: &[u8], ip: &mut usize) -> i16 {
-    read_u16(bytecode, ip).cast_signed()
-}
-
-/// Read an i8 from bytecode at `ip`, advancing ip.
-#[inline]
-fn read_i8(bytecode: &[u8], ip: &mut usize) -> i8 {
-    read_u8(bytecode, ip).cast_signed()
-}
 
 // ---------------------------------------------------------------------------
 // Main dispatch loop
@@ -315,9 +279,17 @@ impl Vm {
                     if let JsValue::Object(rhs_id) = rhs {
                         let has_instance_key =
                             PropertyKey::Symbol(self.inner.well_known_symbols.has_instance);
-                        if let Some(has_instance_fn) =
+                        if let Some(has_instance_result) =
                             super::coerce::get_property(&self.inner, rhs_id, has_instance_key)
                         {
+                            let has_instance_fn =
+                                match self.resolve_property(has_instance_result, rhs) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                };
                             let result = match self.call_value(has_instance_fn, rhs, &[lhs]) {
                                 Ok(r) => r,
                                 Err(e) => {
@@ -337,7 +309,10 @@ impl Vm {
                             let proto_key = PropertyKey::String(self.inner.well_known.prototype);
                             let ctor_proto =
                                 super::coerce::get_property(&self.inner, ctor_id, proto_key);
-                            if let Some(JsValue::Object(target_proto)) = ctor_proto {
+                            if let Some(super::coerce::PropertyResult::Data(JsValue::Object(
+                                target_proto,
+                            ))) = ctor_proto
+                            {
                                 let mut current = self.inner.get_object(obj_id).prototype;
                                 let mut found = false;
                                 while let Some(proto_id) = current {
@@ -460,11 +435,12 @@ impl Vm {
                     let prefix = self.read_u8_op() != 0;
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let obj_val = self.pop()?;
-                    let old = if let JsValue::Object(id) = obj_val {
-                        super::coerce::get_property(&self.inner, id, PropertyKey::String(name_id))
-                            .unwrap_or(JsValue::Undefined)
-                    } else {
-                        JsValue::Undefined
+                    let old = match self.get_property_val(obj_val, name_id) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
                     };
                     match to_number(&self.inner, old) {
                         Ok(old_num) => {
@@ -583,15 +559,22 @@ impl Vm {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let obj_val = self.pop()?;
-                    let val = self.get_property_val(obj_val, name_id)?;
-                    self.inner.stack.push(val);
+                    match self.get_property_val(obj_val, name_id) {
+                        Ok(val) => self.inner.stack.push(val),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
+                    }
                 }
                 Op::SetProp => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let val = self.pop()?;
                     let obj_val = self.pop()?;
-                    self.set_property_val(obj_val, name_id, val)?;
+                    if let Err(e) = self.set_property_val(obj_val, name_id, val) {
+                        self.throw_error(e, entry_frame_depth)?;
+                        continue;
+                    }
                     self.inner.stack.push(val);
                 }
                 Op::GetElem => {
@@ -807,12 +790,40 @@ impl Vm {
                     self.pop()?;
                 }
 
-                // ── Stubs for remaining opcodes ─────────────────────
-                Op::DefineGetter | Op::DefineSetter => {
-                    self.read_u16_op();
-                    self.pop()?; // closure
-                                 // Leave object on stack.
+                // ── Accessor property definition ────────────────────
+                Op::DefineGetter => {
+                    let name_idx = self.read_u16_op();
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    self.op_define_getter(name_id)?;
                 }
+                Op::DefineSetter => {
+                    let name_idx = self.read_u16_op();
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    self.op_define_setter(name_id)?;
+                }
+
+                // ── Arguments object ────────────────────────────────
+                Op::CreateArguments => {
+                    let args = self.inner.frames[frame_idx]
+                        .actual_args
+                        .clone()
+                        .unwrap_or_default();
+                    let len = args.len();
+                    let args_obj = self.alloc_object(super::value::Object {
+                        kind: ObjectKind::Arguments { values: args },
+                        properties: Vec::new(),
+                        prototype: self.inner.object_prototype,
+                    });
+                    // Set the `length` property.
+                    let length_key = PropertyKey::String(self.inner.well_known.length);
+                    #[allow(clippy::cast_precision_loss)]
+                    self.get_object_mut(args_obj)
+                        .properties
+                        .push((length_key, Property::data(JsValue::Number(len as f64))));
+                    self.inner.stack.push(JsValue::Object(args_obj));
+                }
+
+                // ── Stubs for remaining opcodes ─────────────────────
                 Op::CallSpread | Op::NewSpread | Op::SuperCallSpread => {
                     self.pop()?; // args array
                     self.pop()?; // callee/constructor
@@ -879,7 +890,15 @@ impl Vm {
                     let iter_val = self.pop()?;
                     if let JsValue::Object(iter_id) = iter_val {
                         let return_key = PropertyKey::String(self.inner.well_known.return_str);
-                        if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
+                        if let Some(return_result) = get_property(&self.inner, iter_id, return_key)
+                        {
+                            let return_fn = match self.resolve_property(return_result, iter_val) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    self.throw_error(e, entry_frame_depth)?;
+                                    continue;
+                                }
+                            };
                             // Call .return() and route errors through exception handling.
                             if let Err(e) = self.call_value(return_fn, iter_val, &[]) {
                                 self.throw_error(e, entry_frame_depth)?;
@@ -978,76 +997,5 @@ impl Vm {
         }
     }
 
-    // -- Helper methods -------------------------------------------------------
-
-    fn read_u8_op(&mut self) -> u8 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
-        read_u8(bc, &mut frame.ip)
-    }
-
-    fn read_i8_op(&mut self) -> i8 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
-        read_i8(bc, &mut frame.ip)
-    }
-
-    fn read_u16_op(&mut self) -> u16 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
-        read_u16(bc, &mut frame.ip)
-    }
-
-    fn read_i16_op(&mut self) -> i16 {
-        let frame = self.inner.frames.last_mut().unwrap();
-        let bc = &self.inner.compiled_functions[frame.func_id.0 as usize].bytecode;
-        read_i16(bc, &mut frame.ip)
-    }
-
-    fn jump_relative(&mut self, offset: i16) {
-        let frame = self.inner.frames.last_mut().unwrap();
-        // offset is relative to the ip AFTER reading the operand
-        let new_ip = frame.ip.wrapping_add_signed(offset as isize);
-        let bytecode_len = self.inner.compiled_functions[frame.func_id.0 as usize]
-            .bytecode
-            .len();
-        debug_assert!(
-            new_ip <= bytecode_len,
-            "invalid jump: ip={}, offset={offset}, bytecode_len={bytecode_len}",
-            frame.ip
-        );
-        frame.ip = new_ip;
-    }
-
-    fn load_constant(&mut self, func_id: FuncId, idx: u16) -> Result<JsValue, VmError> {
-        let constant = self.inner.compiled_functions[func_id.0 as usize]
-            .constants
-            .get(idx as usize)
-            .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
-        match constant {
-            Constant::Number(n) => Ok(JsValue::Number(*n)),
-            Constant::Wtf16(v) => {
-                let id = self.inner.strings.intern_utf16(v);
-                Ok(JsValue::String(id))
-            }
-            Constant::BigInt(_) // deferred to M4-12
-            | Constant::RegExp { .. } // deferred to M4-10.2
-            | Constant::Function(_) // loaded via Closure opcode, not PushConst
-            | Constant::TemplateObject { .. } => Ok(JsValue::Undefined),
-        }
-    }
-
-    fn constant_to_string_id(&mut self, func_id: FuncId, idx: u16) -> Result<StringId, VmError> {
-        let constant = self.inner.compiled_functions[func_id.0 as usize]
-            .constants
-            .get(idx as usize)
-            .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
-        match constant {
-            Constant::Wtf16(v) => {
-                let id = self.inner.strings.intern_utf16(v);
-                Ok(id)
-            }
-            _ => Err(VmError::internal("expected string constant")),
-        }
-    }
+    // Helper methods live in dispatch_helpers.rs.
 }

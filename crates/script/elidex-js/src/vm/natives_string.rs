@@ -1,6 +1,8 @@
 //! Native implementations of String.prototype methods.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, StringId, VmError};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
+};
 use crate::wtf16::{
     ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
 };
@@ -374,12 +376,61 @@ pub(super) fn native_string_replace(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let search_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    // RegExp first argument: delegate to regex-based replace.
+    if let JsValue::Object(re_id) = search_val {
+        // Check if it's a RegExp — extract flags info first, then get replacement.
+        let is_regexp_global = {
+            let obj = ctx.get_object(re_id);
+            if let ObjectKind::RegExp { flags, .. } = &obj.kind {
+                let flags_str = ctx.vm.strings.get_utf8(*flags);
+                Some(flags_str.contains('g'))
+            } else {
+                None
+            }
+        };
+        if let Some(global) = is_regexp_global {
+            let replacement_id =
+                ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+            let replacement_str = ctx.vm.strings.get_utf8(replacement_id);
+            let subject = ctx.vm.strings.get_utf8(sid);
+
+            // Re-borrow the compiled regex.
+            let obj = ctx.get_object(re_id);
+            let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
+                unreachable!();
+            };
+            let result = if global {
+                let mut out = String::new();
+                let mut last_end = 0;
+                for m in compiled.find_iter(&subject) {
+                    out.push_str(&subject[last_end..m.start()]);
+                    out.push_str(&replacement_str);
+                    last_end = m.end();
+                }
+                out.push_str(&subject[last_end..]);
+                out
+            } else if let Some(m) = compiled.find(&subject) {
+                let mut out = String::with_capacity(subject.len());
+                out.push_str(&subject[..m.start()]);
+                out.push_str(&replacement_str);
+                out.push_str(&subject[m.end()..]);
+                out
+            } else {
+                subject
+            };
+            let id = ctx.intern(&result);
+            return Ok(JsValue::String(id));
+        }
+    }
+
+    // String pattern: replace first occurrence.
+    let search_id = ctx.to_string_val(search_val)?;
     let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let replacement = ctx.get_u16(replacement_id).to_vec();
     let s = ctx.get_u16(sid).to_vec();
-    // Replace first occurrence only (like JS String.prototype.replace with a string pattern).
     let id = if let Some(pos) = find_u16(&s, &search) {
         let mut r: Vec<u16> = Vec::with_capacity(s.len() - search.len() + replacement.len());
         r.extend_from_slice(&s[..pos]);
@@ -390,4 +441,118 @@ pub(super) fn native_string_replace(
         sid
     };
     Ok(JsValue::String(id))
+}
+
+pub(super) fn native_string_match(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(sid) = this_string_id(this) else {
+        return Ok(JsValue::Null);
+    };
+    let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(re_id) = re_val else {
+        return Ok(JsValue::Null);
+    };
+
+    // Extract match data with immutable borrow, then build result with mutable.
+    let (global, match_data) = {
+        let obj = ctx.get_object(re_id);
+        let ObjectKind::RegExp {
+            ref compiled,
+            ref flags,
+            ..
+        } = obj.kind
+        else {
+            return Ok(JsValue::Null);
+        };
+        let flags_id = *flags;
+        let flags_str = ctx.vm.strings.get_utf8(flags_id);
+        let global = flags_str.contains('g');
+        let subject = ctx.vm.strings.get_utf8(sid);
+
+        if global {
+            let matches: Vec<String> = compiled
+                .find_iter(&subject)
+                .map(|m| subject[m.start()..m.end()].to_string())
+                .collect();
+            (
+                true,
+                if matches.is_empty() {
+                    None
+                } else {
+                    Some((matches, 0usize))
+                },
+            )
+        } else {
+            match compiled.find(&subject) {
+                Some(m) => {
+                    let mut matches = vec![subject[m.start()..m.end()].to_string()];
+                    for group in &m.captures {
+                        match group {
+                            Some(range) => {
+                                matches.push(subject[range.start..range.end].to_string());
+                            }
+                            None => matches.push(String::new()),
+                        }
+                    }
+                    (false, Some((matches, m.start())))
+                }
+                None => (false, None),
+            }
+        }
+    };
+
+    let Some((matches, index)) = match_data else {
+        return Ok(JsValue::Null);
+    };
+
+    // Build the result array from collected strings.
+    let mut elements = Vec::with_capacity(matches.len());
+    for (i, s) in matches.iter().enumerate() {
+        if !global && i > 0 && s.is_empty() {
+            elements.push(JsValue::Undefined);
+        } else {
+            elements.push(JsValue::String(ctx.intern(s)));
+        }
+    }
+    let arr_id = ctx.alloc_object(Object {
+        kind: ObjectKind::Array { elements },
+        properties: Vec::new(),
+        prototype: ctx.vm.array_prototype,
+    });
+    if !global {
+        let index_key = PropertyKey::String(ctx.intern("index"));
+        #[allow(clippy::cast_precision_loss)]
+        ctx.get_object_mut(arr_id)
+            .properties
+            .push((index_key, Property::data(JsValue::Number(index as f64))));
+    }
+    Ok(JsValue::Object(arr_id))
+}
+
+pub(super) fn native_string_search(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(sid) = this_string_id(this) else {
+        return Ok(JsValue::Number(-1.0));
+    };
+    let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(re_id) = re_val else {
+        return Ok(JsValue::Number(-1.0));
+    };
+    // Extract result with immutable borrow.
+    let result = {
+        let obj = ctx.get_object(re_id);
+        let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
+            return Ok(JsValue::Number(-1.0));
+        };
+        let subject = ctx.vm.strings.get_utf8(sid);
+        compiled.find(&subject).map(|m| m.start())
+    };
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }

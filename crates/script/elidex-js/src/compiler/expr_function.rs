@@ -38,6 +38,7 @@ fn find_func_scope_for_span(
 /// Compile a nested `Function` (declaration or expression) into a `CompiledFunction`.
 ///
 /// This is `pub(super)` so that `stmt.rs` can call it for `FunctionDeclaration`.
+#[allow(clippy::too_many_lines)]
 pub(super) fn compile_nested_function(
     _parent_fc: &mut FunctionCompiler,
     prog: &Program,
@@ -90,6 +91,30 @@ pub(super) fn compile_nested_function(
             child_fc.emit_u16(Op::SetLocal, slot);
             child_fc.emit(Op::Pop);
             child_fc.patch_jump(skip);
+        }
+    }
+
+    // Populate the `arguments` local. Regular functions (not arrows) get
+    // an implicit `arguments` binding from scope analysis.
+    {
+        let args_atom = prog.atoms.arguments;
+        if let Some(info) = func_scopes[child_func_idx]
+            .locals
+            .get(&(root_scope_idx, args_atom))
+        {
+            if matches!(info.kind, BindingKind::Implicit) {
+                // Emit: CreateArguments → SetLocal → Pop → PushUndefined → Pop
+                // The extra PushUndefined → Pop resets the completion_value
+                // to Undefined, preventing the arguments object from being
+                // returned as the constructor's result (§9.2.5).
+                child_fc.needs_arguments = true;
+                child_fc.emit(Op::CreateArguments);
+                child_fc.emit_u16(Op::SetLocal, info.slot);
+                child_fc.emit_u16(Op::InitLocal, info.slot);
+                child_fc.emit(Op::Pop);
+                child_fc.emit(Op::PushUndefined);
+                child_fc.emit(Op::Pop);
+            }
         }
     }
 

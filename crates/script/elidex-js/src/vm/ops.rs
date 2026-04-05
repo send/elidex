@@ -2,12 +2,12 @@
 //! upvalue management, and operator helpers.
 
 use super::coerce::{
-    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_boolean, to_number,
-    to_string, BitwiseOp, NumericBinaryOp,
+    abstract_relational, find_setter, get_property, op_bitwise, op_numeric_binary, to_boolean,
+    to_number, to_string, BitwiseOp, NumericBinaryOp, PropertyResult,
 };
 use super::value::{
-    FuncId, JsValue, ObjectKind, Property, PropertyKey, StringId, Upvalue, UpvalueState, VmError,
-    VmErrorKind,
+    FuncId, JsValue, ObjectKind, Property, PropertyKey, PropertyValue, StringId, Upvalue,
+    UpvalueState, VmError, VmErrorKind,
 };
 use super::Vm;
 use crate::bytecode::compiled::Constant;
@@ -108,9 +108,21 @@ impl Vm {
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
             JsValue::Object(obj_id) => {
+                // Unwrap primitive wrapper objects first.
+                match self.get_object(obj_id).kind {
+                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
+                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
+                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
+                    _ => {}
+                }
                 // §7.1.1 step 2d: Check @@toPrimitive
                 let to_prim_key = PropertyKey::Symbol(self.inner.well_known_symbols.to_primitive);
-                if let Some(exotic_to_prim) = get_property(&self.inner, obj_id, to_prim_key) {
+                let exotic_to_prim = match get_property(&self.inner, obj_id, to_prim_key) {
+                    Some(PropertyResult::Data(v)) => Some(v),
+                    Some(PropertyResult::Getter(g)) => Some(self.call(g, val, &[])?),
+                    None => None,
+                };
+                if let Some(exotic_to_prim) = exotic_to_prim {
                     let hint_id = self.inner.strings.intern(hint);
                     let result =
                         self.call_value(exotic_to_prim, val, &[JsValue::String(hint_id)])?;
@@ -306,6 +318,36 @@ impl Vm {
 // ---------------------------------------------------------------------------
 
 impl Vm {
+    /// Resolve a `PropertyResult` to a `JsValue`, invoking the getter if needed.
+    pub(crate) fn resolve_property(
+        &mut self,
+        result: PropertyResult,
+        receiver: JsValue,
+    ) -> Result<JsValue, VmError> {
+        match result {
+            PropertyResult::Data(v) => Ok(v),
+            PropertyResult::Getter(g) => self.call(g, receiver, &[]),
+        }
+    }
+
+    /// Look up `pk` on a prototype object and resolve (invoke getter if accessor).
+    /// Returns `Undefined` if the prototype is `None` or the property is not found.
+    fn lookup_on_proto(
+        &mut self,
+        proto: Option<super::value::ObjectId>,
+        pk: PropertyKey,
+        receiver: JsValue,
+    ) -> Result<JsValue, VmError> {
+        if let Some(proto_id) = proto {
+            match get_property(&self.inner, proto_id, pk) {
+                Some(result) => self.resolve_property(result, receiver),
+                None => Ok(JsValue::Undefined),
+            }
+        } else {
+            Ok(JsValue::Undefined)
+        }
+    }
+
     pub(crate) fn get_property_val(
         &mut self,
         obj: JsValue,
@@ -315,42 +357,31 @@ impl Vm {
         match obj {
             JsValue::Object(id) => {
                 if id == self.inner.global_object {
-                    // Check own properties + prototype chain first so that
-                    // Object.defineProperty(globalThis, ...) takes precedence.
-                    if let Some(val) = get_property(&self.inner, id, pk) {
-                        return Ok(val);
+                    if let Some(result) = get_property(&self.inner, id, pk) {
+                        return self.resolve_property(result, obj);
                     }
-                    // Fall back to the globals HashMap so that `this.Math`
-                    // etc. resolve correctly when non-strict `this` is
-                    // coerced to `globalThis`.
                     if let Some(&val) = self.inner.globals.get(&key) {
                         return Ok(val);
                     }
                     return Ok(JsValue::Undefined);
                 }
-                Ok(get_property(&self.inner, id, pk).unwrap_or(JsValue::Undefined))
+                match get_property(&self.inner, id, pk) {
+                    Some(result) => self.resolve_property(result, obj),
+                    None => Ok(JsValue::Undefined),
+                }
             }
             JsValue::String(sid) => {
-                // String.length — WTF-16 slice length is already in UTF-16 code units.
                 if key == self.inner.well_known.length {
                     #[allow(clippy::cast_precision_loss)]
                     let len = self.inner.strings.get(sid).len() as f64;
                     Ok(JsValue::Number(len))
-                } else if let Some(proto_id) = self.inner.string_prototype {
-                    // Look up method on String.prototype.
-                    Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
                 } else {
-                    Ok(JsValue::Undefined)
+                    self.lookup_on_proto(self.inner.string_prototype, pk, obj)
                 }
             }
-            JsValue::Symbol(_) => {
-                // Look up method on Symbol.prototype.
-                if let Some(proto_id) = self.inner.symbol_prototype {
-                    Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
-                } else {
-                    Ok(JsValue::Undefined)
-                }
-            }
+            JsValue::Symbol(_) => self.lookup_on_proto(self.inner.symbol_prototype, pk, obj),
+            JsValue::Number(_) => self.lookup_on_proto(self.inner.number_prototype, pk, obj),
+            JsValue::Boolean(_) => self.lookup_on_proto(self.inner.boolean_prototype, pk, obj),
             _ => Ok(JsValue::Undefined),
         }
     }
@@ -363,16 +394,24 @@ impl Vm {
     ) -> Result<(), VmError> {
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
+            // Check for inherited setter on the prototype chain.
+            if let Some(setter_id) = find_setter(&self.inner, id, pk) {
+                self.call(setter_id, obj, &[val])?;
+                return Ok(());
+            }
             // Mirror writes to the global object into the globals HashMap
             // so that GetGlobal can find them.
             if id == self.inner.global_object {
                 self.inner.globals.insert(key, val);
             }
             let obj = self.get_object_mut(id);
-            // Check if property exists.
             for prop in &mut obj.properties {
                 if prop.0 == pk {
-                    prop.1.value = val;
+                    // Only write to data properties; accessor-only (no setter)
+                    // is silently ignored in sloppy mode.
+                    if matches!(prop.1.slot, PropertyValue::Data(_)) {
+                        prop.1.slot = PropertyValue::Data(val);
+                    }
                     return Ok(());
                 }
             }
@@ -381,6 +420,7 @@ impl Vm {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn get_element(&mut self, obj: JsValue, key: JsValue) -> Result<JsValue, VmError> {
         if let JsValue::Object(id) = obj {
             // Numeric index for arrays.
@@ -392,20 +432,32 @@ impl Vm {
                 };
                 if is_index {
                     let obj_ref = self.get_object(id);
-                    if let ObjectKind::Array { ref elements } = obj_ref.kind {
-                        return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
+                    match &obj_ref.kind {
+                        ObjectKind::Array { ref elements } => {
+                            return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
+                        }
+                        ObjectKind::Arguments { ref values } => {
+                            return Ok(values.get(idx).copied().unwrap_or(JsValue::Undefined));
+                        }
+                        _ => {}
                     }
                 }
             }
             // Symbol key → direct property lookup.
             if let JsValue::Symbol(sid) = key {
-                return Ok(get_property(&self.inner, id, PropertyKey::Symbol(sid))
-                    .unwrap_or(JsValue::Undefined));
+                let pk = PropertyKey::Symbol(sid);
+                return match get_property(&self.inner, id, pk) {
+                    Some(result) => self.resolve_property(result, obj),
+                    None => Ok(JsValue::Undefined),
+                };
             }
             // Fall back to string key property lookup.
             let key_id = to_string(&mut self.inner, key)?;
-            Ok(get_property(&self.inner, id, PropertyKey::String(key_id))
-                .unwrap_or(JsValue::Undefined))
+            let pk = PropertyKey::String(key_id);
+            match get_property(&self.inner, id, pk) {
+                Some(result) => self.resolve_property(result, obj),
+                None => Ok(JsValue::Undefined),
+            }
         } else if let JsValue::String(sid) = obj {
             // String bracket access: str[index] returns a single UTF-16 code unit.
             if let JsValue::Number(n) = key {
@@ -420,8 +472,6 @@ impl Vm {
                     }
                 }
             } else if let JsValue::String(key_sid) = key {
-                // String key that might be a canonical numeric index (e.g. "1").
-                // Read the unit under an immutable borrow, then intern.
                 let unit = {
                     let key_units = self.inner.strings.get(key_sid);
                     parse_array_index_u16(key_units)
@@ -432,8 +482,6 @@ impl Vm {
                     return Ok(JsValue::String(ch_id));
                 }
             }
-            // Non-index string property access: handle "length" and
-            // fall back to String.prototype (e.g. "charAt", Symbol.iterator).
             let pk = match key {
                 JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
                 other => PropertyKey::String(to_string(&mut self.inner, other)?),
@@ -444,10 +492,23 @@ impl Vm {
                 return Ok(JsValue::Number(len));
             }
             if let Some(proto_id) = self.inner.string_prototype {
-                Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
+                match get_property(&self.inner, proto_id, pk) {
+                    Some(result) => self.resolve_property(result, obj),
+                    None => Ok(JsValue::Undefined),
+                }
             } else {
                 Ok(JsValue::Undefined)
             }
+        } else if matches!(obj, JsValue::Number(_) | JsValue::Boolean(_)) {
+            let proto = match obj {
+                JsValue::Number(_) => self.inner.number_prototype,
+                _ => self.inner.boolean_prototype,
+            };
+            let pk = match key {
+                JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
+                other => PropertyKey::String(to_string(&mut self.inner, other)?),
+            };
+            self.lookup_on_proto(proto, pk, obj)
         } else {
             Ok(JsValue::Undefined)
         }
@@ -480,14 +541,21 @@ impl Vm {
             // Symbol key → direct property set.
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
-                let obj = self.get_object_mut(id);
-                for prop in &mut obj.properties {
+                // Check for setter.
+                if let Some(setter_id) = find_setter(&self.inner, id, pk) {
+                    self.call(setter_id, obj, &[val])?;
+                    return Ok(());
+                }
+                let obj_ref = self.get_object_mut(id);
+                for prop in &mut obj_ref.properties {
                     if prop.0 == pk {
-                        prop.1.value = val;
+                        if matches!(prop.1.slot, PropertyValue::Data(_)) {
+                            prop.1.slot = PropertyValue::Data(val);
+                        }
                         return Ok(());
                     }
                 }
-                obj.properties.push((pk, Property::data(val)));
+                obj_ref.properties.push((pk, Property::data(val)));
                 return Ok(());
             }
             let key_id = to_string(&mut self.inner, key)?;
@@ -514,21 +582,27 @@ impl Vm {
         // No fast paths — optimise in M4-11 (inline caches) where we can
         // safely guard against `.next` override.
         let next_key = PropertyKey::String(self.inner.well_known.next);
-        let Some(next_fn) = get_property(&self.inner, iter_id, next_key) else {
-            return Err(VmError::type_error("iterator.next is not defined"));
+        let next_fn = match get_property(&self.inner, iter_id, next_key) {
+            Some(result) => self.resolve_property(result, iter_val)?,
+            None => return Err(VmError::type_error("iterator.next is not defined")),
         };
         let result = self.call_value(next_fn, iter_val, &[])?;
         let JsValue::Object(result_id) = result else {
             return Err(VmError::type_error("iterator.next() must return an object"));
         };
         let done_key = PropertyKey::String(self.inner.well_known.done);
-        let done =
-            get_property(&self.inner, result_id, done_key).unwrap_or(JsValue::Boolean(false));
+        let done = match get_property(&self.inner, result_id, done_key) {
+            Some(result) => self.resolve_property(result, JsValue::Object(result_id))?,
+            None => JsValue::Boolean(false),
+        };
         if to_boolean(&self.inner, done) {
             return Ok(None);
         }
         let value_key = PropertyKey::String(self.inner.well_known.value);
-        let value = get_property(&self.inner, result_id, value_key).unwrap_or(JsValue::Undefined);
+        let value = match get_property(&self.inner, result_id, value_key) {
+            Some(result) => self.resolve_property(result, JsValue::Object(result_id))?,
+            None => JsValue::Undefined,
+        };
         Ok(Some(value))
     }
 }
@@ -580,13 +654,10 @@ impl Vm {
             }
             // Look up constructor.prototype for the new instance's [[Prototype]].
             let proto_key = PropertyKey::String(self.inner.well_known.prototype);
-            let proto_id = get_property(&self.inner, ctor_id, proto_key).and_then(|v| {
-                if let JsValue::Object(id) = v {
-                    Some(id)
-                } else {
-                    None
-                }
-            });
+            let proto_id = match get_property(&self.inner, ctor_id, proto_key) {
+                Some(PropertyResult::Data(JsValue::Object(id))) => Some(id),
+                _ => None,
+            };
             // Create new instance with prototype chain.
             let instance = self.alloc_object(super::value::Object {
                 kind: ObjectKind::Ordinary,
@@ -709,7 +780,7 @@ impl Vm {
             self.get_object_mut(func_obj).properties.push((
                 proto_key,
                 Property {
-                    value: JsValue::Object(proto_obj),
+                    slot: PropertyValue::Data(JsValue::Object(proto_obj)),
                     writable: true,
                     enumerable: false,
                     configurable: false,

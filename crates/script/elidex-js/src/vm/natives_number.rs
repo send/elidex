@@ -1,0 +1,78 @@
+//! Native Number.prototype methods.
+
+use super::value::{JsValue, NativeContext, ObjectKind, VmError};
+
+/// Extract the numeric value from `this`: either a Number primitive or
+/// a NumberWrapper object.
+fn this_number_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmError> {
+    match this {
+        JsValue::Number(n) => Ok(n),
+        JsValue::Object(id) => match ctx.get_object(id).kind {
+            ObjectKind::NumberWrapper(n) => Ok(n),
+            _ => Err(VmError::type_error(
+                "Number.prototype method called on non-number",
+            )),
+        },
+        _ => Err(VmError::type_error(
+            "Number.prototype method called on non-number",
+        )),
+    }
+}
+
+pub(super) fn native_number_to_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let n = this_number_value(ctx, this)?;
+    let s = if n.is_nan() {
+        "NaN".to_string()
+    } else if n.is_infinite() {
+        if n.is_sign_positive() {
+            "Infinity".to_string()
+        } else {
+            "-Infinity".to_string()
+        }
+    } else if n == 0.0 {
+        "0".to_string()
+    } else if n.fract() == 0.0 && n.abs() < 1e20 {
+        format!("{}", n as i64)
+    } else {
+        format!("{n}")
+    };
+    let id = ctx.intern(&s);
+    Ok(JsValue::String(id))
+}
+
+pub(super) fn native_number_value_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let n = this_number_value(ctx, this)?;
+    Ok(JsValue::Number(n))
+}
+
+pub(super) fn native_number_to_fixed(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let n = this_number_value(ctx, this)?;
+    let digits = match args.first().copied().unwrap_or(JsValue::Number(0.0)) {
+        JsValue::Number(d) => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let d = d as u32;
+            if d > 100 {
+                return Err(VmError::range_error(
+                    "toFixed() digits argument must be between 0 and 100",
+                ));
+            }
+            d as usize
+        }
+        _ => 0,
+    };
+    let s = format!("{n:.digits$}");
+    let id = ctx.intern(&s);
+    Ok(JsValue::String(id))
+}

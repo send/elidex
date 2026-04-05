@@ -33,6 +33,7 @@ pub struct FunctionCompiler {
     pub is_generator: bool,
     pub is_arrow: bool,
     pub is_strict: bool,
+    pub needs_arguments: bool,
     /// Reference to the function scope (local slot assignments).
     pub func_scope_idx: usize,
     /// Current lexical scope index for block-scope-aware resolution.
@@ -81,6 +82,7 @@ impl FunctionCompiler {
             is_generator: false,
             is_arrow: false,
             is_strict,
+            needs_arguments: false,
             func_scope_idx,
             current_scope_idx: initial_scope_idx,
             finally_stack: Vec::new(),
@@ -331,6 +333,7 @@ impl FunctionCompiler {
             is_generator: self.is_generator,
             is_arrow: self.is_arrow,
             is_strict: self.is_strict,
+            needs_arguments: self.needs_arguments,
         }
     }
 }

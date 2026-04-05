@@ -61,6 +61,8 @@ pub struct CompiledFunction {
     pub is_generator: bool,
     pub is_arrow: bool,
     pub is_strict: bool,
+    /// Whether this function uses `arguments` (has `CreateArguments` opcode).
+    pub needs_arguments: bool,
 }
 
 impl CompiledFunction {
@@ -80,6 +82,7 @@ impl CompiledFunction {
             is_generator: false,
             is_arrow: false,
             is_strict: false,
+            needs_arguments: false,
         }
     }
 }

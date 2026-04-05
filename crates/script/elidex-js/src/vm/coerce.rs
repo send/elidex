@@ -28,7 +28,14 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 /// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
 pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
-        JsValue::Undefined | JsValue::Object(_) => Ok(f64::NAN),
+        JsValue::Undefined => Ok(f64::NAN),
+        JsValue::Object(id) => match vm.get_object(id).kind {
+            ObjectKind::NumberWrapper(n) => Ok(n),
+            ObjectKind::BooleanWrapper(false) => Ok(0.0),
+            ObjectKind::BooleanWrapper(true) => Ok(1.0),
+            ObjectKind::StringWrapper(sid) => Ok(string_to_number_u16(vm.strings.get(sid))),
+            _ => Ok(f64::NAN),
+        },
         JsValue::Symbol(_) => Err(VmError::type_error(
             "Cannot convert a Symbol value to a number",
         )),
@@ -182,10 +189,14 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
         JsValue::Symbol(_) => Err(VmError::type_error(
             "Cannot convert a Symbol value to a string",
         )),
-        JsValue::Object(_) => {
+        JsValue::Object(id) => match vm.get_object(id).kind {
+            ObjectKind::NumberWrapper(n) => Ok(number_to_string_id(vm, n)),
+            ObjectKind::StringWrapper(sid) => Ok(sid),
+            ObjectKind::BooleanWrapper(true) => Ok(vm.well_known.r#true),
+            ObjectKind::BooleanWrapper(false) => Ok(vm.well_known.r#false),
             // Simplified ToPrimitive → "[object Object]"
-            Ok(vm.well_known.object_to_string)
-        }
+            _ => Ok(vm.well_known.object_to_string),
+        },
     }
 }
 
@@ -515,22 +526,67 @@ pub(crate) fn op_void() -> JsValue {
 // Property lookup helper
 // ---------------------------------------------------------------------------
 
+/// Result of a prototype-chain property lookup.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PropertyResult {
+    /// A plain data value.
+    Data(JsValue),
+    /// An accessor getter function that the caller must invoke.
+    Getter(ObjectId),
+}
+
 /// Look up a property on an object, following the prototype chain.
-pub(crate) fn get_property(vm: &VmInner, obj_id: ObjectId, key: PropertyKey) -> Option<JsValue> {
+pub(crate) fn get_property(
+    vm: &VmInner,
+    obj_id: ObjectId,
+    key: PropertyKey,
+) -> Option<PropertyResult> {
     let mut current = Some(obj_id);
     while let Some(id) = current {
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             // Check own properties.
             for (k, prop) in &obj.properties {
                 if *k == key {
-                    return Some(prop.value);
+                    return Some(match prop.slot {
+                        super::value::PropertyValue::Data(v) => PropertyResult::Data(v),
+                        super::value::PropertyValue::Accessor {
+                            getter: Some(g), ..
+                        } => PropertyResult::Getter(g),
+                        super::value::PropertyValue::Accessor { getter: None, .. } => {
+                            PropertyResult::Data(JsValue::Undefined)
+                        }
+                    });
                 }
             }
             // Check array length.
             if key == PropertyKey::String(vm.well_known.length) {
                 if let ObjectKind::Array { ref elements } = obj.kind {
                     #[allow(clippy::cast_precision_loss)] // JS array length is always safe
-                    return Some(JsValue::Number(elements.len() as f64));
+                    return Some(PropertyResult::Data(JsValue::Number(elements.len() as f64)));
+                }
+            }
+            current = obj.prototype;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
+/// Look up a setter on an object's prototype chain.
+/// Returns `Some(setter_object_id)` if an accessor with a setter is found.
+pub(crate) fn find_setter(vm: &VmInner, obj_id: ObjectId, key: PropertyKey) -> Option<ObjectId> {
+    let mut current = Some(obj_id);
+    while let Some(id) = current {
+        if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
+            for (k, prop) in &obj.properties {
+                if *k == key {
+                    return match prop.slot {
+                        super::value::PropertyValue::Accessor {
+                            setter: Some(s), ..
+                        } => Some(s),
+                        _ => None,
+                    };
                 }
             }
             current = obj.prototype;

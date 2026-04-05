@@ -162,6 +162,7 @@ mod tests {
             is_generator: false,
             is_arrow: false,
             is_strict: false,
+            needs_arguments: false,
         }
     }
 
