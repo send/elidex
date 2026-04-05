@@ -8,13 +8,13 @@ use crate::bytecode::compiled::CompiledScript;
 use super::value::{
     CallFrame, FuncId, JsValue, NativeContext, ObjectId, ObjectKind, VmError, VmErrorKind,
 };
-use super::Vm;
+use super::VmInner;
 
 // ---------------------------------------------------------------------------
 // Vm public API
 // ---------------------------------------------------------------------------
 
-impl Vm {
+impl VmInner {
     /// Parse, compile, and execute JavaScript source code.
     pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
         let script = crate::compiler::compile_script(source).map_err(|e| VmError {
@@ -52,13 +52,13 @@ impl Vm {
                         // Step 6.b.ii: primitive → ToObject wrapper
                         match this {
                             JsValue::Undefined | JsValue::Null => {
-                                JsValue::Object(self.inner.global_object)
+                                JsValue::Object(self.global_object)
                             }
                             JsValue::Number(n) => {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::NumberWrapper(n),
                                     properties: Vec::new(),
-                                    prototype: self.inner.number_prototype,
+                                    prototype: self.number_prototype,
                                 });
                                 JsValue::Object(wrapper)
                             }
@@ -66,7 +66,7 @@ impl Vm {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::StringWrapper(s),
                                     properties: Vec::new(),
-                                    prototype: self.inner.string_prototype,
+                                    prototype: self.string_prototype,
                                 });
                                 JsValue::Object(wrapper)
                             }
@@ -74,7 +74,7 @@ impl Vm {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::BooleanWrapper(b),
                                     properties: Vec::new(),
-                                    prototype: self.inner.boolean_prototype,
+                                    prototype: self.boolean_prototype,
                                 });
                                 JsValue::Object(wrapper)
                             }
@@ -87,9 +87,7 @@ impl Vm {
             }
             ObjectKind::NativeFunction(nf) => {
                 let func = nf.func;
-                let mut ctx = NativeContext {
-                    vm: &mut self.inner,
-                };
+                let mut ctx = NativeContext { vm: self };
                 func(&mut ctx, this, args)
             }
             _ => Err(VmError::type_error("not a function")),
@@ -109,24 +107,22 @@ impl Vm {
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
 
-        let entry_frames = self.inner.frames.len();
-        let base = self.inner.stack.len();
+        let entry_frames = self.frames.len();
+        let base = self.stack.len();
 
         // Allocate locals (initialized to Undefined).
-        self.inner
-            .stack
-            .resize(base + local_count, JsValue::Undefined);
+        self.stack.resize(base + local_count, JsValue::Undefined);
 
         // Copy args into param slots.
         let copy_count = args.len().min(param_count);
-        self.inner.stack[base..base + copy_count].copy_from_slice(&args[..copy_count]);
+        self.stack[base..base + copy_count].copy_from_slice(&args[..copy_count]);
 
         // Save and reset completion_value so that ReturnUndefined in nested
         // function calls does not leak the parent scope's completion value.
-        let saved_completion = self.inner.completion_value;
-        self.inner.completion_value = JsValue::Undefined;
+        let saved_completion = self.completion_value;
+        self.completion_value = JsValue::Undefined;
 
-        self.inner.frames.push(CallFrame {
+        self.frames.push(CallFrame {
             func_id,
             ip: 0,
             base,
@@ -147,14 +143,14 @@ impl Vm {
         // On error, clean up the frame if it's still on the stack.
         // The inner run() may have left it if the throw was uncaught.
         if result.is_err()
-            && self.inner.frames.len() > entry_frames
-            && self.inner.frames.last().map(|f| f.base) == Some(base)
+            && self.frames.len() > entry_frames
+            && self.frames.last().map(|f| f.base) == Some(base)
         {
             self.pop_frame();
         }
 
         // Restore the parent scope's completion value.
-        self.inner.completion_value = saved_completion;
+        self.completion_value = saved_completion;
 
         result
     }
@@ -174,17 +170,15 @@ impl Vm {
 // Shared stack helpers (used by dispatch.rs and ops.rs)
 // ---------------------------------------------------------------------------
 
-impl Vm {
+impl VmInner {
     pub(crate) fn pop(&mut self) -> Result<JsValue, VmError> {
-        self.inner
-            .stack
+        self.stack
             .pop()
             .ok_or_else(|| VmError::internal("stack underflow"))
     }
 
     pub(crate) fn peek(&self) -> Result<JsValue, VmError> {
-        self.inner
-            .stack
+        self.stack
             .last()
             .copied()
             .ok_or_else(|| VmError::internal("stack underflow on peek"))

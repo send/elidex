@@ -1,18 +1,18 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
 use super::value::{JsValue, ObjectKind, Property, PropertyKey, PropertyValue, VmError};
-use super::Vm;
+use super::VmInner;
 
-impl Vm {
+impl VmInner {
     /// `CreateObject` — allocate an ordinary object with `Object.prototype`.
     pub(crate) fn op_create_object(&mut self) {
-        let proto = self.inner.object_prototype;
+        let proto = self.object_prototype;
         let id = self.alloc_object(super::value::Object {
             kind: ObjectKind::Ordinary,
             properties: Vec::new(),
             prototype: proto,
         });
-        self.inner.stack.push(JsValue::Object(id));
+        self.stack.push(JsValue::Object(id));
     }
 
     /// `DefineProperty` — define a named data property on the object at TOS.
@@ -25,8 +25,8 @@ impl Vm {
         let obj_val = self.peek()?;
         if let JsValue::Object(id) = obj_val {
             // Sync global object writes to the globals HashMap.
-            if id == self.inner.global_object {
-                self.inner.globals.insert(name_id, val);
+            if id == self.global_object {
+                self.globals.insert(name_id, val);
             }
             let obj = self.get_object_mut(id);
             // Overwrite if key already exists (e.g. after spread).
@@ -51,9 +51,9 @@ impl Vm {
             match self.make_property_key(key) {
                 Ok(pk) => {
                     // Sync global object writes to globals HashMap.
-                    if id == self.inner.global_object {
+                    if id == self.global_object {
                         if let PropertyKey::String(sid) = pk {
-                            self.inner.globals.insert(sid, val);
+                            self.globals.insert(sid, val);
                         }
                     }
                     let obj = self.get_object_mut(id);
@@ -82,9 +82,9 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             match self.make_property_key(key) {
                 Ok(pk) => {
-                    if id == self.inner.global_object {
+                    if id == self.global_object {
                         if let PropertyKey::String(sid) = pk {
-                            self.inner.globals.insert(sid, val);
+                            self.globals.insert(sid, val);
                         }
                     }
                     let obj = self.get_object_mut(id);
@@ -104,7 +104,7 @@ impl Vm {
 
     /// `CreateArray` — allocate an array with `Array.prototype`.
     pub(crate) fn op_create_array(&mut self) {
-        let proto = self.inner.array_prototype;
+        let proto = self.array_prototype;
         let id = self.alloc_object(super::value::Object {
             kind: ObjectKind::Array {
                 elements: Vec::new(),
@@ -112,7 +112,7 @@ impl Vm {
             properties: Vec::new(),
             prototype: proto,
         });
-        self.inner.stack.push(JsValue::Object(id));
+        self.stack.push(JsValue::Object(id));
     }
 
     /// `ArrayPush` — push a value onto the array at TOS.
@@ -139,33 +139,36 @@ impl Vm {
     }
 
     /// `SpreadObject` — copy all enumerable own properties from source to target.
+    /// Accessor properties invoke their getter via Get (§12.2.6.8).
     pub(crate) fn op_spread_object(&mut self) -> Result<(), VmError> {
         let source = self.pop()?;
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
-            let is_global = dst_id == self.inner.global_object;
-            let src = self.inner.get_object(src_id);
-            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
-            // Requires VM single dispatcher (NativeContext re-entrancy).
-            let props: Vec<(PropertyKey, Property)> = src
+            let is_global = dst_id == self.global_object;
+            // Snapshot enumerable (key, slot) pairs before invoking getters.
+            let entries: Vec<(PropertyKey, PropertyValue)> = self
+                .get_object(src_id)
                 .properties
                 .iter()
                 .filter(|(_, p)| p.enumerable)
-                .map(|(k, p)| (*k, Property::data(p.data_value())))
+                .map(|(k, p)| (*k, p.slot))
                 .collect();
-            // Sync global object writes to the globals HashMap.
-            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
-            // Requires VM single dispatcher (NativeContext re-entrancy).
+            let src_this = JsValue::Object(src_id);
+            let mut props: Vec<(PropertyKey, JsValue)> = Vec::with_capacity(entries.len());
+            for (key, slot) in entries {
+                props.push((key, self.resolve_slot(slot, src_this)?));
+            }
+            // Apply resolved values to destination.
             if is_global {
-                for (k, p) in &props {
+                for (k, v) in &props {
                     if let PropertyKey::String(sid) = k {
-                        // props are always data (constructed via data_value above).
-                        self.inner.globals.insert(*sid, p.data_value());
+                        self.globals.insert(*sid, *v);
                     }
                 }
             }
-            let dst = self.inner.get_object_mut(dst_id);
-            for (k, p) in props {
+            let dst = self.get_object_mut(dst_id);
+            for (k, v) in props {
+                let p = Property::data(v);
                 if let Some(existing) = dst.properties.iter_mut().find(|(ek, _)| *ek == k) {
                     existing.1 = p;
                 } else {

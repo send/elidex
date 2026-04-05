@@ -132,6 +132,23 @@ impl PartialEq for JsValue {
     }
 }
 
+/// SameValue (ES2020 §7.2.10): differs from strict equality in that
+/// `NaN === NaN` is true and `+0 !== -0`.
+pub fn same_value(a: JsValue, b: JsValue) -> bool {
+    match (a, b) {
+        (JsValue::Number(x), JsValue::Number(y)) => {
+            if x.is_nan() && y.is_nan() {
+                return true;
+            }
+            if x == 0.0 && y == 0.0 {
+                return x.to_bits() == y.to_bits();
+            }
+            x == y
+        }
+        _ => a == b,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Object model
 // ---------------------------------------------------------------------------

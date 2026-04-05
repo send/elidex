@@ -1,6 +1,7 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
 mod tests_m4_10_2;
+mod tests_m4_11;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;
@@ -8,6 +9,11 @@ use super::Vm;
 fn eval(source: &str) -> Result<JsValue, VmError> {
     let mut vm = Vm::new();
     vm.eval(source)
+}
+
+fn eval_throws(source: &str) {
+    let result = eval(source);
+    assert!(result.is_err(), "expected error, got {result:?}");
 }
 
 fn eval_number(source: &str) -> f64 {

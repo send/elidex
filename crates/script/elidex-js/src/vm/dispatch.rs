@@ -11,29 +11,29 @@ use super::coerce::{
 };
 use super::ops::parse_array_index_u16;
 use super::value::{JsValue, Object, ObjectKind, Property, PropertyKey, VmError, VmErrorKind};
-use super::Vm;
+use super::VmInner;
 
 // ---------------------------------------------------------------------------
 // Main dispatch loop
 // ---------------------------------------------------------------------------
 
-impl Vm {
+impl VmInner {
     /// Execute bytecode until the current call frame returns.
     #[allow(clippy::too_many_lines)] // single dispatch loop, splitting would hurt readability
     pub(crate) fn run(&mut self) -> Result<JsValue, VmError> {
-        let entry_frame_depth = self.inner.frames.len() - 1;
+        let entry_frame_depth = self.frames.len() - 1;
 
         loop {
-            let frame_idx = self.inner.frames.len() - 1;
-            let func_id = self.inner.frames[frame_idx].func_id;
-            let ip = self.inner.frames[frame_idx].ip;
+            let frame_idx = self.frames.len() - 1;
+            let func_id = self.frames[frame_idx].func_id;
+            let ip = self.frames[frame_idx].ip;
 
-            let bytecode = &self.inner.compiled_functions[func_id.0 as usize].bytecode;
+            let bytecode = &self.compiled_functions[func_id.0 as usize].bytecode;
             if ip >= bytecode.len() {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
-                    let completion = self.inner.completion_value;
-                    self.inner.completion_value = JsValue::Undefined;
+                    let completion = self.completion_value;
+                    self.completion_value = JsValue::Undefined;
                     return Ok(completion);
                 }
                 self.pop_frame();
@@ -44,58 +44,58 @@ impl Vm {
             let op = Op::from_byte(op_byte).ok_or_else(|| {
                 VmError::internal(format!("invalid opcode: {op_byte:#x} at ip={ip}"))
             })?;
-            self.inner.frames[frame_idx].ip = ip + 1;
+            self.frames[frame_idx].ip = ip + 1;
 
             match op {
                 // ── Stack manipulation ──────────────────────────────
-                Op::PushUndefined => self.inner.stack.push(JsValue::Undefined),
-                Op::PushNull => self.inner.stack.push(JsValue::Null),
-                Op::PushTrue => self.inner.stack.push(JsValue::Boolean(true)),
-                Op::PushFalse => self.inner.stack.push(JsValue::Boolean(false)),
+                Op::PushUndefined => self.stack.push(JsValue::Undefined),
+                Op::PushNull => self.stack.push(JsValue::Null),
+                Op::PushTrue => self.stack.push(JsValue::Boolean(true)),
+                Op::PushFalse => self.stack.push(JsValue::Boolean(false)),
                 Op::PushI8 => {
                     let val = self.read_i8_op();
-                    self.inner.stack.push(JsValue::Number(f64::from(val)));
+                    self.stack.push(JsValue::Number(f64::from(val)));
                 }
                 Op::PushConst => {
                     let idx = self.read_u16_op();
                     let val = self.load_constant(func_id, idx)?;
-                    self.inner.stack.push(val);
+                    self.stack.push(val);
                 }
                 Op::Dup => {
                     let val = self.peek()?;
-                    self.inner.stack.push(val);
+                    self.stack.push(val);
                 }
                 Op::Pop => {
                     let val = self.pop()?;
                     // At script (entry) level, capture completion value for eval.
                     if frame_idx == entry_frame_depth {
-                        self.inner.completion_value = val;
+                        self.completion_value = val;
                     }
                 }
                 Op::Swap => {
-                    let len = self.inner.stack.len();
+                    let len = self.stack.len();
                     if len < 2 {
                         return Err(VmError::internal("stack underflow on Swap"));
                     }
-                    self.inner.stack.swap(len - 1, len - 2);
+                    self.stack.swap(len - 1, len - 2);
                 }
 
                 // ── Local access ────────────────────────────────────
                 Op::GetLocal => {
                     let slot = self.read_u16_op() as usize;
-                    let base = self.inner.frames[frame_idx].base;
-                    let val = self.inner.stack[base + slot];
-                    self.inner.stack.push(val);
+                    let base = self.frames[frame_idx].base;
+                    let val = self.stack[base + slot];
+                    self.stack.push(val);
                 }
                 Op::SetLocal => {
                     let slot = self.read_u16_op() as usize;
                     let val = self.peek()?;
-                    let base = self.inner.frames[frame_idx].base;
-                    self.inner.stack[base + slot] = val;
+                    let base = self.frames[frame_idx].base;
+                    self.stack[base + slot] = val;
                 }
                 Op::CheckTdz => {
                     let slot = self.read_u16_op() as usize;
-                    let frame = &self.inner.frames[frame_idx];
+                    let frame = &self.frames[frame_idx];
                     if frame.tdz_slots.get(slot).copied().unwrap_or(false) {
                         let err = VmError::reference_error(
                             "Cannot access variable before initialization",
@@ -105,7 +105,7 @@ impl Vm {
                 }
                 Op::InitLocal => {
                     let slot = self.read_u16_op() as usize;
-                    let frame = &mut self.inner.frames[frame_idx];
+                    let frame = &mut self.frames[frame_idx];
                     if let Some(v) = frame.tdz_slots.get_mut(slot) {
                         *v = false;
                     }
@@ -114,14 +114,14 @@ impl Vm {
                 // ── Upvalue access ──────────────────────────────────
                 Op::GetUpvalue => {
                     let idx = self.read_u16_op() as usize;
-                    let uv_id = self.inner.frames[frame_idx].upvalue_ids[idx];
+                    let uv_id = self.frames[frame_idx].upvalue_ids[idx];
                     let val = self.read_upvalue(uv_id);
-                    self.inner.stack.push(val);
+                    self.stack.push(val);
                 }
                 Op::SetUpvalue => {
                     let idx = self.read_u16_op() as usize;
                     let val = self.peek()?;
-                    let uv_id = self.inner.frames[frame_idx].upvalue_ids[idx];
+                    let uv_id = self.frames[frame_idx].upvalue_ids[idx];
                     self.write_upvalue(uv_id, val);
                 }
 
@@ -129,25 +129,23 @@ impl Vm {
                 Op::GetGlobal => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    if let Some(val) = self.inner.globals.get(&name_id).copied() {
-                        self.inner.stack.push(val);
+                    if let Some(val) = self.globals.get(&name_id).copied() {
+                        self.stack.push(val);
                     } else {
                         // Fall back to the global object (supports accessor properties
                         // defined via Object.defineProperty(globalThis, ...)).
                         // Check property existence on the global object, then resolve.
-                        let global_obj = self.inner.global_object;
+                        let global_obj = self.global_object;
                         let pk = PropertyKey::String(name_id);
-                        if let Some(result) =
-                            super::coerce::get_property(&self.inner, global_obj, pk)
-                        {
+                        if let Some(result) = super::coerce::get_property(self, global_obj, pk) {
                             match self.resolve_property(result, JsValue::Object(global_obj)) {
-                                Ok(val) => self.inner.stack.push(val),
+                                Ok(val) => self.stack.push(val),
                                 Err(e) => {
                                     self.throw_error(e, entry_frame_depth)?;
                                 }
                             }
                         } else {
-                            let name_str = self.inner.strings.get_utf8(name_id);
+                            let name_str = self.strings.get_utf8(name_id);
                             let msg = format!("{name_str} is not defined");
                             let err = VmError::reference_error(&msg);
                             self.throw_error(err, entry_frame_depth)?;
@@ -162,25 +160,18 @@ impl Vm {
                     // variable is a ReferenceError.
                     let exists_on_global = {
                         let pk = PropertyKey::String(name_id);
-                        self.inner.globals.contains_key(&name_id)
-                            || super::coerce::get_property(
-                                &self.inner,
-                                self.inner.global_object,
-                                pk,
-                            )
-                            .is_some()
+                        self.globals.contains_key(&name_id)
+                            || super::coerce::get_property(self, self.global_object, pk).is_some()
                     };
-                    if self.inner.compiled_functions[func_id.0 as usize].is_strict
-                        && !exists_on_global
-                    {
-                        let name_str = self.inner.strings.get_utf8(name_id);
+                    if self.compiled_functions[func_id.0 as usize].is_strict && !exists_on_global {
+                        let name_str = self.strings.get_utf8(name_id);
                         let msg = format!("{name_str} is not defined");
                         let err = VmError::reference_error(&msg);
                         self.throw_error(err, entry_frame_depth)?;
                     } else {
                         // Check for accessor setter on globalThis before
                         // writing to the globals HashMap.
-                        let global_obj = self.inner.global_object;
+                        let global_obj = self.global_object;
                         if let Err(e) =
                             self.set_property_val(JsValue::Object(global_obj), name_id, val)
                         {
@@ -194,7 +185,7 @@ impl Vm {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match self.op_add(a, b) {
-                        Ok(r) => self.inner.stack.push(r),
+                        Ok(r) => self.stack.push(r),
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
                         }
@@ -262,24 +253,24 @@ impl Vm {
                 Op::Eq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = abstract_eq(&mut self.inner, a, b);
-                    self.inner.stack.push(JsValue::Boolean(r));
+                    let r = abstract_eq(self, a, b);
+                    self.stack.push(JsValue::Boolean(r));
                 }
                 Op::NotEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = !abstract_eq(&mut self.inner, a, b);
-                    self.inner.stack.push(JsValue::Boolean(r));
+                    let r = !abstract_eq(self, a, b);
+                    self.stack.push(JsValue::Boolean(r));
                 }
                 Op::StrictEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    self.inner.stack.push(JsValue::Boolean(strict_eq(a, b)));
+                    self.stack.push(JsValue::Boolean(strict_eq(a, b)));
                 }
                 Op::StrictNotEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    self.inner.stack.push(JsValue::Boolean(!strict_eq(a, b)));
+                    self.stack.push(JsValue::Boolean(!strict_eq(a, b)));
                 }
                 Op::Lt => {
                     if let Err(e) = self.relational_op(false, false) {
@@ -309,9 +300,9 @@ impl Vm {
                     // §12.10.4 step 2: Check rhs[@@hasInstance]
                     if let JsValue::Object(rhs_id) = rhs {
                         let has_instance_key =
-                            PropertyKey::Symbol(self.inner.well_known_symbols.has_instance);
+                            PropertyKey::Symbol(self.well_known_symbols.has_instance);
                         if let Some(has_instance_result) =
-                            super::coerce::get_property(&self.inner, rhs_id, has_instance_key)
+                            super::coerce::get_property(self, rhs_id, has_instance_key)
                         {
                             let has_instance_fn =
                                 match self.resolve_property(has_instance_result, rhs) {
@@ -328,8 +319,8 @@ impl Vm {
                                     continue;
                                 }
                             };
-                            let bool_result = to_boolean(&self.inner, result);
-                            self.inner.stack.push(JsValue::Boolean(bool_result));
+                            let bool_result = to_boolean(self, result);
+                            self.stack.push(JsValue::Boolean(bool_result));
                             continue;
                         }
                     }
@@ -337,21 +328,20 @@ impl Vm {
                     // OrdinaryHasInstance: walk lhs's prototype chain looking for rhs.prototype
                     let result =
                         if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
-                            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
-                            let ctor_proto =
-                                super::coerce::get_property(&self.inner, ctor_id, proto_key);
+                            let proto_key = PropertyKey::String(self.well_known.prototype);
+                            let ctor_proto = super::coerce::get_property(self, ctor_id, proto_key);
                             if let Some(super::coerce::PropertyResult::Data(JsValue::Object(
                                 target_proto,
                             ))) = ctor_proto
                             {
-                                let mut current = self.inner.get_object(obj_id).prototype;
+                                let mut current = self.get_object(obj_id).prototype;
                                 let mut found = false;
                                 while let Some(proto_id) = current {
                                     if proto_id == target_proto {
                                         found = true;
                                         break;
                                     }
-                                    current = self.inner.get_object(proto_id).prototype;
+                                    current = self.get_object(proto_id).prototype;
                                 }
                                 found
                             } else {
@@ -360,7 +350,7 @@ impl Vm {
                         } else {
                             false
                         };
-                    self.inner.stack.push(JsValue::Boolean(result));
+                    self.stack.push(JsValue::Boolean(result));
                 }
                 Op::In => {
                     let rhs = self.pop()?; // object
@@ -373,19 +363,19 @@ impl Vm {
                                 continue;
                             }
                         };
-                        let obj = self.inner.get_object(obj_id);
+                        let obj = self.get_object(obj_id);
                         let found = match (&obj.kind, &pk) {
                             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
-                                let key_units = self.inner.strings.get(*key_id);
+                                let key_units = self.strings.get(*key_id);
                                 if let Some(idx) = parse_array_index_u16(key_units) {
                                     idx < elements.len()
                                 } else {
-                                    super::coerce::get_property(&self.inner, obj_id, pk).is_some()
+                                    super::coerce::get_property(self, obj_id, pk).is_some()
                                 }
                             }
-                            _ => super::coerce::get_property(&self.inner, obj_id, pk).is_some(),
+                            _ => super::coerce::get_property(self, obj_id, pk).is_some(),
                         };
-                        self.inner.stack.push(JsValue::Boolean(found));
+                        self.stack.push(JsValue::Boolean(found));
                     } else {
                         let err = VmError::type_error(
                             "Cannot use 'in' operator to search for property in non-object",
@@ -397,44 +387,44 @@ impl Vm {
                 // ── Unary ───────────────────────────────────────────
                 Op::Neg => {
                     let a = self.pop()?;
-                    match op_neg(&self.inner, a) {
-                        Ok(r) => self.inner.stack.push(r),
+                    match op_neg(self, a) {
+                        Ok(r) => self.stack.push(r),
                         Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::Pos => {
                     let a = self.pop()?;
-                    match op_pos(&self.inner, a) {
-                        Ok(r) => self.inner.stack.push(r),
+                    match op_pos(self, a) {
+                        Ok(r) => self.stack.push(r),
                         Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::Not => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_not(&self.inner, a));
+                    self.stack.push(op_not(self, a));
                 }
                 Op::BitNot => {
                     let a = self.pop()?;
-                    match op_bitnot(&self.inner, a) {
-                        Ok(r) => self.inner.stack.push(r),
+                    match op_bitnot(self, a) {
+                        Ok(r) => self.stack.push(r),
                         Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::TypeOf => {
                     let a = self.pop()?;
-                    let s = typeof_str(&self.inner, a);
-                    self.inner.stack.push(JsValue::String(s));
+                    let s = typeof_str(self, a);
+                    self.stack.push(JsValue::String(s));
                 }
                 Op::TypeOfGlobal => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    let val = if let Some(&v) = self.inner.globals.get(&name_id) {
+                    let val = if let Some(&v) = self.globals.get(&name_id) {
                         v
                     } else {
                         // Fall back to global object (supports accessor properties).
-                        let global_obj = self.inner.global_object;
+                        let global_obj = self.global_object;
                         let pk = PropertyKey::String(name_id);
-                        match super::coerce::get_property(&self.inner, global_obj, pk) {
+                        match super::coerce::get_property(self, global_obj, pk) {
                             Some(result) => {
                                 match self.resolve_property(result, JsValue::Object(global_obj)) {
                                     Ok(v) => v,
@@ -447,29 +437,29 @@ impl Vm {
                             None => JsValue::Undefined,
                         }
                     };
-                    let s = typeof_str(&self.inner, val);
-                    self.inner.stack.push(JsValue::String(s));
+                    let s = typeof_str(self, val);
+                    self.stack.push(JsValue::String(s));
                 }
                 Op::Void => {
                     self.pop()?;
-                    self.inner.stack.push(op_void());
+                    self.stack.push(op_void());
                 }
 
                 // ── Update operations ───────────────────────────────
                 Op::IncLocal | Op::DecLocal => {
                     let slot = self.read_u16_op() as usize;
                     let prefix = self.read_u8_op() != 0;
-                    let base = self.inner.frames[frame_idx].base;
-                    match to_number(&self.inner, self.inner.stack[base + slot]) {
+                    let base = self.frames[frame_idx].base;
+                    match to_number(self, self.stack[base + slot]) {
                         Ok(old) => {
                             let new = if op == Op::IncLocal {
                                 old + 1.0
                             } else {
                                 old - 1.0
                             };
-                            self.inner.stack[base + slot] = JsValue::Number(new);
+                            self.stack[base + slot] = JsValue::Number(new);
                             let push_val = if prefix { new } else { old };
-                            self.inner.stack.push(JsValue::Number(push_val));
+                            self.stack.push(JsValue::Number(push_val));
                         }
                         Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
@@ -486,7 +476,7 @@ impl Vm {
                             continue;
                         }
                     };
-                    match to_number(&self.inner, old) {
+                    match to_number(self, old) {
                         Ok(old_num) => {
                             let new_num = if op == Op::IncProp {
                                 old_num + 1.0
@@ -503,7 +493,7 @@ impl Vm {
                                     continue;
                                 }
                             }
-                            self.inner.stack.push(JsValue::Number(if prefix {
+                            self.stack.push(JsValue::Number(if prefix {
                                 new_num
                             } else {
                                 old_num
@@ -523,7 +513,7 @@ impl Vm {
                             continue;
                         }
                     };
-                    match to_number(&self.inner, old) {
+                    match to_number(self, old) {
                         Ok(old_num) => {
                             let new_num = if op == Op::IncElem {
                                 old_num + 1.0
@@ -535,7 +525,7 @@ impl Vm {
                                 self.throw_error(e, entry_frame_depth)?;
                                 continue;
                             }
-                            self.inner.stack.push(JsValue::Number(if prefix {
+                            self.stack.push(JsValue::Number(if prefix {
                                 new_num
                             } else {
                                 old_num
@@ -553,14 +543,14 @@ impl Vm {
                 Op::JumpIfFalse => {
                     let offset = self.read_i16_op();
                     let val = self.pop()?;
-                    if !to_boolean(&self.inner, val) {
+                    if !to_boolean(self, val) {
                         self.jump_relative(offset);
                     }
                 }
                 Op::JumpIfTrue => {
                     let offset = self.read_i16_op();
                     let val = self.pop()?;
-                    if to_boolean(&self.inner, val) {
+                    if to_boolean(self, val) {
                         self.jump_relative(offset);
                     }
                 }
@@ -590,9 +580,9 @@ impl Vm {
                 }
                 Op::ReturnUndefined => {
                     if frame_idx == entry_frame_depth {
-                        let completion = self.inner.completion_value;
+                        let completion = self.completion_value;
                         self.pop_frame();
-                        self.inner.completion_value = JsValue::Undefined;
+                        self.completion_value = JsValue::Undefined;
                         return Ok(completion);
                     }
                     self.pop_frame();
@@ -604,7 +594,7 @@ impl Vm {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let obj_val = self.pop()?;
                     match self.get_property_val(obj_val, name_id) {
-                        Ok(val) => self.inner.stack.push(val),
+                        Ok(val) => self.stack.push(val),
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
                         }
@@ -619,13 +609,13 @@ impl Vm {
                         self.throw_error(e, entry_frame_depth)?;
                         continue;
                     }
-                    self.inner.stack.push(val);
+                    self.stack.push(val);
                 }
                 Op::GetElem => {
                     let key = self.pop()?;
                     let obj = self.pop()?;
                     match self.get_element(obj, key) {
-                        Ok(val) => self.inner.stack.push(val),
+                        Ok(val) => self.stack.push(val),
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
                         }
@@ -639,45 +629,47 @@ impl Vm {
                         self.throw_error(e, entry_frame_depth)?;
                         continue;
                     }
-                    self.inner.stack.push(val);
+                    self.stack.push(val);
                 }
                 Op::DeleteProp => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
-                    if let JsValue::Object(id) = obj_val {
-                        // Sync global object deletes to the globals HashMap.
-                        if id == self.inner.global_object {
-                            self.inner.globals.remove(&name_id);
-                        }
-                        let obj = self.get_object_mut(id);
-                        obj.properties.retain(|(k, _)| *k != pk);
-                    }
-                    self.inner.stack.push(JsValue::Boolean(true));
-                }
-                Op::DeleteElem => {
-                    let key = self.pop()?;
-                    let obj_val = self.pop()?;
-                    if let JsValue::Object(id) = obj_val {
-                        match self.make_property_key(key) {
-                            Ok(pk) => {
-                                // Sync global object deletes to the globals HashMap.
-                                if id == self.inner.global_object {
-                                    if let PropertyKey::String(sid) = pk {
-                                        self.inner.globals.remove(&sid);
-                                    }
-                                }
-                                let obj = self.get_object_mut(id);
-                                obj.properties.retain(|(k, _)| *k != pk);
-                            }
+                    let deleted = if let JsValue::Object(id) = obj_val {
+                        match self.try_delete_property(id, pk) {
+                            Ok(d) => d,
                             Err(e) => {
                                 self.throw_error(e, entry_frame_depth)?;
                                 continue;
                             }
                         }
-                    }
-                    self.inner.stack.push(JsValue::Boolean(true));
+                    } else {
+                        true
+                    };
+                    self.stack.push(JsValue::Boolean(deleted));
+                }
+                Op::DeleteElem => {
+                    let key = self.pop()?;
+                    let obj_val = self.pop()?;
+                    let deleted = if let JsValue::Object(id) = obj_val {
+                        match self.make_property_key(key) {
+                            Ok(pk) => match self.try_delete_property(id, pk) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    self.throw_error(e, entry_frame_depth)?;
+                                    continue;
+                                }
+                            },
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                                continue;
+                            }
+                        }
+                    } else {
+                        true
+                    };
+                    self.stack.push(JsValue::Boolean(deleted));
                 }
 
                 // ── Object/Array creation ───────────────────────────
@@ -701,19 +693,23 @@ impl Vm {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }
-                Op::SpreadObject => self.op_spread_object()?,
+                Op::SpreadObject => {
+                    if let Err(e) = self.op_spread_object() {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
 
                 // ── Template ────────────────────────────────────────
                 Op::TemplateConcat => {
                     let count = self.read_u16_op() as usize;
-                    let start = self.inner.stack.len() - count;
-                    let parts: Vec<JsValue> = self.inner.stack[start..].to_vec();
-                    self.inner.stack.truncate(start);
+                    let start = self.stack.len() - count;
+                    let parts: Vec<JsValue> = self.stack[start..].to_vec();
+                    self.stack.truncate(start);
                     let mut result: Vec<u16> = Vec::new();
                     let mut err: Option<VmError> = None;
                     for val in parts {
-                        match to_string(&mut self.inner, val) {
-                            Ok(s_id) => result.extend_from_slice(self.inner.strings.get(s_id)),
+                        match to_string(self, val) {
+                            Ok(s_id) => result.extend_from_slice(self.strings.get(s_id)),
                             Err(e) => {
                                 err = Some(e);
                                 break;
@@ -724,8 +720,8 @@ impl Vm {
                         self.throw_error(e, entry_frame_depth)?;
                         continue;
                     }
-                    let id = self.inner.strings.intern_utf16(&result);
-                    self.inner.stack.push(JsValue::String(id));
+                    let id = self.strings.intern_utf16(&result);
+                    self.stack.push(JsValue::String(id));
                 }
 
                 // ── Function call ───────────────────────────────────
@@ -742,19 +738,19 @@ impl Vm {
                 Op::CallMethod => {
                     let argc = self.read_u8_op() as usize;
                     // Stack: [receiver, callee, arg0..argN]
-                    let args_start = self.inner.stack.len() - argc;
-                    let callee = self.inner.stack[args_start - 1];
-                    let receiver = self.inner.stack[args_start - 2];
+                    let args_start = self.stack.len() - argc;
+                    let callee = self.stack[args_start - 1];
+                    let receiver = self.stack[args_start - 2];
                     // PERF: M4-11 — eliminate this allocation by restructuring call_internal
-                    let call_args: Vec<JsValue> = self.inner.stack[args_start..].to_vec();
-                    self.inner.stack.truncate(args_start - 2);
+                    let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
+                    self.stack.truncate(args_start - 2);
                     match self.call_value(callee, receiver, &call_args) {
-                        Ok(result) => self.inner.stack.push(result),
+                        Ok(result) => self.stack.push(result),
                         Err(e) => {
                             let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
                                 val
                             } else {
-                                let msg = self.inner.strings.intern(&e.to_string());
+                                let msg = self.strings.intern(&e.to_string());
                                 JsValue::String(msg)
                             };
                             if self.handle_exception(thrown, entry_frame_depth) {
@@ -775,8 +771,8 @@ impl Vm {
                     }
                 }
                 Op::PushThis => {
-                    let this = self.inner.frames[frame_idx].this_value;
-                    self.inner.stack.push(this);
+                    let this = self.frames[frame_idx].this_value;
+                    self.stack.push(this);
                 }
                 Op::Closure => {
                     let const_idx = self.read_u16_op();
@@ -787,8 +783,8 @@ impl Vm {
                 Op::PushExceptionHandler => {
                     let catch_ip = self.read_u16_op();
                     let finally_ip = self.read_u16_op();
-                    let stack_depth = self.inner.stack.len();
-                    let frame = self.inner.frames.last_mut().unwrap();
+                    let stack_depth = self.stack.len();
+                    let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.push(super::value::HandlerEntry {
                         catch_ip: u32::from(catch_ip),
                         finally_ip: u32::from(finally_ip),
@@ -796,7 +792,7 @@ impl Vm {
                     });
                 }
                 Op::PopExceptionHandler => {
-                    let frame = self.inner.frames.last_mut().unwrap();
+                    let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.pop();
                 }
                 Op::Throw => {
@@ -806,16 +802,16 @@ impl Vm {
                         // Handler found and activated — continue the dispatch loop.
                         continue;
                     }
-                    // No handler found — clean up frames/stack so subsequent
-                    // `eval()` calls don't see stale state.
-                    while self.inner.frames.len() > entry_frame_depth {
-                        let frame = self.inner.frames.pop().unwrap();
+                    // No handler found — clean up frames above the entry
+                    // frame so subsequent `eval()` calls don't see stale
+                    // state.  The entry frame itself is NOT popped here:
+                    // for nested `run()` calls (re-entrant native → JS
+                    // callbacks), the caller's frames must survive so that
+                    // the outer dispatch loop can still catch the exception.
+                    while self.frames.len() > entry_frame_depth + 1 {
+                        let frame = self.frames.pop().unwrap();
                         self.close_upvalues(&frame.local_upvalue_ids);
-                        self.inner.stack.truncate(frame.base);
-                    }
-                    if let Some(frame) = self.inner.frames.pop() {
-                        self.close_upvalues(&frame.local_upvalue_ids);
-                        self.inner.stack.truncate(frame.base);
+                        self.stack.truncate(frame.base);
                     }
                     return Err(VmError {
                         kind: VmErrorKind::ThrowValue(val),
@@ -823,8 +819,8 @@ impl Vm {
                     });
                 }
                 Op::PushException => {
-                    let exc = self.inner.current_exception;
-                    self.inner.stack.push(exc);
+                    let exc = self.current_exception;
+                    self.stack.push(exc);
                 }
 
                 // ── Switch ──────────────────────────────────────────
@@ -852,7 +848,7 @@ impl Vm {
 
                 // ── Arguments object ────────────────────────────────
                 Op::CreateArguments => {
-                    let args = self.inner.frames[frame_idx]
+                    let args = self.frames[frame_idx]
                         .actual_args
                         .take()
                         .unwrap_or_default();
@@ -860,28 +856,28 @@ impl Vm {
                     let args_obj = self.alloc_object(super::value::Object {
                         kind: ObjectKind::Arguments { values: args },
                         properties: Vec::new(),
-                        prototype: self.inner.object_prototype,
+                        prototype: self.object_prototype,
                     });
                     // Set the `length` property.
-                    let length_key = PropertyKey::String(self.inner.well_known.length);
+                    let length_key = PropertyKey::String(self.well_known.length);
                     #[allow(clippy::cast_precision_loss)]
                     // arguments.length is non-enumerable (§10.4.4.5).
                     self.get_object_mut(args_obj)
                         .properties
                         .push((length_key, Property::method(JsValue::Number(len as f64))));
-                    self.inner.stack.push(JsValue::Object(args_obj));
+                    self.stack.push(JsValue::Object(args_obj));
                 }
 
                 // ── Stubs for remaining opcodes ─────────────────────
                 Op::CallSpread | Op::NewSpread | Op::SuperCallSpread => {
                     self.pop()?; // args array
                     self.pop()?; // callee/constructor
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
                 Op::TaggedTemplate => {
                     let _count = self.read_u8_op();
                     // Simplified stub.
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
 
                 // ── Iteration ───────────────────────────────────────
@@ -893,18 +889,17 @@ impl Vm {
                 Op::IteratorNext => {
                     // Stack: [iterator] → [iterator value done]
                     let iter_val = *self
-                        .inner
                         .stack
                         .last()
                         .ok_or_else(|| VmError::internal("empty stack on IteratorNext"))?;
                     match self.iter_next(iter_val) {
                         Ok(Some(value)) => {
-                            self.inner.stack.push(value);
-                            self.inner.stack.push(JsValue::Boolean(false));
+                            self.stack.push(value);
+                            self.stack.push(JsValue::Boolean(false));
                         }
                         Ok(None) => {
-                            self.inner.stack.push(JsValue::Undefined);
-                            self.inner.stack.push(JsValue::Boolean(true));
+                            self.stack.push(JsValue::Undefined);
+                            self.stack.push(JsValue::Boolean(true));
                         }
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
@@ -926,21 +921,20 @@ impl Vm {
                             }
                         }
                     }
-                    let proto = self.inner.array_prototype;
+                    let proto = self.array_prototype;
                     let arr = self.alloc_object(Object {
                         kind: ObjectKind::Array { elements },
                         properties: Vec::new(),
                         prototype: proto,
                     });
-                    self.inner.stack.push(JsValue::Object(arr));
+                    self.stack.push(JsValue::Object(arr));
                 }
                 Op::IteratorClose => {
                     // Stack: [iterator] → []
                     let iter_val = self.pop()?;
                     if let JsValue::Object(iter_id) = iter_val {
-                        let return_key = PropertyKey::String(self.inner.well_known.return_str);
-                        if let Some(return_result) = get_property(&self.inner, iter_id, return_key)
-                        {
+                        let return_key = PropertyKey::String(self.well_known.return_str);
+                        if let Some(return_result) = get_property(self, iter_id, return_key) {
                             let return_fn = match self.resolve_property(return_result, iter_val) {
                                 Ok(v) => v,
                                 Err(e) => {
@@ -966,7 +960,7 @@ impl Vm {
                 Op::CreateClass => {
                     self.read_u16_op();
                     self.pop()?; // super
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
                 Op::DefineMethod => {
                     let name_idx = self.read_u16_op();
@@ -982,7 +976,7 @@ impl Vm {
                 }
                 Op::SuperCall => {
                     let _argc = self.read_u8_op();
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
 
                 // ── For-in iteration ────────────────────────────────
@@ -995,15 +989,15 @@ impl Vm {
                     // Simplified: leave as-is or push undefined.
                     if op == Op::GetPrivate {
                         self.pop()?;
-                        self.inner.stack.push(JsValue::Undefined);
+                        self.stack.push(JsValue::Undefined);
                     } else if op == Op::SetPrivate {
                         // [obj val -- val]
                         let val = self.pop()?;
                         self.pop()?;
-                        self.inner.stack.push(val);
+                        self.stack.push(val);
                     } else {
                         self.pop()?;
-                        self.inner.stack.push(JsValue::Boolean(false));
+                        self.stack.push(JsValue::Boolean(false));
                     }
                 }
                 Op::GetSuperProp | Op::SetSuperProp | Op::GetSuperElem => {
@@ -1012,9 +1006,9 @@ impl Vm {
                     }
                     if op == Op::SetSuperProp {
                         let val = self.pop()?;
-                        self.inner.stack.push(val);
+                        self.stack.push(val);
                     } else {
-                        self.inner.stack.push(JsValue::Undefined);
+                        self.stack.push(JsValue::Undefined);
                     }
                 }
 
@@ -1029,15 +1023,15 @@ impl Vm {
 
                 // ── Misc stubs ──────────────────────────────────────
                 Op::NewTarget | Op::ImportMeta => {
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
                 Op::DynamicImport => {
                     self.pop()?;
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
                 Op::GetModuleVar => {
                     self.read_u16_op();
-                    self.inner.stack.push(JsValue::Undefined);
+                    self.stack.push(JsValue::Undefined);
                 }
                 Op::Wide => {
                     return Err(VmError::internal("Wide prefix not yet supported"));

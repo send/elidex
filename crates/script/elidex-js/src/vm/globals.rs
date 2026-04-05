@@ -26,9 +26,9 @@ use super::natives_number::{
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
-use super::{NativeFn, Vm};
+use super::{NativeFn, VmInner};
 
-impl Vm {
+impl VmInner {
     // -- Global registration -------------------------------------------------
 
     pub(super) fn register_globals(&mut self) {
@@ -41,20 +41,17 @@ impl Vm {
             properties: Vec::new(),
             prototype: None, // will be set after Object.prototype exists
         });
-        self.inner.global_object = global_obj;
+        self.global_object = global_obj;
 
         // undefined, NaN, Infinity
-        let undef_name = self.inner.well_known.undefined;
-        self.inner.globals.insert(undef_name, JsValue::Undefined);
+        let undef_name = self.well_known.undefined;
+        self.globals.insert(undef_name, JsValue::Undefined);
 
-        let nan_name = self.inner.well_known.nan;
-        self.inner
-            .globals
-            .insert(nan_name, JsValue::Number(f64::NAN));
+        let nan_name = self.well_known.nan;
+        self.globals.insert(nan_name, JsValue::Number(f64::NAN));
 
-        let inf_name = self.inner.well_known.infinity;
-        self.inner
-            .globals
+        let inf_name = self.well_known.infinity;
+        self.globals
             .insert(inf_name, JsValue::Number(f64::INFINITY));
 
         // console object
@@ -107,8 +104,8 @@ impl Vm {
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) {
         let fn_id = self.create_native_function(name, func);
-        let name_id = self.inner.strings.intern(name);
-        self.inner.globals.insert(name_id, JsValue::Object(fn_id));
+        let name_id = self.strings.intern(name);
+        self.globals.insert(name_id, JsValue::Object(fn_id));
     }
 
     /// Helper: register a constructor-like global object with a `.prototype` property.
@@ -116,14 +113,14 @@ impl Vm {
         let ctor_id = self.alloc_object(super::value::Object {
             kind: ObjectKind::Ordinary,
             properties: Vec::new(),
-            prototype: self.inner.object_prototype,
+            prototype: self.object_prototype,
         });
-        let proto_key = PropertyKey::String(self.inner.well_known.prototype);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
         self.get_object_mut(ctor_id)
             .properties
             .push((proto_key, Property::builtin(JsValue::Object(proto_id))));
-        let name_id = self.inner.strings.intern(name);
-        self.inner.globals.insert(name_id, JsValue::Object(ctor_id));
+        let name_id = self.strings.intern(name);
+        self.globals.insert(name_id, JsValue::Object(ctor_id));
     }
 
     /// Helper: create a global object with named native methods.
@@ -134,11 +131,11 @@ impl Vm {
         let obj_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             properties: Vec::new(),
-            prototype: self.inner.object_prototype,
+            prototype: self.object_prototype,
         });
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
-            let key = PropertyKey::String(self.inner.strings.intern(name));
+            let key = PropertyKey::String(self.strings.intern(name));
             self.get_object_mut(obj_id)
                 .properties
                 .push((key, Property::method(JsValue::Object(fn_id))));
@@ -153,17 +150,17 @@ impl Vm {
             properties: Vec::new(),
             prototype: None,
         });
-        self.inner.object_prototype = Some(obj_proto);
+        self.object_prototype = Some(obj_proto);
 
         // Object.prototype.toString (ES2020 §19.1.3.6)
         let to_str_fn = self.create_native_function("toString", native_object_prototype_to_string);
-        let to_str_key = PropertyKey::String(self.inner.strings.intern("toString"));
+        let to_str_key = PropertyKey::String(self.strings.intern("toString"));
         self.get_object_mut(obj_proto)
             .properties
             .push((to_str_key, Property::method(JsValue::Object(to_str_fn))));
 
         // Set the global object's prototype now that Object.prototype exists.
-        self.get_object_mut(self.inner.global_object).prototype = Some(obj_proto);
+        self.get_object_mut(self.global_object).prototype = Some(obj_proto);
 
         // Array.prototype — inherits from Object.prototype.
         let arr_proto = self.alloc_object(Object {
@@ -171,19 +168,19 @@ impl Vm {
             properties: Vec::new(),
             prototype: Some(obj_proto),
         });
-        self.inner.array_prototype = Some(arr_proto);
+        self.array_prototype = Some(arr_proto);
 
         // Array.prototype[Symbol.iterator] = native_array_values
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_array_values);
-        let sym_iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+        let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
         self.get_object_mut(arr_proto)
             .properties
             .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
     }
 
     fn register_iterator_prototypes(&mut self) {
-        let next_key = PropertyKey::String(self.inner.well_known.next);
-        let sym_iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+        let next_key = PropertyKey::String(self.well_known.next);
+        let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
 
         // Array iterator prototype with `next` + `@@iterator`
         let arr_next_fn = self.create_native_function("next", native_array_iterator_next);
@@ -198,9 +195,9 @@ impl Vm {
                     Property::method(JsValue::Object(arr_iter_self_fn)),
                 ),
             ],
-            prototype: self.inner.object_prototype,
+            prototype: self.object_prototype,
         });
-        self.inner.array_iterator_prototype = Some(arr_iter_proto);
+        self.array_iterator_prototype = Some(arr_iter_proto);
 
         // String iterator prototype with `next` + `@@iterator`
         let str_next_fn = self.create_native_function("next", native_string_iterator_next);
@@ -215,9 +212,9 @@ impl Vm {
                     Property::method(JsValue::Object(str_iter_self_fn)),
                 ),
             ],
-            prototype: self.inner.object_prototype,
+            prototype: self.object_prototype,
         });
-        self.inner.string_iterator_prototype = Some(str_iter_proto);
+        self.string_iterator_prototype = Some(str_iter_proto);
     }
 
     fn register_error_constructors(&mut self) {
@@ -229,8 +226,8 @@ impl Vm {
         ];
         for &(name, func) in ctors {
             let fn_id = self.create_constructable_function(name, func);
-            let name_id = self.inner.strings.intern(name);
-            self.inner.globals.insert(name_id, JsValue::Object(fn_id));
+            let name_id = self.strings.intern(name);
+            self.globals.insert(name_id, JsValue::Object(fn_id));
         }
     }
 
@@ -246,14 +243,14 @@ impl Vm {
                 native_object_get_own_property_symbols,
             ),
         ]);
-        let name = self.inner.strings.intern("Object");
-        self.inner.globals.insert(name, JsValue::Object(obj_id));
+        let name = self.strings.intern("Object");
+        self.globals.insert(name, JsValue::Object(obj_id));
     }
 
     fn register_array_global(&mut self) {
         let obj_id = self.create_object_with_methods(&[("isArray", native_array_is_array)]);
-        let name = self.inner.strings.intern("Array");
-        self.inner.globals.insert(name, JsValue::Object(obj_id));
+        let name = self.strings.intern("Array");
+        self.globals.insert(name, JsValue::Object(obj_id));
     }
 
     fn register_math_global(&mut self) {
@@ -270,18 +267,18 @@ impl Vm {
             ("log", native_math_log),
         ]);
         // Math.PI, Math.E
-        let pi_key = PropertyKey::String(self.inner.strings.intern("PI"));
+        let pi_key = PropertyKey::String(self.strings.intern("PI"));
         self.get_object_mut(obj_id).properties.push((
             pi_key,
             Property::builtin(JsValue::Number(std::f64::consts::PI)),
         ));
-        let e_key = PropertyKey::String(self.inner.strings.intern("E"));
+        let e_key = PropertyKey::String(self.strings.intern("E"));
         self.get_object_mut(obj_id).properties.push((
             e_key,
             Property::builtin(JsValue::Number(std::f64::consts::E)),
         ));
-        let name = self.inner.strings.intern("Math");
-        self.inner.globals.insert(name, JsValue::Object(obj_id));
+        let name = self.strings.intern("Math");
+        self.globals.insert(name, JsValue::Object(obj_id));
     }
 
     fn register_json_global(&mut self) {
@@ -289,8 +286,8 @@ impl Vm {
             ("stringify", native_json_stringify_stub),
             ("parse", native_json_parse_stub),
         ]);
-        let name = self.inner.strings.intern("JSON");
-        self.inner.globals.insert(name, JsValue::Object(obj_id));
+        let name = self.strings.intern("JSON");
+        self.globals.insert(name, JsValue::Object(obj_id));
     }
 
     fn register_string_prototype(&mut self) {
@@ -313,11 +310,11 @@ impl Vm {
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
-        let sym_iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+        let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
         self.get_object_mut(proto_id)
             .properties
             .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
-        self.inner.string_prototype = Some(proto_id);
+        self.string_prototype = Some(proto_id);
         self.register_constructor_global("String", proto_id);
     }
 
@@ -327,7 +324,7 @@ impl Vm {
             ("valueOf", native_number_value_of),
             ("toFixed", native_number_to_fixed),
         ]);
-        self.inner.number_prototype = Some(proto_id);
+        self.number_prototype = Some(proto_id);
         self.register_constructor_global("Number", proto_id);
     }
 
@@ -336,7 +333,7 @@ impl Vm {
             ("toString", native_boolean_to_string),
             ("valueOf", native_boolean_value_of),
         ]);
-        self.inner.boolean_prototype = Some(proto_id);
+        self.boolean_prototype = Some(proto_id);
         self.register_constructor_global("Boolean", proto_id);
     }
 
@@ -346,13 +343,13 @@ impl Vm {
             ("exec", native_regexp_exec),
             ("toString", native_regexp_to_string),
         ]);
-        self.inner.regexp_prototype = Some(proto_id);
+        self.regexp_prototype = Some(proto_id);
     }
 
     fn register_symbol_prototype(&mut self) {
         let proto_id =
             self.create_object_with_methods(&[("toString", native_symbol_prototype_to_string)]);
-        self.inner.symbol_prototype = Some(proto_id);
+        self.symbol_prototype = Some(proto_id);
     }
 
     fn register_symbol_global(&mut self) {
@@ -360,27 +357,25 @@ impl Vm {
         // Register it as a native function, then attach static methods and
         // well-known symbol properties.
         let sym_fn_id = self.create_native_function("Symbol", native_symbol_constructor);
-        let name_id = self.inner.strings.intern("Symbol");
-        self.inner
-            .globals
-            .insert(name_id, JsValue::Object(sym_fn_id));
+        let name_id = self.strings.intern("Symbol");
+        self.globals.insert(name_id, JsValue::Object(sym_fn_id));
 
         // Symbol.for
         let for_fn = self.create_native_function("for", native_symbol_for);
-        let for_key = PropertyKey::String(self.inner.strings.intern("for"));
+        let for_key = PropertyKey::String(self.strings.intern("for"));
         self.get_object_mut(sym_fn_id)
             .properties
             .push((for_key, Property::method(JsValue::Object(for_fn))));
 
         // Symbol.keyFor
         let key_for_fn = self.create_native_function("keyFor", native_symbol_key_for);
-        let key_for_key = PropertyKey::String(self.inner.strings.intern("keyFor"));
+        let key_for_key = PropertyKey::String(self.strings.intern("keyFor"));
         self.get_object_mut(sym_fn_id)
             .properties
             .push((key_for_key, Property::method(JsValue::Object(key_for_fn))));
 
         // Well-known symbols as properties
-        let wk = &self.inner.well_known_symbols;
+        let wk = &self.well_known_symbols;
         let well_known_props = [
             ("iterator", wk.iterator),
             ("asyncIterator", wk.async_iterator),
@@ -391,15 +386,15 @@ impl Vm {
             ("isConcatSpreadable", wk.is_concat_spreadable),
         ];
         for (prop_name, sid) in well_known_props {
-            let key = PropertyKey::String(self.inner.strings.intern(prop_name));
+            let key = PropertyKey::String(self.strings.intern(prop_name));
             self.get_object_mut(sym_fn_id)
                 .properties
                 .push((key, Property::builtin(JsValue::Symbol(sid))));
         }
 
         // Symbol.prototype (non-enumerable, non-configurable, non-writable per spec)
-        if let Some(proto_id) = self.inner.symbol_prototype {
-            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
+        if let Some(proto_id) = self.symbol_prototype {
+            let proto_key = PropertyKey::String(self.well_known.prototype);
             self.get_object_mut(sym_fn_id).properties.push((
                 proto_key,
                 Property {
@@ -411,7 +406,7 @@ impl Vm {
             ));
 
             // Symbol.prototype.constructor = Symbol
-            let ctor_key = PropertyKey::String(self.inner.well_known.constructor);
+            let ctor_key = PropertyKey::String(self.well_known.constructor);
             self.get_object_mut(proto_id)
                 .properties
                 .push((ctor_key, Property::method(JsValue::Object(sym_fn_id))));
@@ -427,28 +422,27 @@ impl Vm {
 
         // console.log
         let log_fn = self.create_native_function("log", native_console_log);
-        let log_key = PropertyKey::String(self.inner.well_known.log);
+        let log_key = PropertyKey::String(self.well_known.log);
         self.get_object_mut(console_id)
             .properties
             .push((log_key, Property::method(JsValue::Object(log_fn))));
 
         // console.error
         let error_fn = self.create_native_function("error", native_console_error);
-        let error_key = PropertyKey::String(self.inner.well_known.error);
+        let error_key = PropertyKey::String(self.well_known.error);
         self.get_object_mut(console_id)
             .properties
             .push((error_key, Property::method(JsValue::Object(error_fn))));
 
         // console.warn
         let warn_fn = self.create_native_function("warn", native_console_warn);
-        let warn_key = PropertyKey::String(self.inner.well_known.warn);
+        let warn_key = PropertyKey::String(self.well_known.warn);
         self.get_object_mut(console_id)
             .properties
             .push((warn_key, Property::method(JsValue::Object(warn_fn))));
 
-        let console_name = self.inner.strings.intern("console");
-        self.inner
-            .globals
+        let console_name = self.strings.intern("console");
+        self.globals
             .insert(console_name, JsValue::Object(console_id));
     }
 }
