@@ -377,6 +377,21 @@ fn eval_symbol_key_for_o1() {
     );
 }
 
+// -- Fix: Symbol.prototype property on Symbol function ----------------------
+
+#[test]
+fn eval_symbol_prototype_exists() {
+    assert_eq!(eval_string("typeof Symbol.prototype;"), "object");
+}
+
+#[test]
+fn eval_symbol_prototype_constructor() {
+    assert_eq!(
+        eval_string("Symbol.prototype.constructor === Symbol ? 'yes' : 'no';"),
+        "yes"
+    );
+}
+
 // ── Class tests (moved from mod.rs) ─────────────────────────────
 
 #[test]

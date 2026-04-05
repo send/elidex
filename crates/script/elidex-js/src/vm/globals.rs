@@ -297,6 +297,26 @@ impl Vm {
                 .properties
                 .push((key, Property::builtin(JsValue::Symbol(sid))));
         }
+
+        // Symbol.prototype (non-enumerable, non-configurable, non-writable per spec)
+        if let Some(proto_id) = self.inner.symbol_prototype {
+            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
+            self.get_object_mut(sym_fn_id).properties.push((
+                proto_key,
+                Property {
+                    value: JsValue::Object(proto_id),
+                    writable: false,
+                    enumerable: false,
+                    configurable: false,
+                },
+            ));
+
+            // Symbol.prototype.constructor = Symbol
+            let ctor_key = PropertyKey::String(self.inner.well_known.constructor);
+            self.get_object_mut(proto_id)
+                .properties
+                .push((ctor_key, Property::method(JsValue::Object(sym_fn_id))));
+        }
     }
 
     fn register_console(&mut self) {
