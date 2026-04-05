@@ -1,23 +1,7 @@
 //! Native RegExp.prototype methods.
 
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
-
-/// Convert a UTF-8 byte offset to a UTF-16 code unit index.
-fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
-    s[..byte_offset].encode_utf16().count()
-}
-
-/// Convert a UTF-16 code unit index to a UTF-8 byte offset.
-fn utf16_to_byte_offset(s: &str, utf16_idx: usize) -> usize {
-    let mut units = 0;
-    for (byte_idx, ch) in s.char_indices() {
-        if units >= utf16_idx {
-            return byte_idx;
-        }
-        units += ch.len_utf16();
-    }
-    s.len()
-}
+use crate::wtf16::{byte_offset_to_utf16, utf16_to_byte_offset};
 
 /// Run a regex match on a subject string, handling lastIndex for g/y flags.
 /// Returns the Match if found.

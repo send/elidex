@@ -4,15 +4,11 @@ use super::value::{
     JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
 };
 use crate::wtf16::{
-    ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
+    byte_offset_to_utf16, ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16,
+    trim_u16,
 };
 
 // -- Helpers ----------------------------------------------------------------
-
-/// Convert a UTF-8 byte offset to a UTF-16 code unit index.
-fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
-    s[..byte_offset].encode_utf16().count()
-}
 
 /// Set `lastIndex` to 0 on a RegExp object (used after String.prototype methods).
 fn set_regexp_last_index(ctx: &mut NativeContext<'_>, obj_id: super::value::ObjectId, idx: usize) {
