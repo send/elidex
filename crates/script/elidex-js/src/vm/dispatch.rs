@@ -11,7 +11,7 @@ use super::coerce::{
     to_number, to_string, typeof_str, BitwiseOp, NumericBinaryOp,
 };
 use super::value::{
-    FuncId, JsValue, Object, ObjectKind, Property, PropertyKey, StringId, VmError, VmErrorKind,
+    FuncId, JsValue, Object, ObjectKind, PropertyKey, StringId, VmError, VmErrorKind,
 };
 use super::Vm;
 
@@ -539,120 +539,23 @@ impl Vm {
                 }
 
                 // ── Object/Array creation ───────────────────────────
-                Op::CreateObject => {
-                    let proto = self.inner.object_prototype;
-                    let id = self.alloc_object(super::value::Object {
-                        kind: ObjectKind::Ordinary,
-                        properties: Vec::new(),
-                        prototype: proto,
-                    });
-                    self.inner.stack.push(JsValue::Object(id));
-                }
+                Op::CreateObject => self.op_create_object(),
                 Op::DefineProperty => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    let pk = PropertyKey::String(name_id);
-                    let val = self.pop()?;
-                    let obj_val = self.peek()?;
-                    if let JsValue::Object(id) = obj_val {
-                        let obj = self.get_object_mut(id);
-                        // Overwrite if key already exists (e.g. after spread).
-                        if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
-                            existing.1 = Property::data(val);
-                        } else {
-                            obj.properties.push((pk, Property::data(val)));
-                        }
-                    }
+                    self.op_define_property(name_id)?;
                 }
                 Op::DefineComputedProperty => {
-                    let val = self.pop()?;
-                    let key = self.pop()?;
-                    let obj_val = self.peek()?;
-                    if let JsValue::Object(id) = obj_val {
-                        match self.make_property_key(key) {
-                            Ok(pk) => {
-                                self.get_object_mut(id)
-                                    .properties
-                                    .push((pk, Property::data(val)));
-                            }
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                            }
-                        }
-                    }
+                    self.op_define_computed_property(entry_frame_depth)?;
                 }
                 Op::DefineComputedMethod => {
-                    // Like DefineComputedProperty but non-enumerable (§14.3.8).
-                    let val = self.pop()?;
-                    let key = self.pop()?;
-                    let obj_val = self.peek()?;
-                    if let JsValue::Object(id) = obj_val {
-                        match self.make_property_key(key) {
-                            Ok(pk) => {
-                                self.get_object_mut(id)
-                                    .properties
-                                    .push((pk, Property::method(val)));
-                            }
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                            }
-                        }
-                    }
+                    self.op_define_computed_method(entry_frame_depth)?;
                 }
-                Op::CreateArray => {
-                    let proto = self.inner.array_prototype;
-                    let id = self.alloc_object(super::value::Object {
-                        kind: ObjectKind::Array {
-                            elements: Vec::new(),
-                        },
-                        properties: Vec::new(),
-                        prototype: proto,
-                    });
-                    self.inner.stack.push(JsValue::Object(id));
-                }
-                Op::ArrayPush => {
-                    let val = self.pop()?;
-                    let arr_val = self.peek()?;
-                    if let JsValue::Object(id) = arr_val {
-                        if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind
-                        {
-                            elements.push(val);
-                        }
-                    }
-                }
-                Op::ArrayHole => {
-                    let arr_val = self.peek()?;
-                    if let JsValue::Object(id) = arr_val {
-                        if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind
-                        {
-                            elements.push(JsValue::Undefined);
-                        }
-                    }
-                }
+                Op::CreateArray => self.op_create_array(),
+                Op::ArrayPush => self.op_array_push()?,
+                Op::ArrayHole => self.op_array_hole()?,
                 Op::ArraySpread => self.op_array_spread()?,
-                Op::SpreadObject => {
-                    let source = self.pop()?;
-                    let obj_val = self.peek()?;
-                    if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
-                        let src = self.inner.get_object(src_id);
-                        let props: Vec<(PropertyKey, Property)> = src
-                            .properties
-                            .iter()
-                            .filter(|(_, p)| p.enumerable)
-                            .map(|(k, p)| (*k, Property::data(p.value)))
-                            .collect();
-                        let dst = self.inner.get_object_mut(dst_id);
-                        for (k, p) in props {
-                            if let Some(existing) =
-                                dst.properties.iter_mut().find(|(ek, _)| *ek == k)
-                            {
-                                existing.1 = p;
-                            } else {
-                                dst.properties.push((k, p));
-                            }
-                        }
-                    }
-                }
+                Op::SpreadObject => self.op_spread_object()?,
 
                 // ── Template ────────────────────────────────────────
                 Op::TemplateConcat => {
@@ -863,14 +766,7 @@ impl Vm {
                     let name_idx = self.read_u16_op();
                     let _flags = self.read_u8_op(); // flags byte (static|kind)
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    let val = self.pop()?;
-                    let obj_val = self.peek()?;
-                    if let JsValue::Object(id) = obj_val {
-                        // Class methods are non-enumerable per ES2020 spec.
-                        self.get_object_mut(id)
-                            .properties
-                            .push((PropertyKey::String(name_id), Property::method(val)));
-                    }
+                    self.op_define_method(name_id)?;
                 }
                 Op::DefineField => {
                     self.read_u16_op();

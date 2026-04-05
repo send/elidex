@@ -6,6 +6,7 @@
 pub mod coerce;
 mod dispatch;
 mod dispatch_iter;
+mod dispatch_objects;
 mod globals;
 pub mod interpreter;
 mod natives;

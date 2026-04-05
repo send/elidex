@@ -1,4 +1,4 @@
-use super::{eval, eval_number, eval_string};
+use super::{eval, eval_bool, eval_number, eval_string};
 
 // ── M4-10.1: Computed class member keys ────────────────────────────
 
@@ -368,5 +368,206 @@ fn eval_symbol_key_for_o1() {
     assert_eq!(
         eval_string("Symbol.for('alpha'); Symbol.for('beta'); var s = Symbol.for('alpha'); Symbol.keyFor(s);"),
         "alpha",
+    );
+}
+
+// ── Class tests (moved from mod.rs) ─────────────────────────────
+
+#[test]
+fn class_declaration_basic() {
+    assert_eq!(
+        eval_number(
+            "class Foo {
+                constructor(x) { this.x = x; }
+                getX() { return this.x; }
+            }
+            var f = new Foo(42);
+            f.getX();"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn class_static_method() {
+    assert_eq!(
+        eval_number(
+            "class Foo {
+                static create(n) { return new Foo(n); }
+                constructor(x) { this.x = x; }
+            }
+            var f = Foo.create(99);
+            f.x;"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn class_default_constructor() {
+    // Class with no explicit constructor should still work with `new`.
+    assert_eq!(
+        eval_number(
+            "class Empty {}
+            var e = new Empty();
+            e.x = 7;
+            e.x;"
+        ),
+        7.0
+    );
+}
+
+#[test]
+fn class_expression() {
+    assert_eq!(
+        eval_number(
+            "var Foo = class {
+                constructor(v) { this.v = v; }
+                get() { return this.v; }
+            };
+            new Foo(10).get();"
+        ),
+        10.0
+    );
+}
+
+#[test]
+fn class_multiple_methods() {
+    assert_eq!(
+        eval_number(
+            "class Calc {
+                constructor(a, b) { this.a = a; this.b = b; }
+                sum() { return this.a + this.b; }
+                product() { return this.a * this.b; }
+            }
+            var c = new Calc(3, 4);
+            c.sum() + c.product();"
+        ),
+        19.0 // 7 + 12
+    );
+}
+
+#[test]
+fn class_prototype_shared() {
+    // Instances of the same class share methods via the prototype.
+    assert_eq!(
+        eval_number(
+            "class Foo {
+                method() { return 1; }
+            }
+            var a = new Foo();
+            var b = new Foo();
+            a.method() + b.method();"
+        ),
+        2.0
+    );
+}
+
+#[test]
+fn class_static_property() {
+    assert_eq!(
+        eval_number(
+            "class Config {
+                static defaultValue = 100;
+            }
+            Config.defaultValue;"
+        ),
+        100.0
+    );
+}
+
+// ── Destructuring tests (moved from mod.rs) ─────────────────────
+
+#[test]
+fn eval_array_destructuring() {
+    assert_eq!(eval_number("var [a, b] = [1, 2]; a + b;"), 3.0);
+}
+
+#[test]
+fn eval_array_destructuring_skip() {
+    assert_eq!(eval_number("var [, b] = [1, 2]; b;"), 2.0);
+}
+
+#[test]
+fn eval_object_destructuring() {
+    assert_eq!(eval_number("var {x, y} = {x: 10, y: 20}; x + y;"), 30.0);
+}
+
+#[test]
+fn eval_object_destructuring_rename() {
+    assert_eq!(
+        eval_number("var {x: a, y: b} = {x: 10, y: 20}; a + b;"),
+        30.0
+    );
+}
+
+#[test]
+fn eval_destructuring_default() {
+    assert_eq!(eval_number("var [a, b = 5] = [1]; a + b;"), 6.0);
+}
+
+#[test]
+fn eval_nested_destructuring() {
+    assert_eq!(eval_number("var {a: {b}} = {a: {b: 42}}; b;"), 42.0);
+}
+
+#[test]
+fn eval_array_rest() {
+    assert_eq!(
+        eval_number("var [a, ...rest] = [1, 2, 3]; rest.length;"),
+        2.0
+    );
+}
+
+#[test]
+fn eval_object_rest_destructuring() {
+    // rest should exclude already-destructured keys
+    assert_eq!(
+        eval_number("var {a, ...rest} = {a: 1, b: 2, c: 3}; rest.b + rest.c;"),
+        5.0
+    );
+}
+
+#[test]
+fn eval_object_rest_no_excluded_key() {
+    // rest should not contain 'a'
+    assert!(eval_bool(
+        "var {a, ...rest} = {a: 1, b: 2}; !('a' in rest);"
+    ));
+}
+
+// ── Symbol property tests (moved from mod.rs) ───────────────────
+
+#[test]
+fn symbol_in_operator() {
+    assert_eq!(
+        eval_number("var s = Symbol(); var o = {}; o[s] = 1; s in o ? 1 : 0;"),
+        1.0
+    );
+}
+
+#[test]
+fn symbol_delete_elem() {
+    assert_eq!(
+        eval_number("var s = Symbol(); var o = {}; o[s] = 1; delete o[s]; s in o ? 1 : 0;"),
+        0.0
+    );
+}
+
+#[test]
+fn symbol_define_property() {
+    assert_eq!(
+        eval_number(
+            "var s = Symbol(); var o = {}; Object.defineProperty(o, s, {value: 42}); o[s];"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn eval_symbol_to_string_type_error() {
+    assert_eq!(
+        eval_string("var r; try { '' + Symbol(); } catch(e) { r = e.message; } r;"),
+        "Cannot convert a Symbol value to a string",
     );
 }

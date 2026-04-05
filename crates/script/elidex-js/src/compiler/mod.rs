@@ -9,6 +9,7 @@ mod expr_function;
 pub mod function;
 pub mod resolve;
 mod stmt;
+mod stmt_destructure;
 
 use crate::ast::{Program, StmtKind};
 use crate::bytecode::compiled::{CompiledScript, Constant};
