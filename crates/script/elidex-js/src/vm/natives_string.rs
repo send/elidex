@@ -4,11 +4,47 @@ use super::value::{
     JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
 };
 use crate::wtf16::{
-    byte_offset_to_utf16, ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16,
-    trim_u16,
+    ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
 };
 
 // -- Helpers ----------------------------------------------------------------
+
+/// Build an exec-style match result array with `.index` and `.input`.
+fn build_match_result(
+    ctx: &mut NativeContext<'_>,
+    subject: &[u16],
+    m: &regress::Match,
+    input_sid: StringId,
+) -> Result<JsValue, VmError> {
+    let mut elements = vec![JsValue::String(
+        ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]),
+    )];
+    for group in &m.captures {
+        match group {
+            Some(range) => elements.push(JsValue::String(
+                ctx.vm
+                    .strings
+                    .intern_utf16(&subject[range.start..range.end]),
+            )),
+            None => elements.push(JsValue::Undefined),
+        }
+    }
+    let arr_id = ctx.alloc_object(Object {
+        kind: ObjectKind::Array { elements },
+        properties: Vec::new(),
+        prototype: ctx.vm.array_prototype,
+    });
+    let index_key = PropertyKey::String(ctx.intern("index"));
+    #[allow(clippy::cast_precision_loss)]
+    ctx.get_object_mut(arr_id)
+        .properties
+        .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
+    let input_key = PropertyKey::String(ctx.intern("input"));
+    ctx.get_object_mut(arr_id)
+        .properties
+        .push((input_key, Property::data(JsValue::String(input_sid))));
+    Ok(JsValue::Object(arr_id))
+}
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
 pub(super) fn set_regexp_last_index(
@@ -400,14 +436,13 @@ pub(super) fn native_string_replace(
     };
     let search_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
-    // RegExp first argument: delegate to regex-based replace.
+    // RegExp first argument: operate on WTF-16 via find_from_utf16.
     if let JsValue::Object(re_id) = search_val {
-        // Check if it's a RegExp — extract flags info first, then get replacement.
         let regexp_flags = {
             let obj = ctx.get_object(re_id);
             if let ObjectKind::RegExp { flags, .. } = &obj.kind {
-                let flags_str = ctx.vm.strings.get_utf8(*flags);
-                Some((flags_str.contains('g'), flags_str.contains('y')))
+                let f = ctx.vm.strings.get_utf8(*flags);
+                Some((f.contains('g'), f.contains('y')))
             } else {
                 None
             }
@@ -415,46 +450,46 @@ pub(super) fn native_string_replace(
         if let Some((is_global, is_sticky)) = regexp_flags {
             let replacement_id =
                 ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-            let replacement_str = ctx.vm.strings.get_utf8(replacement_id);
-            let subject = ctx.vm.strings.get_utf8(sid);
+            let replacement = ctx.vm.strings.get(replacement_id).to_vec();
+            let subject = ctx.vm.strings.get(sid).to_vec();
 
-            // Re-borrow the compiled regex.
             let obj = ctx.get_object(re_id);
             let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
                 unreachable!();
             };
-            let result = if is_global {
-                let mut out = String::new();
+            let result: Vec<u16> = if is_global {
+                let mut out = Vec::new();
                 let mut last_end = 0;
-                for m in compiled.find_iter(&subject) {
-                    out.push_str(&subject[last_end..m.start()]);
-                    out.push_str(&replacement_str);
+                for m in compiled.find_from_utf16(&subject, 0) {
+                    out.extend_from_slice(&subject[last_end..m.start()]);
+                    out.extend_from_slice(&replacement);
                     last_end = m.end();
                 }
-                out.push_str(&subject[last_end..]);
+                out.extend_from_slice(&subject[last_end..]);
                 out
             } else {
-                // Non-global: single match. Sticky anchors at start.
                 let m = if is_sticky {
-                    compiled.find(&subject).filter(|m| m.start() == 0)
+                    compiled
+                        .find_from_utf16(&subject, 0)
+                        .next()
+                        .filter(|m| m.start() == 0)
                 } else {
-                    compiled.find(&subject)
+                    compiled.find_from_utf16(&subject, 0).next()
                 };
                 if let Some(m) = m {
-                    let mut out = String::with_capacity(subject.len());
-                    out.push_str(&subject[..m.start()]);
-                    out.push_str(&replacement_str);
-                    out.push_str(&subject[m.end()..]);
+                    let mut out = Vec::with_capacity(subject.len());
+                    out.extend_from_slice(&subject[..m.start()]);
+                    out.extend_from_slice(&replacement);
+                    out.extend_from_slice(&subject[m.end()..]);
                     out
                 } else {
                     subject
                 }
             };
-            // Reset lastIndex to 0 for global/sticky regexps (§21.2.5.8).
             if is_global || is_sticky {
                 set_regexp_last_index(ctx, re_id, 0);
             }
-            let id = ctx.intern(&result);
+            let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
     }
@@ -488,8 +523,11 @@ pub(super) fn native_string_match(
     };
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
-    // Non-RegExp argument: coerce to string and create a regex.
-    #[allow(clippy::manual_let_else)] // else branch has complex early-return logic
+    // Resolve the compiled regex + subject as WTF-16.
+    let subject = ctx.vm.strings.get(sid).to_vec();
+
+    // Non-RegExp: coerce to string and compile a regex on the fly.
+    #[allow(clippy::manual_let_else)]
     let re_id = if let JsValue::Object(id) = re_val {
         id
     } else {
@@ -501,45 +539,13 @@ pub(super) fn native_string_match(
         };
         let compiled = regress::Regex::new(&pattern_str)
             .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
-        let subject = ctx.vm.strings.get_utf8(sid);
-        // Quick non-global match for string patterns.
-        let m = compiled.find(&subject);
-        let match_data: Option<(Vec<Option<String>>, usize)> = m.map(|m| {
-            let mut matches: Vec<Option<String>> =
-                vec![Some(subject[m.start()..m.end()].to_string())];
-            for group in &m.captures {
-                matches.push(
-                    group
-                        .as_ref()
-                        .map(|range| subject[range.start..range.end].to_string()),
-                );
-            }
-            (matches, byte_offset_to_utf16(&subject, m.start()))
-        });
-        let Some((matches, index)) = match_data else {
+        let Some(m) = compiled.find_from_utf16(&subject, 0).next() else {
             return Ok(JsValue::Null);
         };
-        let mut elements = Vec::with_capacity(matches.len());
-        for s in &matches {
-            match s {
-                Some(s) => elements.push(JsValue::String(ctx.intern(s))),
-                None => elements.push(JsValue::Undefined),
-            }
-        }
-        let arr_id = ctx.alloc_object(Object {
-            kind: ObjectKind::Array { elements },
-            properties: Vec::new(),
-            prototype: ctx.vm.array_prototype,
-        });
-        let index_key = PropertyKey::String(ctx.intern("index"));
-        #[allow(clippy::cast_precision_loss)]
-        ctx.get_object_mut(arr_id)
-            .properties
-            .push((index_key, Property::data(JsValue::Number(index as f64))));
-        return Ok(JsValue::Object(arr_id));
+        return build_match_result(ctx, &subject, &m, sid);
     };
 
-    // Extract match data with immutable borrow, then build result with mutable.
+    // RegExp path: extract match data on WTF-16.
     let (is_global, is_sticky, match_data) = {
         let obj = ctx.get_object(re_id);
         let ObjectKind::RegExp {
@@ -550,90 +556,66 @@ pub(super) fn native_string_match(
         else {
             return Ok(JsValue::Null);
         };
-        let flags_id = *flags;
-        let flags_str = ctx.vm.strings.get_utf8(flags_id);
+        let flags_str = ctx.vm.strings.get_utf8(*flags);
         let is_global = flags_str.contains('g');
         let is_sticky = flags_str.contains('y');
-        let subject = ctx.vm.strings.get_utf8(sid);
 
         if is_global {
-            let matches: Vec<Option<String>> = compiled
-                .find_iter(&subject)
-                .map(|m| Some(subject[m.start()..m.end()].to_string()))
+            // Collect match ranges first to release the borrow on compiled.
+            let ranges: Vec<std::ops::Range<usize>> = compiled
+                .find_from_utf16(&subject, 0)
+                .map(|m| m.range.clone())
+                .collect();
+            // Explicit scope end: `obj` and `compiled` borrowing ctx is dropped
+            // by the `collect()` above. Now we can mutably borrow ctx.vm.strings.
+            let matches: Vec<super::value::StringId> = ranges
+                .iter()
+                .map(|r| ctx.vm.strings.intern_utf16(&subject[r.start..r.end]))
                 .collect();
             (
-                true,
+                is_global,
                 is_sticky,
                 if matches.is_empty() {
                     None
                 } else {
-                    Some((matches, 0usize))
+                    Some(matches)
                 },
             )
         } else {
-            // Non-global: sticky anchors at start.
             let found = if is_sticky {
-                compiled.find(&subject).filter(|m| m.start() == 0)
+                compiled
+                    .find_from_utf16(&subject, 0)
+                    .next()
+                    .filter(|m| m.start() == 0)
             } else {
-                compiled.find(&subject)
+                compiled.find_from_utf16(&subject, 0).next()
             };
-            match found {
-                Some(m) => {
-                    let mut matches: Vec<Option<String>> =
-                        vec![Some(subject[m.start()..m.end()].to_string())];
-                    for group in &m.captures {
-                        matches.push(
-                            group
-                                .as_ref()
-                                .map(|range| subject[range.start..range.end].to_string()),
-                        );
-                    }
-                    (
-                        false,
-                        is_sticky,
-                        Some((matches, byte_offset_to_utf16(&subject, m.start()))),
-                    )
+            // Non-global: return exec-style result.
+            if let Some(m) = found {
+                if is_global || is_sticky {
+                    set_regexp_last_index(ctx, re_id, 0);
                 }
-                None => (false, is_sticky, None),
+                return build_match_result(ctx, &subject, &m, sid);
             }
+            (is_global, is_sticky, None)
         }
     };
 
-    // Reset lastIndex for global/sticky (§21.2.5.6).
     if is_global || is_sticky {
         set_regexp_last_index(ctx, re_id, 0);
     }
 
-    let Some((matches, index)) = match_data else {
+    let Some(matches) = match_data else {
         return Ok(JsValue::Null);
     };
 
-    // Build the result array from collected strings.
-    let mut elements = Vec::with_capacity(matches.len());
-    if is_global {
-        for s in matches.iter().flatten() {
-            elements.push(JsValue::String(ctx.intern(s)));
-        }
-    } else {
-        for s in &matches {
-            match s {
-                Some(s) => elements.push(JsValue::String(ctx.intern(s))),
-                None => elements.push(JsValue::Undefined),
-            }
-        }
-    }
+    // Global: array of match strings.
+    let elements: Vec<JsValue> = matches.into_iter().map(JsValue::String).collect();
     let arr_id = ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements },
         properties: Vec::new(),
         prototype: ctx.vm.array_prototype,
     });
-    if !is_global {
-        let index_key = PropertyKey::String(ctx.intern("index"));
-        #[allow(clippy::cast_precision_loss)]
-        ctx.get_object_mut(arr_id)
-            .properties
-            .push((index_key, Property::data(JsValue::Number(index as f64))));
-    }
     Ok(JsValue::Object(arr_id))
 }
 
@@ -647,7 +629,9 @@ pub(super) fn native_string_search(
     };
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
-    // Non-RegExp argument: coerce to string and create a regex.
+    let subject = ctx.vm.strings.get(sid).to_vec();
+
+    // Non-RegExp: coerce to string and compile a regex.
     if !matches!(re_val, JsValue::Object(_)) {
         let pattern_str = if matches!(re_val, JsValue::Undefined) {
             String::new()
@@ -657,25 +641,26 @@ pub(super) fn native_string_search(
         };
         let compiled = regress::Regex::new(&pattern_str)
             .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
-        let subject = ctx.vm.strings.get_utf8(sid);
         #[allow(clippy::cast_precision_loss)]
-        return Ok(JsValue::Number(compiled.find(&subject).map_or(-1.0, |m| {
-            byte_offset_to_utf16(&subject, m.start()) as f64
-        })));
+        return Ok(JsValue::Number(
+            compiled
+                .find_from_utf16(&subject, 0)
+                .next()
+                .map_or(-1.0, |m| m.start() as f64),
+        ));
     }
     let JsValue::Object(re_id) = re_val else {
         unreachable!();
     };
-    // Extract result with immutable borrow.
     let result = {
         let obj = ctx.get_object(re_id);
         let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
             return Ok(JsValue::Number(-1.0));
         };
-        let subject = ctx.vm.strings.get_utf8(sid);
         compiled
-            .find(&subject)
-            .map(|m| byte_offset_to_utf16(&subject, m.start()))
+            .find_from_utf16(&subject, 0)
+            .next()
+            .map(|m| m.start())
     };
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))

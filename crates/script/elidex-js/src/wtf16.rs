@@ -264,20 +264,3 @@ pub fn to_lower_u16(units: &[u16]) -> Vec<u16> {
 pub fn to_upper_u16(units: &[u16]) -> Vec<u16> {
     case_map_u16(units, char::to_uppercase)
 }
-
-/// Convert a UTF-8 byte offset to a UTF-16 code unit index.
-pub fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
-    s[..byte_offset].encode_utf16().count()
-}
-
-/// Convert a UTF-16 code unit index to a UTF-8 byte offset.
-pub fn utf16_to_byte_offset(s: &str, utf16_idx: usize) -> usize {
-    let mut units = 0;
-    for (byte_idx, ch) in s.char_indices() {
-        if units >= utf16_idx {
-            return byte_idx;
-        }
-        units += ch.len_utf16();
-    }
-    s.len()
-}

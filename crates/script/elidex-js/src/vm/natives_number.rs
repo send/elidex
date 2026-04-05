@@ -60,19 +60,23 @@ pub(super) fn native_number_to_fixed(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    let digits = match args.first().copied().unwrap_or(JsValue::Number(0.0)) {
-        JsValue::Number(d) => {
-            if !(0.0..=100.0).contains(&d) {
-                return Err(VmError::range_error(
-                    "toFixed() digits argument must be between 0 and 100",
-                ));
-            }
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                d as usize
-            }
+    // §20.1.3.3 step 4: ToIntegerOrInfinity then range-check.
+    let digits = {
+        let raw = match args.first().copied().unwrap_or(JsValue::Number(0.0)) {
+            JsValue::Number(d) if d.is_nan() => 0.0,
+            JsValue::Number(d) if d.is_infinite() => d,
+            JsValue::Number(d) => d.trunc(),
+            _ => 0.0,
+        };
+        if !(0.0..=100.0).contains(&raw) {
+            return Err(VmError::range_error(
+                "toFixed() digits argument must be between 0 and 100",
+            ));
         }
-        _ => 0,
+        #[allow(clippy::cast_sign_loss)]
+        {
+            raw as usize
+        }
     };
     let s = format!("{n:.digits$}");
     let id = ctx.intern(&s);

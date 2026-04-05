@@ -515,6 +515,9 @@ pub(super) fn native_object_define_property(
     };
 
     // Sync global object writes to the globals HashMap.
+    // TODO(M4-11): accessor properties on globalThis are not mirrored to
+    // globals HashMap, so GetGlobal won't find them. VM single dispatcher
+    // should teach GetGlobal to fall back to the global object with Get.
     if obj_id == ctx.vm.global_object {
         if let PropertyKey::String(sid) = key {
             if let super::value::PropertyValue::Data(v) = new_prop.slot {

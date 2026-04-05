@@ -1,59 +1,66 @@
 //! Native RegExp.prototype methods.
+//!
+//! All regex matching operates on WTF-16 code unit slices (the VM's native
+//! string representation) via `regress::Regex::find_from_utf16`. This avoids
+//! UTF-8 ↔ UTF-16 round-trip conversions and ensures that `lastIndex`,
+//! `.index`, and capture ranges are correct UTF-16 code unit indices.
 
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
-use crate::wtf16::{byte_offset_to_utf16, utf16_to_byte_offset};
 
-/// Run a regex match on a subject string, handling lastIndex for g/y flags.
-/// Returns the Match if found.
+/// Helper: intern a WTF-16 sub-slice.
+fn intern_u16_range(
+    ctx: &mut NativeContext<'_>,
+    units: &[u16],
+    range: &std::ops::Range<usize>,
+) -> super::value::StringId {
+    ctx.vm.strings.intern_utf16(&units[range.start..range.end])
+}
+
+/// Run a regex match on a WTF-16 subject, handling lastIndex for g/y flags.
 fn run_regexp(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
-    subject: &str,
+    subject: &[u16],
 ) -> Result<Option<regress::Match>, VmError> {
-    // Extract flags string and determine global/sticky.
-    let flags_str = {
+    // Extract flags.
+    let (is_global, is_sticky) = {
         let obj = ctx.get_object(obj_id);
         if let ObjectKind::RegExp { flags, .. } = &obj.kind {
-            ctx.vm.strings.get_utf8(*flags)
+            let f = ctx.vm.strings.get_utf8(*flags);
+            (f.contains('g'), f.contains('y'))
         } else {
             return Err(VmError::type_error("not a RegExp"));
         }
     };
-    let is_global = flags_str.contains('g');
-    let is_sticky = flags_str.contains('y');
     let uses_last_index = is_global || is_sticky;
 
-    // Read lastIndex (UTF-16 code units) and convert to byte offset for global/sticky.
+    // Read lastIndex (already a UTF-16 code unit index).
     let start = if uses_last_index {
         let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
         let obj = ctx.get_object(obj_id);
-        let mut utf16_idx = 0usize;
+        let mut idx = 0usize;
         for (k, p) in &obj.properties {
             if *k == last_index_key {
                 if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
-                    // ToLength-like coercion: non-finite/negative → 0.
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     if n.is_finite() && n > 0.0 {
-                        utf16_idx = n.trunc() as usize;
+                        idx = (n.trunc() as usize).min(subject.len());
                     }
                 }
             }
         }
-        utf16_to_byte_offset(subject, utf16_idx)
+        idx
     } else {
         0
     };
 
-    // Run the compiled regex. We need to borrow the compiled regex immutably
-    // while also potentially holding a mutable reference later — so clone the
-    // match result before mutating.
+    // Run the compiled regex on WTF-16 data.
     let found = {
         let obj = ctx.get_object(obj_id);
         let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
             return Err(VmError::type_error("not a RegExp"));
         };
-        let m = compiled.find_from(subject, start).next();
-        // Sticky: the match must start exactly at `start`.
+        let m = compiled.find_from_utf16(subject, start).next();
         if is_sticky {
             m.filter(|m| m.start() == start)
         } else {
@@ -61,13 +68,9 @@ fn run_regexp(
         }
     };
 
-    // Update lastIndex for global/sticky (UTF-16 code units).
+    // Update lastIndex (UTF-16 code unit index, no conversion needed).
     if uses_last_index {
-        let new_idx = if let Some(ref m) = found {
-            byte_offset_to_utf16(subject, m.end())
-        } else {
-            0
-        };
+        let new_idx = found.as_ref().map_or(0, regress::Match::end);
         super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx);
     }
 
@@ -86,7 +89,7 @@ pub(super) fn native_regexp_test(
     };
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::coerce::to_string(ctx.vm, arg)?;
-    let subject = ctx.vm.strings.get_utf8(sid);
+    let subject = ctx.vm.strings.get(sid).to_vec();
 
     let found = run_regexp(ctx, obj_id, &subject)?;
     Ok(JsValue::Boolean(found.is_some()))
@@ -104,23 +107,17 @@ pub(super) fn native_regexp_exec(
     };
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::coerce::to_string(ctx.vm, arg)?;
-    let subject = ctx.vm.strings.get_utf8(sid);
+    let subject = ctx.vm.strings.get(sid).to_vec();
 
     let Some(m) = run_regexp(ctx, obj_id, &subject)? else {
         return Ok(JsValue::Null);
     };
 
     // Build result array: [full_match, ...groups]
-    let full_match = &subject[m.start()..m.end()];
-    let mut elements = vec![JsValue::String(ctx.intern(full_match))];
-
-    // Capture groups.
+    let mut elements = vec![JsValue::String(intern_u16_range(ctx, &subject, &m.range))];
     for group in &m.captures {
         match group {
-            Some(range) => {
-                let s = &subject[range.start..range.end];
-                elements.push(JsValue::String(ctx.intern(s)));
-            }
+            Some(range) => elements.push(JsValue::String(intern_u16_range(ctx, &subject, range))),
             None => elements.push(JsValue::Undefined),
         }
     }
@@ -131,16 +128,14 @@ pub(super) fn native_regexp_exec(
         prototype: ctx.vm.array_prototype,
     });
 
-    // Set `.index` (UTF-16 code unit index) and `.input` properties.
+    // .index is already a UTF-16 code unit index (no conversion).
     let index_key = PropertyKey::String(ctx.intern("index"));
-    let index_utf16 = byte_offset_to_utf16(&subject, m.start());
     #[allow(clippy::cast_precision_loss)]
-    ctx.get_object_mut(arr_id).properties.push((
-        index_key,
-        Property::data(JsValue::Number(index_utf16 as f64)),
-    ));
+    ctx.get_object_mut(arr_id)
+        .properties
+        .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
     let input_key = PropertyKey::String(ctx.intern("input"));
-    let input_str = ctx.intern(&subject);
+    let input_str = ctx.vm.strings.intern_utf16(&subject);
     ctx.get_object_mut(arr_id)
         .properties
         .push((input_key, Property::data(JsValue::String(input_str))));
