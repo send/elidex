@@ -160,8 +160,18 @@ impl Vm {
                     let val = self.peek()?;
                     // §8.1.1.2.5: In strict mode, assigning to an undeclared
                     // variable is a ReferenceError.
+                    let exists_on_global = {
+                        let pk = PropertyKey::String(name_id);
+                        self.inner.globals.contains_key(&name_id)
+                            || super::coerce::get_property(
+                                &self.inner,
+                                self.inner.global_object,
+                                pk,
+                            )
+                            .is_some()
+                    };
                     if self.inner.compiled_functions[func_id.0 as usize].is_strict
-                        && !self.inner.globals.contains_key(&name_id)
+                        && !exists_on_global
                     {
                         let name_str = self.inner.strings.get_utf8(name_id);
                         let msg = format!("{name_str} is not defined");
@@ -418,12 +428,25 @@ impl Vm {
                 Op::TypeOfGlobal => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    let val = self
-                        .inner
-                        .globals
-                        .get(&name_id)
-                        .copied()
-                        .unwrap_or(JsValue::Undefined);
+                    let val = if let Some(&v) = self.inner.globals.get(&name_id) {
+                        v
+                    } else {
+                        // Fall back to global object (supports accessor properties).
+                        let global_obj = self.inner.global_object;
+                        let pk = PropertyKey::String(name_id);
+                        match super::coerce::get_property(&self.inner, global_obj, pk) {
+                            Some(result) => {
+                                match self.resolve_property(result, JsValue::Object(global_obj)) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                }
+                            }
+                            None => JsValue::Undefined,
+                        }
+                    };
                     let s = typeof_str(&self.inner, val);
                     self.inner.stack.push(JsValue::String(s));
                 }
