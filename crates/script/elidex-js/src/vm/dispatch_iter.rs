@@ -74,7 +74,12 @@ impl Vm {
     pub(super) fn op_get_iterator(&mut self, entry_frame_depth: usize) -> Result<(), VmError> {
         let val = self.pop()?;
         if let Some(iter) = self.resolve_iterator(val)? {
-            self.inner.stack.push(iter);
+            if matches!(iter, JsValue::Object(_)) {
+                self.inner.stack.push(iter);
+            } else {
+                let err = VmError::type_error("@@iterator must return an object");
+                self.throw_error(err, entry_frame_depth)?;
+            }
         } else {
             let err = VmError::type_error("value is not iterable");
             self.throw_error(err, entry_frame_depth)?;

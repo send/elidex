@@ -4,20 +4,21 @@
 //! standard JS built-ins (console, Math, JSON, Error constructors, etc.).
 
 use super::natives::{
-    native_array_is_array, native_array_values, native_console_error, native_console_log,
-    native_console_warn, native_error_constructor, native_is_finite, native_is_nan,
-    native_json_parse_stub, native_json_stringify_stub, native_math_abs, native_math_ceil,
-    native_math_floor, native_math_log, native_math_max, native_math_min, native_math_pow,
-    native_math_random, native_math_round, native_math_sqrt, native_object_assign,
-    native_object_create, native_object_define_property, native_object_get_own_property_symbols,
-    native_object_keys, native_object_prototype_to_string, native_object_values,
-    native_parse_float, native_parse_int, native_range_error_constructor,
+    native_array_is_array, native_array_iterator_next, native_array_values, native_console_error,
+    native_console_log, native_console_warn, native_error_constructor, native_is_finite,
+    native_is_nan, native_iterator_self, native_json_parse_stub, native_json_stringify_stub,
+    native_math_abs, native_math_ceil, native_math_floor, native_math_log, native_math_max,
+    native_math_min, native_math_pow, native_math_random, native_math_round, native_math_sqrt,
+    native_object_assign, native_object_create, native_object_define_property,
+    native_object_get_own_property_symbols, native_object_keys, native_object_prototype_to_string,
+    native_object_values, native_parse_float, native_parse_int, native_range_error_constructor,
     native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
     native_string_ends_with, native_string_includes, native_string_index_of,
-    native_string_iterator, native_string_replace, native_string_slice, native_string_split,
-    native_string_starts_with, native_string_substring, native_string_to_lower_case,
-    native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
-    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
+    native_string_iterator, native_string_iterator_next, native_string_replace,
+    native_string_slice, native_string_split, native_string_starts_with, native_string_substring,
+    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
+    native_symbol_prototype_to_string, native_type_error_constructor,
 };
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
 use super::{NativeFn, Vm};
@@ -77,6 +78,9 @@ impl Vm {
 
         // JSON global (stubs for M4-10)
         self.register_json_global();
+
+        // Iterator prototypes (array + string)
+        self.register_iterator_prototypes();
 
         // String.prototype
         self.register_string_prototype();
@@ -150,6 +154,45 @@ impl Vm {
         self.get_object_mut(arr_proto)
             .properties
             .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
+    }
+
+    fn register_iterator_prototypes(&mut self) {
+        let next_key = PropertyKey::String(self.inner.well_known.next);
+        let sym_iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+
+        // Array iterator prototype with `next` + `@@iterator`
+        let arr_next_fn = self.create_native_function("next", native_array_iterator_next);
+        let arr_iter_self_fn =
+            self.create_native_function("[Symbol.iterator]", native_iterator_self);
+        let arr_iter_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            properties: vec![
+                (next_key, Property::method(JsValue::Object(arr_next_fn))),
+                (
+                    sym_iter_key,
+                    Property::method(JsValue::Object(arr_iter_self_fn)),
+                ),
+            ],
+            prototype: self.inner.object_prototype,
+        });
+        self.inner.array_iterator_prototype = Some(arr_iter_proto);
+
+        // String iterator prototype with `next` + `@@iterator`
+        let str_next_fn = self.create_native_function("next", native_string_iterator_next);
+        let str_iter_self_fn =
+            self.create_native_function("[Symbol.iterator]", native_iterator_self);
+        let str_iter_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            properties: vec![
+                (next_key, Property::method(JsValue::Object(str_next_fn))),
+                (
+                    sym_iter_key,
+                    Property::method(JsValue::Object(str_iter_self_fn)),
+                ),
+            ],
+            prototype: self.inner.object_prototype,
+        });
+        self.inner.string_iterator_prototype = Some(str_iter_proto);
     }
 
     fn register_error_constructors(&mut self) {

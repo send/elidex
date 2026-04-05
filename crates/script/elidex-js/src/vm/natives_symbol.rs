@@ -1,8 +1,8 @@
 //! Native implementations of Symbol, Array iterator, and Object.prototype.toString.
 
 use super::value::{
-    ArrayIterState, JsValue, NativeContext, NativeFunction, Object, ObjectKind, Property,
-    PropertyKey, StringIterState, VmError,
+    ArrayIterState, JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey,
+    StringIterState, VmError,
 };
 
 // -- Symbol constructor & methods -------------------------------------------
@@ -90,6 +90,10 @@ pub(super) fn native_iterator_self(
 // -- Array iterator (Symbol.iterator protocol) --------------------------------
 
 /// `Array.prototype[Symbol.iterator]()` — creates an ArrayIterator.
+///
+/// Methods (`next`, `@@iterator`) live on the shared array iterator
+/// prototype registered during VM initialisation, so individual
+/// iterator objects carry no per-instance function allocations.
 pub(super) fn native_array_values(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -100,42 +104,13 @@ pub(super) fn native_array_values(
             "Array.prototype[Symbol.iterator] called on non-object",
         ));
     };
-    // Create a "next" native function object inline.
-    let next_name = ctx.vm.well_known.next;
-    let next_fn_id = ctx.alloc_object(Object {
-        kind: ObjectKind::NativeFunction(NativeFunction {
-            name: next_name,
-            func: native_array_iterator_next,
-            constructable: false,
-        }),
-        properties: Vec::new(),
-        prototype: None,
-    });
-    // Create @@iterator function that returns `this`.
-    let self_fn_name = ctx.intern("[Symbol.iterator]");
-    let self_fn_id = ctx.alloc_object(Object {
-        kind: ObjectKind::NativeFunction(NativeFunction {
-            name: self_fn_name,
-            func: native_iterator_self,
-            constructable: false,
-        }),
-        properties: Vec::new(),
-        prototype: None,
-    });
-    let sym_iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
     let iter_obj = ctx.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(ArrayIterState {
             array_id: arr_id,
             index: 0,
         }),
-        properties: vec![
-            (
-                PropertyKey::String(next_name),
-                Property::method(JsValue::Object(next_fn_id)),
-            ),
-            (sym_iter_key, Property::method(JsValue::Object(self_fn_id))),
-        ],
-        prototype: None,
+        properties: Vec::new(),
+        prototype: ctx.vm.array_iterator_prototype,
     });
     Ok(JsValue::Object(iter_obj))
 }
@@ -227,6 +202,9 @@ pub(super) fn native_object_prototype_to_string(
 // -- String iterator (Symbol.iterator protocol) ------------------------------
 
 /// `String.prototype[Symbol.iterator]()` — creates a StringIterator.
+///
+/// Methods (`next`, `@@iterator`) live on the shared string iterator
+/// prototype registered during VM initialisation.
 pub(super) fn native_string_iterator(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -237,41 +215,13 @@ pub(super) fn native_string_iterator(
             "String.prototype[Symbol.iterator] called on non-string",
         ));
     };
-    let next_name = ctx.vm.well_known.next;
-    let next_fn_id = ctx.alloc_object(Object {
-        kind: ObjectKind::NativeFunction(NativeFunction {
-            name: next_name,
-            func: native_string_iterator_next,
-            constructable: false,
-        }),
-        properties: Vec::new(),
-        prototype: None,
-    });
-    // Create @@iterator function that returns `this`.
-    let self_fn_name = ctx.intern("[Symbol.iterator]");
-    let self_fn_id = ctx.alloc_object(Object {
-        kind: ObjectKind::NativeFunction(NativeFunction {
-            name: self_fn_name,
-            func: native_iterator_self,
-            constructable: false,
-        }),
-        properties: Vec::new(),
-        prototype: None,
-    });
-    let sym_iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
     let iter_obj = ctx.alloc_object(Object {
         kind: ObjectKind::StringIterator(StringIterState {
             string_id: sid,
             index: 0,
         }),
-        properties: vec![
-            (
-                PropertyKey::String(next_name),
-                Property::method(JsValue::Object(next_fn_id)),
-            ),
-            (sym_iter_key, Property::method(JsValue::Object(self_fn_id))),
-        ],
-        prototype: None,
+        properties: Vec::new(),
+        prototype: ctx.vm.string_iterator_prototype,
     });
     Ok(JsValue::Object(iter_obj))
 }

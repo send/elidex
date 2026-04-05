@@ -115,6 +115,10 @@ pub(crate) struct VmInner {
     pub(crate) object_prototype: Option<ObjectId>,
     /// Array.prototype (prototype for array instances).
     pub(crate) array_prototype: Option<ObjectId>,
+    /// Shared prototype for array iterator objects (next + @@iterator).
+    pub(crate) array_iterator_prototype: Option<ObjectId>,
+    /// Shared prototype for string iterator objects (next + @@iterator).
+    pub(crate) string_iterator_prototype: Option<ObjectId>,
     /// The global object (`globalThis`). Used for `this` coercion in
     /// non-strict functions (§9.2.1.2).
     pub(crate) global_object: ObjectId,
@@ -298,6 +302,8 @@ impl Vm {
                 symbol_prototype: None,
                 object_prototype: None,
                 array_prototype: None,
+                array_iterator_prototype: None,
+                string_iterator_prototype: None,
                 // Placeholder — immediately replaced by register_globals().
                 global_object: ObjectId(0),
                 completion_value: JsValue::Undefined,
