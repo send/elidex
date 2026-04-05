@@ -416,28 +416,28 @@ pub(super) fn native_object_define_property(
         let configurable_key = PropertyKey::String(ctx.intern("configurable"));
         let writable_key = PropertyKey::String(ctx.intern("writable"));
 
-        // Snapshot descriptor slots, then resolve accessors via Get (§7.3.1).
-        let desc_snapshot: Vec<(PropertyKey, super::value::PropertyValue)> = ctx
+        // Snapshot which keys exist on the descriptor, then do a fresh Get
+        // per key (§7.3.1).  A getter on one field may mutate another field,
+        // so we must not cache values across calls.
+        let desc_keys: Vec<PropertyKey> = ctx
             .get_object(desc_id)
             .properties
             .iter()
-            .map(|(k, p)| (*k, p.slot))
+            .map(|(k, _)| *k)
             .collect();
-        let desc_this = JsValue::Object(desc_id);
-        // Resolve a descriptor field by key, invoking getter if accessor.
-        let resolve_field =
+        let get_field =
             |ctx: &mut NativeContext<'_>, key: PropertyKey| -> Result<Option<JsValue>, VmError> {
-                let Some(&(_, slot)) = desc_snapshot.iter().find(|(k, _)| *k == key) else {
+                if !desc_keys.contains(&key) {
                     return Ok(None);
-                };
-                Ok(Some(ctx.resolve_slot(slot, desc_this)?))
+                }
+                Ok(Some(ctx.get_property_value(desc_id, key)?))
             };
-        let has_get = resolve_field(ctx, get_key)?;
-        let has_set = resolve_field(ctx, set_key)?;
-        let has_value = resolve_field(ctx, value_key)?;
-        let has_writable = resolve_field(ctx, writable_key)?;
-        let has_enumerable = resolve_field(ctx, enumerable_key)?;
-        let has_configurable = resolve_field(ctx, configurable_key)?;
+        let has_get = get_field(ctx, get_key)?;
+        let has_set = get_field(ctx, set_key)?;
+        let has_value = get_field(ctx, value_key)?;
+        let has_writable = get_field(ctx, writable_key)?;
+        let has_enumerable = get_field(ctx, enumerable_key)?;
+        let has_configurable = get_field(ctx, configurable_key)?;
         // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
         let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
         let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
