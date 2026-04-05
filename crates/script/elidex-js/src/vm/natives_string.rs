@@ -7,6 +7,23 @@ use crate::wtf16::{
     ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
 };
 
+// -- Helpers ----------------------------------------------------------------
+
+/// Set `lastIndex` to 0 on a RegExp object (used after String.prototype methods).
+fn set_regexp_last_index(ctx: &mut NativeContext<'_>, obj_id: super::value::ObjectId, idx: usize) {
+    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    #[allow(clippy::cast_precision_loss)]
+    let val = JsValue::Number(idx as f64);
+    let obj = ctx.get_object_mut(obj_id);
+    for prop in &mut obj.properties {
+        if prop.0 == last_index_key {
+            prop.1.slot = super::value::PropertyValue::Data(val);
+            return;
+        }
+    }
+    obj.properties.push((last_index_key, Property::data(val)));
+}
+
 // -- String.prototype methods -----------------------------------------------
 
 /// Helper: extract the `StringId` from `this` for String.prototype methods.
@@ -381,16 +398,16 @@ pub(super) fn native_string_replace(
     // RegExp first argument: delegate to regex-based replace.
     if let JsValue::Object(re_id) = search_val {
         // Check if it's a RegExp — extract flags info first, then get replacement.
-        let is_regexp_global = {
+        let regexp_flags = {
             let obj = ctx.get_object(re_id);
             if let ObjectKind::RegExp { flags, .. } = &obj.kind {
                 let flags_str = ctx.vm.strings.get_utf8(*flags);
-                Some(flags_str.contains('g'))
+                Some((flags_str.contains('g'), flags_str.contains('y')))
             } else {
                 None
             }
         };
-        if let Some(global) = is_regexp_global {
+        if let Some((is_global, is_sticky)) = regexp_flags {
             let replacement_id =
                 ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
             let replacement_str = ctx.vm.strings.get_utf8(replacement_id);
@@ -401,7 +418,7 @@ pub(super) fn native_string_replace(
             let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
                 unreachable!();
             };
-            let result = if global {
+            let result = if is_global {
                 let mut out = String::new();
                 let mut last_end = 0;
                 for m in compiled.find_iter(&subject) {
@@ -411,15 +428,27 @@ pub(super) fn native_string_replace(
                 }
                 out.push_str(&subject[last_end..]);
                 out
-            } else if let Some(m) = compiled.find(&subject) {
-                let mut out = String::with_capacity(subject.len());
-                out.push_str(&subject[..m.start()]);
-                out.push_str(&replacement_str);
-                out.push_str(&subject[m.end()..]);
-                out
             } else {
-                subject
+                // Non-global: single match. Sticky anchors at start.
+                let m = if is_sticky {
+                    compiled.find(&subject).filter(|m| m.start() == 0)
+                } else {
+                    compiled.find(&subject)
+                };
+                if let Some(m) = m {
+                    let mut out = String::with_capacity(subject.len());
+                    out.push_str(&subject[..m.start()]);
+                    out.push_str(&replacement_str);
+                    out.push_str(&subject[m.end()..]);
+                    out
+                } else {
+                    subject
+                }
             };
+            // Reset lastIndex to 0 for global/sticky regexps (§21.2.5.8).
+            if is_global || is_sticky {
+                set_regexp_last_index(ctx, re_id, 0);
+            }
             let id = ctx.intern(&result);
             return Ok(JsValue::String(id));
         }
@@ -457,7 +486,7 @@ pub(super) fn native_string_match(
     };
 
     // Extract match data with immutable borrow, then build result with mutable.
-    let (global, match_data) = {
+    let (is_global, is_sticky, match_data) = {
         let obj = ctx.get_object(re_id);
         let ObjectKind::RegExp {
             ref compiled,
@@ -469,16 +498,18 @@ pub(super) fn native_string_match(
         };
         let flags_id = *flags;
         let flags_str = ctx.vm.strings.get_utf8(flags_id);
-        let global = flags_str.contains('g');
+        let is_global = flags_str.contains('g');
+        let is_sticky = flags_str.contains('y');
         let subject = ctx.vm.strings.get_utf8(sid);
 
-        if global {
+        if is_global {
             let matches: Vec<Option<String>> = compiled
                 .find_iter(&subject)
                 .map(|m| Some(subject[m.start()..m.end()].to_string()))
                 .collect();
             (
                 true,
+                is_sticky,
                 if matches.is_empty() {
                     None
                 } else {
@@ -486,7 +517,13 @@ pub(super) fn native_string_match(
                 },
             )
         } else {
-            match compiled.find(&subject) {
+            // Non-global: sticky anchors at start.
+            let found = if is_sticky {
+                compiled.find(&subject).filter(|m| m.start() == 0)
+            } else {
+                compiled.find(&subject)
+            };
+            match found {
                 Some(m) => {
                     let mut matches: Vec<Option<String>> =
                         vec![Some(subject[m.start()..m.end()].to_string())];
@@ -497,12 +534,17 @@ pub(super) fn native_string_match(
                                 .map(|range| subject[range.start..range.end].to_string()),
                         );
                     }
-                    (false, Some((matches, m.start())))
+                    (false, is_sticky, Some((matches, m.start())))
                 }
-                None => (false, None),
+                None => (false, is_sticky, None),
             }
         }
     };
+
+    // Reset lastIndex for global/sticky (§21.2.5.6).
+    if is_global || is_sticky {
+        set_regexp_last_index(ctx, re_id, 0);
+    }
 
     let Some((matches, index)) = match_data else {
         return Ok(JsValue::Null);
@@ -510,7 +552,7 @@ pub(super) fn native_string_match(
 
     // Build the result array from collected strings.
     let mut elements = Vec::with_capacity(matches.len());
-    if global {
+    if is_global {
         for s in matches.iter().flatten() {
             elements.push(JsValue::String(ctx.intern(s)));
         }
@@ -527,7 +569,7 @@ pub(super) fn native_string_match(
         properties: Vec::new(),
         prototype: ctx.vm.array_prototype,
     });
-    if !global {
+    if !is_global {
         let index_key = PropertyKey::String(ctx.intern("index"));
         #[allow(clippy::cast_precision_loss)]
         ctx.get_object_mut(arr_id)

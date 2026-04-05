@@ -215,6 +215,8 @@ impl Vm {
                         } else {
                             *setter = Some(fn_id);
                         }
+                        // Update enumerability to match the latest definition.
+                        existing.1.enumerable = enumerable;
                     }
                     PropertyValue::Data(_) => {
                         existing.1 = Property::accessor(init_get, init_set, enumerable);

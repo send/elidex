@@ -62,14 +62,15 @@ pub(super) fn native_number_to_fixed(
     let n = this_number_value(ctx, this)?;
     let digits = match args.first().copied().unwrap_or(JsValue::Number(0.0)) {
         JsValue::Number(d) => {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let d = d as u32;
-            if d > 100 {
+            if !(0.0..=100.0).contains(&d) {
                 return Err(VmError::range_error(
                     "toFixed() digits argument must be between 0 and 100",
                 ));
             }
-            d as usize
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                d as usize
+            }
         }
         _ => 0,
     };
