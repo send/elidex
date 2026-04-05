@@ -42,9 +42,14 @@ pub(super) fn run_regexp(
         for (k, p) in &obj.properties {
             if *k == last_index_key {
                 if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
+                    // ToLength: NaN/negative → 0, Infinity → subject.len().
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    if n.is_finite() && n > 0.0 {
-                        idx = (n.trunc() as usize).min(subject.len());
+                    if n > 0.0 {
+                        if n.is_finite() {
+                            idx = (n.trunc() as usize).min(subject.len());
+                        } else {
+                            idx = subject.len();
+                        }
                     }
                 }
             }

@@ -534,12 +534,21 @@ impl Vm {
                 };
                 if is_index {
                     let obj_ref = self.get_object_mut(id);
-                    if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
-                        if idx >= elements.len() {
-                            elements.resize(idx + 1, JsValue::Undefined);
+                    match &mut obj_ref.kind {
+                        ObjectKind::Array { ref mut elements } => {
+                            if idx >= elements.len() {
+                                elements.resize(idx + 1, JsValue::Undefined);
+                            }
+                            elements[idx] = val;
+                            return Ok(());
                         }
-                        elements[idx] = val;
-                        return Ok(());
+                        ObjectKind::Arguments { ref mut values } => {
+                            if idx < values.len() {
+                                values[idx] = val;
+                            }
+                            return Ok(());
+                        }
+                        _ => {}
                     }
                 }
             }

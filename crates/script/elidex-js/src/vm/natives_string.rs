@@ -62,8 +62,16 @@ pub(super) fn set_regexp_last_index(
             return;
         }
     }
-    // lastIndex is writable but non-enumerable (§21.2.5.3).
-    obj.properties.push((last_index_key, Property::method(val)));
+    // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
+    obj.properties.push((
+        last_index_key,
+        Property {
+            slot: super::value::PropertyValue::Data(val),
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        },
+    ));
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -454,23 +462,24 @@ pub(super) fn native_string_replace(
             let replacement = ctx.vm.strings.get(replacement_id).to_vec();
             let subject = ctx.vm.strings.get(sid).to_vec();
 
-            let obj = ctx.get_object(re_id);
-            let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
-                unreachable!();
-            };
+            // Use run_regexp loop for both global and non-global.
+            // This correctly handles sticky (gy) semantics.
+            set_regexp_last_index(ctx, re_id, 0);
             let result: Vec<u16> = if is_global {
                 let mut out = Vec::new();
                 let mut last_end = 0;
-                for m in compiled.find_from_utf16(&subject, 0) {
+                while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
                     out.extend_from_slice(&subject[last_end..m.start()]);
                     out.extend_from_slice(&replacement);
                     last_end = m.end();
+                    // Prevent infinite loop on zero-length match.
+                    if m.start() == m.end() {
+                        set_regexp_last_index(ctx, re_id, m.end() + 1);
+                    }
                 }
                 out.extend_from_slice(&subject[last_end..]);
-                set_regexp_last_index(ctx, re_id, 0);
                 out
             } else {
-                // Non-global: delegate to run_regexp for correct lastIndex/sticky.
                 let m = super::natives_regexp::run_regexp(ctx, re_id, &subject)?;
                 if let Some(m) = m {
                     let mut out = Vec::with_capacity(subject.len());
@@ -482,6 +491,7 @@ pub(super) fn native_string_replace(
                     subject
                 }
             };
+            set_regexp_last_index(ctx, re_id, 0);
             let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
@@ -537,14 +547,9 @@ pub(super) fn native_string_match(
     };
 
     // RegExp path: extract match data on WTF-16.
-    let (is_global, is_sticky, match_data) = {
+    let (_is_global, match_data) = {
         let obj = ctx.get_object(re_id);
-        let ObjectKind::RegExp {
-            ref compiled,
-            ref flags,
-            ..
-        } = obj.kind
-        else {
+        let ObjectKind::RegExp { ref flags, .. } = obj.kind else {
             // Non-RegExp object: coerce to string and compile (like non-object path).
             let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
             let pattern_str = ctx.vm.strings.get_utf8(pat_id);
@@ -557,23 +562,19 @@ pub(super) fn native_string_match(
         };
         let flags_str = ctx.vm.strings.get_utf8(*flags);
         let is_global = flags_str.contains('g');
-        let is_sticky = flags_str.contains('y');
 
         if is_global {
-            // Collect match ranges first to release the borrow on compiled.
-            let ranges: Vec<std::ops::Range<usize>> = compiled
-                .find_from_utf16(&subject, 0)
-                .map(|m| m.range.clone())
-                .collect();
-            // Explicit scope end: `obj` and `compiled` borrowing ctx is dropped
-            // by the `collect()` above. Now we can mutably borrow ctx.vm.strings.
-            let matches: Vec<super::value::StringId> = ranges
-                .iter()
-                .map(|r| ctx.vm.strings.intern_utf16(&subject[r.start..r.end]))
-                .collect();
+            // Use run_regexp loop for correct sticky (gy) semantics.
+            set_regexp_last_index(ctx, re_id, 0);
+            let mut matches = Vec::new();
+            while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
+                matches.push(ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]));
+                if m.start() == m.end() {
+                    set_regexp_last_index(ctx, re_id, m.end() + 1);
+                }
+            }
             (
                 is_global,
-                is_sticky,
                 if matches.is_empty() {
                     None
                 } else {
@@ -588,10 +589,6 @@ pub(super) fn native_string_match(
             return Ok(JsValue::Null);
         }
     };
-
-    if is_global || is_sticky {
-        set_regexp_last_index(ctx, re_id, 0);
-    }
 
     let Some(matches) = match_data else {
         return Ok(JsValue::Null);
@@ -637,10 +634,11 @@ pub(super) fn native_string_search(
     let JsValue::Object(re_id) = re_val else {
         unreachable!();
     };
-    let result = {
+    // §21.1.3.15: save lastIndex, set to 0, run, restore.
+    // For non-RegExp objects, fall through to ToString coercion.
+    {
         let obj = ctx.get_object(re_id);
-        let ObjectKind::RegExp { ref compiled, .. } = obj.kind else {
-            // Non-RegExp object: coerce to string and compile.
+        if !matches!(obj.kind, ObjectKind::RegExp { .. }) {
             let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
             let pattern_str = ctx.vm.strings.get_utf8(pat_id);
             let compiled = regress::Regex::new(&pattern_str)
@@ -652,12 +650,12 @@ pub(super) fn native_string_search(
                     .next()
                     .map_or(-1.0, |m| m.start() as f64),
             ));
-        };
-        compiled
-            .find_from_utf16(&subject, 0)
-            .next()
-            .map(|m| m.start())
-    };
+        }
+    }
+    // Use run_regexp with lastIndex=0 for correct sticky handling.
+    set_regexp_last_index(ctx, re_id, 0);
+    let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
+    set_regexp_last_index(ctx, re_id, 0);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }

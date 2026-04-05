@@ -154,10 +154,19 @@ impl Vm {
                 .map(|(k, p)| (*k, Property::data(p.data_value())))
                 .collect();
             // Sync global object writes to the globals HashMap.
+            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
+            // Requires VM single dispatcher (NativeContext re-entrancy).
             if is_global {
                 for (k, p) in &props {
                     if let PropertyKey::String(sid) = k {
-                        self.inner.globals.insert(*sid, p.data_value());
+                        match p.slot {
+                            super::value::PropertyValue::Data(v) => {
+                                self.inner.globals.insert(*sid, v);
+                            }
+                            super::value::PropertyValue::Accessor { .. } => {
+                                self.inner.globals.remove(sid);
+                            }
+                        }
                     }
                 }
             }

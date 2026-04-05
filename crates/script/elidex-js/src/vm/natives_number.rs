@@ -62,11 +62,14 @@ pub(super) fn native_number_to_fixed(
     let n = this_number_value(ctx, this)?;
     // §20.1.3.3 step 4: ToIntegerOrInfinity then range-check.
     let digits = {
-        let raw = match args.first().copied().unwrap_or(JsValue::Number(0.0)) {
-            JsValue::Number(d) if d.is_nan() => 0.0,
-            JsValue::Number(d) if d.is_infinite() => d,
-            JsValue::Number(d) => d.trunc(),
-            _ => 0.0,
+        let arg = args.first().copied().unwrap_or(JsValue::Number(0.0));
+        let d = super::coerce::to_number(ctx.vm, arg)?;
+        let raw = if d.is_nan() {
+            0.0
+        } else if d.is_infinite() {
+            d
+        } else {
+            d.trunc()
         };
         if !(0.0..=100.0).contains(&raw) {
             return Err(VmError::range_error(

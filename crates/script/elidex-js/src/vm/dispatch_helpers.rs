@@ -136,11 +136,16 @@ impl Vm {
                     flags_key,
                     Property::builtin(JsValue::String(flags_id)),
                 ));
-                // lastIndex is writable but non-enumerable (§21.2.5.3).
+                // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
                 let last_index_key = PropertyKey::String(self.inner.strings.intern("lastIndex"));
                 self.get_object_mut(obj_id).properties.push((
                     last_index_key,
-                    Property::method(JsValue::Number(0.0)),
+                    Property {
+                        slot: super::value::PropertyValue::Data(JsValue::Number(0.0)),
+                        writable: true,
+                        enumerable: false,
+                        configurable: false,
+                    },
                 ));
                 Ok(JsValue::Object(obj_id))
             }
