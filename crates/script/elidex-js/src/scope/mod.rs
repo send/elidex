@@ -37,6 +37,10 @@ pub struct Scope {
     pub children: Vec<usize>,
     pub is_strict: bool,
     pub span: Span,
+    /// Whether this is an arrow function scope (arrows don't have own `arguments`).
+    pub is_arrow: bool,
+    /// Whether the `arguments` identifier is referenced in this function scope.
+    pub uses_arguments: bool,
 }
 
 /// Kind of scope.
@@ -170,6 +174,8 @@ impl ScopeState {
             children: Vec::new(),
             is_strict,
             span,
+            is_arrow: false,
+            uses_arguments: false,
         });
         if let Some(parent_idx) = parent {
             self.scopes[parent_idx].children.push(idx);

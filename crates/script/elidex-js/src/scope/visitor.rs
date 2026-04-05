@@ -251,8 +251,12 @@ pub(super) fn visit_expr(prog: &Program, state: &mut ScopeState, expr_id: NodeId
                             });
                             break;
                         }
-                        // Stop at function boundary — function has its own `arguments`
-                        ScopeKind::Function => break,
+                        // Mark the enclosing non-arrow function scope as using `arguments`.
+                        // Arrows don't have their own `arguments` — continue walking.
+                        ScopeKind::Function if !state.scopes[idx].is_arrow => {
+                            state.scopes[idx].uses_arguments = true;
+                            break;
+                        }
                         _ => {}
                     }
                 }
@@ -396,6 +400,8 @@ pub(super) fn visit_expr(prog: &Program, state: &mut ScopeState, expr_id: NodeId
         ExprKind::Class(c) => visit_class(prog, state, c),
         ExprKind::Arrow(arrow) => {
             state.push_scope(ScopeKind::Function, state.is_strict(), arrow.span);
+            let arrow_scope_idx = state.current_scope();
+            state.scopes[arrow_scope_idx].is_arrow = true;
             for param in &arrow.params {
                 visit_pattern_binding(prog, state, param.pattern, BindingKind::Param);
                 if let Some(d) = param.default {

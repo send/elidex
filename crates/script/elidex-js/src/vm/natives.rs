@@ -511,15 +511,23 @@ pub(super) fn native_object_define_property(
             }
         }
     } else {
-        Property::data(JsValue::Undefined)
+        return Err(VmError::type_error(
+            "Property description must be an object",
+        ));
     };
 
-    // Sync data property writes to the globals HashMap (GetGlobal fast path).
-    // Accessor properties are resolved via the global object fallback in GetGlobal.
+    // Sync globals HashMap: data properties are cached for GetGlobal fast path;
+    // accessor properties remove any stale data entry so GetGlobal falls back
+    // to the global object.
     if obj_id == ctx.vm.global_object {
         if let PropertyKey::String(sid) = key {
-            if let super::value::PropertyValue::Data(v) = new_prop.slot {
-                ctx.vm.globals.insert(sid, v);
+            match new_prop.slot {
+                super::value::PropertyValue::Data(v) => {
+                    ctx.vm.globals.insert(sid, v);
+                }
+                super::value::PropertyValue::Accessor { .. } => {
+                    ctx.vm.globals.remove(&sid);
+                }
             }
         }
     }

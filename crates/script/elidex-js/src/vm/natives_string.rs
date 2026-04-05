@@ -531,9 +531,7 @@ pub(super) fn native_string_match(
     let re_id = if let JsValue::Object(id) = re_val {
         id
     } else {
-        let pattern_str = if matches!(re_val, JsValue::Undefined) {
-            String::new()
-        } else {
+        let pattern_str = {
             let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
             ctx.vm.strings.get_utf8(pat_id)
         };
@@ -633,12 +631,9 @@ pub(super) fn native_string_search(
 
     // Non-RegExp: coerce to string and compile a regex.
     if !matches!(re_val, JsValue::Object(_)) {
-        let pattern_str = if matches!(re_val, JsValue::Undefined) {
-            String::new()
-        } else {
-            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
-            ctx.vm.strings.get_utf8(pat_id)
-        };
+        // ToString coercion: undefined → "undefined", not "".
+        let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+        let pattern_str = ctx.vm.strings.get_utf8(pat_id);
         let compiled = regress::Regex::new(&pattern_str)
             .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
         #[allow(clippy::cast_precision_loss)]

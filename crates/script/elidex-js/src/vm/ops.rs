@@ -402,11 +402,7 @@ impl Vm {
                 self.call(setter_id, obj, &[val])?;
                 return Ok(());
             }
-            // Mirror writes to the global object into the globals HashMap
-            // so that GetGlobal can find them.
-            if id == self.inner.global_object {
-                self.inner.globals.insert(key, val);
-            }
+            let is_global = id == self.inner.global_object;
             let obj = self.get_object_mut(id);
             for prop in &mut obj.properties {
                 if prop.0 == pk {
@@ -414,11 +410,17 @@ impl Vm {
                     // silently ignored in sloppy mode (strict: TypeError — M4-11).
                     if matches!(prop.1.slot, PropertyValue::Data(_)) && prop.1.writable {
                         prop.1.slot = PropertyValue::Data(val);
+                        if is_global {
+                            self.inner.globals.insert(key, val);
+                        }
                     }
                     return Ok(());
                 }
             }
             obj.properties.push((pk, Property::data(val)));
+            if is_global {
+                self.inner.globals.insert(key, val);
+            }
         }
         Ok(())
     }

@@ -94,9 +94,8 @@ pub(super) fn compile_nested_function(
         }
     }
 
-    // Populate the `arguments` local. Regular functions (not arrows) get
-    // an implicit `arguments` binding from scope analysis.
-    {
+    // Populate the `arguments` local only when actually referenced.
+    if analysis.scopes[root_scope_idx].uses_arguments {
         let args_atom = prog.atoms.arguments;
         if let Some(info) = func_scopes[child_func_idx]
             .locals

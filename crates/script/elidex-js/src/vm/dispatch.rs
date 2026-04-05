@@ -837,9 +837,10 @@ impl Vm {
                     // Set the `length` property.
                     let length_key = PropertyKey::String(self.inner.well_known.length);
                     #[allow(clippy::cast_precision_loss)]
+                    // arguments.length is non-enumerable (§10.4.4.5).
                     self.get_object_mut(args_obj)
                         .properties
-                        .push((length_key, Property::data(JsValue::Number(len as f64))));
+                        .push((length_key, Property::method(JsValue::Number(len as f64))));
                     self.inner.stack.push(JsValue::Object(args_obj));
                 }
 
