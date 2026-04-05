@@ -115,6 +115,14 @@ pub fn compile_stmt(
             fc.emit(Op::Dup);
             fc.emit_u16(Op::SetLocal, iter_slot);
             fc.emit(Op::Pop);
+
+            // Wrap the loop body in an implicit exception handler so that
+            // an uncaught throw from the body closes the iterator (ES2020
+            // §13.7.5.13 ForIn/OfBodyEvaluation — IteratorClose on abrupt).
+            let handler_pos = fc.pc();
+            fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
+            let handler_patch_pos = handler_pos + 1; // offset of catch u16
+
             let loop_start = fc.pc();
             fc.push_for_of_loop(loop_start, iter_slot);
             fc.emit(Op::IteratorNext); // [iterator value done]
@@ -126,8 +134,32 @@ pub fn compile_stmt(
             fc.patch_continue_jumps_to(loop_start);
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
+            fc.emit(Op::PopExceptionHandler);
             fc.emit(Op::Pop); // pop leftover value from done path
             fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
+            let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
+
+            // Catch handler: close iterator, then re-throw.
+            let catch_ip = fc.pc();
+            fc.emit_u16(Op::GetLocal, iter_slot);
+            fc.emit(Op::IteratorClose);
+            fc.emit(Op::PushException); // push current_exception back to stack
+            fc.emit(Op::Throw); // re-throw
+
+            fc.patch_jump(end_patch);
+
+            // Patch the exception handler: catch_ip = catch handler, finally_ip = 0xFFFF.
+            assert!(
+                u16::try_from(catch_ip).is_ok(),
+                "for-of catch entry {catch_ip} exceeds u16 range"
+            );
+            let catch_bytes = (catch_ip as u16).to_le_bytes();
+            fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
+            fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
+            let no_finally = 0xFFFFu16.to_le_bytes();
+            fc.bytecode[(handler_patch_pos + 2) as usize] = no_finally[0];
+            fc.bytecode[(handler_patch_pos + 3) as usize] = no_finally[1];
+
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
         }

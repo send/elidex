@@ -313,6 +313,22 @@ fn eval_for_of_return_nested_closes_all() {
     );
 }
 
+#[test]
+fn eval_for_of_throw_closes_iterator() {
+    assert_eq!(
+        eval_number(
+            "var closed = 0; \
+             var obj = { [Symbol.iterator]() { return { \
+               next() { return { value: 1, done: false }; }, \
+               return() { closed = 1; return { done: true }; } \
+             }; } }; \
+             try { for (var x of obj) { throw new Error('boom'); } } catch(e) {} \
+             closed;"
+        ),
+        1.0,
+    );
+}
+
 // -- Fix 2: String iteration (for-of over strings) -------------------------
 
 #[test]
