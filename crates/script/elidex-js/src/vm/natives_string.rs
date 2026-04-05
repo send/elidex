@@ -80,7 +80,7 @@ pub(super) fn native_string_index_of(
         return Ok(JsValue::Number(-1.0));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let search = ctx.get_u16(search_id).to_vec();
+    let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let from = args.get(1).map_or(0usize, |a| {
@@ -92,7 +92,7 @@ pub(super) fn native_string_index_of(
         }
     });
     #[allow(clippy::cast_precision_loss)]
-    let result = find_u16(&s[from..], &search).map_or(-1.0, |pos| (from + pos) as f64);
+    let result = find_u16(&s[from..], search).map_or(-1.0, |pos| (from + pos) as f64);
     Ok(JsValue::Number(result))
 }
 
@@ -105,7 +105,7 @@ pub(super) fn native_string_includes(
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let search = ctx.get_u16(search_id).to_vec();
+    let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -117,7 +117,7 @@ pub(super) fn native_string_includes(
             (n as usize).min(s.len())
         }
     });
-    Ok(JsValue::Boolean(find_u16(&s[pos..], &search).is_some()))
+    Ok(JsValue::Boolean(find_u16(&s[pos..], search).is_some()))
 }
 
 pub(super) fn native_string_slice(
@@ -289,7 +289,7 @@ pub(super) fn native_string_starts_with(
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let search = ctx.get_u16(search_id).to_vec();
+    let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -301,7 +301,7 @@ pub(super) fn native_string_starts_with(
             (n as usize).min(s.len())
         }
     });
-    Ok(JsValue::Boolean(starts_with_u16(s, &search, pos)))
+    Ok(JsValue::Boolean(starts_with_u16(s, search, pos)))
 }
 
 pub(super) fn native_string_ends_with(
@@ -313,7 +313,7 @@ pub(super) fn native_string_ends_with(
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let search = ctx.get_u16(search_id).to_vec();
+    let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).
     let u16len = s.len();
@@ -326,7 +326,7 @@ pub(super) fn native_string_ends_with(
             (n as usize).min(u16len)
         }
     });
-    Ok(JsValue::Boolean(ends_with_u16(s, &search, end_pos)))
+    Ok(JsValue::Boolean(ends_with_u16(s, search, end_pos)))
 }
 
 pub(super) fn native_string_replace(

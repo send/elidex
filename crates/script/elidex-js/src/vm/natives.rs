@@ -566,7 +566,15 @@ pub(super) fn native_object_get_own_property_symbols(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // §19.1.2.10.1: ToObject — throw TypeError for null/undefined
+    if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Cannot convert undefined or null to object",
+        ));
+    }
     let JsValue::Object(obj_id) = obj_val else {
+        // Primitives (number, string, boolean, symbol): ToObject would wrap,
+        // but primitive wrappers have no own symbol properties.
         return Ok(JsValue::Object(ctx.alloc_object(Object {
             kind: ObjectKind::Array {
                 elements: Vec::new(),

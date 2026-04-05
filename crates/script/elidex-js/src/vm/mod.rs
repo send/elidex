@@ -61,6 +61,13 @@ impl StringPool {
         self.0.get(id.0)
     }
 
+    /// Check if a string is already interned (without inserting), returning
+    /// its `StringId` if found. O(1) hash lookup.
+    pub fn lookup(&self, s: &str) -> Option<StringId> {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        self.0.lookup_wtf16(&units).map(StringId)
+    }
+
     /// Look up a string by its ID, returning a UTF-8 `String` (lossy for
     /// lone surrogates).
     pub fn get_utf8(&self, id: StringId) -> String {
@@ -397,15 +404,8 @@ impl Vm {
 
     /// Get a global variable.
     pub fn get_global(&self, name: &str) -> Option<JsValue> {
-        // Linear scan through globals — only used by external callers,
-        // not the hot interpreter path (which uses StringId directly).
-        let needle: Vec<u16> = name.encode_utf16().collect();
-        for (&sid, &val) in &self.inner.globals {
-            if self.inner.strings.get(sid) == needle.as_slice() {
-                return Some(val);
-            }
-        }
-        None
+        let sid = self.inner.strings.lookup(name)?;
+        self.inner.globals.get(&sid).copied()
     }
 
     /// Helper: create a native function object.
