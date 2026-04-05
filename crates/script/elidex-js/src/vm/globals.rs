@@ -121,7 +121,7 @@ impl Vm {
         let proto_key = PropertyKey::String(self.inner.well_known.prototype);
         self.get_object_mut(ctor_id)
             .properties
-            .push((proto_key, Property::data(JsValue::Object(proto_id))));
+            .push((proto_key, Property::builtin(JsValue::Object(proto_id))));
         let name_id = self.inner.strings.intern(name);
         self.inner.globals.insert(name_id, JsValue::Object(ctor_id));
     }
