@@ -159,14 +159,8 @@ impl Vm {
             if is_global {
                 for (k, p) in &props {
                     if let PropertyKey::String(sid) = k {
-                        match p.slot {
-                            super::value::PropertyValue::Data(v) => {
-                                self.inner.globals.insert(*sid, v);
-                            }
-                            super::value::PropertyValue::Accessor { .. } => {
-                                self.inner.globals.remove(sid);
-                            }
-                        }
+                        // props are always data (constructed via data_value above).
+                        self.inner.globals.insert(*sid, p.data_value());
                     }
                 }
             }
