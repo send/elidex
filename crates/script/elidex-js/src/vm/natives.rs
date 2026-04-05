@@ -14,7 +14,7 @@ pub(super) fn native_parse_int(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let s_id = ctx.to_string_val(val);
+    let s_id = ctx.to_string_val(val)?;
     let s = ctx.get_utf8(s_id).trim().to_string();
 
     // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
@@ -92,7 +92,7 @@ pub(super) fn native_parse_float(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let s_id = ctx.to_string_val(val);
+    let s_id = ctx.to_string_val(val)?;
     let trimmed = ctx.get_utf8(s_id).trim_start().to_string();
     let n = parse_float_prefix(&trimmed);
     Ok(JsValue::Number(n))
@@ -209,7 +209,7 @@ fn error_ctor_impl(
             .first()
             .copied()
             .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
-        let msg_id = ctx.to_string_val(msg);
+        let msg_id = ctx.to_string_val(msg)?;
         let msg_key = PropertyKey::String(ctx.vm.well_known.message);
         ctx.get_object_mut(id)
             .properties
@@ -385,7 +385,7 @@ pub(super) fn native_object_define_property(
     };
     let key = match prop_val {
         JsValue::Symbol(sid) => PropertyKey::Symbol(sid),
-        other => PropertyKey::String(ctx.to_string_val(other)),
+        other => PropertyKey::String(ctx.to_string_val(other)?),
     };
 
     // Extract value from descriptor if it's an object.
@@ -615,7 +615,7 @@ pub(super) fn native_json_parse_stub(
 // -- Console ----------------------------------------------------------------
 
 fn format_value_for_console(vm: &mut VmInner, val: JsValue) -> String {
-    let id = super::coerce::to_string(vm, val);
+    let id = super::coerce::to_display_string(vm, val);
     vm.strings.get_utf8(id)
 }
 

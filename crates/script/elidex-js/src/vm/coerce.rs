@@ -3,7 +3,7 @@
 //! Implements ES2020 abstract operations: ToNumber, ToString, ToBoolean,
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
-use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId};
+use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -130,18 +130,32 @@ fn string_to_number(s: &str) -> f64 {
 // ToString (ES2020 §7.1.12)
 // ---------------------------------------------------------------------------
 
-/// ToString. Returns a `StringId` (may intern new strings).
-pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> StringId {
+/// ToString (ES2020 §7.1.12). Returns a `StringId` or throws `TypeError`
+/// for Symbol values, per spec.
+pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
-        JsValue::Undefined => vm.well_known.undefined,
-        JsValue::Null => vm.well_known.null,
-        JsValue::Boolean(true) => vm.well_known.r#true,
-        JsValue::Boolean(false) => vm.well_known.r#false,
-        JsValue::Number(n) => number_to_string_id(vm, n),
-        JsValue::String(id) => id,
+        JsValue::Undefined => Ok(vm.well_known.undefined),
+        JsValue::Null => Ok(vm.well_known.null),
+        JsValue::Boolean(true) => Ok(vm.well_known.r#true),
+        JsValue::Boolean(false) => Ok(vm.well_known.r#false),
+        JsValue::Number(n) => Ok(number_to_string_id(vm, n)),
+        JsValue::String(id) => Ok(id),
+        JsValue::Symbol(_) => Err(VmError::type_error(
+            "Cannot convert a Symbol value to a string",
+        )),
+        JsValue::Object(_) => {
+            // Simplified ToPrimitive → "[object Object]"
+            Ok(vm.well_known.object_to_string)
+        }
+    }
+}
+
+/// Display-oriented string conversion that never throws. Used for
+/// `console.log`, error messages, and other contexts where a human-readable
+/// representation is needed rather than strict ES2020 ToString semantics.
+pub(crate) fn to_display_string(vm: &mut VmInner, val: JsValue) -> StringId {
+    match val {
         JsValue::Symbol(sid) => {
-            // For now, return "Symbol(description)" without throwing TypeError.
-            // (Result-based to_string will come in a later phase.)
             let desc = vm.symbols[sid.0 as usize]
                 .description
                 .map(|d| vm.strings.get_utf8(d));
@@ -151,10 +165,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> StringId {
             };
             vm.strings.intern(&s)
         }
-        JsValue::Object(_) => {
-            // Simplified ToPrimitive → "[object Object]"
-            vm.well_known.object_to_string
-        }
+        other => to_string(vm, other).unwrap_or(vm.well_known.empty),
     }
 }
 
@@ -547,24 +558,41 @@ mod tests {
         let mut vm = Vm::new();
         let i = &mut vm.inner;
 
-        let id = to_string(i, JsValue::Undefined);
+        let id = to_string(i, JsValue::Undefined).unwrap();
         assert_eq!(i.strings.get_utf8(id), "undefined");
-        let id = to_string(i, JsValue::Null);
+        let id = to_string(i, JsValue::Null).unwrap();
         assert_eq!(i.strings.get_utf8(id), "null");
-        let id = to_string(i, JsValue::Boolean(true));
+        let id = to_string(i, JsValue::Boolean(true)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "true");
-        let id = to_string(i, JsValue::Boolean(false));
+        let id = to_string(i, JsValue::Boolean(false)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "false");
-        let id = to_string(i, JsValue::Number(0.0));
+        let id = to_string(i, JsValue::Number(0.0)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "0");
-        let id = to_string(i, JsValue::Number(42.0));
+        let id = to_string(i, JsValue::Number(42.0)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "42");
-        let id = to_string(i, JsValue::Number(-1.5));
+        let id = to_string(i, JsValue::Number(-1.5)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "-1.5");
-        let id = to_string(i, JsValue::Number(f64::NAN));
+        let id = to_string(i, JsValue::Number(f64::NAN)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "NaN");
-        let id = to_string(i, JsValue::Number(f64::INFINITY));
+        let id = to_string(i, JsValue::Number(f64::INFINITY)).unwrap();
         assert_eq!(i.strings.get_utf8(id), "Infinity");
+    }
+
+    #[test]
+    fn to_string_symbol_throws() {
+        let mut vm = Vm::new();
+        let sid = vm.inner.alloc_symbol(None);
+        let result = to_string(&mut vm.inner, JsValue::Symbol(sid));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn to_display_string_symbol() {
+        let mut vm = Vm::new();
+        let desc = vm.inner.strings.intern("foo");
+        let sid = vm.inner.alloc_symbol(Some(desc));
+        let id = to_display_string(&mut vm.inner, JsValue::Symbol(sid));
+        assert_eq!(vm.inner.strings.get_utf8(id), "Symbol(foo)");
     }
 
     #[test]

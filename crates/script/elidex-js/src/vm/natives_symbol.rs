@@ -16,7 +16,7 @@ pub(super) fn native_symbol_constructor(
     // calls requires knowing if invoked via the New opcode. Deferred.
     let desc = match args.first().copied() {
         Some(JsValue::Undefined) | None => None,
-        Some(val) => Some(ctx.to_string_val(val)),
+        Some(val) => Some(ctx.to_string_val(val)?),
     };
     let sid = ctx.vm.alloc_symbol(desc);
     Ok(JsValue::Symbol(sid))
@@ -27,7 +27,7 @@ pub(super) fn native_symbol_for(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let key_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let key_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     if let Some(&sid) = ctx.vm.symbol_registry.get(&key_id) {
         return Ok(JsValue::Symbol(sid));
     }

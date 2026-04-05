@@ -485,8 +485,9 @@ impl NativeContext<'_> {
     }
 
     /// Convert a value to an interned string using ES2020 ToString.
+    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.12).
     #[inline]
-    pub fn to_string_val(&mut self, val: JsValue) -> StringId {
+    pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
         coerce::to_string(self.vm, val)
     }
 

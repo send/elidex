@@ -79,7 +79,7 @@ pub(super) fn native_string_index_of(
     let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Number(-1.0));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -104,7 +104,7 @@ pub(super) fn native_string_includes(
     let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let s = ctx.get_u16(sid);
     // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
@@ -249,7 +249,7 @@ pub(super) fn native_string_split(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let sep = ctx.get_u16(sep_id).to_vec();
     let s = ctx.get_u16(sid).to_vec();
     let mut parts: Vec<JsValue> = Vec::new();
@@ -288,7 +288,7 @@ pub(super) fn native_string_starts_with(
     let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let s = ctx.get_u16(sid);
     // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
@@ -312,7 +312,7 @@ pub(super) fn native_string_ends_with(
     let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let s = ctx.get_u16(sid);
     // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).
@@ -338,8 +338,8 @@ pub(super) fn native_string_replace(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined));
+    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let replacement = ctx.get_u16(replacement_id).to_vec();
     let s = ctx.get_u16(sid).to_vec();

@@ -197,8 +197,12 @@ impl Vm {
                 Op::Add => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = self.op_add(a, b)?;
-                    self.inner.stack.push(r);
+                    match self.op_add(a, b) {
+                        Ok(r) => self.inner.stack.push(r),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
+                    }
                 }
                 Op::Sub => self.binary_numeric(NumericBinaryOp::Sub)?,
                 Op::Mul => self.binary_numeric(NumericBinaryOp::Mul)?,
@@ -289,7 +293,13 @@ impl Vm {
                     let rhs = self.pop()?; // object
                     let lhs = self.pop()?; // key
                     if let JsValue::Object(obj_id) = rhs {
-                        let pk = self.make_property_key(lhs);
+                        let pk = match self.make_property_key(lhs) {
+                            Ok(pk) => pk,
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                                continue;
+                            }
+                        };
                         let obj = self.inner.get_object(obj_id);
                         let found = match (&obj.kind, &pk) {
                             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
@@ -482,14 +492,21 @@ impl Vm {
                 Op::GetElem => {
                     let key = self.pop()?;
                     let obj = self.pop()?;
-                    let val = self.get_element(obj, key)?;
-                    self.inner.stack.push(val);
+                    match self.get_element(obj, key) {
+                        Ok(val) => self.inner.stack.push(val),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
+                    }
                 }
                 Op::SetElem => {
                     let val = self.pop()?;
                     let key = self.pop()?;
                     let obj = self.pop()?;
-                    self.set_element(obj, key, val)?;
+                    if let Err(e) = self.set_element(obj, key, val) {
+                        self.throw_error(e, entry_frame_depth)?;
+                        continue;
+                    }
                     self.inner.stack.push(val);
                 }
                 Op::DeleteProp => {
@@ -507,9 +524,16 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
                     if let JsValue::Object(id) = obj_val {
-                        let pk = self.make_property_key(key);
-                        let obj = self.get_object_mut(id);
-                        obj.properties.retain(|(k, _)| *k != pk);
+                        match self.make_property_key(key) {
+                            Ok(pk) => {
+                                let obj = self.get_object_mut(id);
+                                obj.properties.retain(|(k, _)| *k != pk);
+                            }
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                                continue;
+                            }
+                        }
                     }
                     self.inner.stack.push(JsValue::Boolean(true));
                 }
@@ -545,10 +569,16 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.peek()?;
                     if let JsValue::Object(id) = obj_val {
-                        let pk = self.make_property_key(key);
-                        self.get_object_mut(id)
-                            .properties
-                            .push((pk, Property::data(val)));
+                        match self.make_property_key(key) {
+                            Ok(pk) => {
+                                self.get_object_mut(id)
+                                    .properties
+                                    .push((pk, Property::data(val)));
+                            }
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                            }
+                        }
                     }
                 }
                 Op::DefineComputedMethod => {
@@ -557,10 +587,16 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.peek()?;
                     if let JsValue::Object(id) = obj_val {
-                        let pk = self.make_property_key(key);
-                        self.get_object_mut(id)
-                            .properties
-                            .push((pk, Property::method(val)));
+                        match self.make_property_key(key) {
+                            Ok(pk) => {
+                                self.get_object_mut(id)
+                                    .properties
+                                    .push((pk, Property::method(val)));
+                            }
+                            Err(e) => {
+                                self.throw_error(e, entry_frame_depth)?;
+                            }
+                        }
                     }
                 }
                 Op::CreateArray => {
@@ -625,9 +661,19 @@ impl Vm {
                     let parts: Vec<JsValue> = self.inner.stack[start..].to_vec();
                     self.inner.stack.truncate(start);
                     let mut result: Vec<u16> = Vec::new();
+                    let mut err: Option<VmError> = None;
                     for val in parts {
-                        let s_id = to_string(&mut self.inner, val);
-                        result.extend_from_slice(self.inner.strings.get(s_id));
+                        match to_string(&mut self.inner, val) {
+                            Ok(s_id) => result.extend_from_slice(self.inner.strings.get(s_id)),
+                            Err(e) => {
+                                err = Some(e);
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(e) = err {
+                        self.throw_error(e, entry_frame_depth)?;
+                        continue;
                     }
                     let id = self.inner.strings.intern_utf16(&result);
                     self.inner.stack.push(JsValue::String(id));

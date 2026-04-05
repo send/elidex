@@ -110,8 +110,8 @@ impl Vm {
         let rhs = self.to_primitive(rhs, "default")?;
         // If either operand is a string, concatenate.
         if matches!(lhs, JsValue::String(_)) || matches!(rhs, JsValue::String(_)) {
-            let ls = to_string(&mut self.inner, lhs);
-            let rs = to_string(&mut self.inner, rhs);
+            let ls = to_string(&mut self.inner, lhs)?;
+            let rs = to_string(&mut self.inner, rhs)?;
             let left = self.inner.strings.get(ls);
             let right = self.inner.strings.get(rs);
             let mut concat: Vec<u16> = Vec::with_capacity(left.len() + right.len());
@@ -174,10 +174,10 @@ impl Vm {
 
 impl Vm {
     /// Convert a `JsValue` to a `PropertyKey`, preserving symbols (ES2020 §7.1.14 ToPropertyKey).
-    pub(crate) fn make_property_key(&mut self, key: JsValue) -> PropertyKey {
+    pub(crate) fn make_property_key(&mut self, key: JsValue) -> Result<PropertyKey, VmError> {
         match key {
-            JsValue::Symbol(sid) => PropertyKey::Symbol(sid),
-            other => PropertyKey::String(to_string(&mut self.inner, other)),
+            JsValue::Symbol(sid) => Ok(PropertyKey::Symbol(sid)),
+            other => Ok(PropertyKey::String(to_string(&mut self.inner, other)?)),
         }
     }
 }
@@ -358,7 +358,7 @@ impl Vm {
                     .unwrap_or(JsValue::Undefined));
             }
             // Fall back to string key property lookup.
-            let key_id = to_string(&mut self.inner, key);
+            let key_id = to_string(&mut self.inner, key)?;
             Ok(get_property(&self.inner, id, PropertyKey::String(key_id))
                 .unwrap_or(JsValue::Undefined))
         } else if let JsValue::String(sid) = obj {
@@ -419,7 +419,7 @@ impl Vm {
                 obj.properties.push((pk, Property::data(val)));
                 return Ok(());
             }
-            let key_id = to_string(&mut self.inner, key);
+            let key_id = to_string(&mut self.inner, key)?;
             self.set_property_val(JsValue::Object(id), key_id, val)?;
         }
         Ok(())

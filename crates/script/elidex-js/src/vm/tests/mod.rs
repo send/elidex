@@ -1106,5 +1106,13 @@ fn symbol_define_property() {
     );
 }
 
+#[test]
+fn eval_symbol_to_string_type_error() {
+    assert_eq!(
+        eval_string("var r; try { '' + Symbol(); } catch(e) { r = e.message; } r;"),
+        "Cannot convert a Symbol value to a string",
+    );
+}
+
 mod tests_string;
 mod tests_symbol_iter;
