@@ -121,7 +121,7 @@ pub fn compile_stmt(
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
             fc.emit(Op::Pop); // pop leftover value from done path
-            fc.emit(Op::IteratorClose); // close iterator (pops it, calls .return() if exists)
+            fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
         }

@@ -383,7 +383,10 @@ pub(super) fn native_object_define_property(
             "Object.defineProperty called on non-object",
         ));
     };
-    let key = PropertyKey::String(ctx.to_string_val(prop_val));
+    let key = match prop_val {
+        JsValue::Symbol(sid) => PropertyKey::Symbol(sid),
+        other => PropertyKey::String(ctx.to_string_val(other)),
+    };
 
     // Extract value from descriptor if it's an object.
     let value = if let JsValue::Object(desc_id) = desc_val {

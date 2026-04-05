@@ -188,9 +188,12 @@ fn case_map_u16<I: Iterator<Item = char>>(units: &[u16], map: impl Fn(char) -> I
         if (0xD800..=0xDBFF).contains(&u) {
             // High surrogate -- copy pair as-is (no case mapping for supplementary chars)
             result.push(u);
-            i += 1;
-            if i < units.len() {
-                result.push(units[i]);
+            if i + 1 < units.len() && (0xDC00..=0xDFFF).contains(&units[i + 1]) {
+                // Valid surrogate pair — copy both
+                result.push(units[i + 1]);
+                i += 2;
+            } else {
+                // Lone high surrogate — advance by 1 only
                 i += 1;
             }
         } else if (0xDC00..=0xDFFF).contains(&u) {

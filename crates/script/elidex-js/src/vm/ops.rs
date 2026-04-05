@@ -435,15 +435,15 @@ impl Vm {
     /// or `None` when the iterator is exhausted (done=true) or not an object.
     pub(crate) fn iter_next(&mut self, iter_val: JsValue) -> Result<Option<JsValue>, VmError> {
         let JsValue::Object(iter_id) = iter_val else {
-            return Ok(None);
+            return Err(VmError::type_error("iterator value is not an object"));
         };
         let next_key = PropertyKey::String(self.inner.well_known.next);
         let Some(next_fn) = get_property(&self.inner, iter_id, next_key) else {
-            return Ok(None);
+            return Err(VmError::type_error("iterator.next is not defined"));
         };
         let result = self.call_value(next_fn, iter_val, &[])?;
         let JsValue::Object(result_id) = result else {
-            return Ok(None);
+            return Err(VmError::type_error("iterator.next() must return an object"));
         };
         let done_key = PropertyKey::String(self.inner.well_known.done);
         let done =

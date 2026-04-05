@@ -289,18 +289,18 @@ impl Vm {
                     let rhs = self.pop()?; // object
                     let lhs = self.pop()?; // key
                     if let JsValue::Object(obj_id) = rhs {
-                        let key_id = to_string(&mut self.inner, lhs);
-                        let pk = PropertyKey::String(key_id);
+                        let pk = self.make_property_key(lhs);
                         let obj = self.inner.get_object(obj_id);
-                        let found = if let ObjectKind::Array { ref elements } = obj.kind {
-                            let key_str = self.inner.strings.get_utf8(key_id);
-                            if let Ok(idx) = key_str.parse::<usize>() {
-                                idx < elements.len()
-                            } else {
-                                super::coerce::get_property(&self.inner, obj_id, pk).is_some()
+                        let found = match (&obj.kind, &pk) {
+                            (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
+                                let key_str = self.inner.strings.get_utf8(*key_id);
+                                if let Ok(idx) = key_str.parse::<usize>() {
+                                    idx < elements.len()
+                                } else {
+                                    super::coerce::get_property(&self.inner, obj_id, pk).is_some()
+                                }
                             }
-                        } else {
-                            super::coerce::get_property(&self.inner, obj_id, pk).is_some()
+                            _ => super::coerce::get_property(&self.inner, obj_id, pk).is_some(),
                         };
                         self.inner.stack.push(JsValue::Boolean(found));
                     } else {
@@ -507,8 +507,7 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
                     if let JsValue::Object(id) = obj_val {
-                        let key_id = to_string(&mut self.inner, key);
-                        let pk = PropertyKey::String(key_id);
+                        let pk = self.make_property_key(key);
                         let obj = self.get_object_mut(id);
                         obj.properties.retain(|(k, _)| *k != pk);
                     }
@@ -796,8 +795,8 @@ impl Vm {
                     if let JsValue::Object(iter_id) = iter_val {
                         let return_key = PropertyKey::String(self.inner.well_known.return_str);
                         if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
-                            // Call .return(), ignore result per spec.
-                            let _ = self.call_value(return_fn, iter_val, &[]);
+                            // Call .return() and propagate errors.
+                            self.call_value(return_fn, iter_val, &[])?;
                         }
                     }
                 }

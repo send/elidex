@@ -1080,5 +1080,31 @@ fn eval_function_hoisting() {
     );
 }
 
+#[test]
+fn symbol_in_operator() {
+    assert_eq!(
+        eval_number("var s = Symbol(); var o = {}; o[s] = 1; s in o ? 1 : 0;"),
+        1.0
+    );
+}
+
+#[test]
+fn symbol_delete_elem() {
+    assert_eq!(
+        eval_number("var s = Symbol(); var o = {}; o[s] = 1; delete o[s]; s in o ? 1 : 0;"),
+        0.0
+    );
+}
+
+#[test]
+fn symbol_define_property() {
+    assert_eq!(
+        eval_number(
+            "var s = Symbol(); var o = {}; Object.defineProperty(o, s, {value: 42}); o[s];"
+        ),
+        42.0
+    );
+}
+
 mod tests_string;
 mod tests_symbol_iter;

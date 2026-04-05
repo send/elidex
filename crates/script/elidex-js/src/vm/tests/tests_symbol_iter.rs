@@ -278,12 +278,13 @@ fn eval_for_of_break_without_return_method() {
 }
 
 #[test]
-fn eval_for_of_normal_completion_still_closes() {
-    // Normal completion (exhausting iterator) should also call IteratorClose.
+fn eval_for_of_normal_completion_does_not_close() {
+    // Normal completion (exhausting iterator) should NOT call IteratorClose.
+    // Per ECMA-262 §14.7.5.9, .return() is only called for abrupt completions.
     assert_eq!(
         eval_number(
             "var closed = 0; var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i, done: i > 2 }; }, return() { closed = 1; return { done: true }; } }; } }; for (var x of obj) {} closed;",
         ),
-        1.0,
+        0.0,
     );
 }
