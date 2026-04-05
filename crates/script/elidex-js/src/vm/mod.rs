@@ -412,7 +412,8 @@ impl Vm {
         self.inner.globals.get(&sid).copied()
     }
 
-    /// Helper: create a native function object.
+    /// Helper: create a native function object (non-constructable by default,
+    /// matching the ES2020 spec for most built-in functions).
     pub(crate) fn create_native_function(
         &mut self,
         name: &str,
@@ -423,15 +424,15 @@ impl Vm {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
-                constructable: true,
+                constructable: false,
             }),
             properties: Vec::new(),
             prototype: None,
         })
     }
 
-    /// Helper: create a non-constructable native function object (e.g. Symbol).
-    pub(crate) fn create_non_constructable_function(
+    /// Helper: create a constructable native function object (for Error, etc.).
+    pub(crate) fn create_constructable_function(
         &mut self,
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
@@ -441,7 +442,7 @@ impl Vm {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
-                constructable: false,
+                constructable: true,
             }),
             properties: Vec::new(),
             prototype: None,

@@ -26,10 +26,10 @@ impl Vm {
     // -- Global registration -------------------------------------------------
 
     pub(super) fn register_globals(&mut self) {
-        // Allocate the global object (globalThis). Properties are not
-        // synchronised with the globals HashMap — this object is only
-        // used when `this` needs to be coerced to the global object in
-        // non-strict functions (§9.2.1.2).
+        // Allocate the global object (globalThis). Writes through this object
+        // are mirrored into the globals HashMap, and reads fall back to
+        // globals so `this.<prop>` stays consistent with bare identifier
+        // access in non-strict functions (§9.2.1.2).
         let global_obj = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             properties: Vec::new(),
@@ -160,7 +160,7 @@ impl Vm {
             ("RangeError", native_range_error_constructor),
         ];
         for &(name, func) in ctors {
-            let fn_id = self.create_native_function(name, func);
+            let fn_id = self.create_constructable_function(name, func);
             let name_id = self.inner.strings.intern(name);
             self.inner.globals.insert(name_id, JsValue::Object(fn_id));
         }
@@ -260,7 +260,7 @@ impl Vm {
         // The Symbol "constructor" is callable but not constructable.
         // Register it as a native function, then attach static methods and
         // well-known symbol properties.
-        let sym_fn_id = self.create_non_constructable_function("Symbol", native_symbol_constructor);
+        let sym_fn_id = self.create_native_function("Symbol", native_symbol_constructor);
         let name_id = self.inner.strings.intern("Symbol");
         self.inner
             .globals

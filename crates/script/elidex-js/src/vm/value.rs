@@ -335,8 +335,8 @@ pub struct ArrayIterState {
 
 /// State for a string iterator (yields individual code points).
 pub struct StringIterState {
-    /// The string being iterated (WTF-16 code units, owned).
-    pub code_units: Vec<u16>,
+    /// The interned string being iterated (avoids O(n) clone).
+    pub string_id: StringId,
     /// Current UTF-16 index.
     pub index: usize,
 }

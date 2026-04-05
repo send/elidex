@@ -10,6 +10,7 @@ use super::coerce::{
     abstract_eq, get_property, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean,
     to_number, to_string, typeof_str, BitwiseOp, NumericBinaryOp,
 };
+use super::ops::parse_array_index_u16;
 use super::value::{
     FuncId, JsValue, Object, ObjectKind, PropertyKey, StringId, VmError, VmErrorKind,
 };
@@ -303,8 +304,8 @@ impl Vm {
                         let obj = self.inner.get_object(obj_id);
                         let found = match (&obj.kind, &pk) {
                             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
-                                let key_str = self.inner.strings.get_utf8(*key_id);
-                                if let Ok(idx) = key_str.parse::<usize>() {
+                                let key_units = self.inner.strings.get(*key_id);
+                                if let Some(idx) = parse_array_index_u16(key_units) {
                                     idx < elements.len()
                                 } else {
                                     super::coerce::get_property(&self.inner, obj_id, pk).is_some()

@@ -37,15 +37,17 @@ impl Vm {
         };
         let result = self.spread_iter_loop(iterator, arr_val);
         if result.is_err() {
-            // Best-effort IteratorClose on error — ignore close errors.
+            // IteratorClose (§7.4.6): if .return() also throws, its error
+            // takes precedence over the original iteration error.
             if let JsValue::Object(iter_id) = iterator {
                 let return_key = PropertyKey::String(self.inner.well_known.return_str);
                 if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
-                    let _ = self.call_value(return_fn, iterator, &[]);
+                    self.call_value(return_fn, iterator, &[])?;
                 }
             }
+            return result;
         }
-        result
+        Ok(())
     }
 
     /// Inner loop for [`op_array_spread`] — extracted so iteration errors can

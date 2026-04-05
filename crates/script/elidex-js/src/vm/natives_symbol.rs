@@ -210,7 +210,6 @@ pub(super) fn native_string_iterator(
             "String.prototype[Symbol.iterator] called on non-string",
         ));
     };
-    let code_units = ctx.get_u16(sid).to_vec();
     let next_name = ctx.vm.well_known.next;
     let next_fn_id = ctx.alloc_object(Object {
         kind: ObjectKind::NativeFunction(NativeFunction {
@@ -223,7 +222,7 @@ pub(super) fn native_string_iterator(
     });
     let iter_obj = ctx.alloc_object(Object {
         kind: ObjectKind::StringIterator(StringIterState {
-            code_units,
+            string_id: sid,
             index: 0,
         }),
         properties: vec![(
@@ -251,13 +250,11 @@ pub(super) fn native_string_iterator_next(
     let (first, second) = {
         let iter_obj = ctx.get_object(iter_id);
         if let ObjectKind::StringIterator(state) = &iter_obj.kind {
-            if state.index >= state.code_units.len() {
+            let units = ctx.vm.strings.get(state.string_id);
+            if state.index >= units.len() {
                 return create_iter_result(ctx, JsValue::Undefined, true);
             }
-            (
-                state.code_units[state.index],
-                state.code_units.get(state.index + 1).copied(),
-            )
+            (units[state.index], units.get(state.index + 1).copied())
         } else {
             return create_iter_result(ctx, JsValue::Undefined, true);
         }

@@ -19,7 +19,7 @@ use crate::bytecode::compiled::Constant;
 /// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
 /// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
 /// or overflow.
-fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
+pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
     if units.is_empty() {
         return None;
     }
@@ -523,15 +523,16 @@ impl Vm {
             }
         }
 
-        // Fast path: built-in StringIterator — read code units directly.
+        // Fast path: built-in StringIterator — read code units from StringPool.
         {
             let obj = self.get_object(iter_id);
             if let ObjectKind::StringIterator(state) = &obj.kind {
-                if state.index >= state.code_units.len() {
+                let units = self.inner.strings.get(state.string_id);
+                if state.index >= units.len() {
                     return Ok(None);
                 }
-                let first = state.code_units[state.index];
-                let second = state.code_units.get(state.index + 1).copied();
+                let first = units[state.index];
+                let second = units.get(state.index + 1).copied();
                 let is_pair = (0xD800..=0xDBFF).contains(&first)
                     && second.is_some_and(|low| (0xDC00..=0xDFFF).contains(&low));
                 let (buf, len, advance) = if is_pair {
