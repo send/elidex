@@ -324,11 +324,11 @@ impl Vm {
                 // ── Unary ───────────────────────────────────────────
                 Op::Neg => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_neg(&self.inner, a));
+                    self.inner.stack.push(op_neg(&self.inner, a)?);
                 }
                 Op::Pos => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_pos(&self.inner, a));
+                    self.inner.stack.push(op_pos(&self.inner, a)?);
                 }
                 Op::Not => {
                     let a = self.pop()?;
@@ -336,7 +336,7 @@ impl Vm {
                 }
                 Op::BitNot => {
                     let a = self.pop()?;
-                    self.inner.stack.push(op_bitnot(&self.inner, a));
+                    self.inner.stack.push(op_bitnot(&self.inner, a)?);
                 }
                 Op::TypeOf => {
                     let a = self.pop()?;
@@ -365,7 +365,7 @@ impl Vm {
                     let slot = self.read_u16_op() as usize;
                     let prefix = self.read_u8_op() != 0;
                     let base = self.inner.frames[frame_idx].base;
-                    let old = to_number(&self.inner, self.inner.stack[base + slot]);
+                    let old = to_number(&self.inner, self.inner.stack[base + slot])?;
                     let new = if op == Op::IncLocal {
                         old + 1.0
                     } else {
@@ -386,7 +386,7 @@ impl Vm {
                     } else {
                         JsValue::Undefined
                     };
-                    let old_num = to_number(&self.inner, old);
+                    let old_num = to_number(&self.inner, old)?;
                     let new_num = if op == Op::IncProp {
                         old_num + 1.0
                     } else {
@@ -408,7 +408,7 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
                     let old = self.get_element(obj_val, key)?;
-                    let old_num = to_number(&self.inner, old);
+                    let old_num = to_number(&self.inner, old)?;
                     let new_num = if op == Op::IncElem {
                         old_num + 1.0
                     } else {

@@ -502,8 +502,9 @@ impl NativeContext<'_> {
     }
 
     /// Convert a value to f64 using ES2020 ToNumber.
+    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
     #[inline]
-    pub fn to_number(&self, val: JsValue) -> f64 {
+    pub fn to_number(&self, val: JsValue) -> Result<f64, VmError> {
         coerce::to_number(self.vm, val)
     }
 

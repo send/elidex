@@ -35,7 +35,7 @@ pub(super) fn native_parse_int(
             (10u32, rest)
         }
     } else {
-        let r = ctx.to_number(radix_arg);
+        let r = ctx.to_number(radix_arg)?;
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let ri = r as i32;
         // ES2020 §18.2.5: radix 0 (or undefined) → default (10, with 0x prefix detection).
@@ -177,7 +177,7 @@ pub(super) fn native_is_nan(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val);
+    let n = ctx.to_number(val)?;
     Ok(JsValue::Boolean(n.is_nan()))
 }
 
@@ -187,7 +187,7 @@ pub(super) fn native_is_finite(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val);
+    let n = ctx.to_number(val)?;
     Ok(JsValue::Boolean(n.is_finite()))
 }
 
@@ -432,7 +432,7 @@ pub(super) fn native_math_abs(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.abs()))
 }
 
@@ -441,7 +441,7 @@ pub(super) fn native_math_ceil(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.ceil()))
 }
 
@@ -450,7 +450,7 @@ pub(super) fn native_math_floor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.floor()))
 }
 
@@ -459,7 +459,7 @@ pub(super) fn native_math_round(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     // ES2020 §20.2.2.28: if n is in [-0.5, 0), result is -0.
     let result = if (-0.5..0.0).contains(&n) {
         -0.0_f64
@@ -479,7 +479,7 @@ pub(super) fn native_math_max(
     }
     let mut result = f64::NEG_INFINITY;
     for &arg in args {
-        let n = ctx.to_number(arg);
+        let n = ctx.to_number(arg)?;
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
@@ -500,7 +500,7 @@ pub(super) fn native_math_min(
     }
     let mut result = f64::INFINITY;
     for &arg in args {
-        let n = ctx.to_number(arg);
+        let n = ctx.to_number(arg)?;
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
@@ -535,7 +535,7 @@ pub(super) fn native_math_sqrt(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.sqrt()))
 }
 
@@ -544,8 +544,8 @@ pub(super) fn native_math_pow(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
-    let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined));
+    let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(base.powf(exp)))
 }
 
@@ -554,7 +554,7 @@ pub(super) fn native_math_log(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined));
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.ln()))
 }
 

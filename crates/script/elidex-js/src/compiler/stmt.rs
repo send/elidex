@@ -335,26 +335,30 @@ pub fn compile_stmt(
             } else {
                 fc.emit(Op::PushUndefined);
             }
-            // If inside for-of loop(s), close iterators before returning.
-            // Walk from innermost to outermost; the iterator is saved in a
-            // temp local so we can retrieve it without disturbing the stack.
-            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             // If inside try/finally, emit finally bodies before returning.
             // The return value is on the stack; finally bodies must not consume it.
+            // Finally bodies run before IteratorClose per spec (finally is
+            // "closer" to the abrupt completion site).
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            // If inside for-of loop(s), close iterators before returning.
+            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             fc.emit(Op::Return);
         }
 
         StmtKind::Throw(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             fc.emit(Op::Throw);
         }
 
         StmtKind::Break(label) => {
+            // Finally bodies run before IteratorClose per spec (finally is
+            // "closer" to the abrupt completion site).
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             // For for-of loops, emit IteratorClose for each for-of context
             // being exited so every iterator's .return() is called on
-            // abrupt completion — same pattern as Return (iterator close
-            // must happen BEFORE finally bodies per spec).
+            // abrupt completion.
             let target_idx = if let Some(label_atom) = label {
                 fc.label_map.get(label_atom).copied()
             } else {
@@ -364,7 +368,6 @@ pub fn compile_stmt(
             if let Some(target) = target_idx {
                 emit_iter_close_range(fc, target, fc.loop_stack.len());
             }
-            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
                 let label_name = prog.interner.get_utf8(*label_atom);

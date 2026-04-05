@@ -45,7 +45,11 @@ pub(super) fn native_string_char_at(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let index = to_integer_index(args.first().map_or(0.0, |a| ctx.to_number(*a)));
+    let raw = match args.first() {
+        Some(a) => ctx.to_number(*a)?,
+        None => 0.0,
+    };
+    let index = to_integer_index(raw);
     let s = ctx.get_u16(sid);
     let unit = index.and_then(|i| s.get(i).copied());
     let id = match unit {
@@ -63,7 +67,11 @@ pub(super) fn native_string_char_code_at(
     let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Number(f64::NAN));
     };
-    let index = to_integer_index(args.first().map_or(0.0, |a| ctx.to_number(*a)));
+    let raw = match args.first() {
+        Some(a) => ctx.to_number(*a)?,
+        None => 0.0,
+    };
+    let index = to_integer_index(raw);
     let s = ctx.get_u16(sid);
     let code = index
         .and_then(|i| s.get(i))
@@ -83,14 +91,16 @@ pub(super) fn native_string_index_of(
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let from = args.get(1).map_or(0usize, |a| {
-        let n = ctx.to_number(*a);
+    let from = if let Some(a) = args.get(1) {
+        let n = ctx.to_number(*a)?;
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
             (n as usize).min(s.len())
         }
-    });
+    } else {
+        0usize
+    };
     #[allow(clippy::cast_precision_loss)]
     let result = find_u16(&s[from..], search).map_or(-1.0, |pos| (from + pos) as f64);
     Ok(JsValue::Number(result))
@@ -109,14 +119,16 @@ pub(super) fn native_string_includes(
     let s = ctx.get_u16(sid);
     // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let pos = args.get(1).map_or(0usize, |a| {
-        let n = ctx.to_number(*a);
+    let pos = if let Some(a) = args.get(1) {
+        let n = ctx.to_number(*a)?;
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
             (n as usize).min(s.len())
         }
-    });
+    } else {
+        0usize
+    };
     Ok(JsValue::Boolean(find_u16(&s[pos..], search).is_some()))
 }
 
@@ -133,7 +145,10 @@ pub(super) fn native_string_slice(
     let u16_len = s.len();
     #[allow(clippy::cast_possible_wrap)]
     let len_i = u16_len as isize;
-    let raw_start = args.first().map_or(0.0, |a| ctx.to_number(*a));
+    let raw_start = match args.first() {
+        Some(a) => ctx.to_number(*a)?,
+        None => 0.0,
+    };
     #[allow(clippy::cast_possible_truncation)]
     let resolve_index = |n_raw: f64, total: usize, total_i: isize| -> usize {
         let n = n_raw as isize;
@@ -145,7 +160,7 @@ pub(super) fn native_string_slice(
     };
     let start = resolve_index(raw_start, u16_len, len_i);
     let end = if args.len() > 1 {
-        let raw_end = ctx.to_number(args[1]);
+        let raw_end = ctx.to_number(args[1])?;
         resolve_index(raw_end, u16_len, len_i)
     } else {
         u16_len
@@ -177,9 +192,13 @@ pub(super) fn native_string_substring(
             (n as usize).min(u16len)
         }
     };
-    let mut a = clamp(args.first().map_or(0.0, |v| ctx.to_number(*v)));
+    let raw_a = match args.first() {
+        Some(v) => ctx.to_number(*v)?,
+        None => 0.0,
+    };
+    let mut a = clamp(raw_a);
     let mut b = if args.len() > 1 {
-        clamp(ctx.to_number(args[1]))
+        clamp(ctx.to_number(args[1])?)
     } else {
         u16len
     };
@@ -293,14 +312,16 @@ pub(super) fn native_string_starts_with(
     let s = ctx.get_u16(sid);
     // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let pos = args.get(1).map_or(0usize, |a| {
-        let n = ctx.to_number(*a);
+    let pos = if let Some(a) = args.get(1) {
+        let n = ctx.to_number(*a)?;
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
             (n as usize).min(s.len())
         }
-    });
+    } else {
+        0usize
+    };
     Ok(JsValue::Boolean(starts_with_u16(s, search, pos)))
 }
 
@@ -318,14 +339,16 @@ pub(super) fn native_string_ends_with(
     // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).
     let u16len = s.len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let end_pos = args.get(1).map_or(u16len, |a| {
-        let n = ctx.to_number(*a);
+    let end_pos = if let Some(a) = args.get(1) {
+        let n = ctx.to_number(*a)?;
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
             (n as usize).min(u16len)
         }
-    });
+    } else {
+        u16len
+    };
     Ok(JsValue::Boolean(ends_with_u16(s, search, end_pos)))
 }
 

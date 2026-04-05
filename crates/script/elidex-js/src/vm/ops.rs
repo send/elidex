@@ -146,8 +146,8 @@ impl Vm {
             let id = self.inner.strings.intern_utf16(&concat);
             return Ok(JsValue::String(id));
         }
-        let a = to_number(&self.inner, lhs);
-        let b = to_number(&self.inner, rhs);
+        let a = to_number(&self.inner, lhs)?;
+        let b = to_number(&self.inner, rhs)?;
         Ok(JsValue::Number(a + b))
     }
 }
@@ -160,7 +160,7 @@ impl Vm {
     pub(crate) fn binary_numeric(&mut self, op: NumericBinaryOp) -> Result<(), VmError> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let r = op_numeric_binary(&self.inner, a, b, op);
+        let r = op_numeric_binary(&self.inner, a, b, op)?;
         self.inner.stack.push(r);
         Ok(())
     }
@@ -168,7 +168,7 @@ impl Vm {
     pub(crate) fn binary_bitwise(&mut self, op: BitwiseOp) -> Result<(), VmError> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let r = op_bitwise(&self.inner, a, b, op);
+        let r = op_bitwise(&self.inner, a, b, op)?;
         self.inner.stack.push(r);
         Ok(())
     }
@@ -180,14 +180,14 @@ impl Vm {
             // x <= y  ===  !(y < x)
             // x >= y  ===  !(x < y)  (with swap)
             let (lhs, rhs) = if swap { (a, b) } else { (b, a) };
-            match abstract_relational(&mut self.inner, lhs, rhs, swap) {
+            match abstract_relational(&mut self.inner, lhs, rhs, swap)? {
                 Some(false) => true,        // !(y < x) → <=
                 Some(true) | None => false, // y < x, or NaN
             }
         } else {
             // x < y  or  x > y (with swap)
             let (lhs, rhs) = if swap { (b, a) } else { (a, b) };
-            abstract_relational(&mut self.inner, lhs, rhs, !swap).unwrap_or(false)
+            abstract_relational(&mut self.inner, lhs, rhs, !swap)?.unwrap_or(false)
         };
         self.inner.stack.push(JsValue::Boolean(result));
         Ok(())

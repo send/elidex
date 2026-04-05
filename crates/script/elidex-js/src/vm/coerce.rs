@@ -25,14 +25,17 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 // ToNumber (ES2020 §7.1.3)
 // ---------------------------------------------------------------------------
 
-/// ToNumber. Objects are converted via ToPrimitive (simplified: valueOf → NaN).
-pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> f64 {
+/// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
+pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
-        JsValue::Undefined | JsValue::Object(_) | JsValue::Symbol(_) => f64::NAN,
-        JsValue::Null | JsValue::Boolean(false) => 0.0,
-        JsValue::Boolean(true) => 1.0,
-        JsValue::Number(n) => n,
-        JsValue::String(id) => string_to_number_u16(vm.strings.get(id)),
+        JsValue::Undefined | JsValue::Object(_) => Ok(f64::NAN),
+        JsValue::Symbol(_) => Err(VmError::type_error(
+            "Cannot convert a Symbol value to a number",
+        )),
+        JsValue::Null | JsValue::Boolean(false) => Ok(0.0),
+        JsValue::Boolean(true) => Ok(1.0),
+        JsValue::Number(n) => Ok(n),
+        JsValue::String(id) => Ok(string_to_number_u16(vm.strings.get(id))),
     }
 }
 
@@ -240,16 +243,16 @@ fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
 
 /// ToInt32 (ES2020 §7.1.6). Used by bitwise operators.
 #[inline]
-pub(crate) fn to_int32(vm: &VmInner, val: JsValue) -> i32 {
-    let n = to_number(vm, val);
-    f64_to_int32(n)
+pub(crate) fn to_int32(vm: &VmInner, val: JsValue) -> Result<i32, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_int32(n))
 }
 
 /// ToUint32 (ES2020 §7.1.7). Used by `>>>`.
 #[inline]
-pub(crate) fn to_uint32(vm: &VmInner, val: JsValue) -> u32 {
-    let n = to_number(vm, val);
-    f64_to_uint32(n)
+pub(crate) fn to_uint32(vm: &VmInner, val: JsValue) -> Result<u32, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_uint32(n))
 }
 
 /// The modulo-2^32 conversion from f64 to i32 (ES2020 §7.1.6 step 5-6).
@@ -375,9 +378,9 @@ pub(crate) fn op_numeric_binary(
     lhs: JsValue,
     rhs: JsValue,
     op: NumericBinaryOp,
-) -> JsValue {
-    let a = to_number(vm, lhs);
-    let b = to_number(vm, rhs);
+) -> Result<JsValue, VmError> {
+    let a = to_number(vm, lhs)?;
+    let b = to_number(vm, rhs)?;
     let result = match op {
         NumericBinaryOp::Sub => a - b,
         NumericBinaryOp::Mul => a * b,
@@ -392,7 +395,7 @@ pub(crate) fn op_numeric_binary(
             }
         }
     };
-    JsValue::Number(result)
+    Ok(JsValue::Number(result))
 }
 
 #[derive(Clone, Copy)]
@@ -408,31 +411,32 @@ pub(crate) enum NumericBinaryOp {
 // Comparison operators (ES2020 §7.2.14)
 // ---------------------------------------------------------------------------
 
-/// Abstract relational comparison. Returns `Some(true)` if x < y,
-/// `Some(false)` if x >= y, `None` if undefined (NaN involved).
+/// Abstract relational comparison. Returns `Ok(Some(true))` if x < y,
+/// `Ok(Some(false))` if x >= y, `Ok(None)` if undefined (NaN involved),
+/// or `Err` if ToNumber throws (e.g. Symbol).
 pub(crate) fn abstract_relational(
     vm: &mut VmInner,
     x: JsValue,
     y: JsValue,
     left_first: bool,
-) -> Option<bool> {
+) -> Result<Option<bool>, VmError> {
     // Both strings → lexicographic UTF-16 code unit comparison (spec-compliant).
     if let (JsValue::String(a), JsValue::String(b)) = (x, y) {
-        return Some(vm.strings.get(a) < vm.strings.get(b));
+        return Ok(Some(vm.strings.get(a) < vm.strings.get(b)));
     }
 
     let (nx, ny) = if left_first {
-        (to_number(vm, x), to_number(vm, y))
+        (to_number(vm, x)?, to_number(vm, y)?)
     } else {
-        let b = to_number(vm, y);
-        let a = to_number(vm, x);
+        let b = to_number(vm, y)?;
+        let a = to_number(vm, x)?;
         (a, b)
     };
 
     if nx.is_nan() || ny.is_nan() {
-        return None; // undefined
+        return Ok(None); // undefined
     }
-    Some(nx < ny)
+    Ok(Some(nx < ny))
 }
 
 // ---------------------------------------------------------------------------
@@ -440,27 +444,32 @@ pub(crate) fn abstract_relational(
 // ---------------------------------------------------------------------------
 
 /// Bitwise binary operator.
-pub(crate) fn op_bitwise(vm: &VmInner, lhs: JsValue, rhs: JsValue, op: BitwiseOp) -> JsValue {
-    match op {
-        BitwiseOp::And => JsValue::Number(f64::from(to_int32(vm, lhs) & to_int32(vm, rhs))),
-        BitwiseOp::Or => JsValue::Number(f64::from(to_int32(vm, lhs) | to_int32(vm, rhs))),
-        BitwiseOp::Xor => JsValue::Number(f64::from(to_int32(vm, lhs) ^ to_int32(vm, rhs))),
+pub(crate) fn op_bitwise(
+    vm: &VmInner,
+    lhs: JsValue,
+    rhs: JsValue,
+    op: BitwiseOp,
+) -> Result<JsValue, VmError> {
+    Ok(match op {
+        BitwiseOp::And => JsValue::Number(f64::from(to_int32(vm, lhs)? & to_int32(vm, rhs)?)),
+        BitwiseOp::Or => JsValue::Number(f64::from(to_int32(vm, lhs)? | to_int32(vm, rhs)?)),
+        BitwiseOp::Xor => JsValue::Number(f64::from(to_int32(vm, lhs)? ^ to_int32(vm, rhs)?)),
         BitwiseOp::Shl => {
-            let x = to_int32(vm, lhs);
-            let count = to_uint32(vm, rhs) & 0x1f;
+            let x = to_int32(vm, lhs)?;
+            let count = to_uint32(vm, rhs)? & 0x1f;
             JsValue::Number(f64::from(x << count))
         }
         BitwiseOp::Shr => {
-            let x = to_int32(vm, lhs);
-            let count = to_uint32(vm, rhs) & 0x1f;
+            let x = to_int32(vm, lhs)?;
+            let count = to_uint32(vm, rhs)? & 0x1f;
             JsValue::Number(f64::from(x >> count))
         }
         BitwiseOp::UShr => {
-            let x = to_uint32(vm, lhs);
-            let count = to_uint32(vm, rhs) & 0x1f;
+            let x = to_uint32(vm, lhs)?;
+            let count = to_uint32(vm, rhs)? & 0x1f;
             JsValue::Number(f64::from(x >> count))
         }
-    }
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -478,13 +487,13 @@ pub(crate) enum BitwiseOp {
 // ---------------------------------------------------------------------------
 
 /// Unary `-` (negate).
-pub(crate) fn op_neg(vm: &VmInner, val: JsValue) -> JsValue {
-    JsValue::Number(-to_number(vm, val))
+pub(crate) fn op_neg(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    Ok(JsValue::Number(-to_number(vm, val)?))
 }
 
 /// Unary `+` (ToNumber).
-pub(crate) fn op_pos(vm: &VmInner, val: JsValue) -> JsValue {
-    JsValue::Number(to_number(vm, val))
+pub(crate) fn op_pos(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    Ok(JsValue::Number(to_number(vm, val)?))
 }
 
 /// Unary `!` (logical NOT).
@@ -493,8 +502,8 @@ pub(crate) fn op_not(vm: &VmInner, val: JsValue) -> JsValue {
 }
 
 /// Unary `~` (bitwise NOT).
-pub(crate) fn op_bitnot(vm: &VmInner, val: JsValue) -> JsValue {
-    JsValue::Number(f64::from(!to_int32(vm, val)))
+pub(crate) fn op_bitnot(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    Ok(JsValue::Number(f64::from(!to_int32(vm, val)?)))
 }
 
 /// Unary `void` — always returns undefined.
@@ -567,11 +576,19 @@ mod tests {
     fn to_number_values() {
         let vm = Vm::new();
         let i = &vm.inner;
-        assert!(to_number(i, JsValue::Undefined).is_nan());
-        assert_eq!(to_number(i, JsValue::Null), 0.0);
-        assert_eq!(to_number(i, JsValue::Boolean(true)), 1.0);
-        assert_eq!(to_number(i, JsValue::Boolean(false)), 0.0);
-        assert_eq!(to_number(i, JsValue::Number(42.0)), 42.0);
+        assert!(to_number(i, JsValue::Undefined).unwrap().is_nan());
+        assert_eq!(to_number(i, JsValue::Null).unwrap(), 0.0);
+        assert_eq!(to_number(i, JsValue::Boolean(true)).unwrap(), 1.0);
+        assert_eq!(to_number(i, JsValue::Boolean(false)).unwrap(), 0.0);
+        assert_eq!(to_number(i, JsValue::Number(42.0)).unwrap(), 42.0);
+    }
+
+    #[test]
+    fn to_number_symbol_throws() {
+        let mut vm = Vm::new();
+        let sid = vm.inner.alloc_symbol(None);
+        let result = to_number(&vm.inner, JsValue::Symbol(sid));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -635,11 +652,11 @@ mod tests {
     fn to_int32_cases() {
         let vm = Vm::new();
         let i = &vm.inner;
-        assert_eq!(to_int32(i, JsValue::Number(0.0)), 0);
-        assert_eq!(to_int32(i, JsValue::Number(1.7)), 1);
-        assert_eq!(to_int32(i, JsValue::Number(-1.7)), -1);
-        assert_eq!(to_int32(i, JsValue::Number(f64::NAN)), 0);
-        assert_eq!(to_int32(i, JsValue::Number(f64::INFINITY)), 0);
+        assert_eq!(to_int32(i, JsValue::Number(0.0)).unwrap(), 0);
+        assert_eq!(to_int32(i, JsValue::Number(1.7)).unwrap(), 1);
+        assert_eq!(to_int32(i, JsValue::Number(-1.7)).unwrap(), -1);
+        assert_eq!(to_int32(i, JsValue::Number(f64::NAN)).unwrap(), 0);
+        assert_eq!(to_int32(i, JsValue::Number(f64::INFINITY)).unwrap(), 0);
     }
 
     #[test]
@@ -770,7 +787,8 @@ mod tests {
                 JsValue::Number(1.0),
                 JsValue::Number(2.0),
                 true,
-            ),
+            )
+            .unwrap(),
             Some(true)
         );
         assert_eq!(
@@ -779,7 +797,8 @@ mod tests {
                 JsValue::Number(2.0),
                 JsValue::Number(1.0),
                 true,
-            ),
+            )
+            .unwrap(),
             Some(false)
         );
         // NaN comparison → None (undefined)
@@ -789,14 +808,16 @@ mod tests {
                 JsValue::Number(f64::NAN),
                 JsValue::Number(1.0),
                 true,
-            ),
+            )
+            .unwrap(),
             None
         );
         // String comparison (lexicographic)
         let a = vm.inner.strings.intern("abc");
         let b = vm.inner.strings.intern("abd");
         assert_eq!(
-            abstract_relational(&mut vm.inner, JsValue::String(a), JsValue::String(b), true,),
+            abstract_relational(&mut vm.inner, JsValue::String(a), JsValue::String(b), true,)
+                .unwrap(),
             Some(true)
         );
     }
@@ -811,11 +832,12 @@ mod tests {
                 JsValue::Number(5.0),
                 JsValue::Number(3.0),
                 BitwiseOp::And
-            ),
+            )
+            .unwrap(),
             JsValue::Number(1.0)
         );
         assert_eq!(
-            op_bitwise(i, JsValue::Number(5.0), JsValue::Number(3.0), BitwiseOp::Or),
+            op_bitwise(i, JsValue::Number(5.0), JsValue::Number(3.0), BitwiseOp::Or).unwrap(),
             JsValue::Number(7.0)
         );
         assert_eq!(
@@ -824,7 +846,8 @@ mod tests {
                 JsValue::Number(5.0),
                 JsValue::Number(3.0),
                 BitwiseOp::Xor
-            ),
+            )
+            .unwrap(),
             JsValue::Number(6.0)
         );
         assert_eq!(
@@ -833,7 +856,8 @@ mod tests {
                 JsValue::Number(1.0),
                 JsValue::Number(2.0),
                 BitwiseOp::Shl
-            ),
+            )
+            .unwrap(),
             JsValue::Number(4.0)
         );
         assert_eq!(
@@ -842,7 +866,8 @@ mod tests {
                 JsValue::Number(-8.0),
                 JsValue::Number(2.0),
                 BitwiseOp::Shr
-            ),
+            )
+            .unwrap(),
             JsValue::Number(-2.0)
         );
     }
@@ -851,11 +876,20 @@ mod tests {
     fn unary_operators() {
         let vm = Vm::new();
         let i = &vm.inner;
-        assert_eq!(op_neg(i, JsValue::Number(5.0)), JsValue::Number(-5.0));
-        assert_eq!(op_pos(i, JsValue::Boolean(true)), JsValue::Number(1.0));
+        assert_eq!(
+            op_neg(i, JsValue::Number(5.0)).unwrap(),
+            JsValue::Number(-5.0)
+        );
+        assert_eq!(
+            op_pos(i, JsValue::Boolean(true)).unwrap(),
+            JsValue::Number(1.0)
+        );
         assert_eq!(op_not(i, JsValue::Boolean(true)), JsValue::Boolean(false));
         assert_eq!(op_not(i, JsValue::Number(0.0)), JsValue::Boolean(true));
-        assert_eq!(op_bitnot(i, JsValue::Number(5.0)), JsValue::Number(-6.0));
+        assert_eq!(
+            op_bitnot(i, JsValue::Number(5.0)).unwrap(),
+            JsValue::Number(-6.0)
+        );
         assert_eq!(op_void(), JsValue::Undefined);
     }
 }

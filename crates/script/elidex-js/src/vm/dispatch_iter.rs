@@ -30,22 +30,22 @@ impl Vm {
     pub(super) fn op_array_spread(&mut self) -> Result<(), VmError> {
         let source = self.pop()?;
         let arr_val = self.peek()?;
-        if let Some(iterator) = self.resolve_iterator(source)? {
-            if matches!(iterator, JsValue::Object(_)) {
-                let result = self.spread_iter_loop(iterator, arr_val);
-                if result.is_err() {
-                    // Best-effort IteratorClose on error — ignore close errors.
-                    if let JsValue::Object(iter_id) = iterator {
-                        let return_key = PropertyKey::String(self.inner.well_known.return_str);
-                        if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
-                            let _ = self.call_value(return_fn, iterator, &[]);
-                        }
-                    }
+        let iterator = match self.resolve_iterator(source)? {
+            Some(iter @ JsValue::Object(_)) => iter,
+            Some(_) => return Err(VmError::type_error("@@iterator must return an object")),
+            None => return Err(VmError::type_error("value is not iterable")),
+        };
+        let result = self.spread_iter_loop(iterator, arr_val);
+        if result.is_err() {
+            // Best-effort IteratorClose on error — ignore close errors.
+            if let JsValue::Object(iter_id) = iterator {
+                let return_key = PropertyKey::String(self.inner.well_known.return_str);
+                if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
+                    let _ = self.call_value(return_fn, iterator, &[]);
                 }
-                result?;
             }
         }
-        Ok(())
+        result
     }
 
     /// Inner loop for [`op_array_spread`] — extracted so iteration errors can
