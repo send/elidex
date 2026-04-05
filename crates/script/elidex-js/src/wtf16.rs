@@ -205,29 +205,41 @@ pub fn trim_u16(s: &[u16]) -> &[u16] {
 }
 
 /// Apply a per-char case mapping to a WTF-16 slice.
-/// Surrogate pairs and lone surrogates are preserved unchanged.
+/// Valid surrogate pairs are decoded to a code point, case-mapped, and re-encoded.
+/// Lone surrogates are preserved unchanged.
 fn case_map_u16<I: Iterator<Item = char>>(units: &[u16], map: impl Fn(char) -> I) -> Vec<u16> {
     let mut result = Vec::with_capacity(units.len());
     let mut i = 0;
     while i < units.len() {
         let u = units[i];
         if (0xD800..=0xDBFF).contains(&u) {
-            // High surrogate -- copy pair as-is (no case mapping for supplementary chars)
-            result.push(u);
             if i + 1 < units.len() && (0xDC00..=0xDFFF).contains(&units[i + 1]) {
-                // Valid surrogate pair — copy both
-                result.push(units[i + 1]);
+                // Valid surrogate pair — decode to code point, case map, re-encode.
+                let hi = u32::from(u);
+                let lo = u32::from(units[i + 1]);
+                let cp = (hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000;
+                if let Some(ch) = char::from_u32(cp) {
+                    let mut buf = [0u16; 2];
+                    for mapped in map(ch) {
+                        let encoded = mapped.encode_utf16(&mut buf);
+                        result.extend_from_slice(encoded);
+                    }
+                } else {
+                    result.push(u);
+                    result.push(units[i + 1]);
+                }
                 i += 2;
             } else {
-                // Lone high surrogate — advance by 1 only
+                // Lone high surrogate — preserve
+                result.push(u);
                 i += 1;
             }
         } else if (0xDC00..=0xDFFF).contains(&u) {
-            // Lone low surrogate -- preserve
+            // Lone low surrogate — preserve
             result.push(u);
             i += 1;
         } else {
-            // BMP character -- case map via char
+            // BMP character — case map via char
             if let Some(ch) = char::from_u32(u32::from(u)) {
                 let mut buf = [0u16; 2];
                 for mapped in map(ch) {

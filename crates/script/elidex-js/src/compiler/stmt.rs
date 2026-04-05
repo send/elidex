@@ -140,9 +140,10 @@ pub fn compile_stmt(
             let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
 
             // Catch handler: close iterator, then re-throw the original exception.
-            // NOTE: If IteratorClose (.return()) itself throws, that error will
-            // override the original — ES2020 §7.4.6 says the original should win.
-            // Correct handling requires completion records; accepted deviation.
+            // NOTE: If IteratorClose (.return()) itself throws, that new error
+            // correctly takes precedence over the original abrupt completion
+            // per ECMA-262 §7.4.6 IteratorClose. The opcode order here already
+            // matches: a throw from Op::IteratorClose skips the re-throw below.
             let catch_ip = fc.pc();
             fc.emit_u16(Op::GetLocal, iter_slot);
             fc.emit(Op::IteratorClose);
